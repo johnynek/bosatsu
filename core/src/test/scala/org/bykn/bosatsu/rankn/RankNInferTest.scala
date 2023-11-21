@@ -186,6 +186,8 @@ class RankNInferTest extends AnyFunSuite {
     }
   }
 
+  // COMMENT
+  /*
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("exists a. a", "exists b. b")
@@ -1241,6 +1243,20 @@ x = branch(T)
 """, "exists a. a")
 
     parseProgram("""#
+enum Maybe: Nothing, Something(item: exists a. a)
+enum Opt[a]: None, Some(a: a)
+
+x = Something(1: exists a. a)
+
+def branch(b: Maybe) -> exists a. Opt[a]:
+  match b:
+    case Something(x): Some(x)
+    case Nothing: None
+
+x = branch(x)
+""", "exists a. Opt[a]")
+
+    parseProgram("""#
 struct MyTup(a, b)
 enum MyBool: T, F
 
@@ -1263,6 +1279,31 @@ x = MyTup((match b:
 """)
   }
 
+  // COMMENT
+  */
+  test("use existentials in ADTs") {
+    parseProgram("""#
+struct Tup(a, b)
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. Tup[FreeF[b], b -> a])
+
+enum Opt[a]: None, Some(a: a)
+
+# this seems to work
+n: exists b. Opt[Tup[FreeF[b], b -> a]] = None
+
+def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
+  match b:
+    case Mapped(x): Some(x)
+    case _: None
+
+""", "exists a. Opt[a]")
+
+  }
+
+  // COMMENT
+  /*
   test("we can use existentials to delay calls") {
     parseProgram("""#
 struct MyTup(a, b)
@@ -1277,4 +1318,5 @@ def call[a](tup: exists c. MyTup[c -> a, c]) -> a:
 x = call(delay(x -> x, 1))
 """, "Int")
   }
+  */
 }

@@ -3196,6 +3196,11 @@ def map[a, b](f: FreeF[a], fn: a -> b) -> FreeF[b]:
   tup: exists x. (FreeF[x], x -> b) = (f, fn)
   Mapped(tup)
 
+def maybeMapped[a](f: FreeF[a]) -> exists b. Option[(FreeF[b], b -> a)]:
+  match f:
+    case Mapped(e_print): Some(e_print)
+    case _: None
+
 def run[a](fa: FreeF[a]) -> a:
   recur fa:
     case Pure(a): a

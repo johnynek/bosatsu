@@ -9,7 +9,6 @@ import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
-import org.bykn.bosatsu.rankn.Type.Quantification.Dual
 
 sealed abstract class Type {
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
@@ -56,6 +55,11 @@ object Type {
     def existList: List[(Var.Bound, Kind)]
     def forallList: List[(Var.Bound, Kind)]
     def concat(that: Quantification): Quantification
+
+    def filter(fn: Var.Bound => Boolean): Option[Quantification] =
+      Quantification.fromLists(
+        forallList.filter { case (b, _) => fn(b) },
+        existList.filter { case (b, _) => fn(b) })
   }
 
   object Quantification {
@@ -202,7 +206,7 @@ object Type {
         case q: Quantified =>
           q.quant match {
             case Quantification.ForAll(vars) => Some((vars, q.in))
-            case Dual(foralls, existsNel) => Some((foralls, exists(existsNel, q.in)))
+            case Quantification.Dual(foralls, existsNel) => Some((foralls, exists(existsNel, q.in)))
             case _ => None
           }
       }
@@ -215,7 +219,7 @@ object Type {
         case q: Quantified =>
           q.quant match {
             case Quantification.Exists(vars) => Some((vars, q.in))
-            case Dual(foralls, existsNel) => Some((existsNel, forAll(foralls, q.in)))
+            case Quantification.Dual(foralls, existsNel) => Some((existsNel, forAll(foralls, q.in)))
             case _ => None
           }
       }
@@ -882,9 +886,10 @@ object Type {
           case _: NumberFormatException => None
         }
       }
-      val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> longParser)
+      val existential = P.char('e').?
+      val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> (longParser ~ existential))
         // TODO Kind/existential
-        .mapN(Var.Skolem(_, Kind.Type, true, _))
+        .mapN { case (n, (id, ex)) => Var.Skolem(n, Kind.Type, ex.isDefined, id) }
         .map(TyVar(_))
 
       // this null is bad, but we have no way to reallocate this
@@ -892,7 +897,6 @@ object Type {
       // the ideal solution is to better static type information
       // to have fully inferred types with no skolems or metas
       // TODO Kind
-      val existential = P.char('e').?
       val meta = (P.char('?') *> (existential ~ longParser))
         .map { case (opt, l) => TyMeta(Meta(Kind.Type, l, opt.isDefined, null)) }
 
@@ -926,10 +930,11 @@ object Type {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
         case TyVar(Var.Bound(s)) => Some(Doc.text(s))
-        case TyVar(Var.Skolem(n, _, _, i)) =>
+        case TyVar(Var.Skolem(n, _, e, i)) =>
           // TODO Kind
           val dol = "$"
-          Some(Doc.text(dol + n + dol + i.toString))
+          val ex = if (e) "e" else ""
+          Some(Doc.text(s"$dol$n$dol$i$ex"))
         case TyMeta(Meta(_, i, ex, _)) =>
           // TODO Kind and if it is existential
           val exstr = if (ex) "e" else ""

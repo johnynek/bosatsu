@@ -838,7 +838,9 @@ object Infer {
         case Some(ty1) => unify(ty1, t, left, right)
       }
 
-    def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
+    def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] = {
+      def show(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
+      println(s"unify(${show(t1)}, ${show(t2)})")
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta@Type.TyMeta(_), tpe) => unifyVar(meta, tpe, r1, r2)
@@ -854,6 +856,7 @@ object Infer {
         case (left, right) =>
           fail(Error.NotUnifiable(left, right, r1, r2))
       }
+    }
 
     /**
      * for a type to be unified, we mean we can substitute in either
@@ -1282,9 +1285,11 @@ object Infer {
      */
     def checkBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr.Rho[A])] =
       for {
-        patBind <- typeCheckPattern(p, sigma, region(res))
-        (pattern, bindings) = patBind
+        (pattern, bindings) <- typeCheckPattern(p, sigma, region(res))
+        _ = println(s"typeCheckPattern($p, $sigma) = ($pattern, $bindings)")
+        _ = println(s"about to checkRho($res, $resT)")
         tres <- extendEnvList(bindings)(checkRho(res, resT))
+        _ = println(s"checkRho($res, $resT) = ${tres.repr}")
       } yield (pattern, tres)
 
     def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, (TypedExpr.Rho[A], Type.Rho))] =
@@ -1665,7 +1670,8 @@ object Infer {
           //println(s"checkSigma ${te.repr} => ${quant.repr}")
         } else ()
         */
-      } yield te //quant
+      } yield te
+      //} yield quant
     }
 
     /**

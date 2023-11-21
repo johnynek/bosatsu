@@ -320,6 +320,7 @@ object TypedExpr {
 
           val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
           (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
+          (fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(quant, _))
         case Annotation(of, tpe) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
@@ -1235,47 +1236,58 @@ object TypedExpr {
         import Type.Quantification._
         // We cannot rebind to any used typed inside of expr, but we can reuse
         // any that are q
-        val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
-        val frees: SortedSet[Type.Var.Bound] =
-          expr.allTypes.collect {
-            case Type.TyVar(b: Type.Var.Bound) if !varSet(b) => b
+        val frees: Set[Type.Var.Bound] =
+          expr.freeTyVars.iterator.collect {
+            case b: Type.Var.Bound => b
           }
+          .toSet
 
-        q match {
-          case ForAll(vars) =>
-            val fa1 = Type.alignBinders(vars, frees)
-            val subs = fa1.iterator.collect { case ((b, _), b1) if b != b1 =>
-              (b, Type.TyVar(b1))  
+        q.filter(frees) match {
+          case None => expr
+          case Some(q) =>
+            val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
+
+            val avoid: SortedSet[Type.Var.Bound] =
+              expr.allTypes.collect {
+                case Type.TyVar(b: Type.Var.Bound) if !varSet(b) => b
+              }
+
+            q match {
+              case ForAll(vars) =>
+                val fa1 = Type.alignBinders(vars, avoid)
+                val subs = fa1.iterator.collect { case ((b, _), b1) if b != b1 =>
+                  (b, Type.TyVar(b1))  
+                }
+                .toMap[Type.Var, Type]
+
+                Generic(
+                  ForAll(fa1.map { case ((_, k), b) => (b, k)}),
+                  substituteTypeVar(expr, subs))    
+              case Exists(vars) => 
+                val ex1 = Type.alignBinders(vars, avoid)
+                val subs = ex1.iterator.collect { case ((b, _), b1) if b != b1 =>
+                  (b, Type.TyVar(b1))  
+                }
+                .toMap[Type.Var, Type]
+
+                Generic(
+                  Exists(ex1.map { case ((_, k), b) => (b, k)}),
+                  substituteTypeVar(expr, subs))    
+              case Dual(foralls, exists) => 
+                val fa1 = Type.alignBinders(foralls, avoid)
+                val ex1 = Type.alignBinders(exists, avoid ++ fa1.iterator.map(_._2))
+                val subs = (fa1.iterator ++ ex1.iterator).collect { case ((b, _), b1) if b != b1 =>
+                  (b, Type.TyVar(b1))  
+                }
+                .toMap[Type.Var, Type]
+
+                Generic(
+                  Dual(
+                    fa1.map { case ((_, k), b) => (b, k)},
+                    ex1.map { case ((_, k), b) => (b, k)}
+                  ),
+                  substituteTypeVar(expr, subs))    
             }
-            .toMap[Type.Var, Type]
-
-            Generic(
-              ForAll(fa1.map { case ((_, k), b) => (b, k)}),
-              substituteTypeVar(expr, subs))    
-          case Exists(vars) => 
-            val ex1 = Type.alignBinders(vars, frees)
-            val subs = ex1.iterator.collect { case ((b, _), b1) if b != b1 =>
-              (b, Type.TyVar(b1))  
-            }
-            .toMap[Type.Var, Type]
-
-            Generic(
-              Exists(ex1.map { case ((_, k), b) => (b, k)}),
-              substituteTypeVar(expr, subs))    
-          case Dual(foralls, exists) => 
-            val fa1 = Type.alignBinders(foralls, frees)
-            val ex1 = Type.alignBinders(exists, frees ++ fa1.iterator.map(_._2))
-            val subs = (fa1.iterator ++ ex1.iterator).collect { case ((b, _), b1) if b != b1 =>
-              (b, Type.TyVar(b1))  
-            }
-            .toMap[Type.Var, Type]
-
-            Generic(
-              Dual(
-                fa1.map { case ((_, k), b) => (b, k)},
-                ex1.map { case ((_, k), b) => (b, k)}
-              ),
-              substituteTypeVar(expr, subs))    
         }
     }
 
