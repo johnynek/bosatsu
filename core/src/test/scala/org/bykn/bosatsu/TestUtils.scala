@@ -46,11 +46,6 @@ object TestUtils {
         case t@Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
         case Type.TyVar(Type.Var.Bound(_)) => t
-          /*
-          this doesn't work correctly with traverseType
-          if (bound(b)) t
-          else sys.error(s"unbound var: $b in ${te.repr}")
-          */
         case t@Type.TyMeta(_) =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>

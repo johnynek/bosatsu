@@ -245,7 +245,10 @@ object Infer {
   private object Impl {
     sealed abstract class Expected[A]
     object Expected {
-      case class Inf[A](ref: Ref[Either[Error.InferIncomplete, A]]) extends Expected[A]
+      case class Inf[A](ref: Ref[Either[Error.InferIncomplete, A]]) extends Expected[A] {
+        def set(a: A): Infer[Unit] =
+          Infer.lift(ref.set(Right(a)))
+      }
       case class Check[A](value: A) extends Expected[A]
     }
 
@@ -659,13 +662,6 @@ object Infer {
           } yield TypedExpr.coerceRho(t1, ck) // TODO this coerce seems right, since we have unified
       })
 
-    def setInf(inf: Expected.Inf[(Type.Rho, Region)], rho: Type.Rho, r: Region): Infer[Unit] =
-      lift(inf.ref.update[Infer[Unit]] {
-        case Left(_) => (Right((rho, r)), unit)
-        case right@Right((rho1, r1)) => (right, unify(rho1, rho, r1, r))
-      })
-      .flatten
-
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
@@ -677,7 +673,7 @@ object Infer {
         case infer@Expected.Inf(_) =>
           for {
             (exSkols, rho) <- instantiate(sigma)
-            _ <- setInf(infer, rho, r)
+            _ <- infer.set((rho, r))
             ks <- checkedKinds
             coerce = TypedExpr.coerceRho(rho, ks)
           } yield coerce.andThen(unskolemizeExists(exSkols))
@@ -1136,7 +1132,7 @@ object Infer {
                 }
                 typedBodyTpe <- extendEnvList(nameVarsT.toList)(inferRho(result))
                 (typedBody, bodyT) = typedBodyTpe
-                _ <- setInf(infer, Type.Fun(nameVarsT.map(_._2), bodyT), region(term))
+                _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
         case Let(name, rhs, body, isRecursive, tag) =>
@@ -1238,29 +1234,40 @@ object Infer {
           // are missing here.
           inferSigma(term)
             .flatMap { tsigma =>
-              assertNoFree(tsigma.getType, s"line 1160 from $term\n\n${tsigma.repr}")
-
               val check = Expected.Check((tsigma.getType, region(term)))
 
               expect match {
                 case Expected.Check((resT, _)) =>
                   for {
-                    env <- getEnv
-                    unknownExs <- unsolvedExistentials(resT :: env.values.toList)
-                    tbranches <- branches.parTraverse { case (p, r) =>
-                      // note, resT is in weak-prenex form, so this call is permitted
-                      checkBranch(p, check, r, resT)
-                        .product(solvedExistentitals(unknownExs).map((_, region(r))))
-                    }
-                    _ <- unifyBranchExistentials(unknownExs, tbranches.map(_._2))
-                  } yield TypedExpr.Match(tsigma, tbranches.map(_._1), tag)
+                    rest <- envTail
+                    unknownExs <- unsolvedExistentials(resT :: rest)
+                    tbranches <-
+                      if (unknownExs.isEmpty) {
+                        // in the common case there are no existentials save effort
+                        branches.parTraverse { case (p, r) =>
+                          // note, resT is in weak-prenex form, so this call is permitted
+                          checkBranch(p, check, r, resT)
+                        }
+                      }
+                      else {
+                          branches.parTraverse { case (p, r) =>
+                            // note, resT is in weak-prenex form, so this call is permitted
+                            checkBranch(p, check, r, resT)
+                              .product(solvedExistentitals(unknownExs).map((_, region(r))))
+                          }
+                          .flatMap { tbranches =>
+                            unifyBranchExistentials(unknownExs, tbranches.map(_._2))
+                              .as(tbranches.map(_._1))
+                          }
+                      }
+                  } yield TypedExpr.Match(tsigma, tbranches, tag)
                 case infer@Expected.Inf(_) =>
                   for {
                     tbranches <- branches.parTraverse { case (p, r) =>
                       inferBranch(p, check, r)
                     }
                     (rho, regRho, resBranches) <- widenBranches(tbranches)
-                    _ <- setInf(infer, rho, regRho)
+                    _ <- infer.set((rho, regRho))
                   } yield TypedExpr.Match(tsigma, resBranches, tag)
               }
             }
@@ -1352,7 +1359,6 @@ object Infer {
      * TODO: Pattern needs to have a region for each part
      */
     def typeCheckPattern(pat: Pattern, sigma: Expected.Check[(Type, Region)], reg: Region): Infer[(Pattern, List[(Bindable, Type)])] = {
-      assertNoFree(sigma.value._1, "in typeCheckPattern line 1266")
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
@@ -1415,7 +1421,6 @@ object Infer {
                   Infer.pure((l, (splice, lst) :: Nil))
                 case ListPart.Item(p) =>
                   // This is a non-splice
-                  assertNoFree(inner, s"line 1329 checkItem($inner, $lst, $e)")
                   checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }
           val tpeOfList: Infer[Type] =
@@ -1445,7 +1450,6 @@ object Infer {
           // like in the case of an annotation, we check the type, then
           // instantiate a sigma type
           // checkSigma(term, tpe) *> instSigma(tpe, expect)
-          assertNoFree(tpe, s"line 1359 $pat $reg")
           for {
             patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
@@ -1460,7 +1464,6 @@ object Infer {
             // but we don't want to error type-checking since we want to show
             // the maximimum number of errors to the user
             envs <- args.zip(params).parTraverse { case (p, t) =>
-              assertNoFree(t, s"pat: $pat line 1374")
               checkPat(p, t, reg)
             }
             pats = envs.map(_._1)
@@ -1572,8 +1575,9 @@ object Infer {
                   }
                 pushDownCovariant(rest, nextRFA, left) match {
                   case Type.ForAll(bs, l) =>
+                    // TODO: I think we can push down existentials too
                     Type.forAll(bs, Type.TyApply(l, nextRight))
-                  case rho: Type.Rho =>
+                  case rho /*: Type.Rho */ =>
                     Type.TyApply(rho, nextRight)
                 }
             case (_ :: rest, Type.TyApply(left, right)) =>
@@ -1583,8 +1587,9 @@ object Infer {
 
                 Type.forAll(keptRight.reverse, pushDownCovariant(rest, lefts, left)) match {
                   case Type.ForAll(bs, l) =>
+                    // TODO: we could possibly have an existential here?
                     Type.forAll(bs, Type.TyApply(l, right))
-                  case rho: Type.Rho =>
+                  case rho /*: Type.Rho */=>
                     Type.TyApply(rho, right)
                 }
             case _ =>
@@ -1647,7 +1652,6 @@ object Infer {
         e <- env
         zrho <- zonkTypedExpr(rho)
         q <- TypedExpr.quantify(e, zrho, readMeta _, writeMeta _)
-        _ = assertNoFree(q.getType, s"line 1563 from quantify(${rho.repr}) => ${q.repr}")
       } yield q
 
     // allocate this once and reuse
@@ -1734,13 +1738,6 @@ object Infer {
           case Left(err) => fail(err)
         }
       } yield (expr, tpe)
-
-      def assertNoFree(t: Type, msg: => String): Unit =
-        Type.freeBoundTyVars(t :: Nil) match {
-          case Nil => ()
-          case nel =>
-            sys.error(s"expected no free vars in $t, found: $nel\n$msg")
-        }
   }
 
   private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
@@ -1837,9 +1834,7 @@ object Infer {
           .flatMap { groupChain =>
             val glist = groupChain.toList
             extendEnvListPack(pack, glist.map { case (b, _, te) =>
-              val t = te.getType
-              assertNoFree(t, s"line 1722 $b => ${te.repr}")
-              (b, t)
+              (b, te.getType)
             }) {
               run(tail)
             }  

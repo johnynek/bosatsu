@@ -140,7 +140,7 @@ object Type {
       new Order[Quantified] {
         def compare(a: Quantified, b: Quantified): Int = {
           val c = Order[Quantification].compare(a.quant, b.quant)
-          if (c == 0) Order[Type].compare(a.in, b.in)
+          if (c == 0) Order[Rho].compare(a.in, b.in)
           else c
         }
       }
@@ -152,11 +152,23 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Leaf
 
   def sameType(left: Type, right: Type): Boolean =
-    if (left.isInstanceOf[Leaf] && right.isInstanceOf[Leaf]) {
-      left == right
-    }
-    else {
-      normalize(left) == normalize(right)
+    left match {
+      case leftLeaf: Leaf =>
+        // a Leaf is never equal to TyApply
+        right match {
+          case rightLeaf: Leaf => leftLeaf == rightLeaf
+          case _: TyApply => false
+          case q: Quantified => leftLeaf == normalize(q)
+        }
+      case _: TyApply =>
+        if (right.isInstanceOf[Leaf]) false
+        else {
+          // left and right are not leafs
+          normalize(left) == normalize(right)
+        }
+      case _ =>
+        // this is the quantified case
+        normalize(left) == normalize(right)
     }
 
   implicit val typeOrder: Order[Type] =
@@ -350,7 +362,7 @@ object Type {
         val boundSet = q.vars.iterator.map(_._1).toSet[Type.Var]
         val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
         val subin = substituteVar(q.in, env1)
-        forAll(q.forallList, exists(q.existList, subin))
+        quantify(q.quant, subin)
     })
 
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
@@ -440,7 +452,7 @@ object Type {
         val forAllSize = fa1.size
         val normfas = newVars.take(forAllSize)
         val normexs = newVars.drop(forAllSize)
-        forAll(normfas, Type.exists(normexs, normin))
+        quantify(forallList = normfas, existList = normexs, normin)
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
     }
@@ -486,7 +498,6 @@ object Type {
             }
         case q: Quantified =>
           val varList = q.vars.toList
-          require(varList.size == varList.toMap.size, s"invalid q: $q")
           rec((q.in, locals ++ varList))
       }
     }

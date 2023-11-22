@@ -882,4 +882,12 @@ x = (
       assert(te.map(fn) == te.traverse[cats.Id, Int](fn))
     }
   }
+
+  test("freeTyVars is a superset of the frees in the outer type") {
+    forAll(genTypedExpr) { te =>
+      assert(Type.freeTyVars(te.getType :: Nil).toSet.subsetOf(
+        te.freeTyVars.toSet
+      ))
+    }
+  }
 }

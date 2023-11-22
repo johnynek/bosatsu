@@ -266,7 +266,7 @@ object TypedExpr {
       case _ => None
     }
 
-  private[this] var emptyBound: SortedSet[Type.Var.Bound] =
+  private[this] val emptyBound: SortedSet[Type.Var.Bound] =
     SortedSet.empty
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
@@ -458,9 +458,7 @@ object TypedExpr {
             .mapN { (typeArgs, r) =>
               val forAlls = typeArgs.collect { case (nk, false) => nk }
               val exists = typeArgs.collect { case (nk, true) => nk }
-              val q = quantVars(forallList = forAlls, existList = exists, r)
-              //println(s"forAlls = $forAlls exists = $exists ${r.repr} quantVars = ${q.repr}")
-              q
+              quantVars(forallList = forAlls, existList = exists, r)
             }
       }
 
@@ -470,7 +468,6 @@ object TypedExpr {
         for {
           envTypeVars <- getMetaTyVars(envList)
           localMetas = metas.diff(envTypeVars)
-          //_ = println(s"localMetas = $localMetas in ${te.repr}")
           q <- quantify0(localMetas.toList, te)
         } yield q
       }
@@ -479,6 +476,7 @@ object TypedExpr {
       // this is lazy because we only evaluate it if there is an existential skolem
       lazy val envList = env.toList
       lazy val envExistSkols = Type.freeTyVars(envList)
+        .iterator
         .collect {
           case ex @ Skolem(_, _, true, _) => ex
         }
@@ -510,12 +508,6 @@ object TypedExpr {
 
       getMetaTyVars(te1.allTypes.toList)
         .flatMap(quantifyMetas(envList, _, te1))
-        /*
-        .map { res =>
-          println(s"quantifyFree, teSkols=${teSkols} ${te.repr} => ${te1.repr} => ${res.repr}")
-          res
-        }
-        */
     }
 
     /*
@@ -530,7 +522,6 @@ object TypedExpr {
     def deepQuantify(env: Set[Type], te: TypedExpr[A]): F[TypedExpr[A]] =
       quantifyFree(env, te).flatMap {
         case Generic(quant, in) =>
-          //assert(te != in, s"${te.repr} quantifyFree => ${in.repr}")
           deepQuantify(env + te.getType, in).map { in1 =>
             quantVars(quant.forallList, quant.existList, in1)
           }
@@ -603,10 +594,10 @@ object TypedExpr {
                 deepQuantify(env1, arg).map(Match(_, branches, tag))
               case Generic(quants, expr) =>
                 finish(expr).map(quantVars(quants.forallList, quants.existList, _))
+              // $COVERAGE-OFF$
               case unreach =>
-                // $COVERAGE-OFF$
                 sys.error(s"Match quantification yielded neither Generic nor Match: $unreach")
-                // $COVERAGE-ON$
+              // $COVERAGE-ON$
             }
 
           noArg.flatMap(finish)

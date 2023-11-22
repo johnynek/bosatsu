@@ -239,6 +239,10 @@ object ProtoConverter {
         def str(i: Int): Try[String] =
           ds.tryString(i - 1, s"invalid string idx: $i in $p")
 
+        def varKindFromProto(vk: proto.VarKind) =
+          (str(vk.varName), kindFromProto(vk.kind))
+            .mapN { (n, k) => (Type.Var.Bound(n), k) }
+
         p.value match {
           case Value.Empty => Failure(new Exception(s"empty type found in $p"))
           case Value.TypeConst(tc) =>
@@ -251,25 +255,17 @@ object ProtoConverter {
               }
           case Value.TypeVar(tv) =>
             str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-          case Value.TypeForAll(TypeForAll(args, kinds, in, _)) =>
-            if (args.length != kinds.length)
-              Failure(new Exception(s"args and kinds len mismatch: $p"))
-            else
-              for {
-                inT <- tpe(in)
-                args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-                kinds <- kinds.traverse { k => kindFromProto(Some(k)) }
-              } yield Type.forAll(args.zip(kinds), inT)
+          case Value.TypeForAll(TypeForAll(varKinds, in, _)) =>
+            for {
+              inT <- tpe(in)
+              args <- varKinds.toList.traverse(varKindFromProto)
+            } yield Type.forAll(args, inT)
 
-          case Value.TypeExists(TypeExists(args, kinds, in, _)) =>
-            if (args.length != kinds.length)
-              Failure(new Exception(s"args and kinds len mismatch: $p"))
-            else
-              for {
-                inT <- tpe(in)
-                args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-                kinds <- kinds.traverse { k => kindFromProto(Some(k)) }
-              } yield Type.exists(args.zip(kinds), inT)
+          case Value.TypeExists(TypeExists(varKinds, in, _)) =>
+            for {
+              inT <- tpe(in)
+              args <- varKinds.toList.traverse(varKindFromProto)
+            } yield Type.exists(args, inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
@@ -521,26 +517,24 @@ object ProtoConverter {
               val foralls = q.forallList
               val exs = q.existList
               val in = q.in
-              (foralls.traverse { case (b, _) => getId(b.name) },
-                exs.traverse { case (b, _) => getId(b.name) },
+              (foralls.traverse { case (b, k) => varKindToProto(b, k) },
+                exs.traverse { case (b, k) => varKindToProto(b, k) },
                 typeToProto(in))
                   .flatMapN { (faids, exids, idx) =>
                     val ft0 =
                       if (exs.nonEmpty) {
-                        val eks = exs.map { case (_, k) => kindToProto(k) }
                         val withEx = Type.exists(exs, in)
                         getTypeId(withEx,
                           proto.Type(
-                            Value.TypeExists(TypeExists(exids, eks, idx))))
+                            Value.TypeExists(TypeExists(exids, idx))))
                       }
                       else tabPure(idx)
 
                     ft0.flatMap { t0 =>
                       if (foralls.nonEmpty) {
-                        val fks = foralls.map { case (_, k) => kindToProto(k) }
                         getTypeId(p,
                           proto.Type(
-                            Value.TypeForAll(TypeForAll(faids, fks, t0))))
+                            Value.TypeForAll(TypeForAll(faids, t0))))
                       }
                       else tabPure(t0)
                     }
@@ -689,6 +683,11 @@ object ProtoConverter {
           }
       }
 
+  def varKindToProto(v: Type.Var.Bound, k: Kind): Tab[proto.VarKind] =
+    getId(v.name).map { id =>
+      proto.VarKind(id, Some(kindToProto(k)))
+    }
+
   def typedExprToProto(te: TypedExpr[Any]): Tab[Int] =
     StateT.get[Try, SerState]
       .map(_.expressions.indexOf(te))
@@ -699,14 +698,10 @@ object ProtoConverter {
           te match {
             case g@Generic(quant, expr) =>
               val fas = quant.forallList.traverse { case (v, k) =>
-                getId(v.name).map { id =>
-                  proto.VarKind(id, Some(kindToProto(k)))
-                }
+                varKindToProto(v, k)
               }
               val exs = quant.existList.traverse { case (v, k) =>
-                getId(v.name).map { id =>
-                  proto.VarKind(id, Some(kindToProto(k)))
-                }
+                varKindToProto(v, k)
               }
               (fas, exs, typedExprToProto(expr))
                 .flatMapN { (fas, exs, exid) =>

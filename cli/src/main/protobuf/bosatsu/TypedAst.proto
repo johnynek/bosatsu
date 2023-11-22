@@ -35,16 +35,19 @@ message TypeVar {
   int32 varName = 1;
 }
 
+message VarKind {
+  int32 varName = 1;
+  Kind kind = 2;
+}
+
 message TypeForAll {
-  repeated int32 varNames = 1;
-  repeated Kind kinds = 2;
-  int32 typeValue = 3;
+  repeated VarKind varKinds = 1;
+  int32 typeValue = 2;
 }
 
 message TypeExists {
-  repeated int32 varNames = 1;
-  repeated Kind kinds = 2;
-  int32 typeValue = 3;
+  repeated VarKind varKinds = 1;
+  int32 typeValue = 2;
 }
 
 // represents left[right] type application
@@ -158,11 +161,6 @@ message Imports {
 enum RecursionKind {
   NotRec = 0;
   IsRec = 1;
-}
-
-message VarKind {
-  int32 varName = 1;
-  Kind kind = 2;
 }
 
 message GenericExpr {

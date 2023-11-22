@@ -36,12 +36,12 @@ abstract class TypeParser[A] {
       lowerIdent ~ kindP.?
     }
 
-    val univLike: P[(NonEmptyList[(String, Option[Kind])], A) => A] =
+    val quantified: P[(NonEmptyList[(String, Option[Kind])], A) => A] =
       keySpace("forall").as(universal(_, _)) |
       keySpace("exists").as(existential(_, _))
 
     val lambda: P[MaybeTupleOrParens[A]] =
-      (univLike, univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
+      (quantified, univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
         .mapN { case (fn, (args, e)) => MaybeTupleOrParens.Bare(fn(args, e)) }
 
     val tupleOrParens: P[MaybeTupleOrParens[A]] =
