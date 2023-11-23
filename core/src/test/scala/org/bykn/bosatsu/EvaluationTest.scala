@@ -3182,4 +3182,53 @@ test = Assertion(res matches 0, "one")
 """), "Foo", 1)
 
   }
+
+  test("existential quantification in a match") {
+    runBosatsuTest(List("""
+package Foo
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. (FreeF[b], b -> a))
+
+def pure(a: a) -> FreeF[a]: Pure(a)
+def map[a, b](f: FreeF[a], fn: a -> b) -> FreeF[b]:
+  tup: exists x. (FreeF[x], x -> b) = (f, fn)
+  Mapped(tup)
+
+def maybeMapped[a](f: FreeF[a]) -> exists b. Option[(FreeF[b], b -> a)]:
+  match f:
+    case Mapped(e_print): Some(e_print)
+    case _: None
+
+def run[a](fa: FreeF[a]) -> a:
+  recur fa:
+    case Pure(a): a
+    case Mapped((prev, fn)):
+      fn(run(prev))
+
+res = run(pure(0).map(x -> x.add(1)))
+test = Assertion(res matches 1, "one")
+"""), "Foo", 1)
+
+    runBosatsuTest(List("""
+package Foo
+
+enum ListE[a]:
+  Empty
+  Cons(a: a, tail: exists b. (b, ListE[b]))
+
+def cons[a, b](tup: (a, b), tail: ListE[b]) -> ListE[a]:
+  (a, b) = tup
+  Cons(a, (b, tail))
+
+def uncons[a](l: ListE[a]) -> exists b. Option[((a, b), ListE[b])]: 
+  match l:
+    case Empty: None
+    case Cons(a, (b, t)): Some(((a, b), t))
+
+res = cons((1, 0), Empty).uncons()
+test = Assertion(res matches Some(((1, _), Empty)), "one")
+"""), "Foo", 1)
+  }
 }

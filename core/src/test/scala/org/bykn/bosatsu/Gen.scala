@@ -47,6 +47,14 @@ object Generators {
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeForAll(nel, e)
 
+  val typeRefExistsGen: Gen[TypeRef.TypeExists] =
+    for {
+      e <- Gen.lzy(typeRefGen)
+      cnt <- Gen.choose(1, 3)
+      args <- Gen.listOfN(cnt, Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
+      nel = NonEmptyList.fromListUnsafe(args)
+    } yield TypeRef.TypeExists(nel, e)
+
   val opGen: Gen[Identifier.Operator] = {
     val sing = Gen.oneOf(Operators.singleToks).map(Identifier.Operator(_))
     lazy val multi: Gen[Identifier.Operator] =
@@ -95,6 +103,7 @@ object Generators {
       (5, tname),
       (1, Gen.zip(Gen.lzy(smallNonEmptyList(typeRefGen, 4)), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
+      (1, typeRefExistsGen),
       (1, tTup),
       (1, tApply))
   }
@@ -108,7 +117,18 @@ object Generators {
           case TypeArrow(l, r) =>
             r #:: l.toList.toStream
           case TypeApply(of, args) => of #:: args.toList.toStream
-          case TypeForAll(_, expr) => expr #:: Stream.empty
+          case TypeForAll(par, expr) =>
+            val rest = NonEmptyList.fromList(par.tail) match {
+              case None => Stream.empty
+              case Some(nel) => TypeForAll(nel, expr) #:: Stream.empty
+            }
+            expr #:: rest
+          case TypeExists(par, expr) =>
+            val rest = NonEmptyList.fromList(par.tail) match {
+              case None => Stream.empty
+              case Some(nel) => TypeExists(nel, expr) #:: Stream.empty
+            }
+            expr #:: rest
           case TypeTuple(ts) =>
             def drop(as: List[TypeRef]): Stream[TypeTuple] =
               as match {
@@ -1011,7 +1031,7 @@ object Generators {
     else {
       val genGeneric =
         Gen.zip(Generators.nonEmpty(Gen.zip(NTypeGen.genBound, NTypeGen.genKind)), recurse)
-          .map { case (vs, t) => TypedExpr.Generic(vs, t) }
+          .map { case (vs, t) => TypedExpr.forAll(vs, t) }
 
       val ann =
         Gen.zip(recurse, typeGen)

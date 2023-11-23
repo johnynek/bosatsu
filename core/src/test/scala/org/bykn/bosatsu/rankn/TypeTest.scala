@@ -7,6 +7,8 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeTest extends AnyFunSuite {
+  import NTypeGen.shrinkType
+
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
@@ -60,6 +62,14 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("normalization is idempotent") {
+    forAll(NTypeGen.genDepth03) { t =>
+      val n1 = Type.normalize(t)
+      val n2 = Type.normalize(n1)
+      assert(n2 == n1)
+    }
+  }
+
   test("we can parse types") {
     def law(t: Type) = {
       val str = Type.fullyResolvedDocument.document(t).render(80)
@@ -74,7 +84,7 @@ class TypeTest extends AnyFunSuite {
       val tpe = parse(str)
       law(tpe)
       tpe match {
-        case Type.TyVar(Type.Var.Skolem(b1, k1, i1)) =>
+        case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
           assert((b1, k1, i1) === (b, Kind.Type ,id))
         case other => fail(other.toString)
       }
@@ -96,7 +106,7 @@ class TypeTest extends AnyFunSuite {
       val bs = vsD.map(Type.Var.Bound(_))
       val fa = Type.forAll(bs.map((_, Kind.Type)), t)
       val binders = Type.tyVarBinders(fa :: Nil)
-      assert(bs.toSet.subsetOf(binders))
+      assert(bs.toSet.subsetOf(binders), s"bs = $bs, binders = $binders")
     }
   }
 
@@ -133,9 +143,9 @@ class TypeTest extends AnyFunSuite {
 
     val pastFails =
       List(
-        Type.ForAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
+        Type.forAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
           Type.TyVar(Type.Var.Bound("x"))),
-        Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
+        Type.forAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
         )
 
     pastFails.foreach(law)
@@ -240,6 +250,52 @@ class TypeTest extends AnyFunSuite {
           assert(res1 == res)
         case _ =>
           fail(s"fnType didn't match Fun")
+      }
+    }
+  }
+
+  test("Quantification.concat is associative") {
+    forAll(NTypeGen.genQuant, NTypeGen.genQuant, NTypeGen.genQuant) { (a, b, c) =>
+      assert(a.concat(b).concat(c) == a.concat(b.concat(c)))  
+    }
+  }
+
+  test("Quantification.toLists/fromList identity") {
+    forAll(NTypeGen.genQuant) { q =>
+      assert(Type.Quantification.fromLists(q.forallList, q.existList) == Some(q))  
+    }
+  }
+
+  test("unexists/exists | unforall/forall iso") {
+    forAll(NTypeGen.genDepth03) {
+      case t@Type.Exists(ps, in) =>
+        assert(Type.exists(ps, in) == t)
+      case t@Type.ForAll(ps, in) =>
+        assert(Type.forAll(ps, in) == t)
+      case _ => ()
+    }
+  }
+  test("exists -> unexists") {
+    forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
+      Type.exists(args, t) match {
+        case Type.Exists(ps, in) =>
+          assert(ps.toList == args)
+          assert(in == t)
+        case notExists =>
+          assert(args.isEmpty)
+          assert(notExists == t)
+      }
+    }
+  }
+  test("forall -> unforall") {
+    forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
+      Type.forAll(args, t) match {
+        case Type.ForAll(ps, in) =>
+          assert(ps.toList == args)
+          assert(in == t)
+        case notExists =>
+          assert(args.isEmpty)
+          assert(notExists == t)
       }
     }
   }

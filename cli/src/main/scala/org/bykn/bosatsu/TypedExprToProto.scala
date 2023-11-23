@@ -239,6 +239,10 @@ object ProtoConverter {
         def str(i: Int): Try[String] =
           ds.tryString(i - 1, s"invalid string idx: $i in $p")
 
+        def varKindFromProto(vk: proto.VarKind) =
+          (str(vk.varName), kindFromProto(vk.kind))
+            .mapN { (n, k) => (Type.Var.Bound(n), k) }
+
         p.value match {
           case Value.Empty => Failure(new Exception(s"empty type found in $p"))
           case Value.TypeConst(tc) =>
@@ -251,15 +255,17 @@ object ProtoConverter {
               }
           case Value.TypeVar(tv) =>
             str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-          case Value.TypeForAll(TypeForAll(args, kinds, in, _)) =>
-            if (args.length != kinds.length)
-              Failure(new Exception(s"args and kinds len mismatch: $p"))
-            else
-              for {
-                inT <- tpe(in)
-                args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-                kinds <- kinds.traverse { k => kindFromProto(Some(k)) }
-              } yield Type.forAll(args.zip(kinds), inT)
+          case Value.TypeForAll(TypeForAll(varKinds, in, _)) =>
+            for {
+              inT <- tpe(in)
+              args <- varKinds.toList.traverse(varKindFromProto)
+            } yield Type.forAll(args, inT)
+
+          case Value.TypeExists(TypeExists(varKinds, in, _)) =>
+            for {
+              inT <- tpe(in)
+              args <- varKinds.toList.traverse(varKindFromProto)
+            } yield Type.exists(args, inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
@@ -372,20 +378,23 @@ object ProtoConverter {
 
         ex.value match {
           case Value.Empty => Failure(new Exception("invalid empty TypedExpr"))
-          case ge @ Value.GenericExpr(proto.GenericExpr(typeParams, kinds, expr, _)) =>
-            if (typeParams.length != kinds.length)
-              Failure(new Exception(s"bound and kinds length mismatch in $ge"))
-            else
-              NonEmptyList.fromList(typeParams.toList) match {
-                case Some(nel) =>
-                  (nel.traverse(str), kinds.traverse { k => kindFromProto(Some(k)) }, exprOf(expr))
-                    .mapN { (strs, kindsSeq, expr) =>
-                      // we know the length is the same as the params NEL
-                      val kinds = NonEmptyList.fromListUnsafe(kindsSeq.toList)
-                      val bs = strs.map(Type.Var.Bound(_))
-                      TypedExpr.Generic(bs.zip(kinds), expr)
-                    }
-                case None => Failure(new Exception(s"invalid empty type params in generic($ge): $ex"))
+          case Value.GenericExpr(proto.GenericExpr(forAlls, exists, expr, _)) =>
+            val faList = forAlls.traverse { varKind =>
+              (str(varKind.varName), kindFromProto(varKind.kind))
+                .mapN { (n, k) => (Type.Var.Bound(n), k) }
+            }
+
+            val exList = exists.traverse { varKind =>
+              (str(varKind.varName), kindFromProto(varKind.kind))
+                .mapN { (n, k) => (Type.Var.Bound(n), k) }
+            }
+
+            (faList, exList, exprOf(expr))
+              .mapN { (fa, ex, e) =>
+                Type.Quantification.fromLists(forallList = fa.toList, existList = ex.toList) match {
+                  case Some(q) => TypedExpr.Generic(q, e)
+                  case None => e
+                }  
               }
           case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
@@ -504,15 +513,32 @@ object ProtoConverter {
         case Some(p) => tabPure(p)
         case None =>
           p match {
-            case Type.ForAll(bs, t) =>
-              typeToProto(t).flatMap { idx =>
-                bs.toList
-                  .traverse { case (b, _) => getId(b.name) }
-                  .flatMap { ids =>
-                    lazy val ks = bs.map { case (_, k) => kindToProto(k) }
-                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, ks.toList, idx))))
+            case q: Type.Quantified =>
+              val foralls = q.forallList
+              val exs = q.existList
+              val in = q.in
+              (foralls.traverse { case (b, k) => varKindToProto(b, k) },
+                exs.traverse { case (b, k) => varKindToProto(b, k) },
+                typeToProto(in))
+                  .flatMapN { (faids, exids, idx) =>
+                    val ft0 =
+                      if (exs.nonEmpty) {
+                        val withEx = Type.exists(exs, in)
+                        getTypeId(withEx,
+                          proto.Type(
+                            Value.TypeExists(TypeExists(exids, idx))))
+                      }
+                      else tabPure(idx)
+
+                    ft0.flatMap { t0 =>
+                      if (foralls.nonEmpty) {
+                        getTypeId(p,
+                          proto.Type(
+                            Value.TypeForAll(TypeForAll(faids, t0))))
+                      }
+                      else tabPure(t0)
+                    }
                   }
-              }
             case Type.TyApply(on, arg) =>
               typeToProto(on)
                 .product(typeToProto(arg))
@@ -528,7 +554,7 @@ object ProtoConverter {
               getId(n).flatMap { id =>
                 getTypeId(p, proto.Type(Value.TypeVar(TypeVar(id))))
               }
-            case Type.TyVar(Type.Var.Skolem(_, _, _)) | Type.TyMeta(_) =>
+            case Type.TyVar(Type.Var.Skolem(_, _, _, _)) | Type.TyMeta(_) =>
               tabFail(new Exception(s"invalid type to serialize: $p"))
           }
       }
@@ -657,6 +683,11 @@ object ProtoConverter {
           }
       }
 
+  def varKindToProto(v: Type.Var.Bound, k: Kind): Tab[proto.VarKind] =
+    getId(v.name).map { id =>
+      proto.VarKind(id, Some(kindToProto(k)))
+    }
+
   def typedExprToProto(te: TypedExpr[Any]): Tab[Int] =
     StateT.get[Try, SerState]
       .map(_.expressions.indexOf(te))
@@ -665,12 +696,16 @@ object ProtoConverter {
         case None =>
           import TypedExpr._
           te match {
-            case g@Generic(tvars, expr) =>
-              tvars.toList.traverse { case (v, _) => getId(v.name) }
-                .product(typedExprToProto(expr))
-                .flatMap { case (tparams, exid) =>
-                  val ks = tvars.map { case (_, k) => kindToProto(k) }
-                  val ex = proto.GenericExpr(tparams, ks.toList, exid)
+            case g@Generic(quant, expr) =>
+              val fas = quant.forallList.traverse { case (v, k) =>
+                varKindToProto(v, k)
+              }
+              val exs = quant.existList.traverse { case (v, k) =>
+                varKindToProto(v, k)
+              }
+              (fas, exs, typedExprToProto(expr))
+                .flatMapN { (fas, exs, exid) =>
+                  val ex = proto.GenericExpr(forAlls = fas, exists = exs, exid)
                   writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex)))
                 }
             case a@Annotation(term, tpe) =>

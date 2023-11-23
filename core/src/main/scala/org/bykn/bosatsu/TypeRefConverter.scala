@@ -33,7 +33,17 @@ object TypeRefConverter {
               case Some(k) => k
             }
             (Type.Var.Bound(v), k)
-          }.toList, te)
+          }, te)
+        }
+      case TypeExists(pars, e) =>
+        toType(e).map { te =>
+          Type.exists(pars.map { case (TypeVar(v), optK) =>
+            val k = optK match {
+              case None => Kind.Type
+              case Some(k) => k
+            }
+            (Type.Var.Bound(v), k)
+          }, te)
         }
       case TypeTuple(ts) =>
         ts.traverse(toType).map(Type.Tuple(_))
@@ -57,6 +67,12 @@ object TypeRefConverter {
           (TypeVar(b), k1)
         }
         loop(in).map(TypeForAll(args, _))
+      case Exists(vs, in) =>
+        val args = vs.map { case (Type.Var.Bound(b), k) =>
+          val k1 = if (k.isType) None else Some(k)
+          (TypeVar(b), k1)
+        }
+        loop(in).map(TypeExists(args, _))
       case Type.Tuple(ts) =>
         // this needs to be above TyConst
         ts.traverse(loop(_)).map(TypeTuple(_))
@@ -79,7 +95,7 @@ object TypeRefConverter {
           case sk: Type.Var.Skolem =>
             onSkolem(sk)
         }
-      case TyMeta(Type.Meta(_, id, _)) =>
+      case TyMeta(Type.Meta(_, id, _, _)) =>
         onMeta(id)
       // $COVERAGE-OFF$
       case other =>

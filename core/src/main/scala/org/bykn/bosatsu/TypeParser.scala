@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
+import cats.syntax.all._
 
 import Parser.{ Combinators, MaybeTupleOrParens, lowerIdent, maybeSpace, maybeSpacesAndLines, keySpace }
 
@@ -13,6 +14,7 @@ abstract class TypeParser[A] {
   protected def parseRoot: P[A]
   protected def makeFn(in: NonEmptyList[A], out: A): A
   protected def universal(vars: NonEmptyList[(String, Option[Kind])], in: A): A
+  protected def existential(vars: NonEmptyList[(String, Option[Kind])], in: A): A
   protected def applyTypes(cons: A, args: NonEmptyList[A]): A
   protected def makeTuple(items: List[A]): A
 
@@ -22,6 +24,7 @@ abstract class TypeParser[A] {
   protected def unapplyRoot(a: A): Option[Doc]
   protected def unapplyFn(a: A): Option[(NonEmptyList[A], A)]
   protected def unapplyUniversal(a: A): Option[(List[(String, Option[Kind])], A)]
+  protected def unapplyExistential(a: A): Option[(List[(String, Option[Kind])], A)]
   protected def unapplyTypeApply(a: A): Option[(A, List[A])]
   protected def unapplyTuple(a: A): Option[List[A]]
 
@@ -32,9 +35,14 @@ abstract class TypeParser[A] {
         (maybeSpacesAndLines.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
       lowerIdent ~ kindP.?
     }
+
+    val quantified: P[(NonEmptyList[(String, Option[Kind])], A) => A] =
+      keySpace("forall").as(universal(_, _)) |
+      keySpace("exists").as(existential(_, _))
+
     val lambda: P[MaybeTupleOrParens[A]] =
-      (keySpace("forall") *> univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
-        .map { case (args, e) => MaybeTupleOrParens.Bare(universal(args, e)) }
+      (quantified, univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
+        .mapN { case (fn, (args, e)) => MaybeTupleOrParens.Bare(fn(args, e)) }
 
     val tupleOrParens: P[MaybeTupleOrParens[A]] =
       MaybeTupleOrParens.tupleOrParens(recurse)
@@ -106,7 +114,10 @@ abstract class TypeParser[A] {
         val args = if (ins.tail.isEmpty) {
           val in0 = ins.head
           val din = toDoc(in0)
-          unapplyFn(in0).orElse(unapplyUniversal(in0)).orElse(unapplyTuple(in0)) match {
+          unapplyFn(in0)
+            .orElse(unapplyUniversal(in0))
+            .orElse(unapplyExistential(in0))
+            .orElse(unapplyTuple(in0)) match {
             case Some(_) => par(din)
             case None => din
           }
@@ -128,7 +139,7 @@ abstract class TypeParser[A] {
       case None => ()
       case Some((of, args)) =>
         val ofDoc0 = toDoc(of)
-        val ofDoc = unapplyUniversal(of) match {
+        val ofDoc = unapplyUniversal(of).orElse(unapplyExistential(of)) match {
           case None => ofDoc0
           case Some(_) => par(ofDoc0)
         }
@@ -146,6 +157,17 @@ abstract class TypeParser[A] {
           Doc.char('.') + Doc.space + toDoc(in)
     }
 
+    unapplyExistential(a) match {
+      case None => ()
+      case Some((vars, in)) =>
+        return exists + Doc.intercalate(commaSpace,
+          vars.map {
+            case (a, None) => Doc.text(a)
+            case (a, Some(k)) => Doc.text(a) + TypeParser.colonSpace + k.toDoc
+          }) +
+          Doc.char('.') + Doc.space + toDoc(in)
+    }
+
     Doc.text(s"<nothing matched: $a>")
   }
 
@@ -156,6 +178,7 @@ abstract class TypeParser[A] {
 
 object TypeParser {
   private val forAll = Doc.text("forall ")
+  private val exists = Doc.text("exists ")
   private val spaceArrow = Doc.text(" -> ")
   private val commaSpace = Doc.text(", ")
   private val colonSpace = Doc.text(": ")

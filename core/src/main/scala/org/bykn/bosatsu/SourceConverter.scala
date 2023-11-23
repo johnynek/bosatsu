@@ -1248,7 +1248,7 @@ final class SourceConverter(
             // these vars were parsed so they are never skolem vars
             val freeBound = freeVars.map {
               case b@rankn.Type.Var.Bound(_) => b
-              case s@rankn.Type.Var.Skolem(_, _, _) =>
+              case s@rankn.Type.Var.Skolem(_, _, _, _) =>
                 // $COVERAGE-OFF$ this should be unreachable
                 sys.error(s"invariant violation: parsed a skolem var: $s")
                 // $COVERAGE-ON$

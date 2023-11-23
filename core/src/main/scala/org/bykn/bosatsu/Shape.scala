@@ -519,8 +519,8 @@ object Shape {
           local: Map[rankn.Type.Var.Bound, Kind]
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {
-          case rankn.Type.ForAll(vars, t) =>
-            loop(t, local ++ vars.toList)
+          case q: rankn.Type.Quantified =>
+            loop(q.in, local ++ q.vars.toList)
           case ta @ rankn.Type.TyApply(on, arg) =>
             for {
               v1 <- loop(on, local)
@@ -546,7 +546,7 @@ object Shape {
                   )
                 )
             }
-          case rankn.Type.TyVar(rankn.Type.Var.Skolem(_, k, _)) =>
+          case rankn.Type.TyVar(rankn.Type.Var.Skolem(_, k, _, _)) =>
             RefSpace.pure(Validated.valid(shapeOf(k)))
           case tv @ rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) =>
             local.get(v) match {
@@ -565,7 +565,7 @@ object Shape {
                     )
                 }
             }
-          case rankn.Type.TyMeta(rankn.Type.Meta(k, _, _)) =>
+          case rankn.Type.TyMeta(rankn.Type.Meta(k, _, _, _)) =>
             RefSpace.pure(Validated.valid(shapeOf(k)))
         }
 

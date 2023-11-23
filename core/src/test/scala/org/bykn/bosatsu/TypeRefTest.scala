@@ -11,6 +11,9 @@ class TypeRefTest extends AnyFunSuite {
 
   import Generators.{typeRefGen, shrinkTypeRef}
 
+  def show(t: TypeRef): String =
+    TypeRef.document.document(t).render(80)
+
   test("Ordering is lawful") {
     forAll(typeRefGen, typeRefGen, typeRefGen) { (a, b, c) =>
       OrderingLaws.law(a, b, c)
@@ -31,6 +34,14 @@ class TypeRefTest extends AnyFunSuite {
         })
 
       assert(tr1 == Some(tr.normalizeForAll), s"tpe = $tpe")
+    }
+  }
+
+  test("normalizeAll is idempotent") {
+    forAll(typeRefGen) { tr =>
+      val norm1 = tr.normalizeForAll
+      val norm2 = norm1.normalizeForAll
+      assert(norm2 == norm1, s"${show(norm2)} != ${show(norm1)}")
     }
   }
 }

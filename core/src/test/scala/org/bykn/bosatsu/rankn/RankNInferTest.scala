@@ -5,7 +5,7 @@ import org.bykn.bosatsu._
 
 import Expr._
 import Type.Var.Bound
-import Type.ForAll
+import Type.forAll
 
 import TestUtils.{checkLast, testPackage}
 
@@ -96,7 +96,7 @@ class RankNInferTest extends AnyFunSuite {
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
       case Left(err) => assert(false, err)
-      case Right(tpe) => assert(tpe.getType == ty, term.toString)
+      case Right(tpe) => assert(tpe.getType.sameAs(ty), term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
@@ -148,7 +148,7 @@ class RankNInferTest extends AnyFunSuite {
 
       val te = te0 // TypedExprNormalization.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
+        case t@Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           fail(s"illegate skolem ($t) escape in $te")
           t
         case t@Type.TyMeta(_) =>
@@ -165,7 +165,7 @@ class RankNInferTest extends AnyFunSuite {
 
       assert(Type.metaTvs(tp :: Nil).isEmpty,
         s"illegal inferred type: $teStr")
-      assert(te.getType.sameAs(typeFrom(tpe)))
+      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr}")
     }
 
   // this could be used to test the string representation of expressions
@@ -180,13 +180,17 @@ class RankNInferTest extends AnyFunSuite {
     Package.inferBody(testPackage, Nil, stmts) match {
       case Ior.Left(_) | Ior.Both(_, _) => assert(true)
       case Ior.Right(program) =>
-        fail("expected an invalid program, but got: " + program.lets.toString)
+        fail("expected an invalid program, but got:\n\n" + program.lets.map { case (b, r, t) =>
+          s"$b: $r = ${t.repr}" 
+        }.mkString("\n\n"))
     }
   }
 
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
+    assertTypesUnify("exists a. a", "exists b. b")
     assert_:<:("forall a. a", "Int")
+    assert_:<:("forall a. a", "exists a. a")
     // function is contravariant in first arg test that against the above
     assert_:<:("Int -> Int", "(forall a. a) -> Int")
 
@@ -194,11 +198,20 @@ class RankNInferTest extends AnyFunSuite {
     assert_:<:("forall a, b. a -> b", "forall a. a -> (forall b. b -> b)")
 
     // forall commutes with covariant types
+    assertTypesUnify("forall b. Int -> b", "Int -> (forall b. b)")
     assertTypesUnify("forall a, b. a -> b", "forall a. a -> (forall b. b)")
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
+    // exists a. a is a top type
+    assert_:<:("Int", "exists a. a")
+    assert_:<:("(exists a. a) -> Int", "exists a. (a -> Int)")
+    assert_:<:("(exists a. a) -> Int", "Int -> Int")
+    assertTypesUnify("(exists a. a) -> Int", "forall a. a -> Int")
+    assertTypesUnify("exists a. List[a]", "List[exists a. a]")
+    assertTypesUnify("Int -> (exists a. a)", "exists a. (Int -> a)")
+
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
-    assert_:<:(
+    assertTypesUnify(
       "((forall a. a) -> Int) -> Int",
       "forall a. (a -> Int) -> Int")
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
@@ -230,10 +243,10 @@ class RankNInferTest extends AnyFunSuite {
     testType(lit(100), Type.IntType)
     testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
     testType(lambda("y", v("y")),
-      ForAll(NonEmptyList.of(b("a")),
+      forAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
     testType(lambda("y", lambda("z", v("y"))),
-      ForAll(NonEmptyList.of(b("a"), b("b")),
+      forAll(NonEmptyList.of(b("a"), b("b")),
         Type.Fun(Type.TyVar(Bound("a")),
           Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
 
@@ -246,7 +259,7 @@ class RankNInferTest extends AnyFunSuite {
     testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
-      ForAll(NonEmptyList.of(b("a")),
+      forAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
     testType(let("x", lambda("y", v("y")),
       ife(lit(true), v("x"),
@@ -347,8 +360,8 @@ class RankNInferTest extends AnyFunSuite {
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     val constructors = Map(
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
@@ -411,17 +424,17 @@ class RankNInferTest extends AnyFunSuite {
      */
     val defined = Map(
       ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
-        List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
+        List(Type.forAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
       ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
       ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
-      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b1("f")),
-        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
+      (Identifier.unsafe("Pure"), Type.forAll(NonEmptyList.of(b1("f")),
+        Type.Fun(Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
           Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
@@ -1180,4 +1193,134 @@ res = branch(True)(True)
 """)
   }
 
+  test("basic existential types") {
+    parseProgram("""#
+x: exists b. b = 1
+""", "exists b. b")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+""", "forall a. a -> (exists a. a)")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+x = hide(1)
+""", "exists a. a")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+y: exists x. x = 1
+x = hide(y)
+""", "exists a. a")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+y = hide(1)
+x = hide(y)
+""", "exists a. a")
+
+    parseProgram("""#
+struct Tup(a, b)
+
+def hide[b](x: b) -> exists a. a: x
+def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
+x = hide(1)
+y = hide("1")
+z = makeTup(x, y)
+""", "exists a, b. Tup[a, b]")
+  }
+
+  test("we can use existentials in branches") {
+    parseProgram("""#
+enum MyBool: T, F
+
+def branch(b) -> exists a. a:
+  match b:
+    case T: 1
+    case F: "1"
+
+x = branch(T)
+""", "exists a. a")
+
+    parseProgram("""#
+enum Maybe: Nothing, Something(item: exists a. a)
+enum Opt[a]: None, Some(a: a)
+
+x = Something(1: exists a. a)
+
+def branch(b: Maybe) -> exists a. Opt[a]:
+  match b:
+    case Something(x): Some(x)
+    case Nothing: None
+
+x = branch(x)
+""", "exists a. Opt[a]")
+
+    parseProgram("""#
+struct MyTup(a, b)
+enum MyBool: T, F
+
+b = T
+
+x = MyTup((match b:
+  case T: F
+  case F: T), (x: MyBool) -> x): exists a. MyTup[a, a -> MyBool]
+""", "exists a. MyTup[a, a -> MyBool]")
+
+    parseProgramIllTyped("""#
+struct MyTup(a, b)
+enum MyBool: T, F
+
+b = T
+
+x = MyTup((match b:
+  case T: F
+  case F: 1), (x: MyBool) -> x): exists a. MyTup[a, a -> MyBool]
+""")
+  }
+
+  test("use existentials in ADTs") {
+    parseProgram("""#
+struct Tup(a, b)
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. Tup[FreeF[b], b -> a])
+
+enum Opt[a]: None, Some(a: a)
+
+# this seems to work
+n: exists b. Opt[Tup[FreeF[b], b -> a]] = None
+
+def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
+  match b:
+    case Mapped(x): Some(x)
+    case _: None
+
+""", "forall a. FreeF[a] -> exists b. Opt[Tup[FreeF[b], b -> a]]")
+
+  }
+
+  test("we can use existentials to delay calls") {
+    parseProgram("""#
+struct MyTup(a, b)
+
+def delay[a, b](fn: a -> b, a: a) -> exists c. MyTup[c -> b, c]:
+  MyTup(fn, a)
+
+def call[a](tup: exists c. MyTup[c -> a, c]) -> a:
+  MyTup(fn, arg) = tup
+  fn(arg)
+
+x = call(delay(x -> x, 1))
+""", "Int")
+  }
+
+  test("we can't see through existentials") {
+    parseProgramIllTyped("""#
+enum MyBool: T, F
+
+b: exists a. a = T
+c: MyBool = b
+""")
+  }
 }

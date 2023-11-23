@@ -25,7 +25,7 @@ object NTypeGen {
 
   val keyWords = Set(
     "if", "ffi", "match", "struct", "enum", "else", "elif",
-    "def", "external", "package", "import", "export", "forall",
+    "def", "external", "package", "import", "export", "forall", "exists",
     "recur", "recursive")
 
   val lowerIdent: Gen[String] =
@@ -87,6 +87,21 @@ object NTypeGen {
     Shrink(shrink(_))
   }
 
+  implicit val shrinkType: Shrink[Type] = {
+    import Type._
+    def shrink(t: Type): Stream[Type] =
+      t match {
+        case ForAll(items, in) =>
+          shrink(in).map(Type.forAll(items.tail, _))
+        case Exists(items, in) =>
+          shrink(in).map(Type.exists(items.tail, _))
+        case _: Leaf => Stream.empty
+        case TyApply(on, arg) =>
+          on #:: arg #:: shrink(on).map(TyApply(_, arg)) #::: shrink(arg).map(TyApply(on, _))
+      }
+    Shrink(shrink(_))
+  }
+
   val genKindArg: Gen[Kind.Arg] =
     Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
 
@@ -129,6 +144,23 @@ object NTypeGen {
       } yield TyApply(TyApply(cons, param1), param2)))
   }
 
+  val genQuantArgs: Gen[List[(Type.Var.Bound, Kind)]] =
+    for {
+      c <- Gen.choose(0, 5)
+      ks = NTypeGen.genKind
+      as <- Gen.listOfN(c, Gen.zip(genBound, ks))
+    } yield as
+
+  lazy val genQuant: Gen[Type.Quantification] =
+    Gen.zip(genQuantArgs, genQuantArgs)
+      .flatMap { case (fa, ex) =>
+        Type.Quantification.fromLists(fa, ex) match {
+          case Some(q) => Gen.const(q)
+          case None => genQuant
+        }  
+      }
+
+
   def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
     if (d <= 0) genRootType(genC)
     else {
@@ -141,11 +173,25 @@ object NTypeGen {
           in <- recurse
         } yield Type.forAll(as, in)
 
+      val genExists =
+        for {
+          c <- Gen.choose(1, 5)
+          ks = NTypeGen.genKind
+          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
+          in <- recurse
+        } yield Type.exists(as, in)
+
+      val genQ = Gen.zip(NTypeGen.genQuant, recurse).map { case (q, t) =>
+        Type.quantify(q, t)  
+      }
+
       val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
 
-      Gen.oneOf(recurse, genApply, genForAll)
+      Gen.frequency(
+        (2, recurse),
+        (1, genApply),
+        (1, Gen.oneOf(genForAll, genExists, genQ)))
     }
-
 
   val genDepth03: Gen[Type] = Gen.choose(0, 3).flatMap(genDepth(_, Some(genConst)))
 }
