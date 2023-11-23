@@ -3211,5 +3211,24 @@ res = run(pure(0).map(x -> x.add(1)))
 test = Assertion(res matches 1, "one")
 """), "Foo", 1)
 
+    runBosatsuTest(List("""
+package Foo
+
+enum ListE[a]:
+  Empty
+  Cons(a: a, tail: exists b. (b, ListE[b]))
+
+def cons[a, b](tup: (a, b), tail: ListE[b]) -> ListE[a]:
+  (a, b) = tup
+  Cons(a, (b, tail))
+
+def uncons[a](l: ListE[a]) -> exists b. Option[((a, b), ListE[b])]: 
+  match l:
+    case Empty: None
+    case Cons(a, (b, t)): Some(((a, b), t))
+
+res = cons((1, 0), Empty).uncons()
+test = Assertion(res matches Some(((1, _), Empty)), "one")
+"""), "Foo", 1)
   }
 }

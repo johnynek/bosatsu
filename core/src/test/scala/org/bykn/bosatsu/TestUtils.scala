@@ -138,11 +138,14 @@ object TestUtils {
         }
       case Right(other) =>
         fail(s"got an unexpected success: $other")
-      case Left(pe: module.MainException.PackageErrors) =>
-        fail(pe.messages.mkString("\n"))
       case Left(err) =>
-        err.printStackTrace
-        fail(s"got an exception: $err")
+        module.mainExceptionToString(err) match {
+          case Some(err) =>
+            fail(err)
+          case None =>
+            err.printStackTrace
+            fail(err.toString)
+        }
     }
   }
 
