@@ -1314,4 +1314,13 @@ def call[a](tup: exists c. MyTup[c -> a, c]) -> a:
 x = call(delay(x -> x, 1))
 """, "Int")
   }
+
+  test("we can't see through existentials") {
+    parseProgramIllTyped("""#
+enum MyBool: T, F
+
+b: exists a. a = T
+c: MyBool = b
+""")
+  }
 }

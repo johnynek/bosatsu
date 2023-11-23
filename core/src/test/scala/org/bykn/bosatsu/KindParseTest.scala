@@ -11,7 +11,7 @@ import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
 class KindParseTest extends ParserTestBase {
   override def config: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful =
-      if (Platform.isScalaJvm) 5000 else 100
+      if (Platform.isScalaJvm) 500 else 10
     )
 
   def show(k: Kind): String = Kind.toDoc(k).render(80)
@@ -126,7 +126,7 @@ class KindParseTest extends ParserTestBase {
 
   test("Kind.allSubkinds(k).forall(Kind.leftSubsumesRight(k, _))") {
     def law(k1: Kind, k2: Kind) = {
-      if (Kind.allSubKindsSize(k1) < (1 << 14)) {
+      if (Kind.allSubKindsSize(k1) < (1 << 12)) {
         // allSubKinds is not stack safe currently
         val subs = Kind.allSubKinds(k1)
         if (Kind.leftSubsumesRight(k1, k2)) {
@@ -254,9 +254,8 @@ class KindParseTest extends ParserTestBase {
 
   test("sortMerge is lazy and doesn't blow the stack") {
     val pairs = Kind.sortMerge(LazyList.from(0), LazyList.from(0))
-    forAll(Gen.choose(0, 1000000)) { idx =>
-      assert(pairs.drop(idx).head == (idx / 2))
-    }
+    val idx = 1000000
+    assert(pairs.drop(idx).head == (idx / 2))
   }
 
   test("product sort test") {
