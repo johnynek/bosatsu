@@ -1341,4 +1341,29 @@ def foo[f: * -> *](b: B[f]) -> C[f]:
 x = 1
 """)
   }
+
+  test("rule out unsound kind operations") {
+    parseProgramIllTyped("""#
+def cast[f: 👻* -> *, a, b](in: f[a]) -> f[b]: in
+
+struct Box(item)
+struct Foo
+struct Bar
+
+x = Box(Foo)
+y: Box[Bar] = cast(x)
+""")
+    parseProgramIllTyped("""#
+def widen[f: +* -> *](in: f[forall a. a]) -> forall a. f[a]: in
+
+enum B: T, F
+
+struct Contra[a](fn: a -> B)
+
+c: Contra[forall a. a] = Contra(nothing -> nothing)
+
+# this is unsound
+d: forall a. Contra[a] = widen(c) 
+""")
+  }
 }
