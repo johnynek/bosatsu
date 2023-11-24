@@ -590,14 +590,11 @@ object Infer {
 
     // if t <:< rho, then coerce to rho
     def subsCheckRho2(t: Type.Rho, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
-      // get the kinds to make sure they are well kinded
-      kindOf(t, left).product(kindOf(rho, right)) *>
-      ((t, rho) match {
+      (t, rho) match {
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
-            a1r1 <- unifyFn(a2.length, rho1, left, right)
-            (a1, r1) = a1r1
+            (a1, r1) <- unifyFn(a2.length, rho1, left, right)
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
             rhor2 <- assertRho(r2, s"subsCheckRho2($t, $rho, $left, $right), line 521", right)
@@ -606,8 +603,7 @@ object Infer {
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           for {
-            a2r2 <- unifyFn(a1.length, rho2, right, left)
-            (a2, r2) = a2r2
+            (a2, r2) <- unifyFn(a1.length, rho2, right, left)
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
             rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471", right)
@@ -615,10 +611,8 @@ object Infer {
           } yield coerce
         case (rho1, ta@Type.TyApply(l2, r2)) =>
           for {
-            kl <- kindOf(l2, right)
-            kr <- kindOf(r2, right)
-            l1r1 <- unifyTyApp(rho1, kl, kr, left, right)
-            (l1, r1) = l1r1
+            (kl, kr) <- validateKinds(ta, right)
+            (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
             _ <- varianceOfConsKind(ta, kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
@@ -630,17 +624,18 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            // should we coerce to t2? Seems like... but copying previous code
             _ <- subsCheck(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(ta, ks)
         case (ta@Type.TyApply(l1, r1), rho2) =>
+          // here we know that rho2 != TyApply
           for {
-            kl <- kindOf(l1, left)
-            kr <- kindOf(r1, left)
-            l2r2 <- unifyTyApp(rho2, kl, kr, left, right)
-            (l2, r2) = l2r2
-            _ <- varianceOfConsKind(ta, kl, left).flatMap {
+            (kl, kr) <- validateKinds(ta, left)
+            // here we set the kinds of l2: kl and r2: k2
+            // so the kinds definitely match
+            (l2, r2) <- unifyTyApp(rho2, kl, kr, right, left)
+            // we know that l2 has kind kl
+            _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
               case Variance.Contravariant =>
@@ -660,7 +655,7 @@ object Infer {
             _ <- unify(t1, t2, left, right)
             ck <- checkedKinds
           } yield TypedExpr.coerceRho(t1, ck) // TODO this coerce seems right, since we have unified
-      })
+      }
 
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
@@ -707,27 +702,34 @@ object Infer {
         fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
       }
 
-    private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: => Infer[A]): Infer[A] =
-      Kind.validApply[Error](lKind, rKind,
-        Error.KindCannotTyApply(apType, apRegion)) { cons =>
-          Error.KindInvalidApply(apType, cons, rKind, apRegion)
-        } match {
-          case Right(_) => next
-          case Left(err) => fail(err)
+    def validateKinds(ta: Type.TyApply, region: Region): Infer[(Kind, Kind)] =
+      kindOf(ta.on, region)
+        .parProduct(kindOf(ta.arg, region))
+        .flatMap { case tup @ (lKind, rKind) =>
+          Kind.validApply[Error](lKind, rKind,
+            Error.KindCannotTyApply(ta, region)) { cons =>
+              Error.KindInvalidApply(ta, cons, rKind, region)
+            } match {
+              case Right(_) => pure(tup)
+              case Left(err) => fail(err)
+            }
         }
 
+    // destructure apType in left[right]
+    // invariant apType is being checked against some rho with validated kind: lKind[rKind]
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
-        case ap@Type.TyApply(left, right) =>
-          checkApply(ap, lKind, rKind, apRegion)(pure((left, right)))
+        case ta @ Type.TyApply(left, right) =>
+          // this branch only happens when checking ta <:< (rho: lKind[rKind])
+          // TODO: it seems like we should be checking
+          // the kinds against lKind and rKind
+          validateKinds(ta, apRegion).as((left, right))
         case notApply =>
           for {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
             ap = Type.TyApply(leftT, rightT)
-            _ <- checkApply(ap, lKind, rKind, apRegion) {
-              unify(notApply, ap, apRegion, evidenceRegion)
-            }
+            _ <- unify(notApply, ap, apRegion, evidenceRegion)
           } yield (leftT, rightT)
       }
 

@@ -236,6 +236,11 @@ class RankNInferTest extends AnyFunSuite {
     // Test unbound vars
     assertTypesDisjoint("a", "Int")
     assertTypesDisjoint("Int", "a")
+
+
+    assert_:<:(
+      "forall f: * -> *, a, b. (f[a], a -> f[b]) -> f[b]",
+      "forall f: +* -> *, a, b. (f[a], a -> f[b]) -> f[b]")
   }
 
   test("Basic inferences") {
