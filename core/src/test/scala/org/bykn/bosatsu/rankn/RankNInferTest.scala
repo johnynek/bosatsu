@@ -1324,4 +1324,16 @@ b: exists a. a = T
 c: MyBool = b
 """)
   }
+
+  test("pattern instantiation doesn't violate kinds") {
+    parseProgramIllTyped("""#
+struct B[f: * -> *]
+struct C[f: +* -> *]
+
+def foo[f: * -> *](b: B[f]) -> C[f]:
+  match b:
+    case B: C
+x = 1
+""")
+  }
 }
