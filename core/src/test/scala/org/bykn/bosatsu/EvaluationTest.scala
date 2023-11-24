@@ -1672,12 +1672,12 @@ enum RowEntry[w]:
   REString(value: w[String])
 
 struct RecordField[t](name: String, to_entry: forall w: * -> *. w[t] -> RowEntry[w])
-struct RecordValue[t](value: t)
-struct RecordGetter[shape, t](
+struct RecordValue[t: *](value: t)
+struct RecordGetter[shape: (* -> *) -> *, t](
   field: shape[RecordField] -> RecordField[t],
   value: shape[RecordValue] -> RecordValue[t]
 )
-struct RecordRowEntry[w, t](row_entry: RowEntry[w])
+struct RecordRowEntry[w, t: *](row_entry: RowEntry[w])
 
 struct RecordSet[shape](
   fields: shape[RecordField],
@@ -1722,9 +1722,9 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
   RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
 
 struct NilShape[w: * -> *]
-struct PS[t,rest,w](left: w[t], right: rest[w])
+struct PS[t, rest, w: * -> *](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, NilShape -> _ -> NilShape, NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, NilShape -> _ -> NilShape, _ -> [])
 
 (ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
   _ -> NilShape,
@@ -2736,7 +2736,7 @@ def foo[a](a: a) -> a:
 package Foo
 
 struct RecordValue[t](value: t)
-struct RecordGetter[shape, t](
+struct RecordGetter[shape: (* -> *) -> *, t](
   value: shape[RecordValue] -> RecordValue[t]
 )
 

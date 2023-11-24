@@ -701,12 +701,11 @@ object Infer {
           } yield (argT, resT)
       }
 
-    def unifyKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
-      // TODO this is very fishy that we are checking that one or the other subsumes
-      // seems like we don't want unify, we want to do a subsCheck
-      // we may need to be tracking kinds and widen them...
-      if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
-      else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
+    def subsKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
+      if (Kind.leftSubsumesRight(kind2, kind1)) unit
+      else {
+        fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
+      }
 
     private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: => Infer[A]): Infer[A] =
       Kind.validApply[Error](lKind, rKind,
@@ -1519,13 +1518,13 @@ object Infer {
             case (Nil, tpe) =>
               for {
                 lk <- kindOf(tpe, sigmaRegion)
-                _ <- unifyKind(leftKind, thisTpe, lk, tpe, reg, sigmaRegion)
+                _ <- subsKind(leftKind, thisTpe, lk, tpe, reg, sigmaRegion)
                 _ <- unifyType(thisTpe, tpe, reg, sigmaRegion)
               } yield Map.empty
             case ((v0, k) :: vs, Type.TyApply(left, right)) =>
               for {
                 rk <- kindOf(right, sigmaRegion)
-                _ <- unifyKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
+                _ <- subsKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
             case (_, fa: Type.Quantified) =>
@@ -1542,7 +1541,7 @@ object Infer {
                 right <- newMetaType(k.kind)
                 _ <- unifyType(Type.TyApply(left, right), sigma, reg, sigmaRegion)
                 sigmaKind <- kindOf(sigma, sigmaRegion)
-                _ <- unifyKind(leftKind, Type.TyVar(v0), sigmaKind, sigma, reg, sigmaRegion)
+                _ <- subsKind(leftKind, Type.TyVar(v0), sigmaKind, sigma, reg, sigmaRegion)
                 nextKind = Kind.Cons(k, leftKind)
                 rest <- loop(rest, nextKind, left)
               } yield rest.updated(v0, right)

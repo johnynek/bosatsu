@@ -313,12 +313,13 @@ class RankNInferTest extends AnyFunSuite {
       (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
     )
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
+    val kindNotGen = Type.builtInKinds.updated(optName, Kind.Type)
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
       Infer.typeCheck(term).runFully(
         withBools ++ asFullyQualified(constructors),
         definedOption ++ boolTypes,
-        kinds) match {
+        kindNotGen) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
