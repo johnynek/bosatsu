@@ -1365,5 +1365,17 @@ c: Contra[forall a. a] = Contra(nothing -> nothing)
 # this is unsound
 d: forall a. Contra[a] = widen(c) 
 """)
+    parseProgramIllTyped("""#
+def narrow[f: -* -> *](in: f[exists a. a]) -> forall a. f[a]: in
+
+enum B: T, F
+
+struct Co[a](item: a)
+
+x: Co[exists a. a] = Co(T)
+
+# this is unsound
+y: forall a. Co[a] = narrow(x) 
+""")
   }
 }

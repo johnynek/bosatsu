@@ -167,7 +167,6 @@ object Infer {
     sealed abstract class TypeError extends Single
 
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError
-    case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError
     case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError
     case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError
     case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError
@@ -694,12 +693,6 @@ object Infer {
             resT <- newMetaType(Kind.Type)
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
-      }
-
-    def subsKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
-      if (Kind.leftSubsumesRight(kind2, kind1)) unit
-      else {
-        fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
       }
 
     def validateKinds(ta: Type.TyApply, region: Region): Infer[(Kind, Kind)] =
@@ -1515,18 +1508,20 @@ object Infer {
     def instDataCon(consName: (PackageName, Constructor), sigma: Type, reg: Region, sigmaRegion: Region): Infer[List[Type]] =
       GetDataCons(consName, reg).flatMap { case (args, consParams, tpeName) =>
         val thisTpe = Type.TyConst(tpeName)
+
+        // It seems like maybe we should be checking someting about the kinds
+        // to see if this constructor is well kinded, but remember, this is
+        // for a pattern match, where we have already type checked the scrutinee
+        // and the type constructor is well-kinded by the checks done at kind
+        // inference time.
         def loop(revArgs: List[(Type.Var.Bound, Kind.Arg)], leftKind: Kind, sigma: Type): Infer[Map[Type.Var, Type]] =
           (revArgs, sigma) match {
             case (Nil, tpe) =>
               for {
-                lk <- kindOf(tpe, sigmaRegion)
-                _ <- subsKind(leftKind, thisTpe, lk, tpe, reg, sigmaRegion)
                 _ <- unifyType(thisTpe, tpe, reg, sigmaRegion)
               } yield Map.empty
             case ((v0, k) :: vs, Type.TyApply(left, right)) =>
               for {
-                rk <- kindOf(right, sigmaRegion)
-                _ <- subsKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
             case (_, fa: Type.Quantified) =>
@@ -1542,8 +1537,6 @@ object Infer {
                 left <- newMetaType(Kind.Cons(k, leftKind))
                 right <- newMetaType(k.kind)
                 _ <- unifyType(Type.TyApply(left, right), sigma, reg, sigmaRegion)
-                sigmaKind <- kindOf(sigma, sigmaRegion)
-                _ <- subsKind(leftKind, Type.TyVar(v0), sigmaKind, sigma, reg, sigmaRegion)
                 nextKind = Kind.Cons(k, leftKind)
                 rest <- loop(rest, nextKind, left)
               } yield rest.updated(v0, right)
