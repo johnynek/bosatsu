@@ -805,8 +805,11 @@ object Infer {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta@Type.TyMeta(_), tpe) => unifyVar(meta, tpe, r1, r2)
         case (tpe, meta@Type.TyMeta(_)) => unifyVar(meta, tpe, r2, r1)
-        case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
-          unifyType(a1, a2, r1, r2) *> unifyType(b1, b2, r1, r2)
+        case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
+            validateKinds(t1, r1) &>
+            validateKinds(t2, r2) &>
+            unifyType(a1, a2, r1, r2) &>
+            unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
@@ -827,7 +830,7 @@ object Infer {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
           unify(rho1, rho2, r1, r2)
         case (t1, t2) =>
-          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
+          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
       }
 
     /**
@@ -1075,8 +1078,7 @@ object Infer {
              typedFnTpe <- inferRho(fn)
              (typedFn, fnTRho) = typedFnTpe
              argsRegion = args.reduceMap(region[Expr[A]](_))
-             argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
-             (argT, resT) = argRes
+             (argT, resT) <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              typedArg <- args.zip(argT).parTraverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
              res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
@@ -1091,11 +1093,10 @@ object Infer {
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
-                vb <- unifyFn(args.length, expTy, rr, region(term))
                 // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
                 // in weak prenex form
-                (varsT, bodyT) = vb
-                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
+                (varsT, bodyT) <- unifyFn(args.length, expTy, rr, region(term))
+                bodyTRho <- assertRho(bodyT, s"expected ${show(expTy)} at $rr to be in weak-prenex form.", region(result))
                 // the length of args and varsT must be the same because of unifyFn
                 zipped = args.zip(varsT)
                 namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
@@ -1110,7 +1111,7 @@ object Infer {
                       case ((_, Some(tpe)), varT) =>
                         subsCheck(varT, tpe, region(term), rr)
                       case ((_, None), _) => unit
-                    } *>
+                    } &>
                     checkRho(result, bodyTRho)
                   }
               } yield TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
@@ -1124,8 +1125,7 @@ object Infer {
                     // all functions args of kind type
                     newMetaType(Kind.Type).map((n, _))
                 }
-                typedBodyTpe <- extendEnvList(nameVarsT.toList)(inferRho(result))
-                (typedBody, bodyT) = typedBodyTpe
+                (typedBody, bodyT) <- extendEnvList(nameVarsT.toList)(inferRho(result))
                 _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
@@ -1190,7 +1190,8 @@ object Infer {
               }
 
             rhsBody.map { case (rhs, body) =>
-              TypedExpr.Let(name, rhs, body, isRecursive, tag)
+              // Note: in this branch, we know isRecursive.isRecursive == false
+              TypedExpr.Let(name, rhs, body, recursive = RecursionKind.NonRecursive, tag)
             }
           }
         case Annotation(term, tpe, tag) =>
@@ -1244,15 +1245,14 @@ object Infer {
                         }
                       }
                       else {
-                          branches.parTraverse { case (p, r) =>
+                        for {
+                          tbranches <- branches.parTraverse { case (p, r) =>
                             // note, resT is in weak-prenex form, so this call is permitted
                             checkBranch(p, check, r, resT)
                               .product(solvedExistentitals(unknownExs).map((_, region(r))))
                           }
-                          .flatMap { tbranches =>
-                            unifyBranchExistentials(unknownExs, tbranches.map(_._2))
-                              .as(tbranches.map(_._1))
-                          }
+                          _ <- unifyBranchExistentials(unknownExs, tbranches.map(_._2))
+                        } yield tbranches.map(_._1)
                       }
                   } yield TypedExpr.Match(tsigma, tbranches, tag)
                 case infer@Expected.Inf(_) =>
