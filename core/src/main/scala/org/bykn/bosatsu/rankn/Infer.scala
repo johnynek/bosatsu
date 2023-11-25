@@ -167,7 +167,6 @@ object Infer {
     sealed abstract class TypeError extends Single
 
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError
-    case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError
     case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError
     case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError
     case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError
@@ -590,14 +589,11 @@ object Infer {
 
     // if t <:< rho, then coerce to rho
     def subsCheckRho2(t: Type.Rho, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
-      // get the kinds to make sure they are well kinded
-      kindOf(t, left).product(kindOf(rho, right)) *>
-      ((t, rho) match {
+      (t, rho) match {
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
-            a1r1 <- unifyFn(a2.length, rho1, left, right)
-            (a1, r1) = a1r1
+            (a1, r1) <- unifyFn(a2.length, rho1, left, right)
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
             rhor2 <- assertRho(r2, s"subsCheckRho2($t, $rho, $left, $right), line 521", right)
@@ -606,8 +602,7 @@ object Infer {
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           for {
-            a2r2 <- unifyFn(a1.length, rho2, right, left)
-            (a2, r2) = a2r2
+            (a2, r2) <- unifyFn(a1.length, rho2, right, left)
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
             rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471", right)
@@ -615,10 +610,8 @@ object Infer {
           } yield coerce
         case (rho1, ta@Type.TyApply(l2, r2)) =>
           for {
-            kl <- kindOf(l2, right)
-            kr <- kindOf(r2, right)
-            l1r1 <- unifyTyApp(rho1, kl, kr, left, right)
-            (l1, r1) = l1r1
+            (kl, kr) <- validateKinds(ta, right)
+            (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
             _ <- varianceOfConsKind(ta, kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
@@ -630,17 +623,18 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            // should we coerce to t2? Seems like... but copying previous code
             _ <- subsCheck(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(ta, ks)
         case (ta@Type.TyApply(l1, r1), rho2) =>
+          // here we know that rho2 != TyApply
           for {
-            kl <- kindOf(l1, left)
-            kr <- kindOf(r1, left)
-            l2r2 <- unifyTyApp(rho2, kl, kr, left, right)
-            (l2, r2) = l2r2
-            _ <- varianceOfConsKind(ta, kl, left).flatMap {
+            (kl, kr) <- validateKinds(ta, left)
+            // here we set the kinds of l2: kl and r2: k2
+            // so the kinds definitely match
+            (l2, r2) <- unifyTyApp(rho2, kl, kr, right, left)
+            // we know that l2 has kind kl
+            _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
               case Variance.Contravariant =>
@@ -660,7 +654,7 @@ object Infer {
             _ <- unify(t1, t2, left, right)
             ck <- checkedKinds
           } yield TypedExpr.coerceRho(t1, ck) // TODO this coerce seems right, since we have unified
-      })
+      }
 
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
@@ -701,34 +695,34 @@ object Infer {
           } yield (argT, resT)
       }
 
-    def unifyKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
-      // TODO this is very fishy that we are checking that one or the other subsumes
-      // seems like we don't want unify, we want to do a subsCheck
-      // we may need to be tracking kinds and widen them...
-      if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
-      else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
-
-    private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: => Infer[A]): Infer[A] =
-      Kind.validApply[Error](lKind, rKind,
-        Error.KindCannotTyApply(apType, apRegion)) { cons =>
-          Error.KindInvalidApply(apType, cons, rKind, apRegion)
-        } match {
-          case Right(_) => next
-          case Left(err) => fail(err)
+    def validateKinds(ta: Type.TyApply, region: Region): Infer[(Kind, Kind)] =
+      kindOf(ta.on, region)
+        .parProduct(kindOf(ta.arg, region))
+        .flatMap { case tup @ (lKind, rKind) =>
+          Kind.validApply[Error](lKind, rKind,
+            Error.KindCannotTyApply(ta, region)) { cons =>
+              Error.KindInvalidApply(ta, cons, rKind, region)
+            } match {
+              case Right(_) => pure(tup)
+              case Left(err) => fail(err)
+            }
         }
 
+    // destructure apType in left[right]
+    // invariant apType is being checked against some rho with validated kind: lKind[rKind]
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
-        case ap@Type.TyApply(left, right) =>
-          checkApply(ap, lKind, rKind, apRegion)(pure((left, right)))
+        case ta @ Type.TyApply(left, right) =>
+          // this branch only happens when checking ta <:< (rho: lKind[rKind])
+          // TODO: it seems like we should be checking
+          // the kinds against lKind and rKind
+          validateKinds(ta, apRegion).as((left, right))
         case notApply =>
           for {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
             ap = Type.TyApply(leftT, rightT)
-            _ <- checkApply(ap, lKind, rKind, apRegion) {
-              unify(notApply, ap, apRegion, evidenceRegion)
-            }
+            _ <- unify(notApply, ap, apRegion, evidenceRegion)
           } yield (leftT, rightT)
       }
 
@@ -811,8 +805,11 @@ object Infer {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta@Type.TyMeta(_), tpe) => unifyVar(meta, tpe, r1, r2)
         case (tpe, meta@Type.TyMeta(_)) => unifyVar(meta, tpe, r2, r1)
-        case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
-          unifyType(a1, a2, r1, r2) *> unifyType(b1, b2, r1, r2)
+        case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
+            validateKinds(t1, r1) &>
+            validateKinds(t2, r2) &>
+            unifyType(a1, a2, r1, r2) &>
+            unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
@@ -833,7 +830,7 @@ object Infer {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
           unify(rho1, rho2, r1, r2)
         case (t1, t2) =>
-          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
+          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
       }
 
     /**
@@ -1081,8 +1078,7 @@ object Infer {
              typedFnTpe <- inferRho(fn)
              (typedFn, fnTRho) = typedFnTpe
              argsRegion = args.reduceMap(region[Expr[A]](_))
-             argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
-             (argT, resT) = argRes
+             (argT, resT) <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              typedArg <- args.zip(argT).parTraverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
              res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
@@ -1097,11 +1093,10 @@ object Infer {
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
-                vb <- unifyFn(args.length, expTy, rr, region(term))
                 // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
                 // in weak prenex form
-                (varsT, bodyT) = vb
-                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
+                (varsT, bodyT) <- unifyFn(args.length, expTy, rr, region(term))
+                bodyTRho <- assertRho(bodyT, s"expected ${show(expTy)} at $rr to be in weak-prenex form.", region(result))
                 // the length of args and varsT must be the same because of unifyFn
                 zipped = args.zip(varsT)
                 namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
@@ -1116,7 +1111,7 @@ object Infer {
                       case ((_, Some(tpe)), varT) =>
                         subsCheck(varT, tpe, region(term), rr)
                       case ((_, None), _) => unit
-                    } *>
+                    } &>
                     checkRho(result, bodyTRho)
                   }
               } yield TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
@@ -1130,8 +1125,7 @@ object Infer {
                     // all functions args of kind type
                     newMetaType(Kind.Type).map((n, _))
                 }
-                typedBodyTpe <- extendEnvList(nameVarsT.toList)(inferRho(result))
-                (typedBody, bodyT) = typedBodyTpe
+                (typedBody, bodyT) <- extendEnvList(nameVarsT.toList)(inferRho(result))
                 _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
@@ -1196,7 +1190,8 @@ object Infer {
               }
 
             rhsBody.map { case (rhs, body) =>
-              TypedExpr.Let(name, rhs, body, isRecursive, tag)
+              // Note: in this branch, we know isRecursive.isRecursive == false
+              TypedExpr.Let(name, rhs, body, recursive = RecursionKind.NonRecursive, tag)
             }
           }
         case Annotation(term, tpe, tag) =>
@@ -1250,15 +1245,14 @@ object Infer {
                         }
                       }
                       else {
-                          branches.parTraverse { case (p, r) =>
+                        for {
+                          tbranches <- branches.parTraverse { case (p, r) =>
                             // note, resT is in weak-prenex form, so this call is permitted
                             checkBranch(p, check, r, resT)
                               .product(solvedExistentitals(unknownExs).map((_, region(r))))
                           }
-                          .flatMap { tbranches =>
-                            unifyBranchExistentials(unknownExs, tbranches.map(_._2))
-                              .as(tbranches.map(_._1))
-                          }
+                          _ <- unifyBranchExistentials(unknownExs, tbranches.map(_._2))
+                        } yield tbranches.map(_._1)
                       }
                   } yield TypedExpr.Match(tsigma, tbranches, tag)
                 case infer@Expected.Inf(_) =>
@@ -1514,18 +1508,20 @@ object Infer {
     def instDataCon(consName: (PackageName, Constructor), sigma: Type, reg: Region, sigmaRegion: Region): Infer[List[Type]] =
       GetDataCons(consName, reg).flatMap { case (args, consParams, tpeName) =>
         val thisTpe = Type.TyConst(tpeName)
+
+        // It seems like maybe we should be checking someting about the kinds
+        // to see if this constructor is well kinded, but remember, this is
+        // for a pattern match, where we have already type checked the scrutinee
+        // and the type constructor is well-kinded by the checks done at kind
+        // inference time.
         def loop(revArgs: List[(Type.Var.Bound, Kind.Arg)], leftKind: Kind, sigma: Type): Infer[Map[Type.Var, Type]] =
           (revArgs, sigma) match {
             case (Nil, tpe) =>
               for {
-                lk <- kindOf(tpe, sigmaRegion)
-                _ <- unifyKind(leftKind, thisTpe, lk, tpe, reg, sigmaRegion)
                 _ <- unifyType(thisTpe, tpe, reg, sigmaRegion)
               } yield Map.empty
             case ((v0, k) :: vs, Type.TyApply(left, right)) =>
               for {
-                rk <- kindOf(right, sigmaRegion)
-                _ <- unifyKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
             case (_, fa: Type.Quantified) =>
@@ -1541,8 +1537,6 @@ object Infer {
                 left <- newMetaType(Kind.Cons(k, leftKind))
                 right <- newMetaType(k.kind)
                 _ <- unifyType(Type.TyApply(left, right), sigma, reg, sigmaRegion)
-                sigmaKind <- kindOf(sigma, sigmaRegion)
-                _ <- unifyKind(leftKind, Type.TyVar(v0), sigmaKind, sigma, reg, sigmaRegion)
                 nextKind = Kind.Cons(k, leftKind)
                 rest <- loop(rest, nextKind, left)
               } yield rest.updated(v0, right)

@@ -1722,7 +1722,7 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
   RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
 
 struct NilShape[w: * -> *]
-struct PS[t,rest,w](left: w[t], right: rest[w])
+struct PS[t, rest, w](left: w[t], right: rest[w])
 
 new_record_set = RecordSet(NilShape, [], NilShape, NilShape -> _ -> NilShape, NilShape -> [])
 

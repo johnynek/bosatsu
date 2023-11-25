@@ -236,6 +236,11 @@ class RankNInferTest extends AnyFunSuite {
     // Test unbound vars
     assertTypesDisjoint("a", "Int")
     assertTypesDisjoint("Int", "a")
+
+
+    assert_:<:(
+      "forall f: * -> *, a, b. (f[a], a -> f[b]) -> f[b]",
+      "forall f: +* -> *, a, b. (f[a], a -> f[b]) -> f[b]")
   }
 
   test("Basic inferences") {
@@ -313,12 +318,13 @@ class RankNInferTest extends AnyFunSuite {
       (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
     )
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
+    val kindNotGen = Type.builtInKinds.updated(optName, Kind.Type)
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
       Infer.typeCheck(term).runFully(
         withBools ++ asFullyQualified(constructors),
         definedOption ++ boolTypes,
-        kinds) match {
+        kindNotGen) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
@@ -1321,6 +1327,55 @@ enum MyBool: T, F
 
 b: exists a. a = T
 c: MyBool = b
+""")
+  }
+
+  test("pattern instantiation doesn't violate kinds") {
+    parseProgramIllTyped("""#
+struct B[f: * -> *]
+struct C[f: +* -> *]
+
+def foo[f: * -> *](b: B[f]) -> C[f]:
+  match b:
+    case B: C
+x = 1
+""")
+  }
+
+  test("rule out unsound kind operations") {
+    parseProgramIllTyped("""#
+def cast[f: 👻* -> *, a, b](in: f[a]) -> f[b]: in
+
+struct Box(item)
+struct Foo
+struct Bar
+
+x = Box(Foo)
+y: Box[Bar] = cast(x)
+""")
+    parseProgramIllTyped("""#
+def widen[f: +* -> *](in: f[forall a. a]) -> forall a. f[a]: in
+
+enum B: T, F
+
+struct Contra[a](fn: a -> B)
+
+c: Contra[forall a. a] = Contra(nothing -> nothing)
+
+# this is unsound
+d: forall a. Contra[a] = widen(c) 
+""")
+    parseProgramIllTyped("""#
+def narrow[f: -* -> *](in: f[exists a. a]) -> forall a. f[a]: in
+
+enum B: T, F
+
+struct Co[a](item: a)
+
+x: Co[exists a. a] = Co(T)
+
+# this is unsound
+y: forall a. Co[a] = narrow(x) 
 """)
   }
 }

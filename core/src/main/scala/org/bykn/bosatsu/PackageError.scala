@@ -332,27 +332,6 @@ object PackageError {
               Doc.text("this sometimes happens when a function arg has been omitted, or an illegal recursive type or function.")
 
             (doc, Some(metaR))
-          case Infer.Error.KindNotUnifiable(leftK, leftT, rightK, rightT, leftR, rightR) =>
-            val tStr = showTypes(pack, leftT :: rightT :: Nil)
-
-            val context0 =
-                lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
-            val context1 = {
-              if (leftR != rightR) {
-                Doc.text(" at: ") + Doc.hardLine +
-                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
-              }
-              else {
-                Doc.empty
-              }
-            }
-
-            val doc = Doc.text("kind mismatch error: ") +
-              tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" at:") + Doc.hardLine + context0 +
-              Doc.text(" cannot be unified with kind: ") +
-              tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK) + context1
-
-            (doc, Some(leftR))
           case Infer.Error.NotPolymorphicEnough(tpe, _, _, region) => 
             val tmap = showTypes(pack, tpe :: Nil)
             val context =
