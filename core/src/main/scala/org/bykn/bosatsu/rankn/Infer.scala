@@ -74,7 +74,8 @@ object Infer {
     implicit val inferParallel: cats.Parallel[Infer] =
       new ParallelViaProduct[Infer] {
         def monad = inferMonad
-        def parallelProduct[A, B](fa: Infer[A], fb: Infer[B]): Infer[(A, B)] = ParallelProduct(fa, fb)
+        def parallelProduct[A, B](fa: Infer[A], fb: Infer[B]): Infer[(A, B)] =
+          ParallelProduct(fa, fb)
       }
 
 
@@ -93,8 +94,8 @@ object Infer {
     val typeCons: Map[(PackageName, Constructor), Cons],
     val variances: Map[Type.Const.Defined, Kind]) {
 
-    def addVars(vt: List[(Name, Type)]): Env =
-      new Env(uniq, vars = vars ++ vt, typeCons, variances)
+    def addVars(vt: NonEmptyList[(Name, Type)]): Env =
+      new Env(uniq, vars = (vars + vt.head) ++ vt.tail, typeCons, variances)
 
     private[this] val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
@@ -143,9 +144,6 @@ object Infer {
     Lift(RefSpace.pure(Right(a)))
 
   val unit: Infer[Unit] = pure(())
-
-  def require(b: Boolean, err: => Error): Infer[Unit] =
-    if (b) unit else fail(err)
 
   // Fails if v is not in the env
   def lookupVarType(v: Name, reg: Region): Infer[Type] =
@@ -220,18 +218,32 @@ object Infer {
 
     // here is when we have more than one error
     case class Combine(left: Error, right: Error) extends Error {
-      private def flatten(errs: NonEmptyList[Error], acc: Chain[Single]): NonEmptyChain[Single] =
+      private def flatten(errs: NonEmptyList[Error], inAcc: Set[Single], acc: Chain[Single]): NonEmptyChain[Single] =
         errs match {
           case NonEmptyList(s: Single, tail) =>
             tail match {
-              case Nil => NonEmptyChain.fromChainAppend(acc, s)
-              case h :: t => flatten(NonEmptyList(h, t), acc :+ s)
+              case Nil =>
+                if (inAcc(s)) {
+                  // we know s is in acc, so Chain must not be empty
+                  NonEmptyChain.fromChainUnsafe(acc)
+                }
+                else {
+                  NonEmptyChain.fromChainAppend(acc, s)
+                }
+              case h :: t =>
+                if (inAcc(s)) {
+                  flatten(NonEmptyList(h, t), inAcc, acc)
+                }
+                else {
+                  flatten(NonEmptyList(h, t), inAcc + s, acc :+ s)
+                }
             }
           case NonEmptyList(Combine(a, b), tail) =>
-            flatten(NonEmptyList(a, b :: tail), acc)
+            flatten(NonEmptyList(a, b :: tail), inAcc, acc)
         }
 
-      lazy val flatten: NonEmptyChain[Single] = flatten(NonEmptyList(left, right :: Nil), Chain.empty)
+      lazy val flatten: NonEmptyChain[Single] =
+        flatten(NonEmptyList(left, right :: Nil), Set.empty, Chain.empty)
     }
   }
 
@@ -254,23 +266,23 @@ object Infer {
     case class FlatMap[A, B](fa: Infer[A], fn: A => Infer[B]) extends Infer[B] {
       def run(env: Env) =
         fa.run(env).flatMap {
-          case Left(msg) => RefSpace.pure(Left(msg))
           case Right(a) => fn(a).run(env)
+          case left @ Left(_) => RefSpace.pure(left.rightCast)
         }
     }
 
     case class ParallelProduct[A, B](fa: Infer[A], fb: Infer[B]) extends Infer[(A, B)] {
       def run(env: Env) =
         fa.run(env).flatMap {
-          case Left(errA) =>
+          case Right(a) => fb.run(env).map {
+            case Right(b) => Right((a, b))
+            case left @ Left(_) => left.rightCast
+          }
+          case left @ Left(errA) =>
             fb.run(env).map {
-              case Right(_) => Left(errA)
+              case Right(_) => left.rightCast
               case Left(errB) => Left(Error.Combine(errA, errB))
             }  
-          case Right(a) => fb.run(env).map {
-            case Left(err) => Left(err)
-            case Right(b) => Right((a, b))
-          }
         }
     }
 
@@ -287,7 +299,7 @@ object Infer {
       def run(env: Env) =
         fa.run(env).flatMap {
           case Right(a) => RefSpace.pure(fn(a))
-          case Left(msg) => RefSpace.pure(Left(msg))
+          case left @ Left(_) => RefSpace.pure(left.rightCast)
         }
     }
 
@@ -313,14 +325,13 @@ object Infer {
     def GetDataCons(fqn: (PackageName, Constructor), reg: Region): Infer[Cons] =
       GetEnv.mapEither { env =>
         env.typeCons.get(fqn) match {
+          case Some(res) => Right(res)
           case None =>
             Left(Error.UnknownConstructor(fqn, reg, env))
-          case Some(res) =>
-            Right(res)
         }
       }
 
-    case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
+    case class ExtendEnvs[A](vt: NonEmptyList[(Name, Type)], in: Infer[A]) extends Infer[A] {
       def run(env: Env) = in.run(env.addVars(vt))
     }
 
@@ -442,10 +453,10 @@ object Infer {
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
 
-    def getExistentialMetas(ts: List[Type]): Infer[SortedSet[Type.Meta]] = {
+    def getExistentialMetas(ts: List[Type]): Infer[Set[Type.Meta]] = {
       val pureEmpty = pure(SortedSet.empty[Type.Meta])
 
-      def existentialsOf(tm: Type.Meta): Infer[SortedSet[Type.Meta]] = {
+      def existentialsOf(tm: Type.Meta): Infer[Set[Type.Meta]] = {
         val parents = readMeta(tm).flatMap {
           case Some(Type.TyMeta(m2)) => existentialsOf(m2)
           case _ => pureEmpty
@@ -459,7 +470,7 @@ object Infer {
         zonked <- ts.traverse(zonkType)
         metas = Type.metaTvs(zonked)
         metaSet <- metas.toList.traverse(existentialsOf)
-      } yield metaSet.foldLeft(SortedSet.empty[Type.Meta])(_ | _)
+      } yield metaSet.foldLeft(Set.empty[Type.Meta])(_ | _)
     }
 
     val zonk: Type.Meta => Infer[Option[Type.Rho]] =
@@ -614,9 +625,9 @@ object Infer {
             (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
             _ <- varianceOfConsKind(ta, kl, right).flatMap {
               case Variance.Covariant =>
-                subsCheck(r1, r2, left, right).void
+                subsCheck(r1, r2, left, right)
               case Variance.Contravariant =>
-                subsCheck(r2, r1, right, left).void
+                subsCheck(r2, r1, right, left)
               case Variance.Phantom =>
                 // this doesn't matter
                 unit
@@ -636,9 +647,9 @@ object Infer {
             // we know that l2 has kind kl
             _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
               case Variance.Covariant =>
-                subsCheck(r1, r2, left, right).void
+                subsCheck(r1, r2, left, right)
               case Variance.Contravariant =>
-                subsCheck(r2, r1, right, left).void
+                subsCheck(r2, r1, right, left)
               case Variance.Phantom =>
                 // this doesn't matter
                 unit
@@ -680,19 +691,17 @@ object Infer {
           if (fnArity == arity) pure((arg, res))
           else fail(Error.ArityMismatch(fnArity, fnRegion, arity, evidenceRegion))
         case tau =>
-          val args =
-            if (Type.FnType.ValidArity.unapply(arity)) {
-              pure(NonEmptyList.fromListUnsafe((1 to arity).toList))
-            }
-            else {
-              fail(Error.ArityTooLarge(arity, Type.FnType.MaxSize, evidenceRegion))
-            }
-          for {
-            sized <- args
-            argT <- sized.traverse(_ => newMetaType(Kind.Type))
-            resT <- newMetaType(Kind.Type)
-            _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
-          } yield (argT, resT)
+          if (Type.FnType.ValidArity.unapply(arity)) {
+            val sized = NonEmptyList.fromListUnsafe((1 to arity).toList)
+            for {
+              argT <- sized.traverse(_ => newMeta)
+              resT <- newMeta
+              _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
+            } yield (argT, resT)
+          }
+          else {
+            fail(Error.ArityTooLarge(arity, Type.FnType.MaxSize, evidenceRegion))
+          }
       }
 
     def validateKinds(ta: Type.TyApply, region: Region): Infer[(Kind, Kind)] =
@@ -833,6 +842,7 @@ object Infer {
           subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
       }
 
+    private val emptyRef = lift(RefSpace.newRef[Option[Type.Tau]](None))
     /**
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
@@ -840,12 +850,15 @@ object Infer {
     def newMetaType0(kind: Kind, existential: Boolean): Infer[Type.TyMeta] =
       for {
         id <- nextId
-        ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
+        ref <- emptyRef
         meta = Type.Meta(kind, id, existential, ref)
       } yield Type.TyMeta(meta)
 
     def newMetaType(kind: Kind): Infer[Type.TyMeta] =
       newMetaType0(kind, existential = false)
+
+    // the common case of a Meta with Kind = Type
+    val newMeta: Infer[Type.TyMeta] = newMetaType(Kind.Type)
 
     def newExistential(kind: Kind): Infer[Type.TyMeta] =
       newMetaType0(kind, existential = true)
@@ -1123,9 +1136,9 @@ object Infer {
                     pure((n, tpe))
                   case (n, None) =>
                     // all functions args of kind type
-                    newMetaType(Kind.Type).map((n, _))
+                    newMeta.map((n, _))
                 }
-                (typedBody, bodyT) <- extendEnvList(nameVarsT.toList)(inferRho(result))
+                (typedBody, bodyT) <- extendEnvNonEmptyList(nameVarsT)(inferRho(result))
                 _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
@@ -1146,7 +1159,7 @@ object Infer {
                     checkSigma(rhs, tpe).parProduct(typeCheckRho(body, expect))
                   }
               case notAnnotated =>
-                newMetaType(Kind.Type) // the kind of a let value is a Type
+                newMeta // the kind of a let value is a Type
                   .flatMap { rhsTpe =>
                     extendEnv(name, rhsTpe) {
                       for {
@@ -1234,7 +1247,7 @@ object Infer {
               expect match {
                 case Expected.Check((resT, _)) =>
                   for {
-                    rest <- envTail
+                    rest <- envTypes
                     unknownExs <- unsolvedExistentials(resT :: rest)
                     tbranches <-
                       if (unknownExs.isEmpty) {
@@ -1426,7 +1439,7 @@ object Infer {
                 pure(Type.forAll(b, item))
               case (_, reg) =>
                 for {
-                  tpeA <- newMetaType(Kind.Type) // lists +* -> *
+                  tpeA <- newMeta // lists +* -> *
                   listA = Type.TyApply(Type.ListType, tpeA)
                   _ <- unifyType(listA, sigma.value._1, reg, sigma.value._2)
                 } yield tpeA
@@ -1649,7 +1662,7 @@ object Infer {
       } yield q
 
     // allocate this once and reuse
-    private val envTail = getEnv.map(_.values.toList)
+    private val envTypes = getEnv.map(_.values.toList)
     
     def quantifyMetas(metas: List[Type.TyMeta]): FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] =
       NonEmptyList.fromList(metas) match {
@@ -1687,7 +1700,7 @@ object Infer {
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
       for {
-        checkRho <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](tpe, regionT, envTail) { (metas, rho) =>
+        checkRho <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](tpe, regionT, envTypes) { (metas, rho) =>
           if ((rho: Type) === tpe) {
             // we don't need to zonk here
             pure(checkRhoK(rho))
@@ -1740,7 +1753,7 @@ object Infer {
       case Expr.Annotated(tpe) =>
         extendEnv(name, tpe)(checkSigma(expr, tpe))
       case notAnnotated =>
-        newMetaType(Kind.Type).flatMap { tpe =>
+        newMeta.flatMap { tpe =>
           extendEnv(name, tpe)(typeCheckMeta(notAnnotated, Some((name, tpe, region(notAnnotated)))))
         }
     }
@@ -1800,12 +1813,18 @@ object Infer {
   }
 
   def extendEnv[A](varName: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
-    extendEnvList((varName, tpe) :: Nil)(of)
+    extendEnvNonEmptyList(NonEmptyList.one((varName, tpe)))(of)
 
   def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
+    NonEmptyList.fromList(bindings) match {
+      case Some(nel) => extendEnvNonEmptyList(nel)(of)
+      case None => of
+    }
+
+  def extendEnvNonEmptyList[A](bindings: NonEmptyList[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
-  private def extendEnvListPack[A](pack: PackageName, nameTpe: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
+  private def extendEnvListPack[A](pack: PackageName, nameTpe: NonEmptyList[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(nameTpe.map { case (name, tpe) => ((Some(pack), name), tpe) }, of)
 
   /**
@@ -1821,19 +1840,18 @@ object Infer {
       groups match {
         case Nil => Infer.pure(Nil)
         case group :: tail =>
-          group.parTraverse { case (name, rec, expr) =>
-            (if (rec.isRecursive) recursiveTypeCheck(name, expr) else typeCheck(expr))
-              .map { te => (name, rec, te) }
-          }
-          .flatMap { groupChain =>
-            val glist = groupChain.toList
-            extendEnvListPack(pack, glist.map { case (b, _, te) =>
-              (b, te.getType)
-            }) {
-              run(tail)
-            }  
-            .map(glist ::: _)
-          }
+          for {
+            groupChain <- group.parTraverse { case (name, rec, expr) =>
+              (if (rec.isRecursive) recursiveTypeCheck(name, expr) else typeCheck(expr))
+                .map { te => (name, rec, te) }
+            }
+            glist = groupChain.toNonEmptyList
+            tailRes <- extendEnvListPack(pack, glist.map { case (b, _, te) =>
+                (b, te.getType)
+              }) {
+                run(tail)
+              }  
+          } yield glist.head :: glist.tail ::: tailRes
         }
 
     val groups: List[G] =
