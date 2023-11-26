@@ -11,7 +11,7 @@ class TypeTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 1000)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =
@@ -24,6 +24,16 @@ class TypeTest extends AnyFunSuite {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       val frees = Type.freeTyVars(ts)
       assert(frees.distinct == frees)
+    }
+  }
+
+  test("normalize preserves free vars") {
+    forAll(NTypeGen.genDepth03) { ts =>
+      val frees = Type.freeTyVars(ts :: Nil)
+      val norm = Type.normalize(ts)
+      val freeNorm = Type.freeTyVars(norm :: Nil)
+      assert(frees == freeNorm,
+        s"${Type.typeParser.render(ts)} => ${Type.typeParser.render(norm)}")
     }
   }
 
@@ -59,6 +69,35 @@ class TypeTest extends AnyFunSuite {
   test("normalization never throws") {
     forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
+    }
+    
+    {
+      import Type._
+      import Var.Bound
+      import org.bykn.bosatsu.Variance._
+      import org.bykn.bosatsu.Kind.{Arg, Cons, Type => KType}
+      
+      val qt1 = Quantified(Quantification.Dual(
+        NonEmptyList((Bound("qsnMgkhqY"), Cons(Arg(Covariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Phantom, KType), KType))), List((Bound("u"), Cons(Arg(Contravariant, KType), Cons(Arg(Invariant, KType), KType))))),
+        NonEmptyList((Bound("nack"), Cons(Arg(Invariant, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), KType))), List((Bound("u"), Cons(Arg(Contravariant, Cons(Arg(Contravariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("vHxbikOne"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("jofpdjgp"), Cons(Arg(Covariant, Cons(Arg(Phantom, KType), KType)), KType)), (Bound("r"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Invariant, KType), KType)))))),
+        TyVar(Bound("u")))
+
+      val regressions: List[Type] =
+          qt1 ::
+          Nil
+
+      regressions.foreach { t =>
+        val normt = Type.normalize(t)
+        def show(t: Type): String =
+          Type.typeParser.render(t)
+
+        val normt2 = Type.normalize(normt)
+        assert(normt == normt2,
+          s"${show(normt)} normalizes to ${show(normt2)}")
+        assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")  
+      }
+      
+      assert(Type.freeBoundTyVars(qt1.in :: Nil) == List(Bound("u")))
     }
   }
 
