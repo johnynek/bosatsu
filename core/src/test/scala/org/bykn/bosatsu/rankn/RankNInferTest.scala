@@ -1234,6 +1234,14 @@ x = hide(1)
 y = hide("1")
 z = makeTup(x, y)
 """, "exists a, b. Tup[a, b]")
+    parseProgram("""#
+enum B: T, F
+
+struct Inv[a: *](item: a)
+
+any: exists a. a = T
+x = Inv(any)
+""", "exists a. Inv[a]")
   }
 
   test("we can use existentials in branches") {
@@ -1376,6 +1384,18 @@ x: Co[exists a. a] = Co(T)
 
 # this is unsound
 y: forall a. Co[a] = narrow(x) 
+""")
+
+    parseProgramIllTyped("""#
+struct Pair(a, b)
+
+def narrow(
+  in: exists f: -* -> *. Pair[f[exists a. a],
+  forall c. f[c] -> c]) -> forall a. exists f: -* -> *. Pair[f[a], forall c. f[c] -> c]: in
+
+def unsound[f: * -> *](fany: f[exists a. a], get: forall a. f[a] -> a) -> forall a. a:
+  Pair(fa, ex) = narrow(Pair(fany, get))
+  ex(fa)
 """)
   }
 }
