@@ -555,8 +555,7 @@ object SeqPattern {
 
             { (s: S) =>
               for {
-                ht <- split.uncons(s)
-                (h, t) = ht
+                (h, t) <- split.uncons(s)
                 rh <- mh(h)
                 rt <- mt(t)
               } yield split.monoidResult.combine(rh, rt) }
@@ -565,8 +564,7 @@ object SeqPattern {
 
             { (s: S) =>
               for {
-                ht <- split.uncons(s)
-                (_, t) = ht
+                (_, t) <- split.uncons(s)
                 rt <- mt(t)
               } yield rt }
           case Cat(Wildcard, t) =>
