@@ -66,6 +66,15 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("sameAs is transitive") {
+    val g = NTypeGen.genDepth03
+    forAll(g, g, g) { (a, b, c) =>
+      if (a.sameAs(b)) {
+        assert(a.sameAs(c) == b.sameAs(c))
+      }
+    }
+  }
+
   test("normalization never throws") {
     forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
@@ -82,8 +91,13 @@ class TypeTest extends AnyFunSuite {
         NonEmptyList((Bound("nack"), Cons(Arg(Invariant, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), KType))), List((Bound("u"), Cons(Arg(Contravariant, Cons(Arg(Contravariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("vHxbikOne"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("jofpdjgp"), Cons(Arg(Covariant, Cons(Arg(Phantom, KType), KType)), KType)), (Bound("r"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Invariant, KType), KType)))))),
         TyVar(Bound("u")))
 
+      val qt2 = Quantified(
+        Quantification.Exists(NonEmptyList((Bound("chajb"), Cons(Arg(Contravariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), List((Bound("e"), Cons(Arg(Invariant, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType)))), (Bound("vg"), Cons(Arg(Phantom, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), KType))), (Bound("vvki"), Cons(Arg(Contravariant, Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))), KType)), (Bound("e"), Cons(Arg(Invariant, Cons(Arg(Invariant, KType), KType)), Cons(Arg(Phantom, KType), KType)))))),
+        TyVar(Bound("e")))
+
       val regressions: List[Type] =
           qt1 ::
+          qt2 ::
           Nil
 
       regressions.foreach { t =>

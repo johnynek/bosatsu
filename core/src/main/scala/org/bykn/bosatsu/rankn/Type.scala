@@ -418,8 +418,22 @@ object Type {
   def normalize(tpe: Type): Type =
     tpe match {
       case q: Quantified =>
-        val foralls = q.forallList
-        val exists = q.existList
+        def removeDups(lst: List[(Var.Bound, Kind)]): List[(Var.Bound, Kind)] = {
+          def loop(
+            lst: List[(Var.Bound, Kind)],
+            back: Set[Var.Bound]): (List[(Var.Bound, Kind)], Set[Var.Bound]) =
+              lst match {
+                case (pair @ (b, _)) :: rest =>
+                  val res @ (r1, back1) = loop(rest, back)
+                  if (back1(b)) res
+                  else (pair :: r1, back1 + b)
+                case Nil => (Nil, back)
+              }
+
+          loop(lst, Set.empty)._1
+        }
+        val foralls = removeDups(q.forallList)
+        val exists = removeDups(q.existList)
         val in = q.in
           
         val inFree = freeBoundTyVars(in :: Nil)
