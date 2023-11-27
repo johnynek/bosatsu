@@ -75,6 +75,13 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("a.sameAs(b) == (normalize(a) == normalize(b))") {
+    val g = NTypeGen.genDepth03
+    forAll(g, g) { (a, b) =>
+      assert(a.sameAs(b) == (Type.normalize(a) == Type.normalize(b)))
+    }
+  }
+
   test("normalization never throws") {
     forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))

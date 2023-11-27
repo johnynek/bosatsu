@@ -12,6 +12,8 @@ import cats.implicits._
 
 sealed abstract class Type {
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
+
+  def normalize: Type
 }
 
 object Type {
@@ -47,7 +49,9 @@ object Type {
     implicit val orderingRho: Ordering[Rho] = orderRho.toOrdering
   }
 
-  sealed abstract class Leaf extends Rho
+  sealed abstract class Leaf extends Rho {
+    def normalize: Type = this
+  }
   type Tau = Rho // no forall or exists anywhere
 
   sealed abstract class Quantification {
@@ -133,6 +137,8 @@ object Type {
     def vars: NonEmptyList[(Var.Bound, Kind)] = quant.vars
     def existList: List[(Var.Bound, Kind)] = quant.existList
     def forallList: List[(Var.Bound, Kind)] = quant.forallList
+
+    lazy val normalize: Type = Type.runNormalize(this)
   }
 
   object Quantified {
@@ -146,7 +152,9 @@ object Type {
       }
   }
 
-  case class TyApply(on: Type, arg: Type) extends Rho
+  case class TyApply(on: Type, arg: Type) extends Rho {
+    lazy val normalize: Type = TyApply(on.normalize, arg.normalize)
+  }
   case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
   case class TyMeta(toMeta: Meta) extends Leaf
@@ -415,22 +423,27 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b@Type.Var.Bound(_) => b }
 
-  def normalize(tpe: Type): Type =
+  @inline final def normalize(tpe: Type): Type = tpe.normalize
+
+  private def runNormalize(tpe: Type): Type =
     tpe match {
       case q: Quantified =>
-        def removeDups(lst: List[(Var.Bound, Kind)]): List[(Var.Bound, Kind)] = {
-          def loop(
-            lst: List[(Var.Bound, Kind)],
-            back: Set[Var.Bound]): (List[(Var.Bound, Kind)], Set[Var.Bound]) =
-              lst match {
-                case (pair @ (b, _)) :: rest =>
-                  val res @ (r1, back1) = loop(rest, back)
-                  if (back1(b)) res
-                  else (pair :: r1, back1 + b)
-                case Nil => (Nil, back)
-              }
+        @inline def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
+          def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
+            lst match {
+              case (pair @ (b, _)) :: rest =>
+                val res @ (r1, back) = loop(rest)
+                if (back(b)) res
+                else {
+                  val b1 = back + b
+                  // if rest eq r1, then pair :: rest == lst
+                  if (r1 eq rest) (lst, b1)
+                  else (pair :: r1, b1)
+                }
+              case Nil => (Nil, Set.empty)
+            }
 
-          loop(lst, Set.empty)._1
+          loop(lst)._1
         }
         val foralls = removeDups(q.forallList)
         val exists = removeDups(q.existList)
@@ -449,22 +462,31 @@ object Type {
           .filter { case (b, _) => inFreeFa(b) }
           .sortBy { case (b, _) => order(b) }
 
-        val frees = freeBoundTyVars(tpe :: Nil).toSet
+        val frees = inFreeFa -- fa1.iterator.map(_._1)
         val bs = alignBinders(fa1 ::: ex1, frees)
-        val subMap =
-          bs
-            .iterator
-            .map { case ((bold, _), bnew) =>
-              bold -> TyVar(bnew)
-            }
-            .toMap[Type.Var, Type.Rho]
 
-        val newVars = bs.map { case ((_, k), b) => (b, k) }
-        val normin = normalize(substituteRhoVar(in, subMap))
-        val forAllSize = fa1.size
-        val (normfas, normexs) = newVars.splitAt(forAllSize)
-        quantify(forallList = normfas, existList = normexs, normin)
-      case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
+        if (bs.nonEmpty) {
+          val subMap =
+            bs
+              .iterator
+              .map { case ((bold, _), bnew) =>
+                bold -> TyVar(bnew)
+              }
+              .toMap[Type.Var, Type.Rho]
+
+          val newVars = bs.map { case ((_, k), b) => (b, k) }
+          // subMap is nonEmpty, so this is a new type so runNormalize
+          val normin = runNormalize(substituteRhoVar(in, subMap))
+          val forAllSize = fa1.size
+          val (normfas, normexs) = newVars.splitAt(forAllSize)
+          quantify(forallList = normfas, existList = normexs, normin)
+        }
+        else {
+          // there is nothing to substitute, so we have nothing
+          // to quantify
+          in.normalize
+        }
+      case ta @ TyApply(_, _) => ta.normalize
       case _ => tpe
     }
   
