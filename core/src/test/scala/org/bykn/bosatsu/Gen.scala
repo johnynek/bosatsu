@@ -476,7 +476,7 @@ object Generators {
         }
 
       for {
-        sz <- Gen.choose(1, 5) // don't get too giant, intersections blow up
+        sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
         inner <- nonEmptyN(genPart, sz)
         p0 = Pattern.StrPat(makeValid(inner))
         notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
