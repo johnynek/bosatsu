@@ -266,6 +266,29 @@ enum Either: Left(l), Right(r)
         case List(intr) => assert(p3 == intr)
         case other => fail(s"expected exactly one intersection: $other")
       }
+    
+    // a regression
+    {
+      val p0 :: p1 :: p2 :: Nil = patterns(
+        """["${_}$.{_}$.{_}",
+        "$.{foo}",
+        "baz"]""")
+
+      assert(TotalityCheck(predefTE).intersection(p0, p1).isEmpty)
+      assert(TotalityCheck(predefTE).intersection(p1, p2).isEmpty)
+      
+      import pattern.SeqPattern.{stringUnitMatcher, Cat, Empty}
+      import pattern.SeqPart.AnyElem
+      import pattern.Splitter.stringUnit
+
+      val strPat1 = p1.asInstanceOf[Pattern.StrPat]
+      val seqPat = Cat(AnyElem, Empty)
+      assert(strPat1.toSeqPattern == seqPat)
+      assert(!strPat1.matches("baz"))
+      assert(stringUnitMatcher(seqPat)("baz").isEmpty)
+      assert(stringUnit.uncons("baz") == Some(('b', "az")))
+      assert(!stringUnit.isEmpty("az"))
+    }
   }
 
   test("test some difference examples") {

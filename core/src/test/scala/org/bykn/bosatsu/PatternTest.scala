@@ -1,13 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalacheck.Gen
+import org.scalacheck.{Gen, Arbitrary}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
 import org.scalatest.funsuite.AnyFunSuite
 
 class PatternTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 300)
+    PropertyCheckConfiguration(minSuccessful = 1000)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
@@ -118,5 +118,17 @@ class PatternTest extends AnyFunSuite {
     val struct = Pattern.PositionalStruct("Foo", inner :: Nil)
     // Note, foo can't be substructural because on the right it is total
     assert(Pattern.Union(struct, NonEmptyList.of(inner)).substructures.isEmpty)
+  }
+
+  test("StrPat.isTotal works") {
+    forAll(Generators.genStrPat, Arbitrary.arbitrary[String]) { (pat, str) =>
+      pat match {
+        case sp @ Pattern.StrPat(_) if sp.isTotal =>
+          (0 until str.length).foreach { len =>
+            assert(sp.matcher(str.take(len)).isDefined)
+          }
+        case _ => ()
+      }  
+    }
   }
 }

@@ -408,11 +408,14 @@ object Pattern {
   case class StrPat(parts: NonEmptyList[StrPart]) extends Pattern[Nothing, Nothing] {
     def isEmpty: Boolean = this == StrPat.Empty
 
-    lazy val isTotal: Boolean =
+    lazy val isTotal: Boolean = {
+      import StrPart.{LitStr, WildChar, NamedChar}
+
       !parts.exists {
-        case Pattern.StrPart.LitStr(_) => true
+        case LitStr(_) | WildChar | NamedChar(_) => true
         case _ => false
       }
+    }
 
     lazy val toNamedSeqPattern: NamedSeqPattern[Char] =
       StrPat.toNamedSeqPattern(this)
