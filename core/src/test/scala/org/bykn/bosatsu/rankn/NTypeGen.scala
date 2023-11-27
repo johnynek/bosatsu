@@ -153,7 +153,9 @@ object NTypeGen {
 
   lazy val genQuant: Gen[Type.Quantification] =
     Gen.zip(genQuantArgs, genQuantArgs)
-      .flatMap { case (fa, ex) =>
+      .flatMap { case (fa, ex0) =>
+        val faSet = fa.map(_._1).toSet
+        val ex = ex0.filterNot { case (b, _) => faSet(b) }
         Type.Quantification.fromLists(fa, ex) match {
           case Some(q) => Gen.const(q)
           case None => genQuant

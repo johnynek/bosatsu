@@ -160,14 +160,9 @@ object Type {
           case _: TyApply => false
           case q: Quantified => leftLeaf == normalize(q)
         }
-      case _: TyApply =>
-        if (right.isInstanceOf[Leaf]) false
-        else {
-          // left and right are not leafs
-          normalize(left) == normalize(right)
-        }
+      case _: TyApply if right.isInstanceOf[Leaf] => false
       case _ =>
-        // this is the quantified case
+        // at least one is quantified or both are TyApply
         normalize(left) == normalize(right)
     }
 
@@ -423,35 +418,51 @@ object Type {
   def normalize(tpe: Type): Type =
     tpe match {
       case q: Quantified =>
-        val foralls = q.forallList
-        val exists = q.existList
+        def removeDups(lst: List[(Var.Bound, Kind)]): List[(Var.Bound, Kind)] = {
+          def loop(
+            lst: List[(Var.Bound, Kind)],
+            back: Set[Var.Bound]): (List[(Var.Bound, Kind)], Set[Var.Bound]) =
+              lst match {
+                case (pair @ (b, _)) :: rest =>
+                  val res @ (r1, back1) = loop(rest, back)
+                  if (back1(b)) res
+                  else (pair :: r1, back1 + b)
+                case Nil => (Nil, back)
+              }
+
+          loop(lst, Set.empty)._1
+        }
+        val foralls = removeDups(q.forallList)
+        val exists = removeDups(q.existList)
         val in = q.in
           
         val inFree = freeBoundTyVars(in :: Nil)
         // sort the quantification by the order of appearance
         val order = inFree.iterator.zipWithIndex.toMap
         val inFreeSet = inFree.toSet
-        val fa1 = foralls
+        val ex1 = exists
           .filter { case (b, _) => inFreeSet(b) }
           .sortBy { case (b, _) => order(b) }
 
-        val ex1 = exists
-          .filter { case (b, _) => inFreeSet(b) }
+        val inFreeFa = inFreeSet -- ex1.iterator.map(_._1)
+        val fa1 = foralls
+          .filter { case (b, _) => inFreeFa(b) }
           .sortBy { case (b, _) => order(b) }
 
         val frees = freeBoundTyVars(tpe :: Nil).toSet
         val bs = alignBinders(fa1 ::: ex1, frees)
         val subMap =
-          bs.map { case ((bold, _), bnew) =>
-            bold -> TyVar(bnew)
-          }
-          .toMap[Type.Var, Type.Rho]
+          bs
+            .iterator
+            .map { case ((bold, _), bnew) =>
+              bold -> TyVar(bnew)
+            }
+            .toMap[Type.Var, Type.Rho]
 
         val newVars = bs.map { case ((_, k), b) => (b, k) }
         val normin = normalize(substituteRhoVar(in, subMap))
         val forAllSize = fa1.size
-        val normfas = newVars.take(forAllSize)
-        val normexs = newVars.drop(forAllSize)
+        val (normfas, normexs) = newVars.splitAt(forAllSize)
         quantify(forallList = normfas, existList = normexs, normin)
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
