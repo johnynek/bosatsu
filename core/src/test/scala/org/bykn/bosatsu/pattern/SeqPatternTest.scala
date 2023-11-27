@@ -403,7 +403,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 
     Gen.frequency(
       (1, Gen.const(SeqPattern.Empty)),
-      (5, Gen.zip(sp, Gen.lzy(genPattern)).map { case (h, t) => SeqPattern.Cat(h, t) })
+      (4, Gen.zip(sp, Gen.lzy(genPattern)).map { case (h, t) => SeqPattern.Cat(h, t) })
     )
   }
   def genSeq: Gen[List[Boolean]] =
