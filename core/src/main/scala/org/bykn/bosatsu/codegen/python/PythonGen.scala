@@ -931,13 +931,13 @@ object PythonGen {
                   // if sep == "": None
                   // else:
                   //   (a, s1, b) = str.partition(sep)
-                  //   if s1: (1, (a, (b, ())))
+                  //   if s1: (1, (a, b))
                   //   else: (0, )
                   val a = res.get(0)
                   val s1 = res.get(1)
                   val b = res.get(2)
                   val success = Code.MakeTuple(Code.fromInt(1) ::
-                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Code.MakeTuple(a :: b :: Nil) ::
                     Nil
                     )
                   val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
@@ -956,13 +956,13 @@ object PythonGen {
                 .flatMap { res =>
                   Env.onLast2(input.head, input.tail.head) { (str, sep) =>
                   // (a, s1, b) = str.partition(sep)
-                  // if s1: (1, (a, (b, ())))
+                  // if s1: (1, (a, b))
                   // else: (0, )
                   val a = res.get(0)
                   val s1 = res.get(1)
                   val b = res.get(2)
                   val success = Code.MakeTuple(Code.fromInt(1) ::
-                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Code.MakeTuple(a :: b :: Nil) ::
                     Nil
                     )
                   val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
