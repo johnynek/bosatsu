@@ -835,7 +835,7 @@ object PythonGen {
                   }
                   .flatten
             }, 2)),
-            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a) -> a
             // def int_loop(i, a, fn):
             //   if i <= 0: a
             //   else:
@@ -872,7 +872,7 @@ object PythonGen {
                             Code.block(
                               res := fn(_i, _a),
                               tmp_i := res.get(0),
-                              _a := res.get(1).get(0),
+                              _a := res.get(1),
                               cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
                               _i := tmp_i
                             )

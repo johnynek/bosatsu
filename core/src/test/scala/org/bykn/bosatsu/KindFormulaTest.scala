@@ -200,7 +200,8 @@ struct Leib[a, b](cast: forall f. f[a] -> f[b])
         "Option" -> "+* -> *",
         "Tree" -> "+* -> *",
         "Unit" -> "*",
-        "TupleCons" -> "+* -> +* -> *",
+        "Tuple2" -> "+* -> +* -> *",
+        "Tuple3" -> "+* -> +* -> +* -> *",
         "Dict" -> "* -> +* -> *"
       )
     )

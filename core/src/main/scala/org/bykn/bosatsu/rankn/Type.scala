@@ -600,22 +600,7 @@ object Type {
   val StrType: Type.TyConst = TyConst(Const.predef("String"))
   val CharType: Type.TyConst = TyConst(Const.predef("Char"))
   val TestType: Type.TyConst = TyConst(Const.predef("Test"))
-  val TupleConsType: Type.TyConst = TyConst(Type.Const.predef("TupleCons"))
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
-
-  val builtInKinds: Map[Type.Const.Defined, Kind] =
-    (FnType.FnKinds ::: List(
-      BoolType -> Kind.Type,
-      DictType -> Kind(Kind.Type.in, Kind.Type.co),
-      IntType -> Kind.Type,
-      ListType -> Kind(Kind.Type.co),
-      StrType -> Kind.Type,
-      CharType -> Kind.Type,
-      UnitType -> Kind.Type,
-      TupleConsType -> Kind(Kind.Type.co, Kind.Type.co),
-    ))
-    .map { case (t, k) => (t.tpe.toDefined, k) }
-    .toMap
 
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))
@@ -665,24 +650,54 @@ object Type {
   }
 
   object Tuple {
-    def unapply(t: Type): Option[List[Type]] =
-      t match {
-        case UnitType => Some(Nil)
-        case TyApply(TyApply(TupleConsType, h), t) =>
-          unapply(t) match {
-            case None => None
-            case Some(ts) => Some(h :: ts)
-          }
-        case _ => None
-      }
+    object Arity {
+      private def alloc(i: Int): Type.TyConst =
+        TyConst(Type.Const.predef(s"Tuple$i"))
 
-    def apply(ts: List[Type]): Type =
-      ts match {
-        case Nil => UnitType
-        case h :: tail =>
-          val tailT = apply(tail)
-          TyApply(TyApply(TupleConsType, h), tailT)
-      }
+      private val tupTypes: Array[Type.TyConst] =
+        (Iterator.single(UnitType) ++ (1 to 32).iterator.map(alloc)).toArray
+
+      def apply(n: Int): Type.TyConst =
+        if (n <= 32) tupTypes(n)
+        else alloc(n)
+
+      def unapply(t: Type): Option[Int] =
+        t match {
+          case Type.UnitType => Some(0)
+          case Type.TyConst(Const.Predef(cons)) if cons.asString.startsWith("Tuple") =>
+            Some(cons.asString.drop(5).toInt)
+          case _ => None
+        }
+    }
+
+    def unapply(t: Type): Option[List[Type]] = {
+      def loop(idx: Int, t: Type, acc: List[Type]): Option[List[Type]] =
+        t match {
+          case Arity(a) if idx == a => Some(acc)
+          case TyApply(left, right) =>
+            loop(idx + 1, left, right :: acc)
+          case _ => None
+        }
+
+      loop(0, t, Nil)
+    }
+
+    def apply(ts: List[Type]): Type = {
+      val sz = ts.size 
+      val root: Type = Arity(sz)
+      ts.foldLeft(root) { (acc, t) => TyApply(acc, t)}
+    }
+
+    val Kinds: List[(Type.TyConst, Kind)] = {
+      // +* -> +* ... -> +* -> *
+      def kindSize(n: Int): Kind =
+        Kind(Vector.fill(n)(Kind.Type.co): _*)
+
+      (1 to 32)
+        .iterator
+        .map { n => (Arity(n), kindSize(n)) }
+        .toList
+    }
   }
 
   object OptionT {
@@ -1039,4 +1054,41 @@ object Type {
   def fullyResolvedParser: P[Type] = FullResolved.parser
   def fullyResolvedDocument: Document[Type] = FullResolved.document
   def typeParser: TypeParser[Type] = FullResolved
+
+  def tupleCodeGen(n: Int): String = {
+    require(n > 0)
+
+    val tpes = alignBinders((1 to n).toList, Set.empty)
+
+    val tpesDecl = tpes
+      .iterator
+      .map { case (_, tpe) =>
+        s"${tpe.name}: +*"
+      }
+      .mkString("[", ", ", "]")
+
+    tpes
+      .iterator
+      .map { case (i, v) => s"item$i: ${v.name}" }
+      .mkString(s"struct Tuple$n$tpesDecl(", ", ", ")")
+  }
+
+  def allTupleCode: String = {
+    (1 to 32).iterator.map { i => s"Tuple$i()"}.mkString("", ",\n", ",\n") +
+      (1 to 32).iterator.map(tupleCodeGen).mkString("\n")
+  }
+
+  val builtInKinds: Map[Type.Const.Defined, Kind] =
+    (FnType.FnKinds ::: Tuple.Kinds ::: List(
+      BoolType -> Kind.Type,
+      DictType -> Kind(Kind.Type.in, Kind.Type.co),
+      IntType -> Kind.Type,
+      ListType -> Kind(Kind.Type.co),
+      StrType -> Kind.Type,
+      CharType -> Kind.Type,
+      UnitType -> Kind.Type
+    ))
+    .map { case (t, k) => (t.tpe.toDefined, k) }
+    .toMap
+
 }

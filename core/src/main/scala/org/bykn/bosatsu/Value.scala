@@ -137,37 +137,17 @@ object Value {
   val False: SumValue = SumValue(0, UnitValue)
   val True: SumValue = SumValue(1, UnitValue)
 
-  object TupleCons {
-    def unapply(v: Value): Option[(Value, Value)] =
-      v match {
-        case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
-        case _ => None
-      }
-
-    def apply(a: Value, b: Value): ProductValue =
-      ConsValue(a, ConsValue(b, UnitValue))
-  }
-
   object Tuple {
-    /**
-     * Tuples are encoded as:
-     * (1, 2, 3) => TupleCons(1, TupleCons(2, TupleCons(3, ())))
-     * since a Tuple(a, b) is encoded as
-     * ConsValue(a, ConsValue(b, UnitValue))
-     * this gives double wrapping
-     */
     def unapply(v: Value): Option[List[Value]] =
       v match {
-        case TupleCons(a, b) =>
-          unapply(b).map(a :: _)
-        case UnitValue => Some(Nil)
+        case p: ProductValue => Some(p.toList)
         case _ => None
       }
 
     def fromList(vs: List[Value]): ProductValue =
       vs match {
         case Nil => UnitValue
-        case h :: tail => TupleCons(h, fromList(tail))
+        case h :: tail => ConsValue(h, fromList(tail))
       }
 
     def apply(vs: Value*): ProductValue =

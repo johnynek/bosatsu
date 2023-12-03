@@ -116,7 +116,7 @@ object PredefImpl {
   def gcd_Int(a: Value, b: Value): Value =
     VInt(gcdBigInteger(i(a), i(b)))
 
-  //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+  //def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, a]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
     val fnT = fn.asFn
 
@@ -125,7 +125,7 @@ object PredefImpl {
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
         fnT(NonEmptyList(biValue, state :: Nil)) match {
-          case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
+          case ConsValue(nextI, ConsValue(nextA, _)) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {
               // we are done in this case

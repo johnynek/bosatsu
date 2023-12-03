@@ -172,6 +172,68 @@ final class SourceConverter(
         }
     }
 
+
+    private val unitName = Identifier.Constructor("Unit")
+    // this is lazy so it isn't initialized before Type
+    private lazy val tup: Array[Declaration => Expr[Declaration]] =
+      (Iterator.single(
+        { (tc: Declaration) =>
+          Expr.Global(PackageName.PredefName, unitName, tc)
+        }
+      ) ++ (1 to Type.FnType.MaxSize)
+        .iterator
+        .map { idx =>
+          val tup = Type.Tuple.Arity(idx)
+          val defined = tup.tpe.toDefined
+
+          { (tc: Declaration) =>
+            Expr.Global(defined.packageName, defined.name.ident, tc)
+          }
+        }).toArray
+
+    private def makeTuple(tc: Declaration, args: List[Declaration])(conv: Declaration => Result[Expr[Declaration]]): Result[Expr[Declaration]] =
+      args.traverse(conv)
+        .flatMap { exps =>
+          val size = exps.length
+          val fn = tup(size)(tc)
+          val res = Expr.buildApp(fn, exps, tc)
+          if (size <= Type.FnType.MaxSize) {
+            success(res)
+          }
+          else {
+            SourceConverter.partial(
+              SourceConverter.InvalidArity(size, tc.region),
+              res
+            )
+          }
+        }
+
+    private val unitPat = 
+      success(Pattern.PositionalStruct(
+        (PackageName.PredefName, unitName),
+        Nil))
+
+    def makeTuplePattern[A](args: List[Pattern[(PackageName, Constructor), A]], region: Region): Result[Pattern[(PackageName, Constructor), A]] =
+      args match {
+        case Nil => unitPat
+        case nonEmpty =>
+          val size = nonEmpty.size
+          val tupleCons = Type.Tuple.Arity(size)
+          val defined = tupleCons.tpe.toDefined
+          val pat = Pattern.PositionalStruct(
+            (defined.packageName, defined.name.ident),
+            nonEmpty)
+          if (size <= Type.FnType.MaxSize) {
+            success(pat)
+          }
+          else {
+            SourceConverter.partial(
+              SourceConverter.InvalidArity(size, region),
+              pat
+            )
+          }
+      }
+
   private def fromDecl(decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
     def loop(decl: Declaration) = fromDecl(decl, bound, topBound)
@@ -292,21 +354,7 @@ final class SourceConverter(
           val branches = NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
           Expr.Match(a, branches, m)
         }
-      case tc@TupleCons(its) =>
-        val tup0: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("Unit"), tc)
-        val tup2: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("TupleCons"), tc)
-        def tup(args: List[Declaration]): Result[Expr[Declaration]] =
-          args match {
-            case Nil => success(tup0)
-            case h :: tail =>
-              val tailExp = tup(tail)
-              val headExp = loop(h)
-              (headExp, tailExp).mapN { (h, t) =>
-                Expr.buildApp(tup2, h :: t :: Nil, tc)
-              }
-          }
-
-        tup(its)
+      case tc@TupleCons(its) => makeTuple(tc, its)(loop)
       case s@StringDecl(parts) =>
         // a single string item should be converted
         // to that thing,
@@ -773,21 +821,7 @@ final class SourceConverter(
     pat.traversePattern[Result, (PackageName, Constructor), rankn.Type]({
       case (Pattern.StructKind.Tuple, args) =>
         // this is a tuple pattern
-        def loop[A](args: List[Pattern[(PackageName, Constructor), A]]): Pattern[(PackageName, Constructor), A] =
-          args match {
-            case Nil =>
-              // ()
-              Pattern.PositionalStruct(
-                (PackageName.PredefName, Constructor("Unit")),
-                Nil)
-            case h :: tail =>
-              val tailP = loop(tail)
-              Pattern.PositionalStruct(
-                (PackageName.PredefName, Constructor("TupleCons")),
-                h :: tailP :: Nil)
-          }
-
-        args.map(loop(_))
+        args.flatMap(makeTuplePattern(_, region))
       case (Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)

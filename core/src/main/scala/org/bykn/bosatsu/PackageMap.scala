@@ -405,7 +405,11 @@ object PackageMap {
           case Some(inf) => inf
         }
       case Validated.Invalid(errs) =>
-        sys.error(s"expected no errors, found: $errs")
+        val map = Map(PackageName.PredefName -> (LocationMap(Predef.predefString), "<predef>"))
+        errs.iterator.foreach { err =>
+          println(err.message(map, LocationMap.Colorize.None))
+        }
+        sys.error("expected no errors")
     }
   }
 
