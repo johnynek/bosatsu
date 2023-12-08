@@ -185,25 +185,26 @@ final class SourceConverter(
         .map { idx =>
           val tup = Type.Tuple.Arity(idx)
           val defined = tup.tpe.toDefined
-
-          { (tc: Declaration) =>
-            Expr.Global(defined.packageName, defined.name.ident, tc)
-          }
+          val pn = defined.packageName
+          val cn = defined.name.ident
+          
+          { (tc: Declaration) => Expr.Global(pn, cn, tc) }
         }).toArray
 
     private def makeTuple(tc: Declaration, args: List[Declaration])(conv: Declaration => Result[Expr[Declaration]]): Result[Expr[Declaration]] =
       args.traverse(conv)
         .flatMap { exps =>
           val size = exps.length
-          val fn = tup(size)(tc)
-          val res = Expr.buildApp(fn, exps, tc)
           if (size <= Type.FnType.MaxSize) {
+            val fn = tup(size)(tc)
+            val res = Expr.buildApp(fn, exps, tc)
             success(res)
           }
           else {
-            SourceConverter.partial(
-              SourceConverter.InvalidArity(size, tc.region),
-              res
+            SourceConverter.failure(
+              SourceConverter.TooManyConstructorArgs(
+                Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+                size, 32, tc.region)
             )
           }
         }
@@ -228,7 +229,9 @@ final class SourceConverter(
           }
           else {
             SourceConverter.partial(
-              SourceConverter.InvalidArity(size, region),
+              SourceConverter.TooManyConstructorArgs(
+                Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+                size, 32, region),
               pat
             )
           }
@@ -1576,6 +1579,11 @@ object SourceConverter {
 
   final case class TooManyConstructorArgs(name: Constructor, argCount: Int, max: Int, region: Region) extends Error {
     def message =
-      Doc.text(s"invalid argument count in constructor for ${name.asString} found $argCount maximum allowed $max").render(80)
+      if (name.asString == "Tuple32") {
+        Doc.text(s"invalid tuple size. Found $argCount, but maximum allowed ${Type.FnType.MaxSize}").render(80)
+      }
+      else {
+        Doc.text(s"invalid argument count in constructor for ${name.asString} found $argCount maximum allowed $max").render(80)
+      }
   }
 }
