@@ -9,7 +9,38 @@ export (
   List(),
   String,
   Test(),
-  TupleCons(),
+  Tuple1(),
+  Tuple2(),
+  Tuple3(),
+  Tuple4(),
+  Tuple5(),
+  Tuple6(),
+  Tuple7(),
+  Tuple8(),
+  Tuple9(),
+  Tuple10(),
+  Tuple11(),
+  Tuple12(),
+  Tuple13(),
+  Tuple14(),
+  Tuple15(),
+  Tuple16(),
+  Tuple17(),
+  Tuple18(),
+  Tuple19(),
+  Tuple20(),
+  Tuple21(),
+  Tuple22(),
+  Tuple23(),
+  Tuple24(),
+  Tuple25(),
+  Tuple26(),
+  Tuple27(),
+  Tuple28(),
+  Tuple29(),
+  Tuple30(),
+  Tuple31(),
+  Tuple32(),
   Order(),
   Unit(),
   Dict,
@@ -49,7 +80,38 @@ export (
 )
 
 struct Unit
-struct TupleCons(first, second)
+struct Tuple1[a: +*](item1: a)
+struct Tuple2[a: +*, b: +*](item1: a, item2: b)
+struct Tuple3[a: +*, b: +*, c: +*](item1: a, item2: b, item3: c)
+struct Tuple4[a: +*, b: +*, c: +*, d: +*](item1: a, item2: b, item3: c, item4: d)
+struct Tuple5[a: +*, b: +*, c: +*, d: +*, e: +*](item1: a, item2: b, item3: c, item4: d, item5: e)
+struct Tuple6[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f)
+struct Tuple7[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g)
+struct Tuple8[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h)
+struct Tuple9[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i)
+struct Tuple10[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j)
+struct Tuple11[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k)
+struct Tuple12[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l)
+struct Tuple13[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m)
+struct Tuple14[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n)
+struct Tuple15[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o)
+struct Tuple16[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p)
+struct Tuple17[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q)
+struct Tuple18[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r)
+struct Tuple19[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s)
+struct Tuple20[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t)
+struct Tuple21[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u)
+struct Tuple22[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v)
+struct Tuple23[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w)
+struct Tuple24[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x)
+struct Tuple25[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y)
+struct Tuple26[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z)
+struct Tuple27[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0)
+struct Tuple28[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*, b0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0, item28: b0)
+struct Tuple29[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*, b0: +*, c0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0, item28: b0, item29: c0)
+struct Tuple30[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*, b0: +*, c0: +*, d0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0, item28: b0, item29: c0, item30: d0)
+struct Tuple31[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*, b0: +*, c0: +*, d0: +*, e0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0, item28: b0, item29: c0, item30: d0, item31: e0)
+struct Tuple32[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*, m: +*, n: +*, o: +*, p: +*, q: +*, r: +*, s: +*, t: +*, u: +*, v: +*, w: +*, x: +*, y: +*, z: +*, a0: +*, b0: +*, c0: +*, d0: +*, e0: +*, f0: +*](item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i, item10: j, item11: k, item12: l, item13: m, item14: n, item15: o, item16: p, item17: q, item18: r, item19: s, item20: t, item21: u, item22: v, item23: w, item24: x, item25: y, item26: z, item27: a0, item28: b0, item29: c0, item30: d0, item31: e0, item32: f0)
 
 enum Bool:
   False, True
@@ -138,13 +200,13 @@ external def mod_Int(a: Int, mod: Int) -> Int
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 
 def range(exclusiveUpper: Int) -> List[Int]:
-  int_loop(exclusiveUpper, [], \i, tail ->
+  int_loop(exclusiveUpper, [], (i, tail) ->
     inext = i.sub(1)
     (inext, [inext, *tail]))
 
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
-  int_loop(diff, init, \diff0, a ->
+  int_loop(diff, init, (diff0, a) ->
     idx = exclusiveUpper.sub(diff0)
     a1 = fn(a, idx)
     (diff0.sub(1), a1))
@@ -337,7 +399,7 @@ struct Dict[k, v: +*](order: forall a. Order[(k, a)], tree: Tree[(k, v)])
 
 def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
     Order(fn) = comp
-    pair_ord = Order(\(k1, _), (k2, _) -> fn(k1, k2))
+    pair_ord = Order(((k1, _), (k2, _)) -> fn(k1, k2))
     Dict(pair_ord, Empty)
 
 def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]:

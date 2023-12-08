@@ -465,7 +465,7 @@ of inputs in the same position. This gives a simple proof that the loop will ter
 Instead, we implement this function in Predef as an external def that has to be supplied to the
 compiler with a promise that it is indeed total.
 ```
-external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+external def int_loop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, a]) -> a
 ```
 
 External values and types work exactly like internally defined types from any other point of view.

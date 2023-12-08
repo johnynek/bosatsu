@@ -835,7 +835,7 @@ object PythonGen {
                   }
                   .flatten
             }, 2)),
-            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a) -> a
             // def int_loop(i, a, fn):
             //   if i <= 0: a
             //   else:
@@ -872,7 +872,7 @@ object PythonGen {
                             Code.block(
                               res := fn(_i, _a),
                               tmp_i := res.get(0),
-                              _a := res.get(1).get(0),
+                              _a := res.get(1),
                               cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
                               _i := tmp_i
                             )
@@ -931,13 +931,13 @@ object PythonGen {
                   // if sep == "": None
                   // else:
                   //   (a, s1, b) = str.partition(sep)
-                  //   if s1: (1, (a, (b, ())))
+                  //   if s1: (1, (a, b))
                   //   else: (0, )
                   val a = res.get(0)
                   val s1 = res.get(1)
                   val b = res.get(2)
                   val success = Code.MakeTuple(Code.fromInt(1) ::
-                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Code.MakeTuple(a :: b :: Nil) ::
                     Nil
                     )
                   val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
@@ -956,13 +956,13 @@ object PythonGen {
                 .flatMap { res =>
                   Env.onLast2(input.head, input.tail.head) { (str, sep) =>
                   // (a, s1, b) = str.partition(sep)
-                  // if s1: (1, (a, (b, ())))
+                  // if s1: (1, (a, b))
                   // else: (0, )
                   val a = res.get(0)
                   val s1 = res.get(1)
                   val b = res.get(2)
                   val success = Code.MakeTuple(Code.fromInt(1) ::
-                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Code.MakeTuple(a :: b :: Nil) ::
                     Nil
                     )
                   val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)

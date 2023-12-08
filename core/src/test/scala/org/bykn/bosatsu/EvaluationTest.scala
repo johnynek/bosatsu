@@ -3231,4 +3231,43 @@ res = cons((1, 0), Empty).uncons()
 test = Assertion(res matches Some(((1, _), Empty)), "one")
 """), "Foo", 1)
   }
+
+  test("tuples bigger than 32 fail") {
+    val testCode = """
+package ErrorCheck
+
+z = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+  21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  31, 32, 33)
+
+"""
+   evalFail(List(testCode)) { case kie@PackageError.SourceConverterErrorIn(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("invalid tuple size. Found 33, but maximum allowed 32"))
+      assert(message.contains("Region(25,154)"))
+      ()
+    }
+
+    val testCode1 = """
+package ErrorCheck
+
+z = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+  21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  31, 32)
+
+res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+  21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  31, 32, 33)
+
+"""
+   evalFail(List(testCode1)) { case kie@PackageError.SourceConverterErrorIn(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("invalid tuple size. Found 33, but maximum allowed 32"))
+      assert(message.contains("Region(158,297)"))
+      ()
+    }
+  }
 }

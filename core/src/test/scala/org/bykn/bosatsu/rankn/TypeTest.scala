@@ -359,4 +359,16 @@ class TypeTest extends AnyFunSuite {
       }
     }
   }
+
+  test("tuple syntax looks right") {
+    val code = Type.allTupleCode
+    (1 to 32).foreach { i =>
+      assert(code.contains(s"struct Tuple$i["))
+      assert(code.contains(s"Tuple$i(),"))
+    }
+    List(0, 33).foreach { i =>
+      assert(!code.contains(s"struct Tuple$i["))
+      assert(!code.contains(s"Tuple$i(),"))
+    }
+  }
 }
