@@ -75,10 +75,8 @@ object Matchless {
     }
   }
 
-  // we should probably allocate static slots for each bindable,
-  // and replace the local with an integer offset slot access for
-  // the closure state
-  case class Lambda(captures: List[Expr], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
+  // Self-name is set for recursive (but not tail recursive) methods
+  case class Lambda(captures: List[Expr], selfName: Option[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
@@ -257,15 +255,28 @@ object Matchless {
         }
 
       def lambdaFrees(frees: List[Bindable]): (LambdaState, List[Expr]) = {
-        val ignoreSet = name.toSet
-        val newSlots = frees
-          .iterator
-          .filterNot(ignoreSet)
-          .zipWithIndex
-          .map { case (b, idx) => (b, ClosureSlot(idx)) }
-          .toMap
-        val captures = frees.map(this(_))
-        (copy(slots = newSlots), captures)
+        name match {
+          case None =>
+            val newSlots = frees
+              .iterator
+              .zipWithIndex
+              .map { case (b, idx) => (b, ClosureSlot(idx)) }
+              .toMap
+            val captures = frees.map(apply(_))
+            (copy(slots = newSlots), captures)
+          case Some(n) =>
+            val newSlots = frees
+              .iterator
+              .filterNot(_ === n)
+              .zipWithIndex
+              .map { case (b, idx) => (b, ClosureSlot(idx)) }
+              .toMap
+            val captures = frees.flatMap { f =>
+              if (f != n) (apply(f) :: Nil)
+              else Nil
+            }
+            (copy(slots = newSlots), captures)
+        }
       }
 
       def inLet(b: Bindable): LambdaState = copy(name = Some(b))
@@ -316,7 +327,7 @@ object Matchless {
         case TypedExpr.AnnotatedLambda(args, res, _) =>
           val frees = TypedExpr.freeVars(te :: Nil)
           val (slots1, captures) = slots.lambdaFrees(frees)
-          loop(res, slots1).map(Lambda(captures, args.map(_._1), _))
+          loop(res, slots1).map(Lambda(captures, slots.name, args.map(_._1), _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case Some(dr) =>

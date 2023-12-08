@@ -82,9 +82,12 @@ object MatchlessToValue {
         ()
       }
 
-      def capture(it: Vector[Eval[Value]]): Scope =
+      def capture(it: Vector[Eval[Value]], name: Option[Bindable]): Scope =
         Scope(
-          locals,
+          name match {
+            case None => Map.empty
+            case Some(n) => Map((n, locals(n)))
+          },
           LongMap.empty,
           MLongMap(),
           it)
@@ -323,7 +326,7 @@ object MatchlessToValue {
             // It may make things go faster
             // if the caps are really small
             // or if we can GC things sooner.
-            val scope1 = scope.capture(caps.map { s => Eval.later(s(scope)) })
+            val scope1 = scope.capture(caps.map { s => Eval.later(s(scope)) }, Some(fnName))
 
             FnValue { allArgs =>
               var registers: NonEmptyList[Value] = allArgs
@@ -363,10 +366,10 @@ object MatchlessToValue {
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
-          case Lambda(caps, args, res) =>
+          case Lambda(caps, name, args, res) =>
             val resFn = loop(res)
 
-            if (caps.isEmpty) {
+            if (caps.isEmpty && name.isEmpty) {
               // we can allocate once if there is no closure
               val scope1 = Scope.empty()
               val fn = FnValue { argV =>
@@ -378,7 +381,9 @@ object MatchlessToValue {
             else {
               val capScoped = caps.map(loop).toVector
               Dynamic { scope =>
-                val scope1 = scope.capture(capScoped.map { scoped => Eval.later(scoped(scope)) })
+                val scope1 = scope
+                  .capture(capScoped.map { scoped => Eval.later(scoped(scope)) }, name)
+                                   
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
                 FnValue { argV =>

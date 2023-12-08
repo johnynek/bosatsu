@@ -1397,7 +1397,8 @@ object PythonGen {
               _ <- unbindA
             } yield Code.blockFromList(binds.toList ::: loopRes :: Nil)
 
-          case Lambda(captures, args, body) =>
+          case Lambda(captures, _, args, body) =>
+            // we can ignore name because python already allows recursion
             (args.traverse(Env.bind(_)), makeSlots(captures, slotName)(loop(body, _)))
               .mapN {
                 case (as, (slots, body)) =>
@@ -1428,7 +1429,8 @@ object PythonGen {
 
       def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
-          case Lambda(captures, args, res) =>
+          case Lambda(captures, _, args, res) =>
+            // we ignore name because python already supports recursion
             (args.traverse(Env.bind(_)), makeSlots(captures, slotName)(loop(res, _)))
               .mapN {
                 case (args, (None, x: Expression)) =>
