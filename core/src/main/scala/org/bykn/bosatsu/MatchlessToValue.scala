@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Eval, Foldable, Functor, Applicative}
+import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
@@ -68,13 +68,20 @@ object MatchlessToValue {
       locals: Map[Bindable, Eval[Value]],
       anon: LongMap[Value],
       muts: MLongMap[Value],
-      slots: Vector[Eval[Value]]) {
+      slots: Vector[Value]) {
 
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
 
-      def letAll[F[_]: Foldable](bs: F[(Bindable, Value)]): Scope =
-        copy(locals = bs.foldLeft(locals) { case (locals, (b, v)) => locals.updated(b, Eval.now(v)) })
+      def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope = {
+        val b = bs.iterator
+        val v = vs.iterator
+        var local1 = locals
+        while (b.hasNext) {
+          local1 = local1.updated(b.next(), Eval.now(v.next()))
+        }
+        copy(locals = local1)
+      }
 
       def updateMut(mutIdx: Long, v: Value): Unit = {
         assert(muts.contains(mutIdx))
@@ -82,7 +89,7 @@ object MatchlessToValue {
         ()
       }
 
-      def capture(it: Vector[Eval[Value]], name: Option[Bindable]): Scope =
+      def capture(it: Vector[Value], name: Option[Bindable]): Scope =
         Scope(
           name match {
             case None => Map.empty
@@ -326,7 +333,7 @@ object MatchlessToValue {
             // It may make things go faster
             // if the caps are really small
             // or if we can GC things sooner.
-            val scope1 = scope.capture(caps.map { s => Eval.later(s(scope)) }, Some(fnName))
+            val scope1 = scope.capture(caps.map { s => s(scope) }, Some(fnName))
 
             FnValue { allArgs =>
               var registers: NonEmptyList[Value] = allArgs
@@ -373,7 +380,7 @@ object MatchlessToValue {
               // we can allocate once if there is no closure
               val scope1 = Scope.empty()
               val fn = FnValue { argV =>
-                val scope2 = scope1.letAll(args.zip(argV))
+                val scope2 = scope1.letAll(args, argV)
                 resFn(scope2)
               }
               Static(fn)
@@ -382,12 +389,12 @@ object MatchlessToValue {
               val capScoped = caps.map(loop).toVector
               Dynamic { scope =>
                 val scope1 = scope
-                  .capture(capScoped.map { scoped => Eval.later(scoped(scope)) }, name)
+                  .capture(capScoped.map { scoped => scoped(scope) }, name)
                                    
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
                 FnValue { argV =>
-                  val scope2 = scope1.letAll(args.zip(argV))
+                  val scope2 = scope1.letAll(args, argV)
                   resFn(scope2)
                 }
               }
@@ -405,7 +412,7 @@ object MatchlessToValue {
           case Local(b) => Dynamic(_.locals(b).value)
           case LocalAnon(a) => Dynamic(_.anon(a))
           case LocalAnonMut(m) => Dynamic(_.muts(m))
-          case ClosureSlot(idx) => Dynamic(_.slots(idx).value)
+          case ClosureSlot(idx) => Dynamic(_.slots(idx))
           case App(expr, args) =>
             // TODO: App(LoopFn(..
             // can be optimized into a while
