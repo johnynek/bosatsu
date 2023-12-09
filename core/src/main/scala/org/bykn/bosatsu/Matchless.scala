@@ -244,6 +244,8 @@ object Matchless {
       }
 
     case class LambdaState(name: Option[Bindable], slots: Map[Bindable, Expr]) {
+      def unname: LambdaState = LambdaState(None, slots)
+
       def apply(b: Bindable): Expr =
         slots.get(b) match {
           case Some(expr) => expr
@@ -323,7 +325,7 @@ object Matchless {
         case TypedExpr.AnnotatedLambda(args, res, _) =>
           val frees = TypedExpr.freeVars(te :: Nil)
           val (slots1, captures) = slots.lambdaFrees(frees)
-          loop(res, slots1).map(Lambda(captures, slots.name, args.map(_._1), _))
+          loop(res, slots1.unname).map(Lambda(captures, slots.name, args.map(_._1), _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case Some(dr) =>
@@ -344,12 +346,12 @@ object Matchless {
         case TypedExpr.Local(bind, _, _) =>
           Monad[F].pure(slots(bind))
         case TypedExpr.App(fn, as, _, _) =>
-          (loop(fn, slots), as.traverse(loop(_, slots))).mapN(App(_, _))
+          (loop(fn, slots.unname), as.traverse(loop(_, slots.unname))).mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r, slots), loop(in, slots)).mapN(Let(Right((a, r)), _, _))
+          (loopLetVal(a, e, r, slots.unname), loop(in, slots)).mapN(Let(Right((a, r)), _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
-          (loop(arg, slots), branches.traverse { case (p, te) => loop(te, slots).map((p, _)) })
+          (loop(arg, slots.unname), branches.traverse { case (p, te) => loop(te, slots.unname).map((p, _)) })
             .tupled
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
       }
