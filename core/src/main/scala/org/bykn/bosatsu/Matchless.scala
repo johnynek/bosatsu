@@ -75,8 +75,8 @@ object Matchless {
     }
   }
 
-  // Self-name is set for recursive (but not tail recursive) methods
-  case class Lambda(captures: List[Expr], selfName: Option[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
+  // name is set for recursive (but not tail recursive) methods
+  case class Lambda(captures: List[Expr], name: Option[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
@@ -245,13 +245,9 @@ object Matchless {
 
     case class LambdaState(name: Option[Bindable], slots: Map[Bindable, Expr]) {
       def apply(b: Bindable): Expr =
-        name match {
-          case Some(b1) if b1 === b => Local(b)
-          case _ =>
-            slots.get(b) match {
-              case Some(expr) => expr
-              case None => Local(b)
-            }
+        slots.get(b) match {
+          case Some(expr) => expr
+          case None => Local(b)
         }
 
       def lambdaFrees(frees: List[Bindable]): (LambdaState, List[Expr]) = {
