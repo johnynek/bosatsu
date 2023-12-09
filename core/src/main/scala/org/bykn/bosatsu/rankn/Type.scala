@@ -605,6 +605,20 @@ object Type {
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))
 
+  object Tau {
+    def unapply(t: Type): Option[Type.Tau] =
+      t match {
+        case l: Leaf => Some(l)
+        case Quantified(_, _) => None
+        case ta@TyApply(Tau(_), Tau(_)) => Some(ta)
+        case _ => None
+      }
+
+    object Many {
+      def unapply(t: NonEmptyList[Type]): Option[NonEmptyList[Type.Tau]] =
+        t.traverse(Tau.unapply)
+    }
+  }
   object Fun {
     def ifValid(from: NonEmptyList[Type], to: Type): Option[Type.Rho] = {
       val len = from.length
@@ -631,6 +645,36 @@ object Type {
           check(1, inner, Nil, last)
         case _ => None
       }
+    }
+
+    /**
+     * Match if a type is a simple universal function,
+     * which is to say forall a, b. C -> D
+     * where all argument and result types are Tau types.
+     */
+    object SimpleUniversal {
+      def unapply(t: Type): Option[
+        (NonEmptyList[(Type.Var.Bound, Kind)], NonEmptyList[Type.Tau], Type.Tau)
+      ] =
+        t match {
+          case ForAll(univ, Fun(Tau.Many(args), resT)) =>
+            resT match {
+              case Tau(res) => Some((univ, args, res))
+              case ForAll(univR, Tau(res)) =>
+                // we need to relabel univR if it intersects univ
+                val intersects = univ.iterator.map(_._1).toSet
+                  .intersect(univR.iterator.map(_._1).toSet)
+
+                if (intersects.isEmpty) {
+                  Some((univ ::: univR, args, res))
+                }
+                else {
+                  sys.error(s"intersection in ${typeParser.render(t)}")
+                }
+              case _ => None
+            }
+          case _ => None
+        }
     }
 
     def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {

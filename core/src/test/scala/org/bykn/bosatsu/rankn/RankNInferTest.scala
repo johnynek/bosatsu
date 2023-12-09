@@ -1233,7 +1233,7 @@ def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
 z = makeTup(x, y)
-""", "exists a, b. Tup[a, b]")
+""", "Tup[exists a. a, exists b. b]")
     parseProgram("""#
 enum B: T, F
 
@@ -1241,7 +1241,7 @@ struct Inv[a: *](item: a)
 
 any: exists a. a = T
 x = Inv(any)
-""", "exists a. Inv[a]")
+""", "Inv[exists a. a]")
   }
 
   test("we can use existentials in branches") {
@@ -1397,5 +1397,24 @@ def unsound[f: * -> *](fany: f[exists a. a], get: forall a. f[a] -> a) -> forall
   Pair(fa, ex) = narrow(Pair(fany, get))
   ex(fa)
 """)
+  }
+
+  test("we can use existentials with invariant types") {
+    parseProgram("""#
+struct Box(a)
+
+x: exists a. a = 1
+
+fn: (exists a. a) -> Box[exists a. a] = Box
+y = fn(x)
+""", "Box[exists a. a]")
+
+    parseProgram("""#
+struct Box(a)
+
+x: exists a. a = 1
+
+y = Box(x)
+""", "Box[exists a. a]")
   }
 }
