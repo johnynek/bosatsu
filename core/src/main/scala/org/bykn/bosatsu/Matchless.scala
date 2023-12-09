@@ -75,21 +75,20 @@ object Matchless {
     }
   }
 
-  // we should probably allocate static slots for each bindable,
-  // and replace the local with an integer offset slot access for
-  // the closure state
-  case class Lambda(captures: List[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
+  // name is set for recursive (but not tail recursive) methods
+  case class Lambda(captures: List[Expr], name: Option[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, arg: NonEmptyList[Bindable], body: Expr) extends FnExpr
+  case class LoopFn(captures: List[Expr], name: Bindable, arg: NonEmptyList[Bindable], body: Expr) extends FnExpr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
   // these are immutable (but can be shadowed)
   case class Local(arg: Bindable) extends CheapExpr
+  case class ClosureSlot(idx: Int) extends CheapExpr
   // these are is a separate namespace from Expr
   case class LocalAnon(ident: Long) extends CheapExpr
   // these are mutable variables that can be updated while evaluating an BoolExpr
@@ -244,8 +243,45 @@ object Matchless {
           }
       }
 
-    def loopLetVal(name: Bindable, e: TypedExpr[A], rec: RecursionKind): F[Expr] = {
-      lazy val e0 = loop(e)
+    case class LambdaState(name: Option[Bindable], slots: Map[Bindable, Expr]) {
+      def unname: LambdaState = LambdaState(None, slots)
+
+      def apply(b: Bindable): Expr =
+        slots.get(b) match {
+          case Some(expr) => expr
+          case None => Local(b)
+        }
+
+      def lambdaFrees(frees: List[Bindable]): (LambdaState, List[Expr]) = {
+        name match {
+          case None =>
+            val newSlots = frees
+              .iterator
+              .zipWithIndex
+              .map { case (b, idx) => (b, ClosureSlot(idx)) }
+              .toMap
+            val captures = frees.map(apply(_))
+            (copy(slots = newSlots), captures)
+          case Some(n) =>
+            val newSlots = frees
+              .iterator
+              .filterNot(_ === n)
+              .zipWithIndex
+              .map { case (b, idx) => (b, ClosureSlot(idx)) }
+              .toMap
+            val captures = frees.flatMap { f =>
+              if (f != n) (apply(f) :: Nil)
+              else Nil
+            }
+            (copy(slots = newSlots), captures)
+        }
+      }
+
+      def inLet(b: Bindable): LambdaState = copy(name = Some(b))
+    }
+
+    def loopLetVal(name: Bindable, e: TypedExpr[A], rec: RecursionKind, slots: LambdaState): F[Expr] = {
+      lazy val e0 = loop(e, if (rec.isRecursive) slots.inLet(name) else slots)
       rec match {
         case RecursionKind.Recursive =>
 
@@ -262,8 +298,12 @@ object Matchless {
               case Some((params, body)) =>
                 // we know params is non-empty because arity > 0
                 val args = params.map(_._1)
-                val captures = TypedExpr.freeVars(e :: Nil)
-                loop(body).map { v => letrec(LoopFn(captures, name, args, v)) }
+                val frees = TypedExpr.freeVars(e :: Nil)
+                val (slots1, caps) = slots.inLet(name).lambdaFrees(frees)
+                loop(body, slots1)
+                  .map { v =>
+                    letrec(LoopFn(caps, name, args, v))
+                  }
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
@@ -278,13 +318,14 @@ object Matchless {
       }
     }
 
-    def loop(te: TypedExpr[A]): F[Expr] =
+    def loop(te: TypedExpr[A], slots: LambdaState): F[Expr] =
       te match {
-        case TypedExpr.Generic(_, expr) => loop(expr)
-        case TypedExpr.Annotation(term, _) => loop(term)
+        case TypedExpr.Generic(_, expr) => loop(expr, slots)
+        case TypedExpr.Annotation(term, _) => loop(term, slots)
         case TypedExpr.AnnotatedLambda(args, res, _) =>
-          val captures = TypedExpr.freeVars(te :: Nil)
-          loop(res).map(Lambda(captures, args.map(_._1), _))
+          val frees = TypedExpr.freeVars(te :: Nil)
+          val (slots1, captures) = slots.lambdaFrees(frees)
+          loop(res, slots1.unname).map(Lambda(captures, slots.name, args.map(_._1), _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case Some(dr) =>
@@ -303,14 +344,14 @@ object Matchless {
         case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
           Monad[F].pure(Global(pack, notCons))
         case TypedExpr.Local(bind, _, _) =>
-          Monad[F].pure(Local(bind))
+          Monad[F].pure(slots(bind))
         case TypedExpr.App(fn, as, _, _) =>
-          (loop(fn), as.traverse(loop)).mapN(App(_, _))
+          (loop(fn, slots.unname), as.traverse(loop(_, slots.unname))).mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r), loop(in)).mapN(Let(Right((a, r)), _, _))
+          (loopLetVal(a, e, r, slots.unname), loop(in, slots)).mapN(Let(Right((a, r)), _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
-          (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
+          (loop(arg, slots.unname), branches.traverse { case (p, te) => loop(te, slots.unname).map((p, _)) })
             .tupled
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
       }
@@ -670,7 +711,7 @@ object Matchless {
       argFn(arg)
     }
 
-    loopLetVal(name, te, rec)
+    loopLetVal(name, te, rec, LambdaState(None, Map.empty))
   }
 
   // toy matcher to see the structure

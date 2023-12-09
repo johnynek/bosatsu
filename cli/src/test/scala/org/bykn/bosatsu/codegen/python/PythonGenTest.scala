@@ -104,10 +104,22 @@ class PythonGenTest extends AnyFunSuite {
 
     val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
+    val natStr = natDoc.renderTrim(80)
 
     JythonBarrier.run {
-      intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
-      checkTest(intr.get("tests"), "Nat.bosatsu")
+      try {
+        intr.execfile(isfromString(natStr), "nat.py")
+        checkTest(intr.get("tests"), "Nat.bosatsu")
+      }
+      catch {
+        case t: Throwable =>
+          System.err.println("=" * 80)
+          System.err.println("couldn't compile nat.py")
+          System.err.println("=" * 80)
+          System.err.println(natStr)
+          System.err.println("=" * 80)
+          throw t
+      }
     }
   }
 

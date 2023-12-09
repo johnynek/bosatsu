@@ -570,8 +570,11 @@ object Code {
       case single => single :: Nil
     }
 
-  def block(stmt: Statement, rest: Statement*): Statement = {
-    val all = (stmt :: rest.toList).flatMap(flatten)
+  def block(stmt: Statement, rest: Statement*): Statement =
+    blockFromList(stmt :: rest.toList)
+
+  def blockFromList(list: List[Statement]): Statement = {
+    val all = list.flatMap(flatten)
     all match {
       case Nil => Pass
       case one :: Nil => one
