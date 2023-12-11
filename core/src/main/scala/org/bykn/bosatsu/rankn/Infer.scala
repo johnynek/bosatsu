@@ -401,6 +401,7 @@ object Infer {
       t: Type,
       region: Region): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
       
+      // Invariant: if t is Rho, then result._3 is Rho
       def loop(t: Type, path: Variance): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] = 
         t match {
           case q: Type.Quantified =>
@@ -426,9 +427,12 @@ object Infer {
           case ta@Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
+            // since left: Rho, we know loop(left, path)._3 is Rho
             (varianceOfCons(ta, region), loop(left, path))
               .flatMapN {
-                case (consVar, (sksl, el, ltpe)) =>
+                case (consVar, (sksl, el, ltpe0)) =>
+                  // due to loop invariant
+                  val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
                   val rightPath = consVar * path
                   loop(right, rightPath)
                     .map { case (sksr, er, rtpe) =>
@@ -634,7 +638,7 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            _ <- subsCheck(l1, l2, left, right)
+            _ <- subsCheckRho2(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(ta, ks)
         case (ta@Type.TyApply(l1, r1), rho2) =>
@@ -656,7 +660,7 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            _ <- subsCheck(l1, l2, left, right)
+            _ <- subsCheckRho2(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(rho2, ks)
         case (t1, t2) =>
@@ -719,7 +723,7 @@ object Infer {
 
     // destructure apType in left[right]
     // invariant apType is being checked against some rho with validated kind: lKind[rKind]
-    def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type.Rho, Type)] =
       apType match {
         case ta @ Type.TyApply(left, right) =>
           // this branch only happens when checking ta <:< (rho: lKind[rKind])
@@ -822,7 +826,7 @@ object Infer {
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
             validateKinds(t1, r1) &>
             validateKinds(t2, r2) &>
-            unifyType(a1, a2, r1, r2) &>
+            unify(a1, a2, r1, r2) &>
             unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
@@ -1588,9 +1592,9 @@ object Infer {
                 pushDownCovariant(rest, nextRFA, left) match {
                   case Type.ForAll(bs, l) =>
                     // TODO: I think we can push down existentials too
-                    Type.forAll(bs, Type.TyApply(l, nextRight))
+                    Type.forAll(bs, Type.apply1(l, nextRight))
                   case rho /*: Type.Rho */ =>
-                    Type.TyApply(rho, nextRight)
+                    Type.apply1(rho, nextRight)
                 }
             case (_ :: rest, Type.TyApply(left, right)) =>
                 val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
@@ -1600,9 +1604,9 @@ object Infer {
                 Type.forAll(keptRight.reverse, pushDownCovariant(rest, lefts, left)) match {
                   case Type.ForAll(bs, l) =>
                     // TODO: we could possibly have an existential here?
-                    Type.forAll(bs, Type.TyApply(l, right))
+                    Type.forAll(bs, Type.apply1(l, right))
                   case rho /*: Type.Rho */=>
-                    Type.TyApply(rho, right)
+                    Type.apply1(rho, right)
                 }
             case _ =>
               Type.forAll(revForAlls.reverse, sigma)

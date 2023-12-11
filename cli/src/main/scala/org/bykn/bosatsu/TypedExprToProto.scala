@@ -268,7 +268,7 @@ object ProtoConverter {
             } yield Type.exists(args, inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
-            (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
+            (tpe(left), tpe(right)).mapN(Type.apply1(_, _))
         }
       }
 
