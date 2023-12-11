@@ -60,6 +60,18 @@ class TypeTest extends AnyFunSuite {
       (parse("foo"), List(parse("bar"))))
   }
 
+  test("freeBoundVar doesn't change by applyAll") {
+    forAll(NTypeGen.genDepth03, Gen.listOf(NTypeGen.genDepth03)) { (ts, args) =>
+      val applied = Type.applyAll(ts, args)
+      val free0 = Type.freeBoundTyVars(ts :: args)
+      val free1 = Type.freeBoundTyVars(applied :: Nil)
+      assert(free1.toSet == free0.toSet,
+        s"applied = ${Type.typeParser.render(applied)}, (${Type.typeParser.render(ts)})[${
+          args.iterator.map(Type.typeParser.render(_)).mkString(", ")
+        }]})")
+    }
+  }
+
   test("types are well ordered") {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
       org.bykn.bosatsu.OrderingLaws.law(_, _, _)

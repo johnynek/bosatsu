@@ -49,7 +49,9 @@ object TestUtils {
         case t@Type.TyMeta(_) =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
-          Type.TyApply(checkType(left, bound), checkType(right, bound))
+          Type.TyApply(
+            checkType(left, bound).asInstanceOf[Type.Rho],
+            checkType(right, bound))
         case q: Type.Quantified =>
           q.copy(in = checkType(q.in, bound ++ q.vars.toList.map(_._1)).asInstanceOf[Type.Rho])
         case Type.TyConst(_) => t

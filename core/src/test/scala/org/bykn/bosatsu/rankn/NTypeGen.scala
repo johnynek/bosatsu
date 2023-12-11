@@ -51,7 +51,7 @@ object NTypeGen {
   val genBound: Gen[Type.Var.Bound] =
     lowerIdent.map { v => Type.Var.Bound(v) }
 
-  def genRootType(genC: Option[Gen[Type.Const]]): Gen[Type] = {
+  def genRootType(genC: Option[Gen[Type.Const]]): Gen[Type.Leaf] = {
     val b = genBound.map(Type.TyVar(_))
     genC match {
       case None => b
@@ -97,7 +97,7 @@ object NTypeGen {
           shrink(in).map(Type.exists(items.tail, _))
         case _: Leaf => Stream.empty
         case TyApply(on, arg) =>
-          on #:: arg #:: shrink(on).map(TyApply(_, arg)) #::: shrink(arg).map(TyApply(on, _))
+          on #:: arg #:: shrink(on).collect { case r: Type.Rho => TyApply(r, arg) } #::: shrink(arg).map(TyApply(on, _))
       }
     Shrink(shrink(_))
   }
@@ -163,6 +163,18 @@ object NTypeGen {
       }
 
 
+  def genTypeRho(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type.Rho] = {
+    val root = genRootType(genC)
+    if (d <= 0) root
+    else {
+      val recurse = Gen.lzy(genTypeRho(d - 1, genC))
+      val genApply = Gen.zip(recurse, genDepth(d - 1, genC))
+        .map { case (a, b) => Type.TyApply(a, b) }
+      
+      Gen.frequency((3, root), (1, genApply))
+    }
+  }
+
   def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
     if (d <= 0) genRootType(genC)
     else {
@@ -187,7 +199,7 @@ object NTypeGen {
         Type.quantify(q, t)  
       }
 
-      val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
+      val genApply = Gen.zip(genTypeRho(d - 1, genC), recurse).map { case (a, b) => Type.TyApply(a, b) }
 
       Gen.frequency(
         (2, recurse),

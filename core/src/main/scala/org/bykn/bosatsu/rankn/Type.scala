@@ -20,7 +20,9 @@ object Type {
   /**
    * A type with no top level quantification
    */
-  sealed abstract class Rho extends Type
+  sealed abstract class Rho extends Type {
+    override def normalize: Rho
+  }
   
   object Rho {
     implicit val orderRho: Order[Rho] =
@@ -50,7 +52,7 @@ object Type {
   }
 
   sealed abstract class Leaf extends Rho {
-    def normalize: Type = this
+    override def normalize: Leaf = this
   }
   type Tau = Rho // no forall or exists anywhere
 
@@ -64,6 +66,8 @@ object Type {
       Quantification.fromLists(
         forallList.filter { case (b, _) => fn(b) },
         existList.filter { case (b, _) => fn(b) })
+
+    def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean
   }
 
   object Quantification {
@@ -76,6 +80,9 @@ object Type {
           case Exists(evars) => Dual(vars, evars)
           case Dual(f, e) => Dual(vars ::: f, e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
     }
     case class Exists(vars: NonEmptyList[(Var.Bound, Kind)]) extends Quantification {
       def existList: List[(Var.Bound, Kind)] = vars.toList
@@ -86,6 +93,9 @@ object Type {
           case Exists(evars) => Exists(vars ::: evars)
           case Dual(f, e) => Dual(f, vars ::: e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
     }
     case class Dual(
       foralls: NonEmptyList[(Var.Bound, Kind)],
@@ -100,6 +110,9 @@ object Type {
           case Exists(evars) => Dual(foralls, exists ::: evars)
           case Dual(f, e) => Dual(foralls ::: f, exists ::: e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        foralls.exists(fn) || exists.exists(fn)
     }
 
     implicit val quantificationOrder: Order[Quantification] =
@@ -152,8 +165,8 @@ object Type {
       }
   }
 
-  case class TyApply(on: Type, arg: Type) extends Rho {
-    lazy val normalize: Type = TyApply(on.normalize, arg.normalize)
+  case class TyApply(on: Rho, arg: Type) extends Rho {
+    lazy val normalize: Rho = TyApply(on.normalize, arg.normalize)
   }
   case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
@@ -190,12 +203,55 @@ object Type {
   implicit val typeOrdering: Ordering[Type] = typeOrder.toOrdering
 
   @annotation.tailrec
-  def applyAll(fn: Type, args: List[Type]): Type =
+  def applyAllRho(rho: Rho, args: List[Type]): Rho =
     args match {
-      case Nil => fn
-      case a :: as =>
-        applyAll(TyApply(fn, a), as)
+      case Nil => rho
+      case a :: as => applyAllRho(TyApply(rho, a), as)
     }
+
+  def apply1(fn: Type, arg: Type): Type =
+    fn match {
+      case rho: Rho => TyApply(rho, arg)
+      case q => applyAll(q, arg :: Nil)
+    }
+
+  def applyAll(fn: Type, args: List[Type]): Type =
+    fn match {
+      case rho: Rho => applyAllRho(rho, args)
+      case Quantified(q, rho) =>
+        val freeBound = freeBoundTyVars(fn :: args)
+        if (freeBound.isEmpty) {
+          Quantified(q, applyAllRho(rho, args))
+        }
+        else {
+          val freeBoundSet: Set[Var.Bound] = freeBound.toSet
+          val collisions = q.existsQuant { case (b, _) => freeBoundSet(b) }
+          if (!collisions) {
+            // we don't need to rename the vars
+            Quantified(q, applyAllRho(rho, args))
+          }
+          else {
+            // we have to to rename the collisions so the free set
+            // is unchanged
+            val fa1 = alignBinders(q.forallList, freeBoundSet)
+            val ex1 = alignBinders(q.existList, freeBoundSet ++ fa1.map(_._2))
+            val subMap = (fa1.iterator ++ ex1.iterator).map {
+              case ((b0, _), b1) => (b0, TyVar(b1))
+            }
+            .toMap[Var, Rho]
+
+            val rho1 = substituteRhoVar(rho, subMap)
+
+            val q1 = Quantification.fromLists(
+              forallList = fa1.map { case ((_, k), b) => (b, k)},
+              existList = ex1.map { case ((_, k), b) => (b, k)}
+            )
+            .get // this Option must be defined because we started with a defined q
+
+            Quantified(q1, applyAllRho(rho1, args))
+          }
+        }
+      }
 
   def unapplyAll(fn: Type): (Type, List[Type]) = {
     @annotation.tailrec
@@ -353,7 +409,8 @@ object Type {
   def substituteVar(t: Type, env: Map[Type.Var, Type]): Type =
     if (env.isEmpty) t
     else (t match {
-      case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
+      case TyApply(on, arg) =>
+        apply1(substituteVar(on, env), substituteVar(arg, env))
       case v@TyVar(n) =>
         env.get(n) match {
           case Some(rho) => rho
@@ -370,7 +427,8 @@ object Type {
 
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
-      case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
+      case TyApply(on, arg) =>
+        TyApply(substituteRhoVar(on, env), substituteVar(arg, env))
       case v@TyVar(n) =>
         env.get(n) match {
           case Some(rho) => rho
@@ -602,7 +660,7 @@ object Type {
   val TestType: Type.TyConst = TyConst(Const.predef("Test"))
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
 
-  def const(pn: PackageName, name: TypeName): Type =
+  def const(pn: PackageName, name: TypeName): Type.Rho =
     TyConst(Type.Const.Defined(pn, name))
 
   object Tau {
@@ -679,7 +737,7 @@ object Type {
 
     def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {
       val arityFn = FnType.maybeFakeName(from.length)
-      val withArgs = from.foldLeft(arityFn: Type)(TyApply(_, _))
+      val withArgs = from.foldLeft(arityFn: Type.Rho)(TyApply(_, _))
       TyApply(withArgs, to)
     }
     def apply(from: Type, to: Type): Type.Rho =
@@ -728,7 +786,7 @@ object Type {
 
     def apply(ts: List[Type]): Type = {
       val sz = ts.size 
-      val root: Type = Arity(sz)
+      val root: Type.Rho = Arity(sz)
       ts.foldLeft(root) { (acc, t) => TyApply(acc, t)}
     }
 
@@ -964,7 +1022,7 @@ object Type {
   def zonkRhoMeta[F[_]: Applicative](t: Type.Rho)(mfn: Meta => F[Option[Type.Rho]]): F[Type.Rho] =
     t match {
       case Type.TyApply(on, arg) =>
-        (zonkMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
+        (zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
       case t@Type.TyMeta(m) =>
         mfn(m).map {
           case None => t
