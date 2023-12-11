@@ -66,6 +66,8 @@ object Type {
       Quantification.fromLists(
         forallList.filter { case (b, _) => fn(b) },
         existList.filter { case (b, _) => fn(b) })
+
+    def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean
   }
 
   object Quantification {
@@ -78,6 +80,9 @@ object Type {
           case Exists(evars) => Dual(vars, evars)
           case Dual(f, e) => Dual(vars ::: f, e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
     }
     case class Exists(vars: NonEmptyList[(Var.Bound, Kind)]) extends Quantification {
       def existList: List[(Var.Bound, Kind)] = vars.toList
@@ -88,6 +93,9 @@ object Type {
           case Exists(evars) => Exists(vars ::: evars)
           case Dual(f, e) => Dual(f, vars ::: e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
     }
     case class Dual(
       foralls: NonEmptyList[(Var.Bound, Kind)],
@@ -102,6 +110,9 @@ object Type {
           case Exists(evars) => Dual(foralls, exists ::: evars)
           case Dual(f, e) => Dual(foralls ::: f, exists ::: e)
         }
+
+      def existsQuant(fn: ((Var.Bound, Kind)) => Boolean): Boolean =
+        foralls.exists(fn) || exists.exists(fn)
     }
 
     implicit val quantificationOrder: Order[Quantification] =
@@ -214,7 +225,7 @@ object Type {
         }
         else {
           val freeBoundSet: Set[Var.Bound] = freeBound.toSet
-          val collisions = q.vars.exists { case (b, _) => freeBoundSet(b) }
+          val collisions = q.existsQuant { case (b, _) => freeBoundSet(b) }
           if (!collisions) {
             // we don't need to rename the vars
             Quantified(q, applyAllRho(rho, args))
