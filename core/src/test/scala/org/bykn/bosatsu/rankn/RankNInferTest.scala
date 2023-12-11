@@ -359,7 +359,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("match with custom generic types") {
-    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
+    def tv(a: String): Type.Rho = Type.TyVar(Type.Var.Bound(a))
 
     import OptionTypes._
 
@@ -418,7 +418,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
+    def tv(a: String): Type.Rho = Type.TyVar(Type.Var.Bound(a))
 
     val pureName = defType("Pure")
     val optName = defType("Option")
