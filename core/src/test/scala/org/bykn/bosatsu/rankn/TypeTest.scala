@@ -17,7 +17,8 @@ class TypeTest extends AnyFunSuite {
   def parse(s: String): Type =
     Type.fullyResolvedParser.parseAll(s) match {
       case Right(t) => t
-      case Left(err) => sys.error(err.toString)
+      case Left(err) =>
+        sys.error(s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err")
     }
 
   test("free vars are not duplicated") {
@@ -305,6 +306,44 @@ class TypeTest extends AnyFunSuite {
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
+  }
+
+  test("we can substitute to get an instantiation") {
+    forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
+      t1 match {
+        case Type.ForAll(fas, t) =>
+          Type.instantiate(fas.iterator.toMap, t, t2) match {
+            case Some(subs) =>
+              val t3 = Type.substituteVar(t, subs.iterator.map { case (k, (_, v)) => (k, v)}.toMap)
+              assert(t3.sameAs(t2))
+            case None =>
+              ()
+          }
+        case _ => ()
+      }
+    }
+  }
+
+  test("some example instantiations") {
+    def check(forall: String, matches: String, subs: List[(String, String)]) = {
+      val Type.ForAll(fas, t) = parse(forall)
+      val targ = parse(matches)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ)
+      assert(res.isDefined)
+      subs.foreach { case (k, v) =>
+        val Type.TyVar(b: Type.Var.Bound) = parse(k)
+        assert(res.get(b)._2 == parse(v))
+      }
+    }
+
+    check("forall a. a", "Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. a -> a", "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. a -> Bosatsu/Predef::Foo[a]", "Bosatsu/Predef::Int -> Bosatsu/Predef::Foo[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. Bosatsu/Predef::Option[a]", "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int"))
   }
 
   test("Fun(ts, r) and Fun.unapply are inverses") {

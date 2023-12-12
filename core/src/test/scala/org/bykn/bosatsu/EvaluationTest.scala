@@ -2760,6 +2760,8 @@ def g(b: Bool) -> (forall a. List[a] -> List[a]):
     case True: x -> x
     case False: _ -> []
 
+h = b -> f(g(b))
+
 def id(a): a
 def single(a): [a]    
 

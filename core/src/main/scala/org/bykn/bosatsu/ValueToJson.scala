@@ -58,7 +58,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case None => bad
                 case Some(dt) =>
                   val cons = dt.constructors
-                  val (_, targs) = Type.applicationArgs(consOrApply)
+                  val (_, targs) = Type.unapplyAll(consOrApply)
                   val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
                   cons.traverse_ { cf =>
@@ -243,7 +243,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   }
                 case notNat =>
                   val cons = dt.constructors
-                  val (_, targs) = Type.applicationArgs(tpe)
+                  val (_, targs) = Type.unapplyAll(tpe)
                   val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
                   val resInner: Eval[Map[Int, List[(String, Fn)]]] =
@@ -472,7 +472,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 List[(Int, List[(String, Json => Either[IllTypedJson, Value])])]
               ] = {
                   val cons = dt.constructors
-                  val (_, targs) = Type.applicationArgs(tpe)
+                  val (_, targs) = Type.unapplyAll(tpe)
                   val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
                   cons.zipWithIndex

@@ -387,21 +387,11 @@ object Type {
       rootConst(t)
   }
 
-  def applicationArgs(t: Type): (Type, List[Type]) = {
-    @annotation.tailrec
-    def loop(t: Type, tail: List[Type]): (Type, List[Type]) =
-      t match {
-        case TyApply(left, right) => loop(left, right :: tail)
-        case notApply => (notApply, tail)
-      }
-    loop(t, Nil)
-  }
-
   /**
    * This form is often useful in Infer
    */
   def substTy(keys: NonEmptyList[Var], vals: NonEmptyList[Type]): Type => Type = {
-    val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
+    val env = keys.iterator.zip(vals.iterator).toMap
 
     { t => substituteVar(t, env) }
   }
@@ -437,6 +427,56 @@ object Type {
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
     }
+
+  def instantiate[A](
+    vars: Map[Var.Bound, A],
+    from: Type,
+    to: Type): Option[(Map[Var.Bound, (A, Type)])] = {
+
+    type State = Map[Var.Bound, (A, Option[Type])]  
+
+    def loop(from: Type, to: Type, state: State): Option[State] =
+      if (from.sameAs(to)) Some(state)
+      else {
+        from match {
+          case TyVar(b: Var.Bound) =>
+            state.get(b) match {
+              case Some((a, opt)) =>
+                opt match {
+                  case None => Some(state.updated(b, (a, Some(to))))
+                  case Some(set) =>
+                    if (set.sameAs(to)) Some(state)
+                    else None
+                }
+              case None =>
+                // not a variable, we can use, but also not the same as the right
+                None
+            }
+          case TyApply(a, b) =>
+            to match {
+              case TyApply(ta, tb) =>
+                loop(a, ta, state).flatMap { s1 =>
+                  loop(b, tb, s1)  
+                }         
+              case _ => None
+            }
+          case ForAll(shadows, from1) =>
+            val noShadow = state -- shadows.iterator.map(_._1)
+            loop(from1, to, noShadow).map { s1 =>
+              s1 ++ shadows.iterator.flatMap { case (v, _) => state.get(v).map(v -> _) }
+            }
+          case _ => None
+        }
+      }
+
+    loop(from, to, vars.iterator.map { case (v, a) => (v, (a, None))}.toMap)
+      .map { state =>
+        state.iterator.collect {
+          case (k, (a, Some(t))) => (k, (a, t))
+        }
+        .toMap
+      }
+  }
 
   /**
    * Return the Bound and Skolem variables that
