@@ -257,7 +257,10 @@ object KindFormula {
       .foldM(List.empty[DefinedType[Kind.Arg]]) { (acc, dt) =>
         solveKind((imports, acc), dt) match {
           case Validated.Valid(good)   => Ior.Right(good :: acc)
-          case Validated.Invalid(errs) => Ior.Both(errs, acc)
+          case Validated.Invalid(errs) =>
+            // TODO: we could continue and aggregate the errored
+            // types and skip any dt that depends on an error
+            Ior.Left(errs)
         }
       }
       .map(_.reverse)
@@ -671,7 +674,7 @@ object KindFormula {
                           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                           case None =>
                             sys.error(
-                              s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                              s"invariant violation (line 674): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
                             )
                         }
                       // $COVERAGE-ON$
@@ -728,7 +731,7 @@ object KindFormula {
         // println(s"addTypeConstraints(\ndir=$dir\nthisKind=$thisKind\ncfn=$cfn\nidx=$idx\nview=$view\ntpe=$tpe\ntpeKind=$tpeKind\nkinds=$kinds\n)")
         tpe match {
           case fa: rankn.Type.Quantified =>
-            val newKindMap = kinds ++ fa.vars.toList.iterator.map { case (b, k) =>
+            val newKindMap = kinds ++ fa.vars.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, fa, b)
             }
             addTypeConstraints(
@@ -802,7 +805,7 @@ object KindFormula {
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                 case None =>
                   sys.error(
-                    s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                    s"invariant violation (line 805): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
                   )
                 // $COVERAGE-ON$
               }

@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.{Functor, Monad}
 import cats.arrow.FunctionK
-import cats.data.{Chain, NonEmptyChain, NonEmptyList, StateT}
+import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
 import cats.syntax.all._
 
@@ -118,6 +118,9 @@ object Infer {
       )
 
     
+    def getKindOpt(t: Type): Option[Kind] =
+      kindCache(t).toOption
+
     def getKind(t: Type, region: Region): Either[Error, Kind] =
       kindCache(t).leftMap { err =>
         err(region)
@@ -627,6 +630,8 @@ object Infer {
           for {
             (kl, kr) <- validateKinds(ta, right)
             (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
+            // Check from right to left
+            _ <- subsCheckRho2(l1, l2, left, right)
             _ <- varianceOfConsKind(ta, kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right)
@@ -638,7 +643,6 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            _ <- subsCheckRho2(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(ta, ks)
         case (ta@Type.TyApply(l1, r1), rho2) =>
@@ -648,6 +652,8 @@ object Infer {
             // here we set the kinds of l2: kl and r2: k2
             // so the kinds definitely match
             (l2, r2) <- unifyTyApp(rho2, kl, kr, right, left)
+            // Check from right to left
+            _ <- subsCheckRho2(l1, l2, left, right)
             // we know that l2 has kind kl
             _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
               case Variance.Covariant =>
@@ -660,7 +666,6 @@ object Infer {
               case Variance.Invariant =>
                 unifyType(r1, r2, left, right)
             }
-            _ <- subsCheckRho2(l1, l2, left, right)
             ks <- checkedKinds
           } yield TypedExpr.coerceRho(rho2, ks)
         case (t1, t2) =>
@@ -1110,155 +1115,73 @@ object Infer {
       expect: Expected[(Type.Rho, Region)],
       initEnv: Env): Option[Infer[TypedExpr.Rho[A]]] = {
 
-      // Only allow argument types that are invariant or covariant
-      val fnRegion = region(fnEx)
       fnEx.getType match {
         case Type.Fun.SimpleUniversal(univ, inT, outT) if inT.length == args.length =>
           
-          type M = Map[Type.Var.Bound, (Kind, Option[(Type, Region)])]
-          val univMap: M = univ.iterator.map { case (v, k) =>
-              (v, (k, Option.empty[(Type, Region)]))
-            }.toMap
+          val unknowns = univ
+            .iterator
+            .map { case (b, k) => (b, (k, Option.empty[Type])) }
+            .toMap
 
-          def simpleArgType(t: Type): Boolean =
-            t match {
-              case _: Type.Leaf => true
-              case Type.TyApply(left, right) =>
-                initEnv.getKind(left, fnRegion) match {
-                  case Right(Kind.Cons(Kind.Arg(Variance.Covariant, _), _)) =>
-                    simpleArgType(left) && simpleArgType(right)
-                  case _ => false
+          inT.zip(args).foldM(unknowns) { case (m, (from, to)) =>
+            val unset = m.iterator.collect { case (b, (k, None)) => (b, k) }.toMap
+            Type.instantiate(unset, from, to.getType)
+              .flatMap { newSets =>
+                // check that we can match the kind
+                newSets.iterator.toList.traverse_ { case (_, (k, t)) =>
+                  initEnv.getKindOpt(t)
+                    .filter { tk =>
+                      Kind.leftSubsumesRight(k, tk)
+                    }
                 }
-              case _: Type.Quantified => false
-            }
-
-          if (!inT.forall(simpleArgType)) {
-            None
-          }
-          else {
-            val fn = Type.Fun(inT, outT)
-            type S[X] = StateT[Infer, M, X]
-            val get: S[M] = StateT.get
-            def set(v: Type.Var.Bound, k: Kind, tpe: Type, reg: Region): S[Unit] =
-              for {
-                m <- get
-                _ <- StateT.set(m.updated(v, (k, Some((tpe, reg)))))
-              } yield ()
-
-            def fromI[X](infer: Infer[X]): S[X] = StateT.liftF(infer)
-
-            def subs(left: Type, right: Type, leftR: Region, rightR: Region): S[TypedExpr.Coerce] =
-              right match {
-                case Type.TyVar(n: Type.Var.Bound) =>
-                  get.flatMap { vs =>
-                    vs.get(n) match {
-                      case Some((k, None)) =>
-                        fromI(kindOf(left, leftR))
-                          .flatMap { leftK =>
-                            if (Kind.leftSubsumesRight(k, leftK)) {
-                              set(n, k, left, leftR).as(FunctionK.id)
-                            }
-                            else {
-                              //fromI(fail(Error.KindMetaMismatch(ty1, nonMeta, leftK, left, rightR)))
-                              ???
-                            }
-                          }
-                      case Some((_, Some((t, tReg)))) =>
-                        subs(left, t, leftR, tReg)
-                      case None =>
-                        // this is an unknown var
-                        fromI(fail(Error.UnexpectedBound(n, left, fnRegion, leftR)))
-                    }
-                  }
-                  case leaf: Type.Leaf =>
-                    // we need left <:< (TyMeta, TyVar(Skolem), TyConst)
-                    fromI(subsCheck(left, leaf, leftR, fnRegion))
-                  case ta @ Type.TyApply(on, arg) =>
-                    // since we verified the arguments are simple, they are all
-                    // covariant and don't have quantification
-                    left match {
-                      case ta@Type.TyApply(lon, larg) =>
-                        subs(lon, on, leftR, rightR) *>
-                          subs(larg, arg, leftR, rightR) *>
-                            fromI(checkedKinds).map { k =>
-                              TypedExpr.coerceRho(ta, k)  
-                            }
-                      case _: Type.Leaf =>
-                        // no leaf is <:< TyApply, just let subsCheck error
-                        fromI(subsCheck(left, ta, leftR, fnRegion))
-                      case Type.Quantified(_, _) =>
-                        // TODO
-                        ???
-                    }
-                  // $COVERAGE-OFF$
-                  case Type.Quantified(_, _) =>
-                    sys.error("invariant violation, not simple")
-                  // $COVERAGE-ON$
-                }
-
-            def solve(
-              args: List[(Type, TypedExpr[A])],
-              revArgs: List[TypedExpr[A]]): S[TypedExpr.Rho[A]] =
-              args match {
-                case Nil => get.flatMap { vs =>
-                  // substitute all the fixed types and instantitate all the frees
-                  val freeSet = vs.iterator.collect { case (v, (_, None)) => v }.toSet
-                  val subsMap = vs.iterator
-                    .collect { case (b, (_, Some((t, _)))) => (b, t) }
-                    .toMap[Type.Var, Type]
-
-                  val quant =
-                    if (freeSet.nonEmpty) {
-                      Type.Quantification.fromLists(
-                        forallList = univ.filter { case (v, _) => freeSet(v) },
-                        existList = Nil
-                      )
-                    }
-                    else None
-
-                  val subsFn = Type.substituteVar(fn, subsMap)
-                  val instFn: TypedExpr[A] = TypedExpr.Annotation(fnEx, subsFn)
-                  val app = TypedExpr.App(
-                    instFn,
-                    NonEmptyList.fromListUnsafe(revArgs.reverse),
-                    outT,
-                    tag
-                  )
-
-                  val maybeGen = quant match {
-                    case Some(q) => TypedExpr.Generic(q, app)
-                    case None => app
-                  }
-
-                  val res = TypedExpr.substituteTypeVar(maybeGen, subsMap)
-                  fromI(expect match {
-                    case Expected.Check((rho, reg)) =>
-                      subsCheckRho(res.getType, rho, region(tag), reg)
-                        .map(_(res))
-                    case inf @ Expected.Inf(_) =>
-                      for {
-                        (te, rho) <- instSigmaTypedExpr(res)
-                        _ <- inf.set((rho, region(tag)))
-                      } yield te
-                  })
-                }
-                case (inT, arg) :: tail =>
-                  val argT = arg.getType
-                  // we need argT <:< inT
-                  subs(argT, inT, region(arg), fnRegion)
-                    .flatMap { co =>
-                      solve(
-                        tail,
-                        co(arg) :: revArgs,
-                      )
-                    }
+                .as(
+                  m ++ newSets.iterator.map { case (b, (k, t)) => (b, (k, Some(t))) }
+                )
               }
+          }
+          .map { vs =>
+            // substitute all the fixed types and instantitate all the frees
+            val freeSet = vs.iterator.collect { case (v, (_, None)) => v }.toSet
+            val subsMap = vs.iterator
+              .collect { case (b, (_, Some(t))) => (b, t) }
+              .toMap[Type.Var, Type]
 
-            Some(solve(
-              inT.zip(args).toList,
-              Nil)
-                .run( univMap).map(_._2))
+            val quant =
+              if (freeSet.nonEmpty) {
+                Type.Quantification.fromLists(
+                  forallList = univ.filter { case (v, _) => freeSet(v) },
+                  existList = Nil
+                )
+              }
+              else None
+
+            val fn = Type.Fun(inT, outT)
+            val subsFn = Type.substituteVar(fn, subsMap)
+            val instFn: TypedExpr[A] = TypedExpr.Annotation(fnEx, subsFn)
+            val app = TypedExpr.App(
+              instFn,
+              args,
+              outT,
+              tag
+            )
+
+            val maybeGen = quant match {
+              case Some(q) => TypedExpr.Generic(q, app)
+              case None => app
             }
+
+            val res = TypedExpr.substituteTypeVar(maybeGen, subsMap)
+            expect match {
+              case Expected.Check((rho, reg)) =>
+                subsCheckRho(res.getType, rho, region(tag), reg)
+                  .map(_(res))
+              case inf @ Expected.Inf(_) =>
+                for {
+                  (te, rho) <- instSigmaTypedExpr(res)
+                  _ <- inf.set((rho, region(tag)))
+                } yield te
+            }
+          }
         case _ =>
           None
       }
@@ -1286,7 +1209,7 @@ object Infer {
             res <- zonkTypedExpr(TypedExpr.Global(pack, name, vSigma, tag))
            } yield coerce(res)
         case App(fn, args, tag) =>
-          lazy val defaultApproach = 
+          def defaultApproach = 
             for {
               (typedFn, fnTRho) <- inferRho(fn)
               argsRegion = args.reduceMap(region[Expr[A]](_))
@@ -1296,7 +1219,6 @@ object Infer {
               res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
             } yield coerce(res)
 
-            /*
           (maybeSimple(fn), args.traverse(maybeSimple(_))).tupled match {
             case Some((fnI, argsI)) =>
               (fnI, argsI.parSequence, GetEnv).parFlatMapN { (fnT, argsT, env) =>
@@ -1307,8 +1229,6 @@ object Infer {
               }
             case None => defaultApproach
           }
-          */
-          defaultApproach 
         case Generic(tpes, in) =>
             for {
               unSkol <- inferForAll(tpes, in)

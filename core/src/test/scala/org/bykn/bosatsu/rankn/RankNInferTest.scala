@@ -1417,4 +1417,31 @@ x: exists a. a = 1
 y = Box(x)
 """, "Box[exists a. a]")
   }
+
+  test("invariant instantiation regression") {
+    parseProgram("""#
+struct Box[x: *](a: x)
+struct One
+enum Opt[a]: None, Some(a: a)
+
+# we could infer this as forall a. Box[Opt[a]]
+#   or: Box[forall a. Opt[a]]
+#   if we infer Box[forall a. Opt[a]], then we need to see that
+#   Box[forall a. Opt[a]] <:< Box[Opt[One]]
+#   but that's not true in general for an invariant type is it?
+# consider: struct C[a](fn: a -> List[a])
+# C[forall a. a] is like (forall a. a) -> List[forall a. a]
+# but forall a. C[a] is forall a. (a -> List[a])
+# the first one could be x -> x, but that's not a valid member of the second
+# so, C[forall a. a] can't be <:< forall a. C[a]
+# but possibly forall a. C[a] <:< C[forall a. a]
+y: forall a. Box[Opt[a]] = Box(None)
+def process(o: Box[Opt[One]]) -> One: 
+  match o:
+    case Box(Some(o)): o
+    case Box(None): One
+
+z = process(y)
+""", "One")
+  }
 }

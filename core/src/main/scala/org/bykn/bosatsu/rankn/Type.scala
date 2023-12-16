@@ -428,6 +428,10 @@ object Type {
       case c@TyConst(_) => c
     }
 
+  /**
+   * Kind of the opposite of substitute: given a Map of vars, can
+   * we set those vars to some Type and get from to match to exactly
+   */
   def instantiate[A](
     vars: Map[Var.Bound, A],
     from: Type,

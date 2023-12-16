@@ -280,4 +280,19 @@ struct Bar(foo: Foo)
 struct Tree(root: a, children: f[Tree[a, f]])
 """)
   }
+
+  test("test a nested regression") {
+    testKind(
+      """#
+struct Box(a)
+struct One
+enum Opt[a]: None, Some(a: a)
+""",
+      Map(
+        "Opt" -> "+* -> *",
+        "Box" -> "+* -> *",
+        "One" -> "*"
+        )
+    )
+  }
 }
