@@ -168,9 +168,7 @@ object Type {
   case class TyApply(on: Rho, arg: Type) extends Rho {
     lazy val normalize: Rho = TyApply(on.normalize, arg.normalize)
   }
-  case class TyConst(tpe: Const) extends Leaf {
-    def isPredef: Boolean = tpe.toDefined.packageName == PackageName.PredefName
-  }
+  case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
   case class TyMeta(toMeta: Meta) extends Leaf
 
