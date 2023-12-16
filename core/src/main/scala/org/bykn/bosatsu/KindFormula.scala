@@ -13,6 +13,7 @@ import org.bykn.bosatsu.rankn.{
   ConstructorFn,
   Ref,
   RefSpace,
+  Type => RankNType,
   TypeEnv,
   DefinedType
 }
@@ -254,13 +255,19 @@ object KindFormula {
       dts: List[DefinedType[Either[KnownShape, Kind.Arg]]]
   ): IorNec[Error, List[DefinedType[Kind.Arg]]] =
     dts
-      .foldM(List.empty[DefinedType[Kind.Arg]]) { (acc, dt) =>
-        solveKind((imports, acc), dt) match {
-          case Validated.Valid(good)   => Ior.Right(good :: acc)
-          case Validated.Invalid(errs) => Ior.Both(errs, acc)
+      .foldM((List.empty[DefinedType[Kind.Arg]], Set.empty[RankNType.TyConst])) { case (st @ (acc, failed), dt) =>
+        if (dt.dependsOn.exists(failed)) {
+          // there was at least one failure already, just return and let that failure signal
+          Ior.Right(st)
+        }
+        else {
+          solveKind((imports, acc), dt) match {
+            case Validated.Valid(good)   => Ior.Right((good :: acc, failed))
+            case Validated.Invalid(errs) => Ior.Both(errs, (acc, failed + dt.toTypeTyConst))
+          }
         }
       }
-      .map(_.reverse)
+      .map(_._1.reverse)
 
   def solveKind[Env: IsTypeEnv](
       imports: Env,
