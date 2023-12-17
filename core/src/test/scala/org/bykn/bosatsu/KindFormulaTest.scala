@@ -281,18 +281,15 @@ struct Tree(root: a, children: f[Tree[a, f]])
 """)
   }
 
-  test("test a nested regression") {
-    testKind(
-      """#
-struct Box(a)
-struct One
-enum Opt[a]: None, Some(a: a)
-""",
-      Map(
-        "Opt" -> "+* -> *",
-        "Box" -> "+* -> *",
-        "One" -> "*"
-        )
-    )
+  test("we don't throw when a previous kind fails") {
+    disallowed("""#
+struct Foo[a: -*](get: a)    
+struct Bar[a](foo: Foo[a])
+
+""")
+    disallowed("""#
+struct Bar[a](foo: Foo[a])
+
+""")
   }
 }

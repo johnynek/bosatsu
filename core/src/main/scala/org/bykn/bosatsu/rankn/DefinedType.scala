@@ -31,6 +31,13 @@ final case class DefinedType[+A](
   val toTypeTyConst: Type.TyConst =
     Type.TyConst(toTypeConst)
 
+  lazy val dependsOn: List[Type.TyConst] =
+    Type.allConsts(
+      for {
+        cfn <- constructors
+        (_, t) <- cfn.args
+      } yield t
+    )
   /**
    * A type with exactly one constructor is a struct
    */

@@ -67,7 +67,10 @@ object Shape {
         Doc.text("kind(") + tdoc + Doc.char(')')
     }
 
-  sealed abstract class Error
+  sealed abstract class Error {
+    def dt: DefinedType[Option[Kind.Arg]]
+  }
+
   case class ShapeLoop(
       dt: DefinedType[Option[Kind.Arg]],
       bound: Either[rankn.Type.TyApply, rankn.Type.Var.Bound],

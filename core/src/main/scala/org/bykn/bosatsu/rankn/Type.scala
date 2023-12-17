@@ -382,6 +382,25 @@ object Type {
       case q: Quantified => rootConst(q.in)
     }
 
+  def allConsts(ts: List[Type]): List[TyConst] = {
+    @annotation.tailrec
+    def loop(ts: List[Type], acc: List[TyConst]): List[TyConst] =
+      ts match {
+        case (tyc@TyConst(_)) :: tail => 
+          loop(tail, tyc :: acc)
+        case (TyVar(_) | TyMeta(_)) :: tail =>
+          loop(tail, acc)
+        case TyApply(left, right) :: tail =>
+          loop(left :: right :: tail, acc)
+        case (q: Quantified) :: tail =>
+          loop(q.in :: tail, acc)
+        case Nil =>
+          acc.reverse.distinct
+      }
+
+    loop(ts, Nil)
+  }
+
   object RootConst {
     def unapply(t: Type): Option[Type.TyConst] =
       rootConst(t)

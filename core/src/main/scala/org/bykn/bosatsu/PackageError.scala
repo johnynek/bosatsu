@@ -534,90 +534,64 @@ object PackageError {
   case class KindInferenceError(pack: PackageName, kindError: KindFormula.Error, regions: Map[Type.Const.Defined, Region]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      kindError match {
-        case KindFormula.Error.Unsatisfiable(_, _, _) => 
-           val prefix = sourceMap.headLine(pack, None)
-          (prefix + Doc.text(s": $kindError")).render(80)
+      val region = regions(kindError.dt.toTypeConst)
+      val ctx = lm.showRegion(region, 2, errColor)
+        .getOrElse(Doc.str(region)) // we should highlight the whole region
+      val prefix = sourceMap.headLine(pack, Some(region))
+      val message = kindError match {
+        case KindFormula.Error.Unsatisfiable(_, _, _, _) => 
+           // TODO: would be good to give a more precise problem, e.g. which
+           // type parameters are the problem.
+          Doc.text("could not solve for valid variances")
         case KindFormula.Error.FromShapeError(se) =>
           se match {
-            case Shape.UnificationError(dt, cons, left, right) =>
-              val region = regions(dt.toTypeConst)
-              val prefix = sourceMap.headLine(pack, Some(region))
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (prefix + Doc.hardLine + Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc.text(" and ") + Shape.shapeDoc(right) +
-                Doc.text(s" to match in the constructor ${cons.name.sourceCodeRepr}") + Doc.hardLine + Doc.hardLine +
-                ctx).render(80)
-            case Shape.ShapeMismatch(dt, cons, outer, tyApp, right) =>
+            case Shape.UnificationError(_, cons, left, right) =>
+              Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc.text(" and ") + Shape.shapeDoc(right) +
+                Doc.text(s" to match in the constructor ${cons.name.sourceCodeRepr}") + Doc.hardLine
+            case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
-              val region = regions(dt.toTypeConst)
-              val prefix = sourceMap.headLine(pack, Some(region))
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
               val typeDoc =
                 if (outer != tyApp) (tmap(outer) + Doc.text(" at application ") + tmap(tyApp))
                 else tmap(outer)
 
-              (prefix + Doc.text(" shape error: expected ") + Shape.shapeDoc(right) + Doc.text(" -> ?") + Doc.text(" but found * ") +
+              Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc.text(" -> ?") + Doc.text(" but found * ") +
                 Doc.text(s"in the constructor ${cons.name.sourceCodeRepr} inside type ") +
                 typeDoc + 
-                Doc.hardLine + Doc.hardLine +
-                ctx).render(80)
+                Doc.hardLine
             case Shape.FinishFailure(dt, left, right) =>
-              val region = regions(dt.toTypeConst)
               val tdoc = showTypes(pack, dt.toTypeTyConst :: Nil)(dt.toTypeTyConst)
-              val prefix = sourceMap.headLine(pack, Some(region))
-              val message = Doc.text("in type ") + tdoc + Doc.text(" could not unify shapes: ") + Shape.shapeDoc(left) + Doc.text(" and ") +
+              Doc.text("in type ") + tdoc + Doc.text(" could not unify shapes: ") + Shape.shapeDoc(left) + Doc.text(" and ") +
                 Shape.shapeDoc(right)
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
             case Shape.ShapeLoop(dt, tpe, _) =>
-              val region = regions(dt.toTypeConst)
               val tpe2 = tpe match {
                 case Left(ap) => ap
                 case Right(v) => Type.TyVar(v)
               }
               val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
 
-              val prefix = sourceMap.headLine(pack, Some(region))
-              val message = Doc.text("in type ") + tdocs(dt.toTypeTyConst) + Doc.text(" cyclic dependency encountered in ") +
+              Doc.text("in type ") + tdocs(dt.toTypeTyConst) + Doc.text(" cyclic dependency encountered in ") +
                 tdocs(tpe2)
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
             case Shape.UnboundVar(dt, cfn, v) =>
-              val region = regions(dt.toTypeConst)
               val tpe2 = Type.TyVar(v)
               val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
 
-              val prefix = sourceMap.headLine(pack, Some(region))
               val cfnMsg = if (dt.isStruct) Doc.empty else {
                 Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
               }
-              val message = Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
+              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
                 Doc.text(" unbound type variable ") + tdocs(tpe2) + cfnMsg
-
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
             case Shape.UnknownConst(dt, cfn, c) =>
-              val region = regions(dt.toTypeConst)
               val tpe2 = Type.TyConst(c)
               val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
 
-              val prefix = sourceMap.headLine(pack, Some(region))
               val cfnMsg = if (dt.isStruct) Doc.empty else {
                 Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
               }
-              val message = Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
+              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
                 Doc.text(" unknown type ") + tdocs(tpe2) + cfnMsg
-
-              val ctx = lm.showRegion(region, 2, errColor)
-                .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
           }
       }
+      (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
     }
   }
 }
