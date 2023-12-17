@@ -280,4 +280,16 @@ struct Bar(foo: Foo)
 struct Tree(root: a, children: f[Tree[a, f]])
 """)
   }
+
+  test("we don't throw when a previous kind fails") {
+    disallowed("""#
+struct Foo[a: -*](get: a)    
+struct Bar[a](foo: Foo[a])
+
+""")
+    disallowed("""#
+struct Bar[a](foo: Foo[a])
+
+""")
+  }
 }

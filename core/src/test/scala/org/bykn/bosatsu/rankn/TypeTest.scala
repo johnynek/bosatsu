@@ -383,4 +383,28 @@ class TypeTest extends AnyFunSuite {
       assert(!code.contains(s"Tuple$i(),"))
     }
   }
+
+  test("allConsts never throws") {
+    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+      assert(Type.allConsts(ts) ne null)
+    }
+  }
+
+  test("allConsts laws") {
+    forAll(NTypeGen.genDepth03) { t =>
+      import Type._
+
+      val consts = allConsts(t :: Nil)
+      t match {
+        case tyc@TyConst(_) => 
+          assert(consts == (tyc :: Nil))
+        case (TyVar(_) | TyMeta(_)) =>
+          assert(consts == Nil)
+        case TyApply(left, right) =>
+          assert(consts == Type.allConsts(left :: right :: Nil))
+        case Quantified(_, in) =>
+          assert(consts == allConsts(in :: Nil))
+      }
+    }
+  }
 }
