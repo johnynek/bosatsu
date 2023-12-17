@@ -2806,7 +2806,8 @@ package Foo
 struct Foo[a: *](a: a[Int])
 """)) { case kie@PackageError.KindInferenceError(_, _, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
-        """in file: <unknown source>, package Foo shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
+        """in file: <unknown source>, package Foo
+shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
 
 Region(14,41)""")
       ()
