@@ -33,15 +33,22 @@ object KindFormula {
   case object Type extends KindFormula
   case class Cons(arg: Arg, result: KindFormula) extends KindFormula
 
-  sealed abstract class Error
+  sealed abstract class Error {
+    def dt: DefinedType[Option[Kind.Arg]]
+  }
   object Error {
     case class Unsatisfiable(
+        dte: DefinedType[Either[KnownShape, Kind.Arg]],
         constraints: LongMap[NonEmptyList[Constraint]],
         existing: LongMap[Variance],
         unknowns: SortedSet[Long]
-    ) extends Error
+    ) extends Error {
+      def dt: DefinedType[Option[Kind.Arg]] = dte.map(_.toOption)
+    }
 
-    case class FromShapeError(shapeError: Shape.Error) extends Error
+    case class FromShapeError(shapeError: Shape.Error) extends Error {
+      def dt = shapeError.dt
+    }
   }
 
   sealed abstract class Sat
@@ -291,7 +298,7 @@ object KindFormula {
       // we have allocated all variance variables now, we can see how many
       varCount <- state.nextId
       topo = Impl.combineTopo(varCount, constraints)
-      maybeRes = Impl.go(constraints, dirs, topo).map { vars =>
+      maybeRes = Impl.go(dt, constraints, dirs, topo).map { vars =>
         dtFormula.map(Impl.unformula(_, vars))
       }
     } yield maybeRes).run.value
@@ -354,6 +361,7 @@ object KindFormula {
     // invariant: all subgraph values must be valid keys in the result
     // we can process the subgraph list in parallel. Those are all the indepentent next values
     def allSolutionChunk(
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
@@ -414,22 +422,24 @@ object KindFormula {
         NonEmptyLazyList.fromLazyList(validVariances) match {
           case Some(nel) => Validated.valid(nel)
           case None =>
-            Validated.invalidNec(Error.Unsatisfiable(cons, existing, subgraph))
+            Validated.invalidNec(Error.Unsatisfiable(dt, cons, existing, subgraph))
         }
       }
 
     def allSolutions(
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
         subgraph: NonEmptyList[SortedSet[Long]]
     ): EitherNec[Error, NonEmptyLazyList[LongMap[Variance]]] =
       subgraph
-        .traverse(allSolutionChunk(cons, existing, directions, _))
+        .traverse(allSolutionChunk(dt, cons, existing, directions, _))
         .map(KindFormula.mergeCrossProduct(_))
         .toEither
 
     def go[F[_]: Foldable](
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
         cons: Cons,
         directions: LongMap[Direction],
         topo: F[NonEmptyList[SortedSet[Long]]]
@@ -437,7 +447,7 @@ object KindFormula {
       topo.foldM(NonEmptyLazyList(LongMap.empty[Variance])) {
         (sols, subgraph) =>
           // if there is at least one good solution, we can keep going
-          val next = sols.map(allSolutions(cons, _, directions, subgraph))
+          val next = sols.map(allSolutions(dt, cons, _, directions, subgraph))
           val nextPaths: LazyList[LongMap[Variance]] =
             next.toLazyList.flatMap {
               case Right(ll) => ll.toLazyList
@@ -855,7 +865,6 @@ object KindFormula {
             )
           } yield ()
         }
-
     }
   }
 

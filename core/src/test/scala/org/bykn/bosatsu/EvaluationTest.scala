@@ -3270,4 +3270,19 @@ res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
       ()
     }
   }
+
+  test("kind errors show the region of the type") {
+    val testCode = """
+package ErrorCheck
+
+struct Foo[a: -*](get: a)
+
+"""
+   evalFail(List(testCode)) { case kie@PackageError.KindInferenceError(_, _, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Region(21,46)"))
+      assert(testCode.substring(21, 46) == "struct Foo[a: -*](get: a)")
+      ()
+    }
+  }
 }
