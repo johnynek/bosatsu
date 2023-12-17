@@ -2806,7 +2806,8 @@ package Foo
 struct Foo[a: *](a: a[Int])
 """)) { case kie@PackageError.KindInferenceError(_, _, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
-        """in file: <unknown source>, package Foo shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
+        """in file: <unknown source>, package Foo
+shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
 
 Region(14,41)""")
       ()
@@ -3267,6 +3268,21 @@ res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("invalid tuple size. Found 33, but maximum allowed 32"))
       assert(message.contains("Region(158,297)"))
+      ()
+    }
+  }
+
+  test("kind errors show the region of the type") {
+    val testCode = """
+package ErrorCheck
+
+struct Foo[a: -*](get: a)
+
+"""
+   evalFail(List(testCode)) { case kie@PackageError.KindInferenceError(_, _, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Region(21,46)"))
+      assert(testCode.substring(21, 46) == "struct Foo[a: -*](get: a)")
       ()
     }
   }
