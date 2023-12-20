@@ -1444,4 +1444,15 @@ def process(o: Box[Opt[One]]) -> One:
 z = process(y)
 """, "One")
   }
+
+  test("some subtyping relationships") {
+parseProgram("""
+struct Foo[a: *]
+
+f1: forall a. Foo[a] = Foo
+f2: Foo[forall a. a] = Foo
+
+f3: Foo[forall a. a] = f1
+""", "Foo[forall a. a]")
+  }
 }

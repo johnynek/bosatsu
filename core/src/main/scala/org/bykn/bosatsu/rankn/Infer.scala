@@ -1219,6 +1219,7 @@ object Infer {
               res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
             } yield coerce(res)
 
+            /*
           (maybeSimple(fn), args.traverse(maybeSimple(_))).tupled match {
             case Some((fnI, argsI)) =>
               (fnI, argsI.parSequence, GetEnv).parFlatMapN { (fnT, argsT, env) =>
@@ -1229,6 +1230,8 @@ object Infer {
               }
             case None => defaultApproach
           }
+          */
+          defaultApproach
         case Generic(tpes, in) =>
             for {
               unSkol <- inferForAll(tpes, in)
