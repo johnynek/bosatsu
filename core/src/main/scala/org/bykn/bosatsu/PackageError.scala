@@ -390,7 +390,9 @@ object PackageError {
 
             (Doc.text("unknown type: ") + tmap(tpe) + Doc.hardLine + context, Some(reg))
           case ie: Infer.Error.InternalError =>
-            (Doc.text(ie.message), Some(ie.region))
+            val context =
+                lm.showRegion(ie.region, 2, errColor).getOrElse(Doc.str(ie.region))
+            (Doc.text(ie.message) + Doc.hardLine + context, Some(ie.region))
 
         }
         val h = sourceMap.headLine(pack, region) 

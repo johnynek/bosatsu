@@ -1110,90 +1110,6 @@ object Infer {
       }
     }
 
-    def checkApplyRho[A: HasRegion](
-      fnEx: TypedExpr[A],
-      args: NonEmptyList[TypedExpr[A]],
-      tag: A,
-      resultT: Type.Rho,
-      resultRegion: Region,
-      initEnv: Env): Option[Infer[TypedExpr.Rho[A]]] = {
-
-      fnEx.getType match {
-        case Type.Fun.SimpleUniversal(univ, inT, outT) if inT.length == args.length =>
-          
-          val unknowns = univ
-            .iterator
-            .map { case (b, k) => (b, (k, Option.empty[Type])) }
-            .toMap
-
-          inT.zip(args).foldM(unknowns) { case (m, (from, to)) =>
-            val unset = m.iterator.collect { case (b, (k, None)) => (b, k) }.toMap
-            Type.instantiate(unset, from, to.getType)
-              .flatMap { newSets =>
-                // check that we can match the kind
-                newSets.iterator.toList.traverse_ { case (_, (k, t)) =>
-                  initEnv.getKindOpt(t)
-                    .filter { tk =>
-                      Kind.leftSubsumesRight(k, tk)
-                    }
-                }
-                .as(
-                  m ++ newSets.iterator.map { case (b, (k, t)) => (b, (k, Some(t))) }
-                )
-              }
-          }
-          .map { vs =>
-            // substitute all the fixed types and instantitate all the frees
-            val freeSet = vs.iterator.collect { case (v, (_, None)) => v }.toSet
-            val subsMap = vs.iterator
-              .collect { case (b, (_, Some(t))) => (b, t) }
-              .toMap[Type.Var, Type]
-
-            val quant =
-              if (freeSet.nonEmpty) {
-                Type.Quantification.fromLists(
-                  forallList = univ.filter { case (v, _) => freeSet(v) },
-                  existList = Nil
-                )
-              }
-              else None
-
-            val fn = Type.Fun(inT, outT)
-            val subsFn = Type.substituteVar(fn, subsMap)
-            val instFn: TypedExpr[A] = TypedExpr.Annotation(fnEx, subsFn)
-            val app = TypedExpr.App(
-              instFn,
-              args,
-              outT,
-              tag
-            )
-
-            val maybeGen = quant match {
-              case Some(q) => TypedExpr.Generic(q, app)
-              case None => app
-            }
-
-            val res = TypedExpr.substituteTypeVar(maybeGen, subsMap)
-            subsCheckRho(res.getType, resultT, region(tag), resultRegion)
-              .map(_(res))
-          }
-        case _ =>
-          None
-      }
-    }
-
-    def maybeSimpleApp[A: HasRegion](app: Expr.App[A], expect: Expected.Check[(Type.Rho, Region)])(defaultApproach: => Infer[TypedExpr.Rho[A]]): Infer[TypedExpr.Rho[A]] =
-      (maybeSimple(app.fn), app.args.traverse(maybeSimple(_))).tupled match {
-        case Some((fnI, argsI)) =>
-          (fnI, argsI.parSequence, GetEnv).parFlatMapN { (fnT, argsT, env) =>
-            checkApplyRho(fnT, argsT, app.tag, expect.value._1, expect.value._2, env) match {
-              case Some(r) => r
-              case None => defaultApproach
-            }
-          }
-        case None => defaultApproach
-      }
-
     def checkApply[A: HasRegion](fn: Expr[A], args: NonEmptyList[Expr[A]], tag: A, tpe: Type, tpeRegion: Region): Infer[TypedExpr[A]] = {
       val infOpt = maybeSimple(fn).flatTraverse { inferFnExpr =>
         inferFnExpr.map { fnTe =>
@@ -1201,11 +1117,13 @@ object Infer {
             case Type.Fun.SimpleUniversal(univ, inT, outT) if inT.length == args.length =>
               // see if we can instantiate the result type
               // if we can, we use that to fix the known parameters and continue
-              Type.instantiate(univ.iterator.toMap, outT, tpe).flatMap { inst =>
+              Type.instantiate(univ.iterator.toMap, outT, tpe).flatMap { case (frees, inst) =>
                 // if instantiate works, we know outT => tpe
-                if (inst.nonEmpty) {
-                  // we made some progress
-                  Some((fnTe, univ, inT, inst))
+                if (inst.nonEmpty && frees.isEmpty) {
+                  // we made some progress and there are no frees
+                  // TODO: we could support frees it seems but
+                  // it triggers failures in tests now
+                  Some((fnTe, inT, frees, inst))
                 }
                 else {
                   // We learned nothing
@@ -1219,7 +1137,7 @@ object Infer {
       }
 
       infOpt.flatMap {
-        case Some((fnTe, univ, inT, inst)) =>
+        case Some((fnTe, inT, frees, inst)) =>
           val regTe = region(tag)
           val validKinds: Infer[Unit] =
             inst.toList.parTraverse_ { case (boundVar, (kind, tpe)) =>
@@ -1239,26 +1157,37 @@ object Infer {
           val subIn = inT.map(Type.substituteVar(_, instNoKind))
 
           validKinds.parProductR {
-            NonEmptyList.fromList(univ.filterNot { case (b, _) => inst.contains(b)}) match {
+            val remainingFree =
+              NonEmptyList.fromList(frees.iterator.map { case (_, (k, b)) =>
+                (b, k)  
+              }
+              .toList)
+            
+            remainingFree match {
               case None =>
                 // we can fully instantiate
-                  args.zip(subIn).parTraverse { case (e, t) =>
-                    checkSigma(e, t)  
-                  }
-                  .map { argsTE =>
-                    TypedExpr.App(fnTe, argsTE, tpe, tag)  
-                  }
+                args.zip(subIn).parTraverse { case (e, t) =>
+                  checkSigma(e, t)  
+                }
+                .map { argsTE =>
+                  TypedExpr.App(fnTe, argsTE, tpe, tag)  
+                }
               case Some(remainingFree) =>
                 // some items are still free
                 // TODO we could use the args to try to fix these
+                val freeSub = frees.iterator
+                  .collect { case (v, (_, t)) if v != t => (v, Type.TyVar(t)) }
+                  .toMap[Type.Var, Type]
+
+                val subIn2 = subIn.map(Type.substituteVar(_, freeSub))
                 val tpe1 = Type.Quantified(
                   Type.Quantification.ForAll(remainingFree),
-                  Type.Fun(subIn, tpe)
+                  Type.Fun(subIn2, tpe)
                 )
                 val fn1 = Expr.Annotation(fn, tpe1, fn.tag)
                 val inner = Expr.App(fn1, args, tag)
                 checkSigma(inner, tpe)
-            }
+              }
           }
         case None =>
           tpe match {
@@ -1460,7 +1389,7 @@ object Infer {
                     te.getType match {
                       case Type.ForAll(fas, in) =>
                         Type.instantiate(fas.iterator.toMap, in, rho) match {
-                          case Some(subs) =>
+                          case Some((frees, subs)) if frees.isEmpty =>
                             // we know that substituting in gives rho
                             // check kinds
                             // substitute
@@ -1492,7 +1421,7 @@ object Infer {
                                   ks <- checkedKinds
                                 } yield TypedExpr.coerceRho(rho, ks)(te)
                             })
-                          case None =>
+                          case _ =>
                             default
                         }   
                       case _ =>

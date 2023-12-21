@@ -313,9 +313,18 @@ class TypeTest extends AnyFunSuite {
       t1 match {
         case Type.ForAll(fas, t) =>
           Type.instantiate(fas.iterator.toMap, t, t2) match {
-            case Some(subs) =>
+            case Some((frees, subs)) =>
               val t3 = Type.substituteVar(t, subs.iterator.map { case (k, (_, v)) => (k, v)}.toMap)
-              assert(t3.sameAs(t2))
+
+              val t4 = Type.substituteVar(t3, frees.iterator.map {
+                case (v1, (_, v2)) => (v1, Type.TyVar(v2))
+              }.toMap)
+
+              val t5 = Type.quantify(forallList = frees.iterator.map {
+                case (_, tup) => tup.swap
+              }.toList, existList = Nil, t4) 
+
+              assert(t5.sameAs(t2))
             case None =>
               ()
           }
@@ -332,8 +341,15 @@ class TypeTest extends AnyFunSuite {
       assert(res.isDefined)
       subs.foreach { case (k, v) =>
         val Type.TyVar(b: Type.Var.Bound) = parse(k)
-        assert(res.get(b)._2 == parse(v))
+        assert(res.get._2(b)._2 == parse(v))
       }
+    }
+
+    def noSub(forall: String, matches: String) = {
+      val Type.ForAll(fas, t) = parse(forall)
+      val targ = parse(matches)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ)
+      assert(res == None)
     }
 
     check("forall a. a", "Bosatsu/Predef::Int",
@@ -344,6 +360,14 @@ class TypeTest extends AnyFunSuite {
       List("a" -> "Bosatsu/Predef::Int"))
     check("forall a. Bosatsu/Predef::Option[a]", "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
       List("a" -> "Bosatsu/Predef::Int"))
+    
+    check("forall a. a", "forall a. a",
+      List("a" -> "forall a. a"))
+
+    check("forall a, b. a -> b", "forall c. c -> Bosatsu/Predef::Int",
+      List("b" -> "Bosatsu/Predef::Int"))
+
+    noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
   }
 
   test("Fun(ts, r) and Fun.unapply are inverses") {
@@ -445,5 +469,34 @@ class TypeTest extends AnyFunSuite {
           assert(consts == allConsts(in :: Nil))
       }
     }
+  }
+  test("some example Fun.SimpleUniversal") {
+    def check(fn: String, expect: Option[String]) = {
+      parse(fn) match {
+        case Type.Fun.SimpleUniversal((u, args, res)) =>
+          val resTpe = Type.Quantified(
+            Type.Quantification.ForAll(u),
+            Type.Fun(args, res)
+          )
+
+          expect match {
+            case None => fail(s"$fn resulted in ${Type.typeParser.render(resTpe)}")
+            case Some(exTpe) =>
+              val exT = parse(exTpe)
+              assert(resTpe.sameAs(exT), s"${resTpe}.sameAs($exT) == false")
+          }
+        case _ =>
+          expect match {
+            case None => succeed
+            case Some(exTpe) => fail(s"$fn is not SimpleUniversal but expected: $exTpe")
+          }
+      }
+    }
+
+    check("forall a. a -> a", Some("forall a. a -> a"))
+    check("forall a. a -> Foo::Option[a]", Some("forall a. a -> Foo::Option[a]"))
+    check("forall a. a -> (forall b. b)", Some("forall a, b. a -> b"))
+    check("forall a. a -> (forall a. a)", Some("forall a, b. a -> b"))
+    check("forall a. a -> (forall a, c. a -> c)", Some("forall a, b, c. a -> (b -> c)"))
   }
 }

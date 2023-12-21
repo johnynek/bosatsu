@@ -451,12 +451,31 @@ object Type {
    * Kind of the opposite of substitute: given a Map of vars, can
    * we set those vars to some Type and get from to match to exactly
    */
-  def instantiate[A](
-    vars: Map[Var.Bound, A],
+  def instantiate(
+    vars: Map[Var.Bound, Kind],
     from: Type,
-    to: Type): Option[(SortedMap[Var.Bound, (A, Type)])] = {
+    to: Type): Option[(SortedMap[Var.Bound, (Kind, Var.Bound)], SortedMap[Var.Bound, (Kind, Type)])] = {
 
-    type State = Map[Var.Bound, (A, Option[Type])]  
+    sealed abstract class BoundState
+    case object Unknown extends BoundState
+    case class Fixed(tpe: Type) extends BoundState
+    case class Free(rightName: Var.Bound) extends BoundState
+
+    case class State(
+      fixed: Map[Var.Bound, (Kind, BoundState)],
+      rightFrees: Map[Var.Bound, Kind]) {
+
+      def get(b: Var.Bound): Option[(Kind, BoundState)] = fixed.get(b)
+
+      def updated(b: Var.Bound, kindBound: (Kind, BoundState)): State =
+        copy(fixed = fixed.updated(b, kindBound))
+
+      def --(keys: IterableOnce[Var.Bound]): State =
+        copy(fixed = fixed -- keys)
+
+      def ++(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
+        copy(fixed = fixed ++ keys)
+    }
 
     // TODO: we could handle `to` being a ForAll as well
     // by requiring some of the vars to stay free and correspond
@@ -467,12 +486,35 @@ object Type {
         from match {
           case TyVar(b: Var.Bound) =>
             state.get(b) match {
-              case Some((a, opt)) =>
+              case Some((kind, opt)) =>
                 opt match {
-                  case None => Some(state.updated(b, (a, Some(to))))
-                  case Some(set) =>
+                  case Unknown =>
+                    to match {
+                      case TyVar(toB: Var.Bound) =>
+                        state.rightFrees.get(toB) match {
+                          case Some(toBKind) =>
+                            if (kind === toBKind) {
+                              Some(state.updated(b, (kind, Free(toB))))
+                            }
+                            else None
+                          case None =>
+                            // not free, so treat as any type:
+                            Some(state.updated(b, (kind, Fixed(to))))
+                        }
+                      case _ =>
+                        if (Type.freeBoundTyVars(to :: Nil).isEmpty) {
+                          Some(state.updated(b, (kind, Fixed(to))))
+                        }
+                        else None
+                    }
+                  case Fixed(set) =>
                     if (set.sameAs(to)) Some(state)
                     else None
+                  case Free(rightName) =>
+                    to match {
+                      case TyVar(toB) if rightName == toB => Some(state)
+                      case _ => None
+                    }
                 }
               case None =>
                 // not a variable, we can use, but also not the same as the right
@@ -484,6 +526,19 @@ object Type {
                 loop(a, ta, state).flatMap { s1 =>
                   loop(b, tb, s1)  
                 }         
+              case ForAll(rightFrees, rightT) =>
+                // TODO handle shadowing
+                if (rightFrees.exists { case (b, _) => state.rightFrees.contains(b) }) {
+                  None
+                }
+                else {
+                  loop(from,
+                    rightT,
+                    state.copy(rightFrees = state.rightFrees ++ rightFrees.iterator))
+                    .map { s1 =>
+                      s1.copy(rightFrees = state.rightFrees)  
+                    }
+                }
               case _ => None
             }
           case ForAll(shadows, from1) =>
@@ -495,12 +550,23 @@ object Type {
         }
       }
 
-    loop(from, to, vars.iterator.map { case (v, a) => (v, (a, None))}.toMap)
+    val initState = State(
+      vars.iterator.map { case (v, a) => (v, (a, Unknown))}.toMap,
+      Map.empty
+    )
+
+    loop(from, to, initState)
       .map { state =>
-        state.iterator.collect {
-          case (k, (a, Some(t))) => (k, (a, t))
+        (
+        state.fixed.iterator.collect {
+          case (t, (k, Free(t1))) => (t, (k, t1))
+          case (t, (k, Unknown)) => (t, (k, t))
         }
-        .to(SortedMap)
+        .to(SortedMap),
+        state.fixed.iterator.collect {
+          case (t, (k, Fixed(f))) => (t, (k, f))
+        }
+        .to(SortedMap))
       }
   }
 
@@ -729,20 +795,6 @@ object Type {
   def const(pn: PackageName, name: TypeName): Type.Rho =
     TyConst(Type.Const.Defined(pn, name))
 
-  object Tau {
-    def unapply(t: Type): Option[Type.Tau] =
-      t match {
-        case l: Leaf => Some(l)
-        case Quantified(_, _) => None
-        case ta@TyApply(Tau(_), Tau(_)) => Some(ta)
-        case _ => None
-      }
-
-    object Many {
-      def unapply(t: NonEmptyList[Type]): Option[NonEmptyList[Type.Tau]] =
-        t.traverse(Tau.unapply)
-    }
-  }
   object Fun {
     def ifValid(from: NonEmptyList[Type], to: Type): Option[Type.Rho] = {
       val len = from.length
@@ -786,15 +838,25 @@ object Type {
               case res: Rho => Some((univ, args, res))
               case ForAll(univR, res: Rho) =>
                 // we need to relabel univR if it intersects univ
-                val intersects = univ.iterator.map(_._1).toSet
-                  .intersect(univR.iterator.map(_._1).toSet)
+                val firstSet = univ.iterator.map(_._1).toSet
+                val intersects = univR.filter { case (b, _) => firstSet(b) }
 
-                if (intersects.isEmpty) {
-                  Some((univ ::: univR, args, res))
-                }
-                else {
-                  // TODO: relabel the Var.Bound
-                  sys.error(s"intersection in ${typeParser.render(t)}")
+                NonEmptyList.fromList(intersects) match {
+                  case None =>
+                    Some((univ ::: univR, args, res))
+                  case Some(interNel) =>
+                    val good = univR.collect { case pair@(b, _) if !firstSet(b) => pair }
+                    val avoid = firstSet ++ good.iterator.map(_._1)
+                    val rename = alignBinders(interNel, avoid)
+                    val subMap =
+                      rename.iterator.map { case ((oldB, _), newB) =>
+                        (oldB, Type.TyVar(newB))  
+                      }
+                      .toMap[Type.Var, Type.Rho]
+
+                    val bounds = univ.concat(good) ::: rename.map { case ((_, k), b) => (b, k) }
+                    val newRes = Type.substituteRhoVar(res, subMap)
+                    Some((bounds, args, newRes))
                 }
               case _ => None
             }

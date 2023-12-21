@@ -764,7 +764,7 @@ main = Bar
     parseProgram("""#
 enum Foo: Bar, Baz
 
-struct Cont(cont: (b -> a) -> a)
+struct Cont[b: +*, a](cont: (b -> a) -> a)
 
 (bar1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Bar))
 (baz1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Baz))

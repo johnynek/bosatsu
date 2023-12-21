@@ -76,7 +76,7 @@ object TestUtils {
         val packMap = Map((testPackage, (lm, statement)))
         val msg = errs.toList.map { err =>
           err.message(packMap, LocationMap.Colorize.None)
-        }.mkString("\n==========\n")
+        }.mkString("", "\n==========\n", "\n")
         fail("inference failure: " + msg)
       case Validated.Valid(program) =>
         // make sure all the TypedExpr are valid
