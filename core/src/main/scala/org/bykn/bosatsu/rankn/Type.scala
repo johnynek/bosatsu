@@ -6,7 +6,7 @@ import cats.{Applicative, Monad, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedSet, SortedMap}
 
 import cats.implicits._
 
@@ -454,10 +454,13 @@ object Type {
   def instantiate[A](
     vars: Map[Var.Bound, A],
     from: Type,
-    to: Type): Option[(Map[Var.Bound, (A, Type)])] = {
+    to: Type): Option[(SortedMap[Var.Bound, (A, Type)])] = {
 
     type State = Map[Var.Bound, (A, Option[Type])]  
 
+    // TODO: we could handle `to` being a ForAll as well
+    // by requiring some of the vars to stay free and correspond
+    // to free variables in to, but this code doesn't do that yet
     def loop(from: Type, to: Type, state: State): Option[State] =
       if (from.sameAs(to)) Some(state)
       else {
@@ -497,7 +500,7 @@ object Type {
         state.iterator.collect {
           case (k, (a, Some(t))) => (k, (a, t))
         }
-        .toMap
+        .to(SortedMap)
       }
   }
 
@@ -771,17 +774,17 @@ object Type {
     /**
      * Match if a type is a simple universal function,
      * which is to say forall a, b. C -> D
-     * where all argument and result types are Tau types.
+     * where the result type is a Rho type.
      */
     object SimpleUniversal {
       def unapply(t: Type): Option[
-        (NonEmptyList[(Type.Var.Bound, Kind)], NonEmptyList[Type.Tau], Type.Tau)
+        (NonEmptyList[(Type.Var.Bound, Kind)], NonEmptyList[Type], Type.Rho)
       ] =
         t match {
-          case ForAll(univ, Fun(Tau.Many(args), resT)) =>
+          case ForAll(univ, Fun(args, resT)) =>
             resT match {
-              case Tau(res) => Some((univ, args, res))
-              case ForAll(univR, Tau(res)) =>
+              case res: Rho => Some((univ, args, res))
+              case ForAll(univR, res: Rho) =>
                 // we need to relabel univR if it intersects univ
                 val intersects = univ.iterator.map(_._1).toSet
                   .intersect(univR.iterator.map(_._1).toSet)
@@ -790,6 +793,7 @@ object Type {
                   Some((univ ::: univR, args, res))
                 }
                 else {
+                  // TODO: relabel the Var.Bound
                   sys.error(s"intersection in ${typeParser.render(t)}")
                 }
               case _ => None

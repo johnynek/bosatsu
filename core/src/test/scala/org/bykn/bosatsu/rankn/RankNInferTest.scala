@@ -1232,7 +1232,7 @@ def hide[b](x: b) -> exists a. a: x
 def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
-z = makeTup(x, y)
+z: Tup[exists a. a, exists b. b] = makeTup(x, y)
 """, "Tup[exists a. a, exists b. b]")
     parseProgram("""#
 enum B: T, F
@@ -1240,7 +1240,7 @@ enum B: T, F
 struct Inv[a: *](item: a)
 
 any: exists a. a = T
-x = Inv(any)
+x: Inv[exists a. a] = Inv(any)
 """, "Inv[exists a. a]")
   }
 
@@ -1414,7 +1414,7 @@ struct Box(a)
 
 x: exists a. a = 1
 
-y = Box(x)
+y: Box[exists a. a] = Box(x)
 """, "Box[exists a. a]")
   }
 

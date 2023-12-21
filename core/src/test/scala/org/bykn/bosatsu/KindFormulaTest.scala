@@ -292,4 +292,12 @@ struct Bar[a](foo: Foo[a])
 
 """)
   }
+
+  test("free-functor is covariant") {
+    allowed("""#
+enum Free[a: +*]:
+  Done(get: a)
+  Map(tup: exists b. (Free[b], b -> a))
+""")
+  }
 }
