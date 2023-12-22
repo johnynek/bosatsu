@@ -695,13 +695,6 @@ object Infer {
           } yield coerce.andThen(unskolemizeExists(exSkols))
       }
 
-    def instSigmaTypedExpr[A](te: TypedExpr[A]): Infer[(TypedExpr.Rho[A], Type.Rho)] =
-      for {
-        (exSkols, rho) <- instantiate(te.getType)
-        ks <- checkedKinds
-        coerce = TypedExpr.coerceRho(rho, ks)
-      } yield (coerce.andThen(unskolemizeExists(exSkols))(te), rho)
-
     def unifyFnRho(arity: Int, fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(NonEmptyList[Type], Type)] =
       fnType match {
         case Type.Fun(arg, res) =>
@@ -740,9 +733,10 @@ object Infer {
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type.Rho, Type)] =
       apType match {
         case ta @ Type.TyApply(left, right) =>
-          // this branch only happens when checking ta <:< (rho: lKind[rKind])
-          // TODO: it seems like we should be checking
-          // the kinds against lKind and rKind
+          // this branch only happens when checking ta <:< (rho: lKind[rKind]) or >:> (rho)
+          // TODO: what validates that ta has compatible kinds with lKind and rKind
+          // since we could be doing subtyping or supertyping here we would need
+          // to pass in some directionality
           validateKinds(ta, apRegion).as((left, right))
         case notApply =>
           for {
@@ -1158,10 +1152,10 @@ object Infer {
 
           validKinds.parProductR {
             val remainingFree =
-              NonEmptyList.fromList(frees.iterator.map { case (_, (k, b)) =>
-                (b, k)  
-              }
-              .toList)
+              NonEmptyList.fromList(
+                frees.iterator.map { case (_, (k, b)) => (b, k) }
+                  .toList
+              )
             
             remainingFree match {
               case None =>
@@ -1172,7 +1166,16 @@ object Infer {
                 .map { argsTE =>
                   TypedExpr.App(fnTe, argsTE, tpe, tag)  
                 }
-              case Some(remainingFree) =>
+              
+              // $COVERAGE-OFF$
+              //case Some(remainingFree) =>
+              case Some(_) =>
+                  // Currently we are only returning infOpt as Some when
+                  // there are no remaining free variables due to unit
+                  // tests not passing
+                  sys.error("unreachable")
+              // $COVERAGE-ON$
+                /*
                 // some items are still free
                 // TODO we could use the args to try to fix these
                 val freeSub = frees.iterator
@@ -1187,6 +1190,7 @@ object Infer {
                 val fn1 = Expr.Annotation(fn, tpe1, fn.tag)
                 val inner = Expr.App(fn1, args, tag)
                 checkSigma(inner, tpe)
+                */
               }
           }
         case None =>

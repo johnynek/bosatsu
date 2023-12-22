@@ -189,6 +189,12 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("if Type.hasNoUnboundVars then freeBoundTyVars is empty") {
+    forAll(NTypeGen.genDepth03) { t =>
+      assert(Type.hasNoUnboundVars(t) == Type.freeBoundTyVars(t :: Nil).isEmpty)
+    }
+  }
+
   test("hasNoVars fully recurses") {
     def allTypesIn(t: Type): List[Type] =
       t match {
@@ -337,11 +343,15 @@ class TypeTest extends AnyFunSuite {
     def check(forall: String, matches: String, subs: List[(String, String)]) = {
       val Type.ForAll(fas, t) = parse(forall)
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, targ)
-      assert(res.isDefined)
-      subs.foreach { case (k, v) =>
-        val Type.TyVar(b: Type.Var.Bound) = parse(k)
-        assert(res.get._2(b)._2 == parse(v))
+      Type.instantiate(fas.iterator.toMap, t, targ) match {
+        case Some((frees, subMap)) =>
+          assert(subMap.size == subs.size)
+          subs.foreach { case (k, v) =>
+            val Type.TyVar(b: Type.Var.Bound) = parse(k)
+            assert(subMap(b)._2 == parse(v))
+          }
+        case None =>
+          fail(s"could not instantitate: $forall to $matches")
       }
     }
 
@@ -367,7 +377,13 @@ class TypeTest extends AnyFunSuite {
     check("forall a, b. a -> b", "forall c. c -> Bosatsu/Predef::Int",
       List("b" -> "Bosatsu/Predef::Int"))
 
+    check("forall a, b. T::Cont[a, b]", "forall a. T::Cont[a, T::Foo]",
+      List("b" -> "T::Foo"))
+
+    noSub("forall a, b. T::Cont[a, b]", "forall a: * -> *. T::Cont[a, T::Foo]")
     noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
+
+    check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", Nil)
   }
 
   test("Fun(ts, r) and Fun.unapply are inverses") {
@@ -496,6 +512,7 @@ class TypeTest extends AnyFunSuite {
     check("forall a. a -> a", Some("forall a. a -> a"))
     check("forall a. a -> Foo::Option[a]", Some("forall a. a -> Foo::Option[a]"))
     check("forall a. a -> (forall b. b)", Some("forall a, b. a -> b"))
+    check("forall a. a -> (forall b. Foo::Option[b])", Some("forall a, b. a -> Foo::Option[b]"))
     check("forall a. a -> (forall a. a)", Some("forall a, b. a -> b"))
     check("forall a. a -> (forall a, c. a -> c)", Some("forall a, b, c. a -> (b -> c)"))
   }
