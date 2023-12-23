@@ -501,10 +501,8 @@ object Type {
                     case TyVar(toB: Var.Bound) =>
                       state.rightFrees.get(toB) match {
                         case Some(toBKind) =>
-                          // TODO we could substitute to a compatible kind if
-                          // we track it and return it correctly
-                          if (kind === toBKind) {
-                            Some(state.updated(b, (kind, Free(toB))))
+                          if (Kind.leftSubsumesRight(kind, toBKind)) {
+                            Some(state.updated(b, (toBKind, Free(toB))))
                           }
                           else None
                         case None => None
