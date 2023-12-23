@@ -298,7 +298,7 @@ object Kind {
   def interleave(left: Int, right: Int): Long = {
     @annotation.tailrec
     def loop(left: Int, right: Int, depth: Int, acc: Long): Long = {
-      if (depth == 32 || (left == 0 && right == 0)) acc
+      if (left == 0 && right == 0) acc
       else {
         val left1 = (left & 1).toLong
         val right1 = (right & 1).toLong
@@ -310,15 +310,17 @@ object Kind {
     loop(left, right, 0, 0L)
   }
   def uninterleave(long: Long): Long = {
+    @annotation.tailrec
     def loop(depth: Int, left: Int, right: Int): Long =
       if (depth == 32) ((left.toLong << 32) | (right.toLong & 0xffffffffL))
       else {
         // take the right 2 bits
         val leftPos = depth * 2 + 1
         val rightPos = depth * 2
-        val left1 = if ((long & (1L << leftPos)) == 0) left else (left | (1 << depth))
-        val right1 = if ((long & (1L << rightPos)) == 0) right else (right | (1 << depth))
-        loop(depth + 1, left1, right1)
+        // make this branchless
+        val leftInc = ((long & (1L << leftPos)) >> (depth + 1)).toInt
+        val rightInc = ((long & (1L << rightPos)) >> depth).toInt
+        loop(depth + 1, left | leftInc, right | rightInc)
       }
 
     loop(0, 0, 0)
