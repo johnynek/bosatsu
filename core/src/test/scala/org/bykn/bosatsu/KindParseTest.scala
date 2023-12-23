@@ -384,4 +384,47 @@ class KindParseTest extends ParserTestBase {
   test("Kind order is lawful") {
     forAll(genKind, genKind, genKind)(OrderingLaws.forOrder(_, _, _))
   }
+
+  test("kindToLong can invert") {
+    forAll(genKind) { k =>
+      Kind.kindToLong(k) match {
+        case Some(idx) =>
+          assert(Kind.longToKind(idx) == Some(k))
+        case None => ()
+      }  
+    }
+
+    assert(Kind.kindToLong(Kind.Type) == Some(0L))
+    assert(Kind.kindToLong(Kind(Kind.Type.in)) == Some(11L))
+    assert(Kind.kindToLong(Kind(Kind.Type.co)) == Some(3L))
+    assert(Kind.kindToLong(Kind(Kind.Type.contra)) == Some(9L))
+    assert(Kind.kindToLong(Kind(Kind.Type.phantom)) == Some(1L))
+
+    // small kinds have small codes
+    Kind.allKinds.take(21).foreach { k =>
+      // these can all be encoded in 1 byte in proto
+      assert(Kind.kindToLong(k).get < 0x7fL)  
+    }
+    Kind.allKinds.take(217).foreach { k =>
+      // these can all be encoded in 2 byte in proto
+      assert(Kind.kindToLong(k).get < 0x7fffL)  
+    }
+  }
+
+  test("interleave and uninterleave -> inverses") {
+    forAll { (l: Long) =>
+      val res = Kind.uninterleave(l)  
+      val high = (res >>> 32).toInt
+      val low = (res & 0xffffffffL).toInt
+      assert(Kind.interleave(high, low) == l, s"res = $res low = $low, high = $high")
+    }
+
+    forAll { (low: Int, high: Int) =>
+      val long = Kind.interleave(high, low)
+      val res = Kind.uninterleave(long)  
+      val high1 = (res >>> 32).toInt
+      val low1 = (res & 0xffffffffL).toInt
+      assert((high, low) == (high1, low1), s"interleave($low, $high) = $long uninterleave($long) = $res")
+    }
+  }
 }

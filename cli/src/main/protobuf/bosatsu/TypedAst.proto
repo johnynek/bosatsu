@@ -23,6 +23,7 @@ message Kind {
   oneof value {
     TypeKind type = 1;
     ConsKind cons = 2;
+    int64 encoded = 3;
   }
 }
 

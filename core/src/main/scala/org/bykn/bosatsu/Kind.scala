@@ -4,6 +4,7 @@ import cats.Order
 import cats.parse.{Parser => P, Parser0 => P0}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
+import cats.syntax.all._
 
 sealed abstract class Kind {
   def toDoc: Doc = Kind.toDoc(this)
@@ -293,6 +294,88 @@ object Kind {
 
     res
   }
+
+  def interleave(left: Int, right: Int): Long = {
+    @annotation.tailrec
+    def loop(left: Int, right: Int, depth: Int, acc: Long): Long = {
+      if (depth == 32 || (left == 0 && right == 0)) acc
+      else {
+        val left1 = (left & 1).toLong
+        val right1 = (right & 1).toLong
+        val acc1 = acc | (left1 << (2 * depth + 1)) | (right1 << (2 * depth))
+        loop(left >>> 1, right >>> 1, depth + 1, acc1) 
+      }
+    }
+
+    loop(left, right, 0, 0L)
+  }
+  def uninterleave(long: Long): Long = {
+    def loop(depth: Int, left: Int, right: Int): Long =
+      if (depth == 32) ((left.toLong << 32) | (right.toLong & 0xffffffffL))
+      else {
+        // take the right 2 bits
+        val leftPos = depth * 2 + 1
+        val rightPos = depth * 2
+        val left1 = if ((long & (1L << leftPos)) == 0) left else (left | (1 << depth))
+        val right1 = if ((long & (1L << rightPos)) == 0) right else (right | (1 << depth))
+        loop(depth + 1, left1, right1)
+      }
+
+    loop(0, 0, 0)
+  }
+
+  private def varianceToInt(v: Variance): Int = {
+    import Variance._
+    v match {
+      case Invariant => 3
+      case Contravariant => 2
+      case Covariant => 1
+      case Phantom => 0
+    }
+  }
+
+  private val vars =
+    Array(Variance.Phantom, Variance.Covariant, Variance.Contravariant, Variance.Invariant)
+
+  private def intToVariance(v: Int): Variance =
+    vars(v & 3)
+
+  private val some0 = Some(0L)
+  def kindToLong(k: Kind): Option[Long] =
+    k match {
+      case Type => some0
+      case Cons(Arg(v, k), result) =>
+        (kindToLong(k), kindToLong(result))
+          .flatMapN { (kL, rL) =>
+            // we are going to shift kL by 2 bits, so we
+            // need the top 34 bits to be 0
+            if (((kL & 0x3fffffffL) == kL) && ((rL & 0xffffffffL) == rL)) {
+              val intr = interleave(
+                (kL.toInt << 2) | varianceToInt(v),
+                rL.toInt
+              )
+              val notZero = intr + 1L
+              if (notZero == 0) None
+              else Some(notZero)
+            }
+            else None
+          }
+    }
+
+  def longToKind(k: Long): Option[Kind] =
+    if (k == 0L) Some(Type)
+    else {
+      val k1 = k - 1L
+      val unint = uninterleave(k1)
+      val leftVar = unint >>> 32
+      val left = leftVar >> 2
+      val right = unint & 0xffffffffL
+      (longToKind(left), longToKind(right))
+        .mapN { (kl, kr) =>
+          val v = intToVariance(leftVar.toInt)
+          Cons(Arg(v, kl), kr)  
+        }
+    }
 
   private[this] val phantomStr = "👻"
   private[this] val ghostDoc = Doc.text(phantomStr)
