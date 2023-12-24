@@ -78,7 +78,7 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
       []: ftail
       [h, *t]: loop(t, map(\(h, t) -> [h, *t], product(fn(h), ftail)))
 
-  map(reverse, loop(lst, pure([]: List[b])))
+  map(reverse, loop(lst, pure([])))
 
 # here is the traverse instance for List
 (traverse_List: Traverse[List]) = Traverse(trav_l)
