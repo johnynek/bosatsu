@@ -349,6 +349,24 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     assert(diff1.flatMap(setOps.difference(_, Cat(Wildcard, Cat(AnyElem, Empty)))) == Nil)
   }
 
+  test("[*, _] n [*, _, *] commutes and is [_, *]") {
+    val p1 = Cat(Wildcard, Cat(AnyElem, Empty))
+    val p2 = Cat(Wildcard, Cat(AnyElem, Cat(Wildcard, Empty)))
+    val int1 = setOps.intersection(p1, p2)
+    val int2 = setOps.intersection(p2, p1)
+    assert(int1 == int2)
+    assert(int1 == List(Cat(AnyElem, Cat(Wildcard, Empty))))
+  }
+
+  test("x n y == y n x") {
+    forAll(genPattern, genPattern) { (x: Pattern, y: Pattern) =>
+      val i1 = setOps.intersection(x, y)
+      val i2 = setOps.intersection(y, x)
+      assert(i1 == i2,
+        s"${i1.map(_.show)} != ${i2.map(_.show)}")  
+    }
+  }
+
 /*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
     forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>
@@ -364,6 +382,10 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
 }
 
 class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {
+
+  implicit override val generatorDrivenConfig: PropertyCheckConfiguration =
+    // these tests wind up running very long sometimes
+    PropertyCheckConfiguration(minSuccessful = 100)
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
     Shrink {

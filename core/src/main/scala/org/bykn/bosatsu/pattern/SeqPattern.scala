@@ -44,6 +44,17 @@ sealed trait SeqPattern[+A] {
       case Cat(h, t) => h :: t.toList
     }
 
+  def length: Int = {
+    @annotation.tailrec
+    def loop(sp: SeqPattern[A], acc: Int): Int =
+      sp match {
+        case Empty => acc
+        case Cat(_, tail) => loop(tail, acc + 1)
+      }
+
+    loop(this, 0)
+  }
+
   // if this is a literal sequence return it
   def toLiteralSeq: Option[List[A]] =
     this match {
@@ -291,6 +302,38 @@ object SeqPattern {
             subsetList(t1, p2)
         }
 
+      private def min(p1: SeqPattern[A], p2: SeqPattern[A]): SeqPattern[A] = {
+        val l1 = p1.length
+        val l2 = p2.length
+        if (l1 < l2) p1
+        else if (l2 < l1) p2
+        else {
+          // they have the same length
+          import SeqPart.{Lit, AnyElem, Wildcard}
+          def loop(p1: SeqPattern[A], p2: SeqPattern[A]): SeqPattern[A] =
+            (p1, p2) match {
+              case (Empty, Empty) => Empty
+              case (Cat(AnyElem, _), Cat(_, _)) => p1
+              case (Cat(h1 @ Lit(_), t1), Cat(h2 @ Lit(_), t2)) =>
+                if (part1SetOps.equiv(h1, h2)) Cat(h1, loop(t1, t2))
+                else {
+                  // $COVERAGE-OFF$
+                  // we only use this when these are the same, this shouldn't
+                  // happen to have distinct h1 and h2 but they are equal
+                  sys.error(s"invariant violation equiv($h1, $h2) == false")
+                  // $COVERAGE-ON$
+                }
+              case (Cat(_, _), Cat(AnyElem, _)) => p2
+              case (Cat(_, _), Cat(Wildcard, _)) => p1
+              case (Cat(Wildcard, _), _) => p2
+              case (Cat(_, _), Empty) => Empty
+              case (Empty, Cat(_, _)) => Empty
+            }
+
+          loop(p1, p2)
+        }
+      }
+
       /**
        * Compute a list of patterns that matches both patterns exactly
        */
@@ -303,8 +346,9 @@ object SeqPattern {
           case (_, Cat(Wildcard, _)) if p2.matchesAny =>
             // matches anything
             p1 :: Nil
-          case (_, _) if subset(p1, p2) => p1 :: Nil
-          case (_, _) if subset(p2, p1) => p2 :: Nil
+          case (Cat(Wildcard, _), p2) if p1.matchesAny =>
+            // matches anything
+            p2 :: Nil
           case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
             // unnormalized
             intersection(t1, p2)
@@ -321,6 +365,18 @@ object SeqPattern {
             // let's avoid the most complex case of both having
             // wild on the front if possible
             intersection(c1.reverse, c2.reverse).map(_.reverse)
+          case (_, _) if subset(p1, p2) =>
+            val res =
+              if (subset(p2, p1)) min(p1, p2)
+              else p1
+
+            res :: Nil
+          case (_, _) if subset(p2, p1) =>
+            val res =
+              if (subset(p1, p2)) min(p1, p2)
+              else p2
+
+            res :: Nil
           case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
             // both start and end with wild
             //
