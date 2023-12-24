@@ -799,18 +799,27 @@ object ProtoConverter {
     }
 
   def kindToProto(kind: Kind): proto.Kind =
-    kind match {
-      case Kind.Type => proto.Kind(proto.Kind.Value.Type(proto.TypeKind()))
-      case Kind.Cons(Kind.Arg(v, i), o) =>
-        val vp = varianceToProto(v)
-        val ip = kindToProto(i)
-        val op = kindToProto(o)
-        proto.Kind(proto.Kind.Value.Cons(proto.ConsKind(vp, Some(ip), Some(op))))
+    Kind.kindToLong(kind) match {
+      case Some(idx) =>
+        proto.Kind(proto.Kind.Value.Encoded(idx))
+      case None =>
+        kind match {
+          case Kind.Type => proto.Kind(proto.Kind.Value.Type(proto.TypeKind()))
+          case Kind.Cons(Kind.Arg(v, i), o) =>
+            val vp = varianceToProto(v)
+            val ip = kindToProto(i)
+            val op = kindToProto(o)
+            proto.Kind(proto.Kind.Value.Cons(proto.ConsKind(vp, Some(ip), Some(op))))
+        }
     }
   def kindFromProto(kp: Option[proto.Kind]): Try[Kind] =
     kp match {
-      case None | Some(proto.Kind(proto.Kind.Value.Empty, _)) =>
-        Failure(new Exception("missing Kind"))
+      case Some(proto.Kind(proto.Kind.Value.Encoded(idx), _)) =>
+        Kind.longToKind(idx) match {
+          case Some(k) => Success(k)
+          case None => 
+            Failure(new Exception(s"could not decode $idx into Kind"))
+        }
       case Some(proto.Kind(proto.Kind.Value.Type(proto.TypeKind(_)), _)) => Success(Kind.Type)
       case Some(proto.Kind(proto.Kind.Value.Cons(proto.ConsKind(v, i, o, _)), _)) =>
         for {
@@ -818,6 +827,8 @@ object ProtoConverter {
           kindI <- kindFromProto(i)
           kindO <- kindFromProto(o)
         } yield Kind.Cons(Kind.Arg(variance, kindI), kindO)
+      case None | Some(proto.Kind(proto.Kind.Value.Empty, _)) =>
+        Failure(new Exception("missing Kind"))
     }
 
   def definedTypeToProto(d: DefinedType[Kind.Arg]): Tab[proto.DefinedType] =
