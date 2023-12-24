@@ -2760,6 +2760,8 @@ def g(b: Bool) -> (forall a. List[a] -> List[a]):
     case True: x -> x
     case False: _ -> []
 
+h = b -> f(g(b))
+
 def id(a): a
 def single(a): [a]    
 
@@ -2851,10 +2853,10 @@ def makeFoo(v: Int): Foo(Id(v))
 """)) { case kie@PackageError.TypeErrorIn(_, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
       """in file: <unknown source>, package Foo
-kind error: the type: ?1 of kind: * -> * at: 
+kind error: the type: ?0 of kind: (* -> *) -> * at: 
 Region(183,188)
 
-cannot be unified with the type Bosatsu/Predef::Int of kind: *
+cannot be unified with the type Foo::Id of kind: +* -> *
 because the first kind does not subsume the second."""
       )
       ()

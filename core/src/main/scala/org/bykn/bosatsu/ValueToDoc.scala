@@ -167,7 +167,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   { _ => Right(Doc.text("<unknown>")) }
                 case Some(dt) =>
                   val cons = dt.constructors
-                  val (_, targs) = Type.applicationArgs(tpe)
+                  val (_, targs) = Type.unapplyAll(tpe)
                   val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
                   lazy val resInner: Map[Int, (Constructor, List[(String, Fn)])] =

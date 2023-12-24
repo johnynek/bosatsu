@@ -284,7 +284,7 @@ object PackageError {
               context
 
             (doc, Some(region))
-          case Infer.Error.KindMetaMismatch(meta, rightT, rightK, metaR, rightR) =>
+          case Infer.Error.KindMismatch(meta, metaK, rightT, rightK, metaR, rightR) =>
             val tmap = showTypes(pack, meta :: rightT :: Nil)
             val context0 =
                 lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
@@ -300,7 +300,7 @@ object PackageError {
             }
 
             val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
-              Doc.text(" of kind: ") + Kind.toDoc(meta.toMeta.kind) + Doc.text(" at: ") + Doc.hardLine +
+              Doc.text(" of kind: ") + Kind.toDoc(metaK) + Doc.text(" at: ") + Doc.hardLine +
               context0 + Doc.hardLine + Doc.hardLine +
               Doc.text("cannot be unified with the type ") + tmap(rightT) +
               Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
@@ -390,7 +390,9 @@ object PackageError {
 
             (Doc.text("unknown type: ") + tmap(tpe) + Doc.hardLine + context, Some(reg))
           case ie: Infer.Error.InternalError =>
-            (Doc.text(ie.message), Some(ie.region))
+            val context =
+                lm.showRegion(ie.region, 2, errColor).getOrElse(Doc.str(ie.region))
+            (Doc.text(ie.message) + Doc.hardLine + context, Some(ie.region))
 
         }
         val h = sourceMap.headLine(pack, region) 

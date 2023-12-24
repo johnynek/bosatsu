@@ -6,7 +6,7 @@ import cats.{Applicative, Monad, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedSet, SortedMap}
 
 import cats.implicits._
 
@@ -306,6 +306,19 @@ object Type {
       case q: Quantified => freeTyVars(q :: Nil).isEmpty
     }
 
+  def hasNoUnboundVars(t: Type): Boolean = {
+    def loop(t: Type, bound: Set[Var.Bound]): Boolean =
+      t match {
+        case TyVar(b: Var.Bound) => bound(b)
+        case _: Leaf => true
+        case TyApply(on, arg) => loop(on, bound) && loop(arg, bound)
+        case q: Quantified =>
+          loop(q.in, bound ++ q.vars.iterator.map(_._1))
+      }
+
+    loop(t, Set.empty)
+  }
+
   final def forAll(vars: List[(Var.Bound, Kind)], in: Type): Type =
     NonEmptyList.fromList(vars) match {
       case None => in
@@ -406,21 +419,11 @@ object Type {
       rootConst(t)
   }
 
-  def applicationArgs(t: Type): (Type, List[Type]) = {
-    @annotation.tailrec
-    def loop(t: Type, tail: List[Type]): (Type, List[Type]) =
-      t match {
-        case TyApply(left, right) => loop(left, right :: tail)
-        case notApply => (notApply, tail)
-      }
-    loop(t, Nil)
-  }
-
   /**
    * This form is often useful in Infer
    */
   def substTy(keys: NonEmptyList[Var], vals: NonEmptyList[Type]): Type => Type = {
-    val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
+    val env = keys.iterator.zip(vals.iterator).toMap
 
     { t => substituteVar(t, env) }
   }
@@ -456,6 +459,125 @@ object Type {
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
     }
+
+  /**
+   * Kind of the opposite of substitute: given a Map of vars, can
+   * we set those vars to some Type and get from to match to exactly
+   */
+  def instantiate(
+    vars: Map[Var.Bound, Kind],
+    from: Type,
+    to: Type): Option[(SortedMap[Var.Bound, (Kind, Var.Bound)], SortedMap[Var.Bound, (Kind, Type)])] = {
+
+    sealed abstract class BoundState
+    case object Unknown extends BoundState
+    case class Fixed(tpe: Type) extends BoundState
+    case class Free(rightName: Var.Bound) extends BoundState
+
+    case class State(
+      fixed: Map[Var.Bound, (Kind, BoundState)],
+      rightFrees: Map[Var.Bound, Kind]) {
+
+      def get(b: Var.Bound): Option[(Kind, BoundState)] = fixed.get(b)
+
+      def updated(b: Var.Bound, kindBound: (Kind, BoundState)): State =
+        copy(fixed = fixed.updated(b, kindBound))
+
+      def --(keys: IterableOnce[Var.Bound]): State =
+        copy(fixed = fixed -- keys)
+
+      def ++(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
+        copy(fixed = fixed ++ keys)
+    }
+
+    def loop(from: Type, to: Type, state: State): Option[State] =
+      from match {
+        case TyVar(b: Var.Bound) =>
+          state.get(b) match {
+            case Some((kind, opt)) =>
+              opt match {
+                case Unknown =>
+                  to match {
+                    case TyVar(toB: Var.Bound) =>
+                      state.rightFrees.get(toB) match {
+                        case Some(toBKind) =>
+                          if (Kind.leftSubsumesRight(kind, toBKind)) {
+                            Some(state.updated(b, (toBKind, Free(toB))))
+                          }
+                          else None
+                        case None => None
+                          // don't set to vars to non-free bound variables
+                          // this shouldn't happen in real inference
+                      }
+                    case _ if hasNoUnboundVars(to) =>
+                      Some(state.updated(b, (kind, Fixed(to))))
+                    case _ => None
+                  }
+                case Fixed(set) =>
+                  if (set.sameAs(to)) Some(state)
+                  else None
+                case Free(rightName) =>
+                  to match {
+                    case TyVar(toB) if rightName == toB => Some(state)
+                    case _ => None
+                  }
+              }
+            case None =>
+              // not a variable, we can use, but also not the same as the right
+              None
+          }
+        case TyApply(a, b) =>
+          to match {
+            case TyApply(ta, tb) =>
+              loop(a, ta, state).flatMap { s1 =>
+                loop(b, tb, s1)  
+              }         
+            case ForAll(rightFrees, rightT) =>
+              // TODO handle shadowing
+              if (rightFrees.exists { case (b, _) => state.rightFrees.contains(b) }) {
+                None
+              }
+              else {
+                loop(from,
+                  rightT,
+                  state.copy(rightFrees = state.rightFrees ++ rightFrees.iterator))
+                  .map { s1 =>
+                    s1.copy(rightFrees = state.rightFrees)  
+                  }
+              }
+            case _ => None
+          }
+        case ForAll(shadows, from1) =>
+          val noShadow = state -- shadows.iterator.map(_._1)
+          loop(from1, to, noShadow).map { s1 =>
+            s1 ++ shadows.iterator.flatMap { case (v, _) => state.get(v).map(v -> _) }
+          }
+        case _ =>
+          // We can't use sameAt to compare Var.Bound since we know the variances
+          // there
+          if (from.sameAs(to)) Some(state)
+          else None
+      }
+
+    val initState = State(
+      vars.iterator.map { case (v, a) => (v, (a, Unknown))}.toMap,
+      Map.empty
+    )
+
+    loop(from, to, initState)
+      .map { state =>
+        (
+        state.fixed.iterator.collect {
+          case (t, (k, Free(t1))) => (t, (k, t1))
+          case (t, (k, Unknown)) => (t, (k, t))
+        }
+        .to(SortedMap),
+        state.fixed.iterator.collect {
+          case (t, (k, Fixed(f))) => (t, (k, f))
+        }
+        .to(SortedMap))
+      }
+  }
 
   /**
    * Return the Bound and Skolem variables that
@@ -626,16 +748,23 @@ object Type {
 
     private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n")) 
     private val tpes = (1 to MaxSize).map(predefFn)
+    private val fnMap: Map[TyConst, (TyConst, Int)] =
+      (1 to MaxSize).iterator.map { idx =>
+        val tyconst = tpes(idx - 1)
+        tyconst -> (tyconst, idx)  
+      }
+      .toMap
 
     object ValidArity {
       def unapply(n: Int): Boolean =
         (1 <= n) && (n <= MaxSize)
     }
 
-    def apply(n: Int): Type.TyConst = {
-      require(ValidArity.unapply(n), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
-      tpes(n - 1)
-    }
+    def apply(n: Int): Type.TyConst =
+      if (ValidArity.unapply(n)) tpes(n - 1)
+      else {
+        throw new IllegalArgumentException(s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
+      }
 
     def maybeFakeName(n: Int): Type.TyConst =
       if (n <= MaxSize) apply(n)
@@ -644,19 +773,11 @@ object Type {
         predefFn(n)
       }
 
-    def unapply(tpe: Type): Option[(Type.TyConst, Int)] = {
+    def unapply(tpe: Type): Option[(Type.TyConst, Int)] =
       tpe match {
-        case Type.TyConst(Const.Predef(cons)) if (cons.asString.startsWith("Fn")) =>
-          var idx = 0
-          while (idx < MaxSize) {
-            val thisTpe = tpes(idx)
-            if (thisTpe == tpe) return Some((thisTpe, idx + 1))
-            idx = idx + 1
-          }
-          None
+        case tyConst @ Type.TyConst(_) => fnMap.get(tyConst)
         case _ => None
       }
-    }
 
     // FnType -> Kind(Kind.Type.contra, Kind.Type.co),
     val FnKinds: List[(Type.TyConst, Kind)] = {
@@ -708,6 +829,46 @@ object Type {
           check(1, inner, Nil, last)
         case _ => None
       }
+    }
+
+    /**
+     * Match if a type is a simple universal function,
+     * which is to say forall a, b. C -> D
+     * where the result type is a Rho type.
+     */
+    object SimpleUniversal {
+      def unapply(t: Type): Option[
+        (NonEmptyList[(Type.Var.Bound, Kind)], NonEmptyList[Type], Type)
+      ] =
+        t match {
+          case ForAll(univ, Fun(args, resT)) =>
+            resT match {
+              case ForAll(univR, res) =>
+                // we need to relabel univR if it intersects univ
+                val firstSet = univ.iterator.map(_._1).toSet
+                val intersects = univR.filter { case (b, _) => firstSet(b) }
+
+                NonEmptyList.fromList(intersects) match {
+                  case None =>
+                    Some((univ ::: univR, args, res))
+                  case Some(interNel) =>
+                    val good = univR.collect { case pair@(b, _) if !firstSet(b) => pair }
+                    val avoid = firstSet ++ good.iterator.map(_._1)
+                    val rename = alignBinders(interNel, avoid)
+                    val subMap =
+                      rename.iterator.map { case ((oldB, _), newB) =>
+                        (oldB, Type.TyVar(newB))  
+                      }
+                      .toMap[Type.Var, Type.Rho]
+
+                    val bounds = univ.concat(good) ::: rename.map { case ((_, k), b) => (b, k) }
+                    val newRes = Type.substituteVar(res, subMap)
+                    Some((bounds, args, newRes))
+                }
+              case res => Some((univ, args, res))
+            }
+          case _ => None
+        }
     }
 
     def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {

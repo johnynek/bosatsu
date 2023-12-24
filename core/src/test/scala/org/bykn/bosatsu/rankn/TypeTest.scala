@@ -17,7 +17,8 @@ class TypeTest extends AnyFunSuite {
   def parse(s: String): Type =
     Type.fullyResolvedParser.parseAll(s) match {
       case Right(t) => t
-      case Left(err) => sys.error(err.toString)
+      case Left(err) =>
+        sys.error(s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err")
     }
 
   test("free vars are not duplicated") {
@@ -188,6 +189,12 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("if Type.hasNoUnboundVars then freeBoundTyVars is empty") {
+    forAll(NTypeGen.genDepth03) { t =>
+      assert(Type.hasNoUnboundVars(t) == Type.freeBoundTyVars(t :: Nil).isEmpty)
+    }
+  }
+
   test("hasNoVars fully recurses") {
     def allTypesIn(t: Type): List[Type] =
       t match {
@@ -307,6 +314,78 @@ class TypeTest extends AnyFunSuite {
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
   }
 
+  test("we can substitute to get an instantiation") {
+    forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
+      t1 match {
+        case Type.ForAll(fas, t) =>
+          Type.instantiate(fas.iterator.toMap, t, t2) match {
+            case Some((frees, subs)) =>
+              val t3 = Type.substituteVar(t, subs.iterator.map { case (k, (_, v)) => (k, v)}.toMap)
+
+              val t4 = Type.substituteVar(t3, frees.iterator.map {
+                case (v1, (_, v2)) => (v1, Type.TyVar(v2))
+              }.toMap)
+
+              val t5 = Type.quantify(forallList = frees.iterator.map {
+                case (_, tup) => tup.swap
+              }.toList, existList = Nil, t4) 
+
+              assert(t5.sameAs(t2))
+            case None =>
+              ()
+          }
+        case _ => ()
+      }
+    }
+  }
+
+  test("some example instantiations") {
+    def check(forall: String, matches: String, subs: List[(String, String)]) = {
+      val Type.ForAll(fas, t) = parse(forall)
+      val targ = parse(matches)
+      Type.instantiate(fas.iterator.toMap, t, targ) match {
+        case Some((frees, subMap)) =>
+          assert(subMap.size == subs.size)
+          subs.foreach { case (k, v) =>
+            val Type.TyVar(b: Type.Var.Bound) = parse(k)
+            assert(subMap(b)._2 == parse(v))
+          }
+        case None =>
+          fail(s"could not instantitate: $forall to $matches")
+      }
+    }
+
+    def noSub(forall: String, matches: String) = {
+      val Type.ForAll(fas, t) = parse(forall)
+      val targ = parse(matches)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ)
+      assert(res == None)
+    }
+
+    check("forall a. a", "Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. a -> a", "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. a -> Bosatsu/Predef::Foo[a]", "Bosatsu/Predef::Int -> Bosatsu/Predef::Foo[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int"))
+    check("forall a. Bosatsu/Predef::Option[a]", "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int"))
+    
+    check("forall a. a", "forall a. a",
+      List("a" -> "forall a. a"))
+
+    check("forall a, b. a -> b", "forall c. c -> Bosatsu/Predef::Int",
+      List("b" -> "Bosatsu/Predef::Int"))
+
+    check("forall a, b. T::Cont[a, b]", "forall a. T::Cont[a, T::Foo]",
+      List("b" -> "T::Foo"))
+
+    noSub("forall a, b. T::Cont[a, b]", "forall a: * -> *. T::Cont[a, T::Foo]")
+    noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
+
+    check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", Nil)
+  }
+
   test("Fun(ts, r) and Fun.unapply are inverses") {
     val genArgs = for {
       cnt <- Gen.choose(0, Type.FnType.MaxSize - 1)
@@ -406,5 +485,35 @@ class TypeTest extends AnyFunSuite {
           assert(consts == allConsts(in :: Nil))
       }
     }
+  }
+  test("some example Fun.SimpleUniversal") {
+    def check(fn: String, expect: Option[String]) = {
+      parse(fn) match {
+        case Type.Fun.SimpleUniversal((u, args, res)) =>
+          val resTpe = Type.Quantified(
+            Type.Quantification.ForAll(u),
+            Type.Fun(args, res)
+          )
+
+          expect match {
+            case None => fail(s"$fn resulted in ${Type.typeParser.render(resTpe)}")
+            case Some(exTpe) =>
+              val exT = parse(exTpe)
+              assert(resTpe.sameAs(exT), s"${resTpe}.sameAs($exT) == false")
+          }
+        case _ =>
+          expect match {
+            case None => succeed
+            case Some(exTpe) => fail(s"$fn is not SimpleUniversal but expected: $exTpe")
+          }
+      }
+    }
+
+    check("forall a. a -> a", Some("forall a. a -> a"))
+    check("forall a. a -> Foo::Option[a]", Some("forall a. a -> Foo::Option[a]"))
+    check("forall a. a -> (forall b. b)", Some("forall a, b. a -> b"))
+    check("forall a. a -> (forall b. Foo::Option[b])", Some("forall a, b. a -> Foo::Option[b]"))
+    check("forall a. a -> (forall a. a)", Some("forall a, b. a -> b"))
+    check("forall a. a -> (forall a, c. a -> c)", Some("forall a, b, c. a -> (b -> c)"))
   }
 }

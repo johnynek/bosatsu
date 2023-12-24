@@ -771,7 +771,12 @@ object TypedExpr {
       varKinds: Map[Type.Var, Kind]): Option[Map[Type.Var, Type]] =
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
-          Some(state.updated(v, right))
+          state.get(v) match {
+            case None => Some(state.updated(v, right))
+            case Some(tpe) =>
+              if (tpe.sameAs(right)) Some(state)
+              else None
+          }
         case (fa: Type.Quantified, r) =>
           if (fa.sameAs(r)) Some(state)
           // this will mask solving for the inside values:

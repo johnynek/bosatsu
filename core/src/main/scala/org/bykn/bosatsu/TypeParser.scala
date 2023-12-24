@@ -65,7 +65,6 @@ abstract class TypeParser[A] {
 
     val arrowP: P[MaybeTupleOrParens[A] => MaybeTupleOrParens[A]] =
       ((maybeSpace.with1.soft ~ P.string("->") ~ maybeSpacesAndLines) *> recurse)
-        // TODO remove the flatMap when we support FunctionN
         .map { right =>
           {
             case MaybeTupleOrParens.Bare(a) =>

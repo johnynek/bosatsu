@@ -217,7 +217,11 @@ class RankNInferTest extends AnyFunSuite {
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
 
     assertTypesUnify("forall f: +* -> *. f[forall a. a]", "forall a. forall f: +* -> *. f[a]")
-    assertTypesDisjoint("forall f: * -> *. f[forall a. a]", "forall a. forall f: * -> *. f[a]")
+    assert_:<:("forall f: * -> *. f[Int]", "forall f: +* -> *. f[Int]")
+    assert_:<:("forall f: * -> *. f[Int]", "forall f: -* -> *. f[Int]")
+    assert_:<:("forall f: +* -> *. f[Int]", "forall f: 👻* -> *. f[Int]")
+    assert_:<:("forall f: -* -> *. f[Int]", "forall f: 👻* -> *. f[Int]")
+    assert_:<:("forall a. forall f: * -> *. f[a]", "forall f: * -> *. f[forall a. a]")
     assert_:<:("forall a. forall f: -* -> *. f[a]", "forall f: -* -> *. f[forall a. a]")
 
     assertTypesUnify("(forall a. a) -> Int", "(forall a. a) -> Int")
@@ -764,7 +768,7 @@ main = Bar
     parseProgram("""#
 enum Foo: Bar, Baz
 
-struct Cont(cont: (b -> a) -> a)
+struct Cont[b: +*, a](cont: (b -> a) -> a)
 
 (bar1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Bar))
 (baz1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Baz))
@@ -1232,16 +1236,16 @@ def hide[b](x: b) -> exists a. a: x
 def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
-z = makeTup(x, y)
-""", "exists a, b. Tup[a, b]")
+z: Tup[exists a. a, exists b. b] = makeTup(x, y)
+""", "Tup[exists a. a, exists b. b]")
     parseProgram("""#
 enum B: T, F
 
 struct Inv[a: *](item: a)
 
 any: exists a. a = T
-x = Inv(any)
-""", "exists a. Inv[a]")
+x: Inv[exists a. a] = Inv(any)
+""", "Inv[exists a. a]")
   }
 
   test("we can use existentials in branches") {
@@ -1397,5 +1401,62 @@ def unsound[f: * -> *](fany: f[exists a. a], get: forall a. f[a] -> a) -> forall
   Pair(fa, ex) = narrow(Pair(fany, get))
   ex(fa)
 """)
+  }
+
+  test("we can use existentials with invariant types") {
+    parseProgram("""#
+struct Box(a)
+
+x: exists a. a = 1
+
+fn: (exists a. a) -> Box[exists a. a] = Box
+y = fn(x)
+""", "Box[exists a. a]")
+
+    parseProgram("""#
+struct Box(a)
+
+x: exists a. a = 1
+
+y: Box[exists a. a] = Box(x)
+""", "Box[exists a. a]")
+  }
+
+  test("invariant instantiation regression") {
+    parseProgram("""#
+struct Box[x: *](a: x)
+struct One
+enum Opt[a]: None, Some(a: a)
+
+# we could infer this as forall a. Box[Opt[a]]
+#   or: Box[forall a. Opt[a]]
+#   if we infer Box[forall a. Opt[a]], then we need to see that
+#   Box[forall a. Opt[a]] <:< Box[Opt[One]]
+#   but that's not true in general for an invariant type is it?
+# consider: struct C[a](fn: a -> List[a])
+# C[forall a. a] is like (forall a. a) -> List[forall a. a]
+# but forall a. C[a] is forall a. (a -> List[a])
+# the first one could be x -> x, but that's not a valid member of the second
+# so, C[forall a. a] can't be <:< forall a. C[a]
+# but possibly forall a. C[a] <:< C[forall a. a]
+y: forall a. Box[Opt[a]] = Box(None)
+def process(o: Box[Opt[One]]) -> One: 
+  match o:
+    case Box(Some(o)): o
+    case Box(None): One
+
+z = process(y)
+""", "One")
+  }
+
+  test("some subtyping relationships") {
+parseProgram("""
+struct Foo[a: *]
+
+f1: forall a. Foo[a] = Foo
+f2: Foo[forall a. a] = Foo
+
+f3: Foo[forall a. a] = f1
+""", "Foo[forall a. a]")
   }
 }
