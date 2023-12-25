@@ -426,6 +426,21 @@ enum Either: Left(l), Right(r)
 
     check("""["${foo}$.{_}", "$.{bar}$.{_}$.{_}"]""")
   }
+
+  test("intersection is commutative regressions") {
+    val tc = TotalityCheck(predefTE)
+
+    {
+      val p0 :: p1 :: Nil = patterns(
+        """[
+        "${_}$.{_}",
+        "${_}$.{_}${_}",
+        ]""")
+
+      assert(tc.intersection(p0, p1) == tc.intersection(p1, p0))
+    }
+  }
+
   test("string match totality") {
     val tc = TotalityCheck(predefTE)
 

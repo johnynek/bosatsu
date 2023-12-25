@@ -534,8 +534,14 @@ object Pattern {
           case SeqPart.Wildcard :: SeqPart.AnyElem :: tail =>
             // *_, _ is the same as _, *_
             loop(SeqPart.AnyElem :: SeqPart.Wildcard :: tail, front)
+          case SeqPart.Wildcard :: (tail @ (SeqPart.Wildcard :: _)) =>
+            // unnormalized
+            loop(tail, front)
           case SeqPart.Wildcard :: tail =>
-            val tailRes = loop(tail, Nil).prepend(StrPart.WildStr)
+            val tr = loop(tail, Nil)
+            val tailRes =
+              if (tr eq Empty.parts) NonEmptyList.one(StrPart.WildStr)
+              else tr.prepend(StrPart.WildStr)
 
             NonEmptyList.fromList(lit(front)) match {
               case None => tailRes

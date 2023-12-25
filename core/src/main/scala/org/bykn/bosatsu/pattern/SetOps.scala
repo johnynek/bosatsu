@@ -50,6 +50,9 @@ trait SetOps[A] {
    */
   def subset(a: A, b: A): Boolean
 
+  def equiv(a: A, b: A): Boolean =
+    subset(a, b) && subset(b, a)
+
   /**
    * Remove all items in p2 from all items in p1
    * and unify the remaining union
