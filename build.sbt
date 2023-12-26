@@ -45,7 +45,6 @@ lazy val commonSettings = Seq(
     "-Ywarn-value-discard", // Warn when non-Unit expression results are unused.
     "-Xsource:3",
     "-source:future",
-    "-rewrite", "-source", "future-migration",
     "-Ykind-projector",
     "-Ypatmat-exhaust-depth",
     "40",
