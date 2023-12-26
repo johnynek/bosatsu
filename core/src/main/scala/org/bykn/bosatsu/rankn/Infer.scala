@@ -522,7 +522,7 @@ object Infer {
      * new meta variables for each bound variable in ForAll or skolemize
      * which replaces the ForAll variables with skolem variables
      */
-    def assertRho(t: Type, context: => String, region: Region): Infer[Type.Rho] =
+    inline def assertRho(t: Type, context: => String, region: Region): Infer[Type.Rho] =
       t match {
         case r: Type.Rho => pure(r)
         // $COVERAGE-OFF$ this should be unreachable
