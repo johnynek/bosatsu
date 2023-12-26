@@ -4,7 +4,7 @@ import cats.Semigroup
 import Identifier.Bindable
 
 sealed abstract class SelfCallKind {
-  import SelfCallKind._
+  import SelfCallKind.*
 
   // if you have two branches in match what is the result
   def merge(that: => SelfCallKind): SelfCallKind =

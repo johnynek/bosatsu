@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import cats.{Functor, Parallel}
 import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
-import cats.implicits._
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.implicits.*
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
-import rankn._
+import rankn.*
 import Parser.{spaces, Combinators}
 
 import FixType.Fix
@@ -27,7 +27,7 @@ final case class Package[A, B, C, +D](
 
   override def equals(that: Any): Boolean =
     that match {
-      case p: Package[_, _, _, _] =>
+      case p: Package[?, ?, ?, ?] =>
         (this eq p) || {
           (name == p.name) &&
           (imports == p.imports) &&
@@ -149,7 +149,7 @@ object Package {
         case Nil => Doc.empty
         case nonEmptyImports =>
           Doc.line +
-            Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document _)) +
+            Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document)) +
             Doc.line
       }
       val e = exports match {
@@ -157,7 +157,7 @@ object Package {
         case nonEmptyExports =>
           Doc.line +
             Doc.text("export ") +
-            Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) +
+            Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document)) +
             Doc.line
       }
       val b = statments.map(Document[Statement].document(_))

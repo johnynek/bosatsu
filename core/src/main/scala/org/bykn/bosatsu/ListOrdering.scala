@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 object ListOrdering {
 
   def onType[A](o: Ordering[A]): Ordering[List[A]] =
-    apply(o)
+    apply(using o)
 
   def apply[A: Ordering]: Ordering[List[A]] =
     new Ordering[List[A]] {

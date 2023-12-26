@@ -2,14 +2,14 @@ package org.bykn.bosatsu
 
 import cats.Eval
 import cats.data.NonEmptyList
-import cats.implicits._
+import cats.implicits.*
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type, DataFamily}
-import scala.collection.mutable.{Map => MMap}
+import scala.collection.mutable.{Map as MMap}
 
-import Value._
+import Value.*
 
-import JsonEncodingError._
+import JsonEncodingError.*
 
 case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 

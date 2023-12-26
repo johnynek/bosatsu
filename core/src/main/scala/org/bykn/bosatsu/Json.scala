@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import cats.Eq
 
 /**
@@ -17,11 +17,11 @@ sealed abstract class Json {
 object Json {
   import Doc.text
 
-  final case class JString(str: String) extends Json {
+  case class JString(str: String) extends Json {
     override def render = "\"%s\"".format(JsonStringUtil.escape('"', str))
     def toDoc = text(render)
   }
-  final case class JNumberStr(asString: String) extends Json {
+  case class JNumberStr(asString: String) extends Json {
     override def render = asString
     def toDoc = text(asString)
 
@@ -53,11 +53,11 @@ object Json {
   }
 
   object JBool {
-    final case object True extends Json {
+    case object True extends Json {
       override val render = "true"
       val toDoc = text(render)
     }
-    final case object False extends Json {
+    case object False extends Json {
       override val render = "false"
       val toDoc = text(render)
     }
@@ -77,11 +77,11 @@ object Json {
 
   }
 
-  final case object JNull extends Json {
+  case object JNull extends Json {
     override val render = "null"
     val toDoc = text(render)
   }
-  final case class JArray(toVector: Vector[Json]) extends Json {
+  case class JArray(toVector: Vector[Json]) extends Json {
     def toDoc = {
       val parts = Doc.intercalate(Doc.comma, toVector.map { j => (Doc.line + j.toDoc).grouped })
       "[" +: ((parts :+ " ]").nested(2))
@@ -91,7 +91,7 @@ object Json {
   }
   // we use a List here to preserve the order in which items
   // were given to us
-  final case class JObject(items: List[(String, Json)]) extends Json {
+  case class JObject(items: List[(String, Json)]) extends Json {
     val toMap: Map[String, Json] = items.toMap
     val keys: List[String] = items.map(_._1).distinct
 

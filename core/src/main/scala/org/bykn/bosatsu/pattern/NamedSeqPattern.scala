@@ -3,8 +3,8 @@ package org.bykn.bosatsu.pattern
 import cats.Monoid
 
 sealed trait NamedSeqPattern[+A] {
-  import NamedSeqPattern._
-  import SeqPart._
+  import NamedSeqPattern.*
+  import SeqPart.*
 
   def unname: SeqPattern[A] = {
     def loop(n: NamedSeqPattern[A], right: List[SeqPart[A]]): List[SeqPart[A]] =

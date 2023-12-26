@@ -2,7 +2,7 @@ package org.bykn.bosatsu.graph
 
 import cats.data.NonEmptyList
 import scala.collection.immutable.SortedSet
-import scala.collection.mutable.{Map => MMap}
+import scala.collection.mutable.{Map as MMap}
 import org.bykn.bosatsu.ListOrdering
 
 sealed trait Dag[A] {
@@ -41,7 +41,7 @@ sealed trait Dag[A] {
 
   override def equals(that: Any) =
     that match {
-      case thatDag: Dag[_] =>
+      case thatDag: Dag[?] =>
         def eqDag[B](bs: Dag[B]): Boolean = {
           (nodes == bs.nodes) && {
             nodes.iterator.zip(bs.nodes.iterator).forall { case (a, b) =>

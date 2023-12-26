@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.{StackSafeMonad, Eval}
 // java HashMap performs better than scala in most benchmarks
-import scala.collection.mutable.{LongMap => MutableMap}
+import scala.collection.mutable.{LongMap as MutableMap}
 import java.util.concurrent.atomic.AtomicLong
 
 /**

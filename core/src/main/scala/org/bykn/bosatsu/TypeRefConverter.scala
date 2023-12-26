@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.Identifier.Constructor
 
-import cats.implicits._
+import cats.implicits.*
 
 object TypeRefConverter {
   /**
@@ -15,8 +15,8 @@ object TypeRefConverter {
   def apply[F[_]: Applicative](t: TypeRef)(nameToType: Constructor => F[Type.Const]): F[Type] = {
     def toType(t: TypeRef): F[Type] = apply(t)(nameToType)
 
-    import Type._
-    import TypeRef._
+    import Type.*
+    import TypeRef.*
 
     t match {
       case TypeVar(v) => Applicative[F].pure(TyVar(Type.Var.Bound(v)))
@@ -55,8 +55,8 @@ object TypeRefConverter {
     onSkolem: Type.Var.Skolem => F[TypeRef],
     onMeta: Long => F[TypeRef],
     onConst: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
-    import Type._
-    import TypeRef._
+    import Type.*
+    import TypeRef.*
 
     def loop(tpe: Type) = fromTypeA(tpe, onSkolem, onMeta, onConst)
 

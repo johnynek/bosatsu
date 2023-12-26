@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace, MaybeTupleOrParens }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
@@ -13,12 +13,12 @@ import ListLang.{KVPair, SpliceOrItem}
 
 import Identifier.{Bindable, Constructor}
 
-import cats.implicits._
+import cats.implicits.*
 /**
  * Represents the syntactic version of Expr
  */
 sealed abstract class Declaration {
-  import Declaration._
+  import Declaration.*
 
   def region: Region
 
@@ -46,13 +46,13 @@ sealed abstract class Declaration {
 
         prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), body.map(_.toDoc)) + Doc.char(')')
       case ApplyOp(left, Identifier.Operator(opStr), right) =>
-        left.toDoc space Doc.text(opStr) space right.toDoc
+        left.toDoc `space` Doc.text(opStr) `space` right.toDoc
       case Binding(b) =>
         val d0 = Document[Padding[Declaration]]
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
            Doc.line + d0.document(pd)
         }
-        BindingStatement.document(Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
+        BindingStatement.document(using Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
       case LeftApply(pat, _, arg, body) =>
         Document[Pattern.Parsed].document(pat) + Doc.text(" <- ") + arg.toDoc + Doc.line +
         Document[Padding[Declaration]].document(body)
@@ -114,7 +114,7 @@ sealed abstract class Declaration {
               caseDoc + Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
-          Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
+          Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document)) }
 
         val piPat = Document[OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]]]
         val kindDoc = kind match {

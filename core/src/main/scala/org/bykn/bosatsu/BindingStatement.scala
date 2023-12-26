@@ -9,7 +9,7 @@ object BindingStatement {
 
   implicit def document[A: Document, V: Document, T: Document]: Document[BindingStatement[A, V, T]] =
     Document.instance[BindingStatement[A, V, T]] { let =>
-      import let._
+      import let.*
       Document[A].document(name) + eqDoc + Document[V].document(value) + Document[T].document(in)
     }
 }

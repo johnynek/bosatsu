@@ -19,7 +19,7 @@ class SelfCallKindTest extends AnyFunSuite {
     gen(Gen.const(()))
 
   test("test selfCallKind") {
-    import SelfCallKind.{NoCall, NonTailCall, TailCall, apply => selfCallKind}
+    import SelfCallKind.{NoCall, NonTailCall, TailCall, apply as selfCallKind}
 
     checkLast(
       """
@@ -79,7 +79,7 @@ def for_all(xs: List[a], fn: a -> B) -> B:
   }
 
   test("SelfCallKind forms a lattice") {
-    import SelfCallKind._
+    import SelfCallKind.*
     val scs = List(NoCall, TailCall, NonTailCall)
 
     for {

@@ -6,10 +6,10 @@ import org.bykn.bosatsu.rankn.{Type, TypeEnv}
 
 import Identifier.{Bindable, Constructor}
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 object TypedExprNormalization {
-  import TypedExpr._
+  import TypedExpr.*
 
   type ScopeT[A, S] = Map[(Option[PackageName], Bindable), (RecursionKind, TypedExpr[A], S)]
   type Scope[A] = FixType.Fix[ScopeT[A, *]]
@@ -568,7 +568,7 @@ object TypedExprNormalization {
     type Pat = Pattern[(PackageName, Constructor), Type]
     type Branch[A] = (Pat, TypedExpr[A])
 
-    def maybeEvalMatch[A](m: Match[_ <: A], scope: Scope[A]): Option[TypedExpr[A]] =
+    def maybeEvalMatch[A](m: Match[? <: A], scope: Scope[A]): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
 

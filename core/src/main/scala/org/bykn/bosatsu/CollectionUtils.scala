@@ -5,7 +5,7 @@ import cats.data.{Ior, NonEmptyList, NonEmptyMap}
 import scala.collection.immutable.SortedMap
 import scala.util.{Success, Failure, Try}
 
-import cats.implicits._
+import cats.syntax.all.*
 
 object CollectionUtils {
   /**
@@ -20,6 +20,7 @@ object CollectionUtils {
           Left((a0, NonEmptyList(a1, tail)))
       }
 
+    implicit val orderingB: Ordering[B] = implicitly[Order[B]].toOrdering
     // We know this is nonEmpty, so good and bad can't both be empty
     val checked: SortedMap[B, Either[(A, NonEmptyList[A]), A]] = as.groupBy(fn).map { case (b, as) => (b, check(as)) }
     val good: SortedMap[B, A] = checked.collect { case (b, Right(a)) => (b, a) }
@@ -36,10 +37,11 @@ object CollectionUtils {
     }
   }
 
-  def listToUnique[A, K: Order, V](l: List[A])(key: A => K, value: A => V, msg: => String): Try[SortedMap[K, V]] =
+  def listToUnique[A, K: Ordering, V](l: List[A])(key: A => K, value: A => V, msg: => String): Try[SortedMap[K, V]] =
     NonEmptyList.fromList(l) match {
       case None => Success(SortedMap.empty[K, V])
       case Some(nel) =>
+        implicit val orderK: Order[K] = cats.Order.fromOrdering[K]
         uniqueByKey(nel)(key) match {
           case Ior.Right(b) => Success(b.toSortedMap.map { case (k, a) => (k, value(a)) })
           case Ior.Left(errMap) =>

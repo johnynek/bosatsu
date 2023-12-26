@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{NonEmptyList, Validated, ValidatedNel, StateT}
 import org.typelevel.paiges.Doc
 
-import cats.implicits._
+import cats.implicits.*
 
 import Identifier.Bindable
 
@@ -80,8 +80,8 @@ object DefRecursionCheck {
    * in scope during typechecking, so illegal recursion there simply won't typecheck.
    */
   def checkStatement(s: Statement): Res = {
-    import Statement._
-    import Impl._
+    import Statement.*
+    import Impl.*
     s match {
       case vs: ValueStatement =>
         vs match {
@@ -196,7 +196,7 @@ object DefRecursionCheck {
       args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
       m: Declaration.Match,
       locals: Set[Bindable]): ValidatedNel[RecursionError, (Int, Int)] = {
-      import Declaration._
+      import Declaration.*
       m.arg match {
         case Var(v) =>
           v match {
@@ -413,7 +413,7 @@ object DefRecursionCheck {
      * we have valid recursion
      */
     def checkDecl(decl: Declaration): St[Unit] = {
-      import Declaration._
+      import Declaration.*
       decl match {
         case Annotation(t, _) => checkDecl(t)
         case Apply(fn, args, _) =>

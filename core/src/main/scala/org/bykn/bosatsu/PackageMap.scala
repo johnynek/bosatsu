@@ -10,7 +10,7 @@ import IorMethods.IorExtension
 
 import rankn.{DataRepr, TypeEnv}
 
-import cats.implicits._
+import cats.implicits.*
 
 case class PackageMap[A, B, C, +D](toMap: SortedMap[PackageName, Package[A, B, C, D]]) {
   def +[D1 >: D](pack: Package[A, B, C, D1]): PackageMap[A, B, C, D1] =
@@ -163,7 +163,7 @@ object PackageMap {
       val (errs0, imap) = ImportMap.fromImports(p.imports)
       val errs =
         NonEmptyList.fromList(errs0)
-          .map(PackageError.DuplicatedImport)
+          .map(PackageError.DuplicatedImport(_))
 
       (errs, p.mapProgram((_, imap)))
     }

@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.{Applicative, Eval, Monad, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
-import cats.implicits._
+import cats.implicits.*
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document }
 import scala.collection.immutable.SortedSet
@@ -13,7 +13,7 @@ import Identifier.{Bindable, Constructor}
 import org.bykn.bosatsu.rankn.Type.Var.Skolem
 
 sealed abstract class TypedExpr[+T] { self: Product =>
-  import TypedExpr._
+  import TypedExpr.*
 
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
@@ -753,16 +753,16 @@ object TypedExpr {
             }
             .toList
             Type.forAll(nonpulled, Type.applyAll(cons, pulledArgs))
-          }
-        case notForAll =>
+        }
+      case notForAll =>
           // TODO: we can push down existentials too
-          notForAll
-      }
+        notForAll
+    }
 
   // We know initTpe <:< instTpe, we may be able to simply
   // fix some of the universally quantified variables
   def instantiateTo[A](gen: Generic[A], instTpe: Type.Rho, kinds: Type => Option[Kind]): TypedExpr[A] = {
-    import Type._
+    import Type.*
 
     def solve(left: Type,
       right: Type,
@@ -1011,7 +1011,7 @@ object TypedExpr {
     freeVarsDup(ts).distinct
 
   def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
-    SortedSet(freeVarsDup(ts): _*)
+    SortedSet(freeVarsDup(ts) *)
 
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)
@@ -1246,7 +1246,7 @@ object TypedExpr {
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
       case _ =>
-        import Type.Quantification._
+        import Type.Quantification.*
         // We cannot rebind to any used typed inside of expr, but we can reuse
         // any that are q
         val frees: Set[Type.Var.Bound] =

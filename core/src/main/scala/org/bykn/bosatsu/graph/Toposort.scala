@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.graph
 
 import cats.data.NonEmptyList
-import cats.syntax.all._
+import cats.syntax.all.*
 
 object Toposort {
 

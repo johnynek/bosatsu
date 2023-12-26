@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import org.bykn.bosatsu.rankn.TypeEnv
 import org.scalatest.funsuite.AnyFunSuite
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 class ShapeTest extends AnyFunSuite {
 

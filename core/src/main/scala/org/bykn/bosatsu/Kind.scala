@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import cats.parse.{Parser => P, Parser0 => P0}
+import cats.parse.{Parser as P, Parser0 as P0}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
-import cats.syntax.all._
+import cats.syntax.all.*
 
 sealed abstract class Kind {
   def toDoc: Doc = Kind.toDoc(this)
@@ -111,7 +111,7 @@ object Kind {
     }
 
   private val varSubMap: Map[Variance, List[Variance]] = {
-    import Variance._
+    import Variance.*
     val pList = phantom :: Nil
     val contraP = contra :: pList
     Map(
@@ -122,7 +122,7 @@ object Kind {
     )
   }
   private val varSupMap: Map[Variance, List[Variance]] = {
-    import Variance._
+    import Variance.*
     val iList = in :: Nil
     val coI = co :: iList
     Map(
@@ -136,7 +136,7 @@ object Kind {
     if (sub) varSubMap(v) else varSupMap(v)
 
   private val varSubMapSize: Map[Variance, Long] = {
-    import Variance._
+    import Variance.*
     Map(
       in -> 4L,
       co -> 2L,
@@ -146,7 +146,7 @@ object Kind {
   }
 
   private val varSupMapSize: Map[Variance, Long] = {
-    import Variance._
+    import Variance.*
     Map(
       in -> 1L,
       co -> 2L,
@@ -242,9 +242,9 @@ object Kind {
               val rest = sortCombine(v, at, bt)
 
               sortMergeIt(
-                sortMergeIt(line1, line2)(ord),
-                insertSortedIt(head, rest)(ord)
-              )(ord)
+                sortMergeIt(line1, line2)(using ord),
+                insertSortedIt(head, rest)(using ord)
+              )(using ord)
             case _ =>
               // at least one is empty
               Iterator.empty
@@ -256,7 +256,7 @@ object Kind {
         vars(v, sub)
           .map(sortCombine(_, k1, k2))
           // there is at least one item in vars(v, sub) so reduce is safe
-          .reduce(sortMergeIt(_, _)(ord))
+          .reduce(sortMergeIt(_, _)(using ord))
           .to(LazyList)
     }
 
@@ -327,7 +327,7 @@ object Kind {
   }
 
   private def varianceToInt(v: Variance): Int = {
-    import Variance._
+    import Variance.*
     v match {
       case Invariant => 3
       case Contravariant => 2

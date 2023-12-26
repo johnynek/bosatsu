@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import org.scalatest.funsuite.AnyFunSuite
 
 class Regressions extends AnyFunSuite with ParTest {
-  import TestUtils._
+  import TestUtils.*
 
   test("test complex recursion case from #196") {
     evalFail(List("""

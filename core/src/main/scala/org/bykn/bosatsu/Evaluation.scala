@@ -2,9 +2,9 @@ package org.bykn.bosatsu
 
 import cats.Eval
 import org.bykn.bosatsu.rankn.Type
-import scala.collection.mutable.{Map => MMap}
+import scala.collection.mutable.{Map as MMap}
 
-import cats.implicits._
+import cats.implicits.*
 
 import Identifier.Bindable
 
@@ -63,7 +63,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
     type F[A] = List[(Bindable, A)]
     val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
-    MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
+    MatchlessToValue.traverse[F](exprs)(evalFn)(using ffunc)
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =

@@ -6,7 +6,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   PropertyCheckConfiguration
 }
 
-import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
+import rankn.NTypeGen.{genKind, genKindArg as genArg, shrinkKind}
 
 class KindParseTest extends ParserTestBase {
   override def config: PropertyCheckConfiguration =
@@ -79,11 +79,11 @@ class KindParseTest extends ParserTestBase {
 
   test("toArgs and Kind.apply are inverses") {
     forAll(genKind) { k =>
-      assert(Kind(k.toArgs: _*) == k)
+      assert(Kind(k.toArgs *) == k)
     }
 
     forAll(Gen.listOf(genArg)) { args =>
-      assert(Kind(args: _*).toArgs == args)
+      assert(Kind(args *).toArgs == args)
     }
   }
 
@@ -194,8 +194,8 @@ class KindParseTest extends ParserTestBase {
     }
 
     val regressions = {
-      import Variance._
-      import Kind._
+      import Variance.*
+      import Kind.*
 
       // -* -> (?* -> *)
       Cons(Arg(Contravariant, Type), Cons(Arg(Phantom, Type), Type)) ::

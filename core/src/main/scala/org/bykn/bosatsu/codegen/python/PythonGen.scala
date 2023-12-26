@@ -2,15 +2,15 @@ package org.bykn.bosatsu.codegen.python
 
 import cats.Monad
 import cats.data.{NonEmptyList, State}
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser, RecursionKind}
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 
 import Identifier.Bindable
-import Matchless._
+import Matchless.*
 
-import cats.implicits._
+import cats.implicits.*
 
 object PythonGen {
   import Code.{ValueLike, Statement, Expression}
@@ -19,13 +19,13 @@ object PythonGen {
 
   sealed abstract class Env[+A]
   object Env {
-    import Code._
+    import Code.*
 
     def pure[A](a: A): Env[A] = envMonad.pure(a)
 
     implicit def envMonad: Monad[Env] =
       new Monad[Env] {
-        import Impl._
+        import Impl.*
 
         val m = Monad[State[EnvState, *]]
         def pure[A](a: A): Env[A] = EnvImpl(m.pure(a))
@@ -197,7 +197,7 @@ object PythonGen {
               case None => res
               case Some(nel) =>
                 val stmts = nel.reverse
-                val stmt = Code.block(stmts.head, stmts.tail :_*)
+                val stmt = Code.block(stmts.head, stmts.tail *)
                 res.map(stmt.withValue(_))
             }
           case (e: Expression) :: t => loop(t, setup, e :: args)
@@ -586,7 +586,7 @@ object PythonGen {
       Env.topLevelName(name)
       )
       .mapN { (importedName, tmpVar, testName) =>
-        import Impl._
+        import Impl.*
 
         val loopName = Code.Ident("test_loop")
         val argName = Code.Ident("value")

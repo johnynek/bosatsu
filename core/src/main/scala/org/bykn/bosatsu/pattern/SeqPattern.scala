@@ -3,7 +3,7 @@ package org.bykn.bosatsu.pattern
 import cats.data.NonEmptyList
 
 sealed trait SeqPattern[+A] {
-  import SeqPattern._
+  import SeqPattern.*
   import SeqPart.{AnyElem, Lit, Wildcard}
 
   def matchesAny: Boolean =

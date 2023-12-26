@@ -1,13 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import cats.implicits._
+import cats.implicits.*
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import org.typelevel.paiges.{Doc, Document}
-import scala.collection.mutable.{Map => MMap}
+import scala.collection.mutable.{Map as MMap}
 
-import Value._
+import Value.*
 import Identifier.Constructor
 
 import JsonEncodingError.IllTyped

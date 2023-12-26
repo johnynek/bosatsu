@@ -2,21 +2,13 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
-import language.experimental.macros
 
 object Predef {
-  /**
-   * Loads a file *at compile time* as a means of embedding
-   * external files into strings. This lets us avoid resources
-   * which compilicate matters for scalajs.
-   */
-  private[bosatsu] def loadFileInCompile(file: String): String = macro Macro.loadFileInCompileImpl
-
   /**
    * String representation of the predef
    */
   val predefString: String =
-    loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
+    Macro.loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
 
   private def packageName: PackageName =
     PackageName.PredefName
@@ -44,7 +36,7 @@ object Predef {
 
 object PredefImpl {
 
-  import Value._
+  import Value.*
 
   private def i(a: Value): BigInteger =
     a match {
@@ -143,7 +135,7 @@ object PredefImpl {
     Value.Str(i(intValue).toString)
 
   def trace(prefix: Value, v: Value): Value = {
-    val Value.Str(prestr) = prefix
+    val prestr = Value.Str.unapply(prefix).get
     println(s"$prestr: $v")
     v
   }

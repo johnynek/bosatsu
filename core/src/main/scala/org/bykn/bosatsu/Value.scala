@@ -12,7 +12,7 @@ import scala.collection.immutable.SortedMap
  * most of the API
  */
 sealed abstract class Value {
-  import Value._
+  import Value.*
 
   def asFn: NonEmptyList[Value] => Value =
     this match {

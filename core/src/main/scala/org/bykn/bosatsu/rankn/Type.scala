@@ -1,14 +1,14 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P, Numbers}
+import cats.parse.{Parser as P, Numbers}
 import cats.{Applicative, Monad, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.{SortedSet, SortedMap}
 
-import cats.implicits._
+import cats.implicits.*
 
 sealed abstract class Type {
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
@@ -783,7 +783,7 @@ object Type {
     val FnKinds: List[(Type.TyConst, Kind)] = {
       // -* -> -* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co): _*)
+        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co) *)
 
       tpes
         .iterator
@@ -929,7 +929,7 @@ object Type {
     val Kinds: List[(Type.TyConst, Kind)] = {
       // +* -> +* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind(Vector.fill(n)(Kind.Type.co): _*)
+        Kind(Vector.fill(n)(Kind.Type.co) *)
 
       (1 to 32)
         .iterator

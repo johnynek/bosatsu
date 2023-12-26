@@ -5,15 +5,15 @@ import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
 import scala.collection.immutable.LongMap
-import scala.collection.mutable.{LongMap => MLongMap}
+import scala.collection.mutable.{LongMap as MLongMap}
 
 import Identifier.Bindable
-import Value._
+import Value.*
 
-import cats.implicits._
+import cats.implicits.*
 
 object MatchlessToValue {
-  import Matchless._
+  import Matchless.*
 
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
@@ -542,7 +542,7 @@ object MatchlessToValue {
       str: String,
       pat: List[StrPart],
       binds: Int): Array[String] = {
-      import Matchless.StrPart._
+      import Matchless.StrPart.*
 
       val strLen = str.length()
       val results = if (binds > 0) new Array[String](binds) else emptyStringArray

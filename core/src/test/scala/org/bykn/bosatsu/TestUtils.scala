@@ -1,8 +1,8 @@
 package org.bykn.bosatsu
 
 import cats.data.{Ior, Validated}
-import cats.implicits._
-import org.bykn.bosatsu.rankn._
+import cats.implicits.*
+import org.bykn.bosatsu.rankn.*
 import org.scalatest.{Assertion, Assertions}
 
 import Assertions.{succeed, fail}

@@ -2,8 +2,8 @@ package org.bykn.bosatsu
 
 import cats.{Foldable, Functor}
 import cats.data.NonEmptyList
-import cats.implicits._
-import cats.parse.{Parser => P}
+import cats.implicits.*
+import cats.parse.{Parser as P}
 import org.typelevel.paiges.{Doc, Document}
 
 import Parser.{spaces, Combinators}
@@ -68,7 +68,7 @@ case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
     Document.instance[Import[PackageName, Unit]] { case Import(pname, items) =>
-      val itemDocs = items.toList.map(Document[ImportedName[Unit]].document _)
+      val itemDocs = items.toList.map(Document[ImportedName[Unit]].document)
 
       Doc.text("from") + Doc.space + Document[PackageName].document(pname) + Doc.space + Doc.text("import") +
         // TODO: use paiges to pack this in nicely using .group or something

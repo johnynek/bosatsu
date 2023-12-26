@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 
 object Operators {
 

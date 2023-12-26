@@ -2,8 +2,8 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, Indy, maybeSpace, keySpace, toEOL }
 import cats.data.NonEmptyList
-import cats.implicits._
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.implicits.*
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
@@ -19,7 +19,7 @@ sealed abstract class Statement {
   def region: Region
 
   def replaceRegions(r: Region): Statement = {
-    import Statement._
+    import Statement.*
 
     this match {
       case Bind(BindingStatement(p, v, in)) =>
@@ -261,7 +261,7 @@ object Statement {
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +
-      (if (args.nonEmpty) { Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc[Bindable] _)) + Doc.char(')') }
+      (if (args.nonEmpty) { Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc[Bindable])) + Doc.char(')') }
       else Doc.empty)
 
   private val colonSpace = Doc.text(": ")
@@ -281,7 +281,7 @@ object Statement {
       Document.instance[OptIndent[Declaration]] {
         body =>
           body.sepDoc +
-          OptIndent.document(Declaration.document).document(body)
+          OptIndent.document(using Declaration.document).document(body)
       }
     val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
 
@@ -315,10 +315,11 @@ object Statement {
 
         implicit def neDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ne =>
-            Doc.intercalate(itemSep, ne.toList.map(Document[T].document _))
+            val docT = Document[T]
+            Doc.intercalate(itemSep, ne.toList.map(docT.document))
           }
 
-        val indentedCons = OptIndent.document(neDoc(consDoc)).document(parts)
+        val indentedCons = OptIndent.document(using neDoc(using consDoc)).document(parts)
 
         val taDoc = typeArgs match {
           case None => Doc.empty

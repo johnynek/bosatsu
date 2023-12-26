@@ -1,11 +1,11 @@
 package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
-import cats.implicits._
+import cats.implicits.*
 
 object Parser {
   /**

@@ -5,7 +5,7 @@ package org.bykn.bosatsu
  * here: http://dev.stephendiehl.com/fun/006_hindley_milner.html
  */
 
-import cats.implicits._
+import cats.implicits.*
 import cats.data.{Chain, Writer, NonEmptyList}
 import cats.Applicative
 import scala.collection.immutable.SortedSet
@@ -22,7 +22,7 @@ sealed abstract class Expr[T] {
    * they appear)
    */
   lazy val freeVarsDup: List[Bindable] = {
-    import Expr._
+    import Expr.*
     // nearly identical code to TypedExpr.freeVarsDup, bugs should be fixed in both places
     this match {
       case Generic(_, expr) =>
@@ -80,7 +80,7 @@ sealed abstract class Expr[T] {
   }
 
   lazy val globals: Set[Expr.Global[T]] = {
-    import Expr._
+    import Expr.*
     this match {
       case Generic(_, expr) =>
         expr.globals
@@ -100,7 +100,7 @@ sealed abstract class Expr[T] {
   }
 
   def replaceTag(t: T): Expr[T] = {
-    import Expr._
+    import Expr.*
     this match {
       case g@Generic(_, e) => g.copy(in = e.replaceTag(t))
       case a@Annotation(_, _, _) => a.copy(tag = t)
@@ -267,7 +267,7 @@ object Expr {
               pat.traverseType(fn(_, bound))
                 .product(traverseType(expr, bound)(fn))
           }
-        val branchB = branches.traverse(branchFn _)
+        val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Match(_, _, tag))
     }
 

@@ -15,7 +15,7 @@ abstract class SetOpsLaws[A] extends AnyFunSuite {
   def eqA: Gen[Eq[A]] =
     eqUnion.map(Eq.by { (a: A) => a :: Nil }(_))
 
-  import setOps._
+  import setOps.*
 
   def intersectionIsCommutative(a1: A, a2: A, eqA: Eq[List[A]]) = {
     val a12 = intersection(a1, a2)

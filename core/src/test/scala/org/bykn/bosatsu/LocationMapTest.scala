@@ -31,7 +31,7 @@ class LocationMapTest extends AnyFunSuite {
       val lm = LocationMap(str)
 
       val reconstruct = Iterator.iterate(0)(_ + 1)
-        .map(lm.getLine _)
+        .map(lm.getLine)
         .takeWhile(_.isDefined)
         .collect { case Some(l) => l }
         .mkString("\n")

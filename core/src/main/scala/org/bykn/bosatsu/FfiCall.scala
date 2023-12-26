@@ -39,14 +39,14 @@ object FfiCall {
     def call(t: rankn.Type): Value = callFn(t)
   }
 
-  def getJavaType(t: rankn.Type): List[Class[_]] = {
-    def one(t: rankn.Type): Option[Class[_]] =
+  def getJavaType(t: rankn.Type): List[Class[?]] = {
+    def one(t: rankn.Type): Option[Class[?]] =
       loop(t, false) match {
         case c :: Nil => Some(c)
         case _ => None
       }
 
-    def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
+    def loop(t: rankn.Type, top: Boolean): List[Class[?]] = {
       t match {
         case rankn.Type.Fun(as, b) if top =>
           val ats = as.map { a =>

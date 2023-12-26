@@ -4,7 +4,7 @@ import cats.{Functor, Monad}
 import cats.arrow.FunctionK
 import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 import org.bykn.bosatsu.{
   Expr,
@@ -14,7 +14,7 @@ import org.bykn.bosatsu.{
   ListUtil,
   PackageName,
   ParallelViaProduct,
-  Pattern => GenPattern,
+  Pattern as GenPattern,
   Region,
   RecursionKind,
   TypedExpr,
@@ -60,10 +60,9 @@ object Infer {
   type Pattern = GenPattern[(PackageName, Constructor), Type]
 
   // Import our private implementation functions
-  import Impl._
+  import Impl.*
 
-  implicit val inferMonad: Monad[Infer] =
-    new Monad[Infer] {
+  implicit val inferMonad: Monad[Infer] = new Monad[Infer] {
       def pure[A](a: A) = Infer.pure(a)
       def flatMap[A, B](fa: Infer[A])(fn: A => Infer[B]): Infer[B] =
         fa.flatMap(fn)
@@ -172,7 +171,7 @@ object Infer {
     case class KindMismatch(target: Type, targetKind: Kind, source: Type, sourceKind: Kind, targetRegion: Region, sourceRegion: Region) extends TypeError
     case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError
     case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError
-    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type], reg: Region) extends TypeError
+    case class NotPolymorphicEnough(tpe: Type, in: Expr[?], badTvs: NonEmptyList[Type], reg: Region) extends TypeError
     case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type]) extends TypeError
     // this sounds internal but can be due to an infinite type attempted to be defined
     case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError
@@ -202,7 +201,7 @@ object Infer {
       def region: Region
     }
     // This is a logic error which should never happen
-    case class InferIncomplete(term: Expr[_], region: Region) extends InternalError {
+    case class InferIncomplete(term: Expr[?], region: Region) extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"inferRho not complete for $term"
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
@@ -481,7 +480,7 @@ object Infer {
     }
 
     val zonk: Type.Meta => Infer[Option[Type.Rho]] =
-      Type.zonk[Infer](SortedSet.empty, readMeta _, writeMeta _)
+      Type.zonk[Infer](SortedSet.empty, readMeta, writeMeta)
 
     /**
      * This fills in any meta vars that have been
@@ -493,8 +492,8 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk(_))
 
-    val zonkTypeExprK: FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] =
-      new FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] {
+    val zonkTypeExprK: FunctionK[TypedExpr.Rho, InferTypedExpr] =
+      new FunctionK[TypedExpr.Rho, InferTypedExpr] {
         def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = zonkTypedExpr(fa)
       }
 
@@ -553,7 +552,7 @@ object Infer {
               case None => pure(rho)
             }
 
-            univRho.flatMap { rho =>
+          univRho.flatMap { rho =>
               val exists = q.existList
               for {
                 skols <- exists.traverse { case (b, k) => newSkolemTyVar(b, k, existential = true) }  
@@ -904,15 +903,15 @@ object Infer {
     private def clearMeta(m: Type.Meta): Infer[Unit] =
       lift(m.ref.set(None))
 
-    implicit class AndThenMap[F[_], G[_], J[_]](private val fk: FunctionK[F, Lambda[x => G[J[x]]]]) extends AnyVal {
-      def andThenMap[H[_]](fn2: FunctionK[J, H])(implicit G: Functor[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
-        new FunctionK[F, Lambda[x => G[H[x]]]] {
+    implicit class AndThenMap[F[_], G[_], J[_]](private val fk: FunctionK[F, λ[x => G[J[x]]]]) extends AnyVal {
+      def andThenMap[H[_]](fn2: FunctionK[J, H])(implicit G: Functor[G]): FunctionK[F, λ[x => G[H[x]]]] =
+        new FunctionK[F, λ[x => G[H[x]]]] {
           def apply[A](fa: F[A]): G[H[A]] =
             fk(fa).map(fn2(_))
         }
 
-      def andThenFlatMap[H[_]](fn2: FunctionK[J, Lambda[x => G[H[x]]]])(implicit G: Monad[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
-        new FunctionK[F, Lambda[x => G[H[x]]]] {
+      def andThenFlatMap[H[_]](fn2: FunctionK[J, λ[x => G[H[x]]]])(implicit G: Monad[G]): FunctionK[F, λ[x => G[H[x]]]] =
+        new FunctionK[F, λ[x => G[H[x]]]] {
           def apply[A](fa: F[A]): G[H[A]] =
             fk(fa).flatMap(fn2(_))
         }
@@ -974,8 +973,8 @@ object Infer {
       declared: Type,
       region: Region,
       envTpes: Infer[List[Type]])(
-        fn: (List[Type.TyMeta], Type.Rho) => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
-        onErr: NonEmptyList[Type] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
+        fn: (List[Type.TyMeta], Type.Rho) => Infer[FunctionK[F, λ[x => G[TypedExpr[x]]]]])(
+        onErr: NonEmptyList[Type] => Error): Infer[FunctionK[F, λ[x => G[TypedExpr[x]]]]] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
         coerce <- fn(metas, rho)
@@ -1108,7 +1107,7 @@ object Infer {
 
 
     def maybeSimple[A: HasRegion](term: Expr[A]): Option[Infer[TypedExpr[A]]] = {
-      import Expr._
+      import Expr.*
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
@@ -1251,7 +1250,7 @@ object Infer {
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
     def typeCheckRho[A: HasRegion](term: Expr[A], expect: Expected[(Type.Rho, Region)]): Infer[TypedExpr.Rho[A]] = {
-      import Expr._
+      import Expr.*
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
@@ -1857,25 +1856,25 @@ object Infer {
             }
         }
 
-        /**
-          * if meta is Some, it is because it recursive, but those are almost
-          * always functions, so we can at least fix the arity of the function.
-          */
-        val init: Infer[Unit] = 
-          meta match {
-            case Some((_, tpe, rtpe)) =>
-              def maybeUnified(e: Expr[A]): Infer[Unit] =
-                e match {
-                  case Expr.Lambda(args, res, _) =>
-                    unifyFnRho(args.length, tpe, rtpe, region(e) - region(res)).void
-                  case _ =>
-                    // we just have to wait to infer
-                    unit
-                }
+      /**
+        * if meta is Some, it is because it recursive, but those are almost
+        * always functions, so we can at least fix the arity of the function.
+        */
+      val init: Infer[Unit] = 
+        meta match {
+          case Some((_, tpe, rtpe)) =>
+            def maybeUnified(e: Expr[A]): Infer[Unit] =
+              e match {
+                case Expr.Lambda(args, res, _) =>
+                  unifyFnRho(args.length, tpe, rtpe, region(e) - region(res)).void
+                case _ =>
+                  // we just have to wait to infer
+                  unit
+              }
 
-              maybeUnified(e)
-            case None => unit
-          }
+            maybeUnified(e)
+          case None => unit
+        }
 
       for {
         _ <- init
@@ -1889,20 +1888,20 @@ object Infer {
       for {
         e <- env
         zrho <- zonkTypedExpr(rho)
-        q <- TypedExpr.quantify(e, zrho, readMeta _, writeMeta _)
+        q <- TypedExpr.quantify(e, zrho, readMeta, writeMeta)
       } yield q
 
     // allocate this once and reuse
     private val envTypes = getEnv.map(_.values.toList)
     
-    def quantifyMetas(metas: List[Type.TyMeta]): FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] =
+    def quantifyMetas(metas: List[Type.TyMeta]): FunctionK[TypedExpr, InferTypedExpr] =
       NonEmptyList.fromList(metas) match {
         case None =>
-          new FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] {
+          new FunctionK[TypedExpr, InferTypedExpr] {
             def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = pure(fa)
           }
         case Some(nel) =>
-          new FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] {
+          new FunctionK[TypedExpr, InferTypedExpr] {
             def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = {
               // all these metas can be set to Var
               val used: Set[Type.Var.Bound] = fa.allBound
@@ -1928,10 +1927,13 @@ object Infer {
           }
       }
 
+    type EH[X] = (Expr[X], HasRegion[X])
+    type InferTypedExpr[X] = Infer[TypedExpr[X]]
+
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
       for {
-        check <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](tpe, regionT, envTypes) { (metas, rho) =>
+        check <- subsUpper[EH, Infer](tpe, regionT, envTypes) { (metas, rho) =>
           val cRho = checkRhoK(rho)
           if (tpe === rho) {
             // we don't need to zonk here
@@ -1958,10 +1960,10 @@ object Infer {
       typeCheckRho(t, Expected.Check((rho, region(t))))
 
     // same as checkRho but as a FunctionK
-    def checkRhoK(rho: Type.Rho): FunctionK[Lambda[x => (Expr[x], HasRegion[x])], Lambda[x => Infer[TypedExpr.Rho[x]]]] =
-      new FunctionK[Lambda[x => (Expr[x], HasRegion[x])], Lambda[x => Infer[TypedExpr.Rho[x]]]] {
+    def checkRhoK(rho: Type.Rho): FunctionK[EH, InferTypedExpr] =
+      new FunctionK[EH, InferTypedExpr] {
         def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr[A]] = 
-          checkRho(fa._1, rho)(fa._2)
+          checkRho(fa._1, rho)(using fa._2)
       }
     /**
      * recall a rho type never has a top level Forall
@@ -2025,7 +2027,7 @@ object Infer {
 
   // Invariant: if optMeta.isDefined then t is not Expr.Annotated
   private def typeCheckMeta[A: HasRegion](t: Expr[A], optMeta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
-    def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
+    def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr)
 
     val optSkols = t match {
       case Expr.Generic(vs, e) =>

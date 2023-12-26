@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State, Writer}
-import cats.implicits._
+import cats.implicits.*
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
@@ -45,7 +45,7 @@ class TypedExprTest extends AnyFunSuite {
       assert(missing.isEmpty, s"expression:\n\n${te.repr}\n\nallVars: $av\n\nfrees: $frees")
     }
 
-    forAll(genTypedExpr)(law _)
+    forAll(genTypedExpr)(law)
 
     checkLast("""
 enum AB: A, B(x)
@@ -663,7 +663,7 @@ x = Foo
       // All the vars that are used in bounds
       val bounds: Set[Type.Var] = te.traverseType { (t: Type) =>
         t match {
-          case q: Type.Quantified => Writer(SortedSet[Type.Var](q.vars.toList.map(_._1): _*), t)
+          case q: Type.Quantified => Writer(SortedSet[Type.Var](q.vars.toList.map(_._1) *), t)
           case _ => Writer(SortedSet[Type.Var](), t)
         }
       }.run._1.toSet[Type.Var]

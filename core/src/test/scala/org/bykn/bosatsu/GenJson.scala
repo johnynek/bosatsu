@@ -59,7 +59,7 @@ object GenJson {
   ): Shrink[Json] =
     Shrink[Json](new Function1[Json, Stream[Json]] {
       def apply(j: Json): Stream[Json] = {
-        import Json._
+        import Json.*
         j match {
           case JString(str) => ss.shrink(str).map(JString(_))
           case JNumberStr(_) => Stream.empty

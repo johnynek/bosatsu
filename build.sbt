@@ -4,12 +4,10 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version := "0.0.7",
-  addCompilerPlugin(
-    "org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full
-  ),
-  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.13.12",
-  crossScalaVersions := Seq("2.13.12"),
+  //addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
+  //addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+  scalaVersion := "3.3.1",
+  crossScalaVersions := Seq("3.3.1"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation", // Emit warning and location for usages of deprecated APIs.
@@ -46,6 +44,9 @@ lazy val commonSettings = Seq(
     /* "-Ywarn-unused:privates",            // Warn if a private member is unused. */
     "-Ywarn-value-discard", // Warn when non-Unit expression results are unused.
     "-Xsource:3",
+    "-source:future",
+    "-rewrite", "-source", "future-migration",
+    "-Ykind-projector",
     "-Ypatmat-exhaust-depth",
     "40",
     "-Wconf:cat=deprecation&msg=.*Stream.*:s"
@@ -106,7 +107,7 @@ lazy val base =
     .settings(
       commonSettings,
       name := "bosatsu-base",
-      libraryDependencies += scalaReflect.value,
+      //libraryDependencies += scalaReflect.value,
       buildInfoKeys := Seq[BuildInfoKey](
         name,
         version,
@@ -176,13 +177,13 @@ lazy val core =
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.9" % "provided"
+        //"com.lihaoyi" % "acyclic_2.13.12" % "0.3.9" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.9"),
-    scalacOptions += "-P:acyclic:force"
+    //addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.9"),
+    //scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
 

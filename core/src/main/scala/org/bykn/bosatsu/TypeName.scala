@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import cats.implicits._
+import cats.implicits.*
 
 case class TypeName(ident: Identifier.Constructor)
 

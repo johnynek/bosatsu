@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
 import cats.Functor
-import cats.implicits._
+import cats.implicits.*
 import org.typelevel.paiges.{Doc, Document}
 
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods

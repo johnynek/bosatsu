@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import Parser.{Combinators, maybeSpace}
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 import org.typelevel.paiges.{Doc, Document}
 
 import Identifier.Bindable
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 case class DefStatement[A, B](
     name: Bindable,
@@ -26,7 +26,7 @@ object DefStatement {
   implicit def document[A: Document, B: Document]
       : Document[DefStatement[A, B]] =
     Document.instance[DefStatement[A, B]] { defs =>
-      import defs._
+      import defs.*
       val res = retType.fold(Doc.empty) { t => arrow + t.toDoc }
       val taDoc = typeArgs match {
         case None     => Doc.empty

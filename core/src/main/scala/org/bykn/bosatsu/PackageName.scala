@@ -2,8 +2,8 @@ package org.bykn.bosatsu
 
 import cats.Order
 import cats.data.NonEmptyList
-import cats.implicits._
-import cats.parse.{Parser => P}
+import cats.implicits.*
+import cats.parse.{Parser as P}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
@@ -14,7 +14,7 @@ case class PackageName(parts: NonEmptyList[String]) {
 object PackageName {
 
   def parts(first: String, rest: String*): PackageName =
-    PackageName(NonEmptyList.of(first, rest :_*))
+    PackageName(NonEmptyList.of(first, rest *))
 
   implicit val document: Document[PackageName] =
     Document.instance[PackageName] { pn => Doc.text(pn.asString) }

@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.kernel.{BoundedSemilattice, Order}
 
 sealed abstract class Variance {
-  import Variance._
+  import Variance.*
 
   def unary_- : Variance =
     this match {

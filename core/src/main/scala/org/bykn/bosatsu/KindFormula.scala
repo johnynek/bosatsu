@@ -13,7 +13,7 @@ import org.bykn.bosatsu.rankn.{
   ConstructorFn,
   Ref,
   RefSpace,
-  Type => RankNType,
+  Type as RankNType,
   TypeEnv,
   DefinedType
 }
@@ -21,7 +21,7 @@ import org.bykn.bosatsu.graph.Dag
 import org.bykn.bosatsu.Shape.KnownShape
 import scala.collection.immutable.{LongMap, SortedSet}
 
-import cats.syntax.all._
+import cats.syntax.all.*
 import cats.data.Validated
 
 sealed abstract class KindFormula
@@ -250,7 +250,7 @@ object KindFormula {
       imports: E,
       dts: List[DefinedType[Option[Kind.Arg]]]
   ): IorNec[Error, List[DefinedType[Kind.Arg]]] = {
-    implicit val shapeEnv = IsTypeEnv[E].toShapeEnv
+    implicit val shapeEnv: Shape.IsShapeEnv[E] = IsTypeEnv[E].toShapeEnv
     Shape
       .solveAll(imports, dts)
       .leftMap(_.map(Error.FromShapeError(_)))
@@ -281,7 +281,7 @@ object KindFormula {
       imports: Env,
       dt: DefinedType[Either[KnownShape, Kind.Arg]]
   ): ValidatedNec[Error, DefinedType[Kind.Arg]] = {
-    import Impl._
+    import Impl.*
 
     (for {
       state <- Impl.newState(imports, dt)

@@ -1,12 +1,12 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, upperIdent}
 
-import cats.implicits._
+import cats.implicits.*
 
 sealed abstract class Identifier {
   def asString: String

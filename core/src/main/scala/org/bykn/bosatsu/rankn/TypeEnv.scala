@@ -11,7 +11,7 @@ class TypeEnv[+A] private (
 
   override def equals(that: Any): Boolean =
     that match {
-      case te: TypeEnv[_] =>
+      case te: TypeEnv[?] =>
         (values == te.values) &&
         (constructors == te.constructors) &&
         (definedTypes == te.definedTypes)

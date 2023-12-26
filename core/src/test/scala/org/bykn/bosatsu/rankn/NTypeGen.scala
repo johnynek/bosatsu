@@ -88,7 +88,7 @@ object NTypeGen {
   }
 
   implicit val shrinkType: Shrink[Type] = {
-    import Type._
+    import Type.*
     def shrink(t: Type): Stream[Type] =
       t match {
         case ForAll(items, in) =>
@@ -106,7 +106,7 @@ object NTypeGen {
     Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
 
   val genPredefType: Gen[Type] = {
-    import Type._
+    import Type.*
 
     val recurse = Gen.lzy(genPredefType)
 

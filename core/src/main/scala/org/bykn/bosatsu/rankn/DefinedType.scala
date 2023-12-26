@@ -6,7 +6,7 @@ import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
 
-import cats.implicits._
+import cats.implicits.*
 import cats.data.NonEmptyList
 
 final case class DefinedType[+A](
@@ -109,7 +109,7 @@ final case class DefinedType[+A](
   }
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
-    Kind(toAnnotatedKinds.map(_._2): _*)
+    Kind(toAnnotatedKinds.map(_._2) *)
 }
 
 object DefinedType {
@@ -117,7 +117,7 @@ object DefinedType {
     Type.Const.Defined(pn, nm)
 
   def listToMap[A](dts: List[DefinedType[A]]): SortedMap[(PackageName, TypeName), DefinedType[A]] =
-    SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt }: _*)
+    SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt } *)
 
   def toKindMap[F[_]: Foldable](dts: F[DefinedType[Kind.Arg]]): Map[Type.Const.Defined, Kind] =
     dts.foldLeft(

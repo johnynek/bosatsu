@@ -116,9 +116,9 @@ class DeclarationTest extends AnyFunSuite {
     val regressions: List[(Bindable, Declaration.NonBinding, Declaration)] =
       List(
         {
-          import Declaration._
+          import Declaration.*
           import Identifier.{Name, Constructor, Backticked}
-          import OptIndent._
+          import OptIndent.*
 
           val b = Identifier.Backticked("")
           val d1 = Literal(Lit.fromInt(0))

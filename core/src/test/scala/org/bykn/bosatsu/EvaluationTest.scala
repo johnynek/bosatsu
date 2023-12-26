@@ -1,13 +1,13 @@
 package org.bykn.bosatsu
 
-import Value._
+import Value.*
 
 import LocationMap.Colorize
 import org.scalatest.funsuite.AnyFunSuite
 
 class EvaluationTest extends AnyFunSuite with ParTest {
 
-  import TestUtils._
+  import TestUtils.*
 
   test("simple evaluation") {
     evalTest(

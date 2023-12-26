@@ -2,9 +2,9 @@ package org.bykn.bosatsu
 
 import cats.Applicative
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNec, Writer, NonEmptyChain}
-import cats.implicits._
+import cats.implicits.*
 
-import Expr._
+import Expr.*
 import Identifier.Bindable
 
 object UnusedLetCheck {
@@ -92,5 +92,5 @@ object UnusedLetCheck {
    * Return the free Bindable names in this expression
    */
   def freeBound[A](e: Expr[A]): Set[Bindable] =
-    loop(e)(HasRegion.instance(_ => Region(0, 0))).run._2
+    loop(e)(using HasRegion.instance(_ => Region(0, 0))).run._2
 }

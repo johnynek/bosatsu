@@ -2,10 +2,10 @@ package org.bykn.bosatsu
 
 import cats.Order
 import cats.data.NonEmptyList
-import cats.implicits._
-import cats.parse.{Parser => P, Parser0}
+import cats.implicits.*
+import cats.parse.{Parser as P, Parser0}
 import org.bykn.bosatsu.rankn.Type
-import org.bykn.bosatsu.{TypeName => Name}
+import org.bykn.bosatsu.{TypeName as Name}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, maybeSpace, Combinators}
@@ -17,7 +17,7 @@ import Parser.{lowerIdent, maybeSpace, Combinators}
  * whereas we use a recursion/cons style in Type
  */
 sealed abstract class TypeRef {
-  import TypeRef._
+  import TypeRef.*
 
   def toDoc: Doc =
     TypeRef.document.document(this)

@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import cats.{Applicative, Foldable}
 import cats.data.NonEmptyList
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 
 import Parser.{ Combinators, maybeSpace, MaybeTupleOrParens }
-import cats.implicits._
+import cats.implicits.*
 
 import Identifier.{Bindable, Constructor}
 
@@ -259,33 +259,33 @@ object Pattern {
         def field: Bindable
       }
       object FieldKind {
-        final case class Explicit(field: Bindable) extends FieldKind
+        case class Explicit(field: Bindable) extends FieldKind
         // an implicit field can only be associated with a Var of
         // the same name
-        final case class Implicit(field: Bindable) extends FieldKind
+        case class Implicit(field: Bindable) extends FieldKind
       }
-      final case object TupleLike extends Style
+      case object TupleLike extends Style
       // represents the fields like: Foo { bar: x, age }
-      final case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
+      case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
     }
     sealed abstract class NamedKind extends StructKind {
       def name: Constructor
       def style: Style
     }
-    final case object Tuple extends StructKind
+    case object Tuple extends StructKind
     // Represents a complete tuple-like pattern Foo(a, b)
-    final case class Named(name: Constructor, style: Style) extends NamedKind
+    case class Named(name: Constructor, style: Style) extends NamedKind
     // Represents a partial tuple-like pattern Foo(a, ...)
-    final case class NamedPartial(name: Constructor, style: Style) extends NamedKind
+    case class NamedPartial(name: Constructor, style: Style) extends NamedKind
   }
 
   sealed abstract class StrPart
   object StrPart {
-    final case object WildStr extends StrPart
-    final case class NamedStr(name: Bindable) extends StrPart
-    final case object WildChar extends StrPart
-    final case class NamedChar(name: Bindable) extends StrPart
-    final case class LitStr(asString: String) extends StrPart
+    case object WildStr extends StrPart
+    case class NamedStr(name: Bindable) extends StrPart
+    case object WildChar extends StrPart
+    case class NamedChar(name: Bindable) extends StrPart
+    case class LitStr(asString: String) extends StrPart
 
     // this is to circumvent scala warnings because these bosatsu
     // patterns like right.
@@ -315,9 +315,9 @@ object Pattern {
     sealed abstract class Glob extends ListPart[Nothing] {
       def map[B](fn: Nothing => B): ListPart[B] = this
     }
-    final case object WildList extends Glob
-    final case class NamedList(name: Bindable) extends Glob
-    final case class Item[A](pat: A) extends ListPart[A] {
+    case object WildList extends Glob
+    case class NamedList(name: Bindable) extends Glob
+    case class Item[A](pat: A) extends ListPart[A] {
       def map[B](fn: A => B): ListPart[B] = Item(fn(pat))
     }
   }
@@ -436,7 +436,7 @@ object Pattern {
    * as binds tighter than |, so use ( ) with groups you want to bind
    */
   case class Named[N, T](name: Bindable, pat: Pattern[N, T]) extends Pattern[N, T]
-  case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T] {
+  case class ListPat[N, +T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T] {
     lazy val toNamedSeqPattern: NamedSeqPattern[Pattern[N, T]] =
       ListPat.toNamedSeqPattern(this)
 
@@ -621,7 +621,7 @@ object Pattern {
       val listE = ListOrdering.onType(partOrd(this))
 
       val ordStrPart = new Ordering[StrPart] {
-        import StrPart._
+        import StrPart.*
 
         def compare(a: StrPart, b: StrPart) =
           (a, b) match {

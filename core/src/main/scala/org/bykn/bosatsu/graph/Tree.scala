@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.graph
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
-import cats.implicits._
+import cats.implicits.*
 
 case class Tree[+A](item: A, children: List[Tree[A]])
 

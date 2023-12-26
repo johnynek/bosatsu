@@ -1,9 +1,9 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.{Ior, NonEmptyList}
-import org.bykn.bosatsu._
+import org.bykn.bosatsu.*
 
-import Expr._
+import Expr.*
 import Type.Var.Bound
 import Type.forAll
 
@@ -13,7 +13,7 @@ import Identifier.Constructor
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 class RankNInferTest extends AnyFunSuite {
 
@@ -316,7 +316,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("match with custom non-generic types") {
-    import OptionTypes._
+    import OptionTypes.*
 
     val constructors = Map(
       (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
@@ -365,7 +365,7 @@ class RankNInferTest extends AnyFunSuite {
   test("match with custom generic types") {
     def tv(a: String): Type.Rho = Type.TyVar(Type.Var.Bound(a))
 
-    import OptionTypes._
+    import OptionTypes.*
 
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 

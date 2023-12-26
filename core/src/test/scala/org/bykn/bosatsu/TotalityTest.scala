@@ -7,7 +7,7 @@ import org.scalacheck.Gen
 
 import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
 
-import rankn._
+import rankn.*
 
 import Parser.Combinators
 
@@ -120,7 +120,7 @@ enum Bool: False, True
       }
 
     Parser.unsafeParse(Pattern.matchParser.listSyntax, str)
-      .map(parsedToExpr _)
+      .map(parsedToExpr)
   }
 
   def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
@@ -255,13 +255,13 @@ enum Either: Left(l), Right(r)
 
 
   test("test intersection") {
-    val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]")
+    val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]"): @unchecked
       TotalityCheck(predefTE).intersection(p0, p1) match {
         case List(intr) => assert(intr == p1norm)
         case other => fail(s"expected exactly one intersection: $other")
       }
 
-    val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
+    val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]"): @unchecked
       TotalityCheck(predefTE).intersection(p2, p3) match {
         case List(intr) => assert(p3 == intr)
         case other => fail(s"expected exactly one intersection: $other")
@@ -272,7 +272,7 @@ enum Either: Left(l), Right(r)
       val p0 :: p1 :: p2 :: Nil = patterns(
         """["${_}$.{_}$.{_}",
         "$.{foo}",
-        "baz"]""")
+        "baz"]"""): @unchecked
 
       assert(TotalityCheck(predefTE).intersection(p0, p1).isEmpty)
       assert(TotalityCheck(predefTE).intersection(p1, p2).isEmpty)
@@ -295,7 +295,7 @@ enum Either: Left(l), Right(r)
     val tc = TotalityCheck(predefTE)
     import tc.eqPat.eqv
     {
-      val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]")
+      val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]"): @unchecked
       tc.difference(p0, p1) match {
         case diff :: Nil => assert(eqv(p0, diff))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
@@ -303,7 +303,7 @@ enum Either: Left(l), Right(r)
     }
 
     {
-      val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]")
+      val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]"): @unchecked
       TotalityCheck(predefTE).difference(p1, p0) match {
         case diff :: Nil => assert(eqv(diff, p1))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
@@ -315,7 +315,7 @@ enum Either: Left(l), Right(r)
     }
 
     {
-      val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
+      val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]"): @unchecked
       TotalityCheck(predefTE).intersection(p0, p1) match {
         case List(res) if res == p0 || res == p1 => succeed
         case Nil => fail("these do overlap")
@@ -325,7 +325,7 @@ enum Either: Left(l), Right(r)
   }
 
   test("(a - b) n c == (a n c) - (b n c) regressions") {
-    import Pattern._
+    import Pattern.*
     import StrPart.{LitStr, NamedStr, WildStr}
     import ListPart.{NamedList, Item}
     import Identifier.Name
@@ -376,8 +376,8 @@ enum Either: Left(l), Right(r)
   }
 
   test("difference is idempotent regressions") {
-    import Pattern._
-    import ListPart._
+    import Pattern.*
+    import ListPart.*
     import Identifier.Name
     import StrPart.WildStr
 
@@ -394,8 +394,8 @@ enum Either: Left(l), Right(r)
 
   test("if a n b = 0 then a - b = a regressions") {
 
-    import Pattern._
-    import ListPart._
+    import Pattern.*
+    import ListPart.*
     import Identifier.Name
     import StrPart.WildStr
 

@@ -2,9 +2,9 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
 
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 
-import cats.implicits._
+import cats.implicits.*
 
 case class Indented[T](spaces: Int, value: T) {
   require(spaces > 0, s"need non-empty indentation: $spaces")

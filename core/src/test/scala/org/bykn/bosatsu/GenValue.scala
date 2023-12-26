@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Cogen, Gen}
-import Value._
+import Value.*
 
 object GenValue {
 

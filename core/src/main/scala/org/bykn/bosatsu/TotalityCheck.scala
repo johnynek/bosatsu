@@ -2,13 +2,13 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
-import cats.implicits._
+import cats.implicits.*
 import org.bykn.bosatsu.pattern.{SeqPattern, SeqPart, SetOps}
 
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashed
 
 import rankn.{Type, TypeEnv}
-import Pattern._
+import Pattern.*
 
 import Identifier.{Bindable, Constructor}
 
@@ -43,7 +43,7 @@ object TotalityCheck {
  * don't describe the same type.
  */
 case class TotalityCheck(inEnv: TypeEnv[Any]) {
-  import TotalityCheck._
+  import TotalityCheck.*
 
   /**
    * Constructors must match all items to be legal
@@ -113,7 +113,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    * a NonEmptyList of matches that are not total
    */
   def checkExpr[A](expr: Expr[A]): ValidatedNel[ExprError[A], Unit] = {
-    import Expr._
+    import Expr.*
     expr match {
       case Annotation(e, _, _) => checkExpr(e)
       case Generic(_, e) => checkExpr(e)

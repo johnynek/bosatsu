@@ -3,9 +3,9 @@ package org.bykn.bosatsu
 import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 
-import cats.implicits._
+import cats.implicits.*
 
 /**
  * Represents the list construction sublanguage

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import Value._
+import Value.*
 import org.scalatest.funsuite.AnyFunSuite
 
 class ValueTest extends AnyFunSuite {

@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
-import cats.implicits._
+import cats.implicits.*
 import org.scalatest.funsuite.AnyFunSuite
 
 class ToposortTest extends AnyFunSuite {
@@ -65,7 +65,7 @@ class ToposortTest extends AnyFunSuite {
     val genDag = Gen.mapOf(pair).map(Dag(_))
     forAll(genDag) { case Dag(graph) =>
       val allNodes = graph.flatMap { case (h, t) => h :: t }.toSet
-      val Toposort.Success(sorted, _) = Toposort.sort(allNodes)(graph.getOrElse(_, Nil))
+      val Toposort.Success(sorted, _) = Toposort.sort(allNodes)(graph.getOrElse(_, Nil)): @unchecked
       assert(sorted.flatMap(_.toList).sorted == allNodes.toList.sorted)
       noEdgesToLater(sorted)(n => graph.getOrElse(n, Nil))
       layersAreSorted(sorted)

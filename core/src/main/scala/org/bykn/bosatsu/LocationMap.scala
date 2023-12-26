@@ -1,9 +1,9 @@
 package org.bykn.bosatsu
 
 import org.typelevel.paiges.Doc
-import cats.parse.{LocationMap => CPLocationMap}
+import cats.parse.{LocationMap as CPLocationMap}
 
-import cats.implicits._
+import cats.implicits.*
 
 import LocationMap.Colorize
 

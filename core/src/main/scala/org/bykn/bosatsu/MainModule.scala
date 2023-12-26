@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 
@@ -12,7 +12,7 @@ import Identifier.Bindable
 import IorMethods.IorExtension
 import LocationMap.Colorize
 
-import cats.implicits._
+import cats.implicits.*
 
 /** This is an implementation of the CLI tool where Path is abstracted. The idea
   * is to allow it to be testable and usable in scalajs where we don't have
@@ -188,7 +188,7 @@ abstract class MainModule[IO[_]](implicit
     private def flatTrav[A, B, C](va: Validated[A, B])(
         fn: B => IO[Validated[A, C]]
     ): IO[Validated[A, C]] =
-      va.traverse(fn).map(_.andThen(identity _))
+      va.traverse(fn).map(_.andThen(identity))
 
     /** This parses all the given paths and returns them first, and if the
       * PackageResolver supports it, we look for any missing dependencies that

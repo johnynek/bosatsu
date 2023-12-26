@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.parse.{Parser0 => P0, Parser => P, Accumulator, Appender}
+import cats.parse.{Parser0 as P0, Parser as P, Accumulator, Appender}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]

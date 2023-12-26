@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
 import org.typelevel.paiges.{Doc, Document}
 
-import rankn._
+import rankn.*
 import LocationMap.Colorize
 
 sealed abstract class PackageError {
@@ -437,7 +437,7 @@ object PackageError {
             .run._1.toList.distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+          val doc = Pattern.compiledDocument(using Document.instance[Type] { t =>
             showT(t)
           })
 
@@ -449,7 +449,7 @@ object PackageError {
             .run._1.toList.distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+          val doc = Pattern.compiledDocument(using Document.instance[Type] { t =>
             showT(t)
           })
 
@@ -457,7 +457,7 @@ object PackageError {
             (Doc.intercalate(Doc.char(',') + Doc.lineOrSpace,
               unreachableBranches.toList.map(doc.document(_))))
         case TotalityCheck.InvalidPattern(_, err) =>
-          import TotalityCheck._
+          import TotalityCheck.*
           err match {
             case ArityMismatch((_, n), _, _, exp, found) =>
               Doc.text(s"arity mismatch: ${n.asString} expected $exp parameters, found $found")

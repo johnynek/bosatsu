@@ -1,14 +1,14 @@
 package org.bykn.bosatsu
 
 import cats.Eq
-import cats.implicits._
+import cats.implicits.*
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import TestUtils.typeEnvOf
 
 import rankn.{NTypeGen, Type, TypeEnv}
 
-import GenJson._
+import GenJson.*
 import org.scalatest.funsuite.AnyFunSuite
 
 class JsonTest extends AnyFunSuite {

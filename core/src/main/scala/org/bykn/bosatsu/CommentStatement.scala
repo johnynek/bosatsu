@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 
 /**
@@ -15,7 +15,7 @@ object CommentStatement {
 
   implicit def document[T: Document]: Document[CommentStatement[T]] =
     Document.instance[CommentStatement[T]] { comment =>
-      import comment._
+      import comment.*
       val block = Doc.intercalate(Doc.line, message.toList.map { mes => Doc.char('#') + Doc.text(mes) })
       block + Doc.line + Document[T].document(on)
     }

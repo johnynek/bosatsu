@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import Identifier.Bindable
 
-import cats.implicits._
+import cats.implicits.*
 
 object MatchlessFromTypedExpr {
   // compile a set of packages given a set of external remappings

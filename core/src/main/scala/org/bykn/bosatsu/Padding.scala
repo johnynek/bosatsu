@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Functor
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 as P0, Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.maybeSpace

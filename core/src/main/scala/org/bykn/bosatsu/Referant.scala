@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 
 import rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 
-import Identifier.{Constructor => ConstructorName}
+import Identifier.{Constructor as ConstructorName}
 
 /**
  * A Referant is something that can be exported or imported after resolving

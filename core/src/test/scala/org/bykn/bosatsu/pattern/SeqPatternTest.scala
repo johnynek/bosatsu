@@ -6,7 +6,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import SeqPattern.{Cat, Empty}
 import SeqPart.{Wildcard, AnyElem, Lit}
 
-import cats.implicits._
+import cats.implicits.*
 import org.scalatest.funsuite.AnyFunSuite
 
 object StringSeqPatternGen {
@@ -23,7 +23,7 @@ object StringSeqPatternGen {
     } yield list.mkString
 
   val genPart: Gen[SeqPart[Char]] = {
-    import SeqPart._
+    import SeqPart.*
 
     Gen.frequency(
       (15, Gen.oneOf(Lit('0'), Lit('1'))),
@@ -384,7 +384,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     Gen.oneOf(List(Set(true), Set(false), Set(true, false)))
 
   def genPart: Gen[SeqPart[Set[Boolean]]] = {
-    import SeqPart._
+    import SeqPart.*
 
     Gen.frequency(
       (15, genSetBool.map(Lit(_))),
@@ -585,7 +585,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 }
 
 class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
-  import SeqPart._
+  import SeqPart.*
 
   def genPattern = StringSeqPatternGen.genPat
   def genNamed = StringSeqPatternGen.genNamed
@@ -606,7 +606,7 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
   implicit val setOpsChar: SetOps[Char] = SetOps.distinct[Char]
   def setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Char]
 
-  import StringSeqPatternGen._
+  import StringSeqPatternGen.*
 
   def toPattern(s: String): Pattern =
     s.toList.foldRight(Pattern.Empty: Pattern) { (c, r) =>
@@ -713,7 +713,7 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
 
   test("Named.matches agrees with Pattern.matches regressions") {
 
-    import Named._
+    import Named.*
     val regressions: List[(Named, String)] =
       (NCat(NEmpty,NCat(NSeqPart(Lit('1')),NSeqPart(Wildcard))), "1") ::
       (NCat(NSeqPart(Lit('1')),NSeqPart(Wildcard)), "1") ::

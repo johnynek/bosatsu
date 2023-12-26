@@ -83,7 +83,7 @@ object Test {
   }
 
   def fromValue(value: Value): Test = {
-    import Value._
+    import Value.*
     def toAssert(a: ProductValue): Test =
       a match {
         case ConsValue(True, ConsValue(Str(message), UnitValue)) =>

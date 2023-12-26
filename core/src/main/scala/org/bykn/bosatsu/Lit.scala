@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{Document, Doc}
 import java.math.BigInteger
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 
 import Parser.escape
 

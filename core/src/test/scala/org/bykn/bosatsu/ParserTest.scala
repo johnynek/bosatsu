@@ -6,8 +6,8 @@ import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
-import cats.implicits._
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.implicits.*
+import cats.parse.{Parser0 as P0, Parser as P}
 import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}
@@ -480,7 +480,7 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse fully pathed types") {
     import rankn.Type
-    import Type._
+    import Type.*
 
     def check(s: String, t: Type) = parseTestAll(Type.fullyResolvedParser, s, t)
 
@@ -640,9 +640,9 @@ x""")
   }
 
   test("we can parse any Apply") {
-    import Declaration._
+    import Declaration.*
 
-    import ApplyKind.{Dot => ADot, Parens => AParens }
+    import ApplyKind.{Dot as ADot, Parens as AParens }
 
     parseTestAll(parser(""),
       "x(f)",
@@ -734,7 +734,7 @@ x""")
     forAll(Generators.patternDecl(4))(law1(_))
 
     val regressions = {
-      import Declaration._
+      import Declaration.*
       import Identifier.{Name, Operator, Constructor}
       // this operator application can be a pattern
       List(
@@ -777,7 +777,7 @@ x""")
   }
 
   test("we can parse bind") {
-    import Declaration._
+    import Declaration.*
 
     parseTestAll(parser(""),
       """x = 4
@@ -804,7 +804,7 @@ x""",
   }
 
   test("we can parse if") {
-    import Declaration._
+    import Declaration.*
 
     val liftVar = Parser.Indy.lift(varP: P[Declaration])
     val liftVar0 = Parser.Indy.lift(varP: P[NonBinding])

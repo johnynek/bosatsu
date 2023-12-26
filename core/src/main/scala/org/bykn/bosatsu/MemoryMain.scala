@@ -5,7 +5,7 @@ import cats.data.Kleisli
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 
-import cats.implicits._
+import cats.implicits.*
 
 class MemoryMain[F[_], K: Ordering](split: K => List[String])(
   implicit val pathArg: Argument[K],

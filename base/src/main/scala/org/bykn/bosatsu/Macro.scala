@@ -1,5 +1,39 @@
 package org.bykn.bosatsu
+import scala.io.Source
+import java.io.File
+import scala.quoted.*
 
+object Macro {
+  /**
+   * Loads a file *at compile time* as a means of embedding
+   * external files into strings. This lets us avoid resources
+   * which compilicate matters for scalajs.
+   */
+  private[bosatsu] inline def loadFileInCompile(inline file: String): String =
+    ${loadFileInCompileImpl('file)}
+
+  private def loadFileInCompileImpl(filename: Expr[String])(using Quotes): Expr[String] = {
+    val fn = filename.valueOrAbort
+    try {
+      val f = new File(fn)
+      if (f.exists()) {
+        val res = Source.fromFile(f, "UTF-8").getLines().mkString("\n")
+        Expr(res)
+      }
+      else {
+        quotes.reflect.report.errorAndAbort(s"file $fn does not exist")
+      }
+    }
+    catch {
+      case scala.util.control.NonFatal(err) =>
+        quotes.reflect.report.errorAndAbort(s"error reading file $fn: $err")
+    }
+  }
+
+}
+
+/*
+package org.bykn.bosatsu
 import reflect.macros.blackbox.Context
 import java.io.File
 import scala.io.Source
@@ -42,3 +76,4 @@ class Macro(val c: Context) {
   }
 }
 
+*/

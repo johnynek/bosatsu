@@ -1,9 +1,9 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P}
+import cats.parse.{Parser as P}
 import org.typelevel.paiges.{ Doc, Document }
-import cats.syntax.all._
+import cats.syntax.all.*
 
 import Parser.{ Combinators, MaybeTupleOrParens, lowerIdent, maybeSpace, maybeSpacesAndLines, keySpace }
 
@@ -88,7 +88,7 @@ abstract class TypeParser[A] {
   }
 
   final def toDoc(a: A): Doc = {
-    import TypeParser._
+    import TypeParser.*
 
     def p(d: Doc): Doc = Doc.char('(') + (d + Doc.char(')'))
     /*

@@ -5,7 +5,7 @@ import cats.data.{Validated, ValidatedNec, Ior, IorNec}
 import org.bykn.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
 import org.typelevel.paiges.Doc
 
-import cats.syntax.all._
+import cats.syntax.all.*
 
 // Shape is Kind without variance, and variables
 sealed abstract class Shape

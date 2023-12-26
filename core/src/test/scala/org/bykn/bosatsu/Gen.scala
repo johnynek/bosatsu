@@ -4,7 +4,7 @@ import org.bykn.bosatsu.rankn.NTypeGen
 import cats.Traverse
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
-import cats.implicits._
+import cats.implicits.*
 
 import rankn.NTypeGen.{consIdentGen, packageNameGen, lowerIdent, typeNameGen}
 
@@ -78,7 +78,7 @@ object Generators {
       }))
 
   lazy val typeRefGen: Gen[TypeRef] = {
-    import TypeRef._
+    import TypeRef.*
 
     val tvar = typeRefVarGen
     val tname = typeNameGen.map(TypeRef.TypeName(_))
@@ -111,7 +111,7 @@ object Generators {
   implicit val shrinkTypeRef: Shrink[TypeRef] =
     Shrink[TypeRef](new Function1[TypeRef, Stream[TypeRef]] {
       def apply(tr: TypeRef): Stream[TypeRef] = {
-        import TypeRef._
+        import TypeRef.*
         tr match {
           case TypeVar(_) | TypeName(_) => Stream.empty
           case TypeArrow(l, r) =>
@@ -148,7 +148,7 @@ object Generators {
     for {
       cs <- nonEmpty(Arbitrary.arbitrary[String])
       t <- dec
-    } yield CommentStatement(cs.map(cleanNewLine _), t)
+    } yield CommentStatement(cs.map(cleanNewLine), t)
   }
 
   val argGen: Gen[(Identifier.Bindable, Option[TypeRef])] =
@@ -301,7 +301,7 @@ object Generators {
     }
 
   def applyGen(fnGen: Gen[NonBinding], arg: Gen[NonBinding], dotApplyGen: Gen[Boolean]): Gen[Declaration.Apply] = {
-    import Declaration._
+    import Declaration.*
     Gen.lzy(for {
       fn <- fnGen
       dotApply <- dotApplyGen
@@ -317,7 +317,7 @@ object Generators {
       // x -> x + y is parsed as x -> (x + y), for instance
       // also, parsing knows about precedence, but randomly
       // making expressions doesn't, so we have to wrap ApplyOp
-      import Declaration._
+      import Declaration.*
       def protect(d: NonBinding): NonBinding =
         d match {
           case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
@@ -367,7 +367,7 @@ object Generators {
   }
 
   def ifElseGen(argGen0: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
-    import Declaration._
+    import Declaration.*
 
     // args can't have raw annotations:
     val argGen = argGen0.map {
@@ -384,7 +384,7 @@ object Generators {
   }
 
   def ternaryGen(argGen0: Gen[NonBinding]): Gen[Declaration.Ternary] = {
-    import Declaration._
+    import Declaration.*
 
     val argGen = argGen0.map {
       case lam@Lambda(_, _) => Parens(lam)(emptyRegion)
@@ -445,43 +445,43 @@ object Generators {
       useUnion,
       useAnnotation = false)
 
-    lazy val genStrPat: Gen[Pattern.StrPat] = {
-      val recurse = Gen.lzy(genStrPat)
+  lazy val genStrPat: Gen[Pattern.StrPat] = {
+    val recurse = Gen.lzy(genStrPat)
 
-      val genPart: Gen[Pattern.StrPart] =
-        Gen.oneOf(
-          lowerIdent.map(Pattern.StrPart.LitStr(_)),
-          bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
-          bindIdentGen.map(Pattern.StrPart.NamedChar(_)),
-          Gen.const(Pattern.StrPart.WildStr),
-          Gen.const(Pattern.StrPart.WildChar))
+    val genPart: Gen[Pattern.StrPart] =
+      Gen.oneOf(
+        lowerIdent.map(Pattern.StrPart.LitStr(_)),
+        bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
+        bindIdentGen.map(Pattern.StrPart.NamedChar(_)),
+        Gen.const(Pattern.StrPart.WildStr),
+        Gen.const(Pattern.StrPart.WildChar))
 
-      def isWild(p: Pattern.StrPart): Boolean =
-        p match {
-          case Pattern.StrPart.LitStr(_) |
-            Pattern.StrPart.NamedChar(_) |
-            Pattern.StrPart.WildChar => false
-          case _ => true
-        }
+    def isWild(p: Pattern.StrPart): Boolean =
+      p match {
+        case Pattern.StrPart.LitStr(_) |
+          Pattern.StrPart.NamedChar(_) |
+          Pattern.StrPart.WildChar => false
+        case _ => true
+      }
 
-      def makeValid(nel: NonEmptyList[Pattern.StrPart]): NonEmptyList[Pattern.StrPart] =
-        nel match {
-          case NonEmptyList(_, Nil) => nel
-          case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
-            makeValid(NonEmptyList(h2, t))
-          case NonEmptyList(Pattern.StrPart.LitStr(h1), Pattern.StrPart.LitStr(h2) :: t) =>
-            makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
-          case NonEmptyList(h1, h2 :: t) =>
-            NonEmptyList(h1, makeValid(NonEmptyList(h2, t)).toList)
-        }
+    def makeValid(nel: NonEmptyList[Pattern.StrPart]): NonEmptyList[Pattern.StrPart] =
+      nel match {
+        case NonEmptyList(_, Nil) => nel
+        case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
+          makeValid(NonEmptyList(h2, t))
+        case NonEmptyList(Pattern.StrPart.LitStr(h1), Pattern.StrPart.LitStr(h2) :: t) =>
+          makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
+        case NonEmptyList(h1, h2 :: t) =>
+          NonEmptyList(h1, makeValid(NonEmptyList(h2, t)).toList)
+      }
 
-      for {
-        sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
-        inner <- nonEmptyN(genPart, sz)
-        p0 = Pattern.StrPat(makeValid(inner))
-        notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
-      } yield notStr
-    }
+    for {
+      sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
+      inner <- nonEmptyN(genPart, sz)
+      p0 = Pattern.StrPat(makeValid(inner))
+      notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
+    } yield notStr
+  }
 
   def genPatternGen[N, T](genName: List[Pattern[N, T]] => Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
     val recurse = Gen.lzy(genPatternGen(genName, genT, depth - 1, useUnion, useAnnotation))
@@ -551,7 +551,7 @@ object Generators {
       NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
   def matchGen(argGen0: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
-    import Declaration._
+    import Declaration.*
 
     val padBody = optIndent(bodyGen)
 
@@ -574,7 +574,7 @@ object Generators {
 
   def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
     Gen.zip(argGen0, genPattern(3)).map { case (a, p) =>
-      import Declaration._
+      import Declaration.*
 
       val fixa = a match {
         // matches binds tighter than all these
@@ -613,7 +613,7 @@ object Generators {
       (1, genLit.map(Declaration.Literal(_)(emptyRegion))))
 
   def annGen(g: Gen[NonBinding]): Gen[Declaration.Annotation] = {
-    import Declaration._
+    import Declaration.*
     Gen.zip(typeRefGen, g).map {
       case (t, r@(Var(_) | Apply(_, _, _) | Parens(_))) => Annotation(r, t)(emptyRegion)
       case (t, wrap) => Annotation(Parens(wrap)(emptyRegion), t)(emptyRegion)
@@ -624,7 +624,7 @@ object Generators {
    * Generate a Declaration that can be parsed as a pattern
    */
   def patternDecl(depth: Int): Gen[NonBinding] = {
-    import Declaration._
+    import Declaration.*
     val recur = Gen.lzy(patternDecl(depth - 1))
 
     val applyCons = applyGen(consDeclGen, recur, Gen.const(false))
@@ -639,7 +639,7 @@ object Generators {
   }
 
   def simpleDecl(depth: Int): Gen[NonBinding] = {
-    import Declaration._
+    import Declaration.*
 
     val unnested = unnestedDeclGen
 
@@ -675,7 +675,7 @@ object Generators {
   }
 
   def genNonBinding(depth: Int): Gen[NonBinding] = {
-    import Declaration._
+    import Declaration.*
 
     val unnested = unnestedDeclGen
 
@@ -700,7 +700,7 @@ object Generators {
   }
 
   def makeComment(c: CommentStatement[Padding[Declaration]]): Declaration = {
-    import Declaration._
+    import Declaration.*
     c.on.padded match {
       case nb: NonBinding =>
         CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(emptyRegion)
@@ -710,7 +710,7 @@ object Generators {
   }
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
-    import Declaration._
+    import Declaration.*
 
     val unnested = unnestedDeclGen
 
@@ -731,23 +731,23 @@ object Generators {
 
   implicit val shrinkDecl: Shrink[Declaration] =
     Shrink[Declaration](new Function1[Declaration, Stream[Declaration]] {
-      import Declaration._
+      import Declaration.*
 
       def apply(d: Declaration): Stream[Declaration] =
         d match {
           case Annotation(t, _) => t #:: apply(t)
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
-            next.flatMap(apply _)
+            next.flatMap(apply)
           case ao@ApplyOp(left, _, right) =>
             left #:: ao.opVar #:: right #:: Stream.empty
           case Binding(b) =>
             val next = b.value #:: b.in.padded #:: Stream.empty
-            next #::: next.flatMap(apply _)
+            next #::: next.flatMap(apply)
           case DefFn(d) =>
             val (b, r) = d.result
             val inner = b.get #:: r.padded #:: Stream.empty
-            inner #::: inner.flatMap(apply _)
+            inner #::: inner.flatMap(apply)
           case IfElse(ifCases, elseCase) =>
             elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
           case Ternary(t, c, f) =>
@@ -810,7 +810,7 @@ object Generators {
 
   implicit val shrinkStmt: Shrink[Statement] =
     Shrink[Statement](new Function1[Statement, Stream[Statement]] {
-      import Statement._
+      import Statement.*
 
       def apply(s: Statement): Stream[Statement] = s match {
         case Bind(bs@BindingStatement(_, d, _)) =>
@@ -882,7 +882,7 @@ object Generators {
   }
 
   def genStatements(depth: Int, maxLength: Int): Gen[List[Statement]] = {
-    import Statement._
+    import Statement.*
 
     /*
      * repeated paddings or comments will be combined by parsing
@@ -944,7 +944,7 @@ object Generators {
       .flatMap {
         case n if n <= 0 => g.map(NonEmptyList.one)
         case n =>
-          Gen.zip(g, Gen.listOfN((n - 1) min (maxLen - 1), g))
+          Gen.zip(g, Gen.listOfN((n - 1) `min` (maxLen - 1), g))
             .map { case (h, t) => NonEmptyList(h, t) }
       }
 
@@ -1271,7 +1271,7 @@ object Generators {
 
   object Exprs {
     def gen[A](genA: Gen[A], depth: Int): Gen[Expr[A]] = {
-      import Expr._
+      import Expr.*
 
       val roots: Gen[Expr[A]] =
         Gen.frequency(

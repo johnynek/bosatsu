@@ -2,7 +2,7 @@ package org.bykn.bosatsu.pattern
 
 import cats.Monoid
 
-import cats.implicits._
+import cats.implicits.*
 
 abstract class Splitter[-Elem, Item, Sequence, R] {
   def matcher: Matcher[Elem, Item, R]
