@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.python.core.{ParserFacade => JythonParserFacade}
+import org.python.core.{ParserFacade as JythonParserFacade}
 import org.scalatest.funsuite.AnyFunSuite
 
 class CodeTest extends AnyFunSuite {
@@ -205,7 +205,7 @@ class CodeTest extends AnyFunSuite {
   }
 
   test("test bug with IfElse") {
-    import Code._
+    import Code.*
 
     val ifElse = IfElse(NonEmptyList.of((Ident("a"), Ident("b"))), Ident("c"))
     val stmt = addAssign(Ident("bar"), ifElse)
@@ -217,7 +217,7 @@ else:
   }
 
   test("test some Operator examples") {
-    import Code._
+    import Code.*
 
     val apbpc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
 
@@ -370,13 +370,13 @@ else:
   }
 
   test("Code.block as at most 1 Pass and if so, only at the end") {
-    import Code._
+    import Code.*
 
     assert(block(Pass) == Pass)
     assert(block(Pass, Pass) == Pass)
 
     forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
-      val stmt = block(h, t :_*)
+      val stmt = block(h, t *)
 
       def passCount(s: Statement): Int =
         s match {

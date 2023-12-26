@@ -6,7 +6,7 @@ import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
 
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -90,7 +90,7 @@ class PathModuleTest extends AnyFunSuite {
     }
 
   test("test direct run of a file") {
-    val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Nat.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+").toSeq: _*)
+    val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Nat.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+").toSeq *)
     out match {
       case PathModule.Output.TestOutput(results, _) =>
         val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t.value }
@@ -100,7 +100,7 @@ class PathModuleTest extends AnyFunSuite {
   }
 
   test("test search run of a file") {
-    val out = run("test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu".split("\\s+").toSeq: _*)
+    val out = run("test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu".split("\\s+").toSeq *)
     out match {
       case PathModule.Output.TestOutput(results, _) =>
         val res = results.collect { case (pn, Some(t)) if pn.asString == "Bar" => t.value }
@@ -112,7 +112,7 @@ class PathModuleTest extends AnyFunSuite {
   }
 
   test("test python transpile on the entire test_workspace") {
-    val out = run("transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace".split("\\s+").toSeq: _*)
+    val out = run("transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace".split("\\s+").toSeq *)
     out match {
       case PathModule.Output.TranspileOut(_, _) =>
         assert(true)
@@ -122,7 +122,7 @@ class PathModuleTest extends AnyFunSuite {
 
   test("test search with json write") {
 
-    val out = run("json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+").toSeq: _*)
+    val out = run("json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+").toSeq *)
     out match {
       case PathModule.Output.JsonOutput(j@Json.JObject(_), _) =>
         assert(j.toMap == Map("value" -> Json.JBool(true), "message" -> Json.JString("got the right string")))
@@ -135,7 +135,7 @@ class PathModuleTest extends AnyFunSuite {
     val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
       .split("\\s+").toList :+ "[2, 4]"
 
-    run(cmd: _*) match {
+    run(cmd *) match {
       case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
@@ -145,7 +145,7 @@ class PathModuleTest extends AnyFunSuite {
     val cmd = "json traverse --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
       .split("\\s+").toList :+ "[[2, 4], [3, 5]]"
 
-    run(cmd: _*) match {
+    run(cmd *) match {
       case PathModule.Output.JsonOutput(Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
@@ -193,7 +193,7 @@ class PathModuleTest extends AnyFunSuite {
 
   test("test running all test in test_workspace") {
 
-    val out = run("test --package_root test_workspace --input_dir test_workspace".split("\\s+").toSeq: _*)
+    val out = run("test --package_root test_workspace --input_dir test_workspace".split("\\s+").toSeq *)
     out match {
       case PathModule.Output.TestOutput(res, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
@@ -205,7 +205,7 @@ class PathModuleTest extends AnyFunSuite {
   }
 
   test("evaluation by name with shadowing") {
-    run("json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x".split("\\s+").toSeq: _*) match {
+    run("json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x".split("\\s+").toSeq *) match {
       case PathModule.Output.JsonOutput(Json.JString("this is Foo"), _) => succeed
       case other => fail(s"unexpeced: $other")
     }

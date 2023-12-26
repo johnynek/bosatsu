@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import _root_.bosatsu.{TypedAst => proto}
+import _root_.bosatsu.{TypedAst as proto}
 import cats.{Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.effect.IO
@@ -15,7 +15,7 @@ import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import Identifier.{Bindable, Constructor}
 
-import cats.implicits._
+import cats.implicits.*
 
 /**
  * convert TypedExpr to and from Protobuf representation
@@ -234,7 +234,7 @@ object ProtoConverter {
 
       def typeFromProto(p: proto.Type, tpe: Int => Try[Type]): Try[Type] = {
         import proto.Type.Value
-        import bosatsu.TypedAst.{Type => _, _}
+        import bosatsu.TypedAst.{Type as _, *}
 
         def str(i: Int): Try[String] =
           ds.tryString(i - 1, s"invalid string idx: $i in $p")
@@ -272,7 +272,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(types.toArray)(typeFromProto _)
+      buildTable(types.toArray)(typeFromProto)
     }
 
   def buildPatterns(pats: Seq[proto.Pattern]): DTab[Array[Pattern[(PackageName, Constructor), Type]]] =
@@ -349,7 +349,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(pats.toArray)(patternFromProto _)
+      buildTable(pats.toArray)(patternFromProto)
     }
 
   def recursionKindFromProto(rec: proto.RecursionKind, context: => String): Try[RecursionKind] =
@@ -466,7 +466,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(exprs.toArray)(expressionFromProto _)
+      buildTable(exprs.toArray)(expressionFromProto)
     }
 
   private def parsePack(pstr: String, context: => String): Try[PackageName] =
@@ -506,7 +506,7 @@ object ProtoConverter {
 
   def typeToProto(p: Type): Tab[Int] = {
     import proto.Type.Value
-    import bosatsu.TypedAst.{Type => _, _}
+    import bosatsu.TypedAst.{Type as _, *}
 
     getProtoTypeTab(p)
       .flatMap {
@@ -694,7 +694,7 @@ object ProtoConverter {
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
         case None =>
-          import TypedExpr._
+          import TypedExpr.*
           te match {
             case g@Generic(quant, expr) =>
               val fas = quant.forallList.traverse { case (v, k) =>

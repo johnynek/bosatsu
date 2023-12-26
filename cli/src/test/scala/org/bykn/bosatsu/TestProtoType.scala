@@ -1,13 +1,13 @@
 package org.bykn.bosatsu
 
-import _root_.bosatsu.{TypedAst => proto}
+import _root_.bosatsu.{TypedAst as proto}
 import cats.Eq
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.util.{Failure, Success, Try}
-import cats.implicits._
+import cats.implicits.*
 
 import java.io.File
 import java.nio.file.Path
@@ -93,7 +93,7 @@ class TestProtoType extends AnyFunSuite with ParTest {
         pats  = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
         res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
       } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(Generators.genCompiledPattern(5))(testFn)
   }
@@ -107,14 +107,14 @@ class TestProtoType extends AnyFunSuite with ParTest {
         expr  = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
         res <- expr.local[ProtoConverter.DecodeState](_.withTypes(tps).withPatterns(patTab))
       } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03))(testFn)
   }
 
   test("we can roundtrip interface through proto") {
     forAll(Generators.interfaceGen) { iface =>
-      law(iface, ProtoConverter.interfaceToProto _, ProtoConverter.interfaceFromProto _)(Eq.fromUniversalEquals)
+      law(iface, ProtoConverter.interfaceToProto, ProtoConverter.interfaceFromProto)(using Eq.fromUniversalEquals)
     }
   }
 
@@ -128,14 +128,14 @@ class TestProtoType extends AnyFunSuite with ParTest {
 
   test("we can roundtrip interfaces through proto") {
     forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) { ifaces =>
-      law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+      law(ifaces, ProtoConverter.interfacesToProto[List], ProtoConverter.interfacesFromProto)(using sortedEq)
     }
   }
 
   test("we can roundtrip interfaces from full packages through proto") {
     forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
       val ifaces = packMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
-      law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+      law(ifaces, ProtoConverter.interfacesToProto[List], ProtoConverter.interfacesFromProto)(using sortedEq)
     }
   }
 
@@ -167,8 +167,8 @@ bar = 1
 """
       ), "Foo", { (packs, _) =>
       law(packs.toMap.values.toList.sortBy(_.name).map { pt => Package.setProgramFrom(tf.void(pt), ()) },
-        ser _,
-        deser _)(Eq.fromUniversalEquals)
+        ser,
+        deser)(using Eq.fromUniversalEquals)
     })
   }
 
@@ -180,7 +180,7 @@ bar = 1
         ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
-      law(packList, ser _, deser _)(Eq.fromUniversalEquals)
+      law(packList, ser, deser)(using Eq.fromUniversalEquals)
     }
   }
 

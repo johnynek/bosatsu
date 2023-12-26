@@ -6,9 +6,9 @@ import org.typelevel.paiges.Doc
 import scala.scalajs.js
 
 import js.|
-import js.annotation._
+import js.annotation.*
 
-import cats.implicits._
+import cats.implicits.*
 
 @JSExportTopLevel("Bosatsu")
 object JsApi {
@@ -39,8 +39,8 @@ object JsApi {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
       case Right(module.Output.EvaluationResult(_, tpe, resDoc)) =>
-          val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
-          val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
+        val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         new EvalSuccess(doc.render(80))
       case Right(other) =>
         new Error(s"internal error. got unexpected result: $other")
@@ -67,7 +67,7 @@ object JsApi {
         js.Dictionary[js.Any](
           kvs.map { case (k, v) =>
             (k, jsonToAny(v))
-          } :_*)
+          } *)
     }
 
   /**

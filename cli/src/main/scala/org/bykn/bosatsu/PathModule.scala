@@ -4,9 +4,9 @@ import cats.effect.IO
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
-import java.nio.file.{Path => JPath}
+import java.nio.file.{Path as JPath}
 
-import cats.implicits._
+import cats.implicits.*
 import cats.effect.ExitCode
 
 object PathModule extends MainModule[IO] {
@@ -165,7 +165,7 @@ object PathModule extends MainModule[IO] {
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
-    import scala.jdk.CollectionConverters._
+    import scala.jdk.CollectionConverters.*
 
     def getP(p: Path): Option[PackageName] = {
       val subPath = p.relativize(packFile)
