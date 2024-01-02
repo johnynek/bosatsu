@@ -30,7 +30,10 @@ object PackageError {
         val d = EditDistance.string(ident.asString, i.asString)
         (i, d, a)
       }
-      .filter(_._2 < ident.asString.length) // don't show things that require total edits
+      .filter { case (i, d, _) =>
+        // don't show things that require total edits
+        (d < ident.asString.length) && (d < i.asString.length)
+      }
       .toList
       .sortBy { case (_, d, _) => d }
       .distinct
