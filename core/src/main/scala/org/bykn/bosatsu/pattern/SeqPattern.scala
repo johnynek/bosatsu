@@ -345,9 +345,16 @@ object SeqPattern {
             if (p1.matchesEmpty) p2 :: Nil else Nil
           case (_, Cat(Wildcard, _)) if p2.matchesAny =>
             // matches anything
-            p1 :: Nil
+            val res =
+              if (p1.matchesAny) {
+                // both match any, return a normalized value
+                Wild
+              }
+              else p1
+
+            res :: Nil
           case (Cat(Wildcard, _), p2) if p1.matchesAny =>
-            // matches anything
+            // p1 matches anything, but p2 doesn't
             p2 :: Nil
           case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
             // unnormalized
