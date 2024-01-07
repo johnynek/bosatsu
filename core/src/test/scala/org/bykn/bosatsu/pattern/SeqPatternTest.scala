@@ -375,18 +375,16 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     }
   }
 
-/*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
-    forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>
+    forAll(genPattern, genPattern, genPattern) { (x0: Pattern, y0: Pattern, z0: Pattern) =>
       val x = Pattern.fromList(x0.toList.take(3))
       val y = Pattern.fromList(y0.toList.take(3))
       val z = Pattern.fromList(z0.toList.take(3))
-      if (x.difference(y).isEmpty) {
-        assert((x + z).difference(y + z) == Nil)
+      if (setOps.difference(x, y).isEmpty) {
+        assert(setOps.differenceAll(x :: z :: Nil, y :: z :: Nil) == Nil)
       }
     }
   }
-*/
 }
 
 class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {

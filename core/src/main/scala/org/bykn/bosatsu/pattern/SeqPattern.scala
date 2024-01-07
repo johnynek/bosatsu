@@ -348,7 +348,7 @@ object SeqPattern {
             val res =
               if (p1.matchesAny) {
                 // both match any, return a normalized value
-                Any
+                Wild
               }
               else p1
 
