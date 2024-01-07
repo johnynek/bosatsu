@@ -261,15 +261,8 @@ object Value {
             .asSum
             .variant
 
-          if (((v - 3) >>> 31) == 1) {
-            // v = 0, 1, 2
-            v - 1
-          }
-          else {
-            // $COVERAGE-OFF$
-            sys.error(s"expected variant to be 0, 1, 2: found: $v")
-            // $COVERAGE-ON$
-          }
+          // v = 0, 1, 2 for LT, EQ, GT
+          v - 1
         }
       }
 
