@@ -21,6 +21,34 @@ object Lit {
   case class Integer(toBigInteger: BigInteger) extends Lit {
     def unboxToAny: Any = toBigInteger
   }
+
+  object Integer {
+    private val INT_MAX_CACHE = 1023
+    private val INT_MIN_CACHE = -1024
+    private val cache: Array[Integer] =
+      (INT_MIN_CACHE to INT_MAX_CACHE).map { i =>
+        new Integer(BigInteger.valueOf(i.toLong))
+      }
+      .toArray
+    
+    def apply(bi: BigInteger): Integer = {
+      val i = bi.intValue
+      if ((INT_MIN_CACHE <= i) && (i <= INT_MAX_CACHE)) {
+        val int = cache(i - INT_MIN_CACHE)
+        if (bi == int.toBigInteger) int
+        else new Integer(bi)
+      }
+      else new Integer(bi)
+    }
+
+    def apply(l: Long): Integer = {
+      if ((INT_MIN_CACHE <= l) && (l <= INT_MAX_CACHE)) {
+        cache(l.toInt - INT_MIN_CACHE)
+      }
+      else new Integer(BigInteger.valueOf(l))
+    }
+  }
+
   case class Str(toStr: String) extends Lit {
     def unboxToAny: Any = toStr
   }
@@ -44,7 +72,7 @@ object Lit {
 
   val EmptyStr: Str = Str("")
 
-  def fromInt(i: Int): Lit = Integer(BigInteger.valueOf(i.toLong))
+  def fromInt(i: Int): Lit = Integer(i.toLong)
 
   def fromChar(c: Char): Lit =
     if (0xd800 <= c && c < 0xe000)
@@ -53,12 +81,12 @@ object Lit {
 
   def fromCodePoint(cp: Int): Lit = Chr.fromCodePoint(cp)
 
-  def apply(i: Long): Lit = apply(BigInteger.valueOf(i))
+  def apply(i: Long): Lit = Integer(i)
   def apply(bi: BigInteger): Lit = Integer(bi)
   def apply(str: String): Lit = Str(str)
 
   val integerParser: P[Integer] =
-    Parser.integerString.map { str => Integer(new BigInteger(str.filterNot(_ == '_'))) }
+    Parser.integerWithBase.map { case (bi, _) => Integer(bi) }
 
   val stringParser: P[Str] = {
     val q1 = '\''

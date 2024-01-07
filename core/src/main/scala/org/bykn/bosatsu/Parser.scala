@@ -6,6 +6,7 @@ import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
 import cats.implicits._
+import java.math.BigInteger
 
 object Parser {
   /**
@@ -210,13 +211,61 @@ object Parser {
    * but I think banning things like that shouldn't
    * be done by the parser
    */
-  val integerString: P[String] = {
-
+  val positiveIntegerString: P[String] = {
     val rest = (P.char('_').?.with1 ~ digit09).rep0
     val nonZero: P[Unit] = (digit19 ~ rest).void
 
-    val positive: P[Unit] = P.char('0').orElse(nonZero)
-    (P.charIn("+-").?.with1 *> positive).string
+    P.char('0').orElse(nonZero).string
+  }
+
+  val integerString: P[String] =
+    (P.charIn("+-").?.with1 *> positiveIntegerString).string
+
+  // all two character base 10 BigIntegers
+  private[this] val smallBase10: Map[String, BigInteger] = {
+    val signs = "+" :: "-" :: Nil
+
+    ((0 to 99).iterator.map { i =>
+      (i.toString, BigInteger.valueOf(i.toLong))  
+    } ++
+    (0 to 9).iterator.flatMap { i =>
+      signs.map { sign =>
+        if (sign == "-") {
+          (s"-$i", BigInteger.valueOf(-i.toLong))
+        }
+        else (s"+$i", BigInteger.valueOf(i.toLong))
+      }
+    }).toMap
+  }
+  val integerWithBase: P[(BigInteger, Int)] = {
+    val binDigit = P.charIn(('0' to '1'))
+    val octDigit = P.charIn(('0' to '7'))
+    val hexDigit = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
+    val under = P.char('_')
+
+    def rest(d: P[Char]): P[String] =
+      d.repSep(sep = under.?).string
+
+    def base(n: Int, str: String, d: P[Char]) =
+      (P.string(str.toLowerCase) | P.string(str)) *> 
+      (under.?.with1 *> rest(d))
+        .map((_, n))
+
+    val not10 = base(2, "0B", binDigit) |
+      base(8, "0O", octDigit) |
+      base(16, "0X", hexDigit)
+
+    val pos = not10 | positiveIntegerString.map((_, 10))
+
+    (P.charIn("+-").?.string.with1 ~ pos)
+      .map { case (sign, (str, base)) =>
+        val noUnder =
+          if (str.indexOf("_") >= 0) (sign + str.filter(_ != '_'))
+          else (sign + str)
+
+        if ((base == 10) && (noUnder.length <= 2)) (smallBase10(noUnder), 10)
+        else (new BigInteger(noUnder, base), base)
+      }
   }
 
   object JsonNumber {
