@@ -221,6 +221,22 @@ object Parser {
   val integerString: P[String] =
     (P.charIn("+-").?.with1 *> positiveIntegerString).string
 
+  // all two character base 10 BigIntegers
+  private[this] val smallBase10: Map[String, BigInteger] = {
+    val signs = "+" :: "-" :: Nil
+
+    ((0 to 99).iterator.map { i =>
+      (i.toString, BigInteger.valueOf(i.toLong))  
+    } ++
+    (0 to 9).iterator.flatMap { i =>
+      signs.map { sign =>
+        if (sign == "-") {
+          (s"-$i", BigInteger.valueOf(-i.toLong))
+        }
+        else (s"+$i", BigInteger.valueOf(i.toLong))
+      }
+    }).toMap
+  }
   val integerWithBase: P[(BigInteger, Int)] = {
     val binDigit = P.charIn(('0' to '1'))
     val octDigit = P.charIn(('0' to '7'))
@@ -243,7 +259,12 @@ object Parser {
 
     (P.charIn("+-").?.string.with1 ~ pos)
       .map { case (sign, (str, base)) =>
-        (new BigInteger(sign + str.filter(_ != '_'), base), base)         
+        val noUnder =
+          if (str.indexOf("_") >= 0) (sign + str.filter(_ != '_'))
+          else (sign + str)
+
+        if ((base == 10) && (noUnder.length <= 2)) (smallBase10(noUnder), 10)
+        else (new BigInteger(noUnder, base), base)
       }
   }
 
