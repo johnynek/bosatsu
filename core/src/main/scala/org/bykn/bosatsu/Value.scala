@@ -55,40 +55,39 @@ sealed abstract class Value {
 }
 
 object Value {
-  sealed abstract class ProductValue extends Value {
-    def toList: List[Value] =
-      this match {
-        case UnitValue => Nil
-        case ConsValue(head, tail) => head :: tail.toList
+  final class ProductValue(val values: Array[Value]) extends Value {
+    override lazy val hashCode = scala.util.hashing.MurmurHash3.arrayHash(values)
+    final def get(idx: Int): Value = values(idx)
+
+    override def equals(obj: Any): Boolean =
+      obj match {
+        case thatP: ProductValue =>
+          (this eq thatP) ||
+          java.util.Arrays.equals(
+            values.asInstanceOf[Array[AnyRef]],
+            thatP.values.asInstanceOf[Array[AnyRef]])
+        case _ => false
       }
-
-    final def get(idx: Int): Value = {
-      @annotation.tailrec
-      def loop(self: ProductValue, ix: Int): Value =
-        self match {
-          case ConsValue(head, tail) =>
-            if (ix <= 0) head
-            else loop(tail, ix - 1)
-          case UnitValue =>
-            throw new IllegalArgumentException(s"exhausted index at $ix on ${this}.get($idx)")
-        }
-
-      loop(this, idx)
-    }
+    override def toString: String = values.mkString("ProductValue(", ",", ")")
   }
+
+  val UnitValue: ProductValue = new ProductValue(new Array(0))
 
   object ProductValue {
-    def fromList(ps: List[Value]): ProductValue =
-      ps match {
-        case Nil => UnitValue
-        case h :: tail => ConsValue(h, fromList(tail))
+    def single(v: Value): ProductValue =
+      new ProductValue(Array(v))
+
+    def fromList(vs: List[Value]): ProductValue =
+      if (vs.isEmpty) UnitValue
+      else new ProductValue(vs.toArray)
+
+    def unapplySeq(v: Value): Option[Seq[Value]] =
+      v match {
+        case p: ProductValue => Some(p.values.toSeq)
+        case _ => None
       }
   }
 
-  case object UnitValue extends ProductValue
-  case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
-    override val hashCode = (head, tail).hashCode
-  }
   final class SumValue(val variant: Int, val value: ProductValue) extends Value {
     override def equals(that: Any) =
       that match {
@@ -104,7 +103,7 @@ object Value {
   object SumValue {
     private[this] val sizeMask = 0xffffff00
     private[this] val constCount = 256
-    private[this] val constants: Array[SumValue] =
+    private[this] lazy val constants: Array[SumValue] =
       (0 until constCount).map(new SumValue(_, UnitValue)).toArray
 
     def apply(variant: Int, value: ProductValue): SumValue =
@@ -140,18 +139,16 @@ object Value {
   object Tuple {
     def unapply(v: Value): Option[List[Value]] =
       v match {
-        case p: ProductValue => Some(p.toList)
+        case p: ProductValue => Some(p.values.toList)
         case _ => None
       }
 
     def fromList(vs: List[Value]): ProductValue =
-      vs match {
-        case Nil => UnitValue
-        case h :: tail => ConsValue(h, fromList(tail))
-      }
+      ProductValue.fromList(vs)
 
     def apply(vs: Value*): ProductValue =
-      fromList(vs.toList)
+      if (vs.isEmpty) UnitValue
+      else new ProductValue(vs.toArray)
   }
 
   object Comparison {
@@ -191,7 +188,7 @@ object Value {
 
   object VOption {
     val none: Value = SumValue(0, UnitValue)
-    def some(v: Value): Value = SumValue(1, ConsValue(v, UnitValue))
+    def some(v: Value): Value = SumValue(1, ProductValue.single(v))
 
     private[this] val someNone = Some(None)
 
@@ -200,8 +197,8 @@ object Value {
         case s: SumValue =>
           if ((s.variant == 0) && (s.value == UnitValue)) someNone
           else if ((s.variant == 1)) {
-            s.value match {
-              case ConsValue(head, UnitValue) => Some(Some(head))
+            s.value.values match {
+              case Array(head) => Some(Some(head))
               case _ => None
             }
           }
@@ -214,14 +211,14 @@ object Value {
     val VNil: Value = SumValue(0, UnitValue)
     object Cons {
       def apply(head: Value, tail: Value): Value =
-        SumValue(1, ConsValue(head, ConsValue(tail, UnitValue)))
+        SumValue(1, new ProductValue(Array(head, tail)))
 
       def unapply(v: Value): Option[(Value, Value)] =
         v match {
           case s: SumValue =>
             if (s.variant == 1) {
-              s.value match {
-                case ConsValue(head, ConsValue(rest, UnitValue)) => Some((head, rest))
+              s.value.values match {
+                case Array(head, rest) => Some((head, rest))
                 case _ => None
               }
             }
@@ -258,14 +255,16 @@ object Value {
           val v =
             fn.applyAll(
               NonEmptyList(
-                Tuple.fromList(v1 :: null :: Nil), 
-                Tuple.fromList(v2 :: null :: Nil) :: Nil)
+                new ProductValue(Array(v1, null)),
+                new ProductValue(Array(v2, null)) :: Nil)
             )
             .asSum
             .variant
-          if (v == 0) -1
-          else if (v == 1) 0
-          else if (v == 2) 1
+
+          if (((v - 3) >>> 31) == 1) {
+            // v = 0, 1, 2
+            v - 1
+          }
           else {
             // $COVERAGE-OFF$
             sys.error(s"expected variant to be 0, 1, 2: found: $v")
@@ -278,7 +277,7 @@ object Value {
     //struct Dict[k, v](ord: Order[(k, v)], tree: Tree[(k, v)])
     def unapply(v: Value): Option[SortedMap[Value, Value]] =
       v match {
-        case ConsValue(ordFn: FnValue, ConsValue(tree, UnitValue)) =>
+        case ProductValue(ordFn: FnValue, tree) =>
           implicit val ord: Ordering[Value] =
             keyOrderingFromOrdFn(ordFn)
 
@@ -286,8 +285,8 @@ object Value {
             val v = t.asSum
             if (v.variant == 0) acc // empty
             else {
-              v.value.toList match {
-                case _ :: _ :: Tuple(k :: v :: Nil) :: left :: right :: Nil =>
+              v.value match {
+                case ProductValue(_, _, ProductValue(k, v), left, right) =>
                   val acc1 = acc.updated(k, v)
                   val acc2 = treeToList(left, acc1)
                   treeToList(right, acc2)
@@ -335,17 +334,18 @@ object Value {
           val h = lh.max(rh).add(BigInteger.ONE)
           val z = lz.add(rz).add(BigInteger.ONE)
           (h, z, SumValue(1,
-            ProductValue.fromList(
-              ExternalValue(z) ::
-              ExternalValue(h) ::
-              Tuple.fromList(ExternalValue(k) :: v :: Nil) ::
-              left ::
-              right ::
-              Nil)))
+            new ProductValue(
+              Array(
+              ExternalValue(z),
+              ExternalValue(h),
+              new ProductValue(Array(ExternalValue(k), v)),
+              left,
+              right)
+              )))
         }
 
       val (_, _, tree) = makeTree(0, allItems.length)
-      ProductValue.fromList(strOrdFn :: tree :: Nil)
+      new ProductValue(Array(strOrdFn, tree))
     }
   }
 }

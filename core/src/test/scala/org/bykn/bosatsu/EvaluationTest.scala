@@ -449,7 +449,7 @@ def headOption(as):
     case [a, *_]: Some(a)
 
 main = headOption([1])
-"""), "Foo", SumValue(1, ConsValue(VInt(1), UnitValue)))
+"""), "Foo", SumValue(1, ProductValue.single(VInt(1))))
 
     runBosatsuTest(
       List("""

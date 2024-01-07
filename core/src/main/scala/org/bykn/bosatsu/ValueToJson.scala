@@ -270,7 +270,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
                       {
                         case prod: ProductValue =>
-                          val plist = prod.toList
+                          val plist = prod.values.toList
 
                           if (plist.size == size) {
                             plist.zip(productsInner)
@@ -295,7 +295,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         case s: SumValue =>
                           mapping.get(s.variant) match {
                             case Some(fn) =>
-                              val vlist = s.value.toList
+                              val vlist = s.value.values.toList
                               if (vlist.size == fn.size) {
                                 vlist.zip(fn)
                                   .traverse { case (p, (key, f)) =>

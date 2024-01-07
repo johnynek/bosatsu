@@ -125,7 +125,7 @@ object PredefImpl {
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
         fnT(NonEmptyList(biValue, state :: Nil)) match {
-          case ConsValue(nextI, ConsValue(nextA, _)) =>
+          case ProductValue(nextI, nextA) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {
               // we are done in this case

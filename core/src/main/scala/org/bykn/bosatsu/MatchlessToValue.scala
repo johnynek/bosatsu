@@ -42,7 +42,7 @@ object MatchlessToValue {
       case MakeEnum(variant, arity, _) =>
         if (arity == 0) SumValue(variant, UnitValue)
         else if (arity == 1) {
-          FnValue { case NonEmptyList(v, _) => SumValue(variant, ConsValue(v, UnitValue)) }
+          FnValue { case NonEmptyList(v, _) => SumValue(variant, ProductValue.single(v)) }
         }
         else
           // arity > 1

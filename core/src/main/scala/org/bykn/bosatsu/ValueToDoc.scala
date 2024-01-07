@@ -217,7 +217,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case DataFamily.Struct =>
                       {
                         case prod: ProductValue =>
-                          params(0, prod.toList, prod)
+                          params(0, prod.values.toList, prod)
 
                         case other =>
                           Left(IllTyped(revPath.reverse, tpe, other))
@@ -225,7 +225,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case DataFamily.Enum =>
                       {
                         case s: SumValue =>
-                          params(s.variant, s.value.toList, s)
+                          params(s.variant, s.value.values.toList, s)
                         case a =>
                           Left(IllTyped(revPath.reverse, tpe, a))
                        }
