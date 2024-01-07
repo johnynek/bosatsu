@@ -358,6 +358,14 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     assert(int1 == List(Cat(AnyElem, Cat(Wildcard, Empty))))
   }
 
+  test("[*] n [*, *] commutes") {
+    val p1 = Cat(Wildcard, Empty)
+    val p2 = Cat(Wildcard, p1)
+    val int1 = setOps.intersection(p1, p2)
+    val int2 = setOps.intersection(p2, p1)
+    assert(int1 == int2)
+  }
+
   test("x n y == y n x") {
     forAll(genPattern, genPattern) { (x: Pattern, y: Pattern) =>
       val i1 = setOps.intersection(x, y)
