@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import Parser.Combinators
+import java.math.BigInteger
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
@@ -1436,5 +1437,38 @@ x = z ->
   # we can comment here
   z
 """, lax = true)
+  }
+
+  test("Parser.integerWithBase works") {
+    case class Args(bi: BigInteger, asString: String, base: Int)
+    def intersperse(str: String): Gen[String] =
+      if (str.length <= 1) Gen.const(str)
+      else {
+        // 2 or longer:
+        for {
+          middle <- Gen.oneOf("", "_")
+          tail <- intersperse(str.tail)
+        } yield s"${str.head}$middle$tail"
+      }
+    val gen = for {
+      (base, prefix0) <- Gen.oneOf((2, "0B"), (8, "0O"), (10, ""), (16, "0X"))
+      prefix <- Gen.oneOf(prefix0, prefix0.toLowerCase)
+      bi <- Gen.long.map(BigInteger.valueOf(_))
+      biStr = bi.toString(base)
+      withPrefix <- if (biStr(0) == '-') {
+        intersperse(biStr.tail).map { t =>
+          s"-$prefix$t"
+        }
+      } else intersperse(biStr).map(prefix + _)
+    } yield Args(bi, withPrefix, base)
+
+    forAll(gen) { case Args(bi, inBase, base) =>
+      Parser.integerWithBase.parseAll(inBase) match {
+        case Right((biP, b)) =>
+          assert(biP == bi)
+          assert(b == base)
+        case Left(err) => fail(err.toString)
+      }   
+    }
   }
 }

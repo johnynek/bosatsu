@@ -3288,4 +3288,27 @@ struct Foo[a: -*](get: a)
       ()
     }
   }
+
+  test("test non-base 10 literals") {
+    runBosatsuTest(List("""
+package Foo
+
+test = TestSuite("bases",
+  [
+    Assertion(0x10 matches 16, "1"),
+    Assertion(0X10 matches 16, "2"),
+    Assertion(0o10 matches 8, "3"),
+    Assertion(0O10 matches 8, "4"),
+    Assertion(0b10 matches 2, "5"),
+    Assertion(0B10 matches 2, "6"),
+    Assertion(16 matches 0x10, "7"),
+    Assertion(16 matches 0X10, "8"),
+    Assertion(8 matches 0o10, "9"),
+    Assertion(8 matches 0O10, "10"),
+    Assertion(2 matches 0b10, "11"),
+    Assertion(2 matches 0B10, "12"),
+  ])
+"""), "Foo", 12)
+
+  }
 }
