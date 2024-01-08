@@ -86,10 +86,14 @@ object Test {
     import Value._
     def toAssert(a: ProductValue): Test =
       a match {
-        case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
-          Test.Assertion(true, message)
-        case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
-          Test.Assertion(false, message)
+        case ProductValue(b, Str(message)) =>
+          val bool = b match {
+            case True => true
+            case False => false
+            case _ =>
+              sys.error(s"expected test value: $a")
+          }
+          Test.Assertion(bool, message)
         case other =>
           // $COVERAGE-OFF$
           sys.error(s"expected test value: $other")
@@ -97,7 +101,7 @@ object Test {
     }
     def toSuite(a: ProductValue): Test =
       a match {
-        case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
+        case ProductValue(Str(name), VList(tests)) =>
           Test.Suite(name, tests.map(toTest(_)))
         case other =>
           // $COVERAGE-OFF$

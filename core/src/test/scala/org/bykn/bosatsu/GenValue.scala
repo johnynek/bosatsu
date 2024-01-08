@@ -10,8 +10,10 @@ object GenValue {
     Cogen[Int].contramap { (v: Value) => v.hashCode }
 
   lazy val genProd: Gen[ProductValue] =
-    Gen.lzy(Gen.oneOf(Gen.const(UnitValue),
-      genValue.flatMap { v => genProd.map(ConsValue(v, _)) }))
+    for {
+      len <- Gen.exponential(0.5)
+      vs <- Gen.listOfN(len.toInt, genValue)  
+    } yield ProductValue.fromList(vs)
 
   lazy val genValue: Gen[Value] = {
     val recur = Gen.lzy(genValue)
