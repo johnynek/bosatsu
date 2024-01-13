@@ -1,0 +1,80 @@
+package TypeConstraint
+
+export (
+    Eq, Sub, Sup, refl, refl_sub, refl_sup,
+    substitute, widen, narrow,
+    cast, upcast, downcast,
+    compose_eq, compose_sub, compose_sup,
+    eq_to_sub, eq_to_sup, sub_to_sup, sup_to_sub,
+)
+
+struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
+struct Sup[a: +*, b: -*](sup: forall f: -* -> *. f[a] -> f[b])
+struct Eq[a: *, b: *](eq: forall f: * -> *. f[a] -> f[b])
+
+refl: forall a. Eq[a, a] = Eq(x -> x)
+refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_sup: forall a. Sup[a, a] = Sup(x -> x)
+
+def substitute[f: * -> *, a, b](eq: Eq[a, b], fa: f[a]) -> f[b]:
+    Eq(cast) = eq
+    cast(fa)
+
+def widen[f: +* -> *, a, b](s: Sub[a, b], fa: f[a]) -> f[b]:
+    Sub { sub } = s
+    sub(fa)
+
+def narrow[f: -* -> *, a, b](s: Sup[a, b], fa: f[a]) -> f[b]:
+    Sup { sup } = s
+    sup(fa)
+
+struct FlipSup[a: -*, b: +*](to_sup: Sup[b, a])
+struct FlipSub[a: +*, b: -*](to_sup: Sub[b, a])
+struct FlipEq[a: *, b: *](to_eq: Eq[b, a])
+
+def sub_to_sup[a, b](sub: Sub[a, b]) -> Sup[b, a]:
+    FlipSup(res) = sub.widen(FlipSup(refl_sup))
+    res
+
+def sup_to_sub[a, b](sup: Sup[a, b]) -> Sub[b, a]:
+    FlipSub(res) = sup.narrow(FlipSub(refl_sub))
+    res
+
+def eq_to_sub[a, b](eq: Eq[a, b]) -> Sub[a, b]:
+    eq.substitute(refl_sub)
+
+def eq_to_sup[a, b](eq: Eq[a, b]) -> Sup[a, b]:
+    eq.substitute(refl_sup)
+
+struct Id[a: +*](get: a)
+
+def cast[a, b](s: Eq[a, b], a: a) -> b:
+    Id(res) = s.substitute(Id(a))
+    res
+
+def upcast[a, b](s: Sub[a, b], a: a) -> b:
+    Id(res) = s.widen(Id(a))
+    res
+
+def downcast[a, b](s: Sup[a, b], a: b) -> a:
+    sup_to_sub(s).upcast(a)
+
+def compose_sub[a, b, c](first: Sub[a, b], second: Sub[b, c]) -> Sub[a, c]:
+    second.widen(first)
+
+def compose_sup[a, b, c](first: Sup[a, b], second: Sup[b, c]) -> Sup[a, c]:
+    second.narrow(first)
+
+def flip_eq[a, b](eq: Eq[a, b]) -> Eq[b, a]:
+    FlipEq(res) = eq.substitute(FlipEq(refl))
+    res
+
+def compose_eq[a, b, c](first: Eq[a, b], second: Eq[b, c]) -> Eq[a, c]:
+    second.substitute(first)
+
+refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+refl_Int: Sub[forall a. a, Int] = refl_sub
+refl_any: Sub[forall a. a, exists a. a] = refl_sub
+refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+refl_Int_any: Sub[Int, exists a. a] = refl_sub
