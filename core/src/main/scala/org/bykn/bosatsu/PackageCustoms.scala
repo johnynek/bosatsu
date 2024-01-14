@@ -31,8 +31,9 @@ object PackageCustoms {
       (for {
         imp <- pack.imports.iterator
         impPack = imp.pack.name
-        item <- imp.items.toList
-        ref <- item.tag.toList
+        if !impPack.isPredef // ignore predef
+        item <- imp.items.iterator
+        ref <- item.tag.iterator
         name <- ref match {
           case Constructor(_, _) | Referant.Value(_) =>
             item.originalName :: Nil
@@ -40,92 +41,96 @@ object PackageCustoms {
         }
       } yield (impPack, name)).to(SortedSet)
 
-    type VSet = Set[(PackageName, Identifier)]
-    type VState[X] = State[VSet, X]
-    val usedValuesSt: VState[Unit] =
-      pack.program.lets.traverse_ { case (_, _, te) =>
-        te.traverseUp {
-          case g@TypedExpr.Global(p, n, _, _) =>
-            State { s => (s + ((p, n)), g) }
-          case m @ Match(_, branches, _) => 
-            branches.traverse_ {
-              case (pat, _) =>
-                pat.traverseStruct[VState, (PackageName, Identifier.Constructor)] { (n, parts) =>
-                  State.modify[VSet](_ + n) *> 
-                    parts.map { inner =>
-                      Pattern.PositionalStruct(n, inner)
-                    }
-                }
-                .void
-            }.as(m)
-          case te => Monad[VState].pure(te)
-        }
-      }
-
-    val usedValues = usedValuesSt.runS(Set.empty).value
-    
-
     val impTypes: SortedSet[(PackageName, Type.Const)] =
       (for {
         imp <- pack.imports.iterator
-        item <- imp.items.toList
-        ref <- item.tag.toList
+        impPack = imp.pack.name
+        if !impPack.isPredef // ignore predef
+        item <- imp.items.iterator
+        ref <- item.tag.iterator
         tpe <- ref match {
           case Constructor(_, _) | Referant.Value(_) =>
             Nil
           case DefinedT(dt) =>
             dt.toTypeConst :: Nil
         }
-      } yield (imp.pack.name, tpe)).to(SortedSet)
+      } yield (impPack, tpe)).to(SortedSet)
 
-    val usedTypes: Set[Type.Const] =
-      pack.program.lets.iterator.flatMap(
-        _._3.allTypes.flatMap(Type.constantsOf(_))
-      ).toSet
-
-    val unusedValues = impValues.filterNot { tup =>
-      tup match {
-        case (pn, cons @ Identifier.Constructor(_)) =>
-          // deal with the ambiguity of capital names
-          usedValues(tup) || usedTypes(Type.Const.Defined(pn, TypeName(cons)))
-        case _ =>
-          // no ambiguity for bindable
-          usedValues(tup)
-      }  
-    }
-    val unusedTypes = impTypes.filterNot { case (pn, t) =>
-      // deal with the ambiguity of capital names
-      usedTypes(t) || usedValues((pn, t.toDefined.name.ident))
-    }
-
-    val unusedValMap = unusedValues.groupByNes(_._1)
-    val unusedTypeMap = unusedTypes.groupByNes(_._1)
-    val unusedPacks = unusedValMap.keySet | unusedTypeMap.keySet
-
-    Chain.fromIterableOnce(
-      unusedPacks
-      .iterator
-      .filterNot(_.isPredef)
-      .map { ipack =>
-      val thisVals = unusedValMap.get(ipack) match {
-        case Some(nes) => nes.toSortedSet.toList.map { case (_, i) =>
-          ImportedName.OriginalName(i, ())
+    if (impValues.isEmpty && impTypes.isEmpty) Chain.empty
+    else {
+      type VSet = Set[(PackageName, Identifier)]
+      type VState[X] = State[VSet, X]
+      val usedValuesSt: VState[Unit] =
+        pack.program.lets.traverse_ { case (_, _, te) =>
+          te.traverseUp {
+            case g@TypedExpr.Global(p, n, _, _) =>
+              State { s => (s + ((p, n)), g) }
+            case m @ Match(_, branches, _) => 
+              branches.traverse_ {
+                case (pat, _) =>
+                  pat.traverseStruct[VState, (PackageName, Identifier.Constructor)] { (n, parts) =>
+                    State.modify[VSet](_ + n) *> 
+                      parts.map { inner =>
+                        Pattern.PositionalStruct(n, inner)
+                      }
+                  }
+                  .void
+              }.as(m)
+            case te => Monad[VState].pure(te)
+          }
         }
-        case None => Nil
+
+      val usedValues = usedValuesSt.runS(Set.empty).value
+      
+
+      val usedTypes: Set[Type.Const] =
+        pack.program.lets.iterator.flatMap(
+          _._3.allTypes.flatMap(Type.constantsOf(_))
+        ).toSet
+
+      val unusedValues = impValues.filterNot { tup =>
+        tup match {
+          case (pn, cons @ Identifier.Constructor(_)) =>
+            // deal with the ambiguity of capital names
+            usedValues(tup) || usedTypes(Type.Const.Defined(pn, TypeName(cons)))
+          case _ =>
+            // no ambiguity for bindable
+            usedValues(tup)
+        }  
+      }
+      val unusedTypes = impTypes.filterNot { case (pn, t) =>
+        // deal with the ambiguity of capital names
+        usedTypes(t) || usedValues((pn, t.toDefined.name.ident))
       }
 
-      val thisTpes = unusedTypeMap.get(ipack) match {
-        case Some(nes) => nes.toSortedSet.toList.map { case (_, t) =>
-          ImportedName.OriginalName(t.toDefined.name.ident, ())
+      val unusedValMap = unusedValues.groupByNes(_._1)
+      val unusedTypeMap = unusedTypes.groupByNes(_._1)
+      val unusedPacks = unusedValMap.keySet | unusedTypeMap.keySet
+
+      Chain.fromIterableOnce(
+        unusedPacks
+        .iterator
+        .map { ipack =>
+        val thisVals = unusedValMap.get(ipack) match {
+          case Some(nes) => nes.toSortedSet.toList.map { case (_, i) =>
+            ImportedName.OriginalName(i, ())
+          }
+          case None => Nil
         }
-        case None => Nil
-      }
-      // one or the other or both of these is non-empty
-      PackageError.UnusedImport(
-        pack.name,
-        Import(ipack, NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct))
-      )
-    })
+
+        val thisTpes = unusedTypeMap.get(ipack) match {
+          case Some(nes) => nes.toSortedSet.toList.map { case (_, t) =>
+            ImportedName.OriginalName(t.toDefined.name.ident, ())
+          }
+          case None => Nil
+        }
+        // one or the other or both of these is non-empty
+        PackageError.UnusedImport(
+          pack.name,
+          Import(ipack, NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct))
+        )
+      })
+    }
   }
 
   private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): Chain[PackageError] = {
