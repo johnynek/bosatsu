@@ -9,6 +9,8 @@ import Parser.upperIdent
 
 case class PackageName(parts: NonEmptyList[String]) {
   lazy val asString: String = parts.toList.mkString("/")
+
+  def isPredef: Boolean = parts == PackageName.PredefName.parts
 }
 
 object PackageName {

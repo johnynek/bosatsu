@@ -102,7 +102,7 @@ def tail(list):
     val p6 = parse(
 """
 package P6
-from P5 import Option, List, NonEmpty, Empty, head,  tail
+from P5 import Option, List, NonEmpty, Empty, head
 export data
 
 data = NonEmpty(1, NonEmpty(2, Empty))
@@ -115,7 +115,7 @@ main = head(data)
 """
 package P7
 from P6 import data as p6_data
-from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head,  tail
+from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head
 
 data = Cons(1, Cons(2, Nil))
 data1 = Cons(0, p6_data)
@@ -179,5 +179,25 @@ main2 = match baz:
     takeFoo(fooAsBar)
 """)
     valid(resolveThenInfer(List(p1, p2)))
+  }
+
+  test("unused imports is an error") {
+    val p1 = parse(
+"""
+package Foo
+export main
+
+main = 1
+""")
+    val p2 = parse(
+"""
+package Foo2
+from Foo import main as mainFoo
+export main,
+
+main = 2
+""")
+
+    invalid(resolveThenInfer(List(p1, p2)))
   }
 }

@@ -85,8 +85,6 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
 
 operator =*= = eq_List(eq_Int)
 
-def not(x): False if x else True
-
 headTest = (
     res = head([1, 2, 3]) matches Some(1)
     Assertion(res, "head test")

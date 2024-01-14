@@ -317,8 +317,9 @@ object PackageMap {
                 .buildExports(nm, exports, types, lets) match {
                   case Validated.Valid(exports) =>
                     // We have a result, which we can continue to check
-                    val res = (fte, Package(nm, imps, exports, program))
-                    NonEmptyList.fromList(Package.checkValuesHaveExportedTypes(nm, exports)) match {
+                    val pack = Package(nm, imps, exports, program)
+                    val res = (fte, pack)
+                    NonEmptyList.fromList(PackageCustoms.errors(pack)) match {
                       case None => Ior.right(res)
                       case Some(errs) => Ior.both(errs, res)
                     }

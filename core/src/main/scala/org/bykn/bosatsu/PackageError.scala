@@ -599,4 +599,13 @@ object PackageError {
       (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
     }
   }
+
+  case class UnusedImport(inPack: PackageName, badImport: Import[PackageName, Unit]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      val prefix = sourceMap.headLine(inPack, None)
+      val di = Document[Import[PackageName, Unit]].document(badImport)
+
+      (prefix + Doc.hardLine + Doc.text("unused import of:") + Doc.hardLine + di + Doc.hardLine).render(80)
+    }
+  }
 }
