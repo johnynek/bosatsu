@@ -124,14 +124,15 @@ object PredefImpl {
 
   private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
 
-  @annotation.tailrec
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {
     val bi = b.intValue()
     val a1 = a.shiftRight(bi)
-    if ((b.compareTo(MaxIntBI) > 0) && (a1.compareTo(BigInteger.ZERO) != 0)) {
-      // more shifting to do
-      val b1 = b.subtract(BigInteger.valueOf(bi.toLong))
-      shiftRight(a1, b1)
+    if (b.compareTo(MaxIntBI) > 0) {
+      //$COVERAGE-OFF$
+      // java bigInteger can't actually store arbitrarily large
+      // integers, just blow up here
+      sys.error(s"invalid huge shiftRight($a, $b)")
+      //$COVERAGE-ON$
     }
     else {
       a1
@@ -141,14 +142,15 @@ object PredefImpl {
   def shift_right_Int(a: Value, b: Value): Value =
     VInt(shiftRight(i(a), i(b)))
 
-  @annotation.tailrec
   final def shiftLeft(a: BigInteger, b: BigInteger): BigInteger = {
     val bi = b.intValue()
     val a1 = a.shiftLeft(bi)
     if (b.compareTo(MaxIntBI) > 0) {
-      // more shifting to do
-      val b1 = b.subtract(BigInteger.valueOf(bi.toLong))
-      shiftLeft(a1, b1)
+      //$COVERAGE-OFF$
+      // java bigInteger can't actually store arbitrarily large
+      // integers, just blow up here
+      sys.error(s"invalid huge shiftLeft($a, $b)")
+      //$COVERAGE-ON$
     }
     else {
       a1
