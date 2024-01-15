@@ -357,8 +357,11 @@ object Pattern {
         fn,
         { parts => parts.map(ListPat(_)) })
 
+    def traverseStruct[F[_]: Applicative, N1](parts: (N, F[List[Pattern[N1, T]]]) => F[Pattern[N1, T]]): F[Pattern[N1, T]] =
+      traversePattern[F, N1, T](parts, Applicative[F].pure(_), { parts => parts.map(ListPat(_)) })
+
     def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
-      traversePattern[cats.Id, N1, T](parts, t => t, ListPat(_))
+      traverseStruct[cats.Id, N1](parts)
 
     def traversePattern[F[_]: Applicative, N1, T1](
       parts: (N, F[List[Pattern[N1, T1]]]) => F[Pattern[N1, T1]],

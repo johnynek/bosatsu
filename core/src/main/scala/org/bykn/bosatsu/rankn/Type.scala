@@ -29,9 +29,8 @@ object Type {
       new Order[Rho] {
         def compare(a: Rho, b: Rho): Int =
           (a, b) match {
-            case (TyConst(Const.Defined(p0, n0)), TyConst(Const.Defined(p1, n1))) =>
-              val c = Ordering[PackageName].compare(p0, p1)
-              if (c == 0) Ordering[TypeName].compare(n0, n1) else c
+            case (TyConst(a), TyConst(b)) =>
+              Ordering[Const].compare(a, b)
             case (TyConst(_), _) => -1
             case (TyVar(v0), TyVar(v1)) =>
               Ordering[Var].compare(v0, v1)
@@ -980,6 +979,16 @@ object Type {
           case _ => None
         }
     }
+
+    implicit val orderingTyConst: Ordering[Const] =
+      new Ordering[Const] {
+        def compare(a: Const, b: Const) = {
+          val Const.Defined(p0, n0) = a
+          val Const.Defined(p1, n1) = b
+          val c = Ordering[PackageName].compare(p0, p1)
+          if (c == 0) Ordering[TypeName].compare(n0, n1) else c
+        }
+      }
   }
 
   sealed abstract class Var {

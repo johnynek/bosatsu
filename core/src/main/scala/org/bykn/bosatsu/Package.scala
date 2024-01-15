@@ -303,42 +303,6 @@ object Package {
     }
   }
 
-  def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): List[PackageError] = {
-    val exportedTypes: List[DefinedType[V]] = exports
-      .iterator
-      .map(_.tag)
-      .collect {
-        case Referant.Constructor(dt, _) => dt
-        case Referant.DefinedT(dt) => dt
-      }
-      .toList
-      .distinct
-
-    val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
-
-    type Exp = ExportedName[Referant[V]]
-    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports
-      .iterator
-      .flatMap { n =>
-        n.tag match {
-          case Referant.Value(t) => Iterator.single((t, n))
-          case _ => Iterator.empty
-        }
-      }
-      .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
-      .filter { case (Type.Const.Defined(p, _), _, _) => p === pn }
-
-
-    def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
-      exportedTE.toDefinedType(t._1) match {
-        case None =>
-          PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
-        case Some(_) => Nil
-      }
-
-    usedTypes.flatMap(errorFor).toList
-  }
-
   /**
    * The parsed representation of the predef.
    */
