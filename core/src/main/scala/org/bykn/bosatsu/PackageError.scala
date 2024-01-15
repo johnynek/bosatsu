@@ -600,12 +600,16 @@ object PackageError {
     }
   }
 
-  case class UnusedImport(inPack: PackageName, badImport: Import[PackageName, Unit]) extends PackageError {
+  case class UnusedImport(inPack: PackageName, badImports: NonEmptyList[Import[PackageName, Unit]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val prefix = sourceMap.headLine(inPack, None)
-      val di = Document[Import[PackageName, Unit]].document(badImport)
+      val di = (Doc.hardLine + Doc.intercalate(Doc.hardLine,
+          badImports.toList.map(Document[Import[PackageName, Unit]].document(_))
+        ))
+        .nested(2)
 
-      (prefix + Doc.hardLine + Doc.text("unused import of:") + Doc.hardLine + di + Doc.hardLine).render(80)
+      val imports = if (badImports.tail.lengthCompare(0) == 0) "import" else "imports"
+      (prefix + Doc.hardLine + Doc.text(s"unused $imports of:") + di + Doc.hardLine).render(80)
     }
   }
 }

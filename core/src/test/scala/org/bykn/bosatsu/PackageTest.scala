@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Show
-import cats.data.{Validated, ValidatedNel}
+import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import IorMethods.IorExtension
 import org.scalatest.funsuite.AnyFunSuite
@@ -26,10 +26,12 @@ class PackageTest extends AnyFunSuite with ParTest {
       case Validated.Invalid(err) => fail(err.toString)
     }
 
-  def invalid[A, B](v: Validated[A, B]) =
+  def invalid[B](v: Validated[NonEmptyList[PackageError], B]) =
     v match {
       case Validated.Valid(err) => fail(err.toString)
-      case Validated.Invalid(_) => succeed
+      case Validated.Invalid(err) =>
+        err.toList.foreach(_.message(Map.empty, LocationMap.Colorize.None))
+        succeed
     }
 
   test("simple package resolves") {
@@ -199,5 +201,25 @@ main = 2
 """)
 
     invalid(resolveThenInfer(List(p1, p2)))
+
+    val p3 = parse(
+"""
+package Foo
+export main, Foo
+
+enum Foo: Bar, Baz
+
+main = 1
+""")
+    val p4 = parse(
+"""
+package Foo2
+from Foo import main as mainFoo, Foo
+export main,
+
+main = 2
+""")
+
+    invalid(resolveThenInfer(List(p3, p4)))
   }
 }

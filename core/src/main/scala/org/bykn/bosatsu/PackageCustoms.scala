@@ -107,29 +107,32 @@ object PackageCustoms {
       val unusedTypeMap = unusedTypes.groupByNes(_._1)
       val unusedPacks = unusedValMap.keySet | unusedTypeMap.keySet
 
-      Chain.fromIterableOnce(
-        unusedPacks
-        .iterator
-        .map { ipack =>
-        val thisVals = unusedValMap.get(ipack) match {
-          case Some(nes) => nes.toSortedSet.toList.map { case (_, i) =>
-            ImportedName.OriginalName(i, ())
-          }
-          case None => Nil
-        }
+      if (unusedPacks.isEmpty) Chain.empty
+      else {
+        val badImports = NonEmptyList.fromListUnsafe(
+          unusedPacks
+            .iterator
+            .map { ipack =>
+              val thisVals = unusedValMap.get(ipack) match {
+                case Some(nes) => nes.toSortedSet.toList.map { case (_, i) =>
+                  ImportedName.OriginalName(i, ())
+                }
+                case None => Nil
+              }
 
-        val thisTpes = unusedTypeMap.get(ipack) match {
-          case Some(nes) => nes.toSortedSet.toList.map { case (_, t) =>
-            ImportedName.OriginalName(t.toDefined.name.ident, ())
-          }
-          case None => Nil
-        }
-        // one or the other or both of these is non-empty
-        PackageError.UnusedImport(
-          pack.name,
-          Import(ipack, NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct))
-        )
-      })
+              val thisTpes = unusedTypeMap.get(ipack) match {
+                case Some(nes) => nes.toSortedSet.toList.map { case (_, t) =>
+                  ImportedName.OriginalName(t.toDefined.name.ident, ())
+                }
+                case None => Nil
+              }
+              // one or the other or both of these is non-empty
+              Import(ipack, NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct))
+            }
+            .toList)
+
+        Chain.one(PackageError.UnusedImport(pack.name, badImports))
+      }
     }
   }
 
