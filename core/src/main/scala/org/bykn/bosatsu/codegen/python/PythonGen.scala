@@ -813,6 +813,31 @@ object PythonGen {
               input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.Eq, _))
             }, 2)),
 
+          (Identifier.unsafeBindable("shift_left_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.BitwiseShiftLeft, _))
+            }, 2)),
+          (Identifier.unsafeBindable("shift_right_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.BitwiseShiftRight, _))
+            }, 2)),
+          (Identifier.unsafeBindable("and_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.BitwiseAnd, _))
+            }, 2)),
+          (Identifier.unsafeBindable("or_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.BitwiseOr, _))
+            }, 2)),
+          (Identifier.unsafeBindable("xor_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.BitwiseXor, _))
+            }, 2)),
+          (Identifier.unsafeBindable("not_Int"),
+            ({
+              // leverage not(x) == -1 - x 
+              input => Env.onLast(input.head)(Code.fromInt(-1).evalMinus(_))
+            }, 2)),
           (Identifier.unsafeBindable("gcd_Int"),
             ({
               input =>

@@ -1,0 +1,189 @@
+package Xoshiro256starstar
+
+export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand)
+
+struct State(s0: Int, s1: Int, s2: Int, s3: Int)
+struct UInt64(toInt: Int)
+
+def operator -(a, b): a.sub(b)
+def operator +(a, b): a.add(b)
+def operator *(a, b): a.times(b)
+def operator &(a, b): a.and_Int(b)
+def operator <<(a, b): a.shift_left_Int(b)
+def operator >>(a, b): a.shift_right_Int(b)
+def operator |(a, b): a.or_Int(b)
+def operator ^(a, b): a.xor_Int(b)
+
+bitmask_64 = (1 << 64) - 1
+
+def uint64(i): i & bitmask_64
+
+def rotl(x, k):
+  lx = uint64(x << k)
+  rx = uint64(x >> (64 - k))
+  lx | rx
+
+def next(state: State) -> (State, UInt64):
+  State { s0, s1, s2, s3 } = state
+  result = uint64(rotl(uint64(s1 * 5), 7) * 9)
+  t = uint64(s1 << 17)
+  s2 = s2 ^ s0
+  s3 = s3 ^ s1
+  s1 = s1 ^ s2
+  s0 = s0 ^ s3
+
+  s2 = s2 ^ t
+  s3 = uint64(rotl(s3, 45))
+
+  (State { s0, s1, s2, s3}, UInt64(result))
+
+# this is taken from the git-shas of the two previous commits to main
+default_state = 0x78a2_951d_9698_3f3f_8ff9_e45e_c217_8773_4e55_075f_bd57_0ae8_c3d4_d351_f3bd_9bfd
+
+def state_from_Int(i: Int) -> State:
+  not_zero = match (i ^ default_state):
+      case 0: default_state
+      case nz: nz
+
+  State(uint64(not_zero), uint64(not_zero >> 64), uint64(not_zero >> 128), uint64(not_zero >> 192))
+
+struct Rand[a: +*](fn: State -> (State, a))
+
+def map_Rand[a, b](r: Rand[a], fn: a -> b) -> Rand[b]:
+  Rand(fna) = r
+  Rand(s -> (
+    (s1, a) = fna(s)
+    (s1, fn(a))
+  ))
+
+def flat_map_Rand[a, b](r: Rand[a], fn: a -> Rand[b]) -> Rand[b]:
+  Rand(fna) = r
+  Rand(s -> (
+    (s1, a) = fna(s)
+    Rand(fnb) = fn(a)
+    fnb(s1)
+  ))
+
+def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -> Rand[(a, b)]:
+  Rand(fna) = ra
+  Rand(fnb) = rb
+  Rand(s0 -> (
+    (s1, a) = fna(s0)
+    (s2, b) = fnb(s1)
+    (s2, (a, b))
+  ))
+
+def const_Rand[a](a: a) -> Rand[a]: Rand(s -> (s, a))
+
+def run_Rand[a](rand: Rand[a], seed: Int) -> a:
+  Rand(fn) = rand
+  (_, a) = fn(state_from_Int(seed))
+  a
+
+def sequence_Rand[a](rands: List[Rand[a]]) -> Rand[List[a]]:
+  def sample(rands: List[Rand[a]], s: State, acc: List[a]) -> (State, List[a]):
+    recur rands:
+        case []: (s, reverse(acc))
+        case [Rand(hfn), *rt]: 
+          (s1, h) = hfn(s)
+          sample(rt, s1, [h, *acc])
+
+
+  Rand(s -> sample(rands, s, []))
+
+uint64_Rand = Rand(next)
+
+def bit_count(i: Int) -> Int:
+  int_loop(i, 0, (i, bits) -> (i >> 1, bits + 1))
+
+def replicate[a](item: a, cnt: Int) -> List[a]:
+  int_loop(cnt, [], (i, acc) -> (i - 1, [item, *acc]))
+
+def to_big_Int(us: List[UInt64], acc: Int) -> Int:
+  recur us:
+    case []: acc
+    case [UInt64(h), *t]: to_big_Int(t, (acc << 64) | h)
+
+enum Nat: ZN, SN(n: Nat)
+
+nat30 = int_loop(30, ZN, (i, n) -> (i - 1, SN(n)))
+
+def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
+  Rand(fn) = rand_Int
+  boundary = (1 << (uints * 64)).div(high) * high
+  def next(s: State, fuel: Nat) -> (State, Int):
+    recur fuel:
+        case ZN: (s, (high - 1).div(2))
+        case SN(n):
+          (s1, i) = fn(s)
+          if i.cmp_Int(boundary) matches GT: next(s1, n)
+          else:
+            # this sample worked
+            (s1, i.mod_Int(high))
+  
+  # each sample has a change > 1/2 of working, so if we try 30 times
+  # we have a 1 in a billion chance to just choose the mean value
+  Rand(s -> next(s, nat30))
+
+const0 = const_Rand(0)
+
+# if you pass high <= 0, you get const_Rand(0)
+def int_range(high: Int) -> Rand[Int]:
+  if high.cmp_Int(0) matches GT:
+      # bits > 1 since high > 0
+      bits = bit_count(high)
+      uint_count = bits.div(64) + 1
+      rand_Int = replicate(uint64_Rand, uint_count) \
+        .sequence_Rand() \
+        .map_Rand(us -> to_big_Int(us, 0))
+      # now we know the integer we get out is >= high
+      resample(rand_Int, high, uint_count)
+  else: const0
+
+struct Prop(fn: Int -> Rand[Test])
+
+def forall_Prop[a](rand: Rand[a], name: String, fn: a -> Test) -> Prop:
+  Prop(cnt -> (
+    rands = replicate(rand, cnt)
+    seq = sequence_Rand(rands)
+    seq.map_Rand(as -> TestSuite(name, as.map_List(fn)))
+  ))
+
+def suite_Prop(name: String, props: List[Prop]) -> Prop:
+  Prop(s ->
+    s = sequence_Rand(props.map_List(Prop(fn) -> fn(s)))
+    s.map_Rand(as -> TestSuite(name, as))
+  )
+
+def run_Prop(prop: Prop, trials: Int, seed: Int) -> Test:
+  Prop(fn) = prop
+  rand = fn(trials)
+  run_Rand(rand, seed)
+
+signed64 = int_range(1 << 64).map_Rand(i -> i - (1 << 63))
+
+def operator ==(a, b): cmp_Int(a, b) matches EQ
+
+not_law = forall_Prop(
+  signed64,
+  "not_law",
+  i -> (
+    istr = int_to_String(i)
+    Assertion(i.not_Int() == (-1 - i), "~${istr} == (-1 - ${istr})")
+  ))
+
+shift_unshift_law = forall_Prop(
+  signed64.prod_Rand(int_range(32)),
+  "shift_unshift_law",
+  ((i, k)) -> (
+    istr = int_to_String(i)
+    kstr = int_to_String(k)
+    Assertion((i << k) >> k == i, "(${istr} << ${kstr}) >> ${kstr} == ${istr}")
+  ))
+
+all_props = suite_Prop("integer props", [
+  not_law,
+  shift_unshift_law,
+])
+
+all_laws = run_Prop(all_props, 100, 42)

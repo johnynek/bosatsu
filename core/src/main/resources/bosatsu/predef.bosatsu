@@ -63,6 +63,12 @@ export (
   items,
   map_List,
   mod_Int,
+  shift_left_Int,
+  shift_right_Int,
+  and_Int,
+  or_Int,
+  xor_Int,
+  not_Int,
   partition_String,
   rpartition_String,
   range,
@@ -194,7 +200,12 @@ external def eq_Int(a: Int, b: Int) -> Bool
 external def gcd_Int(a: Int, b: Int) -> Int
 external def cmp_Int(a: Int, b: Int) -> Comparison
 external def mod_Int(a: Int, mod: Int) -> Int
-
+external def shift_left_Int(arg: Int, shift: Int) -> Int
+external def shift_right_Int(arg: Int, shift: Int) -> Int
+external def and_Int(a: Int, b: Int) -> Int
+external def or_Int(a: Int, b: Int) -> Int
+external def xor_Int(a: Int, b: Int) -> Int
+external def not_Int(a: Int) -> Int
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
