@@ -368,6 +368,13 @@ object SeqPattern {
           case (_, Cat(Wildcard, Cat(a2: SeqPart1[A], t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
+          case (Cat(h1: SeqPart1[A], t1), Cat(h2: SeqPart1[A], t2)) =>
+            val intr = for {
+              h <- part1SetOps.intersection(h1, h2)
+              t <- intersection(t1, t2)
+            } yield Cat(h, t)
+
+            unifyUnion(intr)
           case (c1@Cat(Wildcard, _), c2@Cat(Wildcard, _)) if c1.rightMost.notWild || c2.rightMost.notWild =>
             // let's avoid the most complex case of both having
             // wild on the front if possible
@@ -406,13 +413,6 @@ object SeqPattern {
           case (Cat(Wildcard, _), Cat(_, _)) =>
             // intersection is commutative
             intersection(p2, p1)
-          case (Cat(h1: SeqPart1[A], t1), Cat(h2: SeqPart1[A], t2)) =>
-            val intr = for {
-              h <- part1SetOps.intersection(h1, h2)
-              t <- intersection(t1, t2)
-            } yield Cat(h, t)
-
-            unifyUnion(intr)
         }
 
       /**
