@@ -74,6 +74,7 @@ export (
   range,
   range_fold,
   remove_key,
+  replicate_List,
   reverse,
   reverse_concat,
   sub,
@@ -165,6 +166,9 @@ def map_List(lst: List[a], fn: a -> b) -> List[b]:
 
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldLeft([], (t, a) -> fn(a).reverse_concat(t)).reverse()
+
+def replicate_List[a](item: a, cnt: Int) -> List[a]:
+  int_loop(cnt, EmptyList, (i, acc) -> (i.sub(1), NonEmptyList(item, acc)))
 
 #############
 # Some utilities for dealing with functions
