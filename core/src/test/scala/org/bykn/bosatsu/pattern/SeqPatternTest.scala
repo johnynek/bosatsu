@@ -497,6 +497,17 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     assert(missing == Nil)
   }
 
+  test("a n b == b n a regressions (bool)") {
+      //val a = Cat(AnyElem, Cat(Wildcard, Cat(Lit(Set(true, false)), Empty)))
+      //val b = Cat(AnyElem, Cat(Wildcard, Cat(AnyElem, Empty)))
+      val a = Cat(AnyElem, Cat(Wildcard, Cat(Lit(Set(true, false)), Empty)))
+      val b = Cat(AnyElem, Cat(Wildcard, Cat(AnyElem, Empty)))
+
+      val ab = setOps.intersection(a, b)
+      val ba = setOps.intersection(b, a)
+      assert(ab == ba)
+  }
+
   test("if we can enumerate p1 and p1 - p2 == 0, then all match p2") {
     def law(p10: Pattern, p20: Pattern) = {
       val max = 7
