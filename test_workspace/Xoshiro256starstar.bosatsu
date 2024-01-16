@@ -181,9 +181,26 @@ shift_unshift_law = forall_Prop(
     Assertion((i << k) >> k == i, "(${istr} << ${kstr}) >> ${kstr} == ${istr}")
   ))
 
-all_props = suite_Prop("integer props", [
-  not_law,
-  shift_unshift_law,
-])
+def gtez(x): x.cmp_Int(0) matches (GT | EQ)
+def operator ||(a, b): True if a else b
+def implies(a, b): b if a else True
+
+positive_and_law = forall_Prop(
+  signed64.prod_Rand(signed64),
+  "x & y is >= 0 implies x >= 0 or y >= 0",
+  ((x, y)) -> (
+    xs = int_to_String(x)
+    ys = int_to_String(y)
+    msg = "${xs} & ${ys} is >= 0 implies ${xs} >= 0 or ${ys} >= 0"
+    res = gtez(x & y).implies(gtez(x) || gtez(y))
+    Assertion(res, msg)
+  ))
+
+all_props = suite_Prop(
+  "integer props", [
+    not_law,
+    shift_unshift_law,
+    positive_and_law,
+  ])
 
 all_laws = run_Prop(all_props, 100, 42)
