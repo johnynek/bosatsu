@@ -32,6 +32,12 @@ object Predef {
       .add(packageName, "cmp_Int", FfiCall.Fn2(PredefImpl.cmp_Int(_, _)))
       .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int(_, _)))
       .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
+      .add(packageName, "shift_right_Int", FfiCall.Fn2(PredefImpl.shift_right_Int(_, _)))
+      .add(packageName, "shift_left_Int", FfiCall.Fn2(PredefImpl.shift_left_Int(_, _)))
+      .add(packageName, "and_Int", FfiCall.Fn2(PredefImpl.and_Int(_, _)))
+      .add(packageName, "or_Int", FfiCall.Fn2(PredefImpl.or_Int(_, _)))
+      .add(packageName, "xor_Int", FfiCall.Fn2(PredefImpl.xor_Int(_, _)))
+      .add(packageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
       .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
       .add(packageName, "int_to_String", FfiCall.Fn1(PredefImpl.int_to_String(_)))
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
@@ -115,6 +121,56 @@ object PredefImpl {
 
   def gcd_Int(a: Value, b: Value): Value =
     VInt(gcdBigInteger(i(a), i(b)))
+
+  private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
+
+  final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {
+    val bi = b.intValue()
+    val a1 = a.shiftRight(bi)
+    if (b.compareTo(MaxIntBI) > 0) {
+      //$COVERAGE-OFF$
+      // java bigInteger can't actually store arbitrarily large
+      // integers, just blow up here
+      sys.error(s"invalid huge shiftRight($a, $b)")
+      //$COVERAGE-ON$
+    }
+    else {
+      a1
+    }
+  }
+
+  def shift_right_Int(a: Value, b: Value): Value =
+    VInt(shiftRight(i(a), i(b)))
+
+  final def shiftLeft(a: BigInteger, b: BigInteger): BigInteger = {
+    val bi = b.intValue()
+    val a1 = a.shiftLeft(bi)
+    if (b.compareTo(MaxIntBI) > 0) {
+      //$COVERAGE-OFF$
+      // java bigInteger can't actually store arbitrarily large
+      // integers, just blow up here
+      sys.error(s"invalid huge shiftLeft($a, $b)")
+      //$COVERAGE-ON$
+    }
+    else {
+      a1
+    }
+  }
+
+  def shift_left_Int(a: Value, b: Value): Value =
+    VInt(shiftLeft(i(a), i(b)))
+
+  def and_Int(a: Value, b: Value): Value =
+    VInt(i(a).and(i(b)))
+
+  def or_Int(a: Value, b: Value): Value =
+    VInt(i(a).or(i(b)))
+
+  def xor_Int(a: Value, b: Value): Value =
+    VInt(i(a).xor(i(b)))
+
+  def not_Int(a: Value): Value =
+    VInt(i(a).not())
 
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, a]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {

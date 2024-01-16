@@ -17,6 +17,13 @@ test_int = TestSuite("Int tests", [
       Assertion((-54 % 0) matches -54, "-54 % 0 == -54"),
       Assertion((-54 / 0) matches 0, "-54 / 0 == 0"),
 
+      Assertion(shift_left_Int(1, 1) matches 2, "1 << 1 == 2"),
+      Assertion(shift_right_Int(1, 1) matches 0, "1 >> 1 == 0"),
+      Assertion(xor_Int(1, 1) matches 0, "1 ^ 1 == 0"),
+      Assertion(and_Int(-1, 23) matches 23, "-1 & 23 == 23"),
+      Assertion(or_Int(-1, 23) matches -1, "-1 | 23 == -1"),
+      Assertion(not_Int(-2) matches 1, "~(-2) == 1"),
+      
       Assertion(gcd_Int(4, 3) matches 1, "gcd(4, 3) == 1"),
       Assertion(gcd_Int(-4, -3) matches -1, "gcd(-4, -3) == -1"),
       Assertion(gcd_Int(4, 2) matches 2, "gcd(4, 2) == 2"),

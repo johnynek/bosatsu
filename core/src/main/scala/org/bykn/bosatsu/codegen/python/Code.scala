@@ -672,6 +672,9 @@ object Code {
           // (a * b) * c == a * (b * c)
           // (a * b) + c != a * (b + c)
           (that == Const.Times)
+        case Const.BitwiseAnd | Const.BitwiseOr | Const.BitwiseXor =>
+          // these all associate with themselves
+          (this == that)
         case _ => false
       }
     }
@@ -685,6 +688,11 @@ object Code {
         case Const.Times => a.multiply(b)
         case Const.Div => PredefImpl.divBigInteger(a, b)
         case Const.Mod => PredefImpl.modBigInteger(a, b)
+        case Const.BitwiseAnd => a.and(b)
+        case Const.BitwiseOr => a.or(b)
+        case Const.BitwiseXor => a.xor(b)
+        case Const.BitwiseShiftLeft => PredefImpl.shiftLeft(a, b)
+        case Const.BitwiseShiftRight => PredefImpl.shiftRight(a, b)
       }
   }
 
@@ -694,6 +702,11 @@ object Code {
     case object Times extends IntOp("*")
     case object Div extends IntOp("//")
     case object Mod extends IntOp("%")
+    case object BitwiseAnd extends IntOp("&")
+    case object BitwiseOr extends IntOp("|")
+    case object BitwiseXor extends IntOp("^")
+    case object BitwiseShiftLeft extends IntOp("<<")
+    case object BitwiseShiftRight extends IntOp(">>")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Neq extends Operator("!=")
