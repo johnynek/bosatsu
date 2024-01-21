@@ -269,6 +269,10 @@ object SeqPattern {
               // we know that right can't match empty,
               // let's see if that helps us rule out matches on the left
               subsetList(p1, AnyElem :: Wildcard :: t2)
+          case (Wildcard :: (a1: SeqPart1[A]) :: t1, _) if isAny(a1) =>
+              // we know that left can't match empty,
+              // let's see if that helps us rule out matches on the left
+              subsetList(AnyElem :: Wildcard :: t1, p2)
           // either t1 or t2 also ends with Wildcard
           case (_ :: _, Wildcard :: _) if p2.last.notWild =>
             // wild on the right but not at the end

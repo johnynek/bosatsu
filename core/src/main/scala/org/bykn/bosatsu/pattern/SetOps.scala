@@ -81,11 +81,22 @@ trait SetOps[A] {
     // 3! = 6
     val lookahead = 3
 
-    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(branches))(differenceAll(_, _))(_.size)
+    val superSetIsSmaller =
+      new Ordering[List[A]] {
+        def compare(x: List[A], y: List[A]): Int = {
+          val rBigger = differenceAll(x, y).isEmpty
+          val lBigger = differenceAll(y, x).isEmpty
+
+          if (lBigger && !rBigger) -1
+          else if (rBigger && !lBigger) 1
+          else java.lang.Integer.compare(x.size, y.size)
+        }
+      }
+    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(branches))(differenceAll(_, _))(superSetIsSmaller)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
-    val unreach = unreachableBranches(missing)
+    val unreach = unreachableBranches(branches, missing)
     missing.filterNot(unreach.toSet)
   }
 
@@ -93,7 +104,10 @@ trait SetOps[A] {
    * if we match these branches in order, which of them
    * are completely covered by previous matches
    */
-  def unreachableBranches(branches: List[A]): List[A] = {
+  def unreachableBranches(branches: List[A]): List[A] =
+    unreachableBranches(init = Nil, branches = branches)
+
+  private def unreachableBranches(init: List[A], branches: List[A]): List[A] = {
     def withPrev(bs: List[A], prev: List[A]): List[(A, List[A])] =
       bs match {
         case Nil => Nil
@@ -101,7 +115,7 @@ trait SetOps[A] {
           (h, prev.reverse) :: withPrev(tail, h :: prev)
       }
 
-    withPrev(branches, Nil)
+    withPrev(branches, init)
       .collect { case (p, prev) if differenceAll(p :: Nil, prev).isEmpty =>
         // if there is nothing, this is unreachable
         p
@@ -127,29 +141,28 @@ object SetOps {
   }
 
   // we search for the best order to apply the diffs that minimizes the score
-  def greedySearch[A, B, C: Ordering](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A)(score: A => C): A =
+  @annotation.tailrec
+  final def greedySearch[A: Ordering, B](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A): A =
     diffs match {
       case Nil => union
       case _ =>
         val peek = diffs.take(lookahead)
         val trials = SetOps.allPerms(peek).map { peeks =>
           val u1 = fn(union, peeks)
-          val ulen = score(u1)
-          (ulen, peek.head)
+          (u1, peek.head)
         }
-        val smallest = trials.iterator.map(_._1).min
+        val smallest = trials.iterator.minBy(_._1)
         // choose a diff that starts the most
         // number of results that are the smallest
-        val oc = implicitly[Ordering[C]]
         val best = trials
-          .collect { case (ulen, p) if oc.equiv(ulen, smallest) => p }
+          .collect { case (u1, p) if implicitly[Ordering[A]].equiv(u1, smallest._1) => p }
           .groupBy(identity)
           .map { case (k, v) => (k, v.size) }
           .maxBy(_._2)
           ._1
 
         val u1 = fn(union, best :: Nil)
-        greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)(score)
+        greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)
     }
 
 
