@@ -10,4 +10,4 @@ addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.0.9")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.7")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.14"
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.15"
