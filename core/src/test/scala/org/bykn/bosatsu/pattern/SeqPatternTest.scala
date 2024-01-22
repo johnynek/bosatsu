@@ -767,4 +767,11 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     val p1 = (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
     assert(namedMatch(p1, "bar and baz") == Some(Map("foo" -> "bar and baz", "baz" -> " and baz")))
   }
+
+  test("regression subset example") {
+    val p1 = Cat(AnyElem,Cat(Wildcard,Empty))
+    val p2 = Cat(Wildcard,Cat(Lit('0'),Cat(Lit('1'),Empty)))
+
+    assert(setOps.subset(p2, p1))
+  }
 }
