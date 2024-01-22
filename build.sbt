@@ -175,6 +175,8 @@ lazy val core =
         scalaCheck.value % Test,
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
+        "org.scalameta" %% "munit" % "1.0.0-M10" % Test,
+        "org.scalameta" %% "munit-scalacheck" % "1.0.0-M10" % Test,
         // needed for acyclic which we run periodically, not all the time
         "com.lihaoyi" % "acyclic_2.13.12" % "0.3.9" % "provided"
       )
