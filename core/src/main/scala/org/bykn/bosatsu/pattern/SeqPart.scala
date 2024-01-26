@@ -1,5 +1,7 @@
 package org.bykn.bosatsu.pattern
 
+import org.bykn.bosatsu.set.SetOps
+
 sealed trait SeqPart[+Elem] {
   def notWild: Boolean = false
   def isWild: Boolean = !notWild

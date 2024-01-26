@@ -1,11 +1,10 @@
-package org.bykn.bosatsu.pattern
+package org.bykn.bosatsu.set
 
 import cats.Eq
 import org.scalacheck.{Arbitrary, Cogen, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-abstract class SetOpsLaws[A] extends AnyFunSuite {
+abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   val setOps: SetOps[A]
 
   def genItem: Gen[A]
@@ -182,6 +181,7 @@ abstract class SetOpsLaws[A] extends AnyFunSuite {
         if (missing.nonEmpty) {
           unreachableBranches(patsGood ::: missing).isEmpty
         }
+        else true
       }
     }
   }
@@ -221,7 +221,7 @@ abstract class SetOpsLaws[A] extends AnyFunSuite {
       // some times, in which case, (a - b) n c = a n c
       val leftu = unifyUnion(left)
       if (leftu == unifyUnion(intAC)) {
-        succeed
+        ()
       }
       else {
         val rightu = unifyUnion(right)
@@ -348,12 +348,12 @@ object Predicate {
 }
 
 
-class SetOpsTests extends AnyFunSuite {
+class SetOpsTests extends munit.ScalaCheckSuite {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters
+      .withMinSuccessfulTests(500)
+      .withMaxDiscardRatio(10)
 
   test("allPerms is correct") {
     forAll(Gen.choose(0, 6).flatMap(Gen.listOfN(_, Arbitrary.arbitrary[Int]))) { is0 =>

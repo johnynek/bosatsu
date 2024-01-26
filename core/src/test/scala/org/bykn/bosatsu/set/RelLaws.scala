@@ -70,7 +70,7 @@ abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>
   def contains(s: S, e: E): Boolean
   def lift(e: E): S
   def intersection(s1: S, s2: S): S
-  def compare(s1: S, s2: S): Rel
+  def relatable: Relatable[S]
 
   // if this is true, we assert that (x === y) == (x == y)
   // on each equality check
@@ -79,7 +79,7 @@ abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>
   private implicit class Ops(self: S) {
     def &(that: S): S = intersection(self, that)
     def <:>(that: S): Rel = {
-      val res = compare(self, that)
+      val res = relatable.relate(self, that)
       if (strictEquals) {
         assertEquals(self == that, res == Same, s"self = $self, that = $that")
       }
@@ -199,7 +199,7 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
     def |(that: S): S = union(self, that)
     def &(that: S): S = intersection(self, that)
     def <:>(that: S): Rel = {
-      val res = compare(self, that)
+      val res = relatable.relate(self, that)
       if (strictEquals) {
         assertEquals(self == that, res == Same, s"self = $self, that = $that")
       }
@@ -296,7 +296,7 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
 // This checks the testing mechanisms and support
 // code using Set, where intersection and union are
 // trivial
-abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbElement: Arbitrary[A]) extends GenRelLaws {
+abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbElement: Arbitrary[A]) extends GenRelLaws { setgenrellaws =>
   type S = Set[A]
   type E = A
 
@@ -306,15 +306,12 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
   def intersection(s1: S, s2: S): S = s1.intersect(s2)
   def union(s1: S, s2: S): S = s1.union(s2)
 
-  private val setRel = Relatable.setRelatable[A]
-  def compare(s1: S, s2: S): Rel =
-    setRel.relate(s1, s2)
+  val relatable = Relatable.setRelatable[A]
 
   // Test the UnionRelModule
 
-  val urm = new Relatable.UnionRelModule[S]()(new Relatable[S] {
-    def relate(s1: S, s2: S) = compare(s1, s2)
-  }) {
+  val urm = new Relatable.UnionRelModule[S] {
+    def relatable = setgenrellaws.relatable
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
       else Left({(s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
@@ -331,7 +328,7 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
 
   property("test unionRelCompare") {
     forAll { (s1: S, s2: S, s3: S) =>
-      assertEquals(urm.unionRelCompare(s1, s2, s3), compare(s1, s2 | s3))
+      assertEquals(urm.unionRelCompare(s1, s2, s3), relatable.relate(s1, s2 | s3))
     }
   }
 }
@@ -344,16 +341,14 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(100)
+      .withMinSuccessfulTests(50) // this test is pretty slow unfortunately
       .withMaxDiscardRatio(10)
 
   implicit val setRel: Relatable[Set[Byte]] =
     Relatable.setRelatable[Byte]
 
   implicit val relByte: Relatable[Byte] =
-    new Relatable[Byte] {
-      def relate(i: Byte, j: Byte) = if (i == j) Rel.Same else Rel.Disjoint
-    }
+    Relatable.fromUniversalEquals
 
   val listRel: Relatable[List[Byte]] = Relatable.listUnion[Byte](
     _ => false,

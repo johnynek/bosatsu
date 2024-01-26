@@ -16,6 +16,11 @@ object Relatable {
         else if ((s1 & s2).nonEmpty) Rel.Intersects
         else Rel.Disjoint
     }
+    
+  def fromUniversalEquals[A]: Relatable[A] =
+    new Relatable[A] {
+      def relate(i: A, j: A) = if (i == j) Rel.Same else Rel.Disjoint
+    }
 
   /**
    * Make a relatable where unions are represented by Lists.
@@ -30,7 +35,8 @@ object Relatable {
     solveOne: A => Either[List[A] => Boolean, (A, A)]): Relatable[List[A]] =
     new Relatable[List[A]] { self =>
       val unionRelMod: UnionRelModule[List[A]] =
-        new UnionRelModule[List[A]]()(self) {
+        new UnionRelModule[List[A]]() {
+          def relatable: Relatable[List[A]] = self
           def isEmpty(ls: List[A]) = ls.forall(isEmptyFn)
           def deunion(ls: List[A]) =
             ls.size match {
@@ -96,7 +102,7 @@ object Relatable {
    * Important: b and c cannot be bottom values. They cannot
    * be empty.
    */
-  def unionRelCompare1[A: Relatable](a: A, b: A, c: A): Either[PartialRel, Rel] = {
+  private def unionRelCompare1[A: Relatable](a: A, b: A, c: A): Either[PartialRel, Rel] = {
     import Rel._
     import PartialRel._
 
@@ -145,9 +151,11 @@ object Relatable {
     }
   }
 
-  abstract class UnionRelModule[A: Relatable] {
+  abstract class UnionRelModule[A] {
     import Rel._
     import PartialRel._
+
+    def relatable: Relatable[A]
     /**
      * Either deunion a into two non-empty values
      * or return a function that solves the problem
@@ -168,7 +176,7 @@ object Relatable {
     def isEmpty(a: A): Boolean
 
     private def subIntersectsCase(ab: A, a1: A, a2: A): Rel =
-      unionRelCompare1(ab, a1, a2) match {
+      unionRelCompare1(ab, a1, a2)(relatable) match {
         case Right(Sub) => Intersects
         case Right(Same) => Sub
         case Left(SubIntersects) => Intersects // we know a <:> b is < or n, so a&b <:> a is < implies this
@@ -181,9 +189,9 @@ object Relatable {
      * compare a to (b1|b2)
      */
     final def unionRelCompare(a: A, b1: A, b2: A): Rel =
-      if (isEmpty(b1)) Relatable[A].relate(a, b2)
-      else if (isEmpty(b2)) Relatable[A].relate(a, b1)
-      else unionRelCompare1(a, b1, b2) match {
+      if (isEmpty(b1)) relatable.relate(a, b2)
+      else if (isEmpty(b2)) relatable.relate(a, b1)
+      else unionRelCompare1(a, b1, b2)(relatable) match {
         case Right(rel) =>
           rel
         case Left(p) =>
@@ -203,7 +211,7 @@ object Relatable {
 
               // we know that a1 and a2 are not empty because they are the result
               // of a deunion
-              unionRelCompare1(cheapUnion(b1 :: b2 :: Nil), a1, a2) match {
+              unionRelCompare1(cheapUnion(b1 :: b2 :: Nil), a1, a2)(relatable) match {
                 case Left(r) => andInvert(r)
                 case Right(r) => r.invert
               }

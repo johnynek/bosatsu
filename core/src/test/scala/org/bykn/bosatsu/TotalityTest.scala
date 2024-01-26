@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
-import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
+import org.bykn.bosatsu.set.{SetOps, SetOpsLaws}
 
 import rankn._
 
@@ -317,7 +317,7 @@ enum Either: Left(l), Right(r)
     {
       val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
       TotalityCheck(predefTE).intersection(p0, p1) match {
-        case List(res) if res == p0 || res == p1 => succeed
+        case List(res) if res == p0 || res == p1 => ()
         case Nil => fail("these do overlap")
         case nonUnified => fail(s"didn't unify to one: $nonUnified")
       }
