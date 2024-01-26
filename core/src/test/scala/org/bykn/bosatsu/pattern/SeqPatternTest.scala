@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.pattern
 
+import org.bykn.bosatsu.set.SetOps
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 

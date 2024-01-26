@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.pattern
 
+import org.bykn.bosatsu.set.{SetOps, SetOpsLaws}
 import cats.Eq
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration

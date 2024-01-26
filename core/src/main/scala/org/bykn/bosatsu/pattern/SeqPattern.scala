@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.pattern
 
 import cats.data.NonEmptyList
+import org.bykn.bosatsu.set.SetOps
 
 sealed trait SeqPattern[+A] {
   import SeqPattern._

@@ -1,9 +1,9 @@
-package org.bykn.bosatsu.pattern
+package org.bykn.bosatsu.set
 
 /**
  * These are set operations we can do on patterns
  */
-trait SetOps[A] {
+trait SetOps[A] extends Relatable[A] {
 
   /**
    * a representation of the set with everything in it
@@ -21,11 +21,24 @@ trait SetOps[A] {
    */
   def intersection(a1: A, a2: A): List[A]
 
+  def relate(a1: A, a2: A): Rel = {
+    if (subset(a1, a2)) {
+      if (subset(a2, a1)) Rel.Same
+      else Rel.Sub
+    }
+    else if (subset(a2, a1)) Rel.Sub
+    else {
+      val inter = intersection(a1, a2)
+      if (inter.isEmpty) Rel.Disjoint
+      else Rel.Intersects
+    }
+  }
+
   /**
    * Return true if a1 and a2 are disjoint
    */
   def disjoint(a1: A, a2: A): Boolean =
-    intersection(a1, a2).isEmpty
+    relate(a1, a2) == Rel.Disjoint
 
   /**
    * remove a2 from a1 return a union represented as a list
@@ -51,7 +64,7 @@ trait SetOps[A] {
   def subset(a: A, b: A): Boolean
 
   def equiv(a: A, b: A): Boolean =
-    subset(a, b) && subset(b, a)
+    relate(a, b) == Rel.Same
 
   /**
    * Remove all items in p2 from all items in p1

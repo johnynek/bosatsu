@@ -3,7 +3,8 @@ package org.bykn.bosatsu
 import cats.Eq
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
-import org.bykn.bosatsu.pattern.{SeqPattern, SeqPart, SetOps}
+import org.bykn.bosatsu.pattern.{SeqPattern, SeqPart}
+import org.bykn.bosatsu.set.SetOps
 
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashed
 
