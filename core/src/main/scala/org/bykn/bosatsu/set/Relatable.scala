@@ -35,15 +35,14 @@ object Relatable {
     solveOne: A => Either[List[A] => Boolean, (A, A)]): Relatable[List[A]] =
     new Relatable[List[A]] { self =>
       val unionRelMod: UnionRelModule[List[A]] =
-        new UnionRelModule[List[A]]() {
+        new UnionRelModule[List[A]] {
           def relatable: Relatable[List[A]] = self
           def isEmpty(ls: List[A]) = ls.forall(isEmptyFn)
           def deunion(ls: List[A]) =
             ls.size match {
-              case 0 => Left { (_, _) =>
-                // empty set is never a super-set
-                Rel.Same
-              }
+              // $COVERAGE-OFF$ 
+              case 0 => sys.error("invariant violation: deunion(Nil)")
+              // $COVERAGE-ON$ 
               case 1 =>
                 solveOne(ls.head) match {
                   case Left(equ) =>
@@ -157,7 +156,7 @@ object Relatable {
 
     def relatable: Relatable[A]
     /**
-     * Either deunion a into two non-empty values
+     * Either deunion *non-empty* a into two non-empty values
      * or return a function that solves the problem
      * of a <:> (b | c) where we know for sure
      * that the answer is either Super or Same
@@ -181,8 +180,11 @@ object Relatable {
         case Right(Same) => Sub
         case Left(SubIntersects) => Intersects // we know a <:> b is < or n, so a&b <:> a is < implies this
         case Left(SuperSame) => Sub
+        // $COVERAGE-OFF$ 
         case Right(rel) =>
+          // this should never happen because we know that ab is sub or intersect
           sys.error(s"unexpected rel: $rel, ab = $ab, a1 = $a1, a2 = $a2")
+        // $COVERAGE-ON$ 
       }
 
     /**
@@ -195,6 +197,7 @@ object Relatable {
         case Right(rel) =>
           rel
         case Left(p) =>
+          // Note, a is never empty here because if it is, unionRelCompare1 is Sub
           (deunion(a), p) match {
             case (Right((a1, a2)), SubIntersects) =>
               val intrs =

@@ -237,6 +237,27 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
     }
   }
 
+  property("point(a) | point(b) is a strict super type or a == b") {
+    forAll { (a: E, b: E) =>
+      val sa = lift(a)
+      val sb = lift(b)
+      val both = sa | sb
+      if ((both <:> sa).isStrictSupertype) {
+        assertEquals(sa <:> sb, Rel.Disjoint)
+      }
+      else {
+        assertEquals(sa <:> sb, Rel.Same)
+      }
+      if ((sa <:> sb).isSupertype) {
+        // if one is a supertype, then they are the same
+        assertEquals(sa <:> sb, Rel.Same)
+      }
+      else {
+        assert(!(sb <:> sa).isSupertype)
+      }
+    }
+  }
+
   property("(x <= y) = ((x | y) = y)") {
     forAll { (x: S, y: S) =>
       assertEquals((x <:> y).isSubtype, (x | y) === y)
