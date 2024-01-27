@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
-import org.bykn.bosatsu.set.{SetOps, SetOpsLaws}
+import org.bykn.bosatsu.set.{SetOps, SetOpsLaws, Rel}
 
 import rankn._
 
@@ -463,5 +463,13 @@ enum Either: Left(l), Right(r)
     r1 ::
       */
     Nil
+  }
+
+  test("var pattern is super or same") {
+    val tc = TotalityCheck(predefTE)
+
+    val p1 :: p2 :: _ = patterns("""[foo, Bar(1)]""")
+    val rel = tc.patternSetOps.relate(p1, p2)
+    assertEquals(rel, Rel.Super) 
   }
 }

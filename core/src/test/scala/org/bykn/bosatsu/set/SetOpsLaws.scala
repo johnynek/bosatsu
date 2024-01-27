@@ -272,6 +272,43 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       assert(rest == rest.distinct)
     }
   }
+
+  test("relate consistency") {
+    forAll(genItem, genItem, eqUnion) { (a, b, eqv) =>
+      setOps.relate(a, b) match {
+        case Rel.Same =>
+          val intr = setOps.intersection(a, b)
+          assert(eqv.eqv(intr, a :: Nil))
+          assert(eqv.eqv(intr, b :: Nil))
+        case Rel.Sub =>
+          val intr = setOps.intersection(a, b)
+          assert(eqv.eqv(intr, a :: Nil))
+          val diffB = setOps.difference(b, a)
+          assert(!eqv.eqv(diffB, Nil))
+        case Rel.Super =>
+          val intr = setOps.intersection(a, b)
+          assert(eqv.eqv(intr, b :: Nil))
+          val diffA = setOps.difference(a, b)
+          assert(!eqv.eqv(diffA, Nil))
+        case Rel.Disjoint =>
+          val intr = setOps.intersection(a, b)
+          assert(eqv.eqv(intr, Nil))
+          val diffA = setOps.difference(a, b)
+          val diffB = setOps.difference(b, a)
+          assert(eqv.eqv(diffA, a :: Nil))
+          assert(eqv.eqv(diffB, b :: Nil))
+        case Rel.Intersects =>
+          val intr = setOps.intersection(a, b)
+          assert(!eqv.eqv(intr, a :: Nil))
+          assert(!eqv.eqv(intr, b :: Nil))
+          assert(!eqv.eqv(intr, Nil))
+          val diffA = setOps.difference(a, b)
+          val diffB = setOps.difference(b, a)
+          assert(!eqv.eqv(diffA, Nil))
+          assert(!eqv.eqv(diffB, Nil))
+      }
+    }
+  }
 }
 
 class DistinctSetOpsTest extends SetOpsLaws[Byte] {

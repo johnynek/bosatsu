@@ -26,7 +26,7 @@ trait SetOps[A] extends Relatable[A] {
       if (subset(a2, a1)) Rel.Same
       else Rel.Sub
     }
-    else if (subset(a2, a1)) Rel.Sub
+    else if (subset(a2, a1)) Rel.Super
     else {
       val inter = intersection(a1, a2)
       if (inter.isEmpty) Rel.Disjoint
@@ -228,6 +228,28 @@ object SetOps {
         toList(u.foldLeft(Set.empty[A])(_ | _))
 
       def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
+      override def relate(a: Set[A], b: Set[A]) = {
+        val aSubB = a.subsetOf(b)
+        val bSubA = b.subsetOf(a)
+        if (aSubB) {
+          if (bSubA) Rel.Same
+          else Rel.Sub
+        }
+        else if (bSubA) Rel.Super
+        else {
+          // Disjoint or Intersects
+          val sa = a.size
+          val sb = b.size
+          if (sa <= sb) {
+            if (a.exists(b)) Rel.Intersects
+            else Rel.Disjoint
+          }
+          else {
+            if (b.exists(a)) Rel.Intersects
+            else Rel.Disjoint
+          }
+        }
+      }
     }
 
   // for types with only one value, Null, Unit, Nil
