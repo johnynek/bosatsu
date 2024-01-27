@@ -476,8 +476,16 @@ enum Either: Left(l), Right(r)
   test("union commutes") {
     val tc = TotalityCheck(predefTE)
 
-    val p1 :: p2 :: _ = patterns("""[Some(1 | 2), Some(1) | Some(2)]""")
-    val rel = tc.patternSetOps.relate(p1, p2)
-    assertEquals(rel, Rel.Same) 
+    {
+      val p1 :: p2 :: _ = patterns("""[Some(1 | 2), Some(1) | Some(2)]""")
+      val rel = tc.patternSetOps.relate(p1, p2)
+      assertEquals(rel, Rel.Same) 
+    }
+
+    {
+      val p1 :: p2 :: _ = patterns("""[Some(1 | 2 | 3), Some(1) | Some(2)]""")
+      val rel = tc.patternSetOps.relate(p1, p2)
+      assertEquals(rel, Rel.Super) 
+    }
   }
 }

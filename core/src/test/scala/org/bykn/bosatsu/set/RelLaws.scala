@@ -365,8 +365,13 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(50) // this test is pretty slow unfortunately
+      .withMinSuccessfulTests(5000)
       .withMaxDiscardRatio(10)
+
+  implicit val arbByte: Arbitrary[Byte] =
+    // Here there are only 2^10 = 1024 possible sets of these bytes
+    // the goal is to make tests run faster
+    Arbitrary(Gen.choose(0.toByte, 9.toByte))
 
   implicit val setRel: Relatable[Set[Byte]] =
     Relatable.setRelatable[Byte]
@@ -377,7 +382,7 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
   val listRel: Relatable[List[Byte]] = Relatable.listUnion[Byte](
     _ => false,
     {(i1, i2) => if (i1 == i2) i1 :: Nil else Nil},
-    { i => Left(_ == (i :: Nil)) })
+    { i => Left(_.distinct == (i :: Nil)) })
 
   property("listRel agrees with setRel") {
     forAll { (s1: Set[Byte], s2: Set[Byte]) =>
@@ -392,8 +397,9 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
       if (i.isEmpty) Nil else (i :: Nil)
     },
     { i =>
-      if (i.size > 2) {
-        val (l, r) = i.toList.splitAt(i.size / 2)
+      val sz = i.size
+      if (sz >= 2) {
+        val (l, r) = i.toList.splitAt(sz / 2)
         Right((l.toSet, r.toSet))
       }
       else {
@@ -405,7 +411,7 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
     })
 
   def smallList[A: Arbitrary]: Gen[List[A]] =
-    Gen.geometric(3.0)
+    Gen.geometric(4.0)
       .flatMap(Gen.listOfN(_, Arbitrary.arbitrary[A]))
 
   property("listUnion works with Set elements") {
