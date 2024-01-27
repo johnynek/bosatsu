@@ -44,6 +44,10 @@ sealed abstract class Rel { lhs =>
       case (_, Same) => lhs
       case _ => Intersects
     }
+
+  def lazyCombine(rhs: => Rel): Rel =
+    if (lhs == Disjoint) Disjoint
+    else (lhs |+| rhs)
 }
 
 object Rel {

@@ -141,10 +141,10 @@ enum Bool: False, True
     }
   }
 
-  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], tight: Boolean = false) = {
+  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], tight: Boolean = false)(implicit loc: munit.Location) = {
     val res = TotalityCheck(te).missingBranches(pats)
     val asStr = res.map(showPat)
-    assert(asStr == Nil, showPats(pats))
+    assertEquals(asStr, Nil, showPats(pats))
 
     // any missing pattern shouldn't be total:
     def allButOne[A](head: A, tail: List[A]): List[List[A]] =
@@ -471,5 +471,13 @@ enum Either: Left(l), Right(r)
     val p1 :: p2 :: _ = patterns("""[foo, Bar(1)]""")
     val rel = tc.patternSetOps.relate(p1, p2)
     assertEquals(rel, Rel.Super) 
+  }
+
+  test("union commutes") {
+    val tc = TotalityCheck(predefTE)
+
+    val p1 :: p2 :: _ = patterns("""[Some(1 | 2), Some(1) | Some(2)]""")
+    val rel = tc.patternSetOps.relate(p1, p2)
+    assertEquals(rel, Rel.Same) 
   }
 }

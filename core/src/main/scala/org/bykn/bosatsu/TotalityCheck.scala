@@ -4,7 +4,7 @@ import cats.Eq
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 import org.bykn.bosatsu.pattern.{SeqPattern, SeqPart}
-import org.bykn.bosatsu.set.SetOps
+import org.bykn.bosatsu.set.{Rel, Relatable, SetOps}
 
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashed
 
@@ -12,6 +12,7 @@ import rankn.{Type, TypeEnv}
 import Pattern._
 
 import Identifier.{Bindable, Constructor}
+import org.bykn.bosatsu.set.Rel.Sub
 
 object TotalityCheck {
   type Cons = (PackageName, Constructor)
@@ -229,6 +230,165 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
   lazy val patternSetOps: SetOps[Pattern[Cons, Type]] =
     new SetOps[Pattern[Cons, Type]] { self =>
+
+      val urm = new Relatable.UnionRelModule[Option[Pattern[Cons, Type]]] {
+        def relatable: Relatable[Option[Pattern[Cons,Type]]] =
+          new Relatable[Option[Pattern[Cons, Type]]] {
+            def relate(left: Option[Pattern[Cons,Type]], right: Option[Pattern[Cons,Type]]): Rel =
+              (left, right) match {
+                case (Some(l), Some(r)) => self.relate(l, r)
+                case (None, None) => Rel.Same
+                case (None, Some(_)) => Rel.Sub
+                case (Some(_), None) => Rel.Super
+              }
+          }
+
+        // The outer list is union, the inner list is product
+        val unionProduct: Relatable[List[List[Pattern[Cons, Type]]]] =
+          Relatable.listUnion[List[Pattern[Cons, Type]]](
+            isEmptyFn = { _ => false }, // all products match something
+            intersectFn = { (left, right) =>
+              val size = left.size
+              if (size == right.size) {
+                getProd(size).intersection(left, right)
+              }  
+              else Nil
+            },
+            solveOne = { prod =>
+              (prod.zipWithIndex.collectFirstSome { case (param, idx) =>
+                deunion(Some(param)) match {
+                  case Right((Some(p1), Some(p2))) => Some(((p1, p2), idx))
+                  case _ => None
+                }
+              }) match {
+                case Some(((p1, p2), idx)) =>
+                  // we can split:
+                  Right((prod.updated(idx, p1), prod.updated(idx, p2)))
+                case None =>
+                  val prodSetOps = getProd(prod.size)
+
+                  Left({ union =>
+                    prodSetOps.missingBranches(prod :: Nil, union).isEmpty
+                  })
+              }
+            })(new Relatable[List[Pattern[Cons, Type]]] {
+              def relate(a: List[Pattern[Cons, Type]], b: List[Pattern[Cons, Type]]) = {
+                val size = a.size
+                if (size == b.size) getProd(size).relate(a, b)
+                else Rel.Disjoint
+              }
+            })
+
+        def cheapUnion(head: Option[Pattern[Cons, Type]], tail: List[Option[Pattern[Cons,Type]]]): Option[Pattern[Cons,Type]] =
+          fromList((head :: tail).flatten)
+
+        def fromList(pats: List[Pattern[Cons, Type]]): Option[Pattern[Cons, Type]] =
+          pats match {
+            case Nil => None
+            case one :: Nil => Some(one)
+            case h :: tail => Some(Pattern.union(h, tail))
+          }
+
+        // there are no empty patterns
+        def isEmpty(a: Option[Pattern[Cons,Type]]): Boolean = a.isEmpty
+        def intersect(a: Option[Pattern[Cons,Type]], b: Option[Pattern[Cons,Type]]): Option[Pattern[Cons,Type]] =
+          (a, b) match {
+            case (Some(l), Some(r)) =>
+              fromList(self.intersection(l, r))
+            case (None, _) => None
+            case (_, None) => None
+          }
+
+        // we know that a is nonEmpty by contract
+        def deunion(a: Option[Pattern[Cons,Type]]): Either[(Option[Pattern[Cons,Type]], Option[Pattern[Cons,Type]]) => Rel.SuperOrSame,(Option[Pattern[Cons,Type]], Option[Pattern[Cons,Type]])] =
+          a.get match {
+            case Pattern.Union(head, rest) =>
+              Right((Some(head), Some(Pattern.union(rest.head, rest.tail))))
+            case Pattern.Literal(_) =>
+              // if a literal is >= something it is same, no partial supersets
+              Left((_, _) => Rel.Same)
+            case Named(_, pat) => deunion(Some(pat))
+            case Annotation(pat, _) => deunion(Some(pat))
+            case WildCard | Var(_) =>
+              Left({(a, b) =>
+                if (unifyUnion(a.toList ::: b.toList).exists(isTop)) Rel.Same
+                else Rel.Super
+              })
+            case pos @ PositionalStruct(name, params) =>
+              structToList(name, params) match {
+                case Some(lp) => deunion(Some(lp))
+                case None =>
+                    // this isn't a list and is >= the union of two items
+                    // so it has to be a struct with the same name
+                    // assuming pos >= pat
+                    // we know that pat is a Struct(name, _) or union of those
+                    // decompose it into List representing the union, of a list
+                    // of the fields
+
+                    val paramSize = params.size
+
+                    def unstruct(pat: Option[Pattern[Cons, Type]]): List[List[Pattern[Cons, Type]]] =
+                      pat match {
+                        case None => Nil
+                        case Some(PositionalStruct(n, ps)) =>
+                          assert(n == name)
+                          assert(ps.size == paramSize)
+                          ps :: Nil
+                        case Some(Pattern.Union(h, t)) =>
+                          (h :: t.toList).flatMap { p => unstruct(Some(p)) }
+                        case Some(unexpected) =>
+                          sys.error(s"unexpected sub pattern of ($pos) in deunion: $unexpected")
+                      }
+                    
+                    def solve(p1: Option[Pattern[Cons,Type]], p2: Option[Pattern[Cons,Type]]): Rel.SuperOrSame = {
+                      val unionParams = (unstruct(p1) ::: unstruct(p2)).distinct
+                      // pos <:> (p1 | p2) we can just element wise un
+                      
+                      unionProduct.relate(params :: Nil, unionParams)
+                        .asInstanceOf[Rel.SuperOrSame]
+                    }
+
+                    Left(solve(_, _))
+                }
+            case lp@ListPat(_) =>
+              def optPatternToList(p: Option[Pattern[Cons, Type]]): List[ListPat[Cons, Type]] =
+                p match {
+                  case Some(sp @ ListPat(_)) => sp :: Nil
+                  case Some(PositionalStruct(n, ps)) =>
+                    optPatternToList(structToList(n, ps))
+                  case Some(Union(h, t)) =>
+                    optPatternToList(Some(h)) :::
+                      optPatternToList(Some(Pattern.union(t.head, t.tail)))
+                  case _ => Nil
+                }
+
+              Left(
+                {(b, c) =>
+                  val rhs = optPatternToList(b) ::: optPatternToList(c) 
+                  if (listPatternSetOps.missingBranches(lp :: Nil, rhs).isEmpty) Rel.Same
+                  else Rel.Super
+                }
+              )
+            case sp@StrPat(_) =>
+              def optPatternToStr(p: Option[Pattern[Cons, Type]]): List[StrPat] =
+                p match {
+                  case Some(sp @ StrPat(_)) => sp :: Nil
+                  case Some(Union(h, t)) =>
+                    optPatternToStr(Some(h)) :::
+                      optPatternToStr(Some(Pattern.union(t.head, t.tail)))
+                  case _ => Nil
+                }
+
+              Left(
+                {(b, c) =>
+                  val rhs = optPatternToStr(b) ::: optPatternToStr(c) 
+                  if (strPatternSetOps.missingBranches(sp :: Nil, rhs).isEmpty) Rel.Same
+                  else Rel.Super
+                }
+              )
+          }
+
+      }
       val top: Option[Pattern[Cons, Type]] = Some(WildCard)
 
       def intersection(
@@ -299,7 +459,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               else Nil
           }
 
-      def difference(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Patterns =
+      def difference(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Patterns = {
+        relate(left, right) match {
+          case Rel.Sub | Rel.Same => Nil
+          case Rel.Disjoint => left :: Nil
+          case _ =>
+            // left >= right
         (left, right) match {
           case (_, WildCard | Var(_)) => Nil
           case (Named(_, p), r) => difference(p, r)
@@ -407,6 +572,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             }
             else left :: Nil
         }
+      }
+      }
 
       def isTop(p: Pattern[Cons, Type]): Boolean =
         p match {
@@ -455,23 +622,48 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         }
 
       def subset(a0: Pattern[Cons, Type], b0: Pattern[Cons, Type]): Boolean =
-        isTopCheap(b0) || {
+        isTopCheap(b0) || relate(a0, b0).isSubtype
 
-          def loop(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Boolean =
-            (a, b) match {
-              case _ if a == b => true
-              case (_, Union(h, t)) => (h :: t).exists(loop(a, _))
-              case (Literal(Lit.Str(s)), sp@Pattern.StrPat(_)) => sp.matches(s)
-              case (s1@Pattern.StrPat(_), s2@Pattern.StrPat(_)) =>
-                strPatternSetOps.subset(s1, s2)
-              case (l1@Pattern.ListPat(_), l2@Pattern.ListPat(_)) =>
-                listPatternSetOps.subset(l1, l2)
-              case (Pattern.PositionalStruct(ln, lp), Pattern.PositionalStruct(rn, rp)) =>
-                (ln == rn) &&
-                  (lp.size == rp.size) &&
-                  (lp.zip(rp).forall { case (l, r) => loop(l, r) })
-              case _ => false
-            }
+      override def relate(a0: Pattern[Cons,Type], b0: Pattern[Cons,Type]): Rel = {
+        def loop(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Rel =
+          (a, b) match {
+            case _ if a == b => Rel.Same
+            case (_, Union(h, t)) =>
+              urm.unionRelCompare(
+                Some(a),
+                Some(h),
+                Some(Pattern.union(t.head, t.tail)))
+            case (Union(_, _), _) => loop(b, a).invert
+            case (Literal(Lit.Str(s)), sp@Pattern.StrPat(_)) =>
+              // due to normalization, StrPat is not a literal
+              if (!sp.matches(s)) Rel.Disjoint
+              else Rel.Sub
+            case (Pattern.StrPat(_), Literal(Lit.Str(_))) =>
+              // due to normalization, StrPat is not a literal
+              loop(b, a).invert
+            case (s1@Pattern.StrPat(_), s2@Pattern.StrPat(_)) =>
+              strPatternSetOps.relate(s1, s2)
+            case (l1@Pattern.ListPat(_), l2@Pattern.ListPat(_)) =>
+              listPatternSetOps.relate(l1, l2)
+            case (Pattern.PositionalStruct(ln, lp), Pattern.PositionalStruct(rn, rp)) =>
+              if ((ln == rn) && (lp.size == rp.size)) {
+                (lp.zip(rp).foldLeft(Rel.Same: Rel) { case (acc, (l, r)) =>
+                  acc.lazyCombine(loop(l, r))
+                })
+              }
+              else Rel.Disjoint
+            case _ =>
+              val ta = isTop(a)
+              val tb = isTop(b)
+              if (ta) {
+                if (tb) Rel.Same
+                else Rel.Super
+              }
+              else if (tb) {
+                Rel.Sub
+              }
+              else Rel.Disjoint
+          }
 
           loop(normalizePattern(a0), normalizePattern(b0))
         }
@@ -531,16 +723,19 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         val flattened = Pattern.flatten(u).map(normalizePattern(_))
 
         patternSetOps.unifyUnion(flattened.toList) match {
+          case h :: t => Pattern.union(h, t)
           case Nil =>
             // $COVERAGE-OFF$
             sys.error("unreachable: union can't remove items")
             // $COVERAGE-ON$
-          case h :: t => Pattern.union(h, t)
         }
 
       case _ if patternSetOps.isTop(p) => WildCard
       case strPat@StrPat(_) =>
-        StrPat.fromSeqPattern(strPat.toSeqPattern)
+        strPat.toLiteralString match {
+          case Some(str) => Literal(Lit.Str(str))
+          case None => StrPat.fromSeqPattern(strPat.toSeqPattern)
+        }
       case ListPat(parts) =>
         val p1 =
           parts.map {

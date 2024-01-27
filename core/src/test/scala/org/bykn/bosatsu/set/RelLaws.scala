@@ -35,6 +35,12 @@ class RelLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("|+| and lazyCombine are the same") {
+    forAll { (a: Rel, b: Rel) =>
+      assertEquals(a |+| b, a.lazyCombine(b))
+    }
+  }
+
   property("invert.invert is identity") {
     forAll { (a: Rel) =>
       assertEquals(a.invert.invert, a)
@@ -336,11 +342,8 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
       else Left({(s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
-    /**
-     * This can be a cheap union, not a totally
-     * normalizing union.
-     */
-    def cheapUnion(as: List[S]): S = as.foldLeft(Set.empty[A])(_ | _)
+
+    def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 
     def intersect(a: S, b: S): S = a.intersect(b)
 
