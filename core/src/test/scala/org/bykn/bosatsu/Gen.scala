@@ -808,6 +808,81 @@ object Generators {
         }
     })
 
+  def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
+    if (s1.isEmpty) s2 else if (s2.isEmpty) s1 else {
+      s1.head #:: interleave(s2, s1.tail)
+    }
+
+  def interleaveAll[A](ss: List[Stream[A]]): Stream[A] =
+    ss match {
+      case Nil => Stream.empty
+      case one :: Nil => one
+      case twoOrMore =>
+        val (l, r) = twoOrMore.splitAt(twoOrMore.size / 2)
+        interleave(interleaveAll(l), interleaveAll(r))
+    }
+  // treat the list like a product and shrink each position
+  def shrinkOne[A: Shrink](list: List[A]): Stream[List[A]] =
+    interleaveAll((0 until list.size).toList.map { idx =>
+      val aIdx = list(idx)
+      implicitly[Shrink[A]].shrink(aIdx)
+        .map { a =>
+          list.updated(idx, a)
+        }
+    })
+
+  def dropItemList[A](list: List[A]): Stream[List[A]] =
+    list match {
+      case Nil | _ :: Nil => Stream.empty
+      case twoOrMore =>
+        (0 until twoOrMore.size).toStream.map { idx =>
+          list.take(idx) ::: list.drop(idx + 1)  
+        }
+    }
+
+  implicit def shrinkPattern[N, T]: Shrink[Pattern[N, T]] = {
+    lazy val res: Shrink[Pattern[N, T]] =
+      Shrink(new Function1[Pattern[N, T], Stream[Pattern[N, T]]] {
+      def apply(p: Pattern[N, T]) =
+        p match {
+          case Pattern.WildCard => Stream.empty
+          case Pattern.Var(_) => Pattern.WildCard #:: Stream.empty
+          case Pattern.Annotation(pattern, _) => pattern #:: Stream.empty
+          case Pattern.Named(_, pat) => pat #:: Stream.empty
+          case Pattern.PositionalStruct(n, params) =>
+            // shrink all the params
+            shrinkOne(params)(res).map(Pattern.PositionalStruct(n, _))
+          case Pattern.Literal(Lit.Str(s)) =>
+            implicitly[Shrink[String]].shrink(s).map(s => Pattern.Literal(Lit(s)))
+          case Pattern.Literal(Lit.Integer(s)) =>
+            implicitly[Shrink[BigInt]].shrink(BigInt(s))
+              .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
+          case Pattern.Literal(_) => Stream.empty
+          case Pattern.ListPat(ls) =>
+            if (ls.isEmpty) Stream.empty
+            else (Pattern.ListPat(ls.tail) #:: Stream.empty)
+          case Pattern.StrPat(ls) =>
+            if (ls.tail.isEmpty) Stream.empty
+            else (Pattern.StrPat(NonEmptyList.fromListUnsafe(ls.tail)) #:: Stream.empty)
+          case u@Pattern.Union(_, _) =>
+            val flat = Pattern.flatten(u).toList
+            val sameLen =
+              shrinkOne[Pattern[N, T]](flat)(res)
+                .map { us =>
+                  Pattern.union(us.head, us.tail)  
+                }
+            // unions have 2 or more, so this won't throw
+            val oneLess = dropItemList(flat).map { smaller =>
+              Pattern.union(smaller.head, smaller.tail)
+            }
+
+            interleave(oneLess, sameLen)
+        }
+    })
+
+    res
+  }
+
   implicit val shrinkStmt: Shrink[Statement] =
     Shrink[Statement](new Function1[Statement, Stream[Statement]] {
       import Statement._

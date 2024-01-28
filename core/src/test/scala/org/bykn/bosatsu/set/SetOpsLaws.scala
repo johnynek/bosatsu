@@ -1,13 +1,16 @@
 package org.bykn.bosatsu.set
 
 import cats.Eq
-import org.scalacheck.{Arbitrary, Cogen, Gen}
+import org.scalacheck.{Arbitrary, Cogen, Gen, Shrink}
 import org.scalacheck.Prop.forAll
 
 abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   val setOps: SetOps[A]
 
   def genItem: Gen[A]
+  implicit def shrinkItem: Shrink[A] =
+    Shrink(_ => Stream.empty)
+
   def genUnion: Gen[List[A]] = Gen.listOf(genItem)
 
   def eqUnion: Gen[Eq[List[A]]]
@@ -24,7 +27,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     assert(eqA.eqv(a12, a21), s"$a12 != $a21")
   }
 
-  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]]) = {
+  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]])(implicit loc: munit.Location) = {
     val c = unifyUnion(difference(a, b))
     val c1 = unifyUnion(differenceAll(c, b :: Nil))
     assert(eqAs.eqv(c, c1), s"c = $c\n\nc1 = $c1")

@@ -2,8 +2,8 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
+import org.scalacheck.Prop.forAll
 
 import org.bykn.bosatsu.set.{SetOps, SetOpsLaws, Rel}
 
@@ -14,14 +14,17 @@ import Parser.Combinators
 import org.typelevel.paiges.Document
 
 import Identifier.Constructor
+import org.scalacheck.Shrink
 
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
+  import Generators.shrinkPattern
+
   type Pat = Pattern[(PackageName, Constructor), Type]
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
-    //PropertyCheckConfiguration(minSuccessful = 50)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 20)
+      .withMaxDiscardRatio(10)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
@@ -58,8 +61,11 @@ enum Bool: False, True
   val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
     PredefTotalityCheck.patternSetOps
 
-  def genItem: Gen[Pattern[(PackageName, Constructor), Type]] =
+  override def genItem: Gen[Pattern[(PackageName, Constructor), Type]] =
     genPattern
+
+  override val shrinkItem: Shrink[Pattern[(PackageName, Constructor),Type]] =
+    shrinkPattern  
 
   val genPatternNoUnion: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
@@ -173,7 +179,7 @@ enum Bool: False, True
     }
   }
 
-  test("patterns are well ordered") {
+  property("patterns are well ordered") {
     forAll(genPattern, genPattern, genPattern) { (a, b, c) =>
       OrderingLaws.law(a, b, c)
     }
@@ -386,6 +392,11 @@ enum Either: Left(l), Right(r)
     }
   }
 
+  private def pair(str: String): (Pat, Pat) = {
+    val pats = patterns(str)
+    (pats(0), pats(1))
+  }
+
   test("difference is idempotent regressions") {
     import Pattern._
     import ListPart._
@@ -398,7 +409,9 @@ enum Either: Left(l), Right(r)
           val left = ListPat(List(Item(WildCard), WildList))
           val right = ListPat(List(Item(Var(Name("bey6ct"))), Item(Literal(Lit.fromInt(42))), Item(StrPat(NonEmptyList.of(WildStr))), Item(Literal(Lit("agfn"))), Item(WildCard)))
           (left, right)
-        })
+        },
+        pair("""[[] | [_, *_], "$.{_}${_}"]""")
+      )
 
     regressions.foreach { case (a, b) => differenceIsIdempotent(a, b, eqPatterns) }
   }
@@ -457,11 +470,11 @@ enum Either: Left(l), Right(r)
 
     val ps = patterns("""["${_}$.{_}", ""]""")
     val diff = tc.missingBranches(ps)
-    assert(diff == Nil)
+    assertEquals(diff, Nil)
 
     val ps1 = patterns("""["", "$.{_}${_}"]""")
     val diff1 = tc.missingBranches(ps1)
-    assert(diff1 == Nil)
+    assertEquals(diff1, Nil)
   }
 
   override def missingBranchesIfAddedRegressions: List[List[Pat]] = {
@@ -500,14 +513,14 @@ enum Either: Left(l), Right(r)
     }
   }
 
-  test("unifyUnion returns no top-level unions") {
+  property("unifyUnion returns no top-level unions") {
     forAll(Gen.listOf(genPattern)) { pats =>
       val unions = setOps.unifyUnion(pats).collect { case u @ Pattern.Union(_, _) => u }  
       assertEquals(unions, Nil)
     }
   }
 
-  test("unifyUnion(u) <:> u == Same") {
+  property("unifyUnion(u) <:> u == Same") {
     def law(pat1: Pat, pat2: Pat)(implicit loc: munit.Location) = {
       val unions = NonEmptyList.fromListUnsafe(setOps.unifyUnion(pat1 :: pat2 :: Nil))
       val u1 = Pattern.union(unions.head, unions.tail)
@@ -518,14 +531,31 @@ enum Either: Left(l), Right(r)
     }
 
     val regressions =
-      patterns("""["$.{_}${_}$.{_}", "$.{_}${_}"]""") ::
-      patterns("""["$.{_}", "${_}$.{_}$.{_}" as e]""") ::
-      patterns("""["$.{a}", "${b}$.{c}$.{d}" as e]""") ::
-      patterns("""["$.{bar}" as baz, "${_}${_}$.{c}${d}"]""") ::
-      patterns("""["$.{bar}${_}$.{_}", "$.{_}${_}" as foo]""") ::
+      pair("""["$.{_}${_}$.{_}", "$.{_}${_}"]""") ::
+      pair("""["$.{_}", "${_}$.{_}$.{_}" as e]""") ::
+      pair("""["$.{a}", "${b}$.{c}$.{d}" as e]""") ::
+      pair("""["$.{bar}" as baz, "${_}${_}$.{c}${d}"]""") ::
+      pair("""["$.{bar}${_}$.{_}", "$.{_}${_}" as foo]""") ::
       Nil
 
-    regressions.foreach { list => law(list(0), list(1)) }
+    regressions.foreach { case (a, b) => law(a, b) }
     forAll(genPattern, genPattern)(law(_, _))
+  }
+
+  test("x - y where isTop(y) regressions") {
+    val regressions =
+      (pair("""["foo", ([] | [_, *_])]"""), true) ::
+      Nil
+
+    regressions.foreach { case ((x, y), top) =>
+      val rel = setOps.relate(x, y)
+      val yIsTop = setOps.isTop(y)
+      if (top) {
+        assert(yIsTop)
+      }
+      if (yIsTop) {
+        assertEquals(setOps.difference(x, y), Nil, s"${showPat(x)} - ${showPat(y)}, rel = $rel")
+      }
+    }
   }
 }

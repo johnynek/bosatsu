@@ -344,6 +344,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                         case Some(Pattern.Union(h, t)) =>
                           (h :: t.toList).flatMap { p => unstruct(Some(p)) }
                         // $COVERAGE-OFF$
+                        case Some(Annotation(p, _)) => unstruct(Some(p))
+                        case Some(Named(_, p)) => unstruct(Some(p))
                         case Some(unexpected) =>
                           sys.error(s"unexpected sub pattern of ($pos) in deunion: $unexpected")
                         // $COVERAGE-ON$
@@ -416,6 +418,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         left: Pattern[Cons, Type],
         right: Pattern[Cons, Type]): List[Pattern[Cons, Type]] =
           (left, right) match {
+            case (_, _) if left == right => left :: Nil
             case (Var(va), Var(vb)) => Var(Ordering[Bindable].min(va, vb)) :: Nil
             case (Var(_), v) => v :: Nil
             case (v, Var(_)) => v :: Nil
@@ -425,7 +428,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (l, Named(_, pb)) => intersection(l, pb)
             case (WildCard, v) => v :: Nil
             case (v, WildCard) => v :: Nil
-            case (_, _) if left == right => left :: Nil
             case (Annotation(p, _), t) => intersection(p, t)
             case (t, Annotation(p, _)) => intersection(t, p)
             case (Literal(a), Literal(b)) =>
@@ -457,8 +459,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   // the arity must match or check expr fails
                   // if the arity doesn't match, just consider this
                   // a mismatch
-                  unifyUnion(getProd(la).intersection(lps, rps)
-                    .map(PositionalStruct(ln, _): Pattern[Cons, Type]))
+                  unifyUnion(
+                    getProd(la)
+                      .intersection(lps, rps)
+                      .map(PositionalStruct(ln, _))
+                  )
                 }
                 else Nil
               }
@@ -470,6 +475,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 case Rel.Same => normalizePattern(left) :: Nil
                 case Rel.Super => right :: Nil
                 case Rel.Intersects =>
+                  // we know that neither left nor right can be a top
+                  // value because top >= everything
+                  //
                   // non-trivial intersection
                   (left, right) match {
                     case (Union(a, b), p) =>
@@ -489,41 +497,52 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case Rel.Sub | Rel.Same => Nil
           case Rel.Disjoint => left :: Nil
           case _ =>
+            lazy val leftIsTop = isTop(left)
             // left is a superset of right or intersects
             // so we are definitely not returning left or Nil
+            // if we can exactly compute the difference.
+            // also, right cannot be top, because nothing
+            // is a strict superset or only intersects with top
             (left, right) match {
               case (Named(_, p), r) => difference(p, r)
               case (l, Named(_, p)) => difference(l, p)
               case (Annotation(p, _), r) => difference(p, r)
               case (l, Annotation(p, _)) => difference(l, p)
-              case (Var(v), listPat@ListPat(_)) =>
-                // v is the same as [*v] for well typed expressions
-                listPatternSetOps.difference(ListPat(ListPart.NamedList(v) :: Nil), listPat)
               case (left@ListPat(_), right@ListPat(_)) =>
                 listPatternSetOps.difference(left, right)
-              case (_, listPat@ListPat(_)) if isTop(left) =>
+              case (_, listPat@ListPat(_)) if leftIsTop =>
                 // _ is the same as [*_] for well typed expressions
                 listPatternSetOps.difference(ListPat(ListPart.WildList :: Nil), listPat)
               case (sa@StrPat(_), Literal(Lit.Str(str))) =>
                 strPatternSetOps.difference(sa, StrPat.fromLitStr(str))
               case (sa@StrPat(_), sb@StrPat(_)) =>
                 strPatternSetOps.difference(sa, sb)
-              case (WildCard, right@StrPat(_)) =>
+              case (_, right@StrPat(_)) if leftIsTop =>
                 // _ is the same as "${_}" for well typed expressions
-                strPatternSetOps.difference(StrPat(NonEmptyList(StrPart.WildStr, Nil)), right)
-              case (WildCard, Literal(Lit.Str(str))) =>
-                difference(WildCard, StrPat.fromLitStr(str))
-              case (Var(v), right@StrPat(_)) =>
-                // v is the same as "${v}" for well typed expressions
-                strPatternSetOps.difference(StrPat(NonEmptyList(StrPart.NamedStr(v), Nil)), right)
+                strPatternSetOps.difference(StrPat.Wild, right)
+              case (_, Literal(Lit.Str(s))) if leftIsTop =>
+                if (s.isEmpty) {
+                  // "${_}" - "" == "$.{_}${_}"
+                  strPatternSetOps.difference(StrPat.Wild, StrPat.fromLitStr(""))
+                }
+                else {
+                  // this is not(str), but we can't represent that, :(
+                  topList
+                }
               // below here it is starting to get complex
-              case (Union(a, b), Union(c, d)) =>
-                unifyUnion(differenceAll(a :: b.toList, c :: d.toList))
-              case (Union(a, b), right) =>
-                val u = a :: b.toList
-                unifyUnion(differenceAll(u, right :: Nil))
-              case (left, Union(a, b)) =>
-                val u = a :: b.toList
+              case (Union(_, _), _) if leftIsTop =>
+                difference(WildCard, right)
+              // recall none of the rhs are tops, so we don't need to unify
+              // before difference
+              case (Union(a, b), _) =>
+                unifyUnion(
+                  differenceAll(
+                    a :: b.toList,
+                    Pattern.flatten(right).toList
+                  )
+                )
+              case (left, Union(_, _)) =>
+                val u = Pattern.flatten(right).toList
                 unifyUnion(differenceAll(left :: Nil, u))
               case (PositionalStruct(ln, lp), PositionalStruct(rn, rp)) if ln == rn =>
                 val la = lp.size
@@ -531,8 +550,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   // the arity must match or check expr fails
                   // if the arity doesn't match, just consider this
                   // a mismatch
-                  unifyUnion(getProd(la).difference(lp, rp)
-                    .map(PositionalStruct(ln, _): Pattern[Cons, Type]))
+                  unifyUnion(
+                    getProd(la)
+                      .difference(lp, rp)
+                      .map(PositionalStruct(ln, _))
+                  )
                 }
                 else (left :: Nil)
               case (PositionalStruct(n, as), rp@ListPat(_)) =>
@@ -545,30 +567,17 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   case Some(rp) => difference(lp, rp)
                   case None => left :: Nil
                 }
-              case (_, PositionalStruct(nm, _)) if isTop(left) =>
+              case (_, PositionalStruct(nm, _)) if leftIsTop =>
                 inEnv.definedTypeFor(nm) match {
+                  case Some(dt) =>
+                    topFor(dt).flatMap(difference(_, right))
                   case None =>
                     // just assume this is infinitely bigger than unknown
                     // types
-                    left :: Nil
-                  case Some(dt) =>
-                    topFor(dt).flatMap { pat =>
-                      difference(pat, right)
-                    }
+                    topList
                 }
               case (_, _) =>
-                // ill-typed
-                if (isTop(left)) {
-                  right match {
-                    case StrPat(_) => difference(StrPat.Wild, right)
-                    case ListPat(_) => difference(ListPat.Wild, right)
-                    // we already checked for right as PositionalStruct
-                    // we can't compute top - literal
-                    case _ =>
-                      // we can't solve this
-                      left :: Nil
-                  }
-                }
+                if (leftIsTop) topList
                 else left :: Nil
             }
           }
@@ -605,10 +614,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (Annotation(p, _), _) => loop(p, b)
             case (_, Annotation(p, _)) => loop(a, p)
             case (_, u@Union(_, _)) =>
+              val utop = unifyUnion(u :: Nil).exists(isTop)
               if (isTop(a)) {
-                if (unifyUnion(u :: Nil).exists(isTop)) Rel.Same
+                if (utop) Rel.Same
                 else Rel.Super
               }
+              else if (utop) Rel.Sub
               else {
                 val (ua, ub) = u.split
                 urm.unionRelCompare(Some(a), Some(ua), Some(ub))

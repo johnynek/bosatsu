@@ -1,9 +1,9 @@
 package org.bykn.bosatsu.pattern
 
+import org.bykn.bosatsu.Platform
 import org.bykn.bosatsu.set.{Rel, SetOps, SetOpsLaws}
 import cats.Eq
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration
 
 import SeqPattern.{Cat, Empty}
 import SeqPart.{AnyElem, Lit, Wildcard}
@@ -14,10 +14,10 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   type Pattern = SeqPattern[Char]
   val Pattern = SeqPattern
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 10)
+      .withMaxDiscardRatio(10)
 
   // if there are too many wildcards the intersections will blow up
   def genItem: Gen[Pattern] = StringSeqPatternGen.genPat.map { p =>
