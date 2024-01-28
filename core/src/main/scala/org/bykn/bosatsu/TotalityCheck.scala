@@ -137,7 +137,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             val recursion = argAndBranchExprs.traverse_(checkExpr)
 
             val missing: ValidatedNel[ExprError[A], Unit] = {
-              val mis = patternSetOps.missingBranches(WildCard :: Nil, patterns)
+              val mis = patternSetOps.missingBranches(topList, patterns)
               NonEmptyList.fromList(mis) match {
                 case Some(nel) =>
                   Validated.invalidNel(NonTotalMatch(m, nel): ExprError[A])
@@ -164,8 +164,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     }
   }
 
+  private val topList = WildCard :: Nil
+
   def missingBranches(p: Patterns): Patterns =
-    patternSetOps.missingBranches(WildCard :: Nil, p)
+    patternSetOps.missingBranches(topList, p)
 
   def intersection(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Patterns =
     patternSetOps.intersection(a, b)
@@ -224,7 +226,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           { case (h, t) => h :: t },
           {
             case h :: t => (h, t)
+            // $COVERAGE-OFF$
             case _ => sys.error(s"invalid arity: $arity, found empty list")
+            // $COVERAGE-ON$
           })
     }
 
@@ -312,7 +316,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case Annotation(pat, _) => deunion(Some(pat))
             case WildCard | Var(_) =>
               Left({(a, b) =>
-                if (unifyUnion(a.toList ::: b.toList).exists(_ == WildCard)) Rel.Same
+                // unify union returns no top level unions
+                // so isTop is cheap
+                if (unifyUnion(a.toList ::: b.toList).exists(isTop)) Rel.Same
                 else Rel.Super
               })
             case pos @ PositionalStruct(name, params) =>
@@ -363,6 +369,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                     val (l, r) = u.split
                     optPatternToList(Some(l)) :::
                       optPatternToList(Some(r))
+                  case Some(p @ (Annotation(_, _) | Named(_, _))) =>
+                    optPatternToList(fromList(unwrap(p).toList))
                   case _ => Nil
                 }
 
@@ -377,15 +385,19 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               def optPatternToStr(p: Option[Pattern[Cons, Type]]): List[StrPat] =
                 p match {
                   case Some(sp @ StrPat(_)) => sp :: Nil
+                  case Some(Literal(Lit.Str(s))) =>
+                    StrPat.fromLitStr(s) :: Nil
                   case Some(Union(h, t)) =>
                     optPatternToStr(Some(h)) :::
                       optPatternToStr(Some(Pattern.union(t.head, t.tail)))
+                  case Some(p @ (Annotation(_, _) | Named(_, _))) =>
+                    optPatternToStr(fromList(unwrap(p).toList))
                   case _ => Nil
                 }
 
               Left(
                 {(b, c) =>
-                  val rhs = optPatternToStr(b) ::: optPatternToStr(c) 
+                  val rhs = optPatternToStr(b) ::: optPatternToStr(c)
                   if (strPatternSetOps.missingBranches(sp :: Nil, rhs).isEmpty) Rel.Same
                   else Rel.Super
                 }
@@ -593,8 +605,14 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (Annotation(p, _), _) => loop(p, b)
             case (_, Annotation(p, _)) => loop(a, p)
             case (_, u@Union(_, _)) =>
-              val (ua, ub) = u.split
-              urm.unionRelCompare(Some(a), Some(ua), Some(ub))
+              if (isTop(a)) {
+                if (unifyUnion(u :: Nil).exists(isTop)) Rel.Same
+                else Rel.Super
+              }
+              else {
+                val (ua, ub) = u.split
+                urm.unionRelCompare(Some(a), Some(ua), Some(ub))
+              }
             case (Union(_, _), _) => loop(b, a).invert
             // All unions have been handled by this point
             case (Literal(Lit.Str(s)), sp@Pattern.StrPat(_)) =>
@@ -660,13 +678,22 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           loop(a0, b0)
         }
 
+      private def unwrap(p: Pattern[Cons, Type]): NonEmptyList[Pattern[Cons, Type]] =
+        p match {
+          case Named(_, pat) => unwrap(pat)
+          case Annotation(pat, _) => unwrap(pat)
+          case u @ Union(_, _) => Pattern.flatten(u).flatMap(unwrap)
+          case _ => NonEmptyList.one(p)
+        }
+
+      // Invariant: this returns no top level unions
       def unifyUnion(u0: List[Pattern[Cons, Type]]): List[Pattern[Cons, Type]] =
-        u0.flatMap { p => Pattern.flatten(normalizePattern(p)).toList } match {
-          case Nil | _ :: Nil => u0
+        u0.flatMap(unwrap(_).toList) match {
+          case Nil => Nil
+          case singleton @ (one :: Nil) =>
+            if (isTop(one)) topList else singleton 
           case u =>
 
-        if (u.exists(isTop)) WildCard :: Nil
-        else {
           val structsDs = u
             .collect { case Pattern.PositionalStruct(n, a) => (n, a) }
             .groupByNel { case (n, a) => (n, a.size) }
@@ -694,11 +721,15 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               case (None, _) => false
             }
 
-          if (hasTopStruct) WildCard :: Nil
+          if (hasTopStruct) topList
           else {
             val structs = structsDs.map(_._2)
             val lps = listPatternSetOps.unifyUnion(u.collect { case lp@Pattern.ListPat(_) => lp })
             val sps = strPatternSetOps.unifyUnion(u.collect { case sp@Pattern.StrPat(_) => sp })
+
+            if (lps.exists(isTop) || sps.exists(isTop)) topList
+            else {
+
             val strs = u.collect { case Pattern.Literal(ls@Lit.Str(_)) => ls }
 
             val distinctStrs =
@@ -716,7 +747,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             }
             .distinct
 
-            (lps ::: sps ::: distinctStrs :::  notListStr ::: structs).sorted
+            if (notListStr.exists(isTop)) topList
+            else (lps ::: sps ::: distinctStrs ::: notListStr /*notListStr.flatMap(unwrap(_).toList)*/ ::: structs).sorted
           }
         }
       }

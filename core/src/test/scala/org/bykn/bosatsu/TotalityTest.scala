@@ -26,9 +26,6 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
 
-  val genPatternNoUnion: Gen[Pattern[(PackageName, Constructor), Type]] =
-    Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
-
   def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
     val pat0 = pat.mapName {
       case (_, n) =>
@@ -57,16 +54,29 @@ struct TupleCons(fst, snd)
 enum Bool: False, True
 """)
 
+  val PredefTotalityCheck = TotalityCheck(predefTE)
   val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
-    TotalityCheck(predefTE).patternSetOps
+    PredefTotalityCheck.patternSetOps
 
   def genItem: Gen[Pattern[(PackageName, Constructor), Type]] =
-    // TODO would be nice to pass with unions, they are hard
-    genPatternNoUnion
+    genPattern
+
+  val genPatternNoUnion: Gen[Pattern[(PackageName, Constructor), Type]] =
+    Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
+
+  override def genUnion =
+    Gen.oneOf(
+      genPattern.map { p =>
+        // this will violate the law if we make List(union) because
+        // we can expand that into more things than the input
+        Pattern.flatten(PredefTotalityCheck.normalizePattern(p)).toList
+      },
+      Generators.smallList(genPatternNoUnion)
+    )
 
   val eqPatterns: Eq[List[Pattern[(PackageName, Constructor), Type]]] =
     new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
-      val e1 = TotalityCheck(predefTE).eqPat
+      val e1 = PredefTotalityCheck.eqPat
 
       def eqv(a: List[Pattern[(PackageName, Constructor), Type]],
         b: List[Pattern[(PackageName, Constructor), Type]]) =
@@ -256,13 +266,13 @@ enum Either: Left(l), Right(r)
 
   test("test intersection") {
     val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]")
-      TotalityCheck(predefTE).intersection(p0, p1) match {
+      PredefTotalityCheck.intersection(p0, p1) match {
         case List(intr) => assert(intr == p1norm)
         case other => fail(s"expected exactly one intersection: $other")
       }
 
     val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
-      TotalityCheck(predefTE).intersection(p2, p3) match {
+      PredefTotalityCheck.intersection(p2, p3) match {
         case List(intr) => assert(p3 == intr)
         case other => fail(s"expected exactly one intersection: $other")
       }
@@ -274,8 +284,8 @@ enum Either: Left(l), Right(r)
         "$.{foo}",
         "baz"]""")
 
-      assert(TotalityCheck(predefTE).intersection(p0, p1).isEmpty)
-      assert(TotalityCheck(predefTE).intersection(p1, p2).isEmpty)
+      assert(PredefTotalityCheck.intersection(p0, p1).isEmpty)
+      assert(PredefTotalityCheck.intersection(p1, p2).isEmpty)
       
       import pattern.SeqPattern.{stringUnitMatcher, Cat, Empty}
       import pattern.SeqPart.AnyElem
@@ -292,7 +302,7 @@ enum Either: Left(l), Right(r)
   }
 
   test("test some difference examples") {
-    val tc = TotalityCheck(predefTE)
+    val tc = PredefTotalityCheck
     import tc.eqPat.eqv
     {
       val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]")
@@ -304,11 +314,11 @@ enum Either: Left(l), Right(r)
 
     {
       val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]")
-      TotalityCheck(predefTE).difference(p1, p0) match {
+      PredefTotalityCheck.difference(p1, p0) match {
         case diff :: Nil => assert(eqv(diff, p1))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
       }
-      TotalityCheck(predefTE).difference(p0, p1) match {
+      PredefTotalityCheck.difference(p0, p1) match {
         case diff :: Nil => assert(eqv(diff, p0))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
       }
@@ -316,7 +326,7 @@ enum Either: Left(l), Right(r)
 
     {
       val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
-      TotalityCheck(predefTE).intersection(p0, p1) match {
+      PredefTotalityCheck.intersection(p0, p1) match {
         case List(res) if res == p0 || res == p1 => ()
         case Nil => fail("these do overlap")
         case nonUnified => fail(s"didn't unify to one: $nonUnified")
@@ -420,7 +430,7 @@ enum Either: Left(l), Right(r)
   test("difference returns distinct regressions") {
     def check(str: String) = {
       val List(p1, p2) = patterns(str)
-      val tc = TotalityCheck(predefTE)
+      val tc = PredefTotalityCheck
       val diff = tc.difference(p1, p2)
       assert(diff == diff.distinct)
     }
@@ -429,7 +439,7 @@ enum Either: Left(l), Right(r)
   }
 
   test("intersection is commutative regressions") {
-    val tc = TotalityCheck(predefTE)
+    val tc = PredefTotalityCheck
 
     {
       val p0 :: p1 :: Nil = patterns(
@@ -443,7 +453,7 @@ enum Either: Left(l), Right(r)
   }
 
   test("string match totality") {
-    val tc = TotalityCheck(predefTE)
+    val tc = PredefTotalityCheck
 
     val ps = patterns("""["${_}$.{_}", ""]""")
     val diff = tc.missingBranches(ps)
@@ -467,15 +477,15 @@ enum Either: Left(l), Right(r)
   }
 
   test("var pattern is super or same") {
-    val tc = TotalityCheck(predefTE)
+    val tc = PredefTotalityCheck
 
     val p1 :: p2 :: _ = patterns("""[foo, Bar(1)]""")
     val rel = tc.patternSetOps.relate(p1, p2)
     assertEquals(rel, Rel.Super) 
   }
 
-  test("union commutes") {
-    val tc = TotalityCheck(predefTE)
+  test("union commutes with type wrappers: Some(1 | 2) == Some(1) | Some(2)") {
+    val tc = PredefTotalityCheck
 
     {
       val p1 :: p2 :: _ = patterns("""[Some(1 | 2), Some(1) | Some(2)]""")
@@ -488,5 +498,34 @@ enum Either: Left(l), Right(r)
       val rel = tc.patternSetOps.relate(p1, p2)
       assertEquals(rel, Rel.Super) 
     }
+  }
+
+  test("unifyUnion returns no top-level unions") {
+    forAll(Gen.listOf(genPattern)) { pats =>
+      val unions = setOps.unifyUnion(pats).collect { case u @ Pattern.Union(_, _) => u }  
+      assertEquals(unions, Nil)
+    }
+  }
+
+  test("unifyUnion(u) <:> u == Same") {
+    def law(pat1: Pat, pat2: Pat)(implicit loc: munit.Location) = {
+      val unions = NonEmptyList.fromListUnsafe(setOps.unifyUnion(pat1 :: pat2 :: Nil))
+      val u1 = Pattern.union(unions.head, unions.tail)
+      assertEquals(
+        setOps.relate(Pattern.union(pat1, pat2 :: Nil), u1),
+        Rel.Same,
+        s"p1 = ${showPat(pat1)}\np2 = ${showPat(pat2)}\nunified = ${showPat(u1)}")
+    }
+
+    val regressions =
+      patterns("""["$.{_}${_}$.{_}", "$.{_}${_}"]""") ::
+      patterns("""["$.{_}", "${_}$.{_}$.{_}" as e]""") ::
+      patterns("""["$.{a}", "${b}$.{c}$.{d}" as e]""") ::
+      patterns("""["$.{bar}" as baz, "${_}${_}$.{c}${d}"]""") ::
+      patterns("""["$.{bar}${_}$.{_}", "$.{_}${_}" as foo]""") ::
+      Nil
+
+    regressions.foreach { list => law(list(0), list(1)) }
+    forAll(genPattern, genPattern)(law(_, _))
   }
 }

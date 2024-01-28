@@ -8,6 +8,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   val setOps: SetOps[A]
 
   def genItem: Gen[A]
+  def genUnion: Gen[List[A]] = Gen.listOf(genItem)
 
   def eqUnion: Gen[Eq[List[A]]]
 
@@ -63,10 +64,11 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   }
 
   test("unify union makes size <= input") {
-    forAll(Gen.listOf(genItem)) { (ps: List[A]) =>
+    forAll(genUnion) { (ps: List[A]) =>
       val unified = unifyUnion(ps)
 
-      assert(ps.size >= unified.size, s"unified = $unified")
+      assert(ps.size >= unified.size,
+      s"input(${ps.size}): $ps\n\nunified(${unified.size}) = $unified\n\n")
     }
   }
 
