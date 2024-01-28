@@ -322,12 +322,13 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           assert(!eqv.eqv(a :: Nil, b :: Nil))
         case Rel.Intersects =>
           val intr = setOps.intersection(a, b)
-          assert(!eqv.eqv(intr, a :: Nil))
-          assert(!eqv.eqv(intr, b :: Nil))
-          assert(!eqv.eqv(a :: Nil, b :: Nil))
-          assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
+
+          assert(!eqv.eqv(intr, a :: Nil))
+          assert(!eqv.eqv(intr, b :: Nil), s"intr = $intr")
+          assert(!eqv.eqv(a :: Nil, b :: Nil))
+          assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
           assert(diffA.nonEmpty)
           assert(diffB.nonEmpty)
       }

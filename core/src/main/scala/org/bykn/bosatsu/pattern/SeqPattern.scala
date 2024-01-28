@@ -156,10 +156,10 @@ object SeqPattern {
       // this is an incomplete heuristic now, not a complete solution
       def unifyUnion(union: List[SeqPattern[A]]): List[SeqPattern[A]] =
         unifyUnionList {
-            union
-              .map(_.normalize)
-              .distinct
-              .map(_.toList)
+          union
+            .map(_.normalize)
+            .distinct
+            .map(_.toList)
           }
           .map(SeqPattern.fromList(_).normalize)
           .sorted

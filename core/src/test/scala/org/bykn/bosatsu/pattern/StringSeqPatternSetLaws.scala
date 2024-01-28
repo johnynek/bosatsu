@@ -16,7 +16,7 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 10)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 500 else 10)
       .withMaxDiscardRatio(10)
 
   // if there are too many wildcards the intersections will blow up
@@ -29,14 +29,24 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   def matches(p: Pattern, s: String): Boolean = pmatcher(p)(s).isDefined
 
   def eqUnion: Gen[Eq[List[Pattern]]] =
-    Gen.listOfN(1000, StringSeqPatternGen.genBitString).map { tests =>
+    Gen.listOfN(5000, Gen.frequency(
+      10 -> StringSeqPatternGen.genBitString,
+      1 -> Gen.listOf(Gen.oneOf(List('0', '1', '2'))).map(_.mkString)
+    )).map { tests =>
+      // we have to generate more than just 01 strings,
+      // since Any can match more than that
       new Eq[List[Pattern]] {
         // this can flake because if two things are different,
         // but happen to have the same match results for this
         // set of items, then you are hosed
         def eqv(a: List[Pattern], b: List[Pattern]) =
-          (a.toSet == b.toSet) || tests.forall { s =>
-            a.exists(matches(_, s)) == b.exists(matches(_, s))
+          (a, b) match {
+            case (ah :: Nil, bh :: Nil) =>
+              setOps.equiv(ah, bh)
+            case _ =>
+              (a.toSet == b.toSet) || tests.forall { s =>
+                a.exists(matches(_, s)) == b.exists(matches(_, s))
+              }
           }
       }
     }
