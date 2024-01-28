@@ -287,6 +287,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           assert(!setOps.disjoint(a, b))
           assert(eqv.eqv(intr, a :: Nil))
           assert(eqv.eqv(intr, b :: Nil))
+          assert(eqv.eqv(a :: Nil, b :: Nil))
         case Rel.Sub =>
           val intr = setOps.intersection(a, b)
           assert(setOps.subset(a, b))
@@ -309,10 +310,12 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           val diffB = setOps.difference(b, a)
           assert(eqv.eqv(diffA, a :: Nil))
           assert(eqv.eqv(diffB, b :: Nil))
+          assert(!eqv.eqv(a :: Nil, b :: Nil))
         case Rel.Intersects =>
           val intr = setOps.intersection(a, b)
           assert(!eqv.eqv(intr, a :: Nil))
           assert(!eqv.eqv(intr, b :: Nil))
+          assert(!eqv.eqv(a :: Nil, b :: Nil))
           assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)

@@ -468,7 +468,22 @@ object Pattern {
   }
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
-  case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
+  case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T] {
+    def split: (Pattern[N, T], Pattern[N, T]) = {
+      // we have at least two patterns here
+      val pats = head :: rest.flatMap(flatten(_))
+      val (left, right) = pats.toList.splitAt(pats.size / 2)
+      def fromL(ps: List[Pattern[N, T]]): Pattern[N, T] =
+        ps match {
+          case h :: t => Pattern.union(h, t)
+          // $COVERAGE-OFF$ should be unreachable
+          case Nil => sys.error("unreacheable since there are at least 2")
+          // $COVERAGE-ON$ should be unreachable
+        }
+
+      (fromL(left), fromL(right))
+    }
+  }
 
   object ListPat {
     val Wild: ListPat[Nothing, Nothing] =

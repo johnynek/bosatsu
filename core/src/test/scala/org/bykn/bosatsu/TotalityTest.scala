@@ -346,8 +346,9 @@ enum Either: Left(l), Right(r)
 
   test("x - top = 0 regressions") {
     // see: https://github.com/johnynek/bosatsu/issues/475
-    def law(x: Pat, y: Pat) = {
-      if (setOps.isTop(y)) assert(setOps.difference(x, y).isEmpty)
+    def law(x: Pat, y: Pat)(implicit loc: munit.Location) = {
+      if (setOps.isTop(y))
+        assert(setOps.difference(x, y).isEmpty, s"x = ${showPat(x)}, y = ${showPat(y)}")
     }
 
     val regressions: List[(Pat, Pat)] =
