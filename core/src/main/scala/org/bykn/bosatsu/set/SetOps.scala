@@ -229,28 +229,18 @@ object SetOps {
         toList(u.foldLeft(Set.empty[A])(_ | _))
 
       override def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
-      override def relate(a: Set[A], b: Set[A]) = {
-        val aSubB = a.subsetOf(b)
-        val bSubA = b.subsetOf(a)
-        if (aSubB) {
-          if (bSubA) Rel.Same
-          else Rel.Sub
-        }
-        else if (bSubA) Rel.Super
-        else {
+      private val rel = Relatable.fromSubsetIntersects[Set[A]](
+        _.subsetOf(_),
+        (a, b) => {
           // Disjoint or Intersects
           val sa = a.size
           val sb = b.size
-          if (sa <= sb) {
-            if (a.exists(b)) Rel.Intersects
-            else Rel.Disjoint
-          }
-          else {
-            if (b.exists(a)) Rel.Intersects
-            else Rel.Disjoint
-          }
+          if (sa <= sb) a.exists(b)
+          else b.exists(a)
         }
-      }
+      )
+      
+      def relate(a: Set[A], b: Set[A]) = rel.relate(a, b)
     }
 
   // for types with only one value, Null, Unit, Nil

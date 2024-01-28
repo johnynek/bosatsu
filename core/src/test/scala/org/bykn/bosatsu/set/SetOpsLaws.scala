@@ -277,27 +277,34 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
   test("relate consistency") {
     forAll(genItem, genItem, eqUnion) { (a, b, eqv) =>
-      setOps.relate(a, b) match {
+      val relAb = setOps.relate(a, b)
+      assertEquals(setOps.relate(b, a).invert, relAb)
+      relAb match {
         case Rel.Same =>
           val intr = setOps.intersection(a, b)
           assert(setOps.subset(a, b))
+          assert(setOps.subset(b, a))
+          assert(!setOps.disjoint(a, b))
           assert(eqv.eqv(intr, a :: Nil))
           assert(eqv.eqv(intr, b :: Nil))
         case Rel.Sub =>
           val intr = setOps.intersection(a, b)
           assert(setOps.subset(a, b))
+          assert(!setOps.disjoint(a, b))
           assert(eqv.eqv(intr, a :: Nil))
           val diffB = setOps.difference(b, a)
           assert(!eqv.eqv(diffB, Nil))
         case Rel.Super =>
           val intr = setOps.intersection(a, b)
           assert(setOps.subset(b, a))
+          assert(!setOps.disjoint(a, b))
           assert(eqv.eqv(intr, b :: Nil))
           val diffA = setOps.difference(a, b)
           assert(!eqv.eqv(diffA, Nil))
         case Rel.Disjoint =>
           val intr = setOps.intersection(a, b)
           assert(intr.isEmpty)
+          assert(setOps.disjoint(a, b))
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
           assert(eqv.eqv(diffA, a :: Nil))
@@ -309,8 +316,8 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
-          assert(!eqv.eqv(diffA, Nil))
-          assert(!eqv.eqv(diffB, Nil))
+          assert(diffA.nonEmpty)
+          assert(diffB.nonEmpty)
       }
     }
   }
