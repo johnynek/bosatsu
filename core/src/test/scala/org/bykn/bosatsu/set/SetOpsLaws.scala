@@ -81,10 +81,10 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
   def selfDifferenceLaw(p1: A, p2: A) = {
     if (p1 == p2) {
-      assert(difference(p1, p2) == Nil)
+      assertEquals(difference(p1, p2), Nil)
     }
-    assert(difference(p1, p1) == Nil)
-    assert(difference(p2, p2) == Nil)
+    assertEquals(difference(p1, p1), Nil)
+    assertEquals(difference(p2, p2), Nil)
   }
 
   test("a - a == 0") {
@@ -102,7 +102,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   test("x - top = 0") {
     top.foreach { t =>
       forAll(genItem) { (x) =>
-        assert(difference(x, t) == Nil)
+        assertEquals(difference(x, t), Nil)
       }
     }
 
@@ -128,7 +128,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     forAll(genItem, genItem) { (x: A, y: A) =>
       val z = difference(x, y)
       val z1 = unifyUnion(differenceAll(z, z))
-      assert(z1 == Nil, s"z = $z")
+      assertEquals(z1, Nil, s"z = $z")
     }
   }
 
@@ -138,16 +138,20 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   def isSubsetDiff(a: A, b: A) =
     difference(a, b).isEmpty
 
-  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]]) = {
+  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]])(implicit loc: munit.Location) = {
     val intSub = isSubsetIntr(a, b, eqAs)
     val diffSub = isSubsetDiff(a, b)
 
     if (subset(a, b)) {
       assert(intSub)
       assert(diffSub)
+      assertEquals(intSub, diffSub)
     }
-
-    assert(intSub == diffSub)
+    else {
+      // we can have false positives of intSub
+      // when we have a sampling equality
+      assertEquals(diffSub, false)
+    }
   }
 
   test("subset consistency: a n b == a <=> a - b = 0") {
@@ -157,14 +161,14 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   test("difference returns distinct values") {
     forAll(genItem, genItem) { (a, b) =>
       val c = difference(a, b)
-      assert(c == c.distinct)
+      assertEquals(c, c.distinct)
     }
   }
 
   test("intersection returns distinct values") {
     forAll(genItem, genItem) { (a, b) =>
       val c = intersection(a, b)
-      assert(c == c.distinct)
+      assertEquals(c, c.distinct)
     }
   }
 
@@ -232,7 +236,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       }
       else {
         val rightu = unifyUnion(right)
-        assert(leftu == rightu, s"diffAB = $diffab, intAC = $intAC, intBC = $intBC")
+        assertEquals(leftu, rightu, s"diffAB = $diffab, intAC = $intAC, intBC = $intBC")
       }
     }
   }
@@ -256,7 +260,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       val rest1 = missingBranches(top :: Nil, pats ::: rest)
       if (rest1.isEmpty) {
         val unreach = unreachableBranches(pats ::: rest)
-        assert(unreach.filter(rest.toSet) == Nil, s"\n\nrest = ${rest}\n\ninit: ${pats}")
+        assertEquals(unreach.filter(rest.toSet), Nil, s"\n\nrest = ${rest}\n\ninit: ${pats}")
       }
       else {
         fail(s"after adding ${rest} we still need ${rest1}")
@@ -276,7 +280,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
     forAll(pats, pats) { (top, pats) =>
       val rest = missingBranches(top, pats)
-      assert(rest == rest.distinct)
+      assertEquals(rest, rest.distinct)
     }
   }
 
@@ -441,10 +445,10 @@ class SetOpsTests extends munit.ScalaCheckSuite {
         if (i <= 1) acc
         else fact(i - 1, i * acc)
 
-      assert(perms.length == fact(is0.size, 1))
+      assertEquals(perms.length, fact(is0.size, 1))
 
       perms.foreach { p =>
-        assert(p.sorted == is.sorted)
+        assertEquals(p.sorted, is.sorted)
       }
       val pi = perms.zipWithIndex
 
@@ -539,7 +543,7 @@ class SetOpsTests extends munit.ScalaCheckSuite {
         val ba = pa(b)
         val bb = pb(b)
         val bc = pc(b)
-        assert(left(b) == right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        assertEquals(left(b), right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
       }
     }
   }
@@ -564,7 +568,7 @@ class SetOpsTests extends munit.ScalaCheckSuite {
       val left = a1.product(b1) - a2.product(b2)
       val right = (a1 && a2).product(b1 - b2) || (a1 - a2).product(b1)
       checks.foreach { ab =>
-        assert(left(ab) == right(ab))
+        assertEquals(left(ab), right(ab))
       }
     }
   }

@@ -759,7 +759,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             .distinct
 
             if (notListStr.exists(isTop)) topList
-            else (lps ::: sps ::: distinctStrs ::: notListStr /*notListStr.flatMap(unwrap(_).toList)*/ ::: structs).sorted
+            else (lps ::: sps ::: distinctStrs ::: notListStr ::: structs).sorted
           }
         }
       }
@@ -776,6 +776,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case Var(_) => WildCard
       case Named(_, p) => normalizePattern(p)
       case Annotation(p, _) => normalizePattern(p)
+      case _ if patternSetOps.isTop(p) => WildCard
       case u@Union(_, _) =>
         val flattened = Pattern.flatten(u).map(normalizePattern(_))
 
@@ -786,8 +787,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             sys.error("unreachable: union can't remove items")
             // $COVERAGE-ON$
         }
-
-      case _ if patternSetOps.isTop(p) => WildCard
       case strPat@StrPat(_) =>
         strPat.toLiteralString match {
           case Some(str) => Literal(Lit.Str(str))

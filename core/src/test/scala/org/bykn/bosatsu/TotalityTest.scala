@@ -558,4 +558,16 @@ enum Either: Left(l), Right(r)
       }
     }
   }
+
+  property("normalizePattern(p) <:> q == p <:> q") {
+    forAll(genPattern, genPattern) { (p, q) =>
+      val normp = PredefTotalityCheck.normalizePattern(p)
+      assertEquals(
+        setOps.relate(normp, q),
+        setOps.relate(p, q),
+      )  
+
+      assertEquals(setOps.relate(normp, p), Rel.Same)
+    }
+  }
 }

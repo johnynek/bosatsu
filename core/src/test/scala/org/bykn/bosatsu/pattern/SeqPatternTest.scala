@@ -18,7 +18,7 @@ object StringSeqPatternGen {
   // generate a string of 0s and 1s to make matches more likely
   val genBitString: Gen[String] =
     for {
-      sz <- Gen.choose(0, 4)
+      sz <- Gen.geometric(4.0)
       g = Gen.oneOf(0, 1)
       list <- Gen.listOfN(sz, g)
     } yield list.mkString
