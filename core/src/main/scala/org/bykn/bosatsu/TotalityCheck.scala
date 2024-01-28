@@ -302,7 +302,15 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         def deunion(a: Option[Pattern[Cons,Type]]): Either[(Option[Pattern[Cons,Type]], Option[Pattern[Cons,Type]]) => Rel.SuperOrSame,(Option[Pattern[Cons,Type]], Option[Pattern[Cons,Type]])] =
           a.get match {
             case Pattern.Union(head, rest) =>
-              Right((Some(head), Some(Pattern.union(rest.head, rest.tail))))
+              // we know there are at list 2 items here
+              // split in half to minimize recursion depth
+              val pats = head :: rest.toList
+              val patSize = pats.size
+              val (left, right) = pats.splitAt(patSize / 2)
+              Right(
+                (Some(Pattern.union(left.head, left.tail)),
+                  Some(Pattern.union(right.head, right.tail)))
+              )
             case Pattern.Literal(_) =>
               // if a literal is >= something it is same, no partial supersets
               Left((_, _) => Rel.Same)
