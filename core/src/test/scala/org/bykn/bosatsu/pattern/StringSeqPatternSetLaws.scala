@@ -1,9 +1,12 @@
 package org.bykn.bosatsu.pattern
 
-import org.bykn.bosatsu.set.{SetOps, SetOpsLaws}
+import org.bykn.bosatsu.set.{Rel, SetOps, SetOpsLaws}
 import cats.Eq
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration
+
+import SeqPattern.{Cat, Empty}
+import SeqPart.{AnyElem, Lit, Wildcard}
 
 import cats.implicits._
 
@@ -69,9 +72,6 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   }
 
   test("(a - b) n c = (a n c) - (b n c) regressions") {
-    import SeqPattern.{Cat, Empty}
-    import SeqPart.{AnyElem, Lit, Wildcard}
-
     val regressions: List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
       (Cat(Wildcard, Empty),
         Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Empty))),
@@ -95,5 +95,15 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
       Nil
 
     regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }
+  }
+
+  test("intersection regression") {
+    val p1 = Cat(Wildcard,Cat(Lit('0'),Cat(Lit('1'),Empty)))
+    val p2 = Cat(Lit('0'),Cat(Lit('0'),Cat(Lit('0'),Cat(Wildcard,Empty))))
+
+    assert(setOps.relate(p1, p2) == Rel.Intersects)
+    assert(setOps.relate(p2, p1) == Rel.Intersects)
+    assert(setOps.intersection(p1, p2).nonEmpty)
+    assert(setOps.intersection(p2, p1).nonEmpty)
   }
 }

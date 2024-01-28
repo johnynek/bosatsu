@@ -609,10 +609,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             u.exists(isTopCheap(_))
         }
 
-      def subset(a0: Pattern[Cons, Type], b0: Pattern[Cons, Type]): Boolean =
+      override def subset(a0: Pattern[Cons, Type], b0: Pattern[Cons, Type]): Boolean =
         isTopCheap(b0) || relate(a0, b0).isSubtype
 
-      override def relate(a0: Pattern[Cons,Type], b0: Pattern[Cons,Type]): Rel = {
+      def relate(a0: Pattern[Cons,Type], b0: Pattern[Cons,Type]): Rel = {
         def loop(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Rel =
           (a, b) match {
             case _ if a == b => Rel.Same
@@ -749,6 +749,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   val eqPat: Eq[Pattern[Cons, Type]] =
     new Eq[Pattern[Cons, Type]] {
       def eqv(l: Pattern[Cons, Type], r: Pattern[Cons, Type]) =
-        normalizePattern(l) == normalizePattern(r)
+        patternSetOps.equiv(l, r)
     }
 }

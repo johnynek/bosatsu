@@ -21,18 +21,7 @@ trait SetOps[A] extends Relatable[A] {
    */
   def intersection(a1: A, a2: A): List[A]
 
-  def relate(a1: A, a2: A): Rel = {
-    if (subset(a1, a2)) {
-      if (subset(a2, a1)) Rel.Same
-      else Rel.Sub
-    }
-    else if (subset(a2, a1)) Rel.Super
-    else {
-      val inter = intersection(a1, a2)
-      if (inter.isEmpty) Rel.Disjoint
-      else Rel.Intersects
-    }
-  }
+  def relate(a1: A, a2: A): Rel
 
   /**
    * Return true if a1 and a2 are disjoint
@@ -61,7 +50,8 @@ trait SetOps[A] extends Relatable[A] {
    * that is allowed to say no in order
    * to avoid very expensive work
    */
-  def subset(a: A, b: A): Boolean
+  def subset(a: A, b: A): Boolean =
+    relate(a, b).isSubtype
 
   def equiv(a: A, b: A): Boolean =
     relate(a, b) == Rel.Same
@@ -86,6 +76,13 @@ trait SetOps[A] extends Relatable[A] {
    * }
    */
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
+    def clearSubs(branches: List[A], front: List[A]): List[A] =
+      branches match {
+        case Nil => Nil
+        case h :: tail =>
+          if (tail.exists(relate(h, _).isSubtype) || front.exists(relate(h, _).isSubtype)) clearSubs(tail, front)
+          else h :: clearSubs(tail, h :: front)
+      }
     // we can subtract in any order
     // since a - b - c = a - c - b
 
@@ -105,7 +102,8 @@ trait SetOps[A] extends Relatable[A] {
           else java.lang.Integer.compare(x.size, y.size)
         }
       }
-    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(branches))(differenceAll(_, _))(superSetIsSmaller)
+    val normB = clearSubs(branches, Nil)
+    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(differenceAll(_, _))(superSetIsSmaller)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
@@ -204,7 +202,10 @@ object SetOps {
         nub(u.sorted)
       }
 
-      def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
+      override def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
+      override def relate(a1: A, a2: A): Rel =
+        if (a1 == a2) Rel.Same
+        else Rel.Disjoint
     }
 
   def fromFinite[A](items: Iterable[A]): SetOps[Set[A]] =
@@ -227,7 +228,7 @@ object SetOps {
       def unifyUnion(u: List[Set[A]]): List[Set[A]] =
         toList(u.foldLeft(Set.empty[A])(_ | _))
 
-      def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
+      override def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
       override def relate(a: Set[A], b: Set[A]) = {
         val aSubB = a.subsetOf(b)
         val bSubA = b.subsetOf(a)
@@ -266,7 +267,7 @@ object SetOps {
       def unifyUnion(u: List[A]): List[A] =
         if (u.isEmpty) Nil else intr
 
-      def subset(a: A, b: A): Boolean = true
+      def relate(a1: A, a2: A): Rel = Rel.Same
     }
 
   def imap[A, B](sa: SetOps[A], fn: A => B, invf: B => A): SetOps[B] =
@@ -282,8 +283,11 @@ object SetOps {
       def unifyUnion(u: List[B]): List[B] =
         sa.unifyUnion(u.map(invf)).map(fn)
 
-      def subset(a: B, b: B): Boolean =
+      override def subset(a: B, b: B): Boolean =
         sa.subset(invf(a), invf(b))
+
+      def relate(a1: B, a2: B): Rel =
+        sa.relate(invf(a1), invf(a2))
     }
 
   def product[A, B](sa: SetOps[A], sb: SetOps[B]): SetOps[(A, B)] =
@@ -388,7 +392,10 @@ object SetOps {
         loop(u)
       }
 
-      def subset(left: (A, B), right: (A, B)): Boolean =
+      override def subset(left: (A, B), right: (A, B)): Boolean =
         sa.subset(left._1, right._1) && sb.subset(left._2, right._2)
+
+      override def relate(left: (A, B), right: (A, B)): Rel =
+        sa.relate(left._1, right._1).lazyCombine(sb.relate(left._2, right._2))
     }
 }

@@ -87,8 +87,10 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   }
 
   test("a n a == a") {
-    forAll(genItem) { (a: A) =>
-      assert(intersection(a, a) == List(a))
+    forAll(genItem, eqA) { (a, eqv) =>
+      val intr = intersection(a, a)
+      assert(intr.forall(eqv.eqv(_, a)))
+      assert(intr.nonEmpty)
     }
   }
 
@@ -278,21 +280,24 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       setOps.relate(a, b) match {
         case Rel.Same =>
           val intr = setOps.intersection(a, b)
+          assert(setOps.subset(a, b))
           assert(eqv.eqv(intr, a :: Nil))
           assert(eqv.eqv(intr, b :: Nil))
         case Rel.Sub =>
           val intr = setOps.intersection(a, b)
+          assert(setOps.subset(a, b))
           assert(eqv.eqv(intr, a :: Nil))
           val diffB = setOps.difference(b, a)
           assert(!eqv.eqv(diffB, Nil))
         case Rel.Super =>
           val intr = setOps.intersection(a, b)
+          assert(setOps.subset(b, a))
           assert(eqv.eqv(intr, b :: Nil))
           val diffA = setOps.difference(a, b)
           assert(!eqv.eqv(diffA, Nil))
         case Rel.Disjoint =>
           val intr = setOps.intersection(a, b)
-          assert(eqv.eqv(intr, Nil))
+          assert(intr.isEmpty)
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
           assert(eqv.eqv(diffA, a :: Nil))
@@ -301,7 +306,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           val intr = setOps.intersection(a, b)
           assert(!eqv.eqv(intr, a :: Nil))
           assert(!eqv.eqv(intr, b :: Nil))
-          assert(!eqv.eqv(intr, Nil))
+          assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
           assert(!eqv.eqv(diffA, Nil))
@@ -319,6 +324,25 @@ class DistinctSetOpsTest extends SetOpsLaws[Byte] {
   val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
     def eqv(left: List[Byte], right: List[Byte]) =
       left.toSet == right.toSet
+  })
+}
+
+class FiniteSetOpsTest extends SetOpsLaws[Set[Int]] {
+  val setOps: SetOps[Set[Int]] = SetOps.fromFinite(0 to 9)
+
+  val genItem: Gen[Set[Int]] =  {
+    // don't generate empty sets, items that are empty aren't lawful
+    // the ways the laws are written
+    val gi = Gen.choose(0, 9)
+    Gen.zip(gi, Gen.listOf(gi)).map { case (h, t) =>
+      t.toSet + h  
+    }
+  }
+
+  val eqUnion: Gen[Eq[List[Set[Int]]]] = Gen.const(new Eq[List[Set[Int]]] {
+    def eqv(left: List[Set[Int]], right: List[Set[Int]]) =
+      left.foldLeft(Set.empty[Int])(_ | _) ==
+        right.foldLeft(Set.empty[Int])(_ | _)
   })
 }
 

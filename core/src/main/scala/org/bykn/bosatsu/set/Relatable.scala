@@ -7,15 +7,30 @@ trait Relatable[A] {
 object Relatable {
   def apply[A](implicit r: Relatable[A]): Relatable[A] = r
 
-  def setRelatable[A]: Relatable[Set[A]] =
-    new Relatable[Set[A]] {
-      def relate(s1: Set[A], s2: Set[A]): Rel =
-        if (s1 == s2) Rel.Same
-        else if (s1.subsetOf(s2)) Rel.Sub
-        else if (s2.subsetOf(s1)) Rel.Super
-        else if ((s1 & s2).nonEmpty) Rel.Intersects
+  def fromSubsetIntersects[A](
+    // True when all elements of left are in right
+    subset: (A, A) => Boolean,
+    // true when there exists 1 or more element in both
+    intersects: (A, A) => Boolean
+  ): Relatable[A] =
+    new Relatable[A] {
+      def relate(left: A, right: A): Rel = {
+        val leftSub = subset(left, right)
+        val rightSub = subset(right, left)
+        if (leftSub) {
+          if (rightSub) Rel.Same
+          else Rel.Sub
+        }
+        else if (rightSub) Rel.Super
+        else if (intersects(left, right)) Rel.Intersects
         else Rel.Disjoint
+      }
     }
+  def setRelatable[A]: Relatable[Set[A]] =
+    fromSubsetIntersects(_.subsetOf(_), (s1, s2) => {
+      if (s1.size <= s2.size) s1.exists(s2)
+      else s2.exists(s1)
+    })
     
   def fromUniversalEquals[A]: Relatable[A] =
     new Relatable[A] {

@@ -398,7 +398,10 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
     },
     { i =>
       val sz = i.size
-      if (sz >= 2) {
+      // we can actually solve this both ways
+      // exercise both paths by only using splitting
+      // when the hash code ends in 1
+      if ((sz >= 2) && ((i.hashCode & 1) == 1)) {
         val (l, r) = i.toList.splitAt(sz / 2)
         Right((l.toSet, r.toSet))
       }
