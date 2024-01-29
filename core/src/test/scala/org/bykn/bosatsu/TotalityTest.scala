@@ -140,7 +140,7 @@ enum Bool: False, True
   }
 
   def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
-    val res = TotalityCheck(te).isTotal(pats)
+    val res = TotalityCheck(te).missingBranches(pats).isEmpty
     assert(!res, pats.toString)
 
     if (testMissing) {

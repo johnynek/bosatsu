@@ -175,9 +175,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   def difference(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Patterns =
     patternSetOps.difference(a, b)
 
-  def isTotal(p: Patterns): Boolean =
-    missingBranches(p).isEmpty
-
   private def structToList(n: Cons, args: List[Pattern[Cons, Type]]): Option[Pattern.ListPat[Cons, Type]] =
     (n, args) match {
       case ((PackageName.PredefName, Constructor("EmptyList")), Nil) => Some(Pattern.ListPat(Nil))
@@ -187,7 +184,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             structToList(n, a).map(_.parts)
           case Pattern.ListPat(parts) => Some(parts)
           case _  =>
-            if (isTotal(t :: Nil)) Some(Pattern.ListPart.WildList :: Nil)
+            if (patternSetOps.isTop(t)) Some(Pattern.ListPart.WildList :: Nil)
             else None
         }
         tailRes.map { t => Pattern.ListPat(Pattern.ListPart.Item(h) :: t) }
@@ -599,7 +596,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               case None => false
             }
           case union @ Pattern.Union(_, _) =>
-            relate(WildCard, union) == Rel.Same
+            unifyUnion(union :: Nil).exists(isTop)
         }
 
       override def subset(a0: Pattern[Cons, Type], b0: Pattern[Cons, Type]): Boolean =
@@ -614,7 +611,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (Annotation(p, _), _) => loop(p, b)
             case (_, Annotation(p, _)) => loop(a, p)
             case (_, u@Union(_, _)) =>
-              val utop = unifyUnion(u :: Nil).exists(isTop)
+              val utop = isTop(u)
               if (isTop(a)) {
                 if (utop) Rel.Same
                 else Rel.Super
