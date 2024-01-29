@@ -1,7 +1,8 @@
 package org.bykn.bosatsu.pattern
 
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.set.SetOps
+import org.bykn.bosatsu.set.{Rel, SetOps}
+import org.bykn.bosatsu.set.Relatable
 
 sealed trait SeqPattern[+A] {
   import SeqPattern._
@@ -140,7 +141,7 @@ object SeqPattern {
     }
 
   implicit def seqPatternSetOps[A](implicit part1SetOps: SetOps[SeqPart.SeqPart1[A]], ordA: Ordering[A]): SetOps[SeqPattern[A]] =
-    new SetOps[SeqPattern[A]] {
+    new SetOps[SeqPattern[A]] { self =>
       import SeqPart.{SeqPart1, AnyElem, Wildcard}
 
       val top: Option[SeqPattern[A]] = Some(Wild)
@@ -155,10 +156,10 @@ object SeqPattern {
       // this is an incomplete heuristic now, not a complete solution
       def unifyUnion(union: List[SeqPattern[A]]): List[SeqPattern[A]] =
         unifyUnionList {
-            union
-              .map(_.normalize)
-              .distinct
-              .map(_.toList)
+          union
+            .map(_.normalize)
+            .distinct
+            .map(_.toList)
           }
           .map(SeqPattern.fromList(_).normalize)
           .sorted
@@ -239,13 +240,16 @@ object SeqPattern {
       /**
        * return true if p1 <= p2, can give false negatives
        */
-      def subset(p1: SeqPattern[A], p2: SeqPattern[A]): Boolean =
+      override def subset(p1: SeqPattern[A], p2: SeqPattern[A]): Boolean =
         p2.matchesAny || {
           // if p2 doesn't matchEmpty but p1 does, we are done
           // check that case quickly
           if (!p2.matchesEmpty && p1.matchesEmpty) false
           else subsetList(p1.toList, p2.toList)
         }
+
+      def relate(p1: SeqPattern[A], p2: SeqPattern[A]): Rel =
+        relateList(p1.toList, p2.toList)
 
       @inline
       final def isAny(p: SeqPart1[A]): Boolean =
@@ -305,6 +309,57 @@ object SeqPattern {
             //  but right starts with *, so (_:*:t1 <= right) = (*:t1 <= *:t2)
             //  which is the current question
             subsetList(t1, p2)
+        }
+
+      private val viaIntersection: Relatable[SeqPattern[A]] =
+        Relatable.fromSubsetIntersects(
+          self.subset(_, _),
+          (l, r) => self.intersection(l, r).nonEmpty
+        )
+
+      private def relateList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Rel =
+        (p1, p2) match {
+          case (Nil, Nil) => Rel.Same
+          case (Nil, (_: SeqPart1[A]) :: _) =>
+            // [] is h :: t are disjoint when h matches at least 1
+            Rel.Disjoint
+          case (Nil, Wildcard :: t) =>
+            // [] <:> * :: t, if t matchesEmpty, this is subset,
+            if (t.exists {
+              case _: SeqPart1[A] => true
+              case Wildcard => false
+            }) Rel.Disjoint
+            else Rel.Sub
+          case (_ :: _, Nil) => relateList(p2, p1).invert
+          case ((h1: SeqPart1[A]) :: t1, (h2: SeqPart1[A]) :: t2) =>
+            part1SetOps.relate(h1, h2).lazyCombine(relateList(t1, t2))
+          case (Wildcard :: Wildcard :: t1, _) =>
+              // normalize the left:
+              relateList(Wildcard :: t1, p2)
+          case (_, Wildcard :: Wildcard :: t2) =>
+              // normalize the right:
+              relateList(p1, Wildcard :: t2)
+          case (_, Wildcard :: (a2: SeqPart1[A]) :: t2) if isAny(a2) =>
+              // we know that right can't match empty,
+              // let's see if that helps us rule out matches on the left
+              relateList(p1, AnyElem :: Wildcard :: t2)
+          case (Wildcard :: (a1: SeqPart1[A]) :: t1, _) if isAny(a1) =>
+              // we know that left can't match empty,
+              // let's see if that helps us rule out matches on the left
+              relateList(AnyElem :: Wildcard :: t1, p2)
+          // either t1 or t2 also ends with Wildcard
+          case (_ :: _, Wildcard :: _) if p2.last.notWild =>
+            // wild on the right but not at the end
+            // yields an approximation. avoid that
+            // if possible
+            relateList(p1.reverse, p2.reverse)
+          case (Wildcard :: _, _ :: _) if p1.last.notWild && p2.last.notWild =>
+            // if we don't check both here we can loop
+            relateList(p1.reverse, p2.reverse)
+          case _ =>
+            viaIntersection.relate(
+              SeqPattern.fromList(p1),
+              SeqPattern.fromList(p2))
         }
 
       private def min(p1: SeqPattern[A], p2: SeqPattern[A]): SeqPattern[A] = {
@@ -455,11 +510,13 @@ object SeqPattern {
        * but some of them also match p2
        */
       def difference(p1: SeqPattern[A], p2: SeqPattern[A]): List[SeqPattern[A]] =
+        relate(p1, p2) match {
+          case Rel.Sub | Rel.Same => Nil
+          case Rel.Disjoint => p1 :: Nil
+          case _ =>
+            // We know p1 is a strict super set of p2 or it
+            // intersects. We can never return Nil or p1 :: Nil
         (p1, p2) match {
-          case (Empty, _) => if (p2.matchesEmpty) Nil else p1 :: Nil
-          case (Cat(_: SeqPart1[A], _), Empty) =>
-            // Cat(SeqPart1[A], _) does not match Empty
-            p1 :: Nil
           case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
             // unnormalized
             difference(t1, p2)
@@ -473,38 +530,24 @@ object SeqPattern {
             // *. == .*, push Wildcards to the end
             difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
           case (Cat(Wildcard, t1), Empty) =>
-            if (!t1.matchesEmpty) p1 :: Nil
-            else {
-              // use (A + B) - C = (A - C) + (B - C)
-              // *:t1 = t1 + _:p1
-              // _:p1 - [] = _:p1
-              unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
-            }
-          case (_, _) if subset(p1, p2) =>
-            // p2 has to be bigger
-            Nil
+            // we know that t1 matches empty or these wouldn't intersect
+            // use (A + B) - C = (A - C) + (B - C)
+            // *:t1 = t1 + _:p1
+            // _:p1 - [] = _:p1
+            unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
           case (Cat(h1: SeqPart1[A], t1), Cat(h2: SeqPart1[A], t2)) =>
             // h1:t1 - h2:t2 = (h1 n h2):(t1 - t2) + (h1 - h2):t1
             //               = (t1 n t2):(h1 - h2) + (t1 - t2):h1
             // if t1 n t2 = 0 then t1 - t2 == t1
             val intH = part1SetOps.intersection(h1, h2)
-            if (intH.isEmpty) {
-              // then h1 - h2 = h1
-              p1 :: Nil
-            }
-            else if (disjoint(t1, t2)) {
-              p1 :: Nil
-            }
-            else {
-              val d1 =
-                for {
-                  h <- intH
-                  t <- difference(t1, t2)
-                } yield Cat(h, t)
+            val d1 =
+              for {
+                h <- intH
+                t <- difference(t1, t2)
+              } yield Cat(h, t)
 
-              val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
-              unifyUnion(d1 ::: d2)
-            }
+            val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
+            unifyUnion(d1 ::: d2)
           case (Cat(h1: SeqPart1[A], t1), Cat(Wildcard, t2)) =>
             // h1:t1 - (*:t2) = ((h1:t1 - _:p2) - t2)
             //
@@ -605,7 +648,12 @@ object SeqPattern {
                 unifyUnion(intr)
               }
             }
+          // $COVERAGE-OFF$
+          case pair =>
+            sys.error(s"unreachable shouldn't be Super or Intersects: $pair")
+          // $COVERAGE-ON$
         }
+      }
     }
 
   def matcher[A, I, S, R](split: Splitter[A, I, S, R]): Matcher[SeqPattern[A], S, R] =

@@ -1,9 +1,12 @@
 package org.bykn.bosatsu.pattern
 
-import org.bykn.bosatsu.set.{SetOps, SetOpsLaws}
+import org.bykn.bosatsu.Platform
+import org.bykn.bosatsu.set.{Rel, SetOps, SetOpsLaws}
 import cats.Eq
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration
+
+import SeqPattern.{Cat, Empty}
+import SeqPart.{AnyElem, Lit, Wildcard}
 
 import cats.implicits._
 
@@ -11,10 +14,10 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   type Pattern = SeqPattern[Char]
   val Pattern = SeqPattern
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 500 else 10)
+      .withMaxDiscardRatio(10)
 
   // if there are too many wildcards the intersections will blow up
   def genItem: Gen[Pattern] = StringSeqPatternGen.genPat.map { p =>
@@ -26,14 +29,24 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   def matches(p: Pattern, s: String): Boolean = pmatcher(p)(s).isDefined
 
   def eqUnion: Gen[Eq[List[Pattern]]] =
-    Gen.listOfN(1000, StringSeqPatternGen.genBitString).map { tests =>
+    Gen.listOfN(5000, Gen.frequency(
+      10 -> StringSeqPatternGen.genBitString,
+      1 -> Gen.listOf(Gen.oneOf(List('0', '1', '2'))).map(_.mkString)
+    )).map { tests =>
+      // we have to generate more than just 01 strings,
+      // since Any can match more than that
       new Eq[List[Pattern]] {
         // this can flake because if two things are different,
         // but happen to have the same match results for this
         // set of items, then you are hosed
         def eqv(a: List[Pattern], b: List[Pattern]) =
-          (a.toSet == b.toSet) || tests.forall { s =>
-            a.exists(matches(_, s)) == b.exists(matches(_, s))
+          (a, b) match {
+            case (ah :: Nil, bh :: Nil) =>
+              setOps.equiv(ah, bh)
+            case _ =>
+              (a.toSet == b.toSet) || tests.forall { s =>
+                a.exists(matches(_, s)) == b.exists(matches(_, s))
+              }
           }
       }
     }
@@ -69,9 +82,6 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   }
 
   test("(a - b) n c = (a n c) - (b n c) regressions") {
-    import SeqPattern.{Cat, Empty}
-    import SeqPart.{AnyElem, Lit, Wildcard}
-
     val regressions: List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
       (Cat(Wildcard, Empty),
         Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Empty))),
@@ -95,5 +105,15 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
       Nil
 
     regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }
+  }
+
+  test("intersection regression") {
+    val p1 = Cat(Wildcard,Cat(Lit('0'),Cat(Lit('1'),Empty)))
+    val p2 = Cat(Lit('0'),Cat(Lit('0'),Cat(Lit('0'),Cat(Wildcard,Empty))))
+
+    assert(setOps.relate(p1, p2) == Rel.Intersects)
+    assert(setOps.relate(p2, p1) == Rel.Intersects)
+    assert(setOps.intersection(p1, p2).nonEmpty)
+    assert(setOps.intersection(p2, p1).nonEmpty)
   }
 }

@@ -35,6 +35,12 @@ class RelLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("|+| and lazyCombine are the same") {
+    forAll { (a: Rel, b: Rel) =>
+      assertEquals(a |+| b, a.lazyCombine(b))
+    }
+  }
+
   property("invert.invert is identity") {
     forAll { (a: Rel) =>
       assertEquals(a.invert.invert, a)
@@ -336,11 +342,8 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
       else Left({(s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
-    /**
-     * This can be a cheap union, not a totally
-     * normalizing union.
-     */
-    def cheapUnion(as: List[S]): S = as.foldLeft(Set.empty[A])(_ | _)
+
+    def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 
     def intersect(a: S, b: S): S = a.intersect(b)
 
@@ -362,8 +365,13 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(50) // this test is pretty slow unfortunately
+      .withMinSuccessfulTests(5000)
       .withMaxDiscardRatio(10)
+
+  implicit val arbByte: Arbitrary[Byte] =
+    // Here there are only 2^10 = 1024 possible sets of these bytes
+    // the goal is to make tests run faster
+    Arbitrary(Gen.choose(0.toByte, 9.toByte))
 
   implicit val setRel: Relatable[Set[Byte]] =
     Relatable.setRelatable[Byte]
@@ -374,7 +382,7 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
   val listRel: Relatable[List[Byte]] = Relatable.listUnion[Byte](
     _ => false,
     {(i1, i2) => if (i1 == i2) i1 :: Nil else Nil},
-    { i => Left(_ == (i :: Nil)) })
+    { i => Left(_.distinct == (i :: Nil)) })
 
   property("listRel agrees with setRel") {
     forAll { (s1: Set[Byte], s2: Set[Byte]) =>
@@ -389,8 +397,12 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
       if (i.isEmpty) Nil else (i :: Nil)
     },
     { i =>
-      if (i.size > 2) {
-        val (l, r) = i.toList.splitAt(i.size / 2)
+      val sz = i.size
+      // we can actually solve this both ways
+      // exercise both paths by only using splitting
+      // when the hash code ends in 1
+      if ((sz >= 2) && ((i.hashCode & 1) == 1)) {
+        val (l, r) = i.toList.splitAt(sz / 2)
         Right((l.toSet, r.toSet))
       }
       else {
@@ -402,7 +414,7 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
     })
 
   def smallList[A: Arbitrary]: Gen[List[A]] =
-    Gen.geometric(3.0)
+    Gen.geometric(4.0)
       .flatMap(Gen.listOfN(_, Arbitrary.arbitrary[A]))
 
   property("listUnion works with Set elements") {

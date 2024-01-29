@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.pattern
 
-import org.bykn.bosatsu.set.SetOps
+import org.bykn.bosatsu.set.{Rel, SetOps}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
@@ -18,7 +18,7 @@ object StringSeqPatternGen {
   // generate a string of 0s and 1s to make matches more likely
   val genBitString: Gen[String] =
     for {
-      sz <- Gen.choose(0, 4)
+      sz <- Gen.geometric(4.0)
       g = Gen.oneOf(0, 1)
       list <- Gen.listOfN(sz, g)
     } yield list.mkString
@@ -774,5 +774,13 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     val p2 = Cat(Wildcard,Cat(Lit('0'),Cat(Lit('1'),Empty)))
 
     assert(setOps.subset(p2, p1))
+  }
+
+  test("intersection regression") {
+    val p1 = Cat(Wildcard,Cat(Lit('0'),Cat(Lit('1'),Empty)))
+    val p2 = Cat(Lit('0'),Cat(Lit('0'),Cat(Lit('0'),Cat(Wildcard,Empty))))
+
+    assert(setOps.relate(p2, p1) == Rel.Intersects)
+    assert(setOps.intersection(p1, p2).nonEmpty)
   }
 }

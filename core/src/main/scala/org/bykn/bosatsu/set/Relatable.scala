@@ -7,15 +7,30 @@ trait Relatable[A] {
 object Relatable {
   def apply[A](implicit r: Relatable[A]): Relatable[A] = r
 
-  def setRelatable[A]: Relatable[Set[A]] =
-    new Relatable[Set[A]] {
-      def relate(s1: Set[A], s2: Set[A]): Rel =
-        if (s1 == s2) Rel.Same
-        else if (s1.subsetOf(s2)) Rel.Sub
-        else if (s2.subsetOf(s1)) Rel.Super
-        else if ((s1 & s2).nonEmpty) Rel.Intersects
+  def fromSubsetIntersects[A](
+    // True when all elements of left are in right
+    subset: (A, A) => Boolean,
+    // true when there exists 1 or more element in both
+    intersects: (A, A) => Boolean
+  ): Relatable[A] =
+    new Relatable[A] {
+      def relate(left: A, right: A): Rel = {
+        val leftSub = subset(left, right)
+        val rightSub = subset(right, left)
+        if (leftSub) {
+          if (rightSub) Rel.Same
+          else Rel.Sub
+        }
+        else if (rightSub) Rel.Super
+        else if (intersects(left, right)) Rel.Intersects
         else Rel.Disjoint
+      }
     }
+  def setRelatable[A]: Relatable[Set[A]] =
+    fromSubsetIntersects(_.subsetOf(_), (s1, s2) => {
+      if (s1.size <= s2.size) s1.exists(s2)
+      else s2.exists(s1)
+    })
     
   def fromUniversalEquals[A]: Relatable[A] =
     new Relatable[A] {
@@ -58,7 +73,7 @@ object Relatable {
                 Right((ls.splitAt(sz / 2)))
             }
 
-          def cheapUnion(u: List[List[A]]) = u.flatten.distinct
+          def cheapUnion(head: List[A], tail: List[List[A]]) = (head :: tail).flatten.distinct
 
           def intersect(a: List[A], b: List[A]): List[A] =
             if (a.isEmpty || b.isEmpty) Nil
@@ -167,7 +182,7 @@ object Relatable {
      * This can be a cheap union, not a totally
      * normalizing union.
      */
-    def cheapUnion(as: List[A]): A
+    def cheapUnion(head: A, tail: List[A]): A
 
     def intersect(a: A, b: A): A
 
@@ -200,9 +215,9 @@ object Relatable {
           // Note, a is never empty here because if it is, unionRelCompare1 is Sub
           (deunion(a), p) match {
             case (Right((a1, a2)), SubIntersects) =>
-              val intrs =
-                intersect(b1, a1) :: intersect(b2, a1) :: intersect(b1, a2) :: intersect(b2, a2) :: Nil
-              val ab = cheapUnion(intrs)
+              val head = intersect(b1, a1)
+              val tail = intersect(b2, a1) :: intersect(b1, a2) :: intersect(b2, a2) :: Nil
+              val ab = cheapUnion(head, tail)
               subIntersectsCase(ab, a1, a2)
             case (Right((a1, a2)), SuperSame) =>
               // if we have SuperSame and invert(p1) what is the result
@@ -214,7 +229,7 @@ object Relatable {
 
               // we know that a1 and a2 are not empty because they are the result
               // of a deunion
-              unionRelCompare1(cheapUnion(b1 :: b2 :: Nil), a1, a2)(relatable) match {
+              unionRelCompare1(cheapUnion(b1, b2 :: Nil), a1, a2)(relatable) match {
                 case Left(r) => andInvert(r)
                 case Right(r) => r.invert
               }

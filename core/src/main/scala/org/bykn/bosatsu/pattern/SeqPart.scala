@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.pattern
 
-import org.bykn.bosatsu.set.SetOps
+import org.bykn.bosatsu.set.{Rel, SetOps}
 
 sealed trait SeqPart[+Elem] {
   def notWild: Boolean = false
@@ -78,13 +78,31 @@ object SeqPart {
             else anyDiff(a2)
         }
 
-      def subset(p1: SeqPart1[A], p2: SeqPart1[A]): Boolean =
+      override def subset(p1: SeqPart1[A], p2: SeqPart1[A]): Boolean =
         p2 match {
           case AnyElem => true
           case Lit(c2) =>
             p1 match {
               case Lit(c1) => setOpsA.subset(c1, c2)
               case AnyElem => setOpsA.isTop(c2)
+            }
+        }
+
+      def relate(p1: SeqPart1[A], p2: SeqPart1[A]): Rel =
+        p2 match {
+          case AnyElem =>
+            p1 match {
+              case AnyElem => Rel.Same
+              case Lit(c1) =>
+                if (setOpsA.isTop(c1)) Rel.Same
+                else Rel.Sub
+            }
+          case Lit(c2) =>
+            p1 match {
+              case Lit(c1) => setOpsA.relate(c1, c2)
+              case AnyElem =>
+                if (setOpsA.isTop(c2)) Rel.Same
+                else Rel.Super
             }
         }
 

@@ -344,7 +344,7 @@ class TypeTest extends AnyFunSuite {
       val Type.ForAll(fas, t) = parse(forall)
       val targ = parse(matches)
       Type.instantiate(fas.iterator.toMap, t, targ) match {
-        case Some((frees, subMap)) =>
+        case Some((_, subMap)) =>
           assert(subMap.size == subs.size)
           subs.foreach { case (k, v) =>
             val Type.TyVar(b: Type.Var.Bound) = parse(k)

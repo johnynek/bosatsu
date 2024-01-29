@@ -1,13 +1,17 @@
 package org.bykn.bosatsu.set
 
 import cats.Eq
-import org.scalacheck.{Arbitrary, Cogen, Gen}
+import org.scalacheck.{Arbitrary, Cogen, Gen, Shrink}
 import org.scalacheck.Prop.forAll
 
 abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   val setOps: SetOps[A]
 
   def genItem: Gen[A]
+  implicit def shrinkItem: Shrink[A] =
+    Shrink(_ => Stream.empty)
+
+  def genUnion: Gen[List[A]] = Gen.listOf(genItem)
 
   def eqUnion: Gen[Eq[List[A]]]
 
@@ -23,7 +27,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     assert(eqA.eqv(a12, a21), s"$a12 != $a21")
   }
 
-  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]]) = {
+  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]])(implicit loc: munit.Location) = {
     val c = unifyUnion(difference(a, b))
     val c1 = unifyUnion(differenceAll(c, b :: Nil))
     assert(eqAs.eqv(c, c1), s"c = $c\n\nc1 = $c1")
@@ -63,10 +67,11 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   }
 
   test("unify union makes size <= input") {
-    forAll(Gen.listOf(genItem)) { (ps: List[A]) =>
+    forAll(genUnion) { (ps: List[A]) =>
       val unified = unifyUnion(ps)
 
-      assert(ps.size >= unified.size, s"unified = $unified")
+      assert(ps.size >= unified.size,
+      s"input(${ps.size}): $ps\n\nunified(${unified.size}) = $unified\n\n")
     }
   }
 
@@ -76,10 +81,10 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
   def selfDifferenceLaw(p1: A, p2: A) = {
     if (p1 == p2) {
-      assert(difference(p1, p2) == Nil)
+      assertEquals(difference(p1, p2), Nil)
     }
-    assert(difference(p1, p1) == Nil)
-    assert(difference(p2, p2) == Nil)
+    assertEquals(difference(p1, p1), Nil)
+    assertEquals(difference(p2, p2), Nil)
   }
 
   test("a - a == 0") {
@@ -87,15 +92,17 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   }
 
   test("a n a == a") {
-    forAll(genItem) { (a: A) =>
-      assert(intersection(a, a) == List(a))
+    forAll(genItem, eqA) { (a, eqv) =>
+      val intr = intersection(a, a)
+      assert(intr.forall(eqv.eqv(_, a)))
+      assert(intr.nonEmpty)
     }
   }
 
   test("x - top = 0") {
     top.foreach { t =>
       forAll(genItem) { (x) =>
-        assert(difference(x, t) == Nil)
+        assertEquals(difference(x, t), Nil)
       }
     }
 
@@ -121,7 +128,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     forAll(genItem, genItem) { (x: A, y: A) =>
       val z = difference(x, y)
       val z1 = unifyUnion(differenceAll(z, z))
-      assert(z1 == Nil, s"z = $z")
+      assertEquals(z1, Nil, s"z = $z")
     }
   }
 
@@ -131,16 +138,20 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   def isSubsetDiff(a: A, b: A) =
     difference(a, b).isEmpty
 
-  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]]) = {
+  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]])(implicit loc: munit.Location) = {
     val intSub = isSubsetIntr(a, b, eqAs)
     val diffSub = isSubsetDiff(a, b)
 
     if (subset(a, b)) {
       assert(intSub)
       assert(diffSub)
+      assertEquals(intSub, diffSub)
     }
-
-    assert(intSub == diffSub)
+    else {
+      // we can have false positives of intSub
+      // when we have a sampling equality
+      assertEquals(diffSub, false)
+    }
   }
 
   test("subset consistency: a n b == a <=> a - b = 0") {
@@ -150,14 +161,14 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   test("difference returns distinct values") {
     forAll(genItem, genItem) { (a, b) =>
       val c = difference(a, b)
-      assert(c == c.distinct)
+      assertEquals(c, c.distinct)
     }
   }
 
   test("intersection returns distinct values") {
     forAll(genItem, genItem) { (a, b) =>
       val c = intersection(a, b)
-      assert(c == c.distinct)
+      assertEquals(c, c.distinct)
     }
   }
 
@@ -225,7 +236,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       }
       else {
         val rightu = unifyUnion(right)
-        assert(leftu == rightu, s"diffAB = $diffab, intAC = $intAC, intBC = $intBC")
+        assertEquals(leftu, rightu, s"diffAB = $diffab, intAC = $intAC, intBC = $intBC")
       }
     }
   }
@@ -249,7 +260,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       val rest1 = missingBranches(top :: Nil, pats ::: rest)
       if (rest1.isEmpty) {
         val unreach = unreachableBranches(pats ::: rest)
-        assert(unreach.filter(rest.toSet) == Nil, s"\n\nrest = ${rest}\n\ninit: ${pats}")
+        assertEquals(unreach.filter(rest.toSet), Nil, s"\n\nrest = ${rest}\n\ninit: ${pats}")
       }
       else {
         fail(s"after adding ${rest} we still need ${rest1}")
@@ -269,7 +280,58 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
     forAll(pats, pats) { (top, pats) =>
       val rest = missingBranches(top, pats)
-      assert(rest == rest.distinct)
+      assertEquals(rest, rest.distinct)
+    }
+  }
+
+  test("relate consistency") {
+    forAll(genItem, genItem, eqUnion) { (a, b, eqv) =>
+      val relAb = setOps.relate(a, b)
+      assertEquals(setOps.relate(b, a).invert, relAb)
+      relAb match {
+        case Rel.Same =>
+          val intr = setOps.intersection(a, b)
+          assert(setOps.subset(a, b))
+          assert(setOps.subset(b, a))
+          assert(!setOps.disjoint(a, b))
+          assert(eqv.eqv(intr, a :: Nil))
+          assert(eqv.eqv(intr, b :: Nil))
+          assert(eqv.eqv(a :: Nil, b :: Nil))
+        case Rel.Sub =>
+          val intr = setOps.intersection(a, b)
+          assert(setOps.subset(a, b))
+          assert(!setOps.disjoint(a, b))
+          assert(eqv.eqv(intr, a :: Nil))
+          val diffB = setOps.difference(b, a)
+          assert(!eqv.eqv(diffB, Nil))
+        case Rel.Super =>
+          val intr = setOps.intersection(a, b)
+          assert(setOps.subset(b, a))
+          assert(!setOps.disjoint(a, b))
+          assert(eqv.eqv(intr, b :: Nil))
+          val diffA = setOps.difference(a, b)
+          assert(!eqv.eqv(diffA, Nil))
+        case Rel.Disjoint =>
+          val intr = setOps.intersection(a, b)
+          assert(intr.isEmpty)
+          assert(setOps.disjoint(a, b))
+          val diffA = setOps.difference(a, b)
+          val diffB = setOps.difference(b, a)
+          assert(eqv.eqv(diffA, a :: Nil))
+          assert(eqv.eqv(diffB, b :: Nil))
+          assert(!eqv.eqv(a :: Nil, b :: Nil))
+        case Rel.Intersects =>
+          val intr = setOps.intersection(a, b)
+          val diffA = setOps.difference(a, b)
+          val diffB = setOps.difference(b, a)
+
+          assert(!eqv.eqv(intr, a :: Nil))
+          assert(!eqv.eqv(intr, b :: Nil), s"intr = $intr")
+          assert(!eqv.eqv(a :: Nil, b :: Nil))
+          assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
+          assert(diffA.nonEmpty)
+          assert(diffB.nonEmpty)
+      }
     }
   }
 }
@@ -282,6 +344,25 @@ class DistinctSetOpsTest extends SetOpsLaws[Byte] {
   val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
     def eqv(left: List[Byte], right: List[Byte]) =
       left.toSet == right.toSet
+  })
+}
+
+class FiniteSetOpsTest extends SetOpsLaws[Set[Int]] {
+  val setOps: SetOps[Set[Int]] = SetOps.fromFinite(0 to 9)
+
+  val genItem: Gen[Set[Int]] =  {
+    // don't generate empty sets, items that are empty aren't lawful
+    // the ways the laws are written
+    val gi = Gen.choose(0, 9)
+    Gen.zip(gi, Gen.listOf(gi)).map { case (h, t) =>
+      t.toSet + h  
+    }
+  }
+
+  val eqUnion: Gen[Eq[List[Set[Int]]]] = Gen.const(new Eq[List[Set[Int]]] {
+    def eqv(left: List[Set[Int]], right: List[Set[Int]]) =
+      left.foldLeft(Set.empty[Int])(_ | _) ==
+        right.foldLeft(Set.empty[Int])(_ | _)
   })
 }
 
@@ -365,10 +446,10 @@ class SetOpsTests extends munit.ScalaCheckSuite {
         if (i <= 1) acc
         else fact(i - 1, i * acc)
 
-      assert(perms.length == fact(is0.size, 1))
+      assertEquals(perms.length, fact(is0.size, 1))
 
       perms.foreach { p =>
-        assert(p.sorted == is.sorted)
+        assertEquals(p.sorted, is.sorted)
       }
       val pi = perms.zipWithIndex
 
@@ -463,7 +544,7 @@ class SetOpsTests extends munit.ScalaCheckSuite {
         val ba = pa(b)
         val bb = pb(b)
         val bc = pc(b)
-        assert(left(b) == right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        assertEquals(left(b), right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
       }
     }
   }
@@ -488,7 +569,7 @@ class SetOpsTests extends munit.ScalaCheckSuite {
       val left = a1.product(b1) - a2.product(b2)
       val right = (a1 && a2).product(b1 - b2) || (a1 - a2).product(b1)
       checks.foreach { ab =>
-        assert(left(ab) == right(ab))
+        assertEquals(left(ab), right(ab))
       }
     }
   }
