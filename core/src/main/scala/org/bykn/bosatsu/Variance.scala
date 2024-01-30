@@ -8,35 +8,35 @@ sealed abstract class Variance {
   def unary_- : Variance =
     this match {
       case Contravariant => Covariant
-      case Covariant => Contravariant
-      case topOrBottom => topOrBottom
+      case Covariant     => Contravariant
+      case topOrBottom   => topOrBottom
     }
 
   // if you have f[x] the variance of the result is the arg of f times variance of x
   def *(that: Variance): Variance =
     (this, that) match {
-      case (Phantom, _) => Phantom
-      case (_, Phantom) => Phantom
-      case (Invariant, _) => Invariant
-      case (_, Invariant) => Invariant
-      case (Covariant, r) => r
+      case (Phantom, _)                   => Phantom
+      case (_, Phantom)                   => Phantom
+      case (Invariant, _)                 => Invariant
+      case (_, Invariant)                 => Invariant
+      case (Covariant, r)                 => r
       case (Contravariant, Contravariant) => Covariant
-      case (Contravariant, Covariant) => Contravariant
+      case (Contravariant, Covariant)     => Contravariant
     }
 
-  /**
-   * Variance forms a lattice with Phantom at the bottom and Invariant at the top.
-   */
+  /** Variance forms a lattice with Phantom at the bottom and Invariant at the
+    * top.
+    */
   def +(that: Variance): Variance =
     (this, that) match {
-      case (Phantom, r) => r
-      case (r, Phantom) => r
-      case (Invariant, _) => Invariant
-      case (_, Invariant) => Invariant
-      case (Covariant, Covariant) => Covariant
+      case (Phantom, r)                   => r
+      case (r, Phantom)                   => r
+      case (Invariant, _)                 => Invariant
+      case (_, Invariant)                 => Invariant
+      case (Covariant, Covariant)         => Covariant
       case (Contravariant, Contravariant) => Contravariant
-      case (Covariant, Contravariant) => Invariant
-      case (Contravariant, Covariant) => Invariant
+      case (Covariant, Contravariant)     => Invariant
+      case (Contravariant, Covariant)     => Invariant
     }
 }
 object Variance {
@@ -51,7 +51,8 @@ object Variance {
   def contra: Variance = Contravariant
   def in: Variance = Invariant
 
-  val all: List[Variance] = Phantom :: Covariant :: Contravariant :: Invariant :: Nil
+  val all: List[Variance] =
+    Phantom :: Covariant :: Contravariant :: Invariant :: Nil
 
   implicit val varianceBoundedSemilattice: BoundedSemilattice[Variance] =
     new BoundedSemilattice[Variance] {
@@ -67,15 +68,15 @@ object Variance {
           case Phantom => if (right == Phantom) 0 else -1
           case Covariant =>
             right match {
-              case Phantom => 1
-              case Covariant => 0
+              case Phantom                   => 1
+              case Covariant                 => 0
               case Contravariant | Invariant => -1
             }
-          case Contravariant => 
+          case Contravariant =>
             right match {
               case Phantom | Covariant => 1
-              case Contravariant => 0
-              case Invariant => -1
+              case Contravariant       => 0
+              case Invariant           => -1
             }
           case Invariant => if (right == Invariant) 0 else 1
         }

@@ -14,7 +14,9 @@ private[bosatsu] object ListUtil {
         else (h :: t1) // we only allocate here
     }
 
-  def greedyGroup[A, G](list: NonEmptyList[A])(one: A => G)(combine: (G, A) => Option[G]): NonEmptyList[G] = {
+  def greedyGroup[A, G](
+      list: NonEmptyList[A]
+  )(one: A => G)(combine: (G, A) => Option[G]): NonEmptyList[G] = {
     def loop(g: G, tail: List[A]): NonEmptyList[G] =
       tail match {
         case Nil => NonEmptyList.one(g)
@@ -32,13 +34,17 @@ private[bosatsu] object ListUtil {
     loop(one(list.head), list.tail)
   }
 
-  def greedyGroup[A, G](list: List[A])(one: A => G)(combine: (G, A) => Option[G]): List[G] =
+  def greedyGroup[A, G](
+      list: List[A]
+  )(one: A => G)(combine: (G, A) => Option[G]): List[G] =
     NonEmptyList.fromList(list) match {
-      case None => Nil
+      case None      => Nil
       case Some(nel) => greedyGroup(nel)(one)(combine).toList
     }
 
-  def mapConserveNel[A <: AnyRef, B >: A <: AnyRef](nel: NonEmptyList[A])(f: A => B): NonEmptyList[B] = {
+  def mapConserveNel[A <: AnyRef, B >: A <: AnyRef](
+      nel: NonEmptyList[A]
+  )(f: A => B): NonEmptyList[B] = {
     val as = nel.toList
     val bs = as.mapConserve(f)
     if (bs eq as) nel

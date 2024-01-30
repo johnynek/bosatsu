@@ -4,50 +4,47 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 
-/**
- * If we later determine that this performance matters
- * and this wrapping is hurting, we could replace
- * Value with a less structured type and put
- * all the reflection into unapply calls but keep
- * most of the API
- */
+/** If we later determine that this performance matters and this wrapping is
+  * hurting, we could replace Value with a less structured type and put all the
+  * reflection into unapply calls but keep most of the API
+  */
 sealed abstract class Value {
   import Value._
 
   def asFn: NonEmptyList[Value] => Value =
     this match {
       case FnValue(f) => f
-      case other =>
+      case other      =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to Fn: $other")
-        // $COVERAGE-ON$
+      // $COVERAGE-ON$
     }
 
   def asSum: SumValue =
     this match {
       case s: SumValue => s
-      case _ =>
+      case _           =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to SumValue: $this")
-        // $COVERAGE-ON$
+      // $COVERAGE-ON$
     }
 
-  def asProduct:ProductValue =
+  def asProduct: ProductValue =
     this match {
       case p: ProductValue => p
-      case _ =>
+      case _               =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to ProductValue: $this")
-        // $COVERAGE-ON$
+      // $COVERAGE-ON$
     }
 
   def asExternal: ExternalValue =
     this match {
       case ex: ExternalValue => ex
-      case _ =>
+      case _                 =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to ExternalValue: $this")
-        // $COVERAGE-ON$
+      // $COVERAGE-ON$
     }
 
   final def applyAll(args: NonEmptyList[Value]): Value =
@@ -56,7 +53,8 @@ sealed abstract class Value {
 
 object Value {
   final class ProductValue(val values: Array[Value]) extends Value {
-    override lazy val hashCode = scala.util.hashing.MurmurHash3.arrayHash(values)
+    override lazy val hashCode =
+      scala.util.hashing.MurmurHash3.arrayHash(values)
     final def get(idx: Int): Value = values(idx)
 
     override def equals(obj: Any): Boolean =
@@ -65,7 +63,8 @@ object Value {
           (this eq thatP) ||
           java.util.Arrays.equals(
             values.asInstanceOf[Array[AnyRef]],
-            thatP.values.asInstanceOf[Array[AnyRef]])
+            thatP.values.asInstanceOf[Array[AnyRef]]
+          )
         case _ => false
       }
     override def toString: String = values.mkString("ProductValue(", ",", ")")
@@ -84,14 +83,16 @@ object Value {
     def unapplySeq(v: Value): Option[Seq[Value]] =
       v match {
         case p: ProductValue => Some(p.values.toSeq)
-        case _ => None
+        case _               => None
       }
   }
 
-  final class SumValue(val variant: Int, val value: ProductValue) extends Value {
+  final class SumValue(val variant: Int, val value: ProductValue)
+      extends Value {
     override def equals(that: Any) =
       that match {
-        case s: SumValue => (s eq this) || ((variant == s.variant) && (value == s.value))
+        case s: SumValue =>
+          (s eq this) || ((variant == s.variant) && (value == s.value))
         case _ => false
       }
     override def hashCode: Int =
@@ -107,7 +108,8 @@ object Value {
       (0 until constCount).map(new SumValue(_, UnitValue)).toArray
 
     def apply(variant: Int, value: ProductValue): SumValue =
-      if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
+      if ((value == UnitValue) && ((variant & sizeMask) == 0))
+        constants(variant)
       else new SumValue(variant, value)
   }
 
@@ -122,11 +124,12 @@ object Value {
 
     case class SimpleFnValue(toFn: NonEmptyList[Value] => Value) extends Arg
 
-
     def apply(toFn: NonEmptyList[Value] => Value): FnValue =
       new FnValue(SimpleFnValue(toFn))
 
-    def unapply(fnValue: FnValue): Some[NonEmptyList[Value] => Value] = Some(fnValue.arg.toFn)
+    def unapply(fnValue: FnValue): Some[NonEmptyList[Value] => Value] = Some(
+      fnValue.arg.toFn
+    )
 
     val identity: FnValue = FnValue(vs => vs.head)
   }
@@ -140,7 +143,7 @@ object Value {
     def unapply(v: Value): Option[List[Value]] =
       v match {
         case p: ProductValue => Some(p.values.toList)
-        case _ => None
+        case _               => None
       }
 
     def fromList(vs: List[Value]): ProductValue =
@@ -162,7 +165,7 @@ object Value {
 
   def fromLit(l: Lit): Value =
     l match {
-      case Lit.Str(s) => ExternalValue(s)
+      case Lit.Str(s)     => ExternalValue(s)
       case Lit.Integer(i) => ExternalValue(i)
       case c @ Lit.Chr(_) => ExternalValue(c.asStr)
     }
@@ -173,7 +176,7 @@ object Value {
     def unapply(v: Value): Option[BigInteger] =
       v match {
         case ExternalValue(v: BigInteger) => Some(v)
-        case _ => None
+        case _                            => None
       }
   }
 
@@ -182,7 +185,7 @@ object Value {
     def unapply(v: Value): Option[String] =
       v match {
         case ExternalValue(str: String) => Some(str)
-        case _ => None
+        case _                          => None
       }
   }
 
@@ -199,10 +202,9 @@ object Value {
           else if ((s.variant == 1)) {
             s.value.values match {
               case Array(head) => Some(Some(head))
-              case _ => None
+              case _           => None
             }
-          }
-          else None
+          } else None
         case _ => None
       }
   }
@@ -219,10 +221,9 @@ object Value {
             if (s.variant == 1) {
               s.value.values match {
                 case Array(head, rest) => Some((head, rest))
-                case _ => None
+                case _                 => None
               }
-            }
-            else None
+            } else None
           case _ => None
         }
     }
@@ -231,7 +232,7 @@ object Value {
       @annotation.tailrec
       def go(vs: List[Value], acc: Value): Value =
         vs match {
-          case Nil => acc
+          case Nil       => acc
           case h :: tail => go(tail, Cons(h, acc))
         }
       go(items.reverse, VNil)
@@ -256,25 +257,28 @@ object Value {
             fn.applyAll(
               NonEmptyList(
                 new ProductValue(Array(v1, null)),
-                new ProductValue(Array(v2, null)) :: Nil)
-            )
-            .asSum
-            .variant
+                new ProductValue(Array(v2, null)) :: Nil
+              )
+            ).asSum
+              .variant
 
           // v = 0, 1, 2 for LT, EQ, GT
           v - 1
         }
       }
 
-    //enum Tree: Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
-    //struct Dict[k, v](ord: Order[(k, v)], tree: Tree[(k, v)])
+    // enum Tree: Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
+    // struct Dict[k, v](ord: Order[(k, v)], tree: Tree[(k, v)])
     def unapply(v: Value): Option[SortedMap[Value, Value]] =
       v match {
         case ProductValue(ordFn: FnValue, tree) =>
           implicit val ord: Ordering[Value] =
             keyOrderingFromOrdFn(ordFn)
 
-          def treeToList(t: Value, acc: SortedMap[Value, Value]): SortedMap[Value, Value] = {
+          def treeToList(
+              t: Value,
+              acc: SortedMap[Value, Value]
+          ): SortedMap[Value, Value] = {
             val v = t.asSum
             if (v.variant == 0) acc // empty
             else {
@@ -286,7 +290,7 @@ object Value {
                 case other =>
                   // $COVERAGE-OFF$
                   sys.error(s"ill-shaped: $other")
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
             }
           }
@@ -299,21 +303,24 @@ object Value {
       }
 
     val strOrdFn: FnValue =
-      FnValue {
-        case NonEmptyList(tup1, tup2 :: Nil) =>
-          (tup1, tup2) match {
-            case (Tuple(ExternalValue(k1: String) :: _), Tuple(ExternalValue(k2: String) :: _)) =>
-              Comparison.fromInt(k1.compareTo(k2))
-            case _ =>
-              // $COVERAGE-OFF$
-              sys.error(s"ill-typed in String Dict order: $tup1, $tup2")
-              // $COVERAGE-ON$
-            }
+      FnValue { case NonEmptyList(tup1, tup2 :: Nil) =>
+        (tup1, tup2) match {
+          case (
+                Tuple(ExternalValue(k1: String) :: _),
+                Tuple(ExternalValue(k2: String) :: _)
+              ) =>
+            Comparison.fromInt(k1.compareTo(k2))
+          case _ =>
+            // $COVERAGE-OFF$
+            sys.error(s"ill-typed in String Dict order: $tup1, $tup2")
+          // $COVERAGE-ON$
         }
+      }
 
     def fromStringKeys(kvs: List[(String, Value)]): Value = {
       val allItems: Array[(String, Value)] = kvs.toMap.toArray
-      java.util.Arrays.sort(allItems, Ordering[String].on { (kv: (String, Value)) => kv._1 })
+      java.util.Arrays
+        .sort(allItems, Ordering[String].on { (kv: (String, Value)) => kv._1 })
 
       val empty = (BigInteger.ZERO, BigInteger.ZERO, SumValue(0, UnitValue))
 
@@ -326,15 +333,22 @@ object Value {
           val (rh, rz, right) = makeTree(mid + 1, end)
           val h = lh.max(rh).add(BigInteger.ONE)
           val z = lz.add(rz).add(BigInteger.ONE)
-          (h, z, SumValue(1,
-            new ProductValue(
-              Array(
-              ExternalValue(z),
-              ExternalValue(h),
-              new ProductValue(Array(ExternalValue(k), v)),
-              left,
-              right)
-              )))
+          (
+            h,
+            z,
+            SumValue(
+              1,
+              new ProductValue(
+                Array(
+                  ExternalValue(z),
+                  ExternalValue(h),
+                  new ProductValue(Array(ExternalValue(k), v)),
+                  left,
+                  right
+                )
+              )
+            )
+          )
         }
 
       val (_, _, tree) = makeTree(0, allItems.length)

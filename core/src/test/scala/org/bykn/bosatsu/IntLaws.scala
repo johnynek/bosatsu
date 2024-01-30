@@ -2,7 +2,10 @@ package org.bykn.bosatsu
 
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.scalatest.funsuite.AnyFunSuite
 
 object IntLaws {
@@ -20,26 +23,56 @@ class IntLaws extends AnyFunSuite {
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = 50000)
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 500)
+  // PropertyCheckConfiguration(minSuccessful = 5000)
+  // PropertyCheckConfiguration(minSuccessful = 500)
 
   val genBI: Gen[BigInteger] =
-    Gen.choose(-128L, 128L)
+    Gen
+      .choose(-128L, 128L)
       .map(BigInteger.valueOf(_))
 
   test("match python on some examples") {
-    assert(BigInteger.valueOf(4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(-2L))
+    assert(
+      BigInteger.valueOf(4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+        -2L
+      )
+    )
 
-    assert(BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L) == BigInteger.valueOf(0L))
-    assert(BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L) == BigInteger.valueOf(4L))
+    assert(
+      BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L) == BigInteger.valueOf(
+        0L
+      )
+    )
+    assert(
+      BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L) == BigInteger.valueOf(
+        4L
+      )
+    )
 
-    assert(BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(-1L))
-    assert(BigInteger.valueOf(13L) % BigInteger.valueOf(3L) == BigInteger.valueOf(1L))
-    assert(BigInteger.valueOf(-113L) / BigInteger.valueOf(16L) == BigInteger.valueOf(-8L))
+    assert(
+      BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+        -1L
+      )
+    )
+    assert(
+      BigInteger.valueOf(13L) % BigInteger.valueOf(3L) == BigInteger.valueOf(1L)
+    )
+    assert(
+      BigInteger.valueOf(-113L) / BigInteger.valueOf(16L) == BigInteger.valueOf(
+        -8L
+      )
+    )
 
-
-    assert(BigInteger.valueOf(54L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(0L))
-    assert(BigInteger.valueOf(54L) / BigInteger.valueOf(-3L) == BigInteger.valueOf(-18L))
+    assert(
+      BigInteger.valueOf(54L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+        0L
+      )
+    )
+    assert(
+      BigInteger.valueOf(54L) / BigInteger.valueOf(-3L) == BigInteger.valueOf(
+        -18L
+      )
+    )
   }
 
   test("a = (a / b) * b + (a % b)") {
@@ -107,7 +140,9 @@ class IntLaws extends AnyFunSuite {
 
   test("a / b <= a if b >= 0 and a >= 0") {
     forAll(genBI, genBI) { (a, b) =>
-      if (b.compareTo(BigInteger.ZERO) >= 0 && a.compareTo(BigInteger.ZERO) >= 0) {
+      if (
+        b.compareTo(BigInteger.ZERO) >= 0 && a.compareTo(BigInteger.ZERO) >= 0
+      ) {
         val div = a / b
         assert(div.compareTo(a) <= 0, div)
       }
@@ -133,7 +168,7 @@ class IntLaws extends AnyFunSuite {
     forAll(genBI, genBI) { (a, b) =>
       val mod = a % b
       if (mod == BigInteger.ZERO) {
-        assert((a/b)*b == a)
+        assert((a / b) * b == a)
       }
     }
   }

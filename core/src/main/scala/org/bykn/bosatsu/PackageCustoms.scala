@@ -10,9 +10,8 @@ import org.bykn.bosatsu.Referant.Constructor
 import org.bykn.bosatsu.Referant.DefinedT
 import org.bykn.bosatsu.TypedExpr.Match
 
-/**
-  * This checks the imports and exports of compiled packages
-  * and makes sure they are valid
+/** This checks the imports and exports of compiled packages and makes sure they
+  * are valid
   */
 object PackageCustoms {
   def errors[A](pack: Package.Typed[A]): List[PackageError] = {
@@ -23,7 +22,9 @@ object PackageCustoms {
     (impsUsed ++ expCheck).toList
   }
 
-  private def allImportsAreUsed[A](pack: Package.Typed[A]): Chain[PackageError] = {
+  private def allImportsAreUsed[A](
+      pack: Package.Typed[A]
+  ): Chain[PackageError] = {
     // Note, we can't import just a name or just a type when we have Structs,
     // we get both. So, we will count a Constructor used if the Identifier
     // OR the type is used
@@ -63,30 +64,36 @@ object PackageCustoms {
       val usedValuesSt: VState[Unit] =
         pack.program.lets.traverse_ { case (_, _, te) =>
           te.traverseUp {
-            case g@TypedExpr.Global(p, n, _, _) =>
+            case g @ TypedExpr.Global(p, n, _, _) =>
               State { s => (s + ((p, n)), g) }
-            case m @ Match(_, branches, _) => 
-              branches.traverse_ {
-                case (pat, _) =>
-                  pat.traverseStruct[VState, (PackageName, Identifier.Constructor)] { (n, parts) =>
-                    State.modify[VSet](_ + n) *> 
-                      parts.map { inner =>
-                        Pattern.PositionalStruct(n, inner)
-                      }
-                  }
-                  .void
-              }.as(m)
+            case m @ Match(_, branches, _) =>
+              branches
+                .traverse_ { case (pat, _) =>
+                  pat
+                    .traverseStruct[
+                      VState,
+                      (PackageName, Identifier.Constructor)
+                    ] { (n, parts) =>
+                      State.modify[VSet](_ + n) *>
+                        parts.map { inner =>
+                          Pattern.PositionalStruct(n, inner)
+                        }
+                    }
+                    .void
+                }
+                .as(m)
             case te => Monad[VState].pure(te)
           }
         }
 
       val usedValues = usedValuesSt.runS(Set.empty).value
-      
 
       val usedTypes: Set[Type.Const] =
-        pack.program.lets.iterator.flatMap(
-          _._3.allTypes.flatMap(Type.constantsOf(_))
-        ).toSet
+        pack.program.lets.iterator
+          .flatMap(
+            _._3.allTypes.flatMap(Type.constantsOf(_))
+          )
+          .toSet
 
       val unusedValues = impValues.filterNot { tup =>
         tup match {
@@ -96,7 +103,7 @@ object PackageCustoms {
           case _ =>
             // no ambiguity for bindable
             usedValues(tup)
-        }  
+        }
       }
       val unusedTypes = impTypes.filterNot { case (pn, t) =>
         // deal with the ambiguity of capital names
@@ -109,40 +116,44 @@ object PackageCustoms {
 
       if (unusedPacks.isEmpty) Chain.empty
       else {
-        val badImports = NonEmptyList.fromListUnsafe(
-          unusedPacks
-            .iterator
-            .map { ipack =>
-              val thisVals = unusedValMap.get(ipack) match {
-                case Some(nes) => nes.toSortedSet.toList.map { case (_, i) =>
+        val badImports =
+          NonEmptyList.fromListUnsafe(unusedPacks.iterator.map { ipack =>
+            val thisVals = unusedValMap.get(ipack) match {
+              case Some(nes) =>
+                nes.toSortedSet.toList.map { case (_, i) =>
                   ImportedName.OriginalName(i, ())
                 }
-                case None => Nil
-              }
+              case None => Nil
+            }
 
-              val thisTpes = unusedTypeMap.get(ipack) match {
-                case Some(nes) => nes.toSortedSet.toList.map { case (_, t) =>
+            val thisTpes = unusedTypeMap.get(ipack) match {
+              case Some(nes) =>
+                nes.toSortedSet.toList.map { case (_, t) =>
                   ImportedName.OriginalName(t.toDefined.name.ident, ())
                 }
-                case None => Nil
-              }
-              // one or the other or both of these is non-empty
-              Import(ipack, NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct))
+              case None => Nil
             }
-            .toList)
+            // one or the other or both of these is non-empty
+            Import(
+              ipack,
+              NonEmptyList.fromListUnsafe((thisVals ::: thisTpes).distinct)
+            )
+          }.toList)
 
         Chain.one(PackageError.UnusedImport(pack.name, badImports))
       }
     }
   }
 
-  private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): Chain[PackageError] = {
-    val exportedTypes: List[DefinedType[V]] = exports
-      .iterator
+  private def checkValuesHaveExportedTypes[V](
+      pn: PackageName,
+      exports: List[ExportedName[Referant[V]]]
+  ): Chain[PackageError] = {
+    val exportedTypes: List[DefinedType[V]] = exports.iterator
       .map(_.tag)
       .collect {
         case Referant.Constructor(dt, _) => dt
-        case Referant.DefinedT(dt) => dt
+        case Referant.DefinedT(dt)       => dt
       }
       .toList
       .distinct
@@ -150,17 +161,15 @@ object PackageCustoms {
     val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
 
     type Exp = ExportedName[Referant[V]]
-    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports
-      .iterator
+    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports.iterator
       .flatMap { n =>
         n.tag match {
           case Referant.Value(t) => Iterator.single((t, n))
-          case _ => Iterator.empty
+          case _                 => Iterator.empty
         }
       }
       .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
       .filter { case (Type.Const.Defined(p, _), _, _) => p === pn }
-
 
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
       exportedTE.toDefinedType(t._1) match {
