@@ -16,7 +16,7 @@ object CodeGenWrite {
     }
 
   def writeDoc(p: Path, d: Doc): IO[Unit] =
-    IO {
+    IO.blocking {
       Option(p.getParent).foreach(_.toFile.mkdirs)
       val pw = new PrintWriter(p.toFile, "UTF-8")
       try d.renderStream(100).foreach(pw.print(_))

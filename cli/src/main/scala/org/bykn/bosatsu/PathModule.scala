@@ -191,7 +191,13 @@ object PathModule extends MainModule[IO] {
           output match {
             case None =>
               docs.traverse_ { doc =>
-                IO.println(doc.render(80))
+                IO.blocking {
+                  doc.renderStreamTrim(100)
+                    .iterator
+                    .foreach(System.out.print)
+
+                  System.out.println("")
+                }
               }
               .as(ExitCode.Success)
             case Some(p) =>
