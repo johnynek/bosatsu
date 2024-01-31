@@ -153,6 +153,52 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out).as(ExitCode.Success)
+
+      case Output.ShowOutput(packMap, output) =>
+        val docs = packMap.toMap.toList.map { case (name, pack) =>
+          Doc.text("package: ") + Doc.text(name.asString) + {
+            val lines = Doc.hardLine
+            val imps = Doc.text("imports: ") + Doc.intercalate(Doc.line, pack.imports.map { imp =>
+                Doc.text(imp.pack.name.asString) + Doc.space + (Doc.char('[') + Doc.line +
+                  Doc.intercalate(Doc.comma + Doc.line, imp.items.toList.map { imp =>
+                    Doc.text(imp.originalName.sourceCodeRepr)
+                  }) + Doc.line + Doc.char(']')
+                ).grouped
+              }).nested(4)
+
+            val exports = Doc.text("exports: ") + Doc.intercalate(Doc.line,
+                pack.exports.map { exp =>
+                  Doc.text(exp.name.sourceCodeRepr)
+                }).grouped.nested(4)
+
+            val tpes = Doc.text("types: ") + Doc.intercalate(Doc.comma + Doc.line,
+              pack.program.types.definedTypes.toList.map { case (_, t) =>
+                Doc.text(t.name.ident.sourceCodeRepr)
+              }).grouped.nested(4)
+
+            val exprs = Doc.intercalate(Doc.hardLine + Doc.hardLine,
+              pack.program.lets.map { case (n, _, te) =>
+                // TODO: we really need to use Doc in repr
+                Doc.text(n.sourceCodeRepr) + Doc.text(" = ") + Doc.text(te.repr)
+              })
+
+            val all = lines :: imps :: exports :: tpes :: exprs :: Nil
+
+            Doc.intercalate(Doc.hardLine, all)
+          }.nested(4)
+        }
+
+          output match {
+            case None =>
+              docs.traverse_ { doc =>
+                IO.println(doc.render(80))
+              }
+              .as(ExitCode.Success)
+            case Some(p) =>
+              val doc = Doc.intercalate(Doc.hardLine, docs)
+              CodeGenWrite.writeDoc(p, doc)
+                .as(ExitCode.Success)
+          }
     }
 
   def reportException(ex: Throwable): IO[Unit] =

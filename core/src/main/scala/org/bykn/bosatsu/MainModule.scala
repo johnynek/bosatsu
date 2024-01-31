@@ -96,6 +96,10 @@ abstract class MainModule[IO[_]](implicit
     ) extends Output
     case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path)
         extends Output
+
+    case class ShowOutput(
+      packages: PackageMap.Typed[Any],
+      output: Option[Path]) extends Output
   }
 
   sealed abstract class MainException extends Exception {
@@ -737,7 +741,7 @@ abstract class MainModule[IO[_]](implicit
             ds <- includes.read
             ins1 = MainIdentifier.addAnyAbsent(mis, ins)
             pn <-
-              if (ins1.isEmpty)
+              if (ds.isEmpty && ins1.isEmpty)
                 moduleIOMonad.raiseError(MainException.NoInputs(cmd))
               else
                 buildPackMap(
@@ -1116,11 +1120,10 @@ abstract class MainModule[IO[_]](implicit
 
       def run = withEC { implicit ec =>
         for {
-          packsNames <- inputs.packMap(this, testPacks, errColor)
-          (packs, nameMap) = packsNames
+          (packs, nameMap) <- inputs.packMap(this, testPacks, errColor)
           testPackIdents <- testPacks.traverse(_.getMain(nameMap))
-          testPackNames: List[PackageName] = testPackIdents.map(_._1)
         } yield {
+          val testPackNames: List[PackageName] = testPackIdents.map(_._1)
           val testIt: Iterator[PackageName] =
             if (testPacks.isEmpty) {
               // if there are no given files or packages to test, assume
@@ -1143,6 +1146,21 @@ abstract class MainModule[IO[_]](implicit
 
           Output.TestOutput(res, errColor)
         }
+      }
+    }
+
+    case class Show(
+        inputs: Inputs.Runtime,
+        output: Option[Path],
+        errColor: Colorize
+    ) extends MainCommand("show") {
+
+      type Result = Output.ShowOutput
+
+      def run = withEC { implicit ec =>
+        for {
+          (packs, _) <- inputs.packMap(this, Nil, errColor)
+        } yield Output.ShowOutput(packs, output)
       }
     }
 
@@ -1343,6 +1361,12 @@ abstract class MainModule[IO[_]](implicit
             "transpile",
             "transpile bosatsu into another language"
           )(transpileOpt)
+        )
+        .orElse(
+          Opts.subcommand("show", "show compiled packages")(
+            (Inputs.runtimeOpts, outputPath.orNone, colorOpt)
+              .mapN(Show(_, _, _))
+          )
         )
     }
 

@@ -4,3 +4,8 @@ export not
 
 def not(b: Bool) -> Bool:
   False if b else True
+
+test = TestSuite("not tests", [
+  Assertion(not(True) matches False, "not(True)"),
+  Assertion(not(False) matches True, "not(False)")
+])
