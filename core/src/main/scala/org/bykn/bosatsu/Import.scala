@@ -13,6 +13,7 @@ sealed abstract class ImportedName[+T] {
   def localName: Identifier
   def tag: T
   def isRenamed: Boolean = originalName != localName
+  def withTag[U](tag: U): ImportedName[U]
 
   def map[U](fn: T => U): ImportedName[U] =
     this match {
@@ -34,8 +35,11 @@ sealed abstract class ImportedName[+T] {
 object ImportedName {
   case class OriginalName[T](originalName: Identifier, tag: T) extends ImportedName[T] {
     def localName = originalName
+    def withTag[U](tag: U): ImportedName[U] = copy(tag = tag)
   }
-  case class Renamed[T](originalName: Identifier, localName: Identifier, tag: T) extends ImportedName[T]
+  case class Renamed[T](originalName: Identifier, localName: Identifier, tag: T) extends ImportedName[T] {
+    def withTag[U](tag: U): ImportedName[U] = copy(tag = tag)
+  }
 
   implicit val document: Document[ImportedName[Unit]] =
     Document.instance[ImportedName[Unit]] {
@@ -62,6 +66,12 @@ case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
   def resolveToGlobal: Map[Identifier, (A, Identifier)] =
     items.foldLeft(Map.empty[Identifier, (A, Identifier)]) { case (m0, impName) =>
       m0.updated(impName.localName, (pack, impName.originalName))
+    }
+
+  def mapFilter[C](fn: (A, ImportedName[B]) => Option[ImportedName[C]]): Option[Import[A, C]] =
+    NonEmptyList.fromList(items.toList.flatMap { in => fn(pack, in) }) match {
+      case Some(i1) => Some(Import(pack, i1))
+      case None => None
     }
 }
 

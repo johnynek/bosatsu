@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Monad
-import cats.data.{Chain, NonEmptyList, State}
+import cats.data.{Chain, NonEmptyList, NonEmptySet, NonEmptyChain, State, Validated, ValidatedNec}
 import org.bykn.bosatsu.rankn.{Type, TypeEnv, DefinedType}
 import scala.collection.immutable.SortedSet
 
@@ -15,15 +15,43 @@ import org.bykn.bosatsu.TypedExpr.Match
   * and makes sure they are valid
   */
 object PackageCustoms {
-  def errors[A](pack: Package.Typed[A]): List[PackageError] = {
-
-    val impsUsed = allImportsAreUsed(pack)
-    val expCheck = checkValuesHaveExportedTypes(pack.name, pack.exports)
-
-    (impsUsed ++ expCheck).toList
+  def apply[A](pack: Package.Typed[A]): ValidatedNec[PackageError, Package.Typed[A]] = {
+    checkValuesHaveExportedTypes(pack.name, pack.exports) *>
+      allImportsAreUsed(pack)
   }
 
-  private def allImportsAreUsed[A](pack: Package.Typed[A]): Chain[PackageError] = {
+  private def removeUnused[A](
+    vals: Option[NonEmptySet[(PackageName, Identifier)]],
+    types: Option[NonEmptySet[(PackageName, Type.Const)]],
+    pack: Package.Typed[A]
+  ): Package.Typed[A] =
+    (vals, types) match {
+      case (None, None) => pack
+      case (ov, ot) =>
+        val unV = ov match {
+          case Some(v) => v.toSortedSet
+          case None => SortedSet.empty[(PackageName, Identifier)]
+        }
+        val unT = ot match {
+          case Some(v) => v.toSortedSet
+          case None => SortedSet.empty[(PackageName, Type.Const)]
+        }
+        val i = pack.imports.flatMap { imp =>
+          imp.mapFilter { (pack, item) =>
+            val t1 = item.tag.toList.filter {
+              case Constructor(_, _) | Referant.Value(_) =>
+                !unV((pack.name, item.originalName))
+              case DefinedT(dt) =>
+                !unT((pack.name, dt.toTypeConst))
+            }
+            NonEmptyList.fromList(t1).map(item.withTag(_))
+          }
+        }
+
+        pack.copy(imports = i)
+    }
+
+  private def allImportsAreUsed[A](pack: Package.Typed[A]): ValidatedNec[PackageError, Package.Typed[A]] = {
     // Note, we can't import just a name or just a type when we have Structs,
     // we get both. So, we will count a Constructor used if the Identifier
     // OR the type is used
@@ -31,7 +59,6 @@ object PackageCustoms {
       (for {
         imp <- pack.imports.iterator
         impPack = imp.pack.name
-        if !impPack.isPredef // ignore predef
         item <- imp.items.iterator
         ref <- item.tag.iterator
         name <- ref match {
@@ -45,7 +72,6 @@ object PackageCustoms {
       (for {
         imp <- pack.imports.iterator
         impPack = imp.pack.name
-        if !impPack.isPredef // ignore predef
         item <- imp.items.iterator
         ref <- item.tag.iterator
         tpe <- ref match {
@@ -56,7 +82,7 @@ object PackageCustoms {
         }
       } yield (impPack, tpe)).to(SortedSet)
 
-    if (impValues.isEmpty && impTypes.isEmpty) Chain.empty
+    if (impValues.isEmpty && impTypes.isEmpty) Validated.valid(pack)
     else {
       type VSet = Set[(PackageName, Identifier)]
       type VState[X] = State[VSet, X]
@@ -105,9 +131,16 @@ object PackageCustoms {
 
       val unusedValMap = unusedValues.groupByNes(_._1)
       val unusedTypeMap = unusedTypes.groupByNes(_._1)
-      val unusedPacks = unusedValMap.keySet | unusedTypeMap.keySet
+      val unusedPacks = (unusedValMap.keySet | unusedTypeMap.keySet) - PackageName.PredefName
 
-      if (unusedPacks.isEmpty) Chain.empty
+      if (unusedPacks.isEmpty) {
+        // remove unused
+        Validated.valid(removeUnused(
+          unusedValMap.get(PackageName.PredefName),
+          unusedTypeMap.get(PackageName.PredefName),
+          pack
+        ))
+      }
       else {
         val badImports = NonEmptyList.fromListUnsafe(
           unusedPacks
@@ -131,12 +164,12 @@ object PackageCustoms {
             }
             .toList)
 
-        Chain.one(PackageError.UnusedImport(pack.name, badImports))
+        Validated.invalidNec(PackageError.UnusedImport(pack.name, badImports))
       }
     }
   }
 
-  private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): Chain[PackageError] = {
+  private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): ValidatedNec[PackageError, Unit] = {
     val exportedTypes: List[DefinedType[V]] = exports
       .iterator
       .map(_.tag)
@@ -169,6 +202,9 @@ object PackageCustoms {
         case Some(_) => Nil
       }
 
-    Chain.fromIterableOnce(usedTypes.flatMap(errorFor))
+    NonEmptyChain.fromChain(Chain.fromIterableOnce(usedTypes.flatMap(errorFor))) match {
+      case None => Validated.valid(())
+      case Some(nel) => Validated.invalid(nel)
+    }
   }
 }

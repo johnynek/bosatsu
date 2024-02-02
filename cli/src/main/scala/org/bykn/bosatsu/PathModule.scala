@@ -179,7 +179,7 @@ object PathModule extends MainModule[IO] {
             val exprs = Doc.intercalate(Doc.hardLine + Doc.hardLine,
               pack.program.lets.map { case (n, _, te) =>
                 // TODO: we really need to use Doc in repr
-                Doc.text(n.sourceCodeRepr) + Doc.text(" = ") + Doc.text(te.repr)
+                Doc.text(n.sourceCodeRepr) + Doc.text(" = ") + te.repr
               })
 
             val all = lines :: imps :: exports :: tpes :: exprs :: Nil
@@ -192,7 +192,7 @@ object PathModule extends MainModule[IO] {
             case None =>
               docs.traverse_ { doc =>
                 IO.blocking {
-                  doc.renderStreamTrim(100)
+                  doc.renderStreamTrim(80)
                     .iterator
                     .foreach(System.out.print)
 

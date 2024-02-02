@@ -723,6 +723,10 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
+      class Show(val ifaces: PathGen, val includes: PathGen) extends Inputs {
+
+      }
+
       class Runtime(
           srcs: PathGen,
           includes: PathGen,
@@ -849,6 +853,9 @@ abstract class MainModule[IO[_]](implicit
 
       val runtimeOpts: Opts[Inputs.Runtime] =
         (srcs, includes, packRes).mapN(new Runtime(_, _, _))
+
+      val showOpts: Opts[Inputs.Show] =
+        (ifaces, includes).mapN(new Show(_, _))
     }
 
     case class TranspileCommand(
@@ -1150,7 +1157,7 @@ abstract class MainModule[IO[_]](implicit
     }
 
     case class Show(
-        inputs: Inputs.Runtime,
+        inputs: Inputs.Show,
         output: Option[Path],
         errColor: Colorize
     ) extends MainCommand("show") {
@@ -1159,8 +1166,10 @@ abstract class MainModule[IO[_]](implicit
 
       def run = withEC { implicit ec =>
         for {
-          (packs, _) <- inputs.packMap(this, Nil, errColor)
-        } yield Output.ShowOutput(packs, output)
+          paths <- inputs.includes.read
+          packs <- readPackages(paths)
+          packMap = packs.foldLeft(PackageMap.empty: PackageMap.Typed[Any])(_ + _)
+        } yield Output.ShowOutput(packMap, output)
       }
     }
 
@@ -1364,7 +1373,7 @@ abstract class MainModule[IO[_]](implicit
         )
         .orElse(
           Opts.subcommand("show", "show compiled packages")(
-            (Inputs.runtimeOpts, outputPath.orNone, colorOpt)
+            (Inputs.showOpts, outputPath.orNone, colorOpt)
               .mapN(Show(_, _, _))
           )
         )

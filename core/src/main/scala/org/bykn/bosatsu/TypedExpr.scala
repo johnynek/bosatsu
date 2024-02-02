@@ -62,7 +62,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 
   // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
   // emit these
-  def repr: String = {
+  def repr: Doc = {
     def rept(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
     def loop(te: TypedExpr[T]): Doc = {
@@ -97,12 +97,15 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           def pat(p: Pattern[(PackageName, Constructor), Type]): Doc =
             cpat.document(p)
 
-          val bstr = branches.toList.map { case (p, t) => (Doc.char('[') + pat(p) + Doc.comma + Doc.lineOrSpace + loop(t) + Doc.char(']')).nested(4) }
-          (Doc.text("(match") + Doc.lineOrSpace + loop(arg) + Doc.lineOrSpace + Doc.intercalate(Doc.lineOrSpace, bstr).nested(4) + Doc.char(')')).nested(4)
+          val bstr = branches.toList.map { case (p, t) =>
+            (Doc.char('[') + pat(p) + Doc.comma + Doc.lineOrSpace + loop(t).grouped + Doc.char(']')).nested(4)
+          }
+          (Doc.text("(match") + Doc.lineOrSpace + loop(arg) + (Doc.hardLine +
+            Doc.intercalate(Doc.hardLine, bstr)).nested(4) + Doc.char(')')).nested(4)
       }
     }
 
-    loop(this).renderTrim(100)
+    loop(this)
   }
 
 

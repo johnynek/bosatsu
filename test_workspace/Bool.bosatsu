@@ -7,5 +7,5 @@ def not(b: Bool) -> Bool:
 
 test = TestSuite("not tests", [
   Assertion(not(True) matches False, "not(True)"),
-  Assertion(not(False) matches True, "not(False)")
+  Assertion(not(False), "not(False)")
 ])
