@@ -178,7 +178,6 @@ object PathModule extends MainModule[IO] {
 
             val exprs = Doc.intercalate(Doc.hardLine + Doc.hardLine,
               pack.program.lets.map { case (n, _, te) =>
-                // TODO: we really need to use Doc in repr
                 Doc.text(n.sourceCodeRepr) + Doc.text(" = ") + te.repr
               })
 
