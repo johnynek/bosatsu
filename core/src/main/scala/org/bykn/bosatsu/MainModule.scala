@@ -98,7 +98,8 @@ abstract class MainModule[IO[_]](implicit
         extends Output
 
     case class ShowOutput(
-      packages: PackageMap.Typed[Any],
+      packages: List[Package.Typed[Any]],
+      ifaces: List[Package.Interface],
       output: Option[Path]) extends Output
   }
 
@@ -1168,8 +1169,9 @@ abstract class MainModule[IO[_]](implicit
         for {
           paths <- inputs.includes.read
           packs <- readPackages(paths)
-          packMap = packs.foldLeft(PackageMap.empty: PackageMap.Typed[Any])(_ + _)
-        } yield Output.ShowOutput(packMap, output)
+          ipaths <- inputs.ifaces.read
+          ifaces <- readInterfaces(ipaths)
+        } yield Output.ShowOutput(packs, ifaces, output)
       }
     }
 

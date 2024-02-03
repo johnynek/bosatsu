@@ -334,4 +334,56 @@ object Package {
         System.err.println(errorMsg)
         sys.error(errorMsg)
     }
+
+  implicit val documentPackage: Document[Package.Typed[Any]] =
+    new Document[Package.Typed[Any]] {
+      def document(pack: Typed[Any]): Doc =
+        Doc.text("package: ") + Doc.text(pack.name.asString) + {
+          val lines = Doc.hardLine
+          val imps = Doc.text("imports: ") + Doc.intercalate(Doc.line, pack.imports.map { imp =>
+              Doc.text(imp.pack.name.asString) + Doc.space + (Doc.char('[') + Doc.line +
+                Doc.intercalate(Doc.comma + Doc.line, imp.items.toList.map { imp =>
+                  Doc.text(imp.originalName.sourceCodeRepr)
+                }) + Doc.line + Doc.char(']')
+              ).grouped
+            }).nested(4)
+
+          val exports = Doc.text("exports: ") + Doc.intercalate(Doc.line,
+              pack.exports.map { exp =>
+                Doc.text(exp.name.sourceCodeRepr)
+              }).grouped.nested(4)
+
+          val tpes = Doc.text("types: ") + Doc.intercalate(Doc.comma + Doc.line,
+            pack.program.types.definedTypes.toList.map { case (_, t) =>
+              Doc.text(t.name.ident.sourceCodeRepr)
+            }).grouped.nested(4)
+
+          val eqDoc = Doc.text(" = ")
+          val exprs = Doc.intercalate(Doc.hardLine + Doc.hardLine,
+            pack.program.lets.map { case (n, _, te) =>
+              Doc.text(n.sourceCodeRepr) + eqDoc + te.repr
+            })
+
+          val all = lines :: imps :: exports :: tpes :: exprs :: Nil
+
+          Doc.intercalate(Doc.hardLine, all)
+        }.nested(4)
+    }
+
+  implicit val documentInterface: Document[Interface] =
+    new Document[Interface] {
+      def document(iface: Interface): Doc =
+        Doc.text("interface: ") + Doc.text(iface.name.asString) + {
+          val lines = Doc.hardLine
+
+          val exports = Doc.text("exports: ") + Doc.intercalate(Doc.line,
+              iface.exports.map { exp =>
+                Doc.text(exp.name.sourceCodeRepr)
+              }).grouped.nested(4)
+
+          val all = lines :: exports :: Nil
+
+          Doc.intercalate(Doc.hardLine, all)
+        }.nested(4)
+    }
 }
