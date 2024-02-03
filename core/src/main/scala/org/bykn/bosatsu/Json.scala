@@ -81,28 +81,34 @@ object Json {
     override val render = "null"
     val toDoc = text(render)
   }
+  private val emptyArray = Doc.text("[]")
   final case class JArray(toVector: Vector[Json]) extends Json {
-    def toDoc = {
-      val parts = Doc.intercalate(Doc.comma, toVector.map { j => (Doc.line + j.toDoc).grouped })
-      "[" +: ((parts :+ " ]").nested(2))
-    }
+    def toDoc =
+      if (toVector.isEmpty) emptyArray
+      else {
+        val parts = Doc.intercalate(Doc.comma, toVector.map { j => (Doc.line + j.toDoc).grouped })
+        "[" +: ((parts :+ " ]").nested(2))
+      }
 
     def render = toDoc.render(80)
   }
+  private val emptyDict = Doc.text("{}")
   // we use a List here to preserve the order in which items
   // were given to us
   final case class JObject(items: List[(String, Json)]) extends Json {
     val toMap: Map[String, Json] = items.toMap
     val keys: List[String] = items.map(_._1).distinct
 
-    def toDoc = {
-      val kvs = keys.map { k =>
-        val j = toMap(k)
-        JString(k).toDoc + text(":") + ((Doc.lineOrSpace + j.toDoc).nested(2))
+    def toDoc =
+      if (items.isEmpty) emptyDict
+      else {
+        val kvs = keys.map { k =>
+          val j = toMap(k)
+          JString(k).toDoc + text(":") + ((Doc.lineOrSpace + j.toDoc).nested(2))
+        }
+        val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
+        parts.bracketBy(text("{"), text("}"))
       }
-      val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
-      parts.bracketBy(text("{"), text("}"))
-    }
 
     /**
      * Return a JObject with each key at most once, but in the order of this
