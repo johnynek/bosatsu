@@ -59,9 +59,6 @@ object PythonGen {
             Code.Ident(escapeRaw("___b", b.asString + c.toString))
           }
 
-        def bindTop(b: Bindable): EnvState =
-          subs(b, escape(b))
-
         // in loops we need to substitute
         // bindings for mutable variables
         def subs(b: Bindable, c: Code.Ident): EnvState =
@@ -151,9 +148,6 @@ object PythonGen {
       Impl.env(_.bind(b))
 
     // point this name to the top level name
-    def bindTop(b: Bindable): Env[Unit] =
-      Impl.update(_.bindTop(b))
-
     def subs(b: Bindable, i: Code.Ident): Env[Unit] =
       Impl.update(_.subs(b, i))
 
