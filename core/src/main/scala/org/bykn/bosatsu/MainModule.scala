@@ -96,6 +96,11 @@ abstract class MainModule[IO[_]](implicit
     ) extends Output
     case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path)
         extends Output
+
+    case class ShowOutput(
+      packages: List[Package.Typed[Any]],
+      ifaces: List[Package.Interface],
+      output: Option[Path]) extends Output
   }
 
   sealed abstract class MainException extends Exception {
@@ -719,6 +724,10 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
+      class Show(val ifaces: PathGen, val includes: PathGen) extends Inputs {
+
+      }
+
       class Runtime(
           srcs: PathGen,
           includes: PathGen,
@@ -737,7 +746,7 @@ abstract class MainModule[IO[_]](implicit
             ds <- includes.read
             ins1 = MainIdentifier.addAnyAbsent(mis, ins)
             pn <-
-              if (ins1.isEmpty)
+              if (ds.isEmpty && ins1.isEmpty)
                 moduleIOMonad.raiseError(MainException.NoInputs(cmd))
               else
                 buildPackMap(
@@ -845,6 +854,9 @@ abstract class MainModule[IO[_]](implicit
 
       val runtimeOpts: Opts[Inputs.Runtime] =
         (srcs, includes, packRes).mapN(new Runtime(_, _, _))
+
+      val showOpts: Opts[Inputs.Show] =
+        (ifaces, includes).mapN(new Show(_, _))
     }
 
     case class TranspileCommand(
@@ -1116,11 +1128,10 @@ abstract class MainModule[IO[_]](implicit
 
       def run = withEC { implicit ec =>
         for {
-          packsNames <- inputs.packMap(this, testPacks, errColor)
-          (packs, nameMap) = packsNames
+          (packs, nameMap) <- inputs.packMap(this, testPacks, errColor)
           testPackIdents <- testPacks.traverse(_.getMain(nameMap))
-          testPackNames: List[PackageName] = testPackIdents.map(_._1)
         } yield {
+          val testPackNames: List[PackageName] = testPackIdents.map(_._1)
           val testIt: Iterator[PackageName] =
             if (testPacks.isEmpty) {
               // if there are no given files or packages to test, assume
@@ -1143,6 +1154,24 @@ abstract class MainModule[IO[_]](implicit
 
           Output.TestOutput(res, errColor)
         }
+      }
+    }
+
+    case class Show(
+        inputs: Inputs.Show,
+        output: Option[Path],
+        errColor: Colorize
+    ) extends MainCommand("show") {
+
+      type Result = Output.ShowOutput
+
+      def run = withEC { implicit ec =>
+        for {
+          paths <- inputs.includes.read
+          packs <- readPackages(paths)
+          ipaths <- inputs.ifaces.read
+          ifaces <- readInterfaces(ipaths)
+        } yield Output.ShowOutput(packs, ifaces, output)
       }
     }
 
@@ -1343,6 +1372,12 @@ abstract class MainModule[IO[_]](implicit
             "transpile",
             "transpile bosatsu into another language"
           )(transpileOpt)
+        )
+        .orElse(
+          Opts.subcommand("show", "show compiled packages")(
+            (Inputs.showOpts, outputPath.orNone, colorOpt)
+              .mapN(Show(_, _, _))
+          )
         )
     }
 

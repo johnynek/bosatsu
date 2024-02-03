@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.effect.IO
 import com.monovore.decline.Argument
-import org.typelevel.paiges.Doc
+import org.typelevel.paiges.{Doc, Document}
 
 import java.nio.file.{Path => JPath}
 
@@ -153,6 +153,30 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out).as(ExitCode.Success)
+
+      case Output.ShowOutput(packs, ifaces, output) =>
+        val pdocs = packs.map { pack =>
+          Document[Package.Typed[Any]].document(pack)
+        }
+        val idocs = ifaces.map { iface =>
+          Document[Package.Interface].document(iface)
+        }
+
+        val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
+        output match {
+          case None =>
+            IO.blocking {
+              doc.renderStreamTrim(80)
+                .iterator
+                .foreach(System.out.print)
+
+              System.out.println("")
+            }
+            .as(ExitCode.Success)
+          case Some(p) =>
+            CodeGenWrite.writeDoc(p, doc)
+              .as(ExitCode.Success)
+        }
     }
 
   def reportException(ex: Throwable): IO[Unit] =

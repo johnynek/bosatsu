@@ -319,9 +319,10 @@ object PackageMap {
                     // We have a result, which we can continue to check
                     val pack = Package(nm, imps, exports, program)
                     val res = (fte, pack)
-                    NonEmptyList.fromList(PackageCustoms.errors(pack)) match {
-                      case None => Ior.right(res)
-                      case Some(errs) => Ior.both(errs, res)
+                    PackageCustoms(pack) match {
+                      case Validated.Valid(p1) => Ior.right((fte, p1))
+                      case Validated.Invalid(errs) =>
+                        Ior.both(errs.toNonEmptyList, res)
                     }
                   case Validated.Invalid(badPackages) =>
                     Ior.left(badPackages.map { n =>

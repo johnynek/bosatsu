@@ -498,7 +498,7 @@ x = Foo
       case TypedExpr.Global(_, Identifier.Constructor("Foo"), _, _) =>
         assert(true)
       case notNorm =>
-        fail(notNorm.repr)
+        fail(notNorm.repr.render(80))
     }
   }
 

@@ -1,4 +1,5 @@
 #!/bin/sh
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # make sure to run sbt cli/assembly first
-java -jar cli/target/scala-2.13/bosatsu-cli-assembly-0.0.7.jar "$@"
+java -jar $SCRIPT_DIR/cli/target/scala-2.13/bosatsu-cli-assembly-0.0.7.jar "$@"
