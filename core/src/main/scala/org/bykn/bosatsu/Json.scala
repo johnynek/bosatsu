@@ -81,28 +81,34 @@ object Json {
     override val render = "null"
     val toDoc = text(render)
   }
+  private val emptyArray = Doc.text("[]")
   final case class JArray(toVector: Vector[Json]) extends Json {
-    def toDoc = {
-      val parts = Doc.intercalate(Doc.comma, toVector.map { j => (Doc.line + j.toDoc).grouped })
-      "[" +: ((parts :+ " ]").nested(2))
-    }
+    def toDoc =
+      if (toVector.isEmpty) emptyArray
+      else {
+        val parts = Doc.intercalate(Doc.comma, toVector.map { j => (Doc.line + j.toDoc).grouped })
+        "[" +: ((parts :+ " ]").nested(2))
+      }
 
     def render = toDoc.render(80)
   }
+  private val emptyDict = Doc.text("{}")
   // we use a List here to preserve the order in which items
   // were given to us
   final case class JObject(items: List[(String, Json)]) extends Json {
     val toMap: Map[String, Json] = items.toMap
     val keys: List[String] = items.map(_._1).distinct
 
-    def toDoc = {
-      val kvs = keys.map { k =>
-        val j = toMap(k)
-        JString(k).toDoc + text(":") + ((Doc.lineOrSpace + j.toDoc).nested(2))
+    def toDoc =
+      if (items.isEmpty) emptyDict
+      else {
+        val kvs = keys.map { k =>
+          val j = toMap(k)
+          JString(k).toDoc + Doc.char(':') + ((Doc.lineOrSpace + j.toDoc).nested(2))
+        }
+        val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
+        parts.bracketBy(text("{"), text("}"))
       }
-      val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
-      parts.bracketBy(text("{"), text("}"))
-    }
 
     /**
      * Return a JObject with each key at most once, but in the order of this
@@ -152,8 +158,22 @@ object Json {
    */
   val parser: P[Json] = {
     val recurse = P.defer(parser)
-    val pnull = P.string("null").as(JNull)
-    val bool = P.string("true").as(JBool.True).orElse(P.string("false").as(JBool.False))
+
+    // cats-parse uses a radix tree for these so it only needs to check 1 character
+    // to see if it misses
+    val pconst = P.fromStringMap(Map(
+      "null" -> JNull,
+      "true" -> JBool.True,
+      "false" -> JBool.False
+      /* you can imagine going nuts, but we should justify this with benchmarks
+      "0" -> JNumberStr("0"),
+      "1" -> JNumberStr("1"),
+      "\"\"" -> JString(""),
+      "[]" -> JArray(Vector.empty),
+      "{}" -> JObject(Nil)
+      */
+    ))
+
     val justStr = JsonStringUtil.escapedString('"')
     val str = justStr.map(JString(_))
     val num = Parser.JsonNumber.parser.map(JNumberStr(_))
@@ -171,9 +191,9 @@ object Json {
       justStr ~ ((whitespaces0.with1 ~ P.char(':') ~ whitespaces0) *> recurse)
 
     val obj = (P.char('{') *> rep(kv) <* P.char('}'))
-      .map { vs => JObject(vs.toList) }
+      .map { vs => JObject(vs) }
 
-    P.oneOf(pnull :: bool :: str :: num :: list :: obj :: Nil)
+    P.oneOf(pconst :: str :: num :: list :: obj :: Nil)
   }
 
   // any whitespace followed by json followed by whitespace followed by end
