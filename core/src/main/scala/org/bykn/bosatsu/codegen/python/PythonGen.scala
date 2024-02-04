@@ -59,9 +59,6 @@ object PythonGen {
             Code.Ident(escapeRaw("___b", b.asString + c.toString))
           }
 
-        def bindTop(b: Bindable): EnvState =
-          subs(b, escape(b))
-
         // in loops we need to substitute
         // bindings for mutable variables
         def subs(b: Bindable, c: Code.Ident): EnvState =
@@ -151,9 +148,6 @@ object PythonGen {
       Impl.env(_.bind(b))
 
     // point this name to the top level name
-    def bindTop(b: Bindable): Env[Unit] =
-      Impl.update(_.bindTop(b))
-
     def subs(b: Bindable, i: Code.Ident): Env[Unit] =
       Impl.update(_.subs(b, i))
 
@@ -269,9 +263,8 @@ object PythonGen {
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
-            assigned = cv := cx
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield assigned.withValue(res)
+          } yield (cv := cx).withValue(res)
       }
     }
 
@@ -552,26 +545,34 @@ object PythonGen {
     val ops = new Impl.Ops(packName, remap)
 
     // if we have a top level let rec with the same name, handle it more cleanly
-    val nmVeEnv =
-      me match {
-        case Let(Right((n1, RecursionKind.NonRecursive)), inner, Local(n2)) if ((n1 === name) && (n2 === name)) =>
-          // we can just bind now at the top level
-          for {
-            nm <- Env.topLevelName(name)
-            ve <- ops.loop(inner, None)
-          } yield (nm, inner, ve)
-        case _ =>
-          for {
-            // name is not in scope yet
-            ve <- ops.loop(me, None)
-            nm <- Env.topLevelName(name)
-          } yield (nm, me, ve)
-      }
-
-    nmVeEnv
-      .flatMap { case (nm, me, ve) =>
-        ops.topLet(nm, me, ve, None)
-      }
+    me match {
+      case Let(Right((n1, RecursionKind.NonRecursive)), inner, Local(n2)) if ((n1 === name) && (n2 === name)) =>
+        // we can just bind now at the top level
+        for {
+          nm <- Env.topLevelName(name)
+          res <- inner match {
+            case fn: FnExpr => ops.topFn(nm, fn, None)
+            case _ => ops.loop(inner, None).map(nm := _)
+          }
+        } yield res
+      case Let(Right((n1, RecursionKind.Recursive)), fn: FnExpr, Local(n2))
+        if (n1 === name) && (n2 === name) =>
+        for {
+          nm <- Env.topLevelName(name)
+          res <- ops.topFn(nm, fn, None)
+        } yield res
+      case fn: FnExpr =>
+        for {
+          nm <- Env.topLevelName(name)
+          res <- ops.topFn(nm, fn, None)
+        } yield res
+      case _ =>
+        for {
+          // name is not in scope yet
+          ve <- ops.loop(me, None)
+          nm <- Env.topLevelName(name)
+        } yield nm := ve
+    }
   }
 
   private def addUnitTest(name: Bindable): Env[Statement] = {
@@ -1397,19 +1398,19 @@ object PythonGen {
          }
       }
 
-      def topLet(name: Code.Ident, expr: Expr, v: ValueLike, slotName: Option[Code.Ident]): Env[Statement] =
+      // if expr is a LoopFn or Lambda handle it
+      def topFn(name: Code.Ident, expr: FnExpr, slotName: Option[Code.Ident]): Env[Statement] =
         expr match {
           case LoopFn(captures, _, args, b) =>
             // note, name is already bound
-            val boundA = args.traverse(Env.bind)
+            // args can use topFn
+            val boundA = args.traverse(Env.topLevelName)
             val subsA = args.traverse { a =>
               for {
                 mut <- Env.newAssignableVar
                 _ <- Env.subs(a, mut)
               } yield (a, mut)
             }
-
-            val unbindA = args.traverse_(Env.unbind)
 
             for {
               as <- boundA
@@ -1419,12 +1420,13 @@ object PythonGen {
               loopRes <- Env.buildLoop(name, subs1, body)
               // we have bound this name twice, once for the top and once for substitution
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
-              _ <- unbindA
             } yield Code.blockFromList(binds.toList ::: loopRes :: Nil)
 
           case Lambda(captures, _, args, body) =>
             // we can ignore name because python already allows recursion
-            (args.traverse(Env.bind(_)), makeSlots(captures, slotName)(loop(body, _)))
+            // we can use topLevelName on makeDefs since they are already
+            // shadowing in the same rules as bosatsu
+            (args.traverse(Env.topLevelName(_)), makeSlots(captures, slotName)(loop(body, _)))
               .mapN {
                 case (as, (slots, body)) =>
                   Code.blockFromList(
@@ -1433,11 +1435,6 @@ object PythonGen {
                     Nil
                   )
               }
-              .flatMap { d =>
-                args.traverse_(Env.unbind(_)).as(d)
-              }
-          case _ =>
-            Env.pure(name := v)
         }
 
       def makeSlots[A](captures: List[Expr],
@@ -1456,8 +1453,10 @@ object PythonGen {
         expr match {
           case Lambda(captures, _, args, res) =>
             // we ignore name because python already supports recursion
-            (args.traverse(Env.bind(_)), makeSlots(captures, slotName)(loop(res, _)))
-              .mapN {
+            // we can use topLevelName on makeDefs since they are already
+            // shadowing in the same rules as bosatsu
+            (args.traverse(Env.topLevelName(_)), makeSlots(captures, slotName)(loop(res, _)))
+              .flatMapN {
                 case (args, (None, x: Expression)) =>
                   Env.pure(Code.Lambda(args.toList, x))
                 case (args, (prefix, v)) =>
@@ -1467,20 +1466,18 @@ object PythonGen {
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
               }
-              .flatMap(_ <* args.traverse_(Env.unbind(_)))
           case LoopFn(captures, thisName, args, body) =>
             // note, thisName is already bound because LoopFn
             // is a lambda, not a def
 
-            val boundA = args.traverse(Env.bind)
+            // we can use topLeft for arg names
+            val boundA = args.traverse(Env.topLevelName)
             val subsA = args.traverse { a =>
               for {
                 mut <- Env.newAssignableVar
                 _ <- Env.subs(a, mut)
               } yield (a, mut)
             }
-
-            val unbindA = args.traverse_(Env.unbind)
 
             for {
               nameI <- Env.deref(thisName)
@@ -1491,7 +1488,6 @@ object PythonGen {
               loopRes <- Env.buildLoop(nameI, subs1, body)
               // we have bound the args twice: once as args, once as interal muts
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
-              _ <- unbindA
             } yield Code.blockFromList(prefix.toList :+ loopRes).withValue(nameI)
 
           case PredefExternal((fn, arity)) =>
@@ -1541,7 +1537,30 @@ object PythonGen {
                 }
               }
               .flatten
-          case Let(localOrBind, value, in) =>
+          case Let(localOrBind, fn: FnExpr, in) =>
+            val inF = loop(in, slotName)
+
+            localOrBind match {
+              case Right((b, _)) =>
+                // for fn, bosatsu doesn't allow bind name
+                // shadowing, so the bind order of the name
+                // doesn't matter
+                for {
+                  bi <- Env.bind(b)
+                  tl <- topFn(bi, fn, slotName)
+                  ine <- inF
+                  _ <- Env.unbind(b)
+                } yield tl.withValue(ine)
+              case Left(LocalAnon(l)) =>
+                // anonymous names never shadow
+                Env.nameForAnon(l)
+                  .flatMap { bi =>
+                    val v = topFn(bi, fn, slotName)
+                    (v, inF).mapN(_.withValue(_))
+                  }
+            }
+          case Let(localOrBind, notFn, in) =>
+            // we know that notFn is not FnExpr here
             val inF = loop(in, slotName)
 
             localOrBind match {
@@ -1550,32 +1569,26 @@ object PythonGen {
                   // value b is in scope first
                   for {
                     bi <- Env.bind(b)
-                    ve <- loop(value, slotName)
-                    tl <- topLet(bi, value, ve, slotName)
+                    v <- loop(notFn, slotName)
                     ine <- inF
-                    wv = tl.withValue(ine)
                     _ <- Env.unbind(b)
-                  } yield wv
+                  } yield ((bi := v).withValue(ine))
                 }
                 else {
                   // value b is in scope after ve
                   for {
-                    ve <- loop(value, slotName)
+                    ve <- loop(notFn, slotName)
                     bi <- Env.bind(b)
-                    tl <- topLet(bi, value, ve, slotName)
                     ine <- inF
-                    wv = tl.withValue(ine)
                     _ <- Env.unbind(b)
-                  } yield wv
+                  } yield ((bi := ve).withValue(ine))
                 }
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
-                (Env.nameForAnon(l), loop(value, slotName))
-                  .mapN { (bi, vE) =>
-                    (topLet(bi, value, vE, slotName), inF)
-                      .mapN(_.withValue(_))
+                (Env.nameForAnon(l), loop(notFn, slotName))
+                  .flatMapN { (bi, vE) =>
+                    inF.map((bi := vE).withValue(_))
                   }
-                  .flatten
             }
 
           case LetMut(LocalAnonMut(_), in) =>
