@@ -263,9 +263,8 @@ object PythonGen {
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
-            assigned = cv := cx
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield assigned.withValue(res)
+          } yield (cv := cx).withValue(res)
       }
     }
 
@@ -1550,9 +1549,8 @@ object PythonGen {
                   bi <- Env.bind(b)
                   tl <- topFn(bi, fn, slotName)
                   ine <- inF
-                  wv = tl.withValue(ine)
                   _ <- Env.unbind(b)
-                } yield wv
+                } yield tl.withValue(ine)
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
                 Env.nameForAnon(l)
@@ -1573,9 +1571,8 @@ object PythonGen {
                     bi <- Env.bind(b)
                     v <- loop(notFn, slotName)
                     ine <- inF
-                    wv = (bi := v).withValue(ine)
                     _ <- Env.unbind(b)
-                  } yield wv
+                  } yield ((bi := v).withValue(ine))
                 }
                 else {
                   // value b is in scope after ve
@@ -1583,9 +1580,8 @@ object PythonGen {
                     ve <- loop(notFn, slotName)
                     bi <- Env.bind(b)
                     ine <- inF
-                    wv = (bi := ve).withValue(ine)
                     _ <- Env.unbind(b)
-                  } yield wv
+                  } yield ((bi := ve).withValue(ine))
                 }
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
