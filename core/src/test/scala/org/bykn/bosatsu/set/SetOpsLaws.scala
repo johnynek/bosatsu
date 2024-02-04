@@ -138,7 +138,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   def isSubsetDiff(a: A, b: A) =
     difference(a, b).isEmpty
 
-  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]])(implicit loc: munit.Location) = {
+  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]]) = {
     val intSub = isSubsetIntr(a, b, eqAs)
     val diffSub = isSubsetDiff(a, b)
 

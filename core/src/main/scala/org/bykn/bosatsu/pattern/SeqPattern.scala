@@ -77,8 +77,8 @@ sealed trait SeqPattern[+A] {
       case Empty => Empty
       case Cat(Wildcard, Cat(AnyElem, t)) =>
         // move AnyElem out
-        val wtn = Cat(Wildcard, t).normalize
-        Cat(AnyElem, wtn)
+        val wtn = Cat(Wildcard, t)
+        Cat(AnyElem, wtn.normalize)
       case Cat(Wildcard, tail@Cat(Wildcard, _)) =>
         // remove duplicate Wildcard
         tail.normalize
@@ -97,6 +97,7 @@ sealed trait SeqPattern[+A] {
         case Wildcard => "*"
       }
       .mkString
+
 }
 
 object SeqPattern {
@@ -157,11 +158,11 @@ object SeqPattern {
       def unifyUnion(union: List[SeqPattern[A]]): List[SeqPattern[A]] =
         unifyUnionList {
           union
-            .map(_.normalize)
+            .map(normalize(_))
             .distinct
             .map(_.toList)
           }
-          .map(SeqPattern.fromList(_).normalize)
+          .map { s => normalize(SeqPattern.fromList(s)) }
           .sorted
 
       private[this] val someWild = Some(Wildcard :: Nil)
@@ -254,6 +255,39 @@ object SeqPattern {
       @inline
       final def isAny(p: SeqPart1[A]): Boolean =
         part1SetOps.isTop(p)
+
+      /**
+       * If two wilds are adjacent, the left one will always match empty string
+       * this normalize just removes the left wild
+       *
+       * combine adjacent strings
+       */
+      private def normalize(sp: SeqPattern[A]): SeqPattern[A] =
+        sp match {
+          case Empty => Empty
+          case Cat(h: SeqPart1[A], tail) =>
+            val nh = if (isAny(h)) AnyElem else h
+            Cat(nh, normalize(tail))
+          case Cat(Wildcard, tail) =>
+            tail match {
+              case Empty =>
+                // already normalized
+                sp
+              case Cat(a: SeqPart1[A], t) =>
+                if (isAny(a)) {
+                  // move AnyElem out
+                  val wtn = Cat(Wildcard, t)
+                  Cat(AnyElem, normalize(wtn))
+                }
+                else {
+                  Cat(Wildcard, Cat(a, normalize(t)))
+                }
+              case tail@Cat(Wildcard, _) =>
+                // remove duplicate Wildcard
+                normalize(tail)
+            }
+        }
+
 
       private def subsetList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Boolean =
         (p1, p2) match {

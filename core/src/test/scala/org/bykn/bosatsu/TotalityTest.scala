@@ -378,12 +378,39 @@ enum Either: Left(l), Right(r)
     regressions.foreach { case (a, b) => law(a, b) }
   }
 
+  private def pair(str: String): (Pat, Pat) = {
+    val pats = patterns(str)
+    (pats(0), pats(1))
+  }
   test("subset consistency regressions") {
     val regressions: List[(Pat, Pat)] =
       {
         val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
         val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
         (struct, lst)
+      } :: {
+        import Pattern._
+        import ListPart._
+
+        val a = WildCard
+        /*
+        val b = Union(ListPat(List()),NonEmptyList.of(
+          ListPat(List(Item(Named(n("tmxb"),Union(Var(n("op")),NonEmptyList.of(Var(n("mjpqdwRbkz")), Literal(Lit.Chr("鱛")))))))),
+          ListPat(List(Item(ListPat(List(WildList))), Item(Named(n("e7psNp0ok"),WildCard)), WildList))))
+          */
+
+        val b = Union(
+          ListPat(List()),
+          NonEmptyList.of(
+            //ListPat(List(Item(Union(WildCard, NonEmptyList.of(WildCard, Literal(Lit.Chr("鱛"))))))),
+            ListPat(List(Item(WildCard))),
+            ListPat(List(Item(ListPat(List(WildList))), Item(WildCard), WildList))))
+            //ListPat(List(Item(WildCard), Item(WildCard), WildList))))
+
+        assert(setOps.isTop(ListPat(List(WildList))))
+        assertEquals(setOps.unifyUnion(Pattern.flatten(b).toList), WildCard :: Nil)
+        assertEquals(setOps.relate(a, b), Rel.Same)
+        (a, b)
       } ::
       Nil
 
@@ -392,10 +419,6 @@ enum Either: Left(l), Right(r)
     }
   }
 
-  private def pair(str: String): (Pat, Pat) = {
-    val pats = patterns(str)
-    (pats(0), pats(1))
-  }
 
   test("difference is idempotent regressions") {
     import Pattern._
