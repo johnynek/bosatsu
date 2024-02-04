@@ -11,7 +11,7 @@ class CodeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 1000)
 
   lazy val genPy2Name: Gen[String] = {
     val letters = (('A' to 'Z') ++ ('a' to 'z')).toList
@@ -458,5 +458,26 @@ else:
 
     assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
     assert(Code.toDoc(Code.Ident("z").evalAnd(and)).renderTrim(80) == "z and (a == b) and (b == c)")
+  }
+
+  test("simplify applies lambdas") {
+    // (lambda x: f(x))(y) == f(y)
+    val genArgs  =
+      for {
+        n <- Gen.choose(0, 4)
+        largs <- Gen.listOfN(n, genIdent)
+        args <- Gen.listOfN(n, genIdent)
+        result <- genExpr(4)
+      } yield (Code.Lambda(largs, result), args)
+
+    forAll(genArgs) { case (lam, arg) =>
+      assert(lam(arg: _*).simplify == Code.substitute(lam.args.zip(arg).toMap, lam.result).simplify)  
+    }
+  }
+
+  test("simplify(Map.empty, x) == x") {
+    forAll(genExpr(4)) { x =>
+      assert(Code.substitute(Map.empty, x) == x)  
+    }
   }
 }

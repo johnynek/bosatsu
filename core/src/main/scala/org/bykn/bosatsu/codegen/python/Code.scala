@@ -431,9 +431,11 @@ object Code {
   case class SelectItem(arg: Expression, position: Expression) extends Expression {
     def simplify: Expression =
       (arg.simplify, position.simplify) match {
-        case (MakeTuple(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+        case (MakeTuple(items), PyInt(bi))
+          if (items.lengthCompare(bi.intValue()) > 0) && (bi.intValue() >= 0) =>
           items(bi.intValue())
-        case (MakeList(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+        case (MakeList(items), PyInt(bi))
+          if (items.lengthCompare(bi.intValue()) > 0) && (bi.intValue() >= 0) =>
           items(bi.intValue())
         case (simp, spos) =>
           SelectItem(simp, spos)
@@ -468,7 +470,27 @@ object Code {
     def simplify: Expression = Lambda(args, result.simplify)
   }
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
-    def simplify: Expression = Apply(fn.simplify, args.map(_.simplify))
+    def simplify: Expression = {
+      fn.simplify match {
+        case Lambda(largs, result) if largs.length == args.length => 
+          // if this is a lambda, but the args don't match, let
+          // the python error
+          val subMap = largs.iterator.zip(args).toMap
+          val subs = substitute(subMap, result)
+          // now we can simplify after we have inlined the args
+          subs.simplify
+        case Parens(Lambda(largs, result)) if largs.length == args.length => 
+          // if this is a lambda, but the args don't match, let
+          // the python error
+          val subMap = largs.iterator.zip(args).toMap
+          val subs = substitute(subMap, result)
+          // now we can simplify after we have inlined the args
+          subs.simplify
+          
+        case notLambda =>
+          Apply(notLambda, args.map(_.simplify))
+      }
+    }
   }
   case class DotSelect(ex: Expression, ident: Ident) extends Expression {
     def simplify: Expression = DotSelect(ex.simplify, ident)
@@ -603,6 +625,46 @@ object Code {
         case _ => None
       }
   }
+
+  def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
+    in match {
+      case PyInt(_) | PyString(_) | PyBool(_) => in
+      case i@Ident(_) =>
+        subMap.get(i) match {
+          case Some(value) => value
+          case None => i
+        }
+      case Op(left, op, right) =>
+        Op(substitute(subMap, left), op, substitute(subMap, right))
+      case Parens(expr) =>
+        Parens(substitute(subMap, expr))
+      case SelectItem(arg, position) =>
+        SelectItem(substitute(subMap, arg), substitute(subMap, position))
+      case SelectRange(arg, start, end) =>
+        SelectRange(substitute(subMap, arg),
+          start.map(substitute(subMap, _)),
+          end.map(substitute(subMap, _)))
+      case Ternary(ifTrue, cond, ifFalse) =>
+        Ternary(
+          substitute(subMap, ifTrue),
+          substitute(subMap, cond),
+          substitute(subMap, ifFalse))
+      case MakeTuple(args) =>
+        MakeTuple(args.map(substitute(subMap, _)))
+      case MakeList(args) =>
+        MakeList(args.map(substitute(subMap, _)))
+      case Lambda(args, result) =>
+        // the args here can shadow, so we have to remove any
+        // items from subMap that have the same Ident
+        val argsSet = args.toSet
+        val sm1 = subMap.filterNot { case (i, _) => argsSet(i) }
+        if (sm1.isEmpty) in
+        else Lambda(args, substitute(sm1, result))
+      case Apply(fn, args) =>
+        Apply(substitute(subMap, fn), args.map(substitute(subMap, _)))
+      case DotSelect(ex, ident) =>
+        DotSelect(substitute(subMap, ex), ident)
+    }
 
   def toReturn(v: ValueLike): Statement =
     v match {
