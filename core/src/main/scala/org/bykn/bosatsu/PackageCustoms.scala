@@ -171,13 +171,7 @@ object PackageCustoms {
 
   private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): ValidatedNec[PackageError, Unit] = {
     val exportedTypes: List[DefinedType[V]] = exports
-      .iterator
-      .map(_.tag)
-      .collect {
-        case Referant.Constructor(dt, _) => dt
-        case Referant.DefinedT(dt) => dt
-      }
-      .toList
+      .flatMap(ExportedName.definedType(_))
       .distinct
 
     val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
@@ -193,7 +187,6 @@ object PackageCustoms {
       }
       .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
       .filter { case (Type.Const.Defined(p, _), _, _) => p === pn }
-
 
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
       exportedTE.toDefinedType(t._1) match {

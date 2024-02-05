@@ -77,6 +77,28 @@ abstract class MainModule[IO[_]](implicit
       .parse(args.toList)
       .map(_.run.widen)
 
+  sealed abstract class FileKind(val name: String)
+  object FileKind {
+    case object Source extends FileKind("source")
+    case object Iface extends FileKind("interface")
+    case object Pack extends FileKind("package")
+  }
+
+  sealed abstract class GraphOutput
+  object GraphOutput {
+    case object Dot extends GraphOutput
+    case object Json extends GraphOutput
+
+    val jsonOrDot: Opts[GraphOutput] =
+      Opts.option[String]("graph_format", "format of graph, either json or dot")
+        .mapValidated {
+          case "json" => Validated.valid(Json)
+          case "dot" => Validated.valid(Dot)
+          case other => Validated.invalidNel(s"\"$other\" invalid, expected json or dot")
+        }
+        .withDefault(Json)
+  }
+
   sealed abstract class Output
   object Output {
     case class TestOutput(
@@ -101,6 +123,11 @@ abstract class MainModule[IO[_]](implicit
       packages: List[Package.Typed[Any]],
       ifaces: List[Package.Interface],
       output: Option[Path]) extends Output
+
+    case class DepsOutput(
+      depinfo: List[(Path, PackageName, FileKind, List[PackageName])],
+      output: Option[Path],
+      style:  GraphOutput) extends Output
   }
 
   sealed abstract class MainException extends Exception {
@@ -187,6 +214,23 @@ abstract class MainModule[IO[_]](implicit
             .map(_.map { case (lm, parsed) =>
               ((path, lm), parsed)
             })
+        }
+        .map(_.sequence)
+
+    def parseHeaders[F[_]: Traverse](
+        paths: F[Path],
+        packRes: PackageResolver
+    ): IO[ValidatedNel[ParseError, F[(Path, Package.Header)]]] =
+      // we use IO(traverse) so we can accumulate all the errors in parallel easily
+      // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
+      // and use the composed applicative... too much work for the same result
+      paths
+        .traverse { path =>
+          val defaultPack = packRes.packageNameFor(path)
+          readPath(path).map { str =>
+            parseStart(Package.headerParser(defaultPack), path, str)
+              .map { case (_, pp) => (path, pp) }
+          }
         }
         .map(_.sequence)
 
@@ -307,6 +351,19 @@ abstract class MainModule[IO[_]](implicit
           ParseError.ParseFailure(pf, path)
         }
       }
+
+  def parseStart[A](p0: P0[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] = {
+    val lm = LocationMap(str)
+    p0.parse(str) match {
+      case Right((_, a)) =>
+        Validated.valid((lm, a))
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        Validated.invalidNel(
+          ParseError.ParseFailure(Parser.Error.ParseFailure(idx, lm, err.expected), path))
+    }
+  }
+
 
     def parseFile[A](
         p: P0[A],
@@ -698,8 +755,8 @@ abstract class MainModule[IO[_]](implicit
           packageResolver: PackageResolver
       ) extends Inputs {
 
-        private def inNel(cmd: MainCommand): IO[NonEmptyList[Path]] = srcs.read
-          .flatMap { ins =>
+        private def inNel(cmd: MainCommand): IO[NonEmptyList[Path]] =
+          srcs.read.flatMap { ins =>
             NonEmptyList.fromList(ins) match {
               case Some(nel) => moduleIOMonad.pure(nel)
               case None =>
@@ -724,8 +781,27 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
-      class Show(val ifaces: PathGen, val includes: PathGen) extends Inputs {
+      class Show(val ifaces: PathGen, val includes: PathGen) extends Inputs
+      class Deps(
+        srcs: PathGen,
+        ifaces: PathGen,
+        includes: PathGen,
+        val packageResolver: PackageResolver
+      ) extends Inputs {
+    
+        def srcList: IO[List[Path]] = srcs.read
 
+        def readIfaces: IO[List[(Path, Package.Interface)]] =
+          for {
+            ifPaths <- ifaces.read
+            withIf <- readInterfaces(ifPaths).map(ifPaths.zip(_))
+          } yield withIf
+
+        def readPacks: IO[List[(Path, Package.Typed[Any])]] =
+          for {
+            pPaths <- includes.read
+            withPs <- readPackages(pPaths).map(pPaths.zip(_))
+          } yield withPs
       }
 
       class Runtime(
@@ -857,6 +933,9 @@ abstract class MainModule[IO[_]](implicit
 
       val showOpts: Opts[Inputs.Show] =
         (ifaces, includes).mapN(new Show(_, _))
+
+      val depsOpts: Opts[Inputs.Deps] =
+        (srcs, ifaces, includes, packRes).mapN(new Deps(_, _, _, _))
     }
 
     case class TranspileCommand(
@@ -1165,14 +1244,66 @@ abstract class MainModule[IO[_]](implicit
 
       type Result = Output.ShowOutput
 
-      def run = withEC { implicit ec =>
+      def run =
         for {
           paths <- inputs.includes.read
           packs <- readPackages(paths)
           ipaths <- inputs.ifaces.read
           ifaces <- readInterfaces(ipaths)
         } yield Output.ShowOutput(packs, ifaces, output)
+    }
+
+    case class Deps(
+      inputs: Inputs.Deps,
+      output: Option[Path],
+      errColor: Colorize,
+      style: GraphOutput
+    ) extends MainCommand("deps") {
+
+      type Result = Output.DepsOutput
+
+      def srcDeps(paths: List[Path]): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
+        for {
+          maybeParsed <- parseHeaders(paths, inputs.packageResolver)
+          parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
+        } yield 
+          parsed.map { case (path, (pn, imps, _)) =>
+            (path, pn, FileKind.Source, norm(imps.map(_.pack)))  
+          }
+
+      def ifaceDeps(iface: Package.Interface): List[PackageName] = {
+        val pn = iface.name
+        norm(iface.exports
+          .iterator
+          .flatMap { n =>
+            n.tag match {
+              case Referant.Value(t) => Iterator.single(t)
+              case _ => Iterator.empty
+            }
+          }
+          .flatMap(rankn.Type.constantsOf)
+          .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
+          .toList)
       }
+
+      private def norm(lst: List[PackageName]): List[PackageName] =
+        lst
+          .filterNot(_ == PackageName.PredefName)
+          .distinct
+          .sorted
+
+      def packageDeps(pack: Package.Typed[Any]): List[PackageName] =
+        norm(pack.imports.map(_.pack.name))
+
+      def run =
+        for {
+          srcPaths <- inputs.srcList
+          sdeps <- srcDeps(srcPaths)
+          ifaces <- inputs.readIfaces
+          packs <- inputs.readPacks
+          ideps = ifaces.map { case (p, iface) => (p, iface.name, FileKind.Iface, ifaceDeps(iface))}
+          pdeps = packs.map { case (p, pack) => (p, pack.name, FileKind.Pack, packageDeps(pack))}
+        } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
     def toTry[A](
@@ -1377,6 +1508,12 @@ abstract class MainModule[IO[_]](implicit
           Opts.subcommand("show", "show compiled packages")(
             (Inputs.showOpts, outputPath.orNone, colorOpt)
               .mapN(Show(_, _, _))
+          )
+        )
+        .orElse(
+          Opts.subcommand("deps", "emit a graph description of dependencies")(
+            (Inputs.depsOpts, outputPath.orNone, colorOpt, GraphOutput.jsonOrDot)
+              .mapN(Deps(_, _, _, _))
           )
         )
     }

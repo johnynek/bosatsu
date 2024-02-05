@@ -73,6 +73,9 @@ case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
       case Some(i1) => Some(Import(pack, i1))
       case None => None
     }
+
+  def map[C](fn: B => C): Import[A, C] =
+    Import(pack, items.map(_.map(fn)))
 }
 
 object Import {
