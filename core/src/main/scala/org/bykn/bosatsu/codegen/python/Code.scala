@@ -659,12 +659,76 @@ object Code {
         val argsSet = args.toSet
         val sm1 = subMap.filterNot { case (i, _) => argsSet(i) }
         if (sm1.isEmpty) in
-        else Lambda(args, substitute(sm1, result))
+        else {
+          // reduce is safe here because sm1.nonEmpty
+          val subFrees = sm1.iterator.map { case (_, v) => freeIdents(v) }.reduce(_ | _)
+          val clashIdent = argsSet & subFrees
+          if (clashIdent.isEmpty) {
+            Lambda(args, substitute(sm1, result))
+          }
+          else {
+            // we have to allocate new variables
+            def alloc(rename: List[Ident], avoid: Set[Ident]): List[Ident] =
+              rename match {
+                case Nil => Nil
+                case (i @ Ident(nm)) :: tail => 
+                  if (clashIdent(i)) {
+                    val nm1 =
+                      Iterator.from(0).map { i => Ident(nm + i.toString) }
+                        .collectFirst { case n if !avoid(n) => n }
+                        .get
+                    nm1 :: alloc(tail, avoid + nm1)
+                  }
+                  else {
+                    i :: alloc(tail, avoid + i)
+                  }
+              }
+
+            val avoids = subFrees | freeIdents(result) | sm1.keySet
+            val newArgs = alloc(args, avoids)
+            val resSub = args.zip(newArgs).toMap
+            val res1 = substitute(resSub, result)
+            substitute(sm1, Lambda(newArgs, res1))
+          }
+        }
       case Apply(fn, args) =>
         Apply(substitute(subMap, fn), args.map(substitute(subMap, _)))
       case DotSelect(ex, ident) =>
         DotSelect(substitute(subMap, ex), ident)
     }
+
+  def freeIdents(ex: Expression): Set[Ident] = {
+    def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
+      ex match {
+        case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
+        case i@Ident(_) =>
+          if (bound(i)) Set.empty
+          else Set(i)
+        case Op(left, _, right) => loop(left, bound) | loop(right, bound)
+        case Parens(expr) =>
+          loop(expr, bound)
+        case SelectItem(arg, position) =>
+          loop(arg, bound) | loop(position, bound)
+        case SelectRange(arg, start, end) =>
+          loop(arg, bound) |
+            start.map(loop(_, bound)).getOrElse(Set.empty) |
+            end.map(loop(_, bound)).getOrElse(Set.empty)
+        case Ternary(ifTrue, cond, ifFalse) =>
+          loop(ifTrue, bound) | loop(cond, bound) | loop(ifFalse, bound)
+        case MakeTuple(args) =>
+          args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case MakeList(args) =>
+          args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case Lambda(args, result) =>
+          loop(result, bound ++ args)
+        case Apply(fn, args) =>
+          loop(fn, bound) | args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case DotSelect(ex, _) =>
+          loop(ex, bound)
+      }
+    
+    loop(ex, Set.empty)
+  }
 
   def toReturn(v: ValueLike): Statement =
     v match {
