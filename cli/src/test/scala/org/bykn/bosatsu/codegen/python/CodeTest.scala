@@ -11,7 +11,7 @@ class CodeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 1000)
 
   lazy val genPy2Name: Gen[String] = {
     val letters = (('A' to 'Z') ++ ('a' to 'z')).toList
@@ -458,5 +458,48 @@ else:
 
     assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
     assert(Code.toDoc(Code.Ident("z").evalAnd(and)).renderTrim(80) == "z and (a == b) and (b == c)")
+  }
+
+  test("simplify applies lambdas") {
+    // (lambda x: f(x))(y) == f(y)
+    val genArgs  =
+      for {
+        n <- Gen.choose(0, 4)
+        largs <- Gen.listOfN(n, genIdent)
+        args <- Gen.listOfN(n, genIdent)
+        result <- genExpr(4)
+      } yield (Code.Lambda(largs, result), args)
+
+    forAll(genArgs) { case (lam, arg) =>
+      assert(lam(arg: _*).simplify == Code.substitute(lam.args.zip(arg).toMap, lam.result).simplify)  
+    }
+  }
+
+  test("(lambda x: lambda y: x + y)(y)") {
+    val x = Code.Ident("x")
+    val y = Code.Ident("y")
+    val hardCase = Code.Lambda(List(x),
+      Code.Lambda(List(y), x + y)
+    )
+
+    val applied = hardCase(y).simplify
+    val y0 = Code.Ident("y0")
+    assert(applied == Code.Lambda(List(y0), y + y0))
+
+    val z = Code.Ident("z")
+    val applied1 = hardCase(z).simplify
+    assert(applied1 == Code.Lambda(List(y), z + y))
+  }
+
+  test("simplify(Map.empty, x) == x") {
+    forAll(genExpr(4)) { x =>
+      assert(Code.substitute(Map.empty, x) == x)  
+    }
+  }
+
+  test("simplify creates subsets of freeIdents (we can remove ternary branches)") {
+    forAll(genExpr(4)) { x =>
+      assert(Code.freeIdents(x.simplify).subsetOf(Code.freeIdents(x)))
+    }
   }
 }

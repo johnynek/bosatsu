@@ -754,13 +754,13 @@ object PythonGen {
       Code.MakeTuple(List(Code.fromInt(1), head, tail))
 
     def isNonEmpty(expr: Expression): Expression =
-      Code.Op(expr.get(0), Code.Const.Neq, Code.fromInt(0))
+      Code.Op(expr.get(0), Code.Const.Neq, Code.fromInt(0)).simplify
 
     def headList(lst: Expression): Expression =
-      lst.get(1)
+      lst.get(1).simplify
 
     def tailList(lst: Expression): Expression =
-      lst.get(2)
+      lst.get(2).simplify
 
     object PredefExternal {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
@@ -896,14 +896,26 @@ object PythonGen {
                           res := a,
                           _i := i,
                           _a := a,
-                          Code.While(cont,
-                            Code.block(
-                              res := fn(_i, _a),
-                              tmp_i := res.get(0),
-                              _a := res.get(1),
-                              cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
-                              _i := tmp_i
-                            )
+                          Code.While(cont, {
+                            fn(_i, _a).simplify match {
+                              case Code.MakeTuple(fst :: snd :: Nil) =>
+                                // inline the tuple allocation and destructuring 
+                                Code.block(
+                                  tmp_i := fst,
+                                  _a := snd,
+                                  cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
+                                  _i := tmp_i
+                                )
+                              case notTup =>
+                                Code.block(
+                                  res := notTup,
+                                  tmp_i := res.get(0),
+                                  _a := res.get(1),
+                                  cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
+                                  _i := tmp_i
+                                )
+                            }
+                          }
                           )
                         )
                         .withValue(_a)
@@ -1125,12 +1137,12 @@ object PythonGen {
             val useInts = famArities.forall(_ == 0)
             loop(enumV, slotName).flatMap { tup =>
               Env.onLast(tup) { t =>
-                if (useInts) {
+                (if (useInts) {
                   // this is represented as an integer
                   t =:= idx
                 }
                 else
-                  t.get(0) =:= idx
+                  t.get(0) =:= idx).simplify
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
