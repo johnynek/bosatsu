@@ -468,7 +468,45 @@ object Code {
   }
   case class Lambda(args: List[Ident], result: Expression) extends Expression {
     def simplify: Expression = Lambda(args, result.simplify)
+
+    // make sure args don't shadow the given freeSet
+    def unshadow(freeSet: Set[Ident]): Lambda = {
+      val clashIdent =
+        if (freeSet.isEmpty) Set.empty[Ident]
+        else args.iterator.filter(freeSet).toSet
+
+      if (clashIdent.isEmpty) this
+      else {
+        // we have to allocate new variables
+        def alloc(rename: List[Ident], avoid: Set[Ident]): List[Ident] =
+          rename match {
+            case Nil => Nil
+            case (i @ Ident(nm)) :: tail => 
+              val nm1 =
+                if (clashIdent(i)) {
+                  // the following iterator is infinite and distinct, and the avoid
+                  // set is finite, so the get here must terminate in at most avoid.size
+                  // steps
+                  Iterator.from(0)
+                    .map { i => Ident(nm + i.toString) }
+                    .collectFirst { case n if !avoid(n) => n }
+                    .get
+
+              }
+              else i
+
+              nm1 :: alloc(tail, avoid + nm1)
+          }
+
+        val avoids = freeSet | freeIdents(result)
+        val newArgs = alloc(args, avoids)
+        val resSub = args.iterator.zip(newArgs).toMap
+        val res1 = substitute(resSub, result)
+        Lambda(newArgs, res1)
+      }
+    }
   }
+
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
     def simplify: Expression = {
       fn.simplify match {
@@ -653,43 +691,23 @@ object Code {
         MakeTuple(args.map(substitute(subMap, _)))
       case MakeList(args) =>
         MakeList(args.map(substitute(subMap, _)))
-      case Lambda(args, result) =>
+      case lam @ Lambda(args, _) =>
         // the args here can shadow, so we have to remove any
         // items from subMap that have the same Ident
         val argsSet = args.toSet
-        val sm1 = subMap.filterNot { case (i, _) => argsSet(i) }
-        if (sm1.isEmpty) in
+        val nonShadowed = subMap.filterNot { case (i, _) => argsSet(i) }
+        if (nonShadowed.isEmpty) {
+          // all the substituted variables in subMap are shadowed by this
+          // lambda, so this lambda is not free in any of subMap
+          in
+        }
         else {
           // reduce is safe here because sm1.nonEmpty
-          val subFrees = sm1.iterator.map { case (_, v) => freeIdents(v) }.reduce(_ | _)
-          val clashIdent = argsSet & subFrees
-          if (clashIdent.isEmpty) {
-            Lambda(args, substitute(sm1, result))
-          }
-          else {
-            // we have to allocate new variables
-            def alloc(rename: List[Ident], avoid: Set[Ident]): List[Ident] =
-              rename match {
-                case Nil => Nil
-                case (i @ Ident(nm)) :: tail => 
-                  if (clashIdent(i)) {
-                    val nm1 =
-                      Iterator.from(0).map { i => Ident(nm + i.toString) }
-                        .collectFirst { case n if !avoid(n) => n }
-                        .get
-                    nm1 :: alloc(tail, avoid + nm1)
-                  }
-                  else {
-                    i :: alloc(tail, avoid + i)
-                  }
-              }
-
-            val avoids = subFrees | freeIdents(result) | sm1.keySet
-            val newArgs = alloc(args, avoids)
-            val resSub = args.zip(newArgs).toMap
-            val res1 = substitute(resSub, result)
-            substitute(sm1, Lambda(newArgs, res1))
-          }
+          val subFrees = nonShadowed.iterator.map { case (_, v) => freeIdents(v) }.reduce(_ | _)
+          val Lambda(args1, res1) = lam.unshadow(subFrees)
+          // now we know that none of args1 shadow anything in subFrees
+          // so we can just directly substitute nonShadowed on res1
+          Lambda(args1, substitute(nonShadowed, res1))
         }
       case Apply(fn, args) =>
         Apply(substitute(subMap, fn), args.map(substitute(subMap, _)))
