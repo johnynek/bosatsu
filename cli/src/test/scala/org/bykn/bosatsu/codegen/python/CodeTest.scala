@@ -496,4 +496,10 @@ else:
       assert(Code.substitute(Map.empty, x) == x)  
     }
   }
+
+  test("simplify creates subsets of freeIdents (we can remove ternary branches)") {
+    forAll(genExpr(4)) { x =>
+      assert(Code.freeIdents(x.simplify).subsetOf(Code.freeIdents(x)))
+    }
+  }
 }
