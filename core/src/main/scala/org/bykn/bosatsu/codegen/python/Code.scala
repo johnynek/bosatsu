@@ -696,19 +696,18 @@ object Code {
         // items from subMap that have the same Ident
         val argsSet = args.toSet
         val nonShadowed = subMap.filterNot { case (i, _) => argsSet(i) }
-        if (nonShadowed.isEmpty) {
-          // all the substituted variables in subMap are shadowed by this
-          // lambda, so this lambda is not free in any of subMap
-          in
-        }
-        else {
-          // reduce is safe here because sm1.nonEmpty
-          val subFrees = nonShadowed.iterator.map { case (_, v) => freeIdents(v) }.reduce(_ | _)
-          val Lambda(args1, res1) = lam.unshadow(subFrees)
-          // now we know that none of args1 shadow anything in subFrees
-          // so we can just directly substitute nonShadowed on res1
-          Lambda(args1, substitute(nonShadowed, res1))
-        }
+        // if subFrees is empty, unshadow is a no-op.
+        // but that is efficiently handled by unshadow
+        val subFrees = nonShadowed
+          .iterator
+          .map { case (_, v) => freeIdents(v) }
+          .foldLeft(nonShadowed.keySet)(_ | _)
+
+        val Lambda(args1, res1) = lam.unshadow(subFrees)
+        // now we know that none of args1 shadow anything in subFrees
+        // so we can just directly substitute nonShadowed on res1
+        // put another way: unshadow make substitute "commute" with lambda.
+        Lambda(args1, substitute(nonShadowed, res1))
       case Apply(fn, args) =>
         Apply(substitute(subMap, fn), args.map(substitute(subMap, _)))
       case DotSelect(ex, ident) =>
