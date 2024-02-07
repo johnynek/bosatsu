@@ -393,4 +393,28 @@ object Package {
           Doc.intercalate(Doc.hardLine, all)
         }.nested(4)
     }
+
+  def ifaceDeps(iface: Package.Interface): List[PackageName] = {
+    val pn = iface.name
+    distinctNonPredef(iface.exports
+      .iterator
+      .flatMap { n =>
+        n.tag match {
+          case Referant.Value(t) => Iterator.single(t)
+          case _ => Iterator.empty
+        }
+      }
+      .flatMap(rankn.Type.constantsOf)
+      .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
+      .toList)
+  }
+
+  def distinctNonPredef(lst: List[PackageName]): List[PackageName] =
+    lst
+      .filterNot(_ == PackageName.PredefName)
+      .distinct
+      .sorted
+
+  def packageDeps(pack: Package.Typed[Any]): List[PackageName] =
+    distinctNonPredef(pack.imports.map(_.pack.name))
 }

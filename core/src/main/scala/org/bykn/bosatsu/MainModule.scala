@@ -6,6 +6,7 @@ import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
+import org.bykn.bosatsu.deps.FileKind
 
 import CollectionUtils.listToUnique
 import Identifier.Bindable
@@ -76,13 +77,6 @@ abstract class MainModule[IO[_]](implicit
     MainCommand.command
       .parse(args.toList)
       .map(_.run.widen)
-
-  sealed abstract class FileKind(val name: String)
-  object FileKind {
-    case object Source extends FileKind("source")
-    case object Iface extends FileKind("interface")
-    case object Pack extends FileKind("package")
-  }
 
   sealed abstract class GraphOutput
   object GraphOutput {
@@ -1268,32 +1262,8 @@ abstract class MainModule[IO[_]](implicit
           parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
         } yield 
           parsed.map { case (path, (pn, imps, _)) =>
-            (path, pn, FileKind.Source, norm(imps.map(_.pack)))  
+            (path, pn, FileKind.Source, Package.distinctNonPredef(imps.map(_.pack)))  
           }
-
-      def ifaceDeps(iface: Package.Interface): List[PackageName] = {
-        val pn = iface.name
-        norm(iface.exports
-          .iterator
-          .flatMap { n =>
-            n.tag match {
-              case Referant.Value(t) => Iterator.single(t)
-              case _ => Iterator.empty
-            }
-          }
-          .flatMap(rankn.Type.constantsOf)
-          .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
-          .toList)
-      }
-
-      private def norm(lst: List[PackageName]): List[PackageName] =
-        lst
-          .filterNot(_ == PackageName.PredefName)
-          .distinct
-          .sorted
-
-      def packageDeps(pack: Package.Typed[Any]): List[PackageName] =
-        norm(pack.imports.map(_.pack.name))
 
       def run =
         for {
@@ -1301,8 +1271,8 @@ abstract class MainModule[IO[_]](implicit
           sdeps <- srcDeps(srcPaths)
           ifaces <- inputs.readIfaces
           packs <- inputs.readPacks
-          ideps = ifaces.map { case (p, iface) => (p, iface.name, FileKind.Iface, ifaceDeps(iface))}
-          pdeps = packs.map { case (p, pack) => (p, pack.name, FileKind.Pack, packageDeps(pack))}
+          ideps = ifaces.map { case (p, iface) => (p, iface.name, FileKind.Iface, Package.ifaceDeps(iface))}
+          pdeps = packs.map { case (p, pack) => (p, pack.name, FileKind.Pack, Package.packageDeps(pack))}
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 

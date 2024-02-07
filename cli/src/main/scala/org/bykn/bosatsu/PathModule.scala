@@ -1,15 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.effect.IO
-import com.monovore.decline.Argument
-import org.typelevel.paiges.{Doc, Document}
-
-import java.nio.file.{Path => JPath}
-
 import cats.data.NonEmptyList
 import cats.effect.ExitCode
-
+import cats.effect.IO
+import com.monovore.decline.Argument
+import java.nio.file.{Path => JPath}
+import org.typelevel.paiges.{Doc, Document}
+import org.bykn.bosatsu.deps.FileKind
 import cats.implicits.catsKernelOrderingForOrder
+
 import cats.syntax.all._
 
 object PathModule extends MainModule[IO] {
@@ -244,25 +243,10 @@ object PathModule extends MainModule[IO] {
 
             // now NodeMap has everything
             def makeEdge(src: PackageName, k: FileKind, dst: PackageName, nm: NodeMap): String = {
-              implicit val orderKind: cats.Order[Option[FileKind]] = 
-                new cats.Order[Option[FileKind]] {
-                  def compare(a: Option[FileKind], b: Option[FileKind]) =
-                    (a, b) match {
-                      case (None, None) => 0
-                      case (Some(_), None) => -1
-                      case (None, Some(_)) => 1
-                      case (Some(FileKind.Iface), Some(FileKind.Iface)) => 0
-                      case (Some(FileKind.Iface), Some(_)) => -1
-                      case (Some(FileKind.Pack), Some(FileKind.Iface)) => 1
-                      case (Some(FileKind.Pack), Some(FileKind.Pack)) => 0
-                      case (Some(FileKind.Pack), Some(FileKind.Source)) => -1
-                      case (Some(FileKind.Source), Some(FileKind.Source)) => 0
-                      case (Some(FileKind.Source), Some(_)) => 1
-                    }
-                }
-
+              // since all srcs are in the NodeMap, this get can't fail
               val srcNode = nm(src).find { case (_, sk, _, _) => sk == Some(k) }.get
-              val dstNode = nm(dst).sortBy { rec => (rec._2, rec._1) }.head
+              // note we are calling .head on a NonEmptyList, which is safe
+              val dstNode = nm(dst).sortBy { rec => (FirstOrSecond.someFirst(rec._2), rec._1) }.head
               s"${srcNode._3} -> ${dstNode._3};"
             }
 
