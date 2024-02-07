@@ -31,4 +31,13 @@ class FirstOrSecondTests extends munit.ScalaCheckSuite {
       }
     }
   }
+  property("someFirst is the reverse of the usual order") {
+    forAll { (o1: Option[Byte], o2: Option[Byte]) =>
+      val ord1 = Order[Option[Byte]].toOrdering.reverse  
+      val ord2 = FirstOrSecond.orderFS(Order.fromOrdering(Ordering[Byte].reverse), Order[Unit])
+
+      assertEquals(ord1.compare(o1, o2).signum,
+        ord2.compare(FirstOrSecond.someFirst(o1), FirstOrSecond.someFirst(o2)).signum)
+    }
+  }
 }

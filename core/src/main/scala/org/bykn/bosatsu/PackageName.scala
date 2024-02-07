@@ -41,5 +41,11 @@ object PackageName {
 
   val PredefName: PackageName =
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
+
+  def distinctNonPredef(lst: List[PackageName]): List[PackageName] =
+    lst
+      .filterNot(_ == PackageName.PredefName)
+      .distinct
+      .sorted
 }
 

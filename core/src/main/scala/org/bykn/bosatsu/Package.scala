@@ -9,6 +9,7 @@ import scala.util.hashing.MurmurHash3
 
 import rankn._
 import Parser.{spaces, Combinators}
+import PackageName.distinctNonPredef
 
 import FixType.Fix
 /**
@@ -408,12 +409,6 @@ object Package {
       .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
       .toList)
   }
-
-  def distinctNonPredef(lst: List[PackageName]): List[PackageName] =
-    lst
-      .filterNot(_ == PackageName.PredefName)
-      .distinct
-      .sorted
 
   def packageDeps(pack: Package.Typed[Any]): List[PackageName] =
     distinctNonPredef(pack.imports.map(_.pack.name))

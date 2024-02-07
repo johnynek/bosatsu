@@ -1262,7 +1262,7 @@ abstract class MainModule[IO[_]](implicit
           parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
         } yield 
           parsed.map { case (path, (pn, imps, _)) =>
-            (path, pn, FileKind.Source, Package.distinctNonPredef(imps.map(_.pack)))  
+            (path, pn, FileKind.Source, PackageName.distinctNonPredef(imps.map(_.pack)))  
           }
 
       def run =
