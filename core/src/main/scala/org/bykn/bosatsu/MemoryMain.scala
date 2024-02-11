@@ -68,8 +68,8 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
       packages: Iterable[(K, List[Package.Typed[Unit]])] = Nil,
       interfaces: Iterable[(K, List[Package.Interface])] = Nil)(cmd: List[String]): F[Output] =
         run(cmd) match {
-          case Left(_) =>
-            innerMonad.raiseError[Output](new Exception(s"got the help message for: $cmd"))
+          case Left(msg) =>
+            innerMonad.raiseError[Output](new Exception(s"got the help message for: $cmd: $msg"))
           case Right(io) =>
             val state0 = files.foldLeft(SortedMap.empty[K, MemoryMain.FileContent]) { case (st, (k, str)) =>
               st.updated(k, MemoryMain.FileContent.Str(str))
@@ -95,18 +95,7 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
       else None
     }
 
-    @annotation.tailrec
-    def loop(roots: List[Path]): Option[PackageName] =
-      roots match {
-        case Nil => None
-        case h :: t =>
-          getP(h) match {
-            case None => loop(t)
-            case some => some
-          }
-      }
-
-    loop(roots)
+    roots.collectFirstSome(getP)
   }
 
   def delay[A](a: => A): IO[A] =

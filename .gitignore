@@ -45,3 +45,4 @@ node_modules/
 .bloop
 project/metals.sbt
 project/project/*
+outwatch/.js/package-lock.json
