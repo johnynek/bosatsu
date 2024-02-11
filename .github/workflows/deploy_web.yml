@@ -20,7 +20,7 @@ jobs:
           java-version: "11"
       - name: "build app"
         run: |
-          sbt \"++${{matrix.scala}} outwatchJS/fullOptJS::webpack\"
+          sbt outwatchJS/fullOptJS::webpack
           mkdir web_deploy
           mkdir web_deploy/compiler
           cp outwatch/index.html web_deploy/compiler/
