@@ -1,5 +1,8 @@
 name: Build and Deploy to GitHub Pages
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -32,7 +35,7 @@ jobs:
 
       - name: Deploy to GitHub Pages
         run: |
-          git config --global user.email "oscar.boykin+github_actions@gmail.com"
+          git config --global user.email "johnynek@users.noreply.github.com"
           git config --global user.name "GitHub Actions"
           git fetch --depth=1 origin gh-pages
           git checkout -b gh-pages origin/gh-pages
