@@ -28,7 +28,7 @@ jobs:
           sbt "outwatchJS/fullOptJS::webpack; docs/paradox"
           mkdir web_deploy
           mkdir web_deploy/compiler
-          cp -a docs/target/paradox/html/main/* web_deploy
+          cp -a docs/target/paradox/site/main/* web_deploy
           cp outwatch/index.html web_deploy/compiler/
           cp outwatch/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-outwatch-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
