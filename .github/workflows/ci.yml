@@ -58,7 +58,7 @@ jobs:
         with:
           java-version: "${{matrix.java}}"
       - name: "run coreJS tests"
-        run: "sbt \"++${{matrix.scala}} coreJS/test\""
+        run: "sbt \"++${{matrix.scala}} coreJS/test; jsapiJS/compile; outwatchJS/compile\""
     strategy:
       matrix:
         java:

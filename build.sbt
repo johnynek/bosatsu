@@ -63,7 +63,7 @@ lazy val commonJsSettings = Seq(
   jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
   // batch mode decreases the amount of memory needed to compile scala.js code
   scalaJSLinkerConfig := scalaJSLinkerConfig.value
-    .withBatchMode(scala.sys.env.get("TRAVIS").isDefined)
+    .withBatchMode(scala.sys.env.get("BOSATSU_CI").isDefined)
     .withModuleKind(ModuleKind.CommonJSModule),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false
@@ -175,8 +175,8 @@ lazy val core =
         scalaCheck.value % Test,
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
-        "org.scalameta" %% "munit" % "1.0.0-M10" % Test,
-        "org.scalameta" %% "munit-scalacheck" % "1.0.0-M10" % Test,
+        munit.value % Test,
+        munitScalaCheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
         "com.lihaoyi" % "acyclic_2.13.12" % "0.3.9" % "provided"
       )
@@ -210,6 +210,30 @@ lazy val jsapi =
     .dependsOn(base, core)
 
 lazy val jsapiJS = jsapi.js
+
+lazy val outwatch =
+  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("outwatch"))
+    .settings(
+      commonSettings,
+      //commonJsSettings,
+      name := "bosatsu-outwatch",
+      assembly / test := {},
+      scalaJSUseMainModuleInitializer := true,
+      libraryDependencies ++=
+        Seq(
+          cats.value,
+          decline.value,
+          outwatchDep.value,
+          scalaCheck.value % Test,
+          scalaTest.value % Test,
+          scalaTestPlusScalacheck.value % Test
+        )
+    )
+    .enablePlugins(ScalaJSPlugin)
+    .enablePlugins(ScalaJSBundlerPlugin)
+    .dependsOn(base, core)
+
+lazy val outwatchJS = outwatch.js
 
 lazy val bench = project
   .dependsOn(core.jvm)

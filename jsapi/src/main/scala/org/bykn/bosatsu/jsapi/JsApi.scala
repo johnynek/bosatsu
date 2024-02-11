@@ -60,8 +60,10 @@ object JsApi {
       case Json.JBool.False => false
       case Json.JNull => null
       case Json.JArray(items) =>
-        val ary = new js.Array[js.Any]
-        items.foreach { j => ary += jsonToAny(j) }
+        val ary = new js.Array[js.Any](items.size)
+        items.iterator.zipWithIndex.foreach { case (j, idx) =>
+          ary(idx) = jsonToAny(j)
+        }
         ary
       case Json.JObject(kvs) =>
         js.Dictionary[js.Any](
