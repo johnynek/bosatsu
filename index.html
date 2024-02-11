@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="js/page.js"></script>
+<script type="text/javascript" src="js/warnOldVersion.js"></script>
+<script type="text/javascript" src="js/groups.js"></script>
+<script type="text/javascript" src="js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="index.html" class="active">
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.1.0*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="index.html" class="active">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="index.html" class="active">
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.1.0*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#bosatsu-documentation" name="bosatsu-documentation" class="anchor"><span class="anchor-link"></span></a>Bosatsu Documentation</h1>
+<p>Bosatsu (菩薩) is the transliteration in Japanese of the sanskrit bodhisattva. A bodhisattva is someone who can reach enlightenment but decides not to, to help others achieve that goal. &ndash; Wikipedia</p>
+<p>Bosatsu is a simple, non-turing complete language designed for configuration, queries and scripting. It borrows from <a href="https://www.python.org/">Python</a>, <a href="https://www.haskell.org/">Haskell</a>, <a href="https://hackage.haskell.org/package/dhall">Dhall</a> and <a href="https://www.rust-lang.org/en-US/">Rust</a>.</p>
+<p>Here is a working Bosatsu program to solve the first <a href="https://projecteuler.net/">Project Euler</a> problem:</p>
+<pre><code>package Euler/One
+
+# see:
+# https://projecteuler.net/problem=1
+# Find the sum of all the multiples of 3 or 5 below 1000.
+
+operator == = eq_Int
+operator % = mod_Int
+
+def operator ||(x, y):
+  True if x else y
+
+def keep(i):
+  (i % 3 == 0) || (i % 5 == 0)
+
+def sum(as): as.foldLeft(0, add)
+
+# here is the pytthon version:
+# &gt;&gt;&gt; sum(i for i in xrange(1000) if keep_fn(i))
+# 233168
+#
+# bosatsu version here
+computed = sum([i for i in range(1000) if keep(i)])
+
+test = Assertion(computed == 233168, &quot;expected 233168&quot;)
+</code></pre>
+<p>Bosatsu is a new language with the following main features:</p>
+<ol>
+  <li>a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples and (string key) dictionaries. Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.</li>
+  <li>powerful pattern matching</li>
+  <li>A static type system using a generalization of <a href="https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system">Hindley-Milner (or Damas-Milner)</a> published in <a href="https://www.microsoft.com/en-us/research/publication/practical-type-inference-for-arbitrary-rank-types/">this paper by Simon Peyton Jones et. al.</a></li>
+  <li>data classes or named tuples, which we call structs following Rust</li>
+  <li>sum types, which we call enums following Rust.</li>
+  <li>a package system with explicit import and export syntax.</li>
+</ol>
+<p>There are also some un-features, or items we don&rsquo;t currently and may never support</p>
+<ol>
+  <li>There is very limited recursion. We only allow recursion which can never be used to make an  infinite loop.</li>
+  <li>Data structures can only be recursive in covariant positions (not the  arguments of functions), and recursive functions have to be a certain form that will always  terminate</li>
+  <li>There is no <code>while</code> syntax. The closest we have are tail-recursive functions which recurse on sub-values of the inputs. There is a design sketch of automatically translating for loops on lists into folds <a href="https://github.com/johnynek/bosatsu/issues/20">issue 20</a>.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/index.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="design.html">Bosatsu Design Philosophy and Goals</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2024</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="js/magellan.js"></script>
+
+<style type="text/css">@import "lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.1.0-SNAPSHOT', '')});</script>
+
+
+</html>
