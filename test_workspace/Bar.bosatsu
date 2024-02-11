@@ -1,4 +1,0 @@
-from Foo import x
-
-test = Assertion(
-  string_Order_fn(x, "this is Foo") matches EQ, "got the right string")

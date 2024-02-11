@@ -1,36 +1,42 @@
 <!DOCTYPE html>
 <html>
-  <head></head>
-  <body>
-    <script>
-      let exports = {}
-    </script>
-    <script type="text/javascript" src="out/bosatsu.js"></script>
-    <script type="text/javascript" src="out/main.js"></script>
-    <div id="elm"></div>
-    <script>
-      function escapeHtml(unsafe) {
-        let r = unsafe.result;
-        if (typeof r === "string") {
-          let r1 = r
-               .replace(/&/g, "&amp;")
-               .replace(/</g, "&lt;")
-               .replace(/>/g, "&gt;")
-               .replace(/"/g, "&quot;")
-               .replace(/'/g, "&#039;");
-          unsafe.result = r1;
+  <head>
+    <meta charset="UTF-8">
+    <title>outwatch</title>
+    <style>
+        /* Container style */
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Two columns of equal width */
+            grid-template-rows: auto auto; /* Two rows where height is determined by content */
+            gap: 10px; /* Space between grid items */
         }
-        return unsafe;
-       }
 
+        /* Styles for the text areas to differentiate and meet requirements */
+        textarea.codein {
+            width: 100%; /* Make textarea take full width of the grid area */
+            height: 50em; /* Height as previously discussed */
+        }
 
-      let app = Elm.Main.init({
-        node: document.getElementById('elm')
-      });
-      app.ports.toJS.subscribe(function (msg) {
-        let res = exports.Bosatsu.evaluate(null, "/file", {"/file": msg })
-        app.ports.toElm.send(escapeHtml(res))
-      });
-    </script>
+        textarea.short {
+            width: 100%; /* Make textarea take full width of the grid area */
+            height: 10em; /* Shorter height */
+        }
+
+        /* Styling for grid items for better visualization */
+        .grid-item {
+            padding: 10px;
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+  </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- Include Scala.js compiled code -->
+    <!-- <script type="text/javascript" src="outwatch/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-outwatch-fastopt-bundle.js"></script> -->
+    <!-- <script type="text/javascript" src="outwatch/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-outwatch-opt-bundle.js"></script> -->
+    <script type="text/javascript" src="bosatsu_ui.js"></script>
   </body>
 </html>

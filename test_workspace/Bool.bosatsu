@@ -1,6 +1,0 @@
-package Bosatsu/Bool
-
-export not
-
-def not(b: Bool) -> Bool:
-  False if b else True
