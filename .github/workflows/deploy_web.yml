@@ -11,7 +11,6 @@ jobs:
     
     env:
       BOSATSU_CI: "true"
-      NODE_OPTIONS: "--openssl-legacy-provider"
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
