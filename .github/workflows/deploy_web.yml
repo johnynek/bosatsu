@@ -17,9 +17,6 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: "actions/checkout@v2"
-        with:
-          persist-credentials: false  # This is important for the step that pushes to gh-pages
-
       - uses: "coursier/cache-action@v2"
       - name: "java 11 setup"
         uses: "olafurpg/setup-scala@v13"
@@ -34,13 +31,8 @@ jobs:
           cp outwatch/index.html web_deploy/compiler/
           cp outwatch/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-outwatch-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
-      - name: Deploy to GitHub Pages
-        run: |
-          git config --global user.email "johnynek@users.noreply.github.com"
-          git config --global user.name "GitHub Actions"
-          git fetch --depth=1 origin gh-pages
-          git checkout -b gh-pages origin/gh-pages
-          cp -r web_deploy/* .
-          git add .
-          git commit -m "Deploy updates"
-          git push --force origin gh-pages
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web_deploy
