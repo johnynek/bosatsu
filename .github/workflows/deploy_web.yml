@@ -25,7 +25,7 @@ jobs:
       - name: "build app"
         run: |
           export NODE_OPTIONS=--openssl-legacy-provider
-          sbt outwatchJS/fullOptJS::webpack; docs/paradox
+          sbt "outwatchJS/fullOptJS::webpack; docs/paradox"
           mkdir web_deploy
           mkdir web_deploy/compiler
           cp -a docs/target/paradox/html/main/* web_deploy
