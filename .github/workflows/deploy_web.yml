@@ -25,12 +25,12 @@ jobs:
       - name: "build app"
         run: |
           export NODE_OPTIONS=--openssl-legacy-provider
-          sbt "outwatchJS/fullOptJS::webpack; docs/paradox"
+          sbt "jsuiJS/fullOptJS::webpack; docs/paradox"
           mkdir web_deploy
           mkdir web_deploy/compiler
           cp -a docs/target/paradox/site/main/* web_deploy
-          cp outwatch/index.html web_deploy/compiler/
-          cp outwatch/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-outwatch-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
+          cp jsui/index.html web_deploy/compiler/
+          cp jsui/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3

@@ -211,12 +211,12 @@ lazy val jsapi =
 
 lazy val jsapiJS = jsapi.js
 
-lazy val outwatch =
-  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("outwatch"))
+lazy val jsui =
+  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsui"))
     .settings(
       commonSettings,
       //commonJsSettings,
-      name := "bosatsu-outwatch",
+      name := "bosatsu-jsui",
       assembly / test := {},
       scalaJSUseMainModuleInitializer := true,
       libraryDependencies ++=
@@ -224,6 +224,7 @@ lazy val outwatch =
           cats.value,
           decline.value,
           outwatchDep.value,
+          ff4s.value,
           scalaCheck.value % Test,
           scalaTest.value % Test,
           scalaTestPlusScalacheck.value % Test
@@ -233,7 +234,7 @@ lazy val outwatch =
     .enablePlugins(ScalaJSBundlerPlugin)
     .dependsOn(base, core)
 
-lazy val outwatchJS = outwatch.js
+lazy val jsuiJS = jsui.js
 
 lazy val bench = project
   .dependsOn(core.jvm)
