@@ -223,7 +223,6 @@ lazy val jsui =
         Seq(
           cats.value,
           decline.value,
-          outwatchDep.value,
           ff4s.value,
           scalaCheck.value % Test,
           scalaTest.value % Test,
