@@ -212,21 +212,19 @@ lazy val jsapi =
 lazy val jsapiJS = jsapi.js
 
 lazy val jsui =
-  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsui"))
+  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("jsui"))
     .settings(
       commonSettings,
-      //commonJsSettings,
+      commonJsSettings,
       name := "bosatsu-jsui",
-      assembly / test := {},
       scalaJSUseMainModuleInitializer := true,
       libraryDependencies ++=
         Seq(
           cats.value,
-          decline.value,
           ff4s.value,
           scalaCheck.value % Test,
-          scalaTest.value % Test,
-          scalaTestPlusScalacheck.value % Test
+          munit.value % Test,
+          munitScalaCheck.value % Test,
         )
     )
     .enablePlugins(ScalaJSPlugin)
@@ -234,6 +232,7 @@ lazy val jsui =
     .dependsOn(base, core)
 
 lazy val jsuiJS = jsui.js
+lazy val jsuiJVM = jsui.jvm
 
 lazy val bench = project
   .dependsOn(core.jvm)

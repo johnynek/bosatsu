@@ -3,6 +3,7 @@ package org.bykn.bosatsu.jsui
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.{MemoryMain, rankn}
 import org.typelevel.paiges.Doc
+import org.scalajs.dom.window.localStorage
 
 object Store {
   val memoryMain = new MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
@@ -33,8 +34,21 @@ object Store {
     res
   }
 
+  def stateSetter(st: State): IO[Unit] =
+    IO {
+      localStorage.setItem("state", State.stateToJsonString(st))
+    }
+
+  def initialState: IO[State] =
+    IO(localStorage.getItem("state")).flatMap { init =>
+      if (init == null) IO.pure(State.Init)
+      else IO.fromEither(State.stringToState(init))
+    }
+
   val value: Resource[IO, ff4s.Store[IO, State, Action]] =
-    ff4s.Store[IO, State, Action](State.Init) { store =>
+    for {
+    init <- Resource.liftK(initialState)
+    store <- ff4s.Store[IO, State, Action](init) { store =>
       {
         case Action.CodeEntered(text) =>
           {
@@ -50,6 +64,7 @@ object Store {
             case ht: State.HasText =>
               val action =
                 for {
+                  _ <- stateSetter(ht)
                   start <- IO.monotonic
                   output <- runCompile(ht.editorText)
                   end <- IO.monotonic
@@ -61,7 +76,8 @@ object Store {
         case Action.CompileCompleted(result, dur) =>
           {
             case State.Compiling(ht) =>
-              (State.Compiled(ht.editorText, result, dur), None)
+              val next = State.Compiled(ht.editorText, result, dur)
+              (next, Some(stateSetter(next)))
             case unexpected =>
               // TODO send some error message
               println(s"unexpected Complete: $result => $unexpected")
@@ -69,4 +85,5 @@ object Store {
           }
       }  
     }
+  } yield store
 }
