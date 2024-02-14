@@ -19,6 +19,4 @@ object Dependencies {
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.17")
   lazy val scalaTestPlusScalacheck =
     Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.17.0")
-  
-  lazy val outwatchDep = Def.setting("io.github.outwatch"   %%% "outwatch"          % "1.0.0")
 }
