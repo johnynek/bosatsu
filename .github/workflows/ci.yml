@@ -58,7 +58,9 @@ jobs:
         with:
           java-version: "${{matrix.java}}"
       - name: "run coreJS tests"
-        run: "sbt \"++${{matrix.scala}} coreJS/test; jsapiJS/compile; jsuiJS/compile\""
+        run: |
+          sbt "++${{matrix.scala}} coreJS/test; jsapiJS/compile"
+          sbt "++${{matrix.scala}} jsuiJS/test"
     strategy:
       matrix:
         java:
@@ -109,5 +111,4 @@ jobs:
 name: ci
 on:
   pull_request: {}
-  push: {}
 

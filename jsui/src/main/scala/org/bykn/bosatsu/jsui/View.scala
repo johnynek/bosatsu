@@ -16,37 +16,43 @@ object View {
     val aboveOut =
       div(cls := "grid-item", "Output")
 
-    val codeBox =
-      div(cls := "grid-item",
-          button("evaluate",
-            onClick := (_ => Some(Action.RunCompile))
-          ),
-          textArea(`type` := "text",
-            cls := "codein",
-            onInput := {
-              te => Some(Action.CodeEntered(
-                te.currentTarget.asInstanceOf[HTMLTextAreaElement].value))
-            }
-          ),
+    val codeBox = dsl.useState { state =>
+      val text = state match {
+        case ht: State.HasText => ht.editorText
+        case _                 => ""
+      }
+      div(
+        cls := "grid-item",
+        button("evaluate", onClick := (_ => Some(Action.RunCompile))),
+        textArea(
+          `type` := "text",
+          cls := "codein",
+          value := text,
+          onInput := { te =>
+            Some(
+              Action.CodeEntered(
+                te.currentTarget.asInstanceOf[HTMLTextAreaElement].value
+              )
+            )
+          }
+        )
       )
+    }
 
     val outBox = dsl.useState {
-      case Compiled(_, output, dur) => 
+      case Compiled(_, output, dur) =>
         div(
           cls := "grid-item",
           literal(s"<pre>$output</pre>"),
           br(),
           "completed in ",
           dur.toMillis.toString,
-          " ms")
+          " ms"
+        )
       case _ =>
         div(cls := "grid-item")
     }
-    
-    div(cls := "grid-container",
-      aboveCode,
-      aboveOut,
-      codeBox,
-      outBox)
+
+    div(cls := "grid-container", aboveCode, aboveOut, codeBox, outBox)
   }
 }
