@@ -501,14 +501,7 @@ enum Either: Left(l), Right(r)
   }
 
   override def missingBranchesIfAddedRegressions: List[List[Pat]] = {
-    // these are ill typed because the first pattern matches type
-    // List[String] but the second matches List[List[String]]
-    /*
-    val r1 @ (_ :: _ :: _) = patterns("""[[*foo, "$.{_}", "1"], [[_, *_]]]""")
-
     patterns("""[[*foo, "$.{_}", "$.{_}"], [[b, *_]]]""") ::
-    r1 ::
-      */
     Nil
   }
 
