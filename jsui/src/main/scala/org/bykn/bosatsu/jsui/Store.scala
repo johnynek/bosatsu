@@ -1,8 +1,8 @@
 package org.bykn.bosatsu.jsui
 
 import cats.effect.{IO, Resource}
-import org.bykn.bosatsu.{MemoryMain, Test, rankn}
-import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.{MemoryMain, Package, Test, rankn}
+import org.typelevel.paiges.{Doc, Document}
 import org.scalajs.dom.window.localStorage
 
 import Action.Cmd
@@ -37,6 +37,25 @@ object Store {
           case memoryMain.Output.TestOutput(resMap, color) =>
             val testReport = Test.outputFor(resMap, color)
             testReport.doc.render(80)
+          case other =>
+            s"internal error. got unexpected result: $other"
+        }
+        (args, handler)
+      case Cmd.Show =>
+        val args = List(
+          "show", "--input", "root/WebDemo", "--package_root", "root", "--color", "html"
+        )
+        val handler: HandlerFn = {
+          case memoryMain.Output.ShowOutput(packs, ifaces, _) =>
+            val pdocs = packs.map { pack =>
+              Document[Package.Typed[Any]].document(pack)
+            }
+            val idocs = ifaces.map { iface =>
+              Document[Package.Interface].document(iface)
+            }
+
+            val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
+            doc.render(80)
           case other =>
             s"internal error. got unexpected result: $other"
         }

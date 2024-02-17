@@ -724,8 +724,28 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
-      class Show(val ifaces: PathGen, val includes: PathGen) extends Inputs {
-
+      class Show(srcs: PathGen, ifaces: PathGen, includes: PathGen, packageResolver: PackageResolver) extends Inputs {
+        def loadAndCompile(cmd: MainCommand, errColor: Colorize)(implicit
+            ec: Par.EC
+        ): IO[(List[Package.Interface], List[Package.Typed[Any]])] =
+          (srcs.read, ifaces.read.flatMap(readInterfaces), includes.read.flatMap(readPackages))
+            .flatMapN {
+              case (Nil, ifaces, packs) =>
+                moduleIOMonad.pure((ifaces, packs))
+              case (h :: t, ifaces, packs) =>
+                val packIfs = packs.map(Package.interfaceOf(_))
+                for {
+                  packPath <- typeCheck(
+                    cmd,
+                    NonEmptyList(h, t),
+                    ifaces ::: packIfs,
+                    errColor,
+                    packageResolver
+                  )
+                  allPacks = (PackageMap.fromIterable(packs) ++ packPath._1.toMap.map(_._2))
+                    .toMap.toList.map(_._2)
+                } yield (ifaces, allPacks)
+            }
       }
 
       class Runtime(
@@ -856,7 +876,7 @@ abstract class MainModule[IO[_]](implicit
         (srcs, includes, packRes).mapN(new Runtime(_, _, _))
 
       val showOpts: Opts[Inputs.Show] =
-        (ifaces, includes).mapN(new Show(_, _))
+        (srcs, ifaces, includes, packRes).mapN(new Show(_, _, _, _))
     }
 
     case class TranspileCommand(
@@ -1167,10 +1187,8 @@ abstract class MainModule[IO[_]](implicit
 
       def run = withEC { implicit ec =>
         for {
-          paths <- inputs.includes.read
-          packs <- readPackages(paths)
-          ipaths <- inputs.ifaces.read
-          ifaces <- readInterfaces(ipaths)
+          (ifaces, packs0) <- inputs.loadAndCompile(this, errColor)
+          packs = packs0.filterNot(_.name == PackageName.PredefName)
         } yield Output.ShowOutput(packs, ifaces, output)
       }
     }
