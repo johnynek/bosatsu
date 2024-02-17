@@ -23,7 +23,8 @@ object View {
       }
       div(
         cls := "grid-item",
-        button("evaluate", onClick := (_ => Some(Action.RunCompile))),
+        button("evaluate", onClick := (_ => Some(Action.Run(Action.Cmd.Eval)))),
+        button("test", onClick := (_ => Some(Action.Run(Action.Cmd.Test)))),
         textArea(
           `type` := "text",
           cls := "codein",

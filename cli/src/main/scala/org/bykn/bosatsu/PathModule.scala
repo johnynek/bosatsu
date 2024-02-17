@@ -77,49 +77,11 @@ object PathModule extends MainModule[IO] {
   def reportOutput(out: Output): IO[ExitCode] =
     out match {
       case Output.TestOutput(resMap, color) =>
-        val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }.toList.sortBy(_._1)
-
-        val successes = results.iterator.map { case (_, (s, _, _)) => s }.sum
-        val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
-        val success = noTests.isEmpty && (failures == 0)
-        val suffix =
-          if (results.lengthCompare(1) > 0) (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
-          else Doc.empty
-        val docRes: Doc =
-          Doc.intercalate(Doc.hardLine + Doc.hardLine,
-            results.map { case (p, (_, _, d)) =>
-              Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-            }) + suffix
-
-
-        if (success) print(docRes.render(80)).as(ExitCode.Success)
-        else {
-          val missingDoc =
-            if (noTests.isEmpty) Nil
-            else {
-              val prefix = Doc.text("packages with missing tests: ")
-              val missingDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
-              (prefix + missingDoc.nested(2)) :: Nil
-            }
-
-          val fullOut = Doc.intercalate(Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line, docRes :: missingDoc)
-
-          val failureStr =
-            if (failures == 1) "1 test failure"
-            else s"$failures test failures"
-
-          val missingCount = noTests.size
-          val excepMessage =
-            if (missingCount > 0) {
-              val packString = if (missingCount == 1) "package" else "packages"
-              s"$failureStr and $missingCount $packString with no tests found"
-            }
-            else failureStr
-
-          print((fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)).render(80))
-            .as(ExitCode.Error)
-        }
+        val hasMissing = resMap.exists(_._2.isEmpty)
+        val testReport = Test.outputFor(resMap, color)
+        val success = !hasMissing && (testReport.fails == 0)
+        val code = if (success) ExitCode.Success else ExitCode.Error
+        print(testReport.doc.render(80)).as(code)
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
         val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
