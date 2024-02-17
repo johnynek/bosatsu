@@ -9,6 +9,7 @@ object Action {
   object Cmd {
     case object Eval extends Cmd
     case object Test extends Cmd
+    case object Show extends Cmd
   }
   case class CodeEntered(text: String) extends Action
   case class Run(cmd: Cmd) extends Action

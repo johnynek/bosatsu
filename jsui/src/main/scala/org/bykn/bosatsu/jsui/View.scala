@@ -25,6 +25,7 @@ object View {
         cls := "grid-item",
         button("evaluate", onClick := (_ => Some(Action.Run(Action.Cmd.Eval)))),
         button("test", onClick := (_ => Some(Action.Run(Action.Cmd.Test)))),
+        button("show", onClick := (_ => Some(Action.Run(Action.Cmd.Show)))),
         textArea(
           `type` := "text",
           cls := "codein",
