@@ -1,7 +1,10 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 
 import Identifier.Bindable
 
@@ -10,14 +13,19 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class SourceConverterTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 3000 else 20)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 3000 else 20
+    )
 
   val genRec = Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive)
 
   test("makeLetsUnique preserves let count") {
     val genLets = for {
       cnt <- Gen.choose(0, 100)
-      lets <- Gen.listOfN(cnt, Gen.zip(Generators.bindIdentGen, genRec, Gen.const(())))
+      lets <- Gen.listOfN(
+        cnt,
+        Gen.zip(Generators.bindIdentGen, genRec, Gen.const(()))
+      )
     } yield lets
 
     forAll(genLets) { lets =>
@@ -41,7 +49,8 @@ class SourceConverterTest extends AnyFunSuite {
       names <- Gen.listOfN(cnt, Generators.bindIdentGen)
       namesDistinct = names.distinct
       lets <- Generators.traverseGen(namesDistinct) { nm =>
-        Gen.zip(genRec, Gen.choose(0, 10))
+        Gen
+          .zip(genRec, Gen.choose(0, 10))
           .map { case (r, d) => (nm, r, d) }
       }
     } yield lets
@@ -58,7 +67,10 @@ class SourceConverterTest extends AnyFunSuite {
   test("makeLetsUnique applies to rhs for recursive binds") {
     val genLets = for {
       cnt <- Gen.choose(0, 100)
-      lets <- Gen.listOfN(cnt, Generators.bindIdentGen.map { b => (b, RecursionKind.Recursive, b) })
+      lets <- Gen.listOfN(
+        cnt,
+        Generators.bindIdentGen.map { b => (b, RecursionKind.Recursive, b) }
+      )
     } yield lets
 
     forAll(genLets) { lets =>
@@ -77,12 +89,33 @@ class SourceConverterTest extends AnyFunSuite {
     {
       // non recursive
       val l1 = List(
-        (Identifier.Name("b"), RecursionKind.NonRecursive, Option.empty[String]),
-        (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]),
-        (Identifier.Name("c"), RecursionKind.NonRecursive, Option.empty[String]),
-        (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]),
-        (Identifier.Name("d"), RecursionKind.NonRecursive, Option.empty[String]),
-        (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]))
+        (
+          Identifier.Name("b"),
+          RecursionKind.NonRecursive,
+          Option.empty[String]
+        ),
+        (
+          Identifier.Name("a"),
+          RecursionKind.NonRecursive,
+          Option.empty[String]
+        ),
+        (
+          Identifier.Name("c"),
+          RecursionKind.NonRecursive,
+          Option.empty[String]
+        ),
+        (
+          Identifier.Name("a"),
+          RecursionKind.NonRecursive,
+          Option.empty[String]
+        ),
+        (
+          Identifier.Name("d"),
+          RecursionKind.NonRecursive,
+          Option.empty[String]
+        ),
+        (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String])
+      )
 
       val up1 = SourceConverter.makeLetsUnique(l1) {
         case (Identifier.Name(n), idx) =>
@@ -99,7 +132,8 @@ class SourceConverterTest extends AnyFunSuite {
         (Identifier.Name("c"), RecursionKind.NonRecursive, Some("a0")),
         (Identifier.Name("a1"), RecursionKind.NonRecursive, Some("a0")),
         (Identifier.Name("d"), RecursionKind.NonRecursive, Some("a1")),
-        (Identifier.Name("a"), RecursionKind.NonRecursive, Some("a1")))
+        (Identifier.Name("a"), RecursionKind.NonRecursive, Some("a1"))
+      )
       assert(up1 == expectl1)
     }
 
@@ -111,7 +145,8 @@ class SourceConverterTest extends AnyFunSuite {
         (Identifier.Name("c"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("d"), RecursionKind.Recursive, Option.empty[String]),
-        (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]))
+        (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String])
+      )
 
       val up1 = SourceConverter.makeLetsUnique(l1) {
         case (Identifier.Name(n), idx) =>
@@ -128,7 +163,8 @@ class SourceConverterTest extends AnyFunSuite {
         (Identifier.Name("c"), RecursionKind.Recursive, Some("a0")),
         (Identifier.Name("a1"), RecursionKind.Recursive, Some("a1")),
         (Identifier.Name("d"), RecursionKind.Recursive, Some("a1")),
-        (Identifier.Name("a"), RecursionKind.Recursive, None))
+        (Identifier.Name("a"), RecursionKind.Recursive, None)
+      )
       assert(up1 == expectl1)
     }
   }

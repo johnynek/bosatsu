@@ -212,7 +212,9 @@ lazy val jsapi =
 lazy val jsapiJS = jsapi.js
 
 lazy val jsui =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("jsui"))
+  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
+    "jsui"
+  ))
     .settings(
       commonSettings,
       commonJsSettings,
@@ -224,7 +226,7 @@ lazy val jsui =
           ff4s.value,
           scalaCheck.value % Test,
           munit.value % Test,
-          munitScalaCheck.value % Test,
+          munitScalaCheck.value % Test
         )
     )
     .enablePlugins(ScalaJSPlugin)

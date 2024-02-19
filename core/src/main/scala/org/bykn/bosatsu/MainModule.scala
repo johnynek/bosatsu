@@ -98,9 +98,10 @@ abstract class MainModule[IO[_]](implicit
         extends Output
 
     case class ShowOutput(
-      packages: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface],
-      output: Option[Path]) extends Output
+        packages: List[Package.Typed[Any]],
+        ifaces: List[Package.Interface],
+        output: Option[Path]
+    ) extends Output
   }
 
   sealed abstract class MainException extends Exception {
@@ -724,11 +725,20 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
-      class Show(srcs: PathGen, ifaces: PathGen, includes: PathGen, packageResolver: PackageResolver) extends Inputs {
+      class Show(
+          srcs: PathGen,
+          ifaces: PathGen,
+          includes: PathGen,
+          packageResolver: PackageResolver
+      ) extends Inputs {
         def loadAndCompile(cmd: MainCommand, errColor: Colorize)(implicit
             ec: Par.EC
         ): IO[(List[Package.Interface], List[Package.Typed[Any]])] =
-          (srcs.read, ifaces.read.flatMap(readInterfaces), includes.read.flatMap(readPackages))
+          (
+            srcs.read,
+            ifaces.read.flatMap(readInterfaces),
+            includes.read.flatMap(readPackages)
+          )
             .flatMapN {
               case (Nil, ifaces, packs) =>
                 moduleIOMonad.pure((ifaces, packs))
@@ -742,8 +752,9 @@ abstract class MainModule[IO[_]](implicit
                     errColor,
                     packageResolver
                   )
-                  allPacks = (PackageMap.fromIterable(packs) ++ packPath._1.toMap.map(_._2))
-                    .toMap.toList.map(_._2)
+                  allPacks = (PackageMap.fromIterable(
+                    packs
+                  ) ++ packPath._1.toMap.map(_._2)).toMap.toList.map(_._2)
                 } yield (ifaces, allPacks)
             }
       }

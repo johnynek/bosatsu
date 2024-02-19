@@ -13,5 +13,6 @@ object Action {
   }
   case class CodeEntered(text: String) extends Action
   case class Run(cmd: Cmd) extends Action
-  case class CmdCompleted(result: String, duration: Duration, cmd: Cmd) extends Action
+  case class CmdCompleted(result: String, duration: Duration, cmd: Cmd)
+      extends Action
 }

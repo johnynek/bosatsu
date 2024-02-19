@@ -6,47 +6,45 @@ import cats.implicits._
 import cats.parse.{Parser => P, Parser0}
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.{TypeName => Name}
-import org.typelevel.paiges.{ Doc, Document }
+import org.typelevel.paiges.{Doc, Document}
 
 import Parser.{lowerIdent, maybeSpace, Combinators}
 
-/**
- * This AST is the syntactic version of Type
- * it is shaped slightly differently to match the way
- * the syntax looks (nested non empty lists are explicit
- * whereas we use a recursion/cons style in Type
- */
+/** This AST is the syntactic version of Type it is shaped slightly differently
+  * to match the way the syntax looks (nested non empty lists are explicit
+  * whereas we use a recursion/cons style in Type
+  */
 sealed abstract class TypeRef {
   import TypeRef._
 
   def toDoc: Doc =
     TypeRef.document.document(this)
 
-  /**
-   * Nested TypeForAll can be combined, and should be generally
-   */
+  /** Nested TypeForAll can be combined, and should be generally
+    */
   def normalizeForAll: TypeRef =
     this match {
       case TypeVar(_) | TypeName(_) => this
-      case TypeArrow(a, b) => TypeArrow(a.map(_.normalizeForAll), b.normalizeForAll)
+      case TypeArrow(a, b) =>
+        TypeArrow(a.map(_.normalizeForAll), b.normalizeForAll)
       case TypeApply(a, bs) =>
         TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
       case TypeForAll(pars, e) =>
         // Remove `Some(Type)` since that's the default
         val normPars = pars.map {
           case (v, Some(Kind.Type)) => (v, None)
-          case other => other
+          case other                => other
         }
         // we normalize to lifting all the foralls to the outside
         e.normalizeForAll match {
           case TypeForAll(p1, in) => TypeForAll(normPars ::: p1, in)
-          case notForAll => TypeForAll(normPars, notForAll)
+          case notForAll          => TypeForAll(normPars, notForAll)
         }
       case TypeExists(pars, e) =>
         // Remove `Some(Type)` since that's the default
         val normPars = pars.map {
           case (v, Some(Kind.Type)) => (v, None)
-          case other => other
+          case other                => other
         }
         // we normalize to lifting all the foralls to the outside
         e.normalizeForAll match {
@@ -65,10 +63,9 @@ sealed abstract class TypeRef {
 object TypeRef {
   private val colonSpace = Doc.text(": ")
 
-
   def argDoc[A: Document](st: (A, Option[TypeRef])): Doc =
     st match {
-      case (s, None) => Document[A].document(s)
+      case (s, None)     => Document[A].document(s)
       case (s, Some(tr)) => Document[A].document(s) + colonSpace + (tr.toDoc)
     }
 
@@ -86,8 +83,14 @@ object TypeRef {
 
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
-  case class TypeForAll(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
-  case class TypeExists(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
+  case class TypeForAll(
+      params: NonEmptyList[(TypeVar, Option[Kind])],
+      in: TypeRef
+  ) extends TypeRef
+  case class TypeExists(
+      params: NonEmptyList[(TypeVar, Option[Kind])],
+      in: TypeRef
+  ) extends TypeRef
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   implicit val typeRefOrdering: Ordering[TypeRef] =
@@ -99,36 +102,46 @@ object TypeRef {
 
       def compare(a: TypeRef, b: TypeRef): Int =
         (a, b) match {
-          case (TypeVar(v0), TypeVar(v1)) => v0.compareTo(v1)
-          case (TypeVar(_), _) => -1
+          case (TypeVar(v0), TypeVar(v1))   => v0.compareTo(v1)
+          case (TypeVar(_), _)              => -1
           case (TypeName(v0), TypeName(v1)) => Ordering[Name].compare(v0, v1)
-          case (TypeName(_), TypeVar(_)) => 1
-          case (TypeName(_), _) => -1
+          case (TypeName(_), TypeVar(_))    => 1
+          case (TypeName(_), _)             => -1
           case (TypeArrow(a0, b0), TypeArrow(a1, b1)) =>
             val c = nelTR.compare(a0, a1)
             if (c == 0) compare(b0, b1) else c
           case (TypeArrow(_, _), TypeVar(_) | TypeName(_)) => 1
-          case (TypeArrow(_, _), _) => -1
+          case (TypeArrow(_, _), _)                        => -1
           case (TypeApply(o0, a0), TypeApply(o1, a1)) =>
             val c = compare(o0, o1)
             if (c != 0) c
             else list.compare(a0.toList, a1.toList)
-          case (TypeApply(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _)) => 1
-          case (TypeApply(_, _), _) => -1
+          case (TypeApply(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _)) =>
+            1
+          case (TypeApply(_, _), _)                       => -1
           case (TypeForAll(p0, in0), TypeForAll(p1, in1)) =>
             // TODO, we could normalize the parmeters here
             val c = nelistKind.compare(p0, p1)
             if (c == 0) compare(in0, in1) else c
-          case (TypeForAll(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
+          case (
+                TypeForAll(_, _),
+                TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)
+              ) =>
+            1
           case (TypeForAll(_, _), TypeTuple(_) | TypeExists(_, _)) => -1
-          case (TypeExists(p0, in0), TypeExists(p1, in1)) =>
+          case (TypeExists(p0, in0), TypeExists(p1, in1))          =>
             // TODO, we could normalize the parmeters here
             val c = nelistKind.compare(p0, p1)
             if (c == 0) compare(in0, in1) else c
-          case (TypeExists(_, _), TypeForAll(_, _) | TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
-          case (TypeExists(_, _), _) => -1
+          case (
+                TypeExists(_, _),
+                TypeForAll(_, _) | TypeVar(_) | TypeName(_) | TypeArrow(_, _) |
+                TypeApply(_, _)
+              ) =>
+            1
+          case (TypeExists(_, _), _)          => -1
           case (TypeTuple(t0), TypeTuple(t1)) => list.compare(t0, t1)
-          case (TypeTuple(_), _) => 1
+          case (TypeTuple(_), _)              => 1
         }
     }
 
@@ -139,13 +152,21 @@ object TypeRef {
 
       tvar.orElse(tname)
     }
-    def makeFn(in: NonEmptyList[TypeRef], out: TypeRef): TypeRef = TypeArrow(in, out)
+    def makeFn(in: NonEmptyList[TypeRef], out: TypeRef): TypeRef =
+      TypeArrow(in, out)
 
-    def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]): TypeRef = TypeApply(cons, args)
-    def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef): TypeRef =
+    def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]): TypeRef =
+      TypeApply(cons, args)
+    def universal(
+        vars: NonEmptyList[(String, Option[Kind])],
+        in: TypeRef
+    ): TypeRef =
       TypeForAll(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
-    def existential(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef): TypeRef =
+    def existential(
+        vars: NonEmptyList[(String, Option[Kind])],
+        in: TypeRef
+    ): TypeRef =
       TypeExists(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
     def makeTuple(items: List[TypeRef]): TypeRef = TypeTuple(items)
@@ -153,38 +174,44 @@ object TypeRef {
     def unapplyRoot(a: TypeRef): Option[Doc] =
       a match {
         case TypeName(n) => Some(Document[Identifier].document(n.ident))
-        case TypeVar(s) => Some(Doc.text(s))
-        case _ => None
+        case TypeVar(s)  => Some(Doc.text(s))
+        case _           => None
       }
 
     def unapplyFn(a: TypeRef): Option[(NonEmptyList[TypeRef], TypeRef)] =
       a match {
         case TypeArrow(a, b) => Some((a, b))
+        case _               => None
+      }
+
+    def unapplyUniversal(
+        a: TypeRef
+    ): Option[(List[(String, Option[Kind])], TypeRef)] =
+      a match {
+        case TypeForAll(vs, a) =>
+          Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
         case _ => None
       }
 
-    def unapplyUniversal(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
+    def unapplyExistential(
+        a: TypeRef
+    ): Option[(List[(String, Option[Kind])], TypeRef)] =
       a match {
-        case TypeForAll(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
-        case _ => None
-      }
-
-    def unapplyExistential(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
-      a match {
-        case TypeExists(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
+        case TypeExists(vs, a) =>
+          Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
         case _ => None
       }
 
     def unapplyTypeApply(a: TypeRef): Option[(TypeRef, List[TypeRef])] =
       a match {
         case TypeApply(a, args) => Some((a, args.toList))
-        case _ => None
+        case _                  => None
       }
 
     def unapplyTuple(a: TypeRef): Option[List[TypeRef]] =
       a match {
         case TypeTuple(as) => Some(as)
-        case _ => None
+        case _             => None
       }
   }
 
@@ -198,7 +225,9 @@ object TypeRef {
     targs match {
       case Nil => Doc.empty
       case nonEmpty =>
-        val params = nonEmpty.map { case (TypeRef.TypeVar(v), a) => Doc.text(v) + aDoc(a) }
+        val params = nonEmpty.map { case (TypeRef.TypeVar(v), a) =>
+          Doc.text(v) + aDoc(a)
+        }
         Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
     }
 
@@ -207,4 +236,3 @@ object TypeRef {
       nel.map { case (s, a) => (TypeRef.TypeVar(s.intern), a) }
     }
 }
-

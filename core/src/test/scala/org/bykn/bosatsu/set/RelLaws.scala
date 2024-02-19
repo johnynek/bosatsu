@@ -173,7 +173,7 @@ abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>
     forAll { (x: S, a: E) =>
       val res = x <:> lift(a) match {
         case Super | Same | Intersects => true
-        case Disjoint | Sub => false
+        case Disjoint | Sub            => false
       }
       assertEquals(x.contains(a), res)
     }
@@ -250,15 +250,13 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
       val both = sa | sb
       if ((both <:> sa).isStrictSupertype) {
         assertEquals(sa <:> sb, Rel.Disjoint)
-      }
-      else {
+      } else {
         assertEquals(sa <:> sb, Rel.Same)
       }
       if ((sa <:> sb).isSupertype) {
         // if one is a supertype, then they are the same
         assertEquals(sa <:> sb, Rel.Same)
-      }
-      else {
+      } else {
         assert(!(sb <:> sa).isSupertype)
       }
     }
@@ -284,13 +282,19 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
 
   property("distibutive (t1 | t2) & t3 = (t1 & t3) | (t2 & t3) homomorphism") {
     forAll { (t1: S, t2: S, t3: S, j: E) =>
-      assertEquals(((t1 | t2) & t3).contains(j), ((t1 & t3) | (t2 & t3)).contains(j))
+      assertEquals(
+        ((t1 | t2) & t3).contains(j),
+        ((t1 & t3) | (t2 & t3)).contains(j)
+      )
     }
   }
 
   property("distibutive (t1 & t2) | t3 = (t1 | t3) & (t2 | t3) homomorphism") {
     forAll { (t1: S, t2: S, t3: S, j: E) =>
-      assertEquals(((t1 & t2) | t3).contains(j), ((t1 | t3) & (t2 | t3)).contains(j))
+      assertEquals(
+        ((t1 & t2) | t3).contains(j),
+        ((t1 | t3) & (t2 | t3)).contains(j)
+      )
     }
   }
 
@@ -323,7 +327,10 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
 // This checks the testing mechanisms and support
 // code using Set, where intersection and union are
 // trivial
-abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbElement: Arbitrary[A]) extends GenRelLaws { setgenrellaws =>
+abstract class SetGenRelLaws[A](implicit
+    val arbSet: Arbitrary[Set[A]],
+    val arbElement: Arbitrary[A]
+) extends GenRelLaws { setgenrellaws =>
   type S = Set[A]
   type E = A
 
@@ -341,7 +348,7 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
     def relatable = setgenrellaws.relatable
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
-      else Left({(s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
+      else Left({ (s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
 
     def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 
@@ -352,7 +359,10 @@ abstract class SetGenRelLaws[A](implicit val arbSet: Arbitrary[Set[A]], val arbE
 
   property("test unionRelCompare") {
     forAll { (s1: S, s2: S, s3: S) =>
-      assertEquals(urm.unionRelCompare(s1, s2, s3), relatable.relate(s1, s2 | s3))
+      assertEquals(
+        urm.unionRelCompare(s1, s2, s3),
+        relatable.relate(s1, s2 | s3)
+      )
     }
   }
 }
@@ -381,8 +391,9 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   val listRel: Relatable[List[Byte]] = Relatable.listUnion[Byte](
     _ => false,
-    {(i1, i2) => if (i1 == i2) i1 :: Nil else Nil},
-    { i => Left(_.distinct == (i :: Nil)) })
+    { (i1, i2) => if (i1 == i2) i1 :: Nil else Nil },
+    { i => Left(_.distinct == (i :: Nil)) }
+  )
 
   property("listRel agrees with setRel") {
     forAll { (s1: Set[Byte], s2: Set[Byte]) =>
@@ -392,7 +403,7 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   val listSetRel: Relatable[List[Set[Byte]]] = Relatable.listUnion[Set[Byte]](
     _.isEmpty,
-    {(i1, i2) =>
+    { (i1, i2) =>
       val i = i1 & i2
       if (i.isEmpty) Nil else (i :: Nil)
     },
@@ -404,17 +415,18 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
       if ((sz >= 2) && ((i.hashCode & 1) == 1)) {
         val (l, r) = i.toList.splitAt(sz / 2)
         Right((l.toSet, r.toSet))
-      }
-      else {
+      } else {
         // these is a either a single value or empty
         // set which is >= so the fold results in
         // a set that is empty or has one value
         Left { is => is.foldLeft(Set.empty[Byte])(_ | _) == i }
       }
-    })
+    }
+  )
 
   def smallList[A: Arbitrary]: Gen[List[A]] =
-    Gen.geometric(4.0)
+    Gen
+      .geometric(4.0)
       .flatMap(Gen.listOfN(_, Arbitrary.arbitrary[A]))
 
   property("listUnion works with Set elements") {
@@ -422,10 +434,12 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
     // this is similar to how we use unionRelMod
     // in code since each item it itself a set
 
-
-    forAll(smallList[Set[Byte]], smallList[Set[Byte]]) { (s1: List[Set[Byte]], s2: List[Set[Byte]]) =>
-      assertEquals(listSetRel.relate(s1, s2),
-        setRel.relate(s1.combineAll, s2.combineAll))
+    forAll(smallList[Set[Byte]], smallList[Set[Byte]]) {
+      (s1: List[Set[Byte]], s2: List[Set[Byte]]) =>
+        assertEquals(
+          listSetRel.relate(s1, s2),
+          setRel.relate(s1.combineAll, s2.combineAll)
+        )
     }
   }
 }
