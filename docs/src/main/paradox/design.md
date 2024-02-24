@@ -18,6 +18,7 @@ In the current programming landscape, the vast majority of code is either in Tur
 
 ## Differences with Starlark
 The biggest three differences between Bosatsu and Starlark are:
+
 1. Bosatsu is statically typed
 1. all values are immutable
 1. there are no side-effects.

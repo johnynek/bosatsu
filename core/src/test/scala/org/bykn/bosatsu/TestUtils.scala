@@ -131,7 +131,7 @@ object TestUtils {
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
             assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
-            val (_, failcount, message) = Test.report(t, LocationMap.Colorize.None)
+            val Test.Report(_, failcount, message) = Test.report(t, LocationMap.Colorize.None)
             assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
             if (failcount > 0) fail(message.render(80))
             else succeed

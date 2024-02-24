@@ -431,9 +431,11 @@ object Code {
   case class SelectItem(arg: Expression, position: Expression) extends Expression {
     def simplify: Expression =
       (arg.simplify, position.simplify) match {
-        case (MakeTuple(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+        case (MakeTuple(items), PyInt(bi))
+          if (items.lengthCompare(bi.intValue()) > 0) && (bi.intValue() >= 0) =>
           items(bi.intValue())
-        case (MakeList(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+        case (MakeList(items), PyInt(bi))
+          if (items.lengthCompare(bi.intValue()) > 0) && (bi.intValue() >= 0) =>
           items(bi.intValue())
         case (simp, spos) =>
           SelectItem(simp, spos)
@@ -466,9 +468,67 @@ object Code {
   }
   case class Lambda(args: List[Ident], result: Expression) extends Expression {
     def simplify: Expression = Lambda(args, result.simplify)
+
+    // make sure args don't shadow the given freeSet
+    def unshadow(freeSet: Set[Ident]): Lambda = {
+      val clashIdent =
+        if (freeSet.isEmpty) Set.empty[Ident]
+        else args.iterator.filter(freeSet).toSet
+
+      if (clashIdent.isEmpty) this
+      else {
+        // we have to allocate new variables
+        def alloc(rename: List[Ident], avoid: Set[Ident]): List[Ident] =
+          rename match {
+            case Nil => Nil
+            case (i @ Ident(nm)) :: tail => 
+              val nm1 =
+                if (clashIdent(i)) {
+                  // the following iterator is infinite and distinct, and the avoid
+                  // set is finite, so the get here must terminate in at most avoid.size
+                  // steps
+                  Iterator.from(0)
+                    .map { i => Ident(nm + i.toString) }
+                    .collectFirst { case n if !avoid(n) => n }
+                    .get
+
+              }
+              else i
+
+              nm1 :: alloc(tail, avoid + nm1)
+          }
+
+        val avoids = freeSet | freeIdents(result)
+        val newArgs = alloc(args, avoids)
+        val resSub = args.iterator.zip(newArgs).toMap
+        val res1 = substitute(resSub, result)
+        Lambda(newArgs, res1)
+      }
+    }
   }
+
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
-    def simplify: Expression = Apply(fn.simplify, args.map(_.simplify))
+    def simplify: Expression = {
+      fn.simplify match {
+        case Lambda(largs, result) if largs.length == args.length => 
+          // if this is a lambda, but the args don't match, let
+          // the python error
+          val subMap = largs.iterator.zip(args).toMap
+          val subs = substitute(subMap, result)
+          // now we can simplify after we have inlined the args
+          subs.simplify
+        case Parens(Lambda(largs, result)) if largs.length == args.length => 
+          // if this is a lambda, but the args don't match, let
+          // the python error
+          val subMap = largs.iterator.zip(args).toMap
+          val subs = substitute(subMap, result)
+          // now we can simplify after we have inlined the args
+          subs.simplify
+          
+        case notLambda =>
+          Apply(notLambda, args.map(_.simplify))
+      }
+    }
   }
   case class DotSelect(ex: Expression, ident: Ident) extends Expression {
     def simplify: Expression = DotSelect(ex.simplify, ident)
@@ -602,6 +662,89 @@ object Code {
         case Assign(i @ Ident(_), expr) => Some((Pass, i, expr))
         case _ => None
       }
+  }
+
+  def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
+    in match {
+      case PyInt(_) | PyString(_) | PyBool(_) => in
+      case i@Ident(_) =>
+        subMap.get(i) match {
+          case Some(value) => value
+          case None => i
+        }
+      case Op(left, op, right) =>
+        Op(substitute(subMap, left), op, substitute(subMap, right))
+      case Parens(expr) =>
+        Parens(substitute(subMap, expr))
+      case SelectItem(arg, position) =>
+        SelectItem(substitute(subMap, arg), substitute(subMap, position))
+      case SelectRange(arg, start, end) =>
+        SelectRange(substitute(subMap, arg),
+          start.map(substitute(subMap, _)),
+          end.map(substitute(subMap, _)))
+      case Ternary(ifTrue, cond, ifFalse) =>
+        Ternary(
+          substitute(subMap, ifTrue),
+          substitute(subMap, cond),
+          substitute(subMap, ifFalse))
+      case MakeTuple(args) =>
+        MakeTuple(args.map(substitute(subMap, _)))
+      case MakeList(args) =>
+        MakeList(args.map(substitute(subMap, _)))
+      case lam @ Lambda(args, _) =>
+        // the args here can shadow, so we have to remove any
+        // items from subMap that have the same Ident
+        val argsSet = args.toSet
+        val nonShadowed = subMap.filterNot { case (i, _) => argsSet(i) }
+        // if subFrees is empty, unshadow is a no-op.
+        // but that is efficiently handled by unshadow
+        val subFrees = nonShadowed
+          .iterator
+          .map { case (_, v) => freeIdents(v) }
+          .foldLeft(nonShadowed.keySet)(_ | _)
+
+        val Lambda(args1, res1) = lam.unshadow(subFrees)
+        // now we know that none of args1 shadow anything in subFrees
+        // so we can just directly substitute nonShadowed on res1
+        // put another way: unshadow make substitute "commute" with lambda.
+        Lambda(args1, substitute(nonShadowed, res1))
+      case Apply(fn, args) =>
+        Apply(substitute(subMap, fn), args.map(substitute(subMap, _)))
+      case DotSelect(ex, ident) =>
+        DotSelect(substitute(subMap, ex), ident)
+    }
+
+  def freeIdents(ex: Expression): Set[Ident] = {
+    def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
+      ex match {
+        case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
+        case i@Ident(_) =>
+          if (bound(i)) Set.empty
+          else Set(i)
+        case Op(left, _, right) => loop(left, bound) | loop(right, bound)
+        case Parens(expr) =>
+          loop(expr, bound)
+        case SelectItem(arg, position) =>
+          loop(arg, bound) | loop(position, bound)
+        case SelectRange(arg, start, end) =>
+          loop(arg, bound) |
+            start.map(loop(_, bound)).getOrElse(Set.empty) |
+            end.map(loop(_, bound)).getOrElse(Set.empty)
+        case Ternary(ifTrue, cond, ifFalse) =>
+          loop(ifTrue, bound) | loop(cond, bound) | loop(ifFalse, bound)
+        case MakeTuple(args) =>
+          args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case MakeList(args) =>
+          args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case Lambda(args, result) =>
+          loop(result, bound ++ args)
+        case Apply(fn, args) =>
+          loop(fn, bound) | args.foldLeft(Set.empty[Ident])(_ | loop(_, bound))
+        case DotSelect(ex, _) =>
+          loop(ex, bound)
+      }
+    
+    loop(ex, Set.empty)
   }
 
   def toReturn(v: ValueLike): Statement =

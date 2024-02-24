@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Eval
 import org.typelevel.paiges.Doc
 
 sealed abstract class Test {
@@ -51,15 +52,17 @@ object Test {
       (if (fails > 0) c.red(failMsg) else failMsg)
   }
 
-  def report(t: Test, c: LocationMap.Colorize): (Int, Int, Doc) = {
+  case class Report(passes: Int, fails: Int, doc: Doc)
+
+  def report(t: Test, c: LocationMap.Colorize): Report = {
 
     val failDoc = c.red(Doc.text("fail"))
 
-    def init(t: List[Test]): (Int, Int, Doc) =
+    def init(t: List[Test]): Report =
       loop(t, None, 0, 0, Doc.empty)
 
     @annotation.tailrec
-    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
+    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): Report =
       ts match {
         case Nil =>
           val sumDoc =
@@ -68,18 +71,64 @@ object Test {
               case _ =>
                 Doc.line + summary(passes, fails, c)
             }
-          (passes, fails, front + sumDoc)
+          Report(passes, fails, front + sumDoc)
         case Assertion(true, _) :: rest =>
           loop(rest, lastSuite, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
           loop(rest, lastSuite, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
         case Suite(label, rest) :: tail =>
-          val (p, f, d) = init(rest)
+          val Report(p, f, d) = init(rest)
           val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
           loop(tail, Some((p, f)), passes + p, fails + f, front + res)
       }
 
     init(t :: Nil)
+  }
+
+  def outputFor(resultList: List[(PackageName, Option[Eval[Test]])], color: LocationMap.Colorize): Report = {
+    val noTests = resultList.collect { case (p, None) => p }
+    val results = resultList.collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }.sortBy(_._1)
+
+    val successes = results.iterator.map { case (_, Report(s, _, _)) => s }.sum
+    val failures = results.iterator.map { case (_, Report(_, f, _)) => f }.sum
+    val success = noTests.isEmpty && (failures == 0)
+    val suffix =
+      if (results.lengthCompare(1) > 0) (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
+      else Doc.empty
+
+    val docRes: Doc =
+      Doc.intercalate(Doc.hardLine + Doc.hardLine,
+        results.map { case (p, Report(_, _, d)) =>
+          Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+        }) + suffix
+
+
+    if (success) Report(successes, failures, docRes)
+    else {
+      val missingDoc =
+        if (noTests.isEmpty) Nil
+        else {
+          val prefix = Doc.text("packages with missing tests: ")
+          val missingDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+          (prefix + missingDoc.nested(2)) :: Nil
+        }
+
+      val fullOut = Doc.intercalate(Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line, docRes :: missingDoc)
+
+      val failureStr =
+        if (failures == 1) "1 test failure"
+        else s"$failures test failures"
+
+      val missingCount = noTests.size
+      val excepMessage =
+        if (missingCount > 0) {
+          val packString = if (missingCount == 1) "package" else "packages"
+          s"$failureStr and $missingCount $packString with no tests found"
+        }
+        else failureStr
+
+      Report(successes, failures, fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage))
+    }
   }
 
   def fromValue(value: Value): Test = {

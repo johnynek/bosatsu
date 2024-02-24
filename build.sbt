@@ -63,7 +63,7 @@ lazy val commonJsSettings = Seq(
   jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
   // batch mode decreases the amount of memory needed to compile scala.js code
   scalaJSLinkerConfig := scalaJSLinkerConfig.value
-    .withBatchMode(scala.sys.env.get("TRAVIS").isDefined)
+    .withBatchMode(scala.sys.env.get("BOSATSU_CI").isDefined)
     .withModuleKind(ModuleKind.CommonJSModule),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false
@@ -175,15 +175,15 @@ lazy val core =
         scalaCheck.value % Test,
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
-        "org.scalameta" %% "munit" % "1.0.0-M10" % Test,
-        "org.scalameta" %% "munit-scalacheck" % "1.0.0-M10" % Test,
+        munit.value % Test,
+        munitScalaCheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.9" % "provided"
+        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.11" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.9"),
+    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.11"),
     scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
@@ -210,6 +210,31 @@ lazy val jsapi =
     .dependsOn(base, core)
 
 lazy val jsapiJS = jsapi.js
+
+lazy val jsui =
+  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
+    "jsui"
+  ))
+    .settings(
+      commonSettings,
+      commonJsSettings,
+      name := "bosatsu-jsui",
+      scalaJSUseMainModuleInitializer := true,
+      libraryDependencies ++=
+        Seq(
+          cats.value,
+          ff4s.value,
+          scalaCheck.value % Test,
+          munit.value % Test,
+          munitScalaCheck.value % Test
+        )
+    )
+    .enablePlugins(ScalaJSPlugin)
+    .enablePlugins(ScalaJSBundlerPlugin)
+    .dependsOn(base, core)
+
+lazy val jsuiJS = jsui.js
+lazy val jsuiJVM = jsui.jvm
 
 lazy val bench = project
   .dependsOn(core.jvm)
