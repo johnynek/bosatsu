@@ -1,14 +1,12 @@
 package org.bykn.bosatsu.jsui
 
-import cats.effect.IO
 import ff4s.Dsl
 import org.bykn.bosatsu.jsui.State.Compiled
 import org.scalajs.dom.HTMLTextAreaElement
 
-object View {
-  def apply(dsl: Dsl[IO, State, Action]): dsl.V = {
-    import dsl._
-    import dsl.html._
+trait View { dsl: Dsl[State, Action] =>
+  val view = {
+    import html._
 
     val aboveCode =
       div(cls := "grid-item", "Bosatsu Code")
