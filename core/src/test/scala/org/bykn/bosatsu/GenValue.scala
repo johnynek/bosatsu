@@ -7,12 +7,12 @@ import Value._
 object GenValue {
 
   val cogenValue: Cogen[Value] =
-    Cogen[Int].contramap { (v: Value) => v.hashCode }
+    Cogen[Int].contramap((v: Value) => v.hashCode)
 
   lazy val genProd: Gen[ProductValue] =
     for {
       len <- Gen.exponential(0.5)
-      vs <- Gen.listOfN(len.toInt, genValue)  
+      vs <- Gen.listOfN(len.toInt, genValue)
     } yield ProductValue.fromList(vs)
 
   lazy val genValue: Gen[Value] = {
@@ -28,7 +28,8 @@ object GenValue {
     val genExt: Gen[Value] =
       Gen.oneOf(
         Gen.choose(Int.MinValue, Int.MaxValue).map(VInt(_)),
-        Arbitrary.arbitrary[String].map(Str(_)))
+        Arbitrary.arbitrary[String].map(Str(_))
+      )
 
     val genFn: Gen[FnValue] = {
       val fn: Gen[NonEmptyList[Value] => Value] = Gen.function1(recur)(

@@ -29,8 +29,7 @@ sealed trait Dag[A] {
 
   def toToposorted: Toposort.Success[A] = {
     val layerMap: Map[Int, SortedSet[A]] = nodes.groupBy(layerOf(_))
-    val ls = (0 until layers)
-      .iterator
+    val ls = (0 until layers).iterator
       .map { idx =>
         // by construction all layers have at least 1 item
         NonEmptyList.fromListUnsafe(layerMap(idx).toList)
@@ -42,13 +41,12 @@ sealed trait Dag[A] {
   override def equals(that: Any) =
     that match {
       case thatDag: Dag[_] =>
-        def eqDag[B](bs: Dag[B]): Boolean = {
+        def eqDag[B](bs: Dag[B]): Boolean =
           (nodes == bs.nodes) && {
             nodes.iterator.zip(bs.nodes.iterator).forall { case (a, b) =>
               deps(a) == bs.deps(b)
             }
           }
-        }
         eqDag(thatDag)
       case _ => false
     }
@@ -93,7 +91,7 @@ object Dag {
         else loop(m1)
       }
 
-      loop(nodes.iterator.map { a => (a, SortedSet.empty[A] + a) }.to(Map))
+      loop(nodes.iterator.map(a => (a, SortedSet.empty[A] + a)).to(Map))
     }
 
     // two nodes are joined into one cluster if a can reach b and vice-versa
@@ -122,14 +120,13 @@ object Dag {
         val depCache = MMap.empty[SortedSet[A], SortedSet[SortedSet[A]]]
         def deps(cluster: SortedSet[A]): SortedSet[SortedSet[A]] =
           depCache.getOrElseUpdate(
-            cluster, {
-              // if any node in the set is linked, the set is:
-              cluster.iterator
-                .flatMap { a =>
-                  externalNfn(a).map(clusterMap)
-                }
-                .to(SortedSet)
-            }
+            cluster,
+            // if any node in the set is linked, the set is:
+            cluster.iterator
+              .flatMap { a =>
+                externalNfn(a).map(clusterMap)
+              }
+              .to(SortedSet)
           )
       }
 
@@ -138,7 +135,7 @@ object Dag {
 
   def fromToposorted[A: Ordering](s: Toposort.Success[A]): Dag[A] =
     new Dag[A] {
-      val nodes = s.layers.iterator.flatMap { nel => nel.toList }.to(SortedSet)
+      val nodes = s.layers.iterator.flatMap(nel => nel.toList).to(SortedSet)
       val depCache = MMap.empty[A, SortedSet[A]]
       def deps(a: A): SortedSet[A] =
         depCache.getOrElseUpdate(a, s.nfn(a).to(SortedSet))

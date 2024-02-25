@@ -17,7 +17,7 @@ class ShapeTest extends AnyFunSuite {
       .map(TypeEnv.fromDefinitions(_))
   }
 
-  def testShape(teStr: String, shapes: Map[String, String]) = {
+  def testShape(teStr: String, shapes: Map[String, String]) =
     makeTE(teStr) match {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
@@ -35,7 +35,6 @@ class ShapeTest extends AnyFunSuite {
       case Left(errs) =>
         fail(errs.toString)
     }
-  }
 
   def testIllShaped(teStr: String) =
     makeTE(teStr) match {

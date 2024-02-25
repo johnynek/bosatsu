@@ -27,16 +27,18 @@ object DefStatement {
       : Document[DefStatement[A, B]] =
     Document.instance[DefStatement[A, B]] { defs =>
       import defs._
-      val res = retType.fold(Doc.empty) { t => arrow + t.toDoc }
+      val res = retType.fold(Doc.empty)(t => arrow + t.toDoc)
       val taDoc = typeArgs match {
-        case None     => Doc.empty
-        case Some(ta) => TypeRef.docTypeArgs(ta.toList) {
-          case None => Doc.empty
-          case Some(k) => colonSpace + Kind.toDoc(k) 
-        }
+        case None => Doc.empty
+        case Some(ta) =>
+          TypeRef.docTypeArgs(ta.toList) {
+            case None    => Doc.empty
+            case Some(k) => colonSpace + Kind.toDoc(k)
+          }
       }
       val argDoc =
-        Doc.intercalate(Doc.empty,
+        Doc.intercalate(
+          Doc.empty,
           args.toList.map { args =>
             Doc.char('(') +
               Doc.intercalate(
@@ -67,7 +69,9 @@ object DefStatement {
     (
       Parser.keySpace(
         "def"
-      ) *> (Identifier.bindableParser ~ TypeRef.typeParams(kindAnnot.?).? ~ args.rep) <* maybeSpace,
+      ) *> (Identifier.bindableParser ~ TypeRef
+        .typeParams(kindAnnot.?)
+        .? ~ args.rep) <* maybeSpace,
       result.with1 <* (maybeSpace.with1 ~ P.char(':')),
       resultTParser
     )

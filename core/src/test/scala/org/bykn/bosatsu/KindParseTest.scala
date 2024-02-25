@@ -17,7 +17,7 @@ class KindParseTest extends ParserTestBase {
   def show(k: Kind): String = Kind.toDoc(k).render(80)
 
   test("we can parse everything we generate") {
-    forAll(genKind) { law(Kind.parser) }
+    forAll(genKind)(law(Kind.parser))
   }
 
   test("test some examples") {
@@ -125,7 +125,7 @@ class KindParseTest extends ParserTestBase {
   }
 
   test("Kind.allSubkinds(k).forall(Kind.leftSubsumesRight(k, _))") {
-    def law(k1: Kind, k2: Kind) = {
+    def law(k1: Kind, k2: Kind) =
       if (Kind.allSubKindsSize(k1) < (1 << 12)) {
         // allSubKinds is not stack safe currently
         val subs = Kind.allSubKinds(k1)
@@ -140,9 +140,8 @@ class KindParseTest extends ParserTestBase {
           assert(k.order === k1.order)
         }
       }
-    }
 
-    forAll(genKind, genKind) { (k1, k2) => law(k1, k2) }
+    forAll(genKind, genKind)((k1, k2) => law(k1, k2))
   }
 
   test("Kind.allSuperkinds(k).forall(Kind.leftSubsumesRight(_, k))") {
@@ -290,13 +289,12 @@ class KindParseTest extends ParserTestBase {
   }
 
   test("some subsume examples") {
-    def check(str1: String, str2: String, matches: Boolean = true) = {
+    def check(str1: String, str2: String, matches: Boolean = true) =
       (Kind.parser.parseAll(str1), Kind.parser.parseAll(str2)) match {
         case (Right(k1), Right(k2)) =>
           assert(Kind.leftSubsumesRight(k1, k2) === matches)
         case err => fail(err.toString)
       }
-    }
 
     check("* -> *", "+* -> *")
     check("* -> *", "-* -> *")
@@ -391,7 +389,7 @@ class KindParseTest extends ParserTestBase {
         case Some(idx) =>
           assert(Kind.longToKind(idx) == Some(k))
         case None => ()
-      }  
+      }
     }
 
     assert(Kind.kindToLong(Kind.Type) == Some(0L))
@@ -403,28 +401,34 @@ class KindParseTest extends ParserTestBase {
     // small kinds have small codes
     Kind.allKinds.take(21).foreach { k =>
       // these can all be encoded in 1 byte in proto
-      assert(Kind.kindToLong(k).get < 0x7fL)  
+      assert(Kind.kindToLong(k).get < 0x7fL)
     }
     Kind.allKinds.take(217).foreach { k =>
       // these can all be encoded in 2 byte in proto
-      assert(Kind.kindToLong(k).get < 0x7fffL)  
+      assert(Kind.kindToLong(k).get < 0x7fffL)
     }
   }
 
   test("interleave and uninterleave -> inverses") {
     forAll { (l: Long) =>
-      val res = Kind.uninterleave(l)  
+      val res = Kind.uninterleave(l)
       val high = (res >>> 32).toInt
       val low = (res & 0xffffffffL).toInt
-      assert(Kind.interleave(high, low) == l, s"res = $res low = $low, high = $high")
+      assert(
+        Kind.interleave(high, low) == l,
+        s"res = $res low = $low, high = $high"
+      )
     }
 
     forAll { (low: Int, high: Int) =>
       val long = Kind.interleave(high, low)
-      val res = Kind.uninterleave(long)  
+      val res = Kind.uninterleave(long)
       val high1 = (res >>> 32).toInt
       val low1 = (res & 0xffffffffL).toInt
-      assert((high, low) == (high1, low1), s"interleave($low, $high) = $long uninterleave($long) = $res")
+      assert(
+        (high, low) == (high1, low1),
+        s"interleave($low, $high) = $long uninterleave($long) = $res"
+      )
     }
   }
 }

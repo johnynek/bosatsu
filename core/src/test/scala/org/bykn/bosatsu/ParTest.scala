@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import org.scalatest.{BeforeAndAfterAll, Suite }
+import org.scalatest.{BeforeAndAfterAll, Suite}
 
 trait ParTest extends BeforeAndAfterAll { self: Suite =>
 
@@ -11,9 +11,8 @@ trait ParTest extends BeforeAndAfterAll { self: Suite =>
     ec = Par.ecFromService(es)
   }
 
-  override protected def afterAll(): Unit = {
+  override protected def afterAll(): Unit =
     Par.shutdownService(es)
-  }
 
   implicit def implicitParEC: Par.EC = ec
 }

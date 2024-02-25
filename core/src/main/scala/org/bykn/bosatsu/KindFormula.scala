@@ -262,16 +262,18 @@ object KindFormula {
       dts: List[DefinedType[Either[KnownShape, Kind.Arg]]]
   ): IorNec[Error, List[DefinedType[Kind.Arg]]] =
     dts
-      .foldM((List.empty[DefinedType[Kind.Arg]], Set.empty[RankNType.TyConst])) { case (st @ (acc, failed), dt) =>
+      .foldM(
+        (List.empty[DefinedType[Kind.Arg]], Set.empty[RankNType.TyConst])
+      ) { case (st @ (acc, failed), dt) =>
         // don't evaluate dependsOn if failed is empty
         if (failed.nonEmpty && dt.dependsOn.exists(failed)) {
           // there was at least one failure already, just return and let that failure signal
           Ior.Right(st)
-        }
-        else {
+        } else {
           solveKind((imports, acc), dt) match {
-            case Validated.Valid(good)   => Ior.Right((good :: acc, failed))
-            case Validated.Invalid(errs) => Ior.Both(errs, (acc, failed + dt.toTypeTyConst))
+            case Validated.Valid(good) => Ior.Right((good :: acc, failed))
+            case Validated.Invalid(errs) =>
+              Ior.Both(errs, (acc, failed + dt.toTypeTyConst))
           }
         }
       }
@@ -369,7 +371,7 @@ object KindFormula {
     // invariant: all subgraph values must be valid keys in the result
     // we can process the subgraph list in parallel. Those are all the indepentent next values
     def allSolutionChunk(
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
@@ -400,11 +402,11 @@ object KindFormula {
               val hvs = varsFor(h)
               val tails = allVariances(tail)
               // Make sure not to re-evaluate the above
-              (hvs, tails).mapN { (v, tailMap) => tailMap.updated(h, v) }
+              (hvs, tails).mapN((v, tailMap) => tailMap.updated(h, v))
           }
 
         // does this satisfy all constraints for the subgraph
-        def isValid(lm: LongMap[Variance]): Boolean = {
+        def isValid(lm: LongMap[Variance]): Boolean =
           // println(s"trying: $lm")
           subgraph.forall { id =>
             val value = lm(id)
@@ -422,7 +424,6 @@ object KindFormula {
                 true
             }
           }
-        }
 
         val validVariances: LazyList[LongMap[Variance]] =
           allVariances(subgraph.toList).map(existing ++ _).filter(isValid(_))
@@ -430,12 +431,14 @@ object KindFormula {
         NonEmptyLazyList.fromLazyList(validVariances) match {
           case Some(nel) => Validated.valid(nel)
           case None =>
-            Validated.invalidNec(Error.Unsatisfiable(dt, cons, existing, subgraph))
+            Validated.invalidNec(
+              Error.Unsatisfiable(dt, cons, existing, subgraph)
+            )
         }
       }
 
     def allSolutions(
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
@@ -447,7 +450,7 @@ object KindFormula {
         .toEither
 
     def go[F[_]: Foldable](
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]], 
+        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         directions: LongMap[Direction],
         topo: F[NonEmptyList[SortedSet[Long]]]
@@ -509,7 +512,7 @@ object KindFormula {
       def nextVar(dir: Direction): RefSpace[Var] =
         for {
           id <- nextId
-          _ <- directions.update { dirs => (dirs.updated(id, dir), ()) }
+          _ <- directions.update(dirs => (dirs.updated(id, dir), ()))
         } yield Var(id)
 
       def getConstraints: RefSpace[Cons] = cons.get
@@ -654,8 +657,9 @@ object KindFormula {
       ): RefSpace[KindFormula] =
         tpe match {
           case fa: rankn.Type.Quantified =>
-            val newKindMap = kinds ++ fa.vars.toList.iterator.map { case (b, k) =>
-              b -> BoundState.IsKind(k, fa, b)
+            val newKindMap = kinds ++ fa.vars.toList.iterator.map {
+              case (b, k) =>
+                b -> BoundState.IsKind(k, fa, b)
             }
             kindOfType(direction, thisKind, cfn, idx, fa.in, newKindMap)
 

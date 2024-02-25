@@ -3,22 +3,27 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.Kind
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeTest extends AnyFunSuite {
   import NTypeGen.shrinkType
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 1000)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  // PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =
     Type.fullyResolvedParser.parseAll(s) match {
       case Right(t) => t
       case Left(err) =>
-        sys.error(s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err")
+        sys.error(
+          s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err"
+        )
     }
 
   test("free vars are not duplicated") {
@@ -33,8 +38,10 @@ class TypeTest extends AnyFunSuite {
       val frees = Type.freeTyVars(ts :: Nil)
       val norm = Type.normalize(ts)
       val freeNorm = Type.freeTyVars(norm :: Nil)
-      assert(frees == freeNorm,
-        s"${Type.typeParser.render(ts)} => ${Type.typeParser.render(norm)}")
+      assert(
+        frees == freeNorm,
+        s"${Type.typeParser.render(ts)} => ${Type.typeParser.render(norm)}"
+      )
     }
   }
 
@@ -42,13 +49,15 @@ class TypeTest extends AnyFunSuite {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       Type.Tuple(ts) match {
         case Type.Tuple(ts1) => assert(ts1 == ts)
-        case notTup => fail(notTup.toString)
+        case notTup          => fail(notTup.toString)
       }
     }
 
     assert(Type.Tuple.unapply(parse("()")) == Some(Nil))
-    assert(Type.Tuple.unapply(parse("(a, b, c)")) ==
-      Some(List("a", "b", "c").map(parse)))
+    assert(
+      Type.Tuple.unapply(parse("(a, b, c)")) ==
+        Some(List("a", "b", "c").map(parse))
+    )
   }
 
   test("unapplyAll is the inverse of applyAll") {
@@ -57,8 +66,10 @@ class TypeTest extends AnyFunSuite {
       assert(Type.applyAll(left, args) == ts)
     }
 
-    assert(Type.unapplyAll(parse("foo[bar]")) ==
-      (parse("foo"), List(parse("bar"))))
+    assert(
+      Type.unapplyAll(parse("foo[bar]")) ==
+        (parse("foo"), List(parse("bar")))
+    )
   }
 
   test("freeBoundVar doesn't change by applyAll") {
@@ -66,10 +77,11 @@ class TypeTest extends AnyFunSuite {
       val applied = Type.applyAll(ts, args)
       val free0 = Type.freeBoundTyVars(ts :: args)
       val free1 = Type.freeBoundTyVars(applied :: Nil)
-      assert(free1.toSet == free0.toSet,
-        s"applied = ${Type.typeParser.render(applied)}, (${Type.typeParser.render(ts)})[${
-          args.iterator.map(Type.typeParser.render(_)).mkString(", ")
-        }]})")
+      assert(
+        free1.toSet == free0.toSet,
+        s"applied = ${Type.typeParser.render(applied)}, (${Type.typeParser
+            .render(ts)})[${args.iterator.map(Type.typeParser.render(_)).mkString(", ")}]})"
+      )
     }
   }
 
@@ -99,24 +111,123 @@ class TypeTest extends AnyFunSuite {
     forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
     }
-    
+
     {
       import Type._
       import Var.Bound
       import org.bykn.bosatsu.Variance._
       import org.bykn.bosatsu.Kind.{Arg, Cons, Type => KType}
-      
-      val qt1 = Quantified(Quantification.Dual(
-        NonEmptyList((Bound("qsnMgkhqY"), Cons(Arg(Covariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Phantom, KType), KType))), List((Bound("u"), Cons(Arg(Contravariant, KType), Cons(Arg(Invariant, KType), KType))))),
-        NonEmptyList((Bound("nack"), Cons(Arg(Invariant, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), KType))), List((Bound("u"), Cons(Arg(Contravariant, Cons(Arg(Contravariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("vHxbikOne"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), (Bound("jofpdjgp"), Cons(Arg(Covariant, Cons(Arg(Phantom, KType), KType)), KType)), (Bound("r"), Cons(Arg(Invariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Invariant, KType), KType)))))),
-        TyVar(Bound("u")))
+
+      val qt1 = Quantified(
+        Quantification.Dual(
+          NonEmptyList(
+            (
+              Bound("qsnMgkhqY"),
+              Cons(
+                Arg(Covariant, Cons(Arg(Covariant, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
+              )
+            ),
+            List(
+              (
+                Bound("u"),
+                Cons(
+                  Arg(Contravariant, KType),
+                  Cons(Arg(Invariant, KType), KType)
+                )
+              )
+            )
+          ),
+          NonEmptyList(
+            (
+              Bound("nack"),
+              Cons(
+                Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
+              )
+            ),
+            List(
+              (
+                Bound("u"),
+                Cons(
+                  Arg(Contravariant, Cons(Arg(Contravariant, KType), KType)),
+                  Cons(Arg(Contravariant, KType), KType)
+                )
+              ),
+              (
+                Bound("vHxbikOne"),
+                Cons(
+                  Arg(Invariant, Cons(Arg(Covariant, KType), KType)),
+                  Cons(Arg(Contravariant, KType), KType)
+                )
+              ),
+              (
+                Bound("jofpdjgp"),
+                Cons(Arg(Covariant, Cons(Arg(Phantom, KType), KType)), KType)
+              ),
+              (
+                Bound("r"),
+                Cons(
+                  Arg(Invariant, Cons(Arg(Covariant, KType), KType)),
+                  Cons(Arg(Invariant, KType), KType)
+                )
+              )
+            )
+          )
+        ),
+        TyVar(Bound("u"))
+      )
 
       val qt2 = Quantified(
-        Quantification.Exists(NonEmptyList((Bound("chajb"), Cons(Arg(Contravariant, Cons(Arg(Covariant, KType), KType)), Cons(Arg(Contravariant, KType), KType))), List((Bound("e"), Cons(Arg(Invariant, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType)))), (Bound("vg"), Cons(Arg(Phantom, Cons(Arg(Phantom, KType), KType)), Cons(Arg(Phantom, KType), KType))), (Bound("vvki"), Cons(Arg(Contravariant, Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))), KType)), (Bound("e"), Cons(Arg(Invariant, Cons(Arg(Invariant, KType), KType)), Cons(Arg(Phantom, KType), KType)))))),
-        TyVar(Bound("e")))
+        Quantification.Exists(
+          NonEmptyList(
+            (
+              Bound("chajb"),
+              Cons(
+                Arg(Contravariant, Cons(Arg(Covariant, KType), KType)),
+                Cons(Arg(Contravariant, KType), KType)
+              )
+            ),
+            List(
+              (
+                Bound("e"),
+                Cons(
+                  Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+                  Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
+                )
+              ),
+              (
+                Bound("vg"),
+                Cons(
+                  Arg(Phantom, Cons(Arg(Phantom, KType), KType)),
+                  Cons(Arg(Phantom, KType), KType)
+                )
+              ),
+              (
+                Bound("vvki"),
+                Cons(
+                  Arg(
+                    Contravariant,
+                    Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
+                  ),
+                  KType
+                )
+              ),
+              (
+                Bound("e"),
+                Cons(
+                  Arg(Invariant, Cons(Arg(Invariant, KType), KType)),
+                  Cons(Arg(Phantom, KType), KType)
+                )
+              )
+            )
+          )
+        ),
+        TyVar(Bound("e"))
+      )
 
       val regressions: List[Type] =
-          qt1 ::
+        qt1 ::
           qt2 ::
           Nil
 
@@ -126,11 +237,10 @@ class TypeTest extends AnyFunSuite {
           Type.typeParser.render(t)
 
         val normt2 = Type.normalize(normt)
-        assert(normt == normt2,
-          s"${show(normt)} normalizes to ${show(normt2)}")
-        assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")  
+        assert(normt == normt2, s"${show(normt)} normalizes to ${show(normt2)}")
+        assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")
       }
-      
+
       assert(Type.freeBoundTyVars(qt1.in :: Nil) == List(Bound("u")))
     }
   }
@@ -151,16 +261,16 @@ class TypeTest extends AnyFunSuite {
 
     forAll(NTypeGen.genDepth03)(law(_))
 
-
-    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) { (b, id) =>
-      val str = "$" + b + "$" + id.toString
-      val tpe = parse(str)
-      law(tpe)
-      tpe match {
-        case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
-          assert((b1, k1, i1) === (b, Kind.Type ,id))
-        case other => fail(other.toString)
-      }
+    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) {
+      (b, id) =>
+        val str = "$" + b + "$" + id.toString
+        val tpe = parse(str)
+        law(tpe)
+        tpe match {
+          case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
+            assert((b1, k1, i1) === (b, Kind.Type, id))
+          case other => fail(other.toString)
+        }
     }
 
     forAll { (l: Long) =>
@@ -169,8 +279,10 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("test all binders") {
-    assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
-      ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
+    assert(
+      Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
+        ("a" #:: Stream.iterate(0)(_ + 1).map(i => s"a$i")).take(100)
+    )
   }
 
   test("tyVarBinders is identity for Bound") {
@@ -198,7 +310,7 @@ class TypeTest extends AnyFunSuite {
   test("hasNoVars fully recurses") {
     def allTypesIn(t: Type): List[Type] =
       t match {
-        case f@Type.ForAll(bounds, in) =>
+        case f @ Type.ForAll(bounds, in) =>
           // filter bounds out, since they are shadowed
           val boundSet = bounds.toList.iterator.map(_._1).toSet[Type.Var]
           f :: (allTypesIn(in).filterNot { it =>
@@ -206,8 +318,8 @@ class TypeTest extends AnyFunSuite {
             // if we intersect, this is not a legit type to consider
             (boundSet & frees).nonEmpty
           })
-        case t@Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
-        case other => other :: Nil
+        case t @ Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
+        case other                  => other :: Nil
       }
 
     def law(t: Type) = {
@@ -215,17 +327,26 @@ class TypeTest extends AnyFunSuite {
       val hnv = Type.hasNoVars(t)
 
       if (hnv) assert(allT.forall(Type.hasNoVars), "hasNoVars == true")
-      else assert(allT.exists { t => !Type.hasNoVars(t) }, "hasNoVars == false")
+      else assert(allT.exists(t => !Type.hasNoVars(t)), "hasNoVars == false")
     }
 
     forAll(NTypeGen.genDepth03)(law _)
 
     val pastFails =
       List(
-        Type.forAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
-          Type.TyVar(Type.Var.Bound("x"))),
-        Type.forAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
+        Type.forAll(
+          NonEmptyList.of(
+            (Type.Var.Bound("x"), Kind.Type),
+            (Type.Var.Bound("ogtumm"), Kind.Type),
+            (Type.Var.Bound("t"), Kind.Type)
+          ),
+          Type.TyVar(Type.Var.Bound("x"))
+        ),
+        Type.forAll(
+          NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),
+          Type.TyVar(Type.Var.Bound("a"))
         )
+      )
 
     pastFails.foreach(law)
   }
@@ -263,7 +384,8 @@ class TypeTest extends AnyFunSuite {
   def genSubs(depth: Int): Gen[Map[Type.Var, Type]] = {
     val pair = Gen.zip(
       NTypeGen.genBound,
-      NTypeGen.genDepth(depth, Some(NTypeGen.genConst)))
+      NTypeGen.genDepth(depth, Some(NTypeGen.genConst))
+    )
     Gen.mapOf(pair)
   }
 
@@ -308,7 +430,9 @@ class TypeTest extends AnyFunSuite {
       // now subs1 has keys that can be completely removed, so
       // after substitution, those keys should be gone
       val t1 = Type.substituteVar(t, subs1)
-      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty)
+      assert(
+        (Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty
+      )
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
@@ -320,15 +444,25 @@ class TypeTest extends AnyFunSuite {
         case Type.ForAll(fas, t) =>
           Type.instantiate(fas.iterator.toMap, t, t2) match {
             case Some((frees, subs)) =>
-              val t3 = Type.substituteVar(t, subs.iterator.map { case (k, (_, v)) => (k, v)}.toMap)
+              val t3 = Type.substituteVar(
+                t,
+                subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+              )
 
-              val t4 = Type.substituteVar(t3, frees.iterator.map {
-                case (v1, (_, v2)) => (v1, Type.TyVar(v2))
-              }.toMap)
+              val t4 = Type.substituteVar(
+                t3,
+                frees.iterator.map { case (v1, (_, v2)) =>
+                  (v1, Type.TyVar(v2))
+                }.toMap
+              )
 
-              val t5 = Type.quantify(forallList = frees.iterator.map {
-                case (_, tup) => tup.swap
-              }.toList, existList = Nil, t4) 
+              val t5 = Type.quantify(
+                forallList = frees.iterator.map { case (_, tup) =>
+                  tup.swap
+                }.toList,
+                existList = Nil,
+                t4
+              )
 
               assert(t5.sameAs(t2))
             case None =>
@@ -362,23 +496,40 @@ class TypeTest extends AnyFunSuite {
       assert(res == None)
     }
 
-    check("forall a. a", "Bosatsu/Predef::Int",
-      List("a" -> "Bosatsu/Predef::Int"))
-    check("forall a. a -> a", "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
-      List("a" -> "Bosatsu/Predef::Int"))
-    check("forall a. a -> Bosatsu/Predef::Foo[a]", "Bosatsu/Predef::Int -> Bosatsu/Predef::Foo[Bosatsu/Predef::Int]",
-      List("a" -> "Bosatsu/Predef::Int"))
-    check("forall a. Bosatsu/Predef::Option[a]", "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
-      List("a" -> "Bosatsu/Predef::Int"))
-    
-    check("forall a. a", "forall a. a",
-      List("a" -> "forall a. a"))
+    check(
+      "forall a. a",
+      "Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int")
+    )
+    check(
+      "forall a. a -> a",
+      "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
+      List("a" -> "Bosatsu/Predef::Int")
+    )
+    check(
+      "forall a. a -> Bosatsu/Predef::Foo[a]",
+      "Bosatsu/Predef::Int -> Bosatsu/Predef::Foo[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int")
+    )
+    check(
+      "forall a. Bosatsu/Predef::Option[a]",
+      "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
+      List("a" -> "Bosatsu/Predef::Int")
+    )
 
-    check("forall a, b. a -> b", "forall c. c -> Bosatsu/Predef::Int",
-      List("b" -> "Bosatsu/Predef::Int"))
+    check("forall a. a", "forall a. a", List("a" -> "forall a. a"))
 
-    check("forall a, b. T::Cont[a, b]", "forall a. T::Cont[a, T::Foo]",
-      List("b" -> "T::Foo"))
+    check(
+      "forall a, b. a -> b",
+      "forall c. c -> Bosatsu/Predef::Int",
+      List("b" -> "Bosatsu/Predef::Int")
+    )
+
+    check(
+      "forall a, b. T::Cont[a, b]",
+      "forall a. T::Cont[a, T::Foo]",
+      List("b" -> "T::Foo")
+    )
 
     noSub("forall a, b. T::Cont[a, b]", "forall a: * -> *. T::Cont[a, T::Foo]")
     noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
@@ -394,7 +545,7 @@ class TypeTest extends AnyFunSuite {
     } yield NonEmptyList(head, tail)
 
     forAll(genArgs, NTypeGen.genDepth03) { (args, res) =>
-      val fnType = Type.Fun(args, res)  
+      val fnType = Type.Fun(args, res)
       fnType match {
         case Type.Fun(args1, res1) =>
           assert(args1 == args)
@@ -406,22 +557,25 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("Quantification.concat is associative") {
-    forAll(NTypeGen.genQuant, NTypeGen.genQuant, NTypeGen.genQuant) { (a, b, c) =>
-      assert(a.concat(b).concat(c) == a.concat(b.concat(c)))  
+    forAll(NTypeGen.genQuant, NTypeGen.genQuant, NTypeGen.genQuant) {
+      (a, b, c) =>
+        assert(a.concat(b).concat(c) == a.concat(b.concat(c)))
     }
   }
 
   test("Quantification.toLists/fromList identity") {
     forAll(NTypeGen.genQuant) { q =>
-      assert(Type.Quantification.fromLists(q.forallList, q.existList) == Some(q))  
+      assert(
+        Type.Quantification.fromLists(q.forallList, q.existList) == Some(q)
+      )
     }
   }
 
   test("unexists/exists | unforall/forall iso") {
     forAll(NTypeGen.genDepth03) {
-      case t@Type.Exists(ps, in) =>
+      case t @ Type.Exists(ps, in) =>
         assert(Type.exists(ps, in) == t)
-      case t@Type.ForAll(ps, in) =>
+      case t @ Type.ForAll(ps, in) =>
         assert(Type.forAll(ps, in) == t)
       case _ => ()
     }
@@ -475,7 +629,7 @@ class TypeTest extends AnyFunSuite {
 
       val consts = allConsts(t :: Nil)
       t match {
-        case tyc@TyConst(_) => 
+        case tyc @ TyConst(_) =>
           assert(consts == (tyc :: Nil))
         case (TyVar(_) | TyMeta(_)) =>
           assert(consts == Nil)
@@ -487,7 +641,7 @@ class TypeTest extends AnyFunSuite {
     }
   }
   test("some example Fun.SimpleUniversal") {
-    def check(fn: String, expect: Option[String]) = {
+    def check(fn: String, expect: Option[String]) =
       parse(fn) match {
         case Type.Fun.SimpleUniversal((u, args, res)) =>
           val resTpe = Type.Quantified(
@@ -496,7 +650,8 @@ class TypeTest extends AnyFunSuite {
           )
 
           expect match {
-            case None => fail(s"$fn resulted in ${Type.typeParser.render(resTpe)}")
+            case None =>
+              fail(s"$fn resulted in ${Type.typeParser.render(resTpe)}")
             case Some(exTpe) =>
               val exT = parse(exTpe)
               assert(resTpe.sameAs(exT), s"${resTpe}.sameAs($exT) == false")
@@ -504,16 +659,25 @@ class TypeTest extends AnyFunSuite {
         case _ =>
           expect match {
             case None => succeed
-            case Some(exTpe) => fail(s"$fn is not SimpleUniversal but expected: $exTpe")
+            case Some(exTpe) =>
+              fail(s"$fn is not SimpleUniversal but expected: $exTpe")
           }
       }
-    }
 
     check("forall a. a -> a", Some("forall a. a -> a"))
-    check("forall a. a -> Foo::Option[a]", Some("forall a. a -> Foo::Option[a]"))
+    check(
+      "forall a. a -> Foo::Option[a]",
+      Some("forall a. a -> Foo::Option[a]")
+    )
     check("forall a. a -> (forall b. b)", Some("forall a, b. a -> b"))
-    check("forall a. a -> (forall b. Foo::Option[b])", Some("forall a, b. a -> Foo::Option[b]"))
+    check(
+      "forall a. a -> (forall b. Foo::Option[b])",
+      Some("forall a, b. a -> Foo::Option[b]")
+    )
     check("forall a. a -> (forall a. a)", Some("forall a, b. a -> b"))
-    check("forall a. a -> (forall a, c. a -> c)", Some("forall a, b, c. a -> (b -> c)"))
+    check(
+      "forall a. a -> (forall a, c. a -> c)",
+      Some("forall a, b, c. a -> (b -> c)")
+    )
   }
 }

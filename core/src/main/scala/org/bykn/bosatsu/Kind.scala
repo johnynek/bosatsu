@@ -21,10 +21,9 @@ sealed abstract class Kind {
     loop(this, Nil)
   }
 
-  def withVar(v: Variance): Kind.Arg = {
+  def withVar(v: Variance): Kind.Arg =
     if (isType && (v == Variance.in)) Kind.invariantTypeArg
     else Kind.Arg(v, this)
-  }
 
   def in: Kind.Arg = withVar(Variance.in)
   def co: Kind.Arg = withVar(Variance.co)
@@ -102,9 +101,11 @@ object Kind {
       case _ => false
     }
 
-  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(onSubsumeFail: Cons => A): Either[A, Kind] =
+  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(
+      onSubsumeFail: Cons => A
+  ): Either[A, Kind] =
     left match {
-      case cons@Cons(Kind.Arg(_, lhs), res) =>
+      case cons @ Cons(Kind.Arg(_, lhs), res) =>
         if (leftSubsumesRight(lhs, right)) Right(res)
         else Left(onSubsumeFail(cons))
       case Kind.Type => Left(onTypeErr)
@@ -167,12 +168,11 @@ object Kind {
       val ord = implicitly[Ordering[A]]
       new Iterator[A] {
         def hasNext = b1.hasNext | b2.hasNext
-        def next() = {
+        def next() =
           if (!b1.hasNext) b2.next()
           else if (!b2.hasNext) b1.next()
           else if (ord.lteq(b1.head, b2.head)) b1.next()
           else b2.next()
-        }
       }
     }
 
@@ -188,7 +188,7 @@ object Kind {
     new Iterator[A] {
       var emitted = false
       def hasNext = (!emitted) || bas.hasNext
-      def next() = {
+      def next() =
         if (emitted) bas.next()
         else if (!bas.hasNext || ord.lteq(item, bas.head)) {
           emitted = true
@@ -196,7 +196,6 @@ object Kind {
         } else {
           bas.next()
         }
-      }
     }
   }
 
@@ -297,15 +296,14 @@ object Kind {
 
   def interleave(left: Int, right: Int): Long = {
     @annotation.tailrec
-    def loop(left: Int, right: Int, depth: Int, acc: Long): Long = {
+    def loop(left: Int, right: Int, depth: Int, acc: Long): Long =
       if (left == 0 && right == 0) acc
       else {
         val left1 = (left & 1).toLong
         val right1 = (right & 1).toLong
         val acc1 = acc | (left1 << (2 * depth + 1)) | (right1 << (2 * depth))
-        loop(left >>> 1, right >>> 1, depth + 1, acc1) 
+        loop(left >>> 1, right >>> 1, depth + 1, acc1)
       }
-    }
 
     loop(left, right, 0, 0L)
   }
@@ -329,15 +327,20 @@ object Kind {
   private def varianceToInt(v: Variance): Int = {
     import Variance._
     v match {
-      case Invariant => 3
+      case Invariant     => 3
       case Contravariant => 2
-      case Covariant => 1
-      case Phantom => 0
+      case Covariant     => 1
+      case Phantom       => 0
     }
   }
 
   private val vars =
-    Array(Variance.Phantom, Variance.Covariant, Variance.Contravariant, Variance.Invariant)
+    Array(
+      Variance.Phantom,
+      Variance.Covariant,
+      Variance.Contravariant,
+      Variance.Invariant
+    )
 
   private def intToVariance(v: Int): Variance =
     vars(v & 3)
@@ -359,8 +362,7 @@ object Kind {
               val notZero = intr + 1L
               if (notZero == 0) None
               else Some(notZero)
-            }
-            else None
+            } else None
           }
     }
 
@@ -375,7 +377,7 @@ object Kind {
       (longToKind(left), longToKind(right))
         .mapN { (kl, kr) =>
           val v = intToVariance(leftVar.toInt)
-          Cons(Arg(v, kl), kr)  
+          Cons(Arg(v, kl), kr)
         }
     }
 
