@@ -5,7 +5,7 @@ lazy val commonSettings = Seq(
   organization := "org.bykn",
   version := "0.0.7",
   addCompilerPlugin(
-    "org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full
+    "org.typelevel" %% "kind-projector" % "0.13.3" cross CrossVersion.full
   ),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   scalaVersion := "2.13.12",
