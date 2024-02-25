@@ -593,9 +593,16 @@ object PackageError {
 
           val fieldStr = if (allMissing.lengthCompare(1) == 0) "field" else "fields"
 
-          val hint = Doc.text("if you want to ignore those fields, add a ... to signify ignoring missing.")
+          val hint =
+            syn match {
+              case SourceConverter.ConstructorSyntax.Pat(_) =>
+                Doc.line + Doc.text("if you want to ignore those fields, add a ... to signify ignoring missing.")
+              case _ =>
+                // we can't ignore fields when constructing
+                Doc.empty
+            }
           (Doc.text(s"missing $fieldStr: ") + missingDoc + Doc.line + Doc.text("in") +
-            Doc.line + syn.toDoc + Doc.line + hint
+            Doc.line + syn.toDoc + hint
           ).nested(4)
         }
 
