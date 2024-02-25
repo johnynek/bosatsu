@@ -6,7 +6,7 @@ import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
-import rankn.TypeEnv
+import rankn.{DefinedType, TypeEnv}
 
 sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
@@ -43,6 +43,7 @@ sealed abstract class ExportedName[+T] { self: Product =>
          }
      }
 }
+
 object ExportedName {
   case class Binding[T](name: Identifier.Bindable, tag: T) extends ExportedName[T]
   case class TypeName[T](name: Identifier.Constructor, tag: T) extends ExportedName[T]

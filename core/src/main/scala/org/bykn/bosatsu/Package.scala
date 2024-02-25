@@ -72,6 +72,8 @@ object Package {
     Program[TypeEnv[Kind.Arg], TypedExpr[T], Any]]
   type Inferred = Typed[Declaration]
 
+  type Header = (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
+
   val typedFunctor: Functor[Typed] =
     new Functor[Typed] {
       def map[A, B](fa: Typed[A])(fn: A => B): Typed[B] = {
@@ -164,7 +166,7 @@ object Package {
       Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-  def parser(defaultPack: Option[PackageName]): P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
+  def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
     // TODO: support comments before the Statement
     val parsePack = Padding.parser((P.string("package").soft ~ spaces) *> PackageName.parser <* Parser.toEOL).map(_.padded)
     val pname: P0[PackageName] =
@@ -175,9 +177,14 @@ object Package {
 
     val im = Padding.parser(Import.parser <* Parser.toEOL).map(_.padded).rep0
     val ex = Padding.parser((P.string("export").soft ~ spaces) *> ExportedName.parser.itemsMaybeParens.map(_._2) <* Parser.toEOL).map(_.padded)
+
+    (pname, im, Parser.nonEmptyListToList(ex)).tupled
+  }
+
+  def parser(defaultPack: Option[PackageName]): P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     val body: P0[List[Statement]] = Statement.parser
-    (pname, im, Parser.nonEmptyListToList(ex), body)
-      .mapN { (p, i, e, b) => Package(p, i, e, b) }
+    (headerParser(defaultPack), body)
+      .mapN { case ((p, i, e), b) => Package(p, i, e, b) }
   }
 
   /**
