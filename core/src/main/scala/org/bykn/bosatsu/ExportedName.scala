@@ -119,12 +119,5 @@ object ExportedName {
     exports.foldLeft((TypeEnv.empty): TypeEnv[A]) { (te, exp) =>
       exp.tag.addTo(packageName, exp.name, te)
     }
-
-  def definedType[A](ex: ExportedName[Referant[A]]): Option[DefinedType[A]] =
-    ex.tag match {
-      case Referant.Constructor(dt, _) => Some(dt)
-      case Referant.DefinedT(dt) => Some(dt)
-      case Referant.Value(_) => None
-    }
 }
 

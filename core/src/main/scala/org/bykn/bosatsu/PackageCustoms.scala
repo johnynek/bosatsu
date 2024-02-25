@@ -171,7 +171,7 @@ object PackageCustoms {
 
   private def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): ValidatedNec[PackageError, Unit] = {
     val exportedTypes: List[DefinedType[V]] = exports
-      .flatMap(ExportedName.definedType(_))
+      .flatMap(_.tag.definedType)
       .distinct
 
     val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
