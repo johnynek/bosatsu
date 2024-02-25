@@ -90,11 +90,13 @@ abstract class MainModule[IO[_]](implicit
     case object Json extends GraphOutput
 
     val jsonOrDot: Opts[GraphOutput] =
-      Opts.option[String]("graph_format", "format of graph, either json or dot")
+      Opts
+        .option[String]("graph_format", "format of graph, either json or dot")
         .mapValidated {
           case "json" => Validated.valid(Json)
-          case "dot" => Validated.valid(Dot)
-          case other => Validated.invalidNel(s"\"$other\" invalid, expected json or dot")
+          case "dot"  => Validated.valid(Dot)
+          case other =>
+            Validated.invalidNel(s"\"$other\" invalid, expected json or dot")
         }
         .withDefault(Json)
   }
@@ -120,14 +122,16 @@ abstract class MainModule[IO[_]](implicit
         extends Output
 
     case class ShowOutput(
-      packages: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface],
-      output: Option[Path]) extends Output
+        packages: List[Package.Typed[Any]],
+        ifaces: List[Package.Interface],
+        output: Option[Path]
+    ) extends Output
 
     case class DepsOutput(
-      depinfo: List[(Path, PackageName, FileKind, List[PackageName])],
-      output: Option[Path],
-      style:  GraphOutput) extends Output
+        depinfo: List[(Path, PackageName, FileKind, List[PackageName])],
+        output: Option[Path],
+        style: GraphOutput
+    ) extends Output
   }
 
   sealed abstract class MainException extends Exception {
@@ -352,18 +356,25 @@ abstract class MainModule[IO[_]](implicit
         }
       }
 
-  def parseStart[A](p0: P0[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] = {
-    val lm = LocationMap(str)
-    p0.parse(str) match {
-      case Right((_, a)) =>
-        Validated.valid((lm, a))
-      case Left(err) =>
-        val idx = err.failedAtOffset
-        Validated.invalidNel(
-          ParseError.ParseFailure(Parser.Error.ParseFailure(idx, lm, err.expected), path))
+    def parseStart[A](
+        p0: P0[A],
+        path: Path,
+        str: String
+    ): ValidatedNel[ParseError, (LocationMap, A)] = {
+      val lm = LocationMap(str)
+      p0.parse(str) match {
+        case Right((_, a)) =>
+          Validated.valid((lm, a))
+        case Left(err) =>
+          val idx = err.failedAtOffset
+          Validated.invalidNel(
+            ParseError.ParseFailure(
+              Parser.Error.ParseFailure(idx, lm, err.expected),
+              path
+            )
+          )
+      }
     }
-  }
-
 
     def parseFile[A](
         p: P0[A],
@@ -637,8 +648,8 @@ abstract class MainModule[IO[_]](implicit
               val parsedEvals =
                 evaluators.map(Parser.unsafeParse(PythonGen.evaluatorParser, _))
               val typeEvalMap = listToUnique(parsedEvals.flatten)(
-                { t => t._1 },
-                { t => t._2 },
+                t => t._1,
+                t => t._2,
                 "expected each type to have to just one evaluator"
               ).get
 
@@ -671,7 +682,7 @@ abstract class MainModule[IO[_]](implicit
                     NonEmptyList.fromListUnsafe(initPy)
                   }.toSet
 
-                inits.toList.sorted.map { p => (p, Doc.empty) }
+                inits.toList.sorted.map(p => (p, Doc.empty))
               }
 
               prefixes(docs) ::: docs
@@ -687,7 +698,7 @@ abstract class MainModule[IO[_]](implicit
                       Doc.char('[') +
                       Doc.intercalate(
                         Doc.comma + Doc.lineOrSpace,
-                        names.map { b => Doc.text(b.sourceCodeRepr) }
+                        names.map(b => Doc.text(b.sourceCodeRepr))
                       ) + Doc.char(']')).nested(4)
                   }
 
@@ -705,7 +716,7 @@ abstract class MainModule[IO[_]](implicit
 
       implicit def argumentForTranspiler: Argument[Transpiler] =
         new Argument[Transpiler] {
-          val nameTo = all.iterator.map { t => (t.name, t) }.toMap
+          val nameTo = all.iterator.map(t => (t.name, t)).toMap
 
           def defaultMetavar: String = "transpiler"
           def read(string: String): ValidatedNel[String, Transpiler] =
@@ -781,11 +792,20 @@ abstract class MainModule[IO[_]](implicit
           } yield packPath
       }
 
-      class Show(srcs: PathGen, ifaces: PathGen, includes: PathGen, packageResolver: PackageResolver) extends Inputs {
+      class Show(
+          srcs: PathGen,
+          ifaces: PathGen,
+          includes: PathGen,
+          packageResolver: PackageResolver
+      ) extends Inputs {
         def loadAndCompile(cmd: MainCommand, errColor: Colorize)(implicit
             ec: Par.EC
         ): IO[(List[Package.Interface], List[Package.Typed[Any]])] =
-          (srcs.read, ifaces.read.flatMap(readInterfaces), includes.read.flatMap(readPackages))
+          (
+            srcs.read,
+            ifaces.read.flatMap(readInterfaces),
+            includes.read.flatMap(readPackages)
+          )
             .flatMapN {
               case (Nil, ifaces, packs) =>
                 moduleIOMonad.pure((ifaces, packs))
@@ -799,20 +819,20 @@ abstract class MainModule[IO[_]](implicit
                     errColor,
                     packageResolver
                   )
-                  allPacks = (PackageMap.fromIterable(packs) ++ packPath._1.toMap.map(_._2))
-                    .toMap.toList.map(_._2)
+                  allPacks = (PackageMap.fromIterable(
+                    packs
+                  ) ++ packPath._1.toMap.map(_._2)).toMap.toList.map(_._2)
                 } yield (ifaces, allPacks)
             }
       }
 
-
       class Deps(
-        srcs: PathGen,
-        ifaces: PathGen,
-        includes: PathGen,
-        val packageResolver: PackageResolver
+          srcs: PathGen,
+          ifaces: PathGen,
+          includes: PathGen,
+          val packageResolver: PackageResolver
       ) extends Inputs {
-    
+
         def srcList: IO[List[Path]] = srcs.read
 
         def readIfaces: IO[List[(Path, Package.Interface)]] =
@@ -867,7 +887,7 @@ abstract class MainModule[IO[_]](implicit
         val direct = Opts
           .options[Path](arg, help = help)
           .orEmpty
-          .map { paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen) }
+          .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen))
 
         unfoldDir match {
           case None => direct
@@ -957,10 +977,10 @@ abstract class MainModule[IO[_]](implicit
 
       val showOpts: Opts[Inputs.Show] =
         (srcs, ifaces, includes, packRes).mapN(new Show(_, _, _, _))
-      
+
       val depsOpts: Opts[Inputs.Deps] =
         (srcs, ifaces, includes, packRes).mapN(new Deps(_, _, _, _))
-  
+
     }
 
     case class TranspileCommand(
@@ -1175,8 +1195,8 @@ abstract class MainModule[IO[_]](implicit
               case JsonMode.Apply(in) =>
                 process[cats.Id](
                   in.read,
-                  { json => moduleIOMonad.pure(json) },
-                  { json => json }
+                  json => moduleIOMonad.pure(json),
+                  json => json
                 )
               case JsonMode.Traverse(in) =>
                 process[Vector](
@@ -1190,7 +1210,7 @@ abstract class MainModule[IO[_]](implicit
                         )
                       )
                   },
-                  { items => Json.JArray(items) }
+                  items => Json.JArray(items)
                 )
             }
           }
@@ -1249,7 +1269,7 @@ abstract class MainModule[IO[_]](implicit
           val testPackages: List[PackageName] =
             testIt.toList.sorted.distinct
           val ev = Evaluation(packs, Predef.jvmExternals)
-          val res0 = testPackages.map { p => (p, ev.evalTest(p)) }
+          val res0 = testPackages.map(p => (p, ev.evalTest(p)))
           val res =
             if (testPacks.isEmpty) res0.filter { case (_, testRes) =>
               testRes.isDefined
@@ -1278,36 +1298,38 @@ abstract class MainModule[IO[_]](implicit
     }
 
     case class Deps(
-      inputs: Inputs.Deps,
-      output: Option[Path],
-      errColor: Colorize,
-      style: GraphOutput
+        inputs: Inputs.Deps,
+        output: Option[Path],
+        errColor: Colorize,
+        style: GraphOutput
     ) extends MainCommand("deps") {
 
       type Result = Output.DepsOutput
 
-      def srcDeps(paths: List[Path]): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
+      def srcDeps(
+          paths: List[Path]
+      ): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
         for {
           maybeParsed <- parseHeaders(paths, inputs.packageResolver)
           parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
-        } yield 
-          parsed.map { case (path, (pn, imps, _)) =>
-            (path, pn, FileKind.Source, norm(imps.map(_.pack)))  
-          }
+        } yield parsed.map { case (path, (pn, imps, _)) =>
+          (path, pn, FileKind.Source, norm(imps.map(_.pack)))
+        }
 
       def ifaceDeps(iface: Package.Interface): List[PackageName] = {
         val pn = iface.name
-        norm(iface.exports
-          .iterator
-          .flatMap { n =>
-            n.tag match {
-              case Referant.Value(t) => Iterator.single(t)
-              case _ => Iterator.empty
+        norm(
+          iface.exports.iterator
+            .flatMap { n =>
+              n.tag match {
+                case Referant.Value(t) => Iterator.single(t)
+                case _                 => Iterator.empty
+              }
             }
-          }
-          .flatMap(rankn.Type.constantsOf)
-          .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
-          .toList)
+            .flatMap(rankn.Type.constantsOf)
+            .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
+            .toList
+        )
       }
 
       private def norm(lst: List[PackageName]): List[PackageName] =
@@ -1325,8 +1347,12 @@ abstract class MainModule[IO[_]](implicit
           sdeps <- srcDeps(srcPaths)
           ifaces <- inputs.readIfaces
           packs <- inputs.readPacks
-          ideps = ifaces.map { case (p, iface) => (p, iface.name, FileKind.Iface, ifaceDeps(iface))}
-          pdeps = packs.map { case (p, pack) => (p, pack.name, FileKind.Pack, packageDeps(pack))}
+          ideps = ifaces.map { case (p, iface) =>
+            (p, iface.name, FileKind.Iface, ifaceDeps(iface))
+          }
+          pdeps = packs.map { case (p, pack) =>
+            (p, pack.name, FileKind.Pack, packageDeps(pack))
+          }
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
@@ -1536,7 +1562,12 @@ abstract class MainModule[IO[_]](implicit
         )
         .orElse(
           Opts.subcommand("deps", "emit a graph description of dependencies")(
-            (Inputs.depsOpts, outputPath.orNone, colorOpt, GraphOutput.jsonOrDot)
+            (
+              Inputs.depsOpts,
+              outputPath.orNone,
+              colorOpt,
+              GraphOutput.jsonOrDot
+            )
               .mapN(Deps(_, _, _, _))
           )
         )
@@ -1546,7 +1577,7 @@ abstract class MainModule[IO[_]](implicit
       val versionInfo =
         (s"version: ${BuildInfo.version}" ::
           s"scala-version: ${BuildInfo.scalaVersion}" ::
-          (BuildInfo.gitHeadCommit.toList.map { sha => s"git-sha: ${sha}" }))
+          (BuildInfo.gitHeadCommit.toList.map(sha => s"git-sha: ${sha}")))
           .mkString("\n")
 
       Command(

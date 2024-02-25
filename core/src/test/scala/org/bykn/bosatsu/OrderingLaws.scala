@@ -38,7 +38,6 @@ object OrderingLaws {
     ()
   }
 
-  def forOrder[A: Order](a: A, b: A, c: A) = {
+  def forOrder[A: Order](a: A, b: A, c: A) =
     law(a, b, c)(Order[A].toOrdering)
-  }
 }

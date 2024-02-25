@@ -236,16 +236,15 @@ object Shape {
 
       { (t: Type) =>
         cache.getOrElseUpdate(
-          t, {
-            t match {
-              case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
-              case rankn.Type.TyConst(const) =>
-                if (const == dt.toTypeConst) Some(thisShape)
-                else IsShapeEnv[E].getShape(imports, const)
-              case _ =>
-                // nothing else is in-scope
-                None
-            }
+          t,
+          t match {
+            case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
+            case rankn.Type.TyConst(const) =>
+              if (const == dt.toTypeConst) Some(thisShape)
+              else IsShapeEnv[E].getShape(imports, const)
+            case _ =>
+              // nothing else is in-scope
+              None
           }
         )
       }
@@ -611,7 +610,7 @@ object Shape {
         case (v, None) =>
           RefSpace
             .newRef(UnknownState.free)
-            .map { ref => (v, Left(Unknown(Right(v), ref): Shape)) }
+            .map(ref => (v, Left(Unknown(Right(v), ref): Shape)))
         case (v, Some(ka)) =>
           RefSpace.pure((v, Right(ka)))
       }
@@ -623,7 +622,7 @@ object Shape {
         shapes.traverse {
           case (v, Left(s)) =>
             shapeToKnown(s)
-              .map { k => k.map { s => (v, Left(s)) } }
+              .map(k => k.map(s => (v, Left(s))))
           case (v, Right(ka)) =>
             RefSpace.pure(Validated.valid((v, Right(ka))))
         }

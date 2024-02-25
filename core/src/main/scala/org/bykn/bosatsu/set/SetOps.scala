@@ -1,86 +1,75 @@
 package org.bykn.bosatsu.set
 
-/**
- * These are set operations we can do on patterns
- */
+/** These are set operations we can do on patterns
+  */
 trait SetOps[A] extends Relatable[A] {
 
-  /**
-   * a representation of the set with everything in it
-   * not all sets have upper bounds we can represent
-   */
+  /** a representation of the set with everything in it not all sets have upper
+    * bounds we can represent
+    */
   def top: Option[A]
 
-  /**
-   * if everything is <= A, maybe more than one representation of top
-   */
+  /** if everything is <= A, maybe more than one representation of top
+    */
   def isTop(a: A): Boolean
 
-  /**
-   * intersect two values and return a union represented as a list
-   */
+  /** intersect two values and return a union represented as a list
+    */
   def intersection(a1: A, a2: A): List[A]
 
   def relate(a1: A, a2: A): Rel
 
-  /**
-   * Return true if a1 and a2 are disjoint
-   */
+  /** Return true if a1 and a2 are disjoint
+    */
   def disjoint(a1: A, a2: A): Boolean =
     relate(a1, a2) == Rel.Disjoint
 
-  /**
-   * remove a2 from a1 return a union represented as a list
-   *
-   * this should be the tightest upperbound we can find
-   */
+  /** remove a2 from a1 return a union represented as a list
+    *
+    * this should be the tightest upperbound we can find
+    */
   def difference(a1: A, a2: A): List[A]
 
-  /**
-   * This should unify the union into the fewest number
-   * of patterns without changing the meaning of the union
-   */
+  /** This should unify the union into the fewest number of patterns without
+    * changing the meaning of the union
+    */
   def unifyUnion(u: List[A]): List[A]
 
-  /**
-   * if true, all elements in a are in b,
-   * if false, there is no promise
-   *
-   * this should be a reasonable cheap operation
-   * that is allowed to say no in order
-   * to avoid very expensive work
-   */
+  /** if true, all elements in a are in b, if false, there is no promise
+    *
+    * this should be a reasonable cheap operation that is allowed to say no in
+    * order to avoid very expensive work
+    */
   def subset(a: A, b: A): Boolean =
     relate(a, b).isSubtype
 
   def equiv(a: A, b: A): Boolean =
     relate(a, b) == Rel.Same
 
-  /**
-   * Remove all items in p2 from all items in p1
-   * and unify the remaining union
-   */
+  /** Remove all items in p2 from all items in p1 and unify the remaining union
+    */
   def differenceAll(p1: List[A], p2: List[A]): List[A] =
     p2.foldLeft(p1) { (p1s, p) =>
       // remove p from all of p1s
       p1s.flatMap(difference(_, p))
     }
 
-  /**
-   * if top is defined
-   * a list of matches that would make the current set of matches total
-   *
-   * Note, a law here is that:
-   * missingBranches(te, t, branches).flatMap { ms =>
-   *   assert(missingBranches(te, t, branches ::: ms).isEmpty)
-   * }
-   */
+  /** if top is defined a list of matches that would make the current set of
+    * matches total
+    *
+    * Note, a law here is that: missingBranches(te, t, branches).flatMap { ms =>
+    * assert(missingBranches(te, t, branches ::: ms).isEmpty) }
+    */
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
     def clearSubs(branches: List[A], front: List[A]): List[A] =
       branches match {
         case Nil => Nil
         case h :: tail =>
-          if (tail.exists(relate(h, _).isSubtype) || front.exists(relate(h, _).isSubtype)) clearSubs(tail, front)
+          if (
+            tail.exists(relate(h, _).isSubtype) || front.exists(
+              relate(h, _).isSubtype
+            )
+          ) clearSubs(tail, front)
           else h :: clearSubs(tail, h :: front)
       }
     // we can subtract in any order
@@ -103,7 +92,9 @@ trait SetOps[A] extends Relatable[A] {
         }
       }
     val normB = clearSubs(branches, Nil)
-    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(differenceAll(_, _))(superSetIsSmaller)
+    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(
+      differenceAll(_, _)
+    )(superSetIsSmaller)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
@@ -111,10 +102,9 @@ trait SetOps[A] extends Relatable[A] {
     missing.filterNot(unreach.toSet)
   }
 
-  /**
-   * if we match these branches in order, which of them
-   * are completely covered by previous matches
-   */
+  /** if we match these branches in order, which of them are completely covered
+    * by previous matches
+    */
   def unreachableBranches(branches: List[A]): List[A] =
     unreachableBranches(init = Nil, branches = branches)
 
@@ -127,9 +117,10 @@ trait SetOps[A] extends Relatable[A] {
       }
 
     withPrev(branches, init)
-      .collect { case (p, prev) if differenceAll(p :: Nil, prev).isEmpty =>
-        // if there is nothing, this is unreachable
-        p
+      .collect {
+        case (p, prev) if differenceAll(p :: Nil, prev).isEmpty =>
+          // if there is nothing, this is unreachable
+          p
       }
   }
 }
@@ -153,7 +144,11 @@ object SetOps {
 
   // we search for the best order to apply the diffs that minimizes the score
   @annotation.tailrec
-  final def greedySearch[A: Ordering, B](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A): A =
+  final def greedySearch[A: Ordering, B](
+      lookahead: Int,
+      union: A,
+      diffs: List[B]
+  )(fn: (A, List[B]) => A): A =
     diffs match {
       case Nil => union
       case _ =>
@@ -166,7 +161,9 @@ object SetOps {
         // choose a diff that starts the most
         // number of results that are the smallest
         val best = trials
-          .collect { case (u1, p) if implicitly[Ordering[A]].equiv(u1, smallest._1) => p }
+          .collect {
+            case (u1, p) if implicitly[Ordering[A]].equiv(u1, smallest._1) => p
+          }
           .groupBy(identity)
           .map { case (k, v) => (k, v.size) }
           .maxBy(_._2)
@@ -175,7 +172,6 @@ object SetOps {
         val u1 = fn(union, best :: Nil)
         greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)
     }
-
 
   def distinct[A](implicit ordA: Ordering[A]): SetOps[A] =
     new SetOps[A] {
@@ -194,7 +190,7 @@ object SetOps {
         def nub(u: List[A]): List[A] =
           u match {
             case Nil | _ :: Nil => u
-            case h1 :: (t1@(h2 :: _)) =>
+            case h1 :: (t1 @ (h2 :: _)) =>
               if (ordA.equiv(h1, h2)) nub(t1)
               else h1 :: nub(t1)
           }
@@ -239,7 +235,7 @@ object SetOps {
           else b.exists(a)
         }
       )
-      
+
       def relate(a: Set[A], b: Set[A]) = rel.relate(a, b)
     }
 
@@ -285,7 +281,7 @@ object SetOps {
       def top: Option[(A, B)] =
         (sa.top, sb.top) match {
           case (Some(a), Some(b)) => Some((a, b))
-          case _ => None
+          case _                  => None
         }
 
       def isTop(a: (A, B)): Boolean =
@@ -349,15 +345,15 @@ object SetOps {
       def unifyUnion(u: List[(A, B)]): List[(A, B)] = {
         def step[X, Y](u: List[(X, Y)], sy: SetOps[Y]): Option[List[(X, Y)]] = {
           var change = false
-          val u1 = u.groupBy(_._1)
+          val u1 = u
+            .groupBy(_._1)
             .iterator
             .flatMap { case (x, xys) =>
               val uy = sy.unifyUnion(xys.map(_._2))
               if (uy.size < xys.size) {
                 change = true
                 uy.map((x, _))
-              }
-              else xys
+              } else xys
             }
             .toList
 
@@ -369,7 +365,7 @@ object SetOps {
           step(u, sb) match {
             case None =>
               step(u.map(_.swap), sa) match {
-                case None => u
+                case None     => u
                 case Some(u2) =>
                   // we got a change unifying a
                   loop(u2.map(_.swap))

@@ -42,14 +42,17 @@ object PathModule extends MainModule[IO] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     ProtoConverter.readInterfaces(paths)
 
-  def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
+  def writeInterfaces(
+      interfaces: List[Package.Interface],
+      path: Path
+  ): IO[Unit] =
     ProtoConverter.writeInterfaces(interfaces, path)
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
     ProtoConverter.writePackages(packages, path)
 
   def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
-    { (path: Path) =>
+    (path: Path) =>
       IO.blocking {
         val f = path.toFile
 
@@ -57,14 +60,13 @@ object PathModule extends MainModule[IO] {
           Some(IO.blocking {
             f.listFiles.iterator.map(_.toPath).toList
           })
-        }
-        else None
+        } else None
       }
-    }
   }
 
-  def hasExtension(str: String): Path => Boolean =
-    { (path: Path) => path.toString.endsWith(str) }
+  def hasExtension(str: String): Path => Boolean = { (path: Path) =>
+    path.toString.endsWith(str)
+  }
 
   def print(str: => String): IO[Unit] =
     IO.println(str)
@@ -74,15 +76,15 @@ object PathModule extends MainModule[IO] {
   def report(io: IO[Output]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)
-      case Left(err) => reportException(err).as(ExitCode.Error)
+      case Left(err)  => reportException(err).as(ExitCode.Error)
     }
-
 
   private def writeOut(doc: Doc, out: Option[Path]): IO[Unit] =
     out match {
       case None =>
         IO.blocking {
-          doc.renderStreamTrim(80)
+          doc
+            .renderStreamTrim(80)
             .iterator
             .foreach(System.out.print)
 
@@ -102,7 +104,8 @@ object PathModule extends MainModule[IO] {
         print(testReport.doc.render(80)).as(code)
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
-        val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        val doc =
+          resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         print(doc.render(100)).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
@@ -112,12 +115,13 @@ object PathModule extends MainModule[IO] {
         def path(p: List[String]): Path =
           p.foldLeft(base)(_.resolve(_))
 
-        outs.toList.map { case (p, d) =>
-          (p, CodeGenWrite.writeDoc(path(p.toList), d))
-        }
-        .sortBy(_._1)
-        .traverse_ { case (_, w) => w }
-        .as(ExitCode.Success)
+        outs.toList
+          .map { case (p, d) =>
+            (p, CodeGenWrite.writeDoc(path(p.toList), d))
+          }
+          .sortBy(_._1)
+          .traverse_ { case (_, w) => w }
+          .as(ExitCode.Success)
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
@@ -142,40 +146,50 @@ object PathModule extends MainModule[IO] {
         val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
         writeOut(doc, output).as(ExitCode.Success)
 
-      case Output.DepsOutput(depinfo, output, style) => 
+      case Output.DepsOutput(depinfo, output, style) =>
         style match {
-          case GraphOutput.Json => 
-            def toJson(dep: (Path, PackageName, FileKind, List[PackageName])): Json =
+          case GraphOutput.Json =>
+            def toJson(
+                dep: (Path, PackageName, FileKind, List[PackageName])
+            ): Json =
               Json.JObject(
                 ("path", Json.JString(dep._1.toString())) ::
-                ("package", Json.JString(dep._2.asString)) ::
-                ("kind", Json.JString(dep._3.name)) ::
-                ("dependsOn", Json.JArray(
-                  dep._4.map { pn => Json.JString(pn.asString) }.toVector
-                )) ::
-                Nil
+                  ("package", Json.JString(dep._2.asString)) ::
+                  ("kind", Json.JString(dep._3.name)) ::
+                  (
+                    "dependsOn",
+                    Json.JArray(
+                      dep._4.map(pn => Json.JString(pn.asString)).toVector
+                    )
+                  ) ::
+                  Nil
               )
 
-            val asJson = Json.JArray(depinfo
-              .sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }
-              .map(toJson)
-              .toVector)
+            val asJson = Json.JArray(
+              depinfo
+                .sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }
+                .map(toJson)
+                .toVector
+            )
 
             writeOut(asJson.toDoc, output).as(ExitCode.Success)
           case GraphOutput.Dot =>
-
             def shapeOf(fk: FileKind): String =
               fk match {
-                case FileKind.Iface => "diamond"
-                case FileKind.Pack => "box"
+                case FileKind.Iface  => "diamond"
+                case FileKind.Pack   => "box"
                 case FileKind.Source => "circle"
               }
 
             type Ident = String
-            def makeNode(idx: Int, dep: (Path, PackageName, FileKind, List[PackageName])): (Ident, String) = {
+            def makeNode(
+                idx: Int,
+                dep: (Path, PackageName, FileKind, List[PackageName])
+            ): (Ident, String) = {
               // C [shape=box, fillcolor=lightgrey, label="Node C"];
               val ident = s"N$idx"
-              val decl = s"$ident [shape=${shapeOf(dep._3)}, label=\"${dep._2.asString}\"];"
+              val decl =
+                s"$ident [shape=${shapeOf(dep._3)}, label=\"${dep._2.asString}\"];"
               (ident, decl)
             }
             def makeMissing(idx: Int, pack: PackageName): (Ident, String) = {
@@ -186,51 +200,62 @@ object PathModule extends MainModule[IO] {
             }
 
             val knownPacks = depinfo.map(_._2).toSet
-            val allPacks = depinfo.flatMap { dep => dep._2 :: dep._4 }.distinct.sorted
+            val allPacks =
+              depinfo.flatMap(dep => dep._2 :: dep._4).distinct.sorted
             val unknownPacks = allPacks.filterNot(knownPacks)
-            type NodeMap = Map[PackageName, NonEmptyList[(Int, Option[FileKind], String, String)]]
+            type NodeMap = Map[PackageName, NonEmptyList[
+              (Int, Option[FileKind], String, String)
+            ]]
             val depinfoSize = depinfo.size
             val nodes: NodeMap =
               (depinfo.zipWithIndex.map { case (dep, idx) =>
-                val (ident, nstr) = makeNode(idx, dep)  
+                val (ident, nstr) = makeNode(idx, dep)
                 (dep._2, (idx, Some(dep._3), ident, nstr))
               } ::: unknownPacks.mapWithIndex { (pn, idx0) =>
                 val idx = depinfoSize + idx0
-                val (ident, nstr) = makeMissing(idx, pn)  
+                val (ident, nstr) = makeMissing(idx, pn)
                 (pn, (idx, None, ident, nstr))
               })
-              .groupByNel(_._1)
-              .map { case (k, v) =>
-                (k, v.map(_._2))  
-              }
+                .groupByNel(_._1)
+                .map { case (k, v) =>
+                  (k, v.map(_._2))
+                }
 
             // now NodeMap has everything
-            def makeEdge(src: PackageName, k: FileKind, dst: PackageName, nm: NodeMap): String = {
-              implicit val orderKind: cats.Order[Option[FileKind]] = 
+            def makeEdge(
+                src: PackageName,
+                k: FileKind,
+                dst: PackageName,
+                nm: NodeMap
+            ): String = {
+              implicit val orderKind: cats.Order[Option[FileKind]] =
                 new cats.Order[Option[FileKind]] {
                   def compare(a: Option[FileKind], b: Option[FileKind]) =
                     (a, b) match {
-                      case (None, None) => 0
-                      case (Some(_), None) => -1
-                      case (None, Some(_)) => 1
-                      case (Some(FileKind.Iface), Some(FileKind.Iface)) => 0
-                      case (Some(FileKind.Iface), Some(_)) => -1
-                      case (Some(FileKind.Pack), Some(FileKind.Iface)) => 1
-                      case (Some(FileKind.Pack), Some(FileKind.Pack)) => 0
-                      case (Some(FileKind.Pack), Some(FileKind.Source)) => -1
+                      case (None, None)                                   => 0
+                      case (Some(_), None)                                => -1
+                      case (None, Some(_))                                => 1
+                      case (Some(FileKind.Iface), Some(FileKind.Iface))   => 0
+                      case (Some(FileKind.Iface), Some(_))                => -1
+                      case (Some(FileKind.Pack), Some(FileKind.Iface))    => 1
+                      case (Some(FileKind.Pack), Some(FileKind.Pack))     => 0
+                      case (Some(FileKind.Pack), Some(FileKind.Source))   => -1
                       case (Some(FileKind.Source), Some(FileKind.Source)) => 0
-                      case (Some(FileKind.Source), Some(_)) => 1
+                      case (Some(FileKind.Source), Some(_))               => 1
                     }
                 }
 
-              val srcNode = nm(src).find { case (_, sk, _, _) => sk == Some(k) }.get
-              val dstNode = nm(dst).sortBy { rec => (rec._2, rec._1) }.head
+              val srcNode = nm(src).find { case (_, sk, _, _) =>
+                sk == Some(k)
+              }.get
+              val dstNode = nm(dst).sortBy(rec => (rec._2, rec._1)).head
               s"${srcNode._3} -> ${dstNode._3};"
             }
 
             val header = Doc.text("digraph G {")
-            val allNodes: List[Doc] = nodes.iterator.flatMap { case (_, ns) =>
-                ns.map { rec => (rec._1, Doc.text(rec._4)) }.toList  
+            val allNodes: List[Doc] = nodes.iterator
+              .flatMap { case (_, ns) =>
+                ns.map(rec => (rec._1, Doc.text(rec._4))).toList
               }
               .toList
               .sortBy(_._1)
@@ -244,8 +269,10 @@ object PathModule extends MainModule[IO] {
               }
             val edgesDoc = Doc.intercalate(Doc.hardLine, edges)
 
-            val fullDoc = header + (Doc.hardLine + nodesDoc + Doc.hardLine + edgesDoc).nested(2) +
-              Doc.hardLine + Doc.char('}')
+            val fullDoc =
+              header + (Doc.hardLine + nodesDoc + Doc.hardLine + edgesDoc)
+                .nested(2) +
+                Doc.hardLine + Doc.char('}')
 
             writeOut(fullDoc, output).as(ExitCode.Success)
         }
@@ -264,7 +291,8 @@ object PathModule extends MainModule[IO] {
     import scala.jdk.CollectionConverters._
 
     def getP(p: Path): Option[PackageName] = {
-      val subPath = p.relativize(packFile)
+      val subPath = p
+        .relativize(packFile)
         .asScala
         .map { part =>
           part.toString.toLowerCase.capitalize
@@ -274,7 +302,7 @@ object PathModule extends MainModule[IO] {
       val dropExtension = """(.*)\.[^.]*$""".r
       val toParse = subPath match {
         case dropExtension(prefix) => prefix
-        case _ => subPath
+        case _                     => subPath
       }
       PackageName.parse(toParse)
     }
@@ -282,9 +310,9 @@ object PathModule extends MainModule[IO] {
     @annotation.tailrec
     def loop(roots: List[Path]): Option[PackageName] =
       roots match {
-        case Nil => None
+        case Nil                              => None
         case h :: _ if packFile.startsWith(h) => getP(h)
-        case _ :: t => loop(t)
+        case _ :: t                           => loop(t)
       }
 
     if (packFile.toString.isEmpty) None

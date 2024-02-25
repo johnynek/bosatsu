@@ -29,7 +29,7 @@ class DagTest extends AnyFunSuite {
             else {
               Gen
                 .listOf(Gen.choose(0, idx - 1))
-                .map { ns => (n, ns.map(nodes(_)).toSet) }
+                .map(ns => (n, ns.map(nodes(_)).toSet))
             }
           }
           .map(_.to(Map))
@@ -44,7 +44,7 @@ class DagTest extends AnyFunSuite {
           .traverse { n =>
             Gen
               .listOf(Gen.oneOf(nodes))
-              .map { ns => (n, ns.toSet) }
+              .map(ns => (n, ns.toSet))
           }
           .map(_.to(Map))
       }
