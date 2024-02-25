@@ -102,9 +102,11 @@ object Kind {
       case _ => false
     }
 
-  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(onSubsumeFail: Cons => A): Either[A, Kind] =
+  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(
+      onSubsumeFail: Cons => A
+  ): Either[A, Kind] =
     left match {
-      case cons@Cons(Kind.Arg(_, lhs), res) =>
+      case cons @ Cons(Kind.Arg(_, lhs), res) =>
         if (leftSubsumesRight(lhs, right)) Right(res)
         else Left(onSubsumeFail(cons))
       case Kind.Type => Left(onTypeErr)
@@ -303,7 +305,7 @@ object Kind {
         val left1 = (left & 1).toLong
         val right1 = (right & 1).toLong
         val acc1 = acc | (left1 << (2 * depth + 1)) | (right1 << (2 * depth))
-        loop(left >>> 1, right >>> 1, depth + 1, acc1) 
+        loop(left >>> 1, right >>> 1, depth + 1, acc1)
       }
     }
 
@@ -329,15 +331,20 @@ object Kind {
   private def varianceToInt(v: Variance): Int = {
     import Variance._
     v match {
-      case Invariant => 3
+      case Invariant     => 3
       case Contravariant => 2
-      case Covariant => 1
-      case Phantom => 0
+      case Covariant     => 1
+      case Phantom       => 0
     }
   }
 
   private val vars =
-    Array(Variance.Phantom, Variance.Covariant, Variance.Contravariant, Variance.Invariant)
+    Array(
+      Variance.Phantom,
+      Variance.Covariant,
+      Variance.Contravariant,
+      Variance.Invariant
+    )
 
   private def intToVariance(v: Int): Variance =
     vars(v & 3)
@@ -359,8 +366,7 @@ object Kind {
               val notZero = intr + 1L
               if (notZero == 0) None
               else Some(notZero)
-            }
-            else None
+            } else None
           }
     }
 
@@ -375,7 +381,7 @@ object Kind {
       (longToKind(left), longToKind(right))
         .mapN { (kl, kr) =>
           val v = intToVariance(leftVar.toInt)
-          Cons(Arg(v, kl), kr)  
+          Cons(Arg(v, kl), kr)
         }
     }
 

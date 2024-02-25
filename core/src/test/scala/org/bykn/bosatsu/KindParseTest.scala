@@ -391,7 +391,7 @@ class KindParseTest extends ParserTestBase {
         case Some(idx) =>
           assert(Kind.longToKind(idx) == Some(k))
         case None => ()
-      }  
+      }
     }
 
     assert(Kind.kindToLong(Kind.Type) == Some(0L))
@@ -403,28 +403,34 @@ class KindParseTest extends ParserTestBase {
     // small kinds have small codes
     Kind.allKinds.take(21).foreach { k =>
       // these can all be encoded in 1 byte in proto
-      assert(Kind.kindToLong(k).get < 0x7fL)  
+      assert(Kind.kindToLong(k).get < 0x7fL)
     }
     Kind.allKinds.take(217).foreach { k =>
       // these can all be encoded in 2 byte in proto
-      assert(Kind.kindToLong(k).get < 0x7fffL)  
+      assert(Kind.kindToLong(k).get < 0x7fffL)
     }
   }
 
   test("interleave and uninterleave -> inverses") {
     forAll { (l: Long) =>
-      val res = Kind.uninterleave(l)  
+      val res = Kind.uninterleave(l)
       val high = (res >>> 32).toInt
       val low = (res & 0xffffffffL).toInt
-      assert(Kind.interleave(high, low) == l, s"res = $res low = $low, high = $high")
+      assert(
+        Kind.interleave(high, low) == l,
+        s"res = $res low = $low, high = $high"
+      )
     }
 
     forAll { (low: Int, high: Int) =>
       val long = Kind.interleave(high, low)
-      val res = Kind.uninterleave(long)  
+      val res = Kind.uninterleave(long)
       val high1 = (res >>> 32).toInt
       val low1 = (res & 0xffffffffL).toInt
-      assert((high, low) == (high1, low1), s"interleave($low, $high) = $long uninterleave($long) = $res")
+      assert(
+        (high, low) == (high1, low1),
+        s"interleave($low, $high) = $long uninterleave($long) = $res"
+      )
     }
   }
 }

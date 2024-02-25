@@ -39,7 +39,10 @@ object PathModule extends MainModule[IO] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     ProtoConverter.readInterfaces(paths)
 
-  def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
+  def writeInterfaces(
+      interfaces: List[Package.Interface],
+      path: Path
+  ): IO[Unit] =
     ProtoConverter.writeInterfaces(interfaces, path)
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
@@ -54,14 +57,14 @@ object PathModule extends MainModule[IO] {
           Some(IO {
             f.listFiles.iterator.map(_.toPath).toList
           })
-        }
-        else None
+        } else None
       }
     }
   }
 
-  def hasExtension(str: String): Path => Boolean =
-    { (path: Path) => path.toString.endsWith(str) }
+  def hasExtension(str: String): Path => Boolean = { (path: Path) =>
+    path.toString.endsWith(str)
+  }
 
   def print(str: => String): IO[Unit] =
     IO(println(str))
@@ -71,7 +74,7 @@ object PathModule extends MainModule[IO] {
   def report(io: IO[Output]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)
-      case Left(err) => reportException(err).as(ExitCode.Error)
+      case Left(err)  => reportException(err).as(ExitCode.Error)
     }
 
   def reportOutput(out: Output): IO[ExitCode] =
@@ -84,25 +87,27 @@ object PathModule extends MainModule[IO] {
         print(testReport.doc.render(80)).as(code)
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
-        val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        val doc =
+          resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         print(doc.render(100)).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
         (pathOpt match {
           case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
-          case None => IO(println(jdoc.renderTrim(80)))
+          case None       => IO(println(jdoc.renderTrim(80)))
         }).as(ExitCode.Success)
 
       case Output.TranspileOut(outs, base) =>
         def path(p: List[String]): Path =
           p.foldLeft(base)(_.resolve(_))
 
-        outs.toList.map { case (p, d) =>
-          (p, CodeGenWrite.writeDoc(path(p.toList), d))
-        }
-        .sortBy(_._1)
-        .traverse_ { case (_, w) => w }
-        .as(ExitCode.Success)
+        outs.toList
+          .map { case (p, d) =>
+            (p, CodeGenWrite.writeDoc(path(p.toList), d))
+          }
+          .sortBy(_._1)
+          .traverse_ { case (_, w) => w }
+          .as(ExitCode.Success)
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
@@ -128,15 +133,16 @@ object PathModule extends MainModule[IO] {
         output match {
           case None =>
             IO.blocking {
-              doc.renderStreamTrim(80)
+              doc
+                .renderStreamTrim(80)
                 .iterator
                 .foreach(System.out.print)
 
               System.out.println("")
-            }
-            .as(ExitCode.Success)
+            }.as(ExitCode.Success)
           case Some(p) =>
-            CodeGenWrite.writeDoc(p, doc)
+            CodeGenWrite
+              .writeDoc(p, doc)
               .as(ExitCode.Success)
         }
     }
@@ -154,7 +160,8 @@ object PathModule extends MainModule[IO] {
     import scala.jdk.CollectionConverters._
 
     def getP(p: Path): Option[PackageName] = {
-      val subPath = p.relativize(packFile)
+      val subPath = p
+        .relativize(packFile)
         .asScala
         .map { part =>
           part.toString.toLowerCase.capitalize
@@ -164,7 +171,7 @@ object PathModule extends MainModule[IO] {
       val dropExtension = """(.*)\.[^.]*$""".r
       val toParse = subPath match {
         case dropExtension(prefix) => prefix
-        case _ => subPath
+        case _                     => subPath
       }
       PackageName.parse(toParse)
     }
@@ -172,9 +179,9 @@ object PathModule extends MainModule[IO] {
     @annotation.tailrec
     def loop(roots: List[Path]): Option[PackageName] =
       roots match {
-        case Nil => None
+        case Nil                              => None
         case h :: _ if packFile.startsWith(h) => getP(h)
-        case _ :: t => loop(t)
+        case _ :: t                           => loop(t)
       }
 
     if (packFile.toString.isEmpty) None

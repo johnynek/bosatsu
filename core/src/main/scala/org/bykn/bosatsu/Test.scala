@@ -9,8 +9,8 @@ sealed abstract class Test {
 
   def failures: Option[Test] =
     this match {
-      case Test.Assertion(true, _) => None
-      case f@Test.Assertion(false, _) => Some(f)
+      case Test.Assertion(true, _)      => None
+      case f @ Test.Assertion(false, _) => Some(f)
       case Test.Suite(nm, ts) => {
         val innerFails = ts.flatMap(_.failures.toList)
         if (innerFails.isEmpty) None
@@ -62,7 +62,13 @@ object Test {
       loop(t, None, 0, 0, Doc.empty)
 
     @annotation.tailrec
-    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): Report =
+    def loop(
+        ts: List[Test],
+        lastSuite: Option[(Int, Int)],
+        passes: Int,
+        fails: Int,
+        front: Doc
+    ): Report =
       ts match {
         case Nil =>
           val sumDoc =
@@ -75,33 +81,48 @@ object Test {
         case Assertion(true, _) :: rest =>
           loop(rest, lastSuite, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
-          loop(rest, lastSuite, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
+          loop(
+            rest,
+            lastSuite,
+            passes,
+            fails + 1,
+            front + (Doc.line + Doc.text(label) + colonSpace + failDoc)
+          )
         case Suite(label, rest) :: tail =>
           val Report(p, f, d) = init(rest)
-          val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+          val res = Doc.line + Doc.text(label) + Doc.char(
+            ':'
+          ) + (Doc.lineOrSpace + d).nested(2)
           loop(tail, Some((p, f)), passes + p, fails + f, front + res)
       }
 
     init(t :: Nil)
   }
 
-  def outputFor(resultList: List[(PackageName, Option[Eval[Test]])], color: LocationMap.Colorize): Report = {
+  def outputFor(
+      resultList: List[(PackageName, Option[Eval[Test]])],
+      color: LocationMap.Colorize
+  ): Report = {
     val noTests = resultList.collect { case (p, None) => p }
-    val results = resultList.collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }.sortBy(_._1)
+    val results = resultList
+      .collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }
+      .sortBy(_._1)
 
     val successes = results.iterator.map { case (_, Report(s, _, _)) => s }.sum
     val failures = results.iterator.map { case (_, Report(_, f, _)) => f }.sum
     val success = noTests.isEmpty && (failures == 0)
     val suffix =
-      if (results.lengthCompare(1) > 0) (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
+      if (results.lengthCompare(1) > 0)
+        (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
       else Doc.empty
 
     val docRes: Doc =
-      Doc.intercalate(Doc.hardLine + Doc.hardLine,
+      Doc.intercalate(
+        Doc.hardLine + Doc.hardLine,
         results.map { case (p, Report(_, _, d)) =>
           Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-        }) + suffix
-
+        }
+      ) + suffix
 
     if (success) Report(successes, failures, docRes)
     else {
@@ -109,11 +130,17 @@ object Test {
         if (noTests.isEmpty) Nil
         else {
           val prefix = Doc.text("packages with missing tests: ")
-          val missingDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+          val missingDoc = Doc.intercalate(
+            Doc.comma + Doc.lineOrSpace,
+            noTests.sorted.map { p => Doc.text(p.asString) }
+          )
           (prefix + missingDoc.nested(2)) :: Nil
         }
 
-      val fullOut = Doc.intercalate(Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line, docRes :: missingDoc)
+      val fullOut = Doc.intercalate(
+        Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line,
+        docRes :: missingDoc
+      )
 
       val failureStr =
         if (failures == 1) "1 test failure"
@@ -124,10 +151,13 @@ object Test {
         if (missingCount > 0) {
           val packString = if (missingCount == 1) "package" else "packages"
           s"$failureStr and $missingCount $packString with no tests found"
-        }
-        else failureStr
+        } else failureStr
 
-      Report(successes, failures, fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage))
+      Report(
+        successes,
+        failures,
+        fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)
+      )
     }
   }
 
@@ -137,7 +167,7 @@ object Test {
       a match {
         case ProductValue(b, Str(message)) =>
           val bool = b match {
-            case True => true
+            case True  => true
             case False => false
             case _ =>
               sys.error(s"expected test value: $a")
@@ -146,8 +176,8 @@ object Test {
         case other =>
           // $COVERAGE-OFF$
           sys.error(s"expected test value: $other")
-          // $COVERAGE-ON$
-    }
+        // $COVERAGE-ON$
+      }
     def toSuite(a: ProductValue): Test =
       a match {
         case ProductValue(Str(name), VList(tests)) =>
@@ -155,7 +185,7 @@ object Test {
         case other =>
           // $COVERAGE-OFF$
           sys.error(s"expected test value: $other")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
 
     def toTest(a: Value): Test =
@@ -171,9 +201,9 @@ object Test {
         case unexpected =>
           // $COVERAGE-OFF$
           sys.error(s"unreachable if compilation has worked: $unexpected")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
 
-          }
+      }
     toTest(value)
   }
 }

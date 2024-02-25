@@ -2,7 +2,10 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
@@ -12,26 +15,28 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class MatchlessTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 1000 else 20
+    )
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]
 
-  def fnFromTypeEnv[A](te: rankn.TypeEnv[A]): Fn =
-    {
-      // the list constructors *have* to be in scope or matching will generate
-      // bad code
-      case (PackageName.PredefName, Constructor("EmptyList")) =>
-        Some(DataRepr.Enum(0, 0, List(0, 1)))
-      case (PackageName.PredefName, Constructor("NonEmptyList")) =>
-        Some(DataRepr.Enum(1, 2, List(0, 1)))
-      case (pn, cons) =>
-        te.getConstructor(pn, cons)
-          .map(_._1.dataRepr(cons))
-          .orElse(Some(DataRepr.Struct(0)))
-    }
+  def fnFromTypeEnv[A](te: rankn.TypeEnv[A]): Fn = {
+    // the list constructors *have* to be in scope or matching will generate
+    // bad code
+    case (PackageName.PredefName, Constructor("EmptyList")) =>
+      Some(DataRepr.Enum(0, 0, List(0, 1)))
+    case (PackageName.PredefName, Constructor("NonEmptyList")) =>
+      Some(DataRepr.Enum(1, 2, List(0, 1)))
+    case (pn, cons) =>
+      te.getConstructor(pn, cons)
+        .map(_._1.dataRepr(cons))
+        .orElse(Some(DataRepr.Struct(0)))
+  }
 
   lazy val genInputs: Gen[(Bindable, RecursionKind, TypedExpr[Unit], Fn)] =
-    Generators.genPackage(Gen.const(()), 5)
+    Generators
+      .genPackage(Gen.const(()), 5)
       .flatMap { (m: Map[PackageName, Package.Typed[Unit]]) =>
         val candidates = m.filter { case (_, t) => t.program.lets.nonEmpty }
 
@@ -59,7 +64,9 @@ class MatchlessTest extends AnyFunSuite {
     val name = Identifier.Name("foo")
     val te = TypedExpr.Local(name, rankn.Type.IntType, ())
     // this should not throw
-    val me = Matchless.fromLet(name, RecursionKind.Recursive, te)(fnFromTypeEnv(rankn.TypeEnv.empty))
+    val me = Matchless.fromLet(name, RecursionKind.Recursive, te)(
+      fnFromTypeEnv(rankn.TypeEnv.empty)
+    )
     assert(me != null)
   }
 
@@ -83,14 +90,16 @@ class MatchlessTest extends AnyFunSuite {
   }
 
   test("Matchless.stopAt works") {
-    forAll(genNE(100, Gen.choose(-100, 100)), Arbitrary.arbitrary[Int => Boolean]) { (nel, fn) =>
+    forAll(
+      genNE(100, Gen.choose(-100, 100)),
+      Arbitrary.arbitrary[Int => Boolean]
+    ) { (nel, fn) =>
       val stopped = Matchless.stopAt(nel)(fn)
 
       if (fn(stopped.last)) {
         // none of the items before the last are true:
         assert(stopped.init.exists(fn) == false)
-      }
-      else {
+      } else {
         // none of them were true
         assert(stopped == nel)
         assert(nel.exists(fn) == false)
@@ -105,31 +114,39 @@ class MatchlessTest extends AnyFunSuite {
       for {
         s <- size
         left <- Gen.listOfN(s, bytes)
-        sright <- Gen.choose(0, 2*s)
-        pat <- Gen.listOfN(sright, Arbitrary.arbitrary[Option[Byte => Option[Int]]])
+        sright <- Gen.choose(0, 2 * s)
+        pat <- Gen.listOfN(
+          sright,
+          Arbitrary.arbitrary[Option[Byte => Option[Int]]]
+        )
       } yield (left, pat)
     }
 
     import pattern.{SeqPattern, SeqPart, Splitter, Matcher}
-    def toSeqPat[A, B](pat: List[Option[A => Option[B]]]): SeqPattern[A => Option[B]] =
+    def toSeqPat[A, B](
+        pat: List[Option[A => Option[B]]]
+    ): SeqPattern[A => Option[B]] =
       SeqPattern.fromList(pat.map {
-        case None => SeqPart.Wildcard
-        case Some(fn) =>SeqPart.Lit(fn)
+        case None     => SeqPart.Wildcard
+        case Some(fn) => SeqPart.Lit(fn)
       })
 
     val matcher = SeqPattern.matcher(
       Splitter.listSplitter(new Matcher[Byte => Option[Int], Byte, Int] {
         def apply(fn: Byte => Option[Int]) = fn
-      }))
+      })
+    )
 
     forAll(genArgs) { case (targ, pat) =>
       val seqPat = toSeqPat(pat)
       val matchRes = matcher(seqPat)(targ)
-      val matchlessRes = Matchless.matchList(targ,
+      val matchlessRes = Matchless.matchList(
+        targ,
         pat.map {
-          case None => Left { (_: List[Byte]) => 0 }
+          case None     => Left { (_: List[Byte]) => 0 }
           case Some(fn) => Right(fn)
-        })
+        }
+      )
 
       assert(matchlessRes == matchRes)
     }

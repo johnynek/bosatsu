@@ -10,7 +10,7 @@ sealed abstract class Rel { lhs =>
   def isSubtype: Boolean =
     this match {
       case Sub | Same => true
-      case _ => false
+      case _          => false
     }
 
   def isStrictSupertype: Boolean =
@@ -19,14 +19,14 @@ sealed abstract class Rel { lhs =>
   def isSupertype: Boolean =
     this match {
       case Super | Same => true
-      case _ => false
+      case _            => false
     }
 
   def invert: Rel =
     this match {
-      case Sub => Super
+      case Sub   => Super
       case Super => Sub
-      case _ => this
+      case _     => this
     }
 
   // implements transitivity of comparisons
@@ -38,11 +38,11 @@ sealed abstract class Rel { lhs =>
   // e.g. (a < b) and (b < c) imply (a < c)
   def |+|(rhs: Rel): Rel =
     (lhs, rhs) match {
-      case (x, y) if x == y => x
+      case (x, y) if x == y              => x
       case (Disjoint, _) | (_, Disjoint) => Disjoint
-      case (Same, _) => rhs
-      case (_, Same) => lhs
-      case _ => Intersects
+      case (Same, _)                     => rhs
+      case (_, Same)                     => lhs
+      case _                             => Intersects
     }
 
   def lazyCombine(rhs: => Rel): Rel =
@@ -59,4 +59,3 @@ object Rel {
   case object Intersects extends Rel
   case object Disjoint extends Rel
 }
-
