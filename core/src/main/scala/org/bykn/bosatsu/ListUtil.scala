@@ -50,4 +50,26 @@ private[bosatsu] object ListUtil {
     if (bs eq as) nel
     else NonEmptyList.fromListUnsafe(bs)
   }
+
+  def distinctByHashSet[A](nel: NonEmptyList[A]): NonEmptyList[A] = {
+    // This code leverages the scala type ::[A] which is the nonempty
+    // list in order to avoid allocations building a NonEmptyList
+    // since a :: tailnel will have to allocate twice vs 1 time.
+    def revCons(item: ::[A], tail: List[A]): NonEmptyList[A] =
+      item.tail match {
+        case nel: ::[A] => revCons(nel, item.head :: tail)
+        case _: Nil.type => NonEmptyList(item.head, tail)
+      }
+    @annotation.tailrec
+    def loop(prior: Set[A], tail: List[A], front: ::[A]): NonEmptyList[A] =
+      tail match {
+        case Nil => revCons(front, Nil)
+        case head :: next =>
+          if (prior(head)) loop(prior, next, front)
+          else loop(prior + head, next, ::(head, front))
+      }
+
+    val h = nel.head
+    loop(Set.empty + h, nel.tail, ::(h, Nil))
+  }
 }
