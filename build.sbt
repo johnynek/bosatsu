@@ -183,8 +183,8 @@ lazy val core =
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.11"),
-    scalacOptions += "-P:acyclic:force"
+    //addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.11"),
+    //scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
 
