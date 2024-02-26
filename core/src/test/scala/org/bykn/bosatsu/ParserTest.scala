@@ -28,7 +28,8 @@ trait ParseFns {
       ("...(" + s.drop(idx - 20).take(30) + ")...")
     }
 
-  def firstDiff(s1: String, s2: String): String =
+  @annotation.tailrec
+  final def firstDiff(s1: String, s2: String): String =
     if (s1 == s2) ""
     else if (s1.isEmpty) s2
     else if (s2.isEmpty) s1

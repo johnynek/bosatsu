@@ -1706,7 +1706,7 @@ x = 1
 
 main = match x:
   case Foo: 2
-""")) { case te @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
       assert(msg.contains("package B\nunknown constructor Foo"))
@@ -1720,7 +1720,7 @@ struct X
 
 main = match 1:
   case X1: 0
-""")) { case te @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         te.message(
           Map.empty,
@@ -2296,7 +2296,7 @@ get = Pair(first, ...) -> first
 # missing second
 first = 1
 res = get(Pair { first })
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2311,7 +2311,7 @@ get = Pair(first, ...) -> first
 first = 1
 second = 3
 res = get(Pair { first, second, third })
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2323,7 +2323,7 @@ struct Pair(first, second)
 get = Pair { first } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2336,7 +2336,7 @@ struct Pair(first, second)
 get = Pair(first) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2349,7 +2349,7 @@ struct Pair(first, second)
 get = \Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2362,7 +2362,7 @@ struct Pair(first, second)
 get = Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2375,7 +2375,7 @@ struct Pair(first, second)
 get = Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
 
@@ -2388,7 +2388,7 @@ struct Pair(first, second)
 get = Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
     }
   }
@@ -2613,7 +2613,7 @@ external def foo(x: String) -> List[String]
 
 def foo(x): x
 
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         s.message(
           Map.empty,
@@ -2630,7 +2630,7 @@ external def foo(x: String) -> List[String]
 
 foo = 1
 
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         s.message(
           Map.empty,
@@ -2646,7 +2646,7 @@ package A
 external def foo(x: String) -> List[String]
 
 external def foo(x: String) -> List[String]
-""")) { case s @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         s.message(
           Map.empty,
@@ -2686,7 +2686,7 @@ package Err
 struct Foo[a](a)
 
 main = Foo(1, "2")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -2702,7 +2702,7 @@ package Err
 struct Foo[a](a: a, b: b)
 
 main = Foo(1, "2")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -2718,7 +2718,7 @@ package Err
 enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -2734,7 +2734,7 @@ package Err
 enum Enum[a]: Foo(a: a), Bar(a: b)
 
 main = Foo(1, "2")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3004,7 +3004,7 @@ struct Foo
 struct Foo(x)
 
 main = Foo(1)
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3024,7 +3024,7 @@ enum Bar: Foo
 struct Foo(x)
 
 main = Foo(1)
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3132,7 +3132,7 @@ out = match (1,2):
   case (a, a): a
 
 test = Assertion(True, "")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3149,7 +3149,7 @@ out = match [(1,2), (1, 0)]:
   case _: 0
 
 test = Assertion(True, "")
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3198,7 +3198,7 @@ struct Bar(baz: Either[Int, String])
 
 test = Assertion(True, "")
 
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3287,7 +3287,7 @@ def foo[a](a: a) -> a:
   def and_again[b](x: a): x
   and_again(again(x))
 
-""")) { case sce @ PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       assert(
         sce.message(
           Map.empty,
@@ -3870,7 +3870,7 @@ z = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
 
 """
     evalFail(List(testCode)) {
-      case kie @ PackageError.SourceConverterErrorIn(_, _) =>
+      case kie @ PackageError.SourceConverterErrorsIn(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
         assert(
           message.contains(
@@ -3896,7 +3896,7 @@ res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
 
 """
     evalFail(List(testCode1)) {
-      case kie @ PackageError.SourceConverterErrorIn(_, _) =>
+      case kie @ PackageError.SourceConverterErrorsIn(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
         assert(
           message.contains(

@@ -561,8 +561,9 @@ object PackageError {
     }
   }
 
-  case class SourceConverterErrorIn(
-      err: SourceConverter.Error,
+  case class SourceConverterErrorsIn(
+      region: Region,
+      errs: NonEmptyList[SourceConverter.Error],
       pack: PackageName
   ) extends PackageError {
     def message(
@@ -570,16 +571,54 @@ object PackageError {
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val msg = {
-        val context =
-          lm.showRegion(err.region, 2, errColor)
-            .getOrElse(
-              Doc.str(err.region)
-            ) // we should highlight the whole region
+      val context =
+        lm.showRegion(region, 2, errColor)
+          .getOrElse(
+            Doc.str(region)
+          ) // we should highlight the whole region
+      val headDoc = sourceMap.headLine(pack, Some(region))
 
-        Doc.text(err.message) + Doc.hardLine + context
+      val (missing, notMissing) = errs.toList.partitionMap {
+        case ma: SourceConverter.MissingArg => Left(ma)
+        case notMa => Right(notMa)
       }
-      val doc = sourceMap.headLine(pack, Some(err.region)) + Doc.hardLine + msg
+      val mdocs = missing.groupBy { ma => (ma.name, ma.syntax) }
+        .toList
+        .sortBy { case ((name, _), _) => name }
+        .map { case ((_, syn), mas) =>
+          val allMissing = mas.map(_.missing)  
+
+          val missingDoc = Doc.intercalate(Doc.comma + Doc.space,
+            allMissing.sorted.map { m => Doc.text(m.asString) })
+
+          val fieldStr = if (allMissing.lengthCompare(1) == 0) "field" else "fields"
+
+          val hint =
+            syn match {
+              case SourceConverter.ConstructorSyntax.Pat(_) =>
+                Doc.line + Doc.text("if you want to ignore those fields, add a ... to signify ignoring missing.")
+              case _ =>
+                // we can't ignore fields when constructing
+                Doc.empty
+            }
+          (Doc.text(s"missing $fieldStr: ") + missingDoc + Doc.line + Doc.text("in") +
+            Doc.line + syn.toDoc + hint
+          ).nested(4)
+        }
+
+      val mdoc = Doc.intercalate(Doc.hardLine, mdocs)
+      val notMDoc = Doc.intercalate(Doc.hardLine, notMissing.map { se => Doc.text(se.message) })
+      val msg = if (missing.nonEmpty) {
+        if (notMissing.nonEmpty) {
+          mdoc + Doc.hardLine + notMDoc
+        }
+        else mdoc
+      }
+      else {
+        notMDoc
+      }
+
+      val doc = headDoc + Doc.hardLine + msg + Doc.hardLine + context
 
       doc.render(80)
     }

@@ -870,7 +870,7 @@ object Pattern {
                 }
             )
             prefix +
-              Doc.text(" {") +
+              Doc.text(" { ") +
               kvargs +
               suffix +
               Doc.text(" }")

@@ -248,11 +248,14 @@ object Package {
     // here we make a pass to get all the local names
     val optProg = SourceConverter
       .toProgram(p, imps.map(i => i.copy(pack = i.pack.name)), stmts)
-      .leftMap(
-        _.map(
-          PackageError.SourceConverterErrorIn(_, p): PackageError
-        ).toNonEmptyList
-      )
+      .leftMap { scerrs =>
+        scerrs.groupByNem(_.region)
+          .transform { (region, errs) =>
+            val uniqs = ListUtil.distinctByHashSet(errs.toNonEmptyList)
+            PackageError.SourceConverterErrorsIn(region, uniqs, p): PackageError
+          }
+          .toNonEmptyList
+      }
 
     lazy val typeDefRegions: Map[Type.Const.Defined, Region] =
       stmts.iterator.collect { case tds: TypeDefinitionStatement =>
