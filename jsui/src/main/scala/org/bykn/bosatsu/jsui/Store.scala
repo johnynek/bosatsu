@@ -84,7 +84,7 @@ object Store {
         (args, handler)
     }
 
-  def run(cmd: Cmd, str: String): IO[String] = IO {
+  def run(cmd: Cmd, str: String): IO[String] = IO.blocking {
     val start = System.currentTimeMillis()
     println(s"starting $cmd: $start")
     val (args, handler) = cmdHandler(cmd)
@@ -106,12 +106,12 @@ object Store {
   }
 
   def stateSetter(st: State): IO[Unit] =
-    IO {
+    IO.blocking {
       localStorage.setItem("state", State.stateToJsonString(st))
     }
 
   def initialState: IO[State] =
-    IO(localStorage.getItem("state")).flatMap { init =>
+    IO.blocking(localStorage.getItem("state")).flatMap { init =>
       if (init == null) IO.pure(State.Init)
       else
         (State.stringToState(init) match {
@@ -127,39 +127,42 @@ object Store {
       init <- Resource.liftK(initialState)
       store <- ff4s.Store[IO, State, Action](init) { store =>
         {
-          case Action.CodeEntered(text) => {
-            case State.Init | State.WithText(_) => (State.WithText(text), None)
-            case c @ State.Compiling(_)         => (c, None)
-            case comp @ State.Compiled(_, _, _) =>
-              (comp.copy(editorText = text), None)
-          }
+          case (Action.CodeEntered(text), state) =>
+            state match {
+              case State.Init | State.WithText(_) =>
+                (State.WithText(text), IO.unit)
+              case c @ State.Compiling(_) => (c, IO.unit)
+              case comp @ State.Compiled(_, _, _) =>
+                (comp.copy(editorText = text), IO.unit)
+            }
 
-          case Action.Run(cmd) => {
-            case State.Init             => (State.Init, None)
-            case c @ State.Compiling(_) => (c, None)
-            case ht: State.HasText =>
-              val action =
-                for {
-                  _ <- stateSetter(ht)
-                  start <- IO.monotonic
-                  output <- run(cmd, ht.editorText)
-                  end <- IO.monotonic
-                  _ <- store.dispatch(
-                    Action.CmdCompleted(output, end - start, cmd)
-                  )
-                } yield ()
+          case (Action.Run(cmd), state) =>
+            state match {
+              case State.Init             => (State.Init, IO.unit)
+              case c @ State.Compiling(_) => (c, IO.unit)
+              case ht: State.HasText =>
+                val action =
+                  for {
+                    _ <- stateSetter(ht)
+                    start <- IO.monotonic
+                    output <- run(cmd, ht.editorText)
+                    end <- IO.monotonic
+                    _ <- store.dispatch(
+                      Action.CmdCompleted(output, end - start, cmd)
+                    )
+                  } yield ()
 
-              (State.Compiling(ht), Some(action))
-          }
-          case Action.CmdCompleted(result, dur, _) => {
-            case State.Compiling(ht) =>
-              val next = State.Compiled(ht.editorText, result, dur)
-              (next, Some(stateSetter(next)))
-            case unexpected =>
-              // TODO send some error message
-              println(s"unexpected Complete: $result => $unexpected")
-              (unexpected, None)
-          }
+                (State.Compiling(ht), action)
+            }
+          case (Action.CmdCompleted(result, dur, _), state) =>
+            state match {
+              case State.Compiling(ht) =>
+                val next = State.Compiled(ht.editorText, result, dur)
+                (next, stateSetter(next))
+              case unexpected =>
+                // TODO send some error message
+                (unexpected, IO.println(s"unexpected Complete: $result => $unexpected"))
+            }
         }
       }
     } yield store
