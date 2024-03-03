@@ -10,7 +10,17 @@ object ToyIO {
   /**
    * fix(f) = f(fix(f))
    */
-  case class ApplyFix[E, A, B](arg: A, fixed: (A => ToyIO[E, B]) => (A => ToyIO[E, B])) extends ToyIO[E, B]
+  case class ApplyFix[E, A, B](arg: A, fixed: (A => ToyIO[E, B]) => (A => ToyIO[E, B])) extends ToyIO[E, B] {
+    def step: ToyIO[E, B] =
+      // it is temping to simplify fixed(fix(fixed)) == fix(fixed)
+      // but fix(af.fixed)(af.arg) == af
+      // so that doesn't make progress. We need to apply
+      // af.fixed at least once to create a new value
+      fixed(Fix(fixed))(arg)
+  }
+  case class Fix[E, A, B](fn: (A => ToyIO[E, B]) => (A => ToyIO[E, B])) extends Function1[A, ToyIO[E, B]] {
+    def apply(a: A): ToyIO[E,B] = ApplyFix(a, fn)
+  }
 
   implicit class ToyIOMethods[E, A](private val io: ToyIO[E, A]) extends AnyVal {
     def flatMap[E1 >: E, B](fn: A => ToyIO[E1, B]): ToyIO[E1, B] =
@@ -25,6 +35,8 @@ object ToyIO {
 
   val unit: ToyIO[Nothing, Unit] = Pure(())
 
+  def pure[A](a: A): ToyIO[Nothing, A] = Pure(a)
+
   def defer[E, A](io: => ToyIO[E, A]): ToyIO[E, A] =
     unit.flatMap(_ => io)
 
@@ -35,7 +47,7 @@ object ToyIO {
 
   // fix(f) = f(fix(f))
   def fix[E, A, B](recur: (A => ToyIO[E, B]) => (A => ToyIO[E, B])): A => ToyIO[E, B] =
-    (a: A) => ApplyFix(a, recur)
+    Fix(recur)
 
   sealed trait Stack[E, A, E1, A1]
 
@@ -72,8 +84,10 @@ object ToyIO {
         case af: ApplyFix[e, a, b] =>
           // fixed(fix(fixed)) = fix(fixed)
           // take a step here,
-          // this may never terminate, but it won't blow the stack
-          loop(af.fixed(fix(af.fixed))(af.arg), stack)
+          // this may never terminate, because there is no
+          // promise that a general recursive function terminates,
+          // but it won't blow the stack
+          loop(af.step, stack)
       }
 
     loop(io, Done[E, A, E, A](implicitly, implicitly))
