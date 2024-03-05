@@ -17,15 +17,18 @@ import cats.syntax.all._
 import org.bykn.bosatsu.Referant.Constructor
 import org.bykn.bosatsu.Referant.DefinedT
 import org.bykn.bosatsu.TypedExpr.Match
+import org.bykn.bosatsu.Identifier.Bindable
+import org.bykn.bosatsu.graph.Dag
 
 /** This checks the imports and exports of compiled packages and makes sure they
   * are valid
   */
 object PackageCustoms {
-  def apply[A](
+  def apply[A: HasRegion](
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
     checkValuesHaveExportedTypes(pack.name, pack.exports) *>
+      noUselessBinds(pack) *>
       allImportsAreUsed(pack)
 
   private def removeUnused[A](
@@ -58,6 +61,39 @@ object PackageCustoms {
 
         pack.copy(imports = i)
     }
+
+  private type VSet = Set[(PackageName, Identifier)]
+  private type VState[X] = State[VSet, X]
+
+  private def usedGlobals[A](te: TypedExpr[A]): VState[TypedExpr[A]] =
+    te.traverseUp[VState] {
+      case g @ TypedExpr.Global(p, n, _, _) =>
+        State(s => (s + ((p, n)), g))
+      case m @ Match(_, branches, _) =>
+        branches
+          .traverse_ { case (pat, _) =>
+            pat
+              .traverseStruct[
+                VState,
+                (PackageName, Identifier.Constructor)
+              ] { (n, parts) =>
+                State.modify[VSet](_ + n) *>
+                  parts.map { inner =>
+                    Pattern.PositionalStruct(n, inner)
+                  }
+              }
+              .void
+          }
+          .as(m)
+      case te => Monad[VState].pure(te)
+    }
+
+  private def usedGlobals[A](pack: Package.Typed[A]): Set[(PackageName, Identifier)] = {
+    val usedValuesSt: VState[Unit] =
+      pack.program.lets.traverse_ { case (_, _, te) => usedGlobals(te) }
+
+    usedValuesSt.runS(Set.empty).value
+  }
 
   private def allImportsAreUsed[A](
       pack: Package.Typed[A]
@@ -94,34 +130,7 @@ object PackageCustoms {
 
     if (impValues.isEmpty && impTypes.isEmpty) Validated.valid(pack)
     else {
-      type VSet = Set[(PackageName, Identifier)]
-      type VState[X] = State[VSet, X]
-      val usedValuesSt: VState[Unit] =
-        pack.program.lets.traverse_ { case (_, _, te) =>
-          te.traverseUp {
-            case g @ TypedExpr.Global(p, n, _, _) =>
-              State(s => (s + ((p, n)), g))
-            case m @ Match(_, branches, _) =>
-              branches
-                .traverse_ { case (pat, _) =>
-                  pat
-                    .traverseStruct[
-                      VState,
-                      (PackageName, Identifier.Constructor)
-                    ] { (n, parts) =>
-                      State.modify[VSet](_ + n) *>
-                        parts.map { inner =>
-                          Pattern.PositionalStruct(n, inner)
-                        }
-                    }
-                    .void
-                }
-                .as(m)
-            case te => Monad[VState].pure(te)
-          }
-        }
-
-      val usedValues = usedValuesSt.runS(Set.empty).value
+      val usedValues = usedGlobals(pack)
 
       val usedTypes: Set[Type.Const] =
         pack.program.lets.iterator
@@ -222,6 +231,68 @@ object PackageCustoms {
     ) match {
       case None      => Validated.valid(())
       case Some(nel) => Validated.invalid(nel)
+    }
+  }
+
+  private def noUselessBinds[A: HasRegion](pack: Package.Typed[A]): ValidatedNec[PackageError, Unit] = {
+    type Node = Either[pack.exports.type, Bindable]
+    implicit val ordNode: Ordering[Node] =
+      new Ordering[Node] {
+        def compare(x: Node, y: Node): Int =
+          x match {
+            case Right(bx) =>
+              y match {
+                case Left(_) => 1
+                case Right(by) =>
+                  Ordering[Identifier].compare(bx, by)
+              }
+            case Left(_) => 
+              y match {
+                case Left(_) => 0
+                case Right(_) => -1
+              }
+          }
+      }
+
+    val exports: Node = Left(pack.exports)
+    val roots: List[Node] =
+      (exports ::
+        pack.program.lets.collect { case (b, _, _) if b.asString.startsWith("_") => Right(b) } :::
+        Package.testValue(pack).map { case (b, _, _) => Right(b) }.toList :::
+        Package.mainValue(pack).map { case (b, _, _) => Right(b) }.toList).distinct
+          
+    val bindMap: Map[Bindable, TypedExpr[A]] =
+      pack.program.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
+
+    def internalDeps(te: TypedExpr[A]): Set[Bindable] =
+      usedGlobals(te).runS(Set.empty).value.collect {
+        case (pn, i: Identifier.Bindable) if pn == pack.name => i
+      }
+
+    def depsOf(n: Node): Iterable[Node] =
+      n match {
+        case Left(_) => pack.exports.flatMap {
+          case ExportedName.Binding(n, _) => Right(n) :: Nil
+          case _ => Nil
+        }
+        case Right(value) =>
+          bindMap.get(value) match {
+            case None => Nil
+            case Some(te) => internalDeps(te).map(Right(_))
+          }
+      }
+    val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
+
+    val unused = pack.program.lets.filter {
+      case (bn, _, _) => !(bn.asString.startsWith("_") || canReach.contains(Right(bn)))
+    }
+
+    NonEmptyList.fromList(unused) match {
+      case None => Validated.unit
+      case Some(value) => 
+        Validated.invalidNec(PackageError.UnusedLets(pack.name, value.map { case (b, r, te) =>
+          (b, r, te, HasRegion.region(te))  
+        }))
     }
   }
 }

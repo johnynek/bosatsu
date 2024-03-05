@@ -1218,7 +1218,7 @@ final class SourceConverter(
 
   private def anonNameStrings(): Iterator[String] =
     rankn.Type.allBinders.iterator
-      .map(_.name)
+      .map { bn => "_" + bn.name }
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
     anonNameStrings()

@@ -6,6 +6,7 @@ export (
     cast, upcast, downcast,
     compose_eq, compose_sub, compose_sup,
     eq_to_sub, eq_to_sup, sub_to_sup, sup_to_sub,
+    flip_eq,
 )
 
 struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
@@ -72,9 +73,21 @@ def flip_eq[a, b](eq: Eq[a, b]) -> Eq[b, a]:
 def compose_eq[a, b, c](first: Eq[a, b], second: Eq[b, c]) -> Eq[a, c]:
     second.substitute(first)
 
-refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
-refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
-refl_Int: Sub[forall a. a, Int] = refl_sub
-refl_any: Sub[forall a. a, exists a. a] = refl_sub
-refl_any1: Sub[exists a. a, exists a. a] = refl_sub
-refl_Int_any: Sub[Int, exists a. a] = refl_sub
+# TODO: these typecheck, but using them fails with errors
+# like: type ?211 does not subsume type forall a: *. a
+# 84|
+# 85|ignore: List[exists a. a] = [
+# 86|  hide(refl_bottom), hide(refl_bottom1)
+#
+#refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+#refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+#refl_Int: Sub[forall a. a, Int] = refl_sub
+#refl_any: Sub[forall a. a, exists a. a] = refl_sub
+#refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+#refl_Int_any: Sub[Int, exists a. a] = refl_sub
+#
+#def hide[a](a: a) -> exists b. b: a
+#
+#ignore: List[exists a. a] = [
+#  hide(refl_bottom), hide(refl_bottom1)
+#]

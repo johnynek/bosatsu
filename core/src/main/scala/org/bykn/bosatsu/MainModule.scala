@@ -521,13 +521,13 @@ abstract class MainModule[IO[_]](implicit
             ps: List[(Path, PackageName)]
         ): IO[(PackageName, Option[Bindable])] =
           ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
+            case Some(p) => moduleIOMonad.pure((p, None))
             case None =>
               moduleIOMonad.raiseError(
                 new Exception(
                   s"could not find file $mainFile in parsed sources"
                 )
               )
-            case Some(p) => moduleIOMonad.pure((p, None))
           }
       }
 
@@ -1018,16 +1018,14 @@ abstract class MainModule[IO[_]](implicit
       def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] = withEC {
         implicit ec =>
           for {
-            pn <- inputs.packMap(this, List(mainPackage), errColor)
-            (packs, names) = pn
-            mainPackageNameValue <- mainPackage.getMain(names)
-            (mainPackageName, value) = mainPackageNameValue
+            (packs, names) <- inputs.packMap(this, List(mainPackage), errColor)
+            (mainPackageName, value) <- mainPackage.getMain(names)
             out <-
               if (packs.toMap.contains(mainPackageName)) {
                 val ev = Evaluation(packs, Predef.jvmExternals)
 
                 val res = value match {
-                  case None        => ev.evaluateLast(mainPackageName)
+                  case None        => ev.evaluateMain(mainPackageName)
                   case Some(ident) => ev.evaluateName(mainPackageName, ident)
                 }
 

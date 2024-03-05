@@ -78,7 +78,10 @@ object Dag {
         m.iterator
           .map { case (a, current) =>
             val next = nfn(a).iterator.foldLeft(SortedSet.empty[A]) { (s, a) =>
-              s | m(a)
+              s | (m.get(a) match {
+                case Some(value) => value
+                case None => SortedSet.empty
+              })
             }
             a -> (current | next)
           }
@@ -139,6 +142,19 @@ object Dag {
       val depCache = MMap.empty[A, SortedSet[A]]
       def deps(a: A): SortedSet[A] =
         depCache.getOrElseUpdate(a, s.nfn(a).to(SortedSet))
-
     }
+
+  def transitiveSet[A: Ordering](nodes: List[A])(nfn: A => Iterable[A]): SortedSet[A] = {
+    def loop(stack: List[A], inStack: SortedSet[A], reached: SortedSet[A]): SortedSet[A] =
+      stack match {
+        case head :: tail =>
+          val next = nfn(head).iterator.filterNot { n => inStack(n) || reached(n) }
+            .toList
+            .sorted
+          loop(next ::: tail, inStack ++ next, reached + head)
+        case Nil => reached
+      }
+
+    loop(nodes, SortedSet.empty, SortedSet.empty)
+  }
 }

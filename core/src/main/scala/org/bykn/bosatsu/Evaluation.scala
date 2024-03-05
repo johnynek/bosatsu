@@ -104,6 +104,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       value <- evaluate(p).get(name)
     } yield value
 
+  def evaluateMain(p: PackageName): Option[(Eval[Value], Type)] =
+    for {
+      pack <- pm.toMap.get(p)
+      (name, _, te) <- Package.mainValue(pack)
+      value <- evaluate(p).get(name)
+    } yield (value, te.getType)
+
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
    * list syntax
 

@@ -76,7 +76,11 @@ class TreeTest extends AnyFunSuite {
         else s
       }
 
-      assert(reachable(Set(start)).toList.sorted == cycles.head.toList)
+      val reached = Dag.transitiveSet(start :: Nil)(nfn)
+
+      val expectReachable = reachable(Set(start)).toList.sorted
+      assert(reached.toList == expectReachable)
+      assert(expectReachable == cycles.head.toList)
       assert(Tree.dagToTree(start)(nfn).isInvalid)
     }
   }
