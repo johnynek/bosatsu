@@ -78,3 +78,5 @@ refl_Int: Sub[forall a. a, Int] = refl_sub
 refl_any: Sub[forall a. a, exists a. a] = refl_sub
 refl_any1: Sub[exists a. a, exists a. a] = refl_sub
 refl_Int_any: Sub[Int, exists a. a] = refl_sub
+
+ignore = (refl_bottom, refl_bottom1, refl_Int, refl_any)

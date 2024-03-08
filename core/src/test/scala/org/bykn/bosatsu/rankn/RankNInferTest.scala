@@ -1858,7 +1858,7 @@ refl_any: Sub[forall a. a, exists a. a] = refl_sub
 #ignore: Tup[forall a. Sub[a, a], Sub[forall a. a, exists a. a]] = Tup(refl_sub, refl_any)
 ignore = Tup(refl_sub, refl_any)
 """,
-      "Tup[forall a. Sub[a, a], Sub[forall a. a, exists a. a]]"
+      "forall a. Tup[Sub[a, a], Sub[forall a. a, exists a. a]]"
     )
   }
 }

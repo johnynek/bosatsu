@@ -442,7 +442,7 @@ class TypeTest extends AnyFunSuite {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
       t1 match {
         case Type.ForAll(fas, t) =>
-          Type.instantiate(fas.iterator.toMap, t, t2) match {
+          Type.instantiate(fas.iterator.toMap, t, t2, Map.empty) match {
             case Some((frees, subs)) =>
               val t3 = Type.substituteVar(
                 t,
@@ -477,7 +477,7 @@ class TypeTest extends AnyFunSuite {
     def check(forall: String, matches: String, subs: List[(String, String)]) = {
       val Type.ForAll(fas, t) = parse(forall)
       val targ = parse(matches)
-      Type.instantiate(fas.iterator.toMap, t, targ) match {
+      Type.instantiate(fas.iterator.toMap, t, targ, Map.empty) match {
         case Some((_, subMap)) =>
           assert(subMap.size == subs.size)
           subs.foreach { case (k, v) =>
@@ -492,7 +492,7 @@ class TypeTest extends AnyFunSuite {
     def noSub(forall: String, matches: String) = {
       val Type.ForAll(fas, t) = parse(forall)
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, targ)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
       assert(res == None)
     }
 
