@@ -1549,12 +1549,12 @@ object Infer {
                                   // TODO maybe we could handle this, but not yet
                                   pureNone
                                 } else {
-                                  val resType = Type.substituteVar(
-                                    resT,
-                                    inst.view.mapValues(_._2).toMap
-                                  )
+                                  val subMap = inst.view.mapValues(_._2).toMap[Type.Var, Type]
+                                  val fnType0 = Type.Fun(argsT, resT)
+                                  val fnType1 = Type.substituteVar(fnType0, subMap)
+                                  val resType = Type.substituteVar(resT, subMap)
                                   val resTe = TypedExpr.App(
-                                    fnTe,
+                                    TypedExpr.Annotation(fnTe, fnType1),
                                     argsTE,
                                     resType,
                                     term.tag

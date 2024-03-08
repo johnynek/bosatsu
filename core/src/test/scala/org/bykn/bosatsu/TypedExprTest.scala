@@ -605,7 +605,7 @@ res = (
       checkLast("""
 res = _ -> 1
       """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assert(te1.void == te2.void, s"${te1.repr.render(80)} != ${te2.repr.render(80)}")
       }
     }
 
