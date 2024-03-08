@@ -201,7 +201,7 @@ class RankNInferTest extends AnyFunSuite {
       )
 
       assert(Type.metaTvs(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
-      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr}")
+      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr.render(80)}")
     }
 
   // this could be used to test the string representation of expressions
@@ -1577,6 +1577,17 @@ x = hide(y)
 struct Tup(a, b)
 
 def hide[b](x: b) -> exists a. a: x
+x = hide(1)
+y = hide("1")
+z: Tup[exists a. a, exists b. b] = Tup(x, y)
+""",
+      "Tup[exists a. a, exists b. b]"
+    )
+    parseProgram(
+      """#
+struct Tup(a, b)
+
+def hide[b](x: b) -> exists a. a: x
 def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
@@ -1833,6 +1844,21 @@ f2: Foo[forall a. a] = Foo
 f3: Foo[forall a. a] = f1
 """,
       "Foo[forall a. a]"
+    )
+  }
+
+  test("test Liskov example") {
+    parseProgram(
+      """
+struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
+struct Tup(a, b)
+
+refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_any: Sub[forall a. a, exists a. a] = refl_sub
+#ignore: Tup[forall a. Sub[a, a], Sub[forall a. a, exists a. a]] = Tup(refl_sub, refl_any)
+ignore = Tup(refl_sub, refl_any)
+""",
+      "Tup[forall a. Sub[a, a], Sub[forall a. a, exists a. a]]"
     )
   }
 }

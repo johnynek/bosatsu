@@ -428,9 +428,7 @@ object Infer {
 
     private val checkedKinds: Infer[Type => Option[Kind]] = {
       val emptyRegion = Region(0, 0)
-      GetEnv.map { env =>
-        tpe => env.getKind(tpe, emptyRegion).toOption
-      }
+      GetEnv.map(env => tpe => env.getKind(tpe, emptyRegion).toOption)
     }
 
     // on t[a] we know t: k -> *, what is the variance
@@ -561,10 +559,10 @@ object Infer {
       * with what they point to
       */
     def zonkType(t: Type): Infer[Type] =
-      Type.zonkMeta(t)(zonk(_))
+      Type.zonkMeta(t)(zonk)
 
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
-      TypedExpr.zonkMeta(e)(zonk(_))
+      TypedExpr.zonkMeta(e)(zonk)
 
     val zonkTypeExprK
         : FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] =
@@ -1529,8 +1527,60 @@ object Infer {
           expect match {
             case Expected.Check((rho, reg)) =>
               checkApply(fn, args, tag, rho, reg)
-            case inf =>
-              applyRhoExpect(fn, args, tag, inf)
+            case inf @ Expected.Inf(_) =>
+              (maybeSimple(fn), args.traverse(maybeSimple(_)))
+                .mapN { (infFn, infArgs) =>
+                  infFn.flatMap { fnTe =>
+                    fnTe.getType match {
+                      case Type.Fun.SimpleUniversal(us, argsT, resT)
+                          if argsT.length == args.length =>
+                        infArgs.sequence
+                          .flatMap { argsTE =>
+                            val argTypes = argsTE.map(_.getType)
+                            Type.instantiate(
+                              us.toList.toMap,
+                              Type.Tuple(argsT.toList),
+                              Type.Tuple(argTypes.toList)
+                            ) match {
+                              case None =>
+                                pureNone
+                              case Some((frees, inst)) =>
+                                if (frees.nonEmpty) {
+                                  // TODO maybe we could handle this, but not yet
+                                  pureNone
+                                } else {
+                                  val resType = Type.substituteVar(
+                                    resT,
+                                    inst.view.mapValues(_._2).toMap
+                                  )
+                                  val resTe = TypedExpr.App(
+                                    fnTe,
+                                    argsTE,
+                                    resType,
+                                    term.tag
+                                  )
+
+                                  instSigma(
+                                    resType,
+                                    inf,
+                                    HasRegion.region(term)
+                                  )
+                                    .map(co => Some(co(resTe)))
+                                }
+                            }
+                          }
+                      case _ =>
+                        pureNone
+                    }
+                  }
+                }
+                .flatSequence
+                .flatMap {
+                  case Some(te) => pure(te)
+                  case None =>
+                    applyRhoExpect(fn, args, tag, inf)
+                }
+
           }
         case Generic(tpes, in) =>
           for {
