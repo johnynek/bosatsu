@@ -1174,7 +1174,7 @@ object Infer {
         left: Region,
         right: Region
     ): Option[Infer[TypedExpr.Coerce]] =
-      inferred match {
+      (inferred match {
         case Type.ForAll(vars, inT) =>
           Type.instantiate(vars.iterator.toMap, inT, declared, Map.empty).map {
             case (_, subs) =>
@@ -1189,8 +1189,26 @@ object Infer {
                   }
                 }
           }
-        case _ => None
-      }
+        case _ =>
+          None
+      }).orElse(declared match {
+        case Type.Exists(vars, inT) =>
+          Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
+            case (_, subs) =>
+              validateSubs(subs.toList, left, right)
+                .as {
+                  new FunctionK[TypedExpr, TypedExpr] {
+                    def apply[A](te: TypedExpr[A]): TypedExpr[A] =
+                      // we apply the annotation here and let Normalization
+                      // instantiate. We could explicitly have
+                      // instantiation TypedExpr where you pass the variables to set
+                      TypedExpr.Annotation(te, declared)
+                  }
+                }
+          }
+        case _ =>
+          None
+      })
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
@@ -1508,9 +1526,7 @@ object Infer {
     def applyViaInst[A: HasRegion](
         fn: Expr[A],
         args: NonEmptyList[Expr[A]],
-        tag: A,
-        region: Region,
-        exp: Expected[(Type.Rho, Region)]
+        tag: A
     ): Infer[Option[TypedExpr[A]]] =
       (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN {
         (infFn, infArgs) =>
@@ -1577,12 +1593,7 @@ object Infer {
                             case None    => resTe
                           }
 
-                          instSigma(
-                            maybeQuant.getType,
-                            exp,
-                            region
-                          )
-                            .map(co => Some(co(maybeQuant)))
+                          pure(Some(maybeQuant))
                         }
                     }
                   }
@@ -1648,17 +1659,36 @@ object Infer {
             res <- zonkTypedExpr(TypedExpr.Global(pack, name, vSigma, tag))
           } yield coerce(res)
         case Annotation(App(fn, args, tag), resT, annTag) =>
-          (
-            checkApply(fn, args, tag, resT, region(annTag)),
-            instSigma(resT, expect, region(annTag))
-          )
-            .parFlatMapN { (typedTerm, coerce) =>
-              zonkTypedExpr(typedTerm).map(coerce(_))
+          applyViaInst(fn, args, tag)
+            .flatMap {
+              case Some(te) =>
+                for {
+                  co1 <- subsCheck(
+                    te.getType,
+                    resT,
+                    region(tag),
+                    region(annTag)
+                  )
+                  co2 <- instSigma(resT, expect, region(annTag))
+                  z <- zonkTypedExpr(te)
+                } yield co2(co1(z))
+              case None =>
+                (
+                  checkApply(fn, args, tag, resT, region(annTag)),
+                  instSigma(resT, expect, region(annTag))
+                )
+                  .parFlatMapN { (typedTerm, coerce) =>
+                    zonkTypedExpr(typedTerm).map(coerce(_))
+                  }
             }
         case App(fn, args, tag) =>
-          applyViaInst(fn, args, tag, HasRegion.region(tag), expect)
+          applyViaInst(fn, args, tag)
             .flatMap {
-              case Some(te) => pure(te)
+              case Some(te) =>
+                for {
+                  co <- instSigma(te.getType, expect, HasRegion.region(tag))
+                  z <- zonkTypedExpr(te)
+                } yield co(z)
               case None =>
                 expect match {
                   case Expected.Check((rho, reg)) =>
@@ -2389,8 +2419,7 @@ object Infer {
 
       for {
         _ <- init
-        rhoT <- inferRho(e)
-        (rho, expTyRho) = rhoT
+        (rho, expTyRho) <- inferRho(e)
         q <- quantify(unifySelf(expTyRho), rho)
       } yield q
     }

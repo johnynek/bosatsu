@@ -201,7 +201,13 @@ class RankNInferTest extends AnyFunSuite {
       )
 
       assert(Type.metaTvs(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
-      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr.render(80)}")
+      val expectedTpe = typeFrom(tpe)
+      val expectedTpeStr =
+        Type.fullyResolvedDocument.document(expectedTpe).render(80)
+      assert(
+        te.getType.sameAs(expectedTpe),
+        s"$teStr != $expectedTpeStr\n\nfound: ${te.repr.render(80)}"
+      )
     }
 
   // this could be used to test the string representation of expressions
@@ -1602,9 +1608,9 @@ enum B: T, F
 struct Inv[a: *](item: a)
 
 any: exists a. a = T
-x: Inv[exists a. a] = Inv(any)
+x: exists a. Inv[a] = Inv(any)
 """,
-      "Inv[exists a. a]"
+      "exists a. Inv[a]"
     )
   }
 
@@ -1851,14 +1857,40 @@ f3: Foo[forall a. a] = f1
     parseProgram(
       """
 struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
-struct Tup(a, b)
+struct Tup(a, b, c, d)
+struct Foo
 
 refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+refl_Foo: Sub[forall a. a, Foo] = refl_sub
 refl_any: Sub[forall a. a, exists a. a] = refl_sub
-#ignore: Tup[forall a. Sub[a, a], Sub[forall a. a, exists a. a]] = Tup(refl_sub, refl_any)
-ignore = Tup(refl_sub, refl_any)
+refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+refl_Foo_any: Sub[Foo, exists a. a] = refl_sub
+
+ignore = Tup(refl_bottom, refl_bottom1, refl_Foo, refl_any)
 """,
-      "forall a. Tup[Sub[a, a], Sub[forall a. a, exists a. a]]"
+      "forall a. Tup[Sub[forall a. a, a], Sub[forall a. a, forall a. a]," +
+        "Sub[forall a. a, Foo], Sub[forall a. a, exists a. a]]"
+    )
+
+    parseProgram(
+      """
+struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
+struct Tup(a, b, c, d)
+struct Foo
+
+refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+refl_Foo: Sub[forall a. a, Foo] = refl_sub
+refl_any: Sub[forall a. a, exists a. a] = refl_sub
+refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+refl_Foo_any: Sub[Foo, exists a. a] = refl_sub
+
+ignore: exists a. a = Tup(refl_bottom, refl_bottom1, refl_Foo, refl_any)
+""",
+      "exists a. a"
     )
   }
 }
