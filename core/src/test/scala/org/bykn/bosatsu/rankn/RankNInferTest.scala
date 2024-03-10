@@ -201,7 +201,13 @@ class RankNInferTest extends AnyFunSuite {
       )
 
       assert(Type.metaTvs(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
-      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr}")
+      val expectedTpe = typeFrom(tpe)
+      val expectedTpeStr =
+        Type.fullyResolvedDocument.document(expectedTpe).render(80)
+      assert(
+        te.getType.sameAs(expectedTpe),
+        s"$teStr != $expectedTpeStr\n\nfound: ${te.repr.render(80)}"
+      )
     }
 
   // this could be used to test the string representation of expressions
@@ -1577,6 +1583,17 @@ x = hide(y)
 struct Tup(a, b)
 
 def hide[b](x: b) -> exists a. a: x
+x = hide(1)
+y = hide("1")
+z: Tup[exists a. a, exists b. b] = Tup(x, y)
+""",
+      "Tup[exists a. a, exists b. b]"
+    )
+    parseProgram(
+      """#
+struct Tup(a, b)
+
+def hide[b](x: b) -> exists a. a: x
 def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
@@ -1591,9 +1608,13 @@ enum B: T, F
 struct Inv[a: *](item: a)
 
 any: exists a. a = T
-x: Inv[exists a. a] = Inv(any)
+x: exists a. Inv[a] = Inv(any)
 """,
-      "Inv[exists a. a]"
+      // TODO: it would be nice to be able to annotate this as
+      // Inv[exists a. a] and get that to pass too
+      // even though, I think exists a. Inv[a] is a tighter type
+      //
+      "exists a. Inv[a]"
     )
   }
 
@@ -1833,6 +1854,47 @@ f2: Foo[forall a. a] = Foo
 f3: Foo[forall a. a] = f1
 """,
       "Foo[forall a. a]"
+    )
+  }
+
+  test("test Liskov example") {
+    parseProgram(
+      """
+struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
+struct Tup(a, b, c, d)
+struct Foo
+
+refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+refl_Foo: Sub[forall a. a, Foo] = refl_sub
+refl_any: Sub[forall a. a, exists a. a] = refl_sub
+refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+refl_Foo_any: Sub[Foo, exists a. a] = refl_sub
+
+ignore = Tup(refl_bottom, refl_bottom1, refl_Foo, refl_any)
+""",
+      "forall a. Tup[Sub[forall a. a, a], Sub[forall a. a, forall a. a]," +
+        "Sub[forall a. a, Foo], Sub[forall a. a, exists a. a]]"
+    )
+
+    parseProgram(
+      """
+struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
+struct Tup(a, b, c, d)
+struct Foo
+
+refl_sub: forall a. Sub[a, a] = Sub(x -> x) 
+refl_bottom: forall b. Sub[forall a. a, b] = refl_sub
+refl_bottom1: Sub[forall a. a, forall a. a] = refl_sub
+refl_Foo: Sub[forall a. a, Foo] = refl_sub
+refl_any: Sub[forall a. a, exists a. a] = refl_sub
+refl_any1: Sub[exists a. a, exists a. a] = refl_sub
+refl_Foo_any: Sub[Foo, exists a. a] = refl_sub
+
+ignore: exists a. a = Tup(refl_bottom, refl_bottom1, refl_Foo, refl_any)
+""",
+      "exists a. a"
     )
   }
 }

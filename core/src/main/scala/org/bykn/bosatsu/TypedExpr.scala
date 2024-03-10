@@ -974,9 +974,7 @@ object TypedExpr {
   }
 
   private def allPatternTypes[N](p: Pattern[N, Type]): SortedSet[Type] =
-    p.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t))
-      .run
-      ._1
+    p.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t)).run._1
 
   // Invariant, nel must have at least one item in common with quant.vars
   private def filterQuant(
@@ -1390,6 +1388,16 @@ object TypedExpr {
           if Type.quantify(q, tpe).sameAs(term.getType) =>
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
+      case Annotation(term, tpe)
+          if !q.vars.iterator
+            .map(_._1)
+            .exists(
+              Type.freeBoundTyVars(expr.getType :: Nil).toSet
+            ) =>
+        // the variables may be free lower, but not here
+        val genTerm = normalizeQuantVars(q, term)
+        if (genTerm.getType.sameAs(tpe)) genTerm
+        else Annotation(normalizeQuantVars(q, term), tpe)
       case _ =>
         import Type.Quantification._
         // We cannot rebind to any used typed inside of expr, but we can reuse
@@ -1478,4 +1486,49 @@ object TypedExpr {
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =
     HasRegion.instance[TypedExpr[T]](e => HasRegion.region(e.tag))
+
+  // noshadow must include any free vars of args
+  def liftQuantification[A](
+      args: NonEmptyList[TypedExpr[A]],
+      noshadow: Set[Type.Var.Bound]
+  ): (
+      Option[Type.Quantification],
+      NonEmptyList[TypedExpr[A]]
+  ) = {
+
+    val htype = args.head.getType
+    val (oq, rest) = NonEmptyList.fromList(args.tail) match {
+      case Some(neTail) =>
+        val (oq, rest) = liftQuantification(neTail, noshadow)
+        (oq, rest.toList)
+      case None =>
+        (None, Nil)
+    }
+
+    htype match {
+      case Type.Quantified(q, rho) =>
+        oq match {
+          case Some(qtail) =>
+            // we have to unshadow with noshadow + all the vars in the tail
+            val (map, q1) =
+              q.unshadow(noshadow ++ qtail.vars.toList.iterator.map(_._1))
+            val rho1 = Type.substituteRhoVar(rho, map)
+            (
+              Some(q1.concat(qtail)),
+              NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+            )
+          case None =>
+            val (map, q1) = q.unshadow(noshadow)
+            val rho1 = Type.substituteRhoVar(rho, map)
+            (
+              Some(q1),
+              NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+            )
+        }
+
+      case _ =>
+        (oq, NonEmptyList(args.head, rest))
+    }
+  }
+
 }
