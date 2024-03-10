@@ -1207,6 +1207,10 @@ object Infer {
                 }
           }
         case _ =>
+          // TODO: we should be able to handle Dual quantification which could
+          // solve more cases. The challenge is existentials and universals appear
+          // on different sides, so cases where both need solutions can't be done
+          // with the current method that only solves one direction now.
           None
       })
     // note, this is identical to subsCheckRho when declared is a Rho type
@@ -1479,50 +1483,6 @@ object Infer {
       }
     }
 
-    // noshadow must include any free vars of args
-    def liftQuantification[A](
-        args: NonEmptyList[TypedExpr[A]],
-        noshadow: Set[Type.Var.Bound]
-    ): (
-        Option[Type.Quantification],
-        NonEmptyList[TypedExpr[A]]
-    ) = {
-
-      val htype = args.head.getType
-      val (oq, rest) = NonEmptyList.fromList(args.tail) match {
-        case Some(neTail) =>
-          val (oq, rest) = liftQuantification(neTail, noshadow)
-          (oq, rest.toList)
-        case None =>
-          (None, Nil)
-      }
-
-      htype match {
-        case Type.Quantified(q, rho) =>
-          oq match {
-            case Some(qtail) =>
-              // we have to unshadow with noshadow + all the vars in the tail
-              val (map, q1) =
-                q.unshadow(noshadow ++ qtail.vars.toList.iterator.map(_._1))
-              val rho1 = Type.substituteRhoVar(rho, map)
-              (
-                Some(q1.concat(qtail)),
-                NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
-              )
-            case None =>
-              val (map, q1) = q.unshadow(noshadow)
-              val rho1 = Type.substituteRhoVar(rho, map)
-              (
-                Some(q1),
-                NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
-              )
-          }
-
-        case _ =>
-          (oq, NonEmptyList(args.head, rest))
-      }
-    }
-
     def applyViaInst[A: HasRegion](
         fn: Expr[A],
         args: NonEmptyList[Expr[A]],
@@ -1544,7 +1504,7 @@ object Infer {
                       Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
                         us.iterator.map(_._1)
                     val (optQ, liftArgs) =
-                      liftQuantification(argsTE, noshadows)
+                      TypedExpr.liftQuantification(argsTE, noshadows)
 
                     val liftArgTypes = liftArgs.map(_.getType)
                     Type.instantiate(

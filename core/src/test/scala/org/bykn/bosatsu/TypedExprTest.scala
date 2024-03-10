@@ -995,4 +995,21 @@ x = (
       )
     }
   }
+
+  test("TypedExpr.liftQuantification makes all args Rho types") {
+
+    forAll(Generators.smallNonEmptyList(genTypedExpr, 10),
+      Gen.containerOf[Set, Type.Var.Bound](NTypeGen.genBound)) { (tes, avoid) =>
+
+      val (optQuant, args) = TypedExpr.liftQuantification(tes, avoid)
+      args.toList.foreach { te =>
+        te.getType match {
+          case _: Type.Rho => ()
+          case notRho => fail(s"expected: $te to have rho type, got: $notRho")
+        }
+      }
+      val allRhos = tes.forall(_.getType.isInstanceOf[Type.Rho])
+      assert(allRhos == optQuant.isEmpty)
+    }
+  }
 }

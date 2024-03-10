@@ -1610,6 +1610,10 @@ struct Inv[a: *](item: a)
 any: exists a. a = T
 x: exists a. Inv[a] = Inv(any)
 """,
+      // TODO: it would be nice to be able to annotate this as
+      // Inv[exists a. a] and get that to pass too
+      // even though, I think exists a. Inv[a] is a tighter type
+      //
       "exists a. Inv[a]"
     )
   }
