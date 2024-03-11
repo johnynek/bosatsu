@@ -3061,8 +3061,7 @@ test = Assertion(True, "")
 package A
 
 # this is basically a typecheck only
-x = (1, "1")
-(_, _) = x
+(_, _) = (1, "1")
 
 test = Assertion(True, "")
 """),
@@ -3076,8 +3075,7 @@ package A
 
 struct Foo(x, y)
 # this is basically a typecheck only
-x = Foo(1, "1")
-Foo(_, _) = x
+Foo(_, _) = Foo(1, "1")
 
 test = Assertion(True, "")
 """),

@@ -257,7 +257,6 @@ object PackageCustoms {
     val exports: Node = Left(pack.exports)
     val roots: List[Node] =
       (exports ::
-        pack.program.lets.collect { case (b, _, _) if b.isSynthetic => Right(b) } :::
         Package.testValue(pack).map { case (b, _, _) => Right(b) }.toList :::
         Package.mainValue(pack).map { case (b, _, _) => Right(b) }.toList).distinct
           
@@ -284,7 +283,7 @@ object PackageCustoms {
     val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
 
     val unused = pack.program.lets.filter {
-      case (bn, _, _) => !(bn.asString.startsWith("_") || canReach.contains(Right(bn)))
+      case (bn, _, _) => !(bn.isSynthetic || canReach.contains(Right(bn)))
     }
 
     NonEmptyList.fromList(unused) match {
