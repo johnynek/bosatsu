@@ -1216,13 +1216,9 @@ final class SourceConverter(
   private lazy val localTypeEnv: Result[TypeEnv[Any]] =
     toTypeEnv.map(p => importedTypeEnv ++ TypeEnv.fromParsed(p))
 
-  private def anonNameStrings(): Iterator[String] =
-    rankn.Type.allBinders.iterator
-      .map { bn => "_" + bn.name }
-
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
-    anonNameStrings()
-      .map(Identifier.Name(_))
+    rankn.Type.allBinders.iterator
+      .map { b => Identifier.synthetic(b.name) }
       .filterNot(allNames)
 
   /** Externals are not permitted to be shadowed at the top level

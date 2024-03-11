@@ -327,6 +327,9 @@ object TypedExprNormalization {
         }
 
         f1 match {
+          // TODO: what if f1: Generic(_, AnnotatedLambda(_, _, _))
+          // we should still be able ton convert this to a let by
+          // instantiating to the right args
           case AnnotatedLambda(lamArgs, expr, _) =>
             // (y -> z)(x) = let y = x in z
             val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>

@@ -428,9 +428,7 @@ object Infer {
 
     private val checkedKinds: Infer[Type => Option[Kind]] = {
       val emptyRegion = Region(0, 0)
-      GetEnv.map { env =>
-        tpe => env.getKind(tpe, emptyRegion).toOption
-      }
+      GetEnv.map(env => tpe => env.getKind(tpe, emptyRegion).toOption)
     }
 
     // on t[a] we know t: k -> *, what is the variance
@@ -561,10 +559,10 @@ object Infer {
       * with what they point to
       */
     def zonkType(t: Type): Infer[Type] =
-      Type.zonkMeta(t)(zonk(_))
+      Type.zonkMeta(t)(zonk)
 
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
-      TypedExpr.zonkMeta(e)(zonk(_))
+      TypedExpr.zonkMeta(e)(zonk)
 
     val zonkTypeExprK
         : FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] =
@@ -1176,9 +1174,9 @@ object Infer {
         left: Region,
         right: Region
     ): Option[Infer[TypedExpr.Coerce]] =
-      inferred match {
+      (inferred match {
         case Type.ForAll(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, declared).map {
+          Type.instantiate(vars.iterator.toMap, inT, declared, Map.empty).map {
             case (_, subs) =>
               validateSubs(subs.toList, left, right)
                 .as {
@@ -1191,8 +1189,30 @@ object Infer {
                   }
                 }
           }
-        case _ => None
-      }
+        case _ =>
+          None
+      }).orElse(declared match {
+        case Type.Exists(vars, inT) =>
+          Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
+            case (_, subs) =>
+              validateSubs(subs.toList, left, right)
+                .as {
+                  new FunctionK[TypedExpr, TypedExpr] {
+                    def apply[A](te: TypedExpr[A]): TypedExpr[A] =
+                      // we apply the annotation here and let Normalization
+                      // instantiate. We could explicitly have
+                      // instantiation TypedExpr where you pass the variables to set
+                      TypedExpr.Annotation(te, declared)
+                  }
+                }
+          }
+        case _ =>
+          // TODO: we should be able to handle Dual quantification which could
+          // solve more cases. The challenge is existentials and universals appear
+          // on different sides, so cases where both need solutions can't be done
+          // with the current method that only solves one direction now.
+          None
+      })
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
@@ -1377,8 +1397,9 @@ object Infer {
                 if inT.length == args.length =>
               // see if we can instantiate the result type
               // if we can, we use that to fix the known parameters and continue
-              Type.instantiate(univ.iterator.toMap, outT, tpe).flatMap {
-                case (frees, inst) =>
+              Type
+                .instantiate(univ.iterator.toMap, outT, tpe, Map.empty)
+                .flatMap { case (frees, inst) =>
                   // if instantiate works, we know outT => tpe
                   if (inst.nonEmpty && frees.isEmpty) {
                     // we made some progress and there are no frees
@@ -1389,7 +1410,7 @@ object Infer {
                     // We learned nothing
                     None
                   }
-              }
+                }
             case _ =>
               None
           }
@@ -1462,6 +1483,86 @@ object Infer {
       }
     }
 
+    def applyViaInst[A: HasRegion](
+        fn: Expr[A],
+        args: NonEmptyList[Expr[A]],
+        tag: A
+    ): Infer[Option[TypedExpr[A]]] =
+      (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN {
+        (infFn, infArgs) =>
+          infFn.flatMap { fnTe =>
+            fnTe.getType match {
+              case Type.Fun.SimpleUniversal(us, argsT, resT)
+                  if argsT.length == args.length =>
+                infArgs.sequence
+                  .flatMap { argsTE =>
+                    val argTypes = argsTE.map(_.getType)
+                    // we can lift any quantification of the args
+                    // outside of the function application
+                    // We have to lift *before* substitution
+                    val noshadows =
+                      Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
+                        us.iterator.map(_._1)
+                    val (optQ, liftArgs) =
+                      TypedExpr.liftQuantification(argsTE, noshadows)
+
+                    val liftArgTypes = liftArgs.map(_.getType)
+                    Type.instantiate(
+                      us.toList.toMap,
+                      Type.Tuple(argsT.toList),
+                      Type.Tuple(liftArgTypes.toList),
+                      optQ.fold(Map.empty[Type.Var.Bound, Kind])(
+                        _.vars.toList.toMap
+                      )
+                    ) match {
+                      case None =>
+                        /*
+                          println(s"can't instantiate: ${
+                            Type.fullyResolvedDocument.document(fnTe.getType).render(80)
+                          } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
+                         */
+                        pureNone
+                      case Some((frees, inst)) =>
+                        if (frees.nonEmpty) {
+                          // TODO maybe we could handle this, but not yet
+                          // seems like if the free vars are set to the same
+                          // variable, then we can just lift it into the
+                          // quantification
+                          /*
+                            println(s"remaining frees in ${
+                              Type.fullyResolvedDocument.document(fnTe.getType).render(80)
+                            } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
+                           */
+                          pureNone
+                        } else {
+                          val subMap =
+                            inst.view.mapValues(_._2).toMap[Type.Var, Type]
+                          val fnType0 = Type.Fun(liftArgTypes, resT)
+                          val fnType1 = Type.substituteVar(fnType0, subMap)
+                          val resType = Type.substituteVar(resT, subMap)
+
+                          val resTe = TypedExpr.App(
+                            TypedExpr.Annotation(fnTe, fnType1),
+                            liftArgs,
+                            resType,
+                            tag
+                          )
+
+                          val maybeQuant = optQ match {
+                            case Some(q) => TypedExpr.Generic(q, resTe)
+                            case None    => resTe
+                          }
+
+                          pure(Some(maybeQuant))
+                        }
+                    }
+                  }
+              case _ =>
+                pureNone
+            }
+          }
+      }.flatSequence
+
     def applyRhoExpect[A: HasRegion](
         fn: Expr[A],
         args: NonEmptyList[Expr[A]],
@@ -1518,20 +1619,44 @@ object Infer {
             res <- zonkTypedExpr(TypedExpr.Global(pack, name, vSigma, tag))
           } yield coerce(res)
         case Annotation(App(fn, args, tag), resT, annTag) =>
-          (
-            checkApply(fn, args, tag, resT, region(annTag)),
-            instSigma(resT, expect, region(annTag))
-          )
-            .parFlatMapN { (typedTerm, coerce) =>
-              zonkTypedExpr(typedTerm).map(coerce(_))
+          applyViaInst(fn, args, tag)
+            .flatMap {
+              case Some(te) =>
+                for {
+                  co1 <- subsCheck(
+                    te.getType,
+                    resT,
+                    region(tag),
+                    region(annTag)
+                  )
+                  co2 <- instSigma(resT, expect, region(annTag))
+                  z <- zonkTypedExpr(te)
+                } yield co2(co1(z))
+              case None =>
+                (
+                  checkApply(fn, args, tag, resT, region(annTag)),
+                  instSigma(resT, expect, region(annTag))
+                )
+                  .parFlatMapN { (typedTerm, coerce) =>
+                    zonkTypedExpr(typedTerm).map(coerce(_))
+                  }
             }
         case App(fn, args, tag) =>
-          expect match {
-            case Expected.Check((rho, reg)) =>
-              checkApply(fn, args, tag, rho, reg)
-            case inf =>
-              applyRhoExpect(fn, args, tag, inf)
-          }
+          applyViaInst(fn, args, tag)
+            .flatMap {
+              case Some(te) =>
+                for {
+                  co <- instSigma(te.getType, expect, HasRegion.region(tag))
+                  z <- zonkTypedExpr(te)
+                } yield co(z)
+              case None =>
+                expect match {
+                  case Expected.Check((rho, reg)) =>
+                    checkApply(fn, args, tag, rho, reg)
+                  case inf @ Expected.Inf(_) =>
+                    applyRhoExpect(fn, args, tag, inf)
+                }
+            }
         case Generic(tpes, in) =>
           for {
             unSkol <- inferForAll(tpes, in)
@@ -1697,7 +1822,12 @@ object Infer {
                   simp.flatMap { te =>
                     te.getType match {
                       case Type.ForAll(fas, in) =>
-                        Type.instantiate(fas.iterator.toMap, in, rho) match {
+                        Type.instantiate(
+                          fas.iterator.toMap,
+                          in,
+                          rho,
+                          Map.empty
+                        ) match {
                           case Some((frees, subs)) if frees.isEmpty =>
                             // we know that substituting in gives rho
                             // check kinds
@@ -2249,8 +2379,7 @@ object Infer {
 
       for {
         _ <- init
-        rhoT <- inferRho(e)
-        (rho, expTyRho) = rhoT
+        (rho, expTyRho) <- inferRho(e)
         q <- quantify(unifySelf(expTyRho), rho)
       } yield q
     }

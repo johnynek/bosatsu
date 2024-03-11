@@ -65,7 +65,7 @@ gauss$n = range($n).foldLeft(0, add)
     val c = compiled0
     val ev = Evaluation(c._1, Predef.jvmExternals)
     // run the evaluation
-    val _ = ev.evaluateLast(c._2).get._1.value
+    val _ = ev.evaluateMain(c._2).get._1.value
     ()
   }
 
@@ -76,7 +76,7 @@ gauss$n = range($n).foldLeft(0, add)
     val c = compiled1
     val ev = Evaluation(c._1, Predef.jvmExternals)
     // run the evaluation
-    val _ = ev.evaluateLast(c._2).get._1.value
+    val _ = ev.evaluateMain(c._2).get._1.value
     ()
   }
 
@@ -153,7 +153,7 @@ max_pal = match max_pal_opt:
     val c = compiled2
     val ev = Evaluation(c._1, Predef.jvmExternals)
     // run the evaluation
-    val _ = ev.evaluateLast(c._2).get._1.value
+    val _ = ev.evaluateMain(c._2).get._1.value
     ()
   }
 }

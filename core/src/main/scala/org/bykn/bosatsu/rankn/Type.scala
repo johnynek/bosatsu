@@ -69,6 +69,46 @@ object Type {
     def forallList: List[(Var.Bound, Kind)]
     def concat(that: Quantification): Quantification
 
+    // Return this quantification, where the vars avoid otherVars
+    def unshadow(
+        otherVars: Set[Var.Bound]
+    ): (Map[Var, TyVar], Quantification) = {
+      def unshadowNel(
+          nel: NonEmptyList[(Var.Bound, Kind)]
+      ): (Map[Var, TyVar], NonEmptyList[(Var.Bound, Kind)]) = {
+        val remap: Map[Var, Var.Bound] = {
+          val collisions = nel.toList.filter { case (b, _) => otherVars(b) }
+          val nonCollisions = nel.iterator.filterNot { case (b, _) =>
+            otherVars(b)
+          }
+          val colMap =
+            alignBinders(collisions, otherVars ++ nonCollisions.map(_._1))
+          colMap.iterator.map { case ((b, _), b1) => (b, b1) }.toMap
+        }
+
+        val nel1 = nel.map { case bk @ (b, k) =>
+          remap.get(b) match {
+            case None     => bk
+            case Some(b1) => (b1, k)
+          }
+        }
+        (remap.view.mapValues(TyVar(_)).toMap, nel1)
+      }
+
+      if (vars.exists { case (b, _) => otherVars(b) }) {
+        this match {
+          case Quantification.Dual(foralls, exists) =>
+            val (mfa, fa) = unshadowNel(foralls)
+            val (mex, ex) = unshadowNel(exists)
+            (mfa ++ mex, Quantification.Dual(fa, ex))
+          case Quantification.ForAll(forAll) =>
+            unshadowNel(forAll).map(Quantification.ForAll(_))
+          case Quantification.Exists(exists) =>
+            unshadowNel(exists).map(Quantification.Exists(_))
+        }
+      } else (Map.empty, this)
+    }
+
     def filter(fn: Var.Bound => Boolean): Option[Quantification] =
       Quantification.fromLists(
         forallList.filter { case (b, _) => fn(b) },
@@ -503,7 +543,12 @@ object Type {
   /** Kind of the opposite of substitute: given a Map of vars, can we set those
     * vars to some Type and get from to match to exactly
     */
-  def instantiate(vars: Map[Var.Bound, Kind], from: Type, to: Type): Option[
+  def instantiate(
+      vars: Map[Var.Bound, Kind],
+      from: Type,
+      to: Type,
+      env: Map[Var.Bound, Kind]
+  ): Option[
     (
         SortedMap[Var.Bound, (Kind, Var.Bound)],
         SortedMap[Var.Bound, (Kind, Type)]
@@ -540,17 +585,26 @@ object Type {
               opt match {
                 case Unknown =>
                   to match {
-                    case TyVar(toB: Var.Bound) =>
+                    case tv @ TyVar(toB: Var.Bound) =>
                       state.rightFrees.get(toB) match {
                         case Some(toBKind) =>
                           if (Kind.leftSubsumesRight(kind, toBKind)) {
                             Some(state.updated(b, (toBKind, Free(toB))))
                           } else None
-                        case None => None
+                        case None =>
+                          env.get(toB) match {
+                            case Some(toBKind)
+                                if (Kind.leftSubsumesRight(kind, toBKind)) =>
+                              Some(state.updated(b, (toBKind, Fixed(tv))))
+                            case _ => None
+                          }
                         // don't set to vars to non-free bound variables
                         // this shouldn't happen in real inference
                       }
-                    case _ if hasNoUnboundVars(to) =>
+                    case _
+                        if freeBoundTyVars(to :: Nil)
+                          .filterNot(env.keySet)
+                          .isEmpty =>
                       Some(state.updated(b, (kind, Fixed(to))))
                     case _ => None
                   }

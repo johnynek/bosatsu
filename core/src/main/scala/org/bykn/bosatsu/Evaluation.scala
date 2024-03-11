@@ -74,13 +74,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     )
 
-  def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
-    for {
-      pack <- pm.toMap.get(p)
-      (name, _, tpe) <- pack.program.lets.lastOption
-      value <- evaluate(p).get(name)
-    } yield (value, tpe.getType)
-
   // TODO: this only works for lets, not externals
   def evaluateName(
       p: PackageName,

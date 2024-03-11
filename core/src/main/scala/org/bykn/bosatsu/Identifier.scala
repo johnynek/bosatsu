@@ -41,7 +41,10 @@ object Identifier {
   /** These are names that can appear in bindings. Importantly, we can't bind
     * constructor names except to define types
     */
-  sealed abstract class Bindable extends Identifier
+  sealed abstract class Bindable extends Identifier {
+    def isSynthetic: Boolean =
+      asString.startsWith("_")
+  }
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
@@ -128,4 +131,7 @@ object Identifier {
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
+
+  def synthetic(name: String): Bindable =
+    Name("_" + name)
 }
