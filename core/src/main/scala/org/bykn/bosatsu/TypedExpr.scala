@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Applicative, Eval, Monad, Traverse}
 import cats.arrow.FunctionK
-import cats.data.{NonEmptyList, Writer}
+import cats.data.{NonEmptyList, Writer, State}
 import cats.implicits._
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document}
@@ -1531,4 +1531,29 @@ object TypedExpr {
     }
   }
 
+  def usedGlobals[A](te: TypedExpr[A]): State[Set[(PackageName, Identifier)], TypedExpr[A]] = {
+    type VSet = Set[(PackageName, Identifier)]
+    type VState[X] = State[VSet, X]
+    te.traverseUp[VState] {
+      case g @ TypedExpr.Global(p, n, _, _) =>
+        State(s => (s + ((p, n)), g))
+      case m @ Match(_, branches, _) =>
+        branches
+          .traverse_ { case (pat, _) =>
+            pat
+              .traverseStruct[
+                VState,
+                (PackageName, Identifier.Constructor)
+              ] { (n, parts) =>
+                State.modify[VSet](_ + n) *>
+                  parts.map { inner =>
+                    Pattern.PositionalStruct(n, inner)
+                  }
+              }
+              .void
+          }
+          .as(m)
+      case te => Monad[VState].pure(te)
+    }
+  }
 }

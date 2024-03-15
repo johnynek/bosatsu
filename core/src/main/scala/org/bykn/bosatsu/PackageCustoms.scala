@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Monad
 import cats.data.{
   Chain,
   NonEmptyList,
@@ -16,7 +15,6 @@ import scala.collection.immutable.SortedSet
 import cats.syntax.all._
 import org.bykn.bosatsu.Referant.Constructor
 import org.bykn.bosatsu.Referant.DefinedT
-import org.bykn.bosatsu.TypedExpr.Match
 import org.bykn.bosatsu.Identifier.Bindable
 import org.bykn.bosatsu.graph.Dag
 
@@ -65,32 +63,9 @@ object PackageCustoms {
   private type VSet = Set[(PackageName, Identifier)]
   private type VState[X] = State[VSet, X]
 
-  private def usedGlobals[A](te: TypedExpr[A]): VState[TypedExpr[A]] =
-    te.traverseUp[VState] {
-      case g @ TypedExpr.Global(p, n, _, _) =>
-        State(s => (s + ((p, n)), g))
-      case m @ Match(_, branches, _) =>
-        branches
-          .traverse_ { case (pat, _) =>
-            pat
-              .traverseStruct[
-                VState,
-                (PackageName, Identifier.Constructor)
-              ] { (n, parts) =>
-                State.modify[VSet](_ + n) *>
-                  parts.map { inner =>
-                    Pattern.PositionalStruct(n, inner)
-                  }
-              }
-              .void
-          }
-          .as(m)
-      case te => Monad[VState].pure(te)
-    }
-
   private def usedGlobals[A](pack: Package.Typed[A]): Set[(PackageName, Identifier)] = {
     val usedValuesSt: VState[Unit] =
-      pack.program.lets.traverse_ { case (_, _, te) => usedGlobals(te) }
+      pack.program.lets.traverse_ { case (_, _, te) => TypedExpr.usedGlobals(te) }
 
     usedValuesSt.runS(Set.empty).value
   }
@@ -264,7 +239,7 @@ object PackageCustoms {
       pack.program.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
 
     def internalDeps(te: TypedExpr[A]): Set[Bindable] =
-      usedGlobals(te).runS(Set.empty).value.collect {
+      TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
         case (pn, i: Identifier.Bindable) if pn == pack.name => i
       }
 
@@ -283,7 +258,7 @@ object PackageCustoms {
     val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
 
     val unused = pack.program.lets.filter {
-      case (bn, _, _) => !(bn.isSynthetic || canReach.contains(Right(bn)))
+      case (bn, _, _) => !canReach.contains(Right(bn))
     }
 
     NonEmptyList.fromList(unused) match {

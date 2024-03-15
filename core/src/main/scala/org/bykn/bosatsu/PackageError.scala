@@ -894,28 +894,10 @@ object PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
-    ) = {
-      val prefix = sourceMap.headLine(inPack, None)
-      val (lm, _) = sourceMap.getMapSrc(inPack)
-      val di = (Doc.hardLine + Doc.intercalate(
-        Doc.line,
-        unusedLets.toList.map { case (b, _, _, region) =>
-          lm.showRegion(region, 2, errColor) match {
-            case Some(regionDoc) =>
-              Doc.text(b.sourceCodeRepr) + Doc.hardLine +
-                regionDoc
-            case None =>
-              Doc.text(b.sourceCodeRepr)
-          }
-        }
-      ))
-        .nested(2)
-
-      val lets =
-        if (unusedLets.tail.lengthCompare(0) == 0) "let" else "lets"
-      (prefix + Doc.hardLine + Doc.text(
-        s"unused $lets of:"
-      ) + di + Doc.hardLine).render(80)
-    }
+    ) =
+      UnusedLetError(
+        inPack,
+        unusedLets.map { case (b, _, _, r) => (b, r)}
+      ).message(sourceMap, errColor)
   }
 }

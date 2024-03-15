@@ -909,6 +909,23 @@ main = plus(1, 2)
       assert(msg.contains("unused let binding: z\n  Region(68,73)"))
       ()
     }
+
+    evalFail(List("""
+package A
+
+# this shouldn't compile, z is unused
+z = 1
+
+def plus(x, y):
+  x.add(y)
+
+main = plus(1, 2)
+""")) { case le @ PackageError.UnusedLets(_, _) =>
+      val msg = le.message(Map.empty, Colorize.None)
+      assert(!msg.contains("Name("))
+      assert(msg.contains("unused let binding: z\n  Region(54,55)"))
+      ()
+    }
   }
 
   test("structual recursion is allowed") {
@@ -3042,34 +3059,41 @@ main = Foo(1)
     }
   }
 
-  test("non binding top levels work") {
-    runBosatsuTest(
+  test("non binding top levels don't work") {
+    evalFail(
       List("""
 package A
 
 # this is basically a typecheck only
 _ = add(1, 2)
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\n_ does not bind any names.\nRegion(53,62)"
+      )
+      ()
+    }
 
-    runBosatsuTest(
+    evalFail(
       List("""
 package A
 
 # this is basically a typecheck only
 (_, _) = (1, "1")
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\n(_, _) does not bind any names.\nRegion(58,66)"
+      )
+      ()
+    }
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
-
-    runBosatsuTest(
+    evalFail(
       List("""
 package A
 
@@ -3077,11 +3101,15 @@ struct Foo(x, y)
 # this is basically a typecheck only
 Foo(_, _) = Foo(1, "1")
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\nFoo(_, _) does not bind any names.\nRegion(78,89)"
+      )
+      ()
+    }
   }
 
   test("recursion check with _ pattern: issue 573") {
@@ -3345,7 +3373,7 @@ def foo1(fn) -> Int:
 def foo2(fn: List[forall a. a -> a]) -> Int:
   fn.foldLeft(0, (x, _) -> x.add(1))
 
-count = foo1(single(id))
+count0 = foo1(single(id))
 count = foo2(single(id))
 
 single_id1: forall a. List[a -> a] = single(id)
@@ -3357,7 +3385,7 @@ pair = Pair1(single_id1, single_id2)
 
 comp = x -> f(g(x))
 
-ignore: exists a. a = (pair, h, count, foo1)
+ignore: exists a. a = (pair, h, count, foo1, count0)
 
 test = Assertion(True, "")
 """),
@@ -3961,6 +3989,5 @@ test = TestSuite("bases",
       "Foo",
       12
     )
-
   }
 }

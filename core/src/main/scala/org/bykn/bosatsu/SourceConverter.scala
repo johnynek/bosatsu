@@ -1401,6 +1401,12 @@ final class SourceConverter(
             }
       }
 
+    val noBinds: Result[Unit] = stmts.parTraverse_ {
+      case Bind(BindingStatement(b, d, _)) if b.names.isEmpty =>
+        Ior.Both(NonEmptyChain.one(SourceConverter.NonBindingPattern(b, d)), ())
+      case _ => SourceConverter.successUnit
+    }
+
     val flatIn: List[(Bindable, RecursionKind, Flattened)] =
       SourceConverter.makeLetsUnique(flatList) { (bind, _) =>
         // rename all but the last item
@@ -1457,6 +1463,7 @@ final class SourceConverter(
           case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
 
+    noBinds.parProductR(
     parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
       stmt match {
         case Right(Right((nm, decl))) =>
@@ -1509,8 +1516,7 @@ final class SourceConverter(
         case Left(ExternalDef(n, _, _)) =>
           (topBound + n, success(Nil))
       }
-    }(SourceConverter.parallelIor)
-      .map(_.flatten)
+    }(SourceConverter.parallelIor)).map(_.flatten)
   }
 
   def toProgram(
@@ -1588,6 +1594,12 @@ object SourceConverter {
 
   def addError[A](r: Result[A], err: Error): Result[A] =
     parallelIor.<*(r)(failure(err))
+
+  def maybeError[A](r: Result[A], opt: Option[Error]): Result[A] =
+    opt match {
+      case None => r
+      case Some(e) => addError(r, e)
+    }
 
   // use this when we want to accumulate errors in parallel
   private val parallelIor: Applicative[Result] =
@@ -1931,5 +1943,11 @@ object SourceConverter {
           )
           .render(80)
       }
+  }
+
+  final case class NonBindingPattern(pattern: Pattern.Parsed, bound: Declaration) extends Error {
+    def message =
+      (Document[Pattern.Parsed].document(pattern) + Doc.text(" does not bind any names.")).render(80)
+    def region = bound.region
   }
 }
