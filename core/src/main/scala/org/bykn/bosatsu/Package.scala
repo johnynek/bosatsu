@@ -97,6 +97,11 @@ object Package {
       te.getType == Type.TestType
     }.lastOption
 
+  def mainValue[A](
+      tp: Typed[A]
+  ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
+    tp.program.lets.lastOption
+
   /** Discard any top level values that are not referenced, exported, the final
     * test value, or the final expression
     *

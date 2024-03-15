@@ -12,8 +12,6 @@ from Bosatsu/Nat import Nat, Succ, Zero, to_Nat
 def operator >(a, b):
   a.cmp_Int(b) matches GT
 
-operator - = sub
-
 def max_opt(o1, o2):
     match o1:
         None: o2

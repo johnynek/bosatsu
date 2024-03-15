@@ -49,10 +49,6 @@ def to_Nat(i: Int) -> Nat:
 
 n1 = Succ(Zero)
 n2 = Succ(n1)
-n3 = Succ(n2)
-n4 = Succ(n3)
-n5 = Succ(n4)
-n6 = Succ(n5)
 
 def operator ==(i0: Int, i1: Int):
     cmp_Int(i0, i1) matches EQ

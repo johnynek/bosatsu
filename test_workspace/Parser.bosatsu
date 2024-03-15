@@ -1,5 +1,7 @@
 package Parser
 
+export Parser, empty, parse, flat_map, expect, one_of, map
+
 struct Parser[a](parse: String -> Option[(String, a)])
 
 empty = Parser(_ -> None)

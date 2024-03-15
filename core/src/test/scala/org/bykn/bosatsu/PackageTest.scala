@@ -115,6 +115,8 @@ package P7
 from P6 import data as p6_data
 from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head
 
+export data
+
 data = Cons(1, Cons(2, Nil))
 data1 = Cons(0, p6_data)
 
@@ -160,6 +162,7 @@ def takeFoo(foo):
     val p2 = parse("""
 package R2
 from R1 import Foo as Bar, mkFoo, takeFoo
+export main, main2
 
 # note Bar is the same as foo
 struct Baz(b: Bar)

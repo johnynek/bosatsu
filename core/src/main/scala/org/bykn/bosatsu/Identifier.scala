@@ -128,4 +128,7 @@ object Identifier {
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
+
+  def synthetic(name: String): Bindable =
+    Name("_" + name)
 }

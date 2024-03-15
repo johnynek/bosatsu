@@ -452,6 +452,8 @@ main = 6.gcd_Int(3)
       List("""
 package Foo
 
+export zip
+
 three = [0, 1]
 # exercise the built-in range function
 threer = range(3)
@@ -486,6 +488,7 @@ same = eq_list(three, threer, eq_Int)
     evalTest(
       List("""
 package Foo
+export zip
 
 def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
   recur as:
@@ -700,7 +703,7 @@ package Foo
 
 def concat(a): a
 
-main = [1, 2]
+main = concat([1, 2])
 """),
       "Foo",
       VList.Cons(VInt(1), VList.Cons(VInt(2), VList.VNil))
@@ -817,6 +820,8 @@ main = one
       List("""
 package A
 
+export just_foo
+
 struct Leib(subst: forall f: * -> *. f[a] -> f[b])
 
 struct Id(a)
@@ -842,6 +847,7 @@ def getValue(v: StringOrInt[a]) -> a:
     case IsStr(s, leib): coerce(s, leib)
     case IsInt(i, leib): coerce(i, leib)
 
+just_foo = getValue(str)
 main = getValue(int)
 """),
       "A",
@@ -901,6 +907,23 @@ main = plus(1, 2)
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
       assert(msg.contains("unused let binding: z\n  Region(68,73)"))
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+# this shouldn't compile, z is unused
+z = 1
+
+def plus(x, y):
+  x.add(y)
+
+main = plus(1, 2)
+""")) { case le @ PackageError.UnusedLets(_, _) =>
+      val msg = le.message(Map.empty, Colorize.None)
+      assert(!msg.contains("Name("))
+      assert(msg.contains("unused let binding: z\n  Region(54,55)"))
       ()
     }
   }
@@ -2584,6 +2607,7 @@ tests = TestSuite("test",
     // test an example using a predef function, like add
     runBosatsuTest(
       List("""package A
+export add
 
 # this should be add from predef
 two = add(1, 1)
@@ -3035,54 +3059,65 @@ main = Foo(1)
     }
   }
 
-  test("non binding top levels work") {
-    runBosatsuTest(
+  test("non binding top levels don't work") {
+    evalFail(
       List("""
 package A
 
 # this is basically a typecheck only
 _ = add(1, 2)
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\n_ does not bind any names.\nRegion(53,62)"
+      )
+      ()
+    }
 
-    runBosatsuTest(
+    evalFail(
       List("""
 package A
 
 # this is basically a typecheck only
-x = (1, "1")
-(_, _) = x
+(_, _) = (1, "1")
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\n(_, _) does not bind any names.\nRegion(58,66)"
+      )
+      ()
+    }
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
-
-    runBosatsuTest(
+    evalFail(
       List("""
 package A
 
 struct Foo(x, y)
 # this is basically a typecheck only
-x = Foo(1, "1")
-Foo(_, _) = x
+Foo(_, _) = Foo(1, "1")
 
-test = Assertion(True, "")
-"""),
-      "A",
-      1
-    )
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      assert(
+        sce.message(
+          Map.empty,
+          Colorize.None
+        ) == "in file: <unknown source>, package A\nFoo(_, _) does not bind any names.\nRegion(78,89)"
+      )
+      ()
+    }
   }
 
   test("recursion check with _ pattern: issue 573") {
     runBosatsuTest(
       List("""
 package VarSet/Recursion
+
+test = Assertion(True, "")
 
 enum Thing:
   Thing1, Thing2(a: Int, t: Thing)
@@ -3091,8 +3126,6 @@ def bar(y, _: String, x):
   recur x:
     Thing1: y
     Thing2(i, t): bar(i, "boom", t)
-
-test = Assertion(True, "")
 """),
       "VarSet/Recursion",
       1
@@ -3319,6 +3352,8 @@ def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape,
       List("""
 package Foo
 
+export comp, ignore
+
 def f(fn: forall a. List[a] -> List[a]) -> Int:
   fn([1]).foldLeft(0, (x, _) -> x.add(1))
 
@@ -3338,7 +3373,7 @@ def foo1(fn) -> Int:
 def foo2(fn: List[forall a. a -> a]) -> Int:
   fn.foldLeft(0, (x, _) -> x.add(1))
 
-count = foo1(single(id))
+count0 = foo1(single(id))
 count = foo2(single(id))
 
 single_id1: forall a. List[a -> a] = single(id)
@@ -3349,7 +3384,9 @@ struct Pair1(fst: a, snd: a)
 pair = Pair1(single_id1, single_id2)
 
 comp = x -> f(g(x))
-  
+
+ignore: exists a. a = (pair, h, count, foo1, count0)
+
 test = Assertion(True, "")
 """),
       "Foo",
@@ -3405,12 +3442,12 @@ def lengths2(l1: List[Int], l2: List[String], maybeFn: forall tt. Option[List[tt
     Some(fn): fn(l1).add(fn(l2))
     None: 0
 
+test = Assertion(lengths([], [], None).add(lengths2([], [], None)) matches 0, "test")
+
 # this is a test that doesn't forget that we have the empty list:
 x = match []:
       case []: 0
       case [h, *_]: (h: forall a. a)
-
-test = Assertion(lengths([], [], None) matches 0, "test")
     """ :: Nil,
       "SubsumeTest",
       1
@@ -3594,6 +3631,8 @@ test = Assertion(last(One(True)), "")
       List("""
 package PolyRec
 
+test = Assertion(True, "")         
+
 enum Nat: NZero, NSucc(n: Nat)
 
 def poly_rec(count: Nat, a: a) -> a:
@@ -3603,8 +3642,6 @@ def poly_rec(count: Nat, a: a) -> a:
           # make a call with a different type
           (_, b) = poly_rec(prev, ("foo", a))
           b
-
-test = Assertion(True, "")         
 """),
       "PolyRec",
       1
@@ -3613,6 +3650,8 @@ test = Assertion(True, "")
     runBosatsuTest(
       List("""
 package PolyRec
+
+test = Assertion(True, "")         
 
 enum Nat: NZero, NSucc(n: Nat)
 
@@ -3628,8 +3667,6 @@ def call(a):
               b
     # call a polymorphic recursion internally to exercise different code paths
     poly_rec(NZero, a)
-
-test = Assertion(True, "")         
 """),
       "PolyRec",
       1
@@ -3666,6 +3703,9 @@ main = v
     evalTest(
       List("""
 package A
+
+export ignore
+
 enum Cont[a: *]:
   Item(a: a)
   Next(use: (Cont[a] -> a) -> a)
@@ -3679,6 +3719,9 @@ def loop[a](box: Cont[a]) -> a:
     case Next(cont_fn): cont_fn(loop)
 
 loopgen: forall a. Cont[a] -> a = loop
+
+ignore: exists a. a = loopgen
+
 b: Cont[Int] = Item(1).map(x -> x.add(1))
 main: Int = loop(b)
 """),
@@ -3693,9 +3736,6 @@ package A
 enum Box[a: +*]:
   Item(a: a)
   Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
-
-def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
-  Next(cont -> cont(box, fn))
 
 b = Item(1)
 
@@ -3806,6 +3846,7 @@ test = Assertion(res matches 0, "one")
     runBosatsuTest(
       List("""
 package Foo
+export maybeMapped, FreeF
 
 enum FreeF[a]:
   Pure(a: a)
@@ -3948,6 +3989,5 @@ test = TestSuite("bases",
       "Foo",
       12
     )
-
   }
 }

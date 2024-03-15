@@ -6,6 +6,7 @@ export (
     cast, upcast, downcast,
     compose_eq, compose_sub, compose_sup,
     eq_to_sub, eq_to_sup, sub_to_sup, sup_to_sub,
+    flip_eq,
 )
 
 struct Sub[a: -*, b: +*](sub: forall f: +* -> *. f[a] -> f[b])
@@ -79,4 +80,4 @@ refl_any: Sub[forall a. a, exists a. a] = refl_sub
 refl_any1: Sub[exists a. a, exists a. a] = refl_sub
 refl_Int_any: Sub[Int, exists a. a] = refl_sub
 
-ignore = (refl_bottom, refl_bottom1, refl_Int, refl_any)
+ignore = (refl_bottom, refl_bottom1, refl_Int, refl_any, refl_any1, refl_Int_any)

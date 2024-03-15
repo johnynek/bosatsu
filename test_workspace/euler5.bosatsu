@@ -24,8 +24,6 @@ def int_loop_up(top, res, fn):
     (next_rev, next_res) = fn(top - i, res)
     (top - next_rev, next_res))
 
-sum_10 = int_loop_up(6, 0, \i, s -> (i + 1, s + i))
-
 bound = max_candidate.add(1)
 
 def divides(denom, num):

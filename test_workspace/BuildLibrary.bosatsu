@@ -1,6 +1,7 @@
 package BuildLibrary
 
-export File(), Library(), LibArgs(), build, Build, file, files, build_all, library, empty
+export (File(), Library(), LibArgs(), build, Build, file, files, build_all, library, empty,
+  map_Build, map2_Build)
 
 struct Leibniz[a, b](cast: forall f: * -> *. f[a] -> f[b])
 (refl: forall a. Leibniz[a, a]) = Leibniz(x -> x)

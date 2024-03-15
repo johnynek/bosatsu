@@ -74,13 +74,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     )
 
-  def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
-    for {
-      pack <- pm.toMap.get(p)
-      (name, _, tpe) <- pack.program.lets.lastOption
-      value <- evaluate(p).get(name)
-    } yield (value, tpe.getType)
-
   // TODO: this only works for lets, not externals
   def evaluateName(
       p: PackageName,
@@ -103,6 +96,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (name, _, _) <- Package.testValue(pack)
       value <- evaluate(p).get(name)
     } yield value
+
+  def evaluateMain(p: PackageName): Option[(Eval[Value], Type)] =
+    for {
+      pack <- pm.toMap.get(p)
+      (name, _, te) <- Package.mainValue(pack)
+      value <- evaluate(p).get(name)
+    } yield (value, te.getType)
 
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
    * list syntax

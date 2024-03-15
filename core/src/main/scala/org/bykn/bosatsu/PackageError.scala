@@ -886,4 +886,18 @@ object PackageError {
       ) + di + Doc.hardLine).render(80)
     }
   }
+
+  case class UnusedLets(
+      inPack: PackageName,
+      unusedLets: NonEmptyList[(Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) =
+      UnusedLetError(
+        inPack,
+        unusedLets.map { case (b, _, _, r) => (b, r)}
+      ).message(sourceMap, errColor)
+  }
 }

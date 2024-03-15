@@ -1216,13 +1216,9 @@ final class SourceConverter(
   private lazy val localTypeEnv: Result[TypeEnv[Any]] =
     toTypeEnv.map(p => importedTypeEnv ++ TypeEnv.fromParsed(p))
 
-  private def anonNameStrings(): Iterator[String] =
-    rankn.Type.allBinders.iterator
-      .map(_.name)
-
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
-    anonNameStrings()
-      .map(Identifier.Name(_))
+    rankn.Type.allBinders.iterator
+      .map { b => Identifier.synthetic(b.name) }
       .filterNot(allNames)
 
   /** Externals are not permitted to be shadowed at the top level
@@ -1405,6 +1401,12 @@ final class SourceConverter(
             }
       }
 
+    val noBinds: Result[Unit] = stmts.parTraverse_ {
+      case Bind(BindingStatement(b, d, _)) if b.names.isEmpty =>
+        SourceConverter.partial(SourceConverter.NonBindingPattern(b, d), ())
+      case _ => SourceConverter.successUnit
+    }
+
     val flatIn: List[(Bindable, RecursionKind, Flattened)] =
       SourceConverter.makeLetsUnique(flatList) { (bind, _) =>
         // rename all but the last item
@@ -1461,6 +1463,7 @@ final class SourceConverter(
           case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
 
+    noBinds.parProductR(
     parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
       stmt match {
         case Right(Right((nm, decl))) =>
@@ -1513,8 +1516,7 @@ final class SourceConverter(
         case Left(ExternalDef(n, _, _)) =>
           (topBound + n, success(Nil))
       }
-    }(SourceConverter.parallelIor)
-      .map(_.flatten)
+    }(SourceConverter.parallelIor)).map(_.flatten)
   }
 
   def toProgram(
@@ -1935,5 +1937,11 @@ object SourceConverter {
           )
           .render(80)
       }
+  }
+
+  final case class NonBindingPattern(pattern: Pattern.Parsed, bound: Declaration) extends Error {
+    def message =
+      (Document[Pattern.Parsed].document(pattern) + Doc.text(" does not bind any names.")).render(80)
+    def region = bound.region
   }
 }
