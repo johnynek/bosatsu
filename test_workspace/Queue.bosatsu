@@ -1,6 +1,11 @@
 package Queue
 
 from Bosatsu/List import eq_List
+from Bosatsu/Rand import (Rand, sequence_Rand, map_Rand, flat_map_Rand,
+  int_range as int_range_Rand, geometric_Int)
+
+from Bosatsu/Properties import Prop, forall_Prop, suite_Prop, run_Prop
+
 export (Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
   to_List, from_List
@@ -78,6 +83,32 @@ eq_li = eq_List(eq_Int)
 
 q12 = empty.push(1).push(2)
 
+def samp(r)(fn): flat_map_Rand(r, fn)
+
+rand_geo_List_Int: Rand[List[Int]] = (
+  rand_int = int_range_Rand(128)
+  len <- geometric_Int.samp()
+  lst = replicate_List(rand_int, len)
+  sequence_Rand(lst)
+)
+
+rand_Queue_Int: Rand[Queue[Int]] = rand_geo_List_Int.map_Rand(from_List)
+
+queue_laws = suite_Prop(
+  "queue properties",
+  [
+    forall_Prop(rand_Queue_Int, "pop-law/toList", q -> (
+      res = match q.pop_value():
+          case None: to_List(q) matches []
+          case Some(i):
+            match to_List(q):
+                case [h, *_]: eq_Int(h, i)
+                case _: False
+      Assertion(res, "check head")
+    ))
+  ]
+)
+
 tests = TestSuite("queue tests", [
   Assertion(eq_oi(q12.pop_value(), Some(1)), "1"),
   Assertion(q12.fold_Queue(0,add).eq_Int(3), "fold_Queue add"),
@@ -91,4 +122,5 @@ tests = TestSuite("queue tests", [
   Assertion(from_List([1, 2, 3]).pop().pop().pop().eq_qi(empty), "pop to empty"),
   Assertion(empty.pop().eq_qi(empty), "pop empty is okay"),
   Assertion(to_List(from_List([1, 1, 2, 2, 3, 3])).eq_li([1, 1, 2, 2, 3, 3]), "to/from List"),
+  run_Prop(queue_laws, 100, 4242),
 ])

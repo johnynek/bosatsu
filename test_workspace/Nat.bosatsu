@@ -1,7 +1,7 @@
 package Bosatsu/Nat
 
 from Bosatsu/Predef import add as operator +, times as operator *
-export Nat(), times2, add, mult, to_Int, to_Nat
+export Nat(), times2, add, mult, exp, to_Int, to_Nat
 
 # This is the traditional encoding of natural numbers
 # it is useful when you are iterating on all values
@@ -33,6 +33,22 @@ def mult(n1: Nat, n2: Nat) -> Nat:
         Succ(n2):
           Succ(mult(n1, n2).add(add(n1, n2)))
 
+one = Succ(Zero)
+
+def exp(base: Nat, power: Nat) -> Nat:
+    match base:
+        case Zero: one if power matches Zero else Zero
+        case Succ(Zero): one
+        case two_or_more:
+          def loop(power, acc):
+              recur power:
+                  case Zero: acc
+                  case Succ(prev):
+                      # b^(n + 1) = (b^n) * b
+                      loop(prev, acc.mult(two_or_more))
+
+          loop(power, one)
+
 def to_Int(n: Nat) -> Int:
     def loop(acc: Int, n: Nat):
       recur n:
@@ -49,6 +65,9 @@ def to_Nat(i: Int) -> Nat:
 
 n1 = Succ(Zero)
 n2 = Succ(n1)
+n3 = Succ(n2)
+n4 = Succ(n3)
+n5 = Succ(n4)
 
 def operator ==(i0: Int, i1: Int):
     cmp_Int(i0, i1) matches EQ
@@ -85,4 +104,5 @@ tests = TestSuite("Nat tests",
     multLaw(n1, n2, "1 * 2"),
     multLaw(n2, n1, "2 * 1"),
     from_to_suite,
+    Assertion(exp(n2, n5).to_Int() matches 32, "exp(2, 5) == 32")
   ])
