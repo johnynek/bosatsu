@@ -22,12 +22,14 @@ object Padding {
 
   /** This allows an empty padding
     */
-  def parser[T](p: P[T]): P[Padding[T]] = {
-    val spacing = (maybeSpace.with1.soft ~ Parser.newline).void.rep0
+  def parser[T](p: P[T], space: P0[Unit]): P[Padding[T]] = {
+    val spacing = (space.with1.soft ~ Parser.newline).void.rep0
 
     (spacing.with1.soft ~ p)
       .map { case (vec, t) => Padding(vec.size, t) }
   }
+
+  def parser[T](p: P[T]): P[Padding[T]] = parser(p, maybeSpace)
 
   /** Parses a padding of length 1 or more, then p
     */
