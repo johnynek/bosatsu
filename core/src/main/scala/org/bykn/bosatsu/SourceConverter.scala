@@ -1403,7 +1403,7 @@ final class SourceConverter(
 
     val noBinds: Result[Unit] = stmts.parTraverse_ {
       case Bind(BindingStatement(b, d, _)) if b.names.isEmpty =>
-        Ior.Both(NonEmptyChain.one(SourceConverter.NonBindingPattern(b, d)), ())
+        SourceConverter.partial(SourceConverter.NonBindingPattern(b, d), ())
       case _ => SourceConverter.successUnit
     }
 
@@ -1594,12 +1594,6 @@ object SourceConverter {
 
   def addError[A](r: Result[A], err: Error): Result[A] =
     parallelIor.<*(r)(failure(err))
-
-  def maybeError[A](r: Result[A], opt: Option[Error]): Result[A] =
-    opt match {
-      case None => r
-      case Some(e) => addError(r, e)
-    }
 
   // use this when we want to accumulate errors in parallel
   private val parallelIor: Applicative[Result] =

@@ -41,10 +41,7 @@ object Identifier {
   /** These are names that can appear in bindings. Importantly, we can't bind
     * constructor names except to define types
     */
-  sealed abstract class Bindable extends Identifier {
-    def isSynthetic: Boolean =
-      asString.startsWith("_")
-  }
+  sealed abstract class Bindable extends Identifier
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable

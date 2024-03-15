@@ -78,10 +78,7 @@ object Dag {
         m.iterator
           .map { case (a, current) =>
             val next = nfn(a).iterator.foldLeft(SortedSet.empty[A]) { (s, a) =>
-              s | (m.get(a) match {
-                case Some(value) => value
-                case None => SortedSet.empty
-              })
+              s | m(a)
             }
             a -> (current | next)
           }
