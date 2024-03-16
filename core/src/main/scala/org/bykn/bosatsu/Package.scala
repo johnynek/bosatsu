@@ -190,12 +190,17 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
+
   def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
-    // TODO: support comments before the Statement
+    val spaceComment: P0[Unit] =
+      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
+
+    val eol = spaceComment <* Parser.termination
     val parsePack = Padding
       .parser(
         (P.string("package")
-          .soft ~ spaces) *> PackageName.parser <* Parser.toEOL
+          .soft ~ spaces) *> PackageName.parser <* eol,
+        spaceComment
       )
       .map(_.padded)
     val pname: P0[PackageName] =
@@ -204,12 +209,13 @@ object Package {
         case Some(p) => parsePack.?.map(_.getOrElse(p))
       }
 
-    val im = Padding.parser(Import.parser <* Parser.toEOL).map(_.padded).rep0
+    val im = Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
     val ex = Padding
       .parser(
         (P.string("export")
           .soft ~ spaces) *> ExportedName.parser.itemsMaybeParens
-          .map(_._2) <* Parser.toEOL
+          .map(_._2) <* eol,
+        spaceComment
       )
       .map(_.padded)
 

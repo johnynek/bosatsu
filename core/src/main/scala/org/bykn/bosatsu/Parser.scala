@@ -448,7 +448,8 @@ object Parser {
     (P.char('(') ~ ws) *> pa <* (ws ~ P.char(')'))
 
   val newline: P[Unit] = P.char('\n')
-  val toEOL: P0[Unit] = maybeSpace *> newline.orElse(P.end)
+  val termination: P0[Unit] = newline.orElse(P.end)
+  val toEOL: P0[Unit] = maybeSpace *> termination
   val toEOL1: P[Unit] = maybeSpace.with1 *> newline
 
   def optionParse[A](pa: P0[A], str: String): Option[A] =

@@ -31,12 +31,12 @@ object CommentStatement {
       val commentBlock: P[NonEmptyList[String]] =
         // if the next line is part of the comment until we see the # or not
         (Parser.maybeSpace.with1.soft *> commentPart)
-          .repSep(sep = sep) <* Parser.newline.orElse(P.end)
+          .repSep(sep = sep) <* Parser.termination
 
       (commentBlock ~ onP(indent))
         .map { case (m, on) => CommentStatement(m, on) }
     }
 
   val commentPart: P[String] =
-    P.char('#') *> P.until0(P.char('\n'))
+    P.char('#') *> P.until0(Parser.termination)
 }
