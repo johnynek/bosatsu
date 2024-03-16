@@ -41,14 +41,14 @@ def is_even(n: Nat) -> Bool:
     loop(n, True)
 
 def div2(n: Nat) -> Nat:
-    def loop(n: Nat, acc: Nat):
+    def loop(n: Nat, acc: Nat, is_even):
         recur n:
             case Zero: acc
             case Succ(n):
                 # (n + 1) / 2 = n/2 if n is even, else n/2 + 1
-                if is_even(n): loop(n, acc)
-                else: loop(n, Succ(acc))
-    loop(n, Zero)
+                if is_even: loop(n, Succ(acc), False)
+                else: loop(n, acc, True)
+    loop(n, Zero, is_even(n))
 
 one = Succ(Zero)
 
@@ -121,5 +121,9 @@ tests = TestSuite("Nat tests",
     multLaw(n1, n2, "1 * 2"),
     multLaw(n2, n1, "2 * 1"),
     from_to_suite,
-    Assertion(exp(n2, n5).to_Int() matches 32, "exp(2, 5) == 32")
+    Assertion(exp(n2, n5).to_Int() matches 32, "exp(2, 5) == 32"),
+    Assertion(n1.div2().to_Int() matches 0, "1 div2 == 0"),
+    Assertion(n2.div2().to_Int() matches 1, "2 div2 == 1"),
+    Assertion(n3.div2().to_Int() matches 1, "3 div2 == 1"),
+    Assertion(n4.div2().to_Int() matches 2, "4 div2 == 2"),
   ])
