@@ -1,7 +1,9 @@
 package Bosatsu/Rand
 
+from Bosatsu/Nat import Nat, Zero, Succ, exp as exp_Nat, to_Int as nat_to_Int, to_Nat as int_to_Nat
+
 export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand,
-  int_range, sequence_Rand)
+  int_range, sequence_Rand, bool_Rand, geometric_Int)
 
 struct State(s0: Int, s1: Int, s2: Int, s3: Int)
 struct UInt64(toInt: Int)
@@ -77,6 +79,33 @@ def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -> Rand[(a, b)]:
 
 def const_Rand[a](a: a) -> Rand[a]: Rand(s -> (s, a))
 
+def xor(a, b):
+    match a:
+        case True: False if b else True
+        case False: b
+
+nat_2 = Succ(Succ(Zero))
+
+def parity(n: Nat, i: Int) -> Bool:
+    recur n:
+        case Zero: (i & 1) matches 1
+        case Succ(p):
+            half_bits = exp_Nat(nat_2, n).nat_to_Int()
+            left_half = i >> half_bits
+            bl = parity(p, left_half)
+            br = parity(p, i)
+            xor(bl, br)
+
+# 2^6 = 64
+zero = Zero
+succ = Succ
+six = zero.succ().succ().succ().succ().succ().succ()
+
+bool_Rand: Rand[Bool] = Rand(s -> (
+  (s, UInt64(i)) = next(s)
+  (s, parity(six, i))
+))
+
 def run_Rand[a](rand: Rand[a], seed: Int) -> a:
   Rand(fn) = rand
   (_, a) = fn(state_from_Int(seed))
@@ -103,17 +132,15 @@ def to_big_Int(us: List[UInt64], acc: Int) -> Int:
     case []: acc
     case [UInt64(h), *t]: to_big_Int(t, (acc << 64) | h)
 
-enum Nat: ZN, SN(n: Nat)
-
-nat30 = int_loop(30, ZN, (i, n) -> (i - 1, SN(n)))
+nat30 = int_to_Nat(30)
 
 def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
   Rand(fn) = rand_Int
   boundary = (1 << (uints * 64)).div(high) * high
   def next(s: State, fuel: Nat) -> (State, Int):
     recur fuel:
-        case ZN: (s, (high - 1).div(2))
-        case SN(n):
+        case Zero: (s, (high - 1).div(2))
+        case Succ(n):
           (s1, i) = fn(s)
           if i.cmp_Int(boundary) matches LT:
             # this sample worked
@@ -139,3 +166,16 @@ def int_range(high: Int) -> Rand[Int]:
       # now we know the integer we get out is >= high
       resample(rand_Int, high, uint_count)
   else: const0
+
+def geometric(depth: Nat, acc: Int) -> Rand[Int]:
+    recur depth:
+        case Zero: const_Rand(acc)
+        case Succ(prev):
+          # prob 1/2 0, prob 1/2 geometric + 1
+          bool_Rand.flat_map_Rand(b -> (
+              match b:
+                  case True: const_Rand(acc)
+                  case False: geometric(prev, acc + 1)
+          ))
+
+geometric_Int: Rand[Int] = geometric(nat30, 0)
