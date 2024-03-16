@@ -1722,9 +1722,12 @@ external def foo2(i: Integer, b: a) -> String
     roundTrip(
       Package.parser(None),
       """
+# we can comment the package
 package Foo/Bar
+# comments are allowed
 from Baz import Bippy
-export foo
+# even here
+export foo # or here
 
 foo = 1
 """

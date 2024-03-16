@@ -190,10 +190,12 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
+
   def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
     val spaceComment: P0[Unit] =
-      (Parser.spaces | (P.char('#') <* P.charsWhile0(_ != '\n'))).?.void
-    val eol = Parser.commentToEOL.void | Parser.toEOL
+      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
+
+    val eol = spaceComment <* Parser.termination
     val parsePack = Padding
       .parser(
         (P.string("package")

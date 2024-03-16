@@ -448,10 +448,7 @@ object Parser {
     (P.char('(') ~ ws) *> pa <* (ws ~ P.char(')'))
 
   val newline: P[Unit] = P.char('\n')
-  // The comment excluding the leading # up to the EOL or EOF
   val termination: P0[Unit] = newline.orElse(P.end)
-  val commentToEOL: P[String] =
-    P.char('#') *> P.charsWhile0(_ != '\n') <* termination
   val toEOL: P0[Unit] = maybeSpace *> termination
   val toEOL1: P[Unit] = maybeSpace.with1 *> newline
 
