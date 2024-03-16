@@ -1,7 +1,7 @@
 package Bosatsu/Nat
 
 from Bosatsu/Predef import add as operator +, times as operator *
-export Nat(), times2, add, mult, exp, to_Int, to_Nat
+export Nat(), times2, add, mult, exp, to_Int, to_Nat, is_even, div2
 
 # This is the traditional encoding of natural numbers
 # it is useful when you are iterating on all values
@@ -32,6 +32,23 @@ def mult(n1: Nat, n2: Nat) -> Nat:
         Zero: Zero
         Succ(n2):
           Succ(mult(n1, n2).add(add(n1, n2)))
+
+def is_even(n: Nat) -> Bool:
+    def loop(n: Nat, res: Bool) -> Bool:
+        recur n:
+            case Zero: res
+            case Succ(n): loop(n, False if res else True)
+    loop(n, True)
+
+def div2(n: Nat) -> Nat:
+    def loop(n: Nat, acc: Nat):
+        recur n:
+            case Zero: acc
+            case Succ(n):
+                # (n + 1) / 2 = n/2 if n is even, else n/2 + 1
+                if is_even(n): loop(n, acc)
+                else: loop(n, Succ(acc))
+    loop(n, Zero)
 
 one = Succ(Zero)
 

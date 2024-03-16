@@ -116,7 +116,7 @@ class PathModuleTest extends AnyFunSuite {
     }
 
   test("test direct run of a file") {
-    val deps = List("Nat", "List", "Bool", "Rand", "Properties")
+    val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
     val inputs = deps.map { n => s"--input test_workspace/${n}.bosatsu"}.mkString(" ")
     val out = run(
       s"test $inputs --test_file test_workspace/Queue.bosatsu"

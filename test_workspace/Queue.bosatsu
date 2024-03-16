@@ -2,7 +2,9 @@ package Queue
 
 from Bosatsu/List import eq_List
 from Bosatsu/Rand import (Rand, sequence_Rand, map_Rand, flat_map_Rand,
-  int_range as int_range_Rand, geometric_Int)
+  int_range as int_range_Rand, geometric_Int, one_of, prod_Rand)
+
+from Bosatsu/Nat import (Nat, Zero, Succ, to_Nat as int_to_Nat)
 
 from Bosatsu/Properties import Prop, forall_Prop, suite_Prop, run_Prop
 
@@ -48,7 +50,7 @@ def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: (b, a) -> b) -> b:
   b.reverse().foldLeft(front, fold_fn)
 
 def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
-  Queue(b.reverse(), f.reverse())
+  Queue(b, f)
 
 def eq_Queue(eq_fn: (a, a) -> Bool)(left: Queue[a], right: Queue[a]) -> Bool:
   res = left.fold_Queue((True, right), \(g, right), al ->
@@ -85,14 +87,46 @@ q12 = empty.push(1).push(2)
 
 def samp(r)(fn): flat_map_Rand(r, fn)
 
+rand_int = int_range_Rand(128)
+
 rand_geo_List_Int: Rand[List[Int]] = (
-  rand_int = int_range_Rand(128)
   len <- geometric_Int.samp()
   lst = replicate_List(rand_int, len)
   sequence_Rand(lst)
 )
 
-rand_Queue_Int: Rand[Queue[Int]] = rand_geo_List_Int.map_Rand(from_List)
+queue_from_list = rand_geo_List_Int.map_Rand(from_List)
+
+def rand_Queue_depth(depth: Nat) -> Rand[Queue[Int]]:
+    recur depth:
+        case Zero: queue_from_list
+        case Succ(n):
+          smaller = rand_Queue_depth(n)
+          pop_rand = smaller.map_Rand(pop)
+          push_rand = prod_Rand(rand_int, smaller).map_Rand(((h, q)) -> push(q, h))
+          rev_rand = smaller.map_Rand(reverse_Queue)
+          one_of(pop_rand, [push_rand, rev_rand])
+
+rand_Queue_Int: Rand[Queue[Int]] = rand_Queue_depth(int_to_Nat(50))
+
+def show_List[a](lst: List[a], showa: a -> String) -> String:
+  def inner(lst):
+    recur lst:
+      case []: ""
+      case [a]: showa(a)
+      case [a, *t]:
+        tstr = inner(t)
+        astr = showa(a)
+        "${astr}, ${tstr}"
+
+  middle = inner(lst)
+  "[${middle}]"
+
+def show_Queue[a](q: Queue[a], showa: a -> String) -> String:
+  Queue(f, b) = q
+  frontStr = show_List(f, showa)
+  backStr = show_List(b, showa)
+  "Queue(${frontStr}, ${backStr})"
 
 queue_laws = suite_Prop(
   "queue properties",
@@ -105,7 +139,32 @@ queue_laws = suite_Prop(
                 case [h, *_]: eq_Int(h, i)
                 case _: False
       Assertion(res, "check head")
-    ))
+    )),
+    forall_Prop(rand_Queue_Int, "reverse isomorphism", q -> (
+      rev_tl = q.reverse_Queue().to_List()
+      rev_tl_str = show_List(rev_tl, int_to_String)
+      tl_rev = q.to_List().reverse()
+      tl_rev_str = show_List(tl_rev, int_to_String)
+      res = eq_li(rev_tl, tl_rev)
+      q_str = show_Queue(q, int_to_String)
+      Assertion(res, "rev_tl = ${rev_tl_str} tl_rev = ${tl_rev_str}: ${q_str}")
+    )),
+    forall_Prop(rand_int.prod_Rand(rand_Queue_Int),
+      "push is the same as reverse prepend reverse", ((h, q)) -> (
+      q1 = q.push(h).to_List()
+      q2 = [h, *q.to_List().reverse()].reverse()
+      res = eq_li(q1, q2)
+      Assertion(res, "push isomorphism")
+    )),
+    forall_Prop(rand_Queue_Int, "pop isomorphism", q -> (
+      match q.unpush():
+        case Some((h, t)):
+          list1 = [h, *(t.to_List())]
+          list2 = q.to_List()
+          Assertion(eq_li(list1, list2), "pop non-empty")
+        case None:
+          Assertion(q.to_List() matches [], "empty is only unpush")
+    )),
   ]
 )
 

@@ -1,9 +1,13 @@
 package Bosatsu/Rand
 
-from Bosatsu/Nat import Nat, Zero, Succ, exp as exp_Nat, to_Int as nat_to_Int, to_Nat as int_to_Nat
+from Bosatsu/Nat import (Nat, Zero, Succ, exp as exp_Nat,
+  to_Int as nat_to_Int, to_Nat as int_to_Nat)
+
+from Bosatsu/BinNat import (BinNat, Zero as BZero, Odd, Even,
+  next as next_BinNat, prev as prev_BinNat, toInt as binNat_to_Int)
 
 export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand,
-  int_range, sequence_Rand, bool_Rand, geometric_Int)
+  int_range, sequence_Rand, bool_Rand, geometric_Int, from_pair, one_of)
 
 struct State(s0: Int, s1: Int, s2: Int, s3: Int)
 struct UInt64(toInt: Int)
@@ -179,3 +183,88 @@ def geometric(depth: Nat, acc: Int) -> Rand[Int]:
           ))
 
 geometric_Int: Rand[Int] = geometric(nat30, 0)
+
+def len[a](list: List[a]) -> BinNat:
+    def loop(list, acc):
+        recur list:
+            case []: acc
+            case [_, *t]: loop(t, acc.next_BinNat())
+    loop(list, BZero)
+
+def split_at[a](list: List[a], idx: BinNat) -> (List[a], List[a]):
+  recur list:
+    case []: ([], [])
+    case [h, *t]:
+      match idx:
+        case BZero: ([], list)
+        case _:
+          (left, right) = split_at(t, idx.prev_BinNat())
+          ([h, *left], right)
+
+def from_pair(left: Rand[a], right: Rand[a]) -> Rand[a]:
+    bool_Rand.flat_map_Rand(b -> (
+      match b:
+        case True: left
+        case False: right
+    ))
+
+def one_of[a](head: Rand[a], tail: List[Rand[a]]) -> Rand[a]:
+    unreachable_case = head
+    # invariant: items_len == len(items), and items_len > 0
+    def loop(items_len: BinNat, items: List[Rand[a]]) -> Rand[a]:
+        recur items_len:
+            case BZero:
+                # unreachable, just return head to typecheck
+                unreachable_case
+            case Odd(BZero):
+                # 2 * 0 + 1, just choose the head of the list
+                match items:
+                    case [h, *_]: h
+                    case _:
+                      # unreacheable len > 0, so can't match
+                      unreachable_case
+            case Odd(n):
+                # llen = 2n + 1
+                # split into 1 + n + n 
+                # with weight (n + 1) choose left, and with weight n choose right
+                match items:
+                    case [front, *tail]:
+                        (left, right) = split_at(tail, n)
+                        lrand = loop(n, left)
+                        rrand = loop(n, right)
+                        # equal chance left and right
+                        back = from_pair(lrand, rrand)
+                        int_range(binNat_to_Int(items_len)) \
+                          .flat_map_Rand(idx -> (
+                            match idx:
+                              case 0: front
+                              case _: back
+                          ))
+                    case []: unreachable_case
+            case Even(BZero):
+              # exactly two, choose each equally likely
+              match items:
+                  case [left, right, *_]:
+                    # equal chance left and right
+                    from_pair(left, right)
+                  case _:
+                    unreachable_case
+            case Even(n):
+              # 2n + 2, pull two off, choose them equally likely,
+              match items:
+                  case [f1, f2, *tail]:
+                    front = from_pair(f1, f2)
+                    back = loop(n, tail)
+                    # with prob 1/(n + 1) choose front
+                    int_range(binNat_to_Int(items_len).div(2)) \
+                      .flat_map_Rand(idx -> (
+                        match idx:
+                          case 0: front
+                          case _: back
+                      ))
+                  case _:
+                    unreachable_case
+
+    items = [head, *tail]
+    loop(len(items), items)
+  
