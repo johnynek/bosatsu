@@ -1,0 +1,111 @@
+package Bosatsu/NumberProps
+
+from Bosatsu/BinNat import (BinNat, toBinNat as int_to_BinNat)
+from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
+  times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
+  mult as mult_Nat, exp as exp_Nat, sub_Nat)
+from Bosatsu/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
+from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, prod_Rand)
+
+export (rand_Int, rand_Nat, rand_BinNat)
+
+# Property checks for Nat, BinNat, Int
+
+#external def todo(ignore: x) -> forall a. a
+
+rand_Int: Rand[Int] = from_pair(int_range(128), geometric_Int)
+rand_Nat: Rand[Nat] = rand_Int.map_Rand(int_to_Nat)
+rand_BinNat: Rand[BinNat] = rand_Int.map_Rand(int_to_BinNat)
+
+eq_Int = (a, b) -> a.cmp_Int(b) matches EQ
+
+int_props = suite_Prop(
+  "Int props",
+  [
+    forall_Prop(prod_Rand(rand_Int, rand_Int), "divmod law", ((a, b)) -> (
+      adivb = a.div(b)
+      amodb = a.mod_Int(b)
+      a1 = adivb.times(b).add(amodb)
+      Assertion(eq_Int(a1, a), "check")
+    )),
+  ]
+)
+
+def cmp_Comparison(c1: Comparison, c2: Comparison) -> Comparison:
+    match c1:
+        case LT:
+            match c2:
+                case LT: EQ
+                case _: LT
+        case EQ:
+            match c2:
+                case LT: GT
+                case EQ: EQ
+                case GT: LT
+        case GT:
+            match c2:
+                case GT: EQ
+                case _: GT
+
+def exp_Int(base: Int, power: Int) -> Int:
+  int_loop(power, 1, (p, acc) -> (p.sub(1), acc.times(base)))
+
+small_rand_Nat: Rand[Nat] = int_range(7).map_Rand(int_to_Nat)
+
+nat_props = suite_Prop(
+  "Nat props",
+  [
+    forall_Prop(rand_Nat, "if is_even(n) then times2(div2(n)) == n", n -> (
+      if is_even_Nat(n):
+        n1 = times2_Nat(div2_Nat(n))
+        Assertion(cmp_Nat(n1, n) matches EQ, "times2/div2")
+      else:
+        # we return the previous number
+        n1 = times2_Nat(div2_Nat(n))
+        Assertion(cmp_Nat(NSucc(n1), n) matches EQ, "times2/div2")
+    )),
+    forall_Prop(prod_Rand(rand_Nat, rand_Nat), "cmp_Nat matches cmp_Int", ((n1, n2)) -> (
+      cmp_n = cmp_Nat(n1, n2)
+      cmp_i = cmp_Int(n1.nat_to_Int(), n2.nat_to_Int())
+      Assertion(cmp_Comparison(cmp_n, cmp_i) matches EQ, "cmp_Nat")
+    )),
+    forall_Prop(prod_Rand(rand_Nat, rand_Nat), "add homomorphism", ((n1, n2)) -> (
+      n3 = add_Nat(n1, n2)
+      i3 = add(n1.nat_to_Int(), n2.nat_to_Int())
+      Assertion(cmp_Int(n3.nat_to_Int(), i3) matches EQ, "add homomorphism")
+    )),
+    forall_Prop(prod_Rand(rand_Nat, rand_Nat), "sub_Nat homomorphism", ((n1, n2)) -> (
+      n3 = sub_Nat(n1, n2)
+      i1 = n1.nat_to_Int()
+      i2 = n2.nat_to_Int()
+      match cmp_Int(i1, i2):
+        case EQ | GT:
+          i3 = sub(i1, i2)
+          Assertion(cmp_Int(n3.nat_to_Int(), i3) matches EQ, "sub_Nat homomorphism")
+        case LT:
+          Assertion(n3 matches NZero, "sub to zero")
+    )),
+    forall_Prop(prod_Rand(rand_Nat, rand_Nat), "mult homomorphism", ((n1, n2)) -> (
+      n3 = mult_Nat(n1, n2)
+      i3 = times(n1.nat_to_Int(), n2.nat_to_Int())
+      Assertion(cmp_Int(n3.nat_to_Int(), i3) matches EQ, "mult homomorphism")
+    )),
+    forall_Prop(prod_Rand(small_rand_Nat, small_rand_Nat), "exp homomorphism", ((n1, n2)) -> (
+      n3 = exp_Nat(n1, n2)
+      i3 = exp_Int(n1.nat_to_Int(), n2.nat_to_Int())
+      Assertion(cmp_Int(n3.nat_to_Int(), i3) matches EQ, "exp homomorphism")
+    )),
+    forall_Prop(rand_Nat, "times2 == x -> mult(2, x)", n -> (
+      t2 = n.times2_Nat()
+      t2_2 = mult_Nat(n, NSucc(NSucc(NZero)))
+      Assertion(cmp_Nat(t2, t2_2) matches EQ, "times2 == mult(2, _)")
+    )),
+  ]
+)
+
+all_props = [int_props, nat_props]
+
+seed = 123456
+test = TestSuite("properties", [
+  run_Prop(p, 100, seed) for p in all_props
+])
