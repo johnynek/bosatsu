@@ -7,7 +7,7 @@ from Bosatsu/BinNat import (BinNat, Zero as BZero, Odd, Even,
   next as next_BinNat, prev as prev_BinNat, toInt as binNat_to_Int)
 
 export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand,
-  int_range, sequence_Rand, bool_Rand, geometric_Int, from_pair, one_of)
+  int_range, nat_range, sequence_Rand, bool_Rand, geometric_Int, from_pair, one_of)
 
 struct State(s0: Int, s1: Int, s2: Int, s3: Int)
 struct UInt64(toInt: Int)
@@ -171,6 +171,9 @@ def int_range(high: Int) -> Rand[Int]:
       resample(rand_Int, high, uint_count)
   else: const0
 
+def nat_range(high: Nat) -> Rand[Nat]:
+  int_range(nat_to_Int(high)).map_Rand(int_to_Nat)
+
 def geometric(depth: Nat, acc: Int) -> Rand[Int]:
     recur depth:
         case Zero: const_Rand(acc)
@@ -182,6 +185,7 @@ def geometric(depth: Nat, acc: Int) -> Rand[Int]:
                   case False: geometric(prev, acc + 1)
           ))
 
+# geometric distribution with mean 1
 geometric_Int: Rand[Int] = geometric(nat30, 0)
 
 def len[a](list: List[a]) -> BinNat:

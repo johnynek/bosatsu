@@ -73,5 +73,5 @@ all_props = suite_Prop(
     shift_unshift_law,
     positive_and_law,
   ])
-
-all_laws = run_Prop(all_props, 100, 42)
+  
+test = run_Prop(all_props, 100, 42)
