@@ -143,10 +143,10 @@ def times2(b: BinNat) -> BinNat:
       Even(Odd(n))
 
 def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
-  # invariant: left >= right
+  # invariant: left > right
+  # we always return >= 1
   def loop(left, right):
     recur left:
-      case Zero: Zero
       case Odd(left) as odd:
         match right:
           case Zero: odd
@@ -168,6 +168,12 @@ def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
           case Even(right):
             # (2n + 2) - (2m + 2) = 2(n - m)
             times2(loop(left, right))
+      case Zero:
+        # this is last because it is actually unreachable
+        # due to the invariant that left > right
+        # but the type system can't express this
+        # we put it last to improve performance
+        Zero
 
   if cmp_BinNat(left, right) matches (LT | EQ): Zero
   else: loop(left, right)
