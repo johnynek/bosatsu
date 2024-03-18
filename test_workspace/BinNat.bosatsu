@@ -3,7 +3,7 @@ package Bosatsu/BinNat
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
 export (BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2,
-  prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat)
+  prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, eq_BinNat)
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -72,6 +72,21 @@ def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
             case LT: LT
         case Zero: GT
 
+# this is more efficient potentially than cmp_BinNat
+# because at the first difference we can stop. In the worst
+# case of equality, the cost is the same.
+def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
+  recur a:
+    case Zero: b matches Zero
+    case Odd(n):
+      match b:
+        case Odd(m): eq_BinNat(n, m)
+        case _: False
+    case Even(n):
+      match b:
+        case Even(m): eq_BinNat(n, m)
+        case _: False
+
 # Return the next number
 def next(b: BinNat) -> BinNat:
   recur b:
@@ -86,14 +101,11 @@ def next(b: BinNat) -> BinNat:
 # Return the previous number if the number is > 0, else return 0
 def prev(b: BinNat) -> BinNat:
   recur b:
-    Zero: Zero
-    Odd(Zero):
-      # This breaks the law below because 0 - 1 = 0 in this function
-      Zero
-    Odd(half):
+    case Zero | Odd(Zero): Zero
+    case Odd(half):
       # (2n + 1) - 1 = 2n = 2(n-1 + 1)
       Even(prev(half))
-    Even(half1):
+    case Even(half1):
       # 2(n + 1) - 1 = 2n + 1
       Odd(half1)
 
@@ -131,34 +143,34 @@ def times2(b: BinNat) -> BinNat:
       Even(Odd(n))
 
 def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
-  recur left:
-    case Zero: Zero
-    case Odd(left) as odd:
-      match right:
-        case Zero: odd
-        case Odd(right):
-          # (2n + 1) - (2m + 1) = 2(n - m)
-          times2(sub_BinNat(left, right))
-        case Even(right):
-          # (2n + 1) - (2m + 2) = 2(n - m) - 1
-          times2(sub_BinNat(left, right)).prev()
-    case Even(left) as even:
-      match right:
-        Zero: even
-        Odd(right):
-          # (2n + 2) - (2m + 1)
-          # if n >= m: 2(n - m) + 1
-          # if n < m: 0
-          diff = sub_BinNat(left, right)
-          match diff:
-            case Zero:
-              match cmp_BinNat(left, right):
-                case LT: Zero
-                case _: Odd(diff)
-            case _: Odd(diff)
-        Even(right):
-          # (2n + 2) - (2m + 2) = 2(n - m)
-          times2(sub_BinNat(left, right))
+  # invariant: left >= right
+  def loop(left, right):
+    recur left:
+      case Zero: Zero
+      case Odd(left) as odd:
+        match right:
+          case Zero: odd
+          case Odd(right):
+            # (2n + 1) - (2m + 1) = 2(n - m)
+            times2(loop(left, right))
+          case Even(right):
+            # (2n + 1) - (2m + 2) = 2(n - m) - 1
+            # note if (2n + 1) > (2m + 2), then n > m
+            times2(loop(left, right)).prev()
+      case Even(left) as even:
+        match right:
+          case Zero: even
+          case Odd(right):
+            # (2n + 2) - (2m + 1)
+            # if n >= m: 2(n - m) + 1
+            # if (2n + 2) > (2m + 1), then n > m
+            Odd(loop(left, right))
+          case Even(right):
+            # (2n + 2) - (2m + 2) = 2(n - m)
+            times2(loop(left, right))
+
+  if cmp_BinNat(left, right) matches (LT | EQ): Zero
+  else: loop(left, right)
 
 def div2(b: BinNat) -> BinNat:
     match b:

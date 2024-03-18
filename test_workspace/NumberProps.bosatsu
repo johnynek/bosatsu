@@ -3,7 +3,7 @@ package Bosatsu/NumberProps
 from Bosatsu/BinNat import (BinNat, toBinNat as int_to_BinNat, is_even as is_even_BinNat,
     times2 as times2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
     times_BinNat, exp as exp_BinNat, cmp_BinNat, toInt as binNat_to_Int, add_BinNat,
-    next as next_BinNat, sub_BinNat,
+    next as next_BinNat, sub_BinNat, eq_BinNat,
   )
 from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
   times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
@@ -124,6 +124,12 @@ binnat_props = suite_Prop(
       cmp_n = cmp_BinNat(n1, n2)
       cmp_i = cmp_Int(n1.binNat_to_Int(), n2.binNat_to_Int())
       Assertion(cmp_Comparison(cmp_n, cmp_i) matches EQ, "cmp_BinNat")
+    )),
+    forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "cmp_BinNat matches eq_BinNat", ((n1, n2)) -> (
+      eq1 = cmp_BinNat(n1, n2) matches EQ
+      eq2 = eq_BinNat(n1, n2)
+      correct = (eq1, eq2) matches (True, True) | (False, False)
+      Assertion(correct, "cmp vs eq consistency")
     )),
     forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "add homomorphism", ((n1, n2)) -> (
       n3 = add_BinNat(n1, n2)
