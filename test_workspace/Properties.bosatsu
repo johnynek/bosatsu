@@ -33,7 +33,7 @@ def run_Prop(prop: Prop, trials: Int, seed: Int) -> Test:
 
 signed64 = int_range(1 << 64).map_Rand(i -> i - (1 << 63))
 
-def operator ==(a, b): cmp_Int(a, b) matches EQ
+def operator ==(a, b): eq_Int(a, b)
 
 not_law = forall_Prop(
   signed64,
