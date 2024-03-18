@@ -2,7 +2,8 @@ package Bosatsu/BinNat
 
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
-export BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2, prev
+export (BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2,
+  prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat)
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -10,6 +11,9 @@ export BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2, prev
 # e.g:
 # Zero, Odd(Zero), Even(Zero), Odd(Odd(Zero)), Even(Odd(Zero))
 enum BinNat: Zero, Odd(half: BinNat), Even(half1: BinNat)
+
+def is_even(b: BinNat) -> Bool:
+  b matches Zero | Even(_)
 
 # Convert a BinNat into the equivalent Int
 # this is O(log(b)) operation
@@ -37,7 +41,36 @@ def toBinNat(n: Int) -> BinNat:
     (dec(n), fns)
   )
   # Now apply all the transformations
-  fns.foldLeft(Zero, \n, fn -> fn(n))
+  fns.foldLeft(Zero, (n, fn) -> fn(n))
+
+def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
+  recur a:
+    case Zero:
+      match b:
+        case Odd(_) | Even(_): LT
+        case Zero: EQ
+    case Odd(a1):
+      match b:
+        case Odd(b1): cmp_BinNat(a1, b1)
+        case Even(b1):
+          # 2n + 1 <> 2m + 2
+          # if n <= m, LT
+          # if n > m GT
+          match cmp_BinNat(a1, b1):
+            case LT | EQ: LT
+            case GT: GT
+        case Zero: GT
+    case Even(a1):
+      match b:
+        case Even(b1): cmp_BinNat(a1, b1)
+        case Odd(b1):
+          # 2n + 2 <> 2m + 1
+          # if n >= m, GT
+          # if n < m LT
+          match cmp_BinNat(a1, b1):
+            case GT | EQ: GT
+            case LT: LT
+        case Zero: GT
 
 # Return the next number
 def next(b: BinNat) -> BinNat:
@@ -97,11 +130,45 @@ def times2(b: BinNat) -> BinNat:
       #2(2(n + 1)) = 2((2n + 1) + 1)
       Even(Odd(n))
 
+def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
+  recur left:
+    case Zero: Zero
+    case Odd(left) as odd:
+      match right:
+        case Zero: odd
+        case Odd(right):
+          # (2n + 1) - (2m + 1) = 2(n - m)
+          times2(sub_BinNat(left, right))
+        case Even(right):
+          # (2n + 1) - (2m + 2) = 2(n - m) - 1
+          times2(sub_BinNat(left, right)).prev()
+    case Even(left) as even:
+      match right:
+        Zero: even
+        Odd(right):
+          # (2n + 2) - (2m + 1)
+          # if n >= m: 2(n - m) + 1
+          # if n < m: 0
+          diff = sub_BinNat(left, right)
+          match diff:
+            case Zero:
+              match cmp_BinNat(left, right):
+                case LT: Zero
+                case _: Odd(diff)
+            case _: Odd(diff)
+        Even(right):
+          # (2n + 2) - (2m + 2) = 2(n - m)
+          times2(sub_BinNat(left, right))
+
 def div2(b: BinNat) -> BinNat:
     match b:
         case Zero: Zero
-        case Odd(n): n
-        case Even(n): prev(n)
+        case Odd(n):
+          # (2n + 1)/2 = n
+          n
+        case Even(n):
+          # (2n + 2)/2 = n + 1
+          next(n)
 
 # multiply two BinNat together
 def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
@@ -121,6 +188,21 @@ def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
           # 2(l + 1) * n = 2(l*n + n)
           prod = times_BinNat(left, right)
           times2(prod.add_BinNat(right))
+
+one = Odd(Zero)
+
+def exp(base: BinNat, power: BinNat) -> BinNat:
+  recur power:
+    case Zero: one
+    case Odd(n):
+      # b^(2n + 1) == (b^n) * (b^n) * b
+      bn = exp(base, n)
+      bn.times_BinNat(bn).times_BinNat(base)
+    case Even(n):
+      # b^(2n + 2) = (b^n * b)^2
+      bn = exp(base, n)
+      bn1 = bn.times_BinNat(base)
+      bn1.times_BinNat(bn1)
 
 # fold(fn, a, Zero) = a
 # fold(fn, a, n) = fold(fn, fn(a, n - 1), n - 1)
@@ -158,7 +240,6 @@ def next_law(i, msg):
 def times2_law(i, msg):
   Assertion(i.toBinNat().times2().toInt().eq_Int(i.times(2)), msg)
 
-one = Odd(Zero)
 two = one.next()
 three = two.next()
 four = three.next()
