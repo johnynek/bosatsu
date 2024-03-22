@@ -112,11 +112,15 @@ binnat_props = suite_Prop(
     forall_Prop(rand_BinNat, "if is_even(n) then times2(div2(n)) == n", n -> (
       if is_even_BinNat(n):
         n1 = times2_BinNat(div2_BinNat(n))
-        Assertion(cmp_BinNat(n1, n) matches EQ, "times2/div2")
+        n_str = binNat_to_Int(n).int_to_String()
+        n1_str = binNat_to_Int(n1).int_to_String()
+        Assertion(cmp_BinNat(n1, n) matches EQ, "even, times2/div2: n = ${n_str}, n1 = ${n1_str}")
       else:
         # we return the previous number
         n1 = times2_BinNat(div2_BinNat(n))
-        Assertion(cmp_BinNat(n1.next_BinNat(), n) matches EQ, "times2/div2")
+        n_str = binNat_to_Int(n).int_to_String()
+        n1_str = binNat_to_Int(n1).int_to_String()
+        Assertion(cmp_BinNat(n1.next_BinNat(), n) matches EQ, "times2/div2: n = ${n_str}, n1 = ${n1_str}")
     )),
     forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "cmp_BinNat matches cmp_Int", ((n1, n2)) -> (
       cmp_n = cmp_BinNat(n1, n2)

@@ -45,6 +45,10 @@ def toBinNat(n: Int) -> BinNat:
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
+    case Zero:
+      match b:
+        case Odd(_) | Even(_): LT
+        case Zero: EQ
     case Odd(a1):
       match b:
         case Odd(b1): cmp_BinNat(a1, b1)
@@ -67,16 +71,13 @@ def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
             case GT | EQ: GT
             case LT: LT
         case Zero: GT
-    case Zero:
-      match b:
-        case Odd(_) | Even(_): LT
-        case Zero: EQ
 
 # this is more efficient potentially than cmp_BinNat
 # because at the first difference we can stop. In the worst
 # case of equality, the cost is the same.
 def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
   recur a:
+    case Zero: b matches Zero
     case Odd(n):
       match b:
         case Odd(m): eq_BinNat(n, m)
@@ -85,7 +86,6 @@ def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
       match b:
         case Even(m): eq_BinNat(n, m)
         case _: False
-    case Zero: b matches Zero
 
 # Return the next number
 def next(b: BinNat) -> BinNat:
@@ -155,6 +155,10 @@ def doub_prev(b: BinNat) -> Option[BinNat]:
 
 def sub_Option(left: BinNat, right: BinNat) -> Option[BinNat]:
   recur left:
+    case Zero:
+      match right:
+        case Zero: Some(Zero)
+        case _: None
     case Odd(left) as odd:
       match right:
         case Zero: Some(odd)
@@ -184,10 +188,6 @@ def sub_Option(left: BinNat, right: BinNat) -> Option[BinNat]:
           match sub_Option(left, right):
             case Some(n_m): Some(times2(n_m))
             case None: None
-    case Zero:
-      match right:
-        case Zero: Some(Zero)
-        case _: None
 
 def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
   match sub_Option(left, right):
@@ -325,4 +325,5 @@ test = TestSuite(
     Assertion(fib(two).toInt().eq_Int(2), "fib(2) == 2"),
     Assertion(fib(three).toInt().eq_Int(3), "fib(3) == 3"),
     Assertion(fib(four).toInt().eq_Int(5), "fib(4) == 5"),
+    Assertion(cmp_BinNat(54.toBinNat(), 54.toBinNat()) matches EQ, "54 == 54"),
   ])
