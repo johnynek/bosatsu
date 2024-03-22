@@ -212,7 +212,7 @@ class RankNInferTest extends AnyFunSuite {
 
   // this could be used to test the string representation of expressions
   def checkTERepr(statement: String, repr: String) =
-    checkLast(statement)(te => assert(te.repr == repr))
+    checkLast(statement)(te => assert(te.repr.render(80) == repr))
 
   /** Test that a program is ill-typed
     */
