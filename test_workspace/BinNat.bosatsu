@@ -45,10 +45,6 @@ def toBinNat(n: Int) -> BinNat:
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
-    case Zero:
-      match b:
-        case Odd(_) | Even(_): LT
-        case Zero: EQ
     case Odd(a1):
       match b:
         case Odd(b1): cmp_BinNat(a1, b1)
@@ -71,6 +67,10 @@ def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
             case GT | EQ: GT
             case LT: LT
         case Zero: GT
+    case Zero:
+      match b:
+        case Odd(_) | Even(_): LT
+        case Zero: EQ
 
 # this is more efficient potentially than cmp_BinNat
 # because at the first difference we can stop. In the worst

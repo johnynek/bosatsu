@@ -173,7 +173,20 @@ object Matchless {
         l.nonEmpty || hasSideEffect(b)
     }
 
-  case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
+  case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr {
+    def flatten: (NonEmptyList[(BoolExpr, Expr)], Expr) = {
+      def combine(expr: Expr): (List[(BoolExpr, Expr)], Expr) =
+        expr match {
+          case If(c1, t1, e1) =>
+            val (ifs, e2) = combine(e1)
+            (((c1, t1)) :: ifs, e2)
+          case last => (Nil, last)
+        }
+
+      val (rest, last) = combine(elseExpr)
+      (NonEmptyList((cond, thenExpr), rest), last)
+    }
+  }
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
   def always(cond: BoolExpr, thenExpr: Expr): Expr =
     if (hasSideEffect(cond)) Always(cond, thenExpr)
