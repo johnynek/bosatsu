@@ -16,7 +16,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class MatchlessTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful =
-      if (Platform.isScalaJvm) 1000 else 20
+      if (Platform.isScalaJvm) 5000 else 20
     )
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]
@@ -58,6 +58,11 @@ class MatchlessTest extends AnyFunSuite {
       assert(run() == run())
     }
   }
+
+  val genMatchlessExpr: Gen[Matchless.Expr] =
+    genInputs.map { case (b, r, t, fn) =>
+      Matchless.fromLet(b, r, t)(fn)
+    }
 
   test("regressions") {
     // this is illegal code, but it shouldn't throw a match error:
@@ -149,6 +154,23 @@ class MatchlessTest extends AnyFunSuite {
       )
 
       assert(matchlessRes == matchRes)
+    }
+  }
+
+  test("If.flatten can be unflattened") {
+    forAll(genMatchlessExpr) {
+      case ifexpr @ Matchless.If(_, _, _) =>
+        val (chain, rest) = ifexpr.flatten
+        def unflatten(ifs: NonEmptyList[(Matchless.BoolExpr, Matchless.Expr)], elseX: Matchless.Expr): Matchless.If =
+          ifs.tail match {
+            case Nil => Matchless.If(ifs.head._1, ifs.head._2, elseX)
+            case head :: next => 
+              val end = unflatten(NonEmptyList(head, next), elseX)
+              Matchless.If(ifs.head._1, ifs.head._2, end)
+          }
+
+        assert(unflatten(chain, rest) == ifexpr)
+      case _ => ()
     }
   }
 }

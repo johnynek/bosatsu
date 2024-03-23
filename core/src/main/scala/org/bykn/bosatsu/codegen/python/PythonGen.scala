@@ -1878,17 +1878,8 @@ object PythonGen {
             // there is no need to
             loop(in, slotName)
           case Literal(lit) => Env.pure(Code.litToExpr(lit))
-          case If(cond, thenExpr, elseExpr) =>
-            def combine(expr: Expr): (List[(BoolExpr, Expr)], Expr) =
-              expr match {
-                case If(c1, t1, e1) =>
-                  val (ifs, e2) = combine(e1)
-                  (ifs :+ ((c1, t1)), e2)
-                case last => (Nil, last)
-              }
-
-            val (rest, last) = combine(elseExpr)
-            val ifs = NonEmptyList((cond, thenExpr), rest)
+          case ifExpr @ If(_, _, _) =>
+            val (ifs, last) = ifExpr.flatten
 
             val ifsV = ifs.traverse { case (c, t) =>
               (boolExpr(c, slotName), loop(t, slotName)).tupled
