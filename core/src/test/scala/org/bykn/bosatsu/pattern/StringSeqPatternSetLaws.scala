@@ -24,6 +24,13 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     Pattern.fromList(p.toList.take(4)).normalize
   }
 
+  lazy val allStrings: LazyList[String] =
+    // we only use 0/1 strings in Lit, but AnyElem can match others
+    "" #:: (for {
+      t <- allStrings // it's important to put this first
+      h <- LazyList('0', '1', '2')
+    } yield s"$h$t")
+
   val pmatcher = Pattern.stringUnitMatcher
 
   def matches(p: Pattern, s: String): Boolean = pmatcher(p)(s).isDefined
@@ -33,13 +40,14 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
       .listOfN(
         5000,
         Gen.frequency(
-          10 -> StringSeqPatternGen.genBitString,
+          5 -> StringSeqPatternGen.genBitString,
           1 -> Gen.listOf(Gen.oneOf(List('0', '1', '2'))).map(_.mkString)
         )
       )
-      .map { tests =>
+      .map { tests0 =>
         // we have to generate more than just 01 strings,
         // since Any can match more than that
+        val tests = tests0 ::: allStrings.take(10000).toList
         new Eq[List[Pattern]] {
           // this can flake because if two things are different,
           // but happen to have the same match results for this
@@ -53,6 +61,8 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
                   a.exists(matches(_, s)) == b.exists(matches(_, s))
                 }
             }
+
+          override def toString = s"Eq via tests = $tests"
         }
       }
 
