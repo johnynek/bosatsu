@@ -334,7 +334,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
           val diffA = setOps.difference(a, b)
           val diffB = setOps.difference(b, a)
 
-          assert(!eqv.eqv(intr, a :: Nil))
+          assert(!eqv.eqv(intr, a :: Nil), s"intr = $intr")
           assert(!eqv.eqv(intr, b :: Nil), s"intr = $intr")
           assert(!eqv.eqv(a :: Nil, b :: Nil))
           assert(intr.nonEmpty, s"a = $a, b = $b , intr = $intr")
