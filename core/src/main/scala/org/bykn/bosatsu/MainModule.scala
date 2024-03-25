@@ -1214,12 +1214,12 @@ abstract class MainModule[IO[_]](implicit
           }
     }
 
-    case class TypeCheck(
+    case class Check(
         inputs: Inputs.Compile,
         output: Option[Path],
         ifout: Option[Path],
         errColor: Colorize
-    ) extends MainCommand("type-check") {
+    ) extends MainCommand("check") {
 
       type Result = Output.CompileOut
 
@@ -1528,7 +1528,7 @@ abstract class MainModule[IO[_]](implicit
         interfaceOutputPath.orNone,
         colorOpt
       )
-        .mapN(TypeCheck(_, _, _, _))
+        .mapN(Check(_, _, _, _))
 
       val testOpt = (Inputs.runtimeOpts, testP, colorOpt)
         .mapN(RunTests(_, _, _))
@@ -1538,7 +1538,7 @@ abstract class MainModule[IO[_]](implicit
           evalOpt
         )
         .orElse(
-          Opts.subcommand("type-check", "type check a set of packages")(
+          Opts.subcommand("check", "type check a set of packages")(
             typeCheckOpt
           )
         )
