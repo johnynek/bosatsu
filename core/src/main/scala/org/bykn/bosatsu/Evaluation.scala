@@ -90,7 +90,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   /** Return the last test, if any, in the package. this is the test that is run
     * when we test the package
     */
-  def lastTest(p: PackageName): Option[Eval[Value]] =
+  def testValue(p: PackageName): Option[Eval[Value]] =
     for {
       pack <- pm.toMap.get(p)
       (name, _, _) <- Package.testValue(pack)
@@ -123,7 +123,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    */
 
   def evalTest(ps: PackageName): Option[Eval[Test]] =
-    lastTest(ps).map { ea =>
+    testValue(ps).map { ea =>
       ea.map(Test.fromValue(_))
     }
 

@@ -51,7 +51,8 @@ object Store {
         )
         val handler: HandlerFn = {
           case memoryMain.Output.TestOutput(resMap, color) =>
-            val testReport = Test.outputFor(resMap, color)
+            val evaluatedTests = resMap.map { case (p, opt) => (p, opt.map(_.value)) }
+            val testReport = Test.outputFor(evaluatedTests, color)
             testReport.doc.render(80)
           case other =>
             s"internal error. got unexpected result: $other"

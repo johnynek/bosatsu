@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Eval
 import org.typelevel.paiges.Doc
 
 sealed abstract class Test {
@@ -100,12 +99,12 @@ object Test {
   }
 
   def outputFor(
-      resultList: List[(PackageName, Option[Eval[Test]])],
+      resultList: List[(PackageName, Option[Test])],
       color: LocationMap.Colorize
   ): Report = {
     val noTests = resultList.collect { case (p, None) => p }
     val results = resultList
-      .collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }
+      .collect { case (p, Some(t)) => (p, Test.report(t, color)) }
       .sortBy(_._1)
 
     val successes = results.iterator.map { case (_, Report(s, _, _)) => s }.sum

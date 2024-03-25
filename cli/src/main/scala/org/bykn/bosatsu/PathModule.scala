@@ -98,7 +98,15 @@ object PathModule extends MainModule[IO] {
     out match {
       case Output.TestOutput(resMap, color) =>
         val hasMissing = resMap.exists(_._2.isEmpty)
-        val testReport = Test.outputFor(resMap, color)
+        // it would be nice to run in parallel, but
+        // MatchlessToValue is not currently threadsafe
+        val evalTest = resMap.map {
+          case (p, Some(evalTest)) =>
+            (p, Some(evalTest.value))
+          case (p, None) => (p, None)
+        }
+
+        val testReport = Test.outputFor(evalTest, color)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
         print(testReport.doc.render(80)).as(code)
