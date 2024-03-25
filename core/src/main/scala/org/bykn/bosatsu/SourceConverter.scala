@@ -1227,7 +1227,7 @@ final class SourceConverter(
       values: List[Statement.ValueStatement]
   ): Result[Unit] = {
     val extDefNames =
-      values.collect { case ed @ Statement.ExternalDef(name, _, _) =>
+      values.collect { case ed @ Statement.ExternalDef(name, _, _, _) =>
         (name, ed.region)
       }
 
@@ -1259,7 +1259,7 @@ final class SourceConverter(
         s match {
           case b @ Statement.Bind(_)          => Some(Left(b))
           case d @ Statement.Def(_)           => Some(Right(d))
-          case Statement.ExternalDef(_, _, _) => None
+          case Statement.ExternalDef(_, _, _, _) => None
         }
 
       def checkDefBind(s: Statement.ValueStatement): Result[Unit] =
@@ -1391,7 +1391,7 @@ final class SourceConverter(
       stmts.toList.flatMap {
         case d @ Def(_) =>
           (d.defstatement.name, RecursionKind.Recursive, Left(d)) :: Nil
-        case ExternalDef(_, _, _) =>
+        case ExternalDef(_, _, _, _) =>
           // we don't allow external defs to shadow at all, so skip it here
           Nil
         case Bind(BindingStatement(bound, decl, _)) =>
@@ -1456,7 +1456,7 @@ final class SourceConverter(
       }
 
     val withEx: List[Either[ExternalDef, Flattened]] =
-      stmts.collect { case e @ ExternalDef(_, _, _) => Left(e) }.toList :::
+      stmts.collect { case e @ ExternalDef(_, _, _, _) => Left(e) }.toList :::
         flatIn.map {
           case (b, _, Left(d @ Def(dstmt))) =>
             Right(Left(Def(dstmt.copy(name = b))(d.region)))
@@ -1513,7 +1513,7 @@ final class SourceConverter(
             (boundName, rec, l1) :: Nil
           }
           (topBound1, r)
-        case Left(ExternalDef(n, _, _)) =>
+        case Left(ExternalDef(n, _, _, _)) =>
           (topBound + n, success(Nil))
       }
     }(SourceConverter.parallelIor)).map(_.flatten)
@@ -1526,7 +1526,10 @@ final class SourceConverter(
   ], List[Statement]]] = {
     val stmts = Statement.valuesOf(ss).toList
     stmts
-      .collect { case ed @ Statement.ExternalDef(name, params, result) =>
+      .collect { case ed @ Statement.ExternalDef(name, ta, params, result) =>
+        // TODO check ta to make sure it is valid
+        // Also, we should check that the claimed types
+        // are valid, e.g. do the Kinds make sense?
         (
           params.traverse(p => toType(p._2, ed.region)),
           toType(result, ed.region)
