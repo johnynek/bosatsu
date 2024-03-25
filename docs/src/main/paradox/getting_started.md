@@ -8,11 +8,11 @@ sbt cli/assembly
 If that completes successfully, you can run `./bosatsuj` if you have java installed. Running with no
 arguments prints the help message. You should see something like:
 ```
-Missing expected command (eval or type-check or test or json or transpile)!
+Missing expected command (eval or check or test or json or transpile)!
 
 Usage:
     bosatsu eval
-    bosatsu type-check
+    bosatsu check
     bosatsu test
     bosatsu json
     bosatsu transpile
@@ -30,7 +30,7 @@ Options and flags:
 Subcommands:
     eval
         evaluate an expression and print the output
-    type-check
+    check
         type check a set of packages
     test
         test a set of bosatsu modules
