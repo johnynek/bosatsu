@@ -1917,5 +1917,13 @@ external def foo[f: * -> *](function: f) -> f
 
 f = Foo
 """)
+
+    parseProgramIllTyped("""#
+struct Box[a](item: a)
+external foo: Box
+
+struct Foo
+f = Foo
+""")
   }
 }

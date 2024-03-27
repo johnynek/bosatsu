@@ -146,12 +146,6 @@ object Infer {
   def fail(err: Error): Infer[Nothing] =
     Lift(RefSpace.pure(Left(err)))
 
-  def fromEither[A](e: Either[Error, A]): Infer[A] =
-    e match {
-      case Right(a) => pure(a)
-      case Left(err) => fail(err)
-    }
-
   def pure[A](a: A): Infer[A] =
     Lift(RefSpace.pure(Right(a)))
 
@@ -187,6 +181,11 @@ object Infer {
         leftK: Kind.Cons,
         rightK: Kind,
         region: Region
+    ) extends TypeError
+    case class KindExpectedType(
+      tpe: Type,
+      kind: Kind,
+      region: Region
     ) extends TypeError
     case class KindMismatch(
         target: Type,
@@ -2666,7 +2665,12 @@ object Infer {
       GetEnv.flatMap { env =>
         externals.toList
           .parTraverse_ { case (_, (t, region)) =>
-            fromEither(env.getKind(t, region))
+            env.getKind(t, region) match {
+              case Right(Kind.Type) => unit
+              case Right(cons @ Kind.Cons(_, _)) =>
+                fail(Error.KindExpectedType(t, cons, region))
+              case Left(err) => fail(err)
+            }
           }
       }
 
