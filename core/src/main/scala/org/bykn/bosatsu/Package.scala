@@ -273,6 +273,11 @@ object Package {
         Type.Const.Defined(p, TypeName(tds.name)) -> tds.region
       }.toMap
 
+    lazy val extDefRegions: Map[Identifier.Bindable, Region] =
+      stmts.iterator.collect { case ed: Statement.ExternalDef =>
+        ed.name -> ed.region
+      }.toMap
+
     optProg.flatMap {
       case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
         val inferVarianceParsed
@@ -336,8 +341,17 @@ object Package {
                 errs.map(PackageError.TotalityCheckError(p, _))
               }
 
+          val theseExternals =
+            parsedTypeEnv
+              .externalDefs
+              .collect { case (pack, b, t) if pack === p =>
+                // by construction this has to have all the regions
+                (b, (t, extDefRegions(b))) 
+              }
+              .toMap
+
           val inferenceEither = Infer
-            .typeCheckLets(p, lets)
+            .typeCheckLets(p, lets, theseExternals)
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,

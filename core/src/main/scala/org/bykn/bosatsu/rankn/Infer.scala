@@ -146,6 +146,12 @@ object Infer {
   def fail(err: Error): Infer[Nothing] =
     Lift(RefSpace.pure(Left(err)))
 
+  def fromEither[A](e: Either[Error, A]): Infer[A] =
+    e match {
+      case Right(a) => pure(a)
+      case Left(err) => fail(err)
+    }
+
   def pure[A](a: A): Infer[A] =
     Lift(RefSpace.pure(Right(a)))
 
@@ -2614,7 +2620,8 @@ object Infer {
     */
   def typeCheckLets[A: HasRegion](
       pack: PackageName,
-      ls: List[(Bindable, RecursionKind, Expr[A])]
+      ls: List[(Bindable, RecursionKind, Expr[A])],
+      externals: Map[Bindable, (Type, Region)]
   ): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] = {
     // Group together lets that don't include each other to get more type errors
     // if we can
@@ -2655,7 +2662,15 @@ object Infer {
           else Some(bs :+ item)
       }
 
-    run(groups)
+    val checkExternals =
+      GetEnv.flatMap { env =>
+        externals.toList
+          .parTraverse_ { case (_, (t, region)) =>
+            fromEither(env.getKind(t, region))
+          }
+      }
+
+    run(groups).parProductL(checkExternals)
   }
 
   /** This is useful to testing purposes.

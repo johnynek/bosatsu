@@ -126,7 +126,8 @@ class RankNInferTest extends AnyFunSuite {
         testPackage,
         terms.map { case (k, v, _) =>
           (Identifier.Name(k), RecursionKind.NonRecursive, v)
-        }
+        },
+        Map.empty
       )
       .runFully(withBools, boolTypes, Type.builtInKinds) match {
       case Left(err) => assert(false, err)
@@ -224,7 +225,7 @@ class RankNInferTest extends AnyFunSuite {
         fail(
           "expected an invalid program, but got:\n\n" + program.lets
             .map { case (b, r, t) =>
-              s"$b: $r = ${t.repr}"
+              s"$b: $r = ${t.repr.render(80)}"
             }
             .mkString("\n\n")
         )
@@ -1907,5 +1908,14 @@ struct Box[a](item: a)
 
 f = foo(Box(Foo))
     """, "Foo")
+  }
+
+  test("ill kinded external defs are not allowed") {
+    parseProgramIllTyped("""#
+struct Foo
+external def foo[f: * -> *](function: f) -> f
+
+f = Foo
+""")
   }
 }
