@@ -157,7 +157,7 @@ final class SourceConverter(
                 SourceConverter.InvalidDefTypeParameters(
                   args,
                   freeVarsList,
-                  ds,
+                  Right(ds),
                   region
                 ),
                 gen
@@ -1527,9 +1527,6 @@ final class SourceConverter(
     val stmts = Statement.valuesOf(ss).toList
     stmts
       .collect { case ed @ Statement.ExternalDef(name, ta, params, result) =>
-        // TODO check ta to make sure it is valid
-        // Also, we should check that the claimed types
-        // are valid, e.g. do the Kinds make sense?
         (
           params.traverse(p => toType(p._2, ed.region)),
           toType(result, ed.region)
@@ -1550,7 +1547,7 @@ final class SourceConverter(
                 }
             }
           }
-          .map { (tpe: rankn.Type) =>
+          .flatMap { (tpe: rankn.Type) =>
             val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
             // these vars were parsed so they are never skolem vars
             val freeBound = freeVars.map {
@@ -1560,10 +1557,34 @@ final class SourceConverter(
                 sys.error(s"invariant violation: parsed a skolem var: $s")
               // $COVERAGE-ON$
             }
-            // TODO: Kind support parsing kinds
-            val maybeForAll =
-              rankn.Type.forAll(freeBound.map(n => (n, Kind.Type)), tpe)
-            (name, maybeForAll)
+            val finalTpe = ta match {
+              case None =>
+                success(rankn.Type.forAll(freeBound.map(n => (n, Kind.Type)), tpe))
+              case Some(frees0) =>
+                val frees = frees0.map { case (ref, optK) => ref.toBoundVar -> optK }
+                if (frees.iterator.map(_._1).toSet === freeBound.toSet[rankn.Type.Var.Bound]) {
+                  success(rankn.Type.forAll(frees.map {
+                    case (v, None) => (v, Kind.Type)
+                    case (v, Some(k)) => (v, k)
+                  }, tpe))
+                }
+                else {
+                  val kindMap = frees.iterator.collect { case (v, Some(k)) => (v, k) }.toMap
+                  val vs = freeBound.map { v => (v, kindMap.getOrElse(v, Kind.Type)) }
+                  val t = rankn.Type.forAll(vs, tpe)
+                  SourceConverter.partial(
+                    SourceConverter.InvalidDefTypeParameters(
+                      frees0,
+                      freeBound,
+                      Left(ed),
+                      ed.region
+                    ),
+                    t
+                  )
+                }
+            }
+
+            finalTpe.map(name -> _)
           }
       }
       // TODO: we could implement Iterable[Ior[A, B]] => Ior[A, Iterble[B]]
@@ -1890,9 +1911,20 @@ object SourceConverter {
   final case class InvalidDefTypeParameters[B](
       declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind])],
       free: List[Type.Var.Bound],
-      defstmt: DefStatement[Pattern.Parsed, B],
+      defstmt: Either[Statement.ExternalDef, DefStatement[Pattern.Parsed, B]],
       region: Region
   ) extends Error {
+
+    def name: Identifier.Bindable = defstmt match {
+      case Right(ds) => ds.name
+      case Left(ed) => ed.name
+    }
+
+    def expectation: String = defstmt match {
+      case Right(_) => "a subset of"
+      case Left(_) => "the same as"
+    }
+
 
     def message = {
       def tstr(l: List[Type.Var.Bound]): String =
@@ -1906,7 +1938,7 @@ object SourceConverter {
         .renderTrim(80)
 
       val freeStr = tstr(free)
-      s"${defstmt.name.asString} found declared types: $decl, not a subset of $freeStr"
+      s"${name.asString} found declared types: $decl, not $expectation $freeStr"
     }
   }
 

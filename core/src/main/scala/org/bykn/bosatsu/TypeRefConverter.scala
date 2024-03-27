@@ -21,7 +21,7 @@ object TypeRefConverter {
     import TypeRef._
 
     t match {
-      case TypeVar(v)  => Applicative[F].pure(TyVar(Type.Var.Bound(v)))
+      case tv @ TypeVar(_)  => Applicative[F].pure(TyVar(tv.toBoundVar))
       case TypeName(n) => nameToType(n.ident).map(TyConst(_))
       case TypeArrow(as, b) =>
         (as.traverse(toType(_)), toType(b)).mapN(Fun(_, _))

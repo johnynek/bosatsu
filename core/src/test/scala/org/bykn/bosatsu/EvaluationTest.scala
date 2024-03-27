@@ -3990,4 +3990,21 @@ test = TestSuite("bases",
       12
     )
   }
+
+  test("external defs with explicit type parameters exactly match") {
+    val testCode = """
+package ErrorCheck
+
+external def foo[b](lst: List[a]) -> a
+
+"""
+    evalFail(List(testCode)) {
+      case kie @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message.contains("Region(30,59)"))
+        assert(message.contains("[b], not the same as [a]"))
+        assert(testCode.substring(30, 59) == "def foo[b](lst: List[a]) -> a")
+        ()
+    }
+  }
 }
