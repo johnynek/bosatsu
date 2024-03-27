@@ -184,7 +184,7 @@ object Infer {
     ) extends TypeError
     case class KindExpectedType(
       tpe: Type,
-      kind: Kind,
+      kind: Kind.Cons,
       region: Region
     ) extends TypeError
     case class KindMismatch(
