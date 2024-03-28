@@ -2663,7 +2663,9 @@ object Infer {
 
     val checkExternals =
       GetEnv.flatMap { env =>
-        externals.toList
+        externals
+          .toList
+          .sortBy { case (_, (_, region)) => region }
           .parTraverse_ { case (_, (t, region)) =>
             env.getKind(t, region) match {
               case Right(Kind.Type) => unit
