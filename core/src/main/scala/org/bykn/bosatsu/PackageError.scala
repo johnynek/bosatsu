@@ -364,6 +364,20 @@ object PackageError {
               context
 
             (doc, Some(region))
+          case Infer.Error.KindExpectedType(tpe, kind, region) =>
+            val tmap = showTypes(pack, tpe :: Nil)
+            val context =
+              lm.showRegion(region, 2, errColor)
+                .getOrElse(
+                  Doc.str(region)
+                ) // we should highlight the whole region
+            val doc = Doc.text("expected type ") +
+              tmap(tpe) + Doc.text(
+                " to have kind *, which is to say be a valid value, but it is kind "
+              ) + Kind.toDoc(kind) + Doc.hardLine +
+              context
+
+            (doc, Some(region))
           case Infer.Error.KindInvalidApply(applied, leftK, rightK, region) =>
             val leftT = applied.on
             val rightT = applied.arg

@@ -1716,6 +1716,13 @@ external def foo(i: Integer, b: a) -> String
 external def foo2(i: Integer, b: a) -> String
 """
     )
+    roundTrip(
+      Statement.parser,
+      """# header
+external def foo[a](i: Integer, b: a) -> String
+external def foo_co[a: +* -> *](i: Integer, b: a) -> String
+""")
+
   }
 
   test("we can parse any package") {

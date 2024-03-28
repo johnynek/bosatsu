@@ -182,6 +182,11 @@ object Infer {
         rightK: Kind,
         region: Region
     ) extends TypeError
+    case class KindExpectedType(
+      tpe: Type,
+      kind: Kind.Cons,
+      region: Region
+    ) extends TypeError
     case class KindMismatch(
         target: Type,
         targetKind: Kind,
@@ -2614,7 +2619,8 @@ object Infer {
     */
   def typeCheckLets[A: HasRegion](
       pack: PackageName,
-      ls: List[(Bindable, RecursionKind, Expr[A])]
+      ls: List[(Bindable, RecursionKind, Expr[A])],
+      externals: Map[Bindable, (Type, Region)]
   ): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] = {
     // Group together lets that don't include each other to get more type errors
     // if we can
@@ -2655,7 +2661,22 @@ object Infer {
           else Some(bs :+ item)
       }
 
-    run(groups)
+    val checkExternals =
+      GetEnv.flatMap { env =>
+        externals
+          .toList
+          .sortBy { case (_, (_, region)) => region }
+          .parTraverse_ { case (_, (t, region)) =>
+            env.getKind(t, region) match {
+              case Right(Kind.Type) => unit
+              case Right(cons @ Kind.Cons(_, _)) =>
+                fail(Error.KindExpectedType(t, cons, region))
+              case Left(err) => fail(err)
+            }
+          }
+      }
+
+    run(groups).parProductL(checkExternals)
   }
 
   /** This is useful to testing purposes.

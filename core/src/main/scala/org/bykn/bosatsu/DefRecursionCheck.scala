@@ -109,7 +109,7 @@ object DefRecursionCheck {
           case Def(defn) =>
             // make this the same shape as a in declaration
             checkDef(TopLevel, defn.copy(result = (defn.result, ())))
-          case ExternalDef(_, _, _) =>
+          case ExternalDef(_, _, _, _) =>
             unitValid
         }
       case _ => unitValid

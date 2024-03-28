@@ -34,8 +34,8 @@ sealed abstract class Statement {
         Struct(nm, typeArgs, args)(r)
       case Enum(nm, typeArgs, parts) =>
         Enum(nm, typeArgs, parts)(r)
-      case ExternalDef(name, args, res) =>
-        ExternalDef(name, args, res)(r)
+      case ExternalDef(name, ta, args, res) =>
+        ExternalDef(name, ta, args, res)(r)
       case ExternalStruct(nm, targs) =>
         ExternalStruct(nm, targs)(r)
     }
@@ -83,7 +83,7 @@ object Statement {
         case Bind(BindingStatement(bound, _, _)) =>
           bound.names // TODO Keep identifiers
         case Def(defstatement)       => defstatement.name :: Nil
-        case ExternalDef(name, _, _) => name :: Nil
+        case ExternalDef(name, _, _, _) => name :: Nil
       }
 
     /** These are all the free bindable names in the right hand side of this
@@ -98,7 +98,7 @@ object Statement {
           (innerFrees - defstatement.name) -- defstatement.args.toList.flatMap(
             _.patternNames
           )
-        case ExternalDef(_, _, _) => SortedSet.empty
+        case ExternalDef(_, _, _, _) => SortedSet.empty
       }
 
     /** These are all the bindings, free or not, in this Statement
@@ -109,7 +109,7 @@ object Statement {
         case Def(defstatement) =>
           (defstatement.result.get.allNames + defstatement.name) ++ defstatement.args.toList
             .flatMap(_.patternNames)
-        case ExternalDef(name, _, _) => SortedSet(name)
+        case ExternalDef(name, _, _, _) => SortedSet(name)
       }
   }
 
@@ -126,6 +126,7 @@ object Statement {
       extends ValueStatement
   case class ExternalDef(
       name: Bindable,
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind])]],
       params: List[(Bindable, TypeRef)],
       result: TypeRef
   )(val region: Region)
@@ -230,6 +231,10 @@ object Statement {
 
       val externalDef = {
 
+        val kindAnnot: P[Kind] =
+          (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpace *> Kind.parser))
+        val typeParams = TypeRef.typeParams(kindAnnot.?).?
+
         val args =
           P.char('(') *> maybeSpace *> argParser.nonEmptyList <* maybeSpace <* P
             .char(')')
@@ -239,16 +244,16 @@ object Statement {
 
         (((keySpace(
           "def"
-        ) *> Identifier.bindableParser ~ args ~ result).region) <* toEOL)
-          .map { case (region, ((name, args), resType)) =>
-            ExternalDef(name, args.toList, resType)(region)
+        ) *> Identifier.bindableParser ~ typeParams ~ args ~ result).region) <* toEOL)
+          .map { case (region, (((name, tps), args), resType)) =>
+            ExternalDef(name, tps, args.toList, resType)(region)
           }
       }
 
       val externalVal =
         (argParser <* toEOL).region
           .map { case (region, (name, resType)) =>
-            ExternalDef(name, Nil, resType)(region)
+            ExternalDef(name, None, Nil, resType)(region)
           }
 
       keySpace("external") *> P.oneOf(
@@ -385,11 +390,19 @@ object Statement {
           .char(':') +
           colonSep +
           indentedCons + Doc.line
-      case ExternalDef(name, Nil, res) =>
+      case ExternalDef(name, None, Nil, res) =>
         Doc.text("external ") + Document[Bindable].document(name) + Doc.text(
           ": "
         ) + res.toDoc + Doc.line
-      case ExternalDef(name, args, res) =>
+      case ExternalDef(name, tps, args, res) =>
+        val taDoc = tps match {
+          case None => Doc.empty
+          case Some(ta) =>
+            TypeRef.docTypeArgs(ta.toList) {
+              case None    => Doc.empty
+              case Some(k) => colonSpace + Kind.toDoc(k)
+            }
+        }
         val argDoc = {
           val da = Doc.intercalate(
             Doc.text(", "),
@@ -401,7 +414,7 @@ object Statement {
         }
         Doc.text("external def ") + Document[Bindable].document(
           name
-        ) + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line
+        ) + taDoc + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line
       case ExternalStruct(nm, typeArgs) =>
         val taDoc =
           TypeRef.docTypeArgs(typeArgs.toList) {
