@@ -161,10 +161,13 @@ class MatchlessTest extends AnyFunSuite {
     forAll(genMatchlessExpr) {
       case ifexpr @ Matchless.If(_, _, _) =>
         val (chain, rest) = ifexpr.flatten
-        def unflatten(ifs: NonEmptyList[(Matchless.BoolExpr, Matchless.Expr)], elseX: Matchless.Expr): Matchless.If =
+        def unflatten(
+            ifs: NonEmptyList[(Matchless.BoolExpr, Matchless.Expr)],
+            elseX: Matchless.Expr
+        ): Matchless.If =
           ifs.tail match {
             case Nil => Matchless.If(ifs.head._1, ifs.head._2, elseX)
-            case head :: next => 
+            case head :: next =>
               val end = unflatten(NonEmptyList(head, next), elseX)
               Matchless.If(ifs.head._1, ifs.head._2, end)
           }

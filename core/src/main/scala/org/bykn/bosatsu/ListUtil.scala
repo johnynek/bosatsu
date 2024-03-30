@@ -57,7 +57,7 @@ private[bosatsu] object ListUtil {
     // since a :: tailnel will have to allocate twice vs 1 time.
     def revCons(item: ::[A], tail: List[A]): NonEmptyList[A] =
       item.tail match {
-        case nel: ::[A] => revCons(nel, item.head :: tail)
+        case nel: ::[A]  => revCons(nel, item.head :: tail)
         case _: Nil.type => NonEmptyList(item.head, tail)
       }
     @annotation.tailrec

@@ -1900,14 +1900,17 @@ ignore: exists a. a = Tup(refl_bottom, refl_bottom1, refl_Foo, refl_any)
   }
 
   test("test external def with kinds") {
-    parseProgram("""
+    parseProgram(
+      """
 struct Foo
 external def foo[f: * -> *](f: f[Foo]) -> Foo
 
 struct Box[a](item: a)
 
 f = foo(Box(Foo))
-    """, "Foo")
+    """,
+      "Foo"
+    )
   }
 
   test("ill kinded external defs are not allowed") {

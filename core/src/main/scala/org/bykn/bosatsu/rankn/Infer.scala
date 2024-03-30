@@ -183,9 +183,9 @@ object Infer {
         region: Region
     ) extends TypeError
     case class KindExpectedType(
-      tpe: Type,
-      kind: Kind.Cons,
-      region: Region
+        tpe: Type,
+        kind: Kind.Cons,
+        region: Region
     ) extends TypeError
     case class KindMismatch(
         target: Type,
@@ -2663,8 +2663,7 @@ object Infer {
 
     val checkExternals =
       GetEnv.flatMap { env =>
-        externals
-          .toList
+        externals.toList
           .sortBy { case (_, (_, region)) => region }
           .parTraverse_ { case (_, (t, region)) =>
             env.getKind(t, region) match {

@@ -112,9 +112,8 @@ object Operators {
       val chain: P[NonEmptyList[(String, A)]] =
         P.repSep(opA, min = 1, sep = Parser.maybeSpace)
 
-      chain.map { rest =>
-        (a: A) =>
-          toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) })
+      chain.map { rest => (a: A) =>
+        toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) })
       }
     }
 

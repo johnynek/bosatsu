@@ -1721,7 +1721,8 @@ external def foo2(i: Integer, b: a) -> String
       """# header
 external def foo[a](i: Integer, b: a) -> String
 external def foo_co[a: +* -> *](i: Integer, b: a) -> String
-""")
+"""
+    )
 
   }
 

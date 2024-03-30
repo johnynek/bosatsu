@@ -1346,8 +1346,8 @@ object Declaration {
           val withIndent = Parser.newline *> Parser.spaces.string.flatMap {
             indent => recIndy(indent)
           }
-          maybeSpace.with1 *> (withIndent | noIndent).map { d =>
-            (r: Region) => Parens(d)(r)
+          maybeSpace.with1 *> (withIndent | noIndent).map { d => (r: Region) =>
+            Parens(d)(r)
           } <* maybeSpacesAndLines
         }
 
@@ -1432,8 +1432,8 @@ object Declaration {
               }
 
           def repFn[A](fn: P[A => A]): P0[A => A] =
-            fn.rep0.map { opList =>
-              (a: A) => opList.foldLeft(a)((arg, fn) => fn(arg))
+            fn.rep0.map { opList => (a: A) =>
+              opList.foldLeft(a)((arg, fn) => fn(arg))
             }
 
           (allNonBind ~ repFn(dotApply.orElse(applySuffix)))
@@ -1497,9 +1497,7 @@ object Declaration {
               .infixOps1(nb))
 
           // This already parses as many as it can, so we don't need repFn
-          val form = ops.map { fn =>
-            (d: NonBinding) => convert(fn(d))
-          }
+          val form = ops.map(fn => (d: NonBinding) => convert(fn(d)))
 
           nb.maybeAp(form)
         }

@@ -605,7 +605,10 @@ res = (
       checkLast("""
 res = _ -> 1
       """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr.render(80)} != ${te2.repr.render(80)}")
+        assert(
+          te1.void == te2.void,
+          s"${te1.repr.render(80)} != ${te2.repr.render(80)}"
+        )
       }
     }
 
@@ -998,9 +1001,10 @@ x = (
 
   test("TypedExpr.liftQuantification makes all args Rho types") {
 
-    forAll(Generators.smallNonEmptyList(genTypedExpr, 10),
-      Gen.containerOf[Set, Type.Var.Bound](NTypeGen.genBound)) { (tes, avoid) =>
-
+    forAll(
+      Generators.smallNonEmptyList(genTypedExpr, 10),
+      Gen.containerOf[Set, Type.Var.Bound](NTypeGen.genBound)
+    ) { (tes, avoid) =>
       val (optQuant, args) = TypedExpr.liftQuantification(tes, avoid)
       args.toList.foreach { te =>
         te.getType match {

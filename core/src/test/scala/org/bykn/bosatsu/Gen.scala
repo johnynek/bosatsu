@@ -1120,13 +1120,20 @@ object Generators {
   val genExternalDef: Gen[Statement] =
     for {
       name <- bindIdentGen
-      tas0 <- Gen.option(smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind))))
+      tas0 <- Gen.option(
+        smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
+      )
       argc <- Gen.choose(0, 5)
       argG = Gen.zip(bindIdentGen, typeRefGen)
       args <- Gen.listOfN(argc, argG)
       tas = if (args.isEmpty) None else tas0
       res <- typeRefGen
-    } yield Statement.ExternalDef(name, tas.flatMap(NonEmptyList.fromList(_)), args, res)(emptyRegion)
+    } yield Statement.ExternalDef(
+      name,
+      tas.flatMap(NonEmptyList.fromList(_)),
+      args,
+      res
+    )(emptyRegion)
 
   val genEnum: Gen[Statement] =
     for {

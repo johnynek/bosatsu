@@ -148,7 +148,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case VOption(Some(a)) => inner(a)
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
-              } else {
+              }
+              else {
 
                 case VOption(None) => Right(Json.JArray(Vector.empty))
                 case VOption(Some(a)) =>
@@ -600,10 +601,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           (
             0,
             fn.andThen { either =>
-              either.map { result =>
-                (args: Json.JArray) =>
-                  if (args.toVector.isEmpty) Right(result)
-                  else Left(IllTypedJson(Nil, t, args))
+              either.map { result => (args: Json.JArray) =>
+                if (args.toVector.isEmpty) Right(result)
+                else Left(IllTypedJson(Nil, t, args))
               }
             }
           )

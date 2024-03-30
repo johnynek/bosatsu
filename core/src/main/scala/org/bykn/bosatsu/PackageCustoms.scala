@@ -63,9 +63,13 @@ object PackageCustoms {
   private type VSet = Set[(PackageName, Identifier)]
   private type VState[X] = State[VSet, X]
 
-  private def usedGlobals[A](pack: Package.Typed[A]): Set[(PackageName, Identifier)] = {
+  private def usedGlobals[A](
+      pack: Package.Typed[A]
+  ): Set[(PackageName, Identifier)] = {
     val usedValuesSt: VState[Unit] =
-      pack.program.lets.traverse_ { case (_, _, te) => TypedExpr.usedGlobals(te) }
+      pack.program.lets.traverse_ { case (_, _, te) =>
+        TypedExpr.usedGlobals(te)
+      }
 
     usedValuesSt.runS(Set.empty).value
   }
@@ -209,7 +213,9 @@ object PackageCustoms {
     }
   }
 
-  private def noUselessBinds[A: HasRegion](pack: Package.Typed[A]): ValidatedNec[PackageError, Unit] = {
+  private def noUselessBinds[A: HasRegion](
+      pack: Package.Typed[A]
+  ): ValidatedNec[PackageError, Unit] = {
     type Node = Either[pack.exports.type, Bindable]
     implicit val ordNode: Ordering[Node] =
       new Ordering[Node] {
@@ -221,9 +227,9 @@ object PackageCustoms {
                 case Right(by) =>
                   Ordering[Identifier].compare(bx, by)
               }
-            case Left(_) => 
+            case Left(_) =>
               y match {
-                case Left(_) => 0
+                case Left(_)  => 0
                 case Right(_) => -1
               }
           }
@@ -233,8 +239,11 @@ object PackageCustoms {
     val roots: List[Node] =
       (exports ::
         Package.testValue(pack).map { case (b, _, _) => Right(b) }.toList :::
-        Package.mainValue(pack).map { case (b, _, _) => Right(b) }.toList).distinct
-          
+        Package
+          .mainValue(pack)
+          .map { case (b, _, _) => Right(b) }
+          .toList).distinct
+
     val bindMap: Map[Bindable, TypedExpr[A]] =
       pack.program.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
 
@@ -245,28 +254,34 @@ object PackageCustoms {
 
     def depsOf(n: Node): Iterable[Node] =
       n match {
-        case Left(_) => pack.exports.flatMap {
-          case ExportedName.Binding(n, _) => Right(n) :: Nil
-          case _ => Nil
-        }
+        case Left(_) =>
+          pack.exports.flatMap {
+            case ExportedName.Binding(n, _) => Right(n) :: Nil
+            case _                          => Nil
+          }
         case Right(value) =>
           bindMap.get(value) match {
-            case None => Nil
+            case None     => Nil
             case Some(te) => internalDeps(te).map(Right(_))
           }
       }
     val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
 
-    val unused = pack.program.lets.filter {
-      case (bn, _, _) => !canReach.contains(Right(bn))
+    val unused = pack.program.lets.filter { case (bn, _, _) =>
+      !canReach.contains(Right(bn))
     }
 
     NonEmptyList.fromList(unused) match {
       case None => Validated.unit
-      case Some(value) => 
-        Validated.invalidNec(PackageError.UnusedLets(pack.name, value.map { case (b, r, te) =>
-          (b, r, te, HasRegion.region(te))  
-        }))
+      case Some(value) =>
+        Validated.invalidNec(
+          PackageError.UnusedLets(
+            pack.name,
+            value.map { case (b, r, te) =>
+              (b, r, te, HasRegion.region(te))
+            }
+          )
+        )
     }
   }
 }
