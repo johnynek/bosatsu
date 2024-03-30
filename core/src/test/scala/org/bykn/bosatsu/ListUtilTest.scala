@@ -96,11 +96,11 @@ class ListUtilTest extends AnyFunSuite {
   }
 
   test("distinctByHashSet works like List.distinct") {
-   forAll { (nel: NonEmptyList[Byte] ) =>
-     val asList = nel.toList.distinct
-     val viaFn = ListUtil.distinctByHashSet(nel).toList
+    forAll { (nel: NonEmptyList[Byte]) =>
+      val asList = nel.toList.distinct
+      val viaFn = ListUtil.distinctByHashSet(nel).toList
 
-     assert(viaFn == asList)
-   }
+      assert(viaFn == asList)
+    }
   }
 }

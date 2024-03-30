@@ -325,8 +325,8 @@ object DefRecursionCheck {
           val fna: E[State => E[(State, A)]] = fa.runF
           val fnb: E[State => E[(State, B)]] = fb.runF
 
-          new cats.data.IndexedStateT((fna, fnb).parMapN { (fn1, fn2) =>
-            (state: State) =>
+          new cats.data.IndexedStateT((fna, fnb).parMapN {
+            (fn1, fn2) => (state: State) =>
               fn1(state) match {
                 case Right((s2, a)) =>
                   fn2(s2).map { case (st, b) => (st, (a, b)) }

@@ -3060,8 +3060,7 @@ main = Foo(1)
   }
 
   test("non binding top levels don't work") {
-    evalFail(
-      List("""
+    evalFail(List("""
 package A
 
 # this is basically a typecheck only
@@ -3077,8 +3076,7 @@ _ = add(1, 2)
       ()
     }
 
-    evalFail(
-      List("""
+    evalFail(List("""
 package A
 
 # this is basically a typecheck only
@@ -3093,8 +3091,7 @@ package A
       ()
     }
 
-    evalFail(
-      List("""
+    evalFail(List("""
 package A
 
 struct Foo(x, y)

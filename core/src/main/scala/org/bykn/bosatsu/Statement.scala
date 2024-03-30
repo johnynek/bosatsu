@@ -82,7 +82,7 @@ object Statement {
       this match {
         case Bind(BindingStatement(bound, _, _)) =>
           bound.names // TODO Keep identifiers
-        case Def(defstatement)       => defstatement.name :: Nil
+        case Def(defstatement)          => defstatement.name :: Nil
         case ExternalDef(name, _, _, _) => name :: Nil
       }
 

@@ -594,41 +594,49 @@ object PackageError {
 
       val (missing, notMissing) = errs.toList.partitionMap {
         case ma: SourceConverter.MissingArg => Left(ma)
-        case notMa => Right(notMa)
+        case notMa                          => Right(notMa)
       }
-      val mdocs = missing.groupBy { ma => (ma.name, ma.syntax) }
+      val mdocs = missing
+        .groupBy(ma => (ma.name, ma.syntax))
         .toList
         .sortBy { case ((name, _), _) => name }
         .map { case ((_, syn), mas) =>
-          val allMissing = mas.map(_.missing)  
+          val allMissing = mas.map(_.missing)
 
-          val missingDoc = Doc.intercalate(Doc.comma + Doc.space,
-            allMissing.sorted.map { m => Doc.text(m.asString) })
+          val missingDoc = Doc.intercalate(
+            Doc.comma + Doc.space,
+            allMissing.sorted.map(m => Doc.text(m.asString))
+          )
 
-          val fieldStr = if (allMissing.lengthCompare(1) == 0) "field" else "fields"
+          val fieldStr =
+            if (allMissing.lengthCompare(1) == 0) "field" else "fields"
 
           val hint =
             syn match {
               case SourceConverter.ConstructorSyntax.Pat(_) =>
-                Doc.line + Doc.text("if you want to ignore those fields, add a ... to signify ignoring missing.")
+                Doc.line + Doc.text(
+                  "if you want to ignore those fields, add a ... to signify ignoring missing."
+                )
               case _ =>
                 // we can't ignore fields when constructing
                 Doc.empty
             }
-          (Doc.text(s"missing $fieldStr: ") + missingDoc + Doc.line + Doc.text("in") +
-            Doc.line + syn.toDoc + hint
-          ).nested(4)
+          (Doc.text(s"missing $fieldStr: ") + missingDoc + Doc.line + Doc.text(
+            "in"
+          ) +
+            Doc.line + syn.toDoc + hint).nested(4)
         }
 
       val mdoc = Doc.intercalate(Doc.hardLine, mdocs)
-      val notMDoc = Doc.intercalate(Doc.hardLine, notMissing.map { se => Doc.text(se.message) })
+      val notMDoc = Doc.intercalate(
+        Doc.hardLine,
+        notMissing.map(se => Doc.text(se.message))
+      )
       val msg = if (missing.nonEmpty) {
         if (notMissing.nonEmpty) {
           mdoc + Doc.hardLine + notMDoc
-        }
-        else mdoc
-      }
-      else {
+        } else mdoc
+      } else {
         notMDoc
       }
 
@@ -903,7 +911,9 @@ object PackageError {
 
   case class UnusedLets(
       inPack: PackageName,
-      unusedLets: NonEmptyList[(Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)]
+      unusedLets: NonEmptyList[
+        (Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)
+      ]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
@@ -911,7 +921,7 @@ object PackageError {
     ) =
       UnusedLetError(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r)}
+        unusedLets.map { case (b, _, _, r) => (b, r) }
       ).message(sourceMap, errColor)
   }
 }

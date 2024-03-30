@@ -1218,7 +1218,7 @@ final class SourceConverter(
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
     rankn.Type.allBinders.iterator
-      .map { b => Identifier.synthetic(b.name) }
+      .map(b => Identifier.synthetic(b.name))
       .filterNot(allNames)
 
   /** Externals are not permitted to be shadowed at the top level
@@ -1257,8 +1257,8 @@ final class SourceConverter(
           s: Statement.ValueStatement
       ): Option[Either[Statement.Bind, Statement.Def]] =
         s match {
-          case b @ Statement.Bind(_)          => Some(Left(b))
-          case d @ Statement.Def(_)           => Some(Right(d))
+          case b @ Statement.Bind(_)             => Some(Left(b))
+          case d @ Statement.Def(_)              => Some(Right(d))
           case Statement.ExternalDef(_, _, _, _) => None
         }
 
@@ -1463,60 +1463,64 @@ final class SourceConverter(
           case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
 
-    noBinds.parProductR(
-    parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
-      stmt match {
-        case Right(Right((nm, decl))) =>
-          val r = fromDecl(decl, Set.empty, topBound).map(
-            (nm, RecursionKind.NonRecursive, _) :: Nil
-          )
-          // make sure all the free types are Generic
-          // we have to do this at the top level because in Declaration => Expr
-          // we allow closing over type variables defined at a higher level
-          val r1 = r.map { exs =>
-            exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
-          }
-          (topBound + nm, r1)
-
-        case Right(
-              Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
-            ) =>
-          // using body for the outer here is a bummer, but not really a good outer otherwise
-
-          val boundName = defstmt.name
-          // defs are in scope for their body
-          val topBound1 = topBound + boundName
-
-          val lam: Result[Expr[Declaration]] =
-            toLambdaExpr[OptIndent[Declaration]](
-              defstmt,
-              d.region,
-              success(defstmt.result.get)
-            )({ (res: OptIndent[Declaration]) =>
-              fromDecl(
-                res.get,
-                argGroups.flatten.iterator.flatMap(_.names).toSet + boundName,
-                topBound1
+    noBinds
+      .parProductR(parFold(Set.empty[Bindable], withEx) {
+        case (topBound, stmt) =>
+          stmt match {
+            case Right(Right((nm, decl))) =>
+              val r = fromDecl(decl, Set.empty, topBound).map(
+                (nm, RecursionKind.NonRecursive, _) :: Nil
               )
-            })
+              // make sure all the free types are Generic
+              // we have to do this at the top level because in Declaration => Expr
+              // we allow closing over type variables defined at a higher level
+              val r1 = r.map { exs =>
+                exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
+              }
+              (topBound + nm, r1)
 
-          val r = lam.map { (l: Expr[Declaration]) =>
-            // We rely on DefRecursionCheck to rule out bad recursions
-            val rec =
-              if (UnusedLetCheck.freeBound(l).contains(boundName))
-                RecursionKind.Recursive
-              else RecursionKind.NonRecursive
-            // make sure all the free types are Generic
-            // we have to do this at the top level because in Declaration => Expr
-            // we allow closing over type variables defined at a higher level
-            val l1 = Expr.quantifyFrees(l)
-            (boundName, rec, l1) :: Nil
+            case Right(
+                  Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
+                ) =>
+              // using body for the outer here is a bummer, but not really a good outer otherwise
+
+              val boundName = defstmt.name
+              // defs are in scope for their body
+              val topBound1 = topBound + boundName
+
+              val lam: Result[Expr[Declaration]] =
+                toLambdaExpr[OptIndent[Declaration]](
+                  defstmt,
+                  d.region,
+                  success(defstmt.result.get)
+                )({ (res: OptIndent[Declaration]) =>
+                  fromDecl(
+                    res.get,
+                    argGroups.flatten.iterator
+                      .flatMap(_.names)
+                      .toSet + boundName,
+                    topBound1
+                  )
+                })
+
+              val r = lam.map { (l: Expr[Declaration]) =>
+                // We rely on DefRecursionCheck to rule out bad recursions
+                val rec =
+                  if (UnusedLetCheck.freeBound(l).contains(boundName))
+                    RecursionKind.Recursive
+                  else RecursionKind.NonRecursive
+                // make sure all the free types are Generic
+                // we have to do this at the top level because in Declaration => Expr
+                // we allow closing over type variables defined at a higher level
+                val l1 = Expr.quantifyFrees(l)
+                (boundName, rec, l1) :: Nil
+              }
+              (topBound1, r)
+            case Left(ExternalDef(n, _, _, _)) =>
+              (topBound + n, success(Nil))
           }
-          (topBound1, r)
-        case Left(ExternalDef(n, _, _, _)) =>
-          (topBound + n, success(Nil))
-      }
-    }(SourceConverter.parallelIor)).map(_.flatten)
+      }(SourceConverter.parallelIor))
+      .map(_.flatten)
   }
 
   def toProgram(
@@ -1559,18 +1563,33 @@ final class SourceConverter(
             }
             val finalTpe = ta match {
               case None =>
-                success(rankn.Type.forAll(freeBound.map(n => (n, Kind.Type)), tpe))
+                success(
+                  rankn.Type.forAll(freeBound.map(n => (n, Kind.Type)), tpe)
+                )
               case Some(frees0) =>
-                val frees = frees0.map { case (ref, optK) => ref.toBoundVar -> optK }
-                if (frees.iterator.map(_._1).toSet === freeBound.toSet[rankn.Type.Var.Bound]) {
-                  success(rankn.Type.forAll(frees.map {
-                    case (v, None) => (v, Kind.Type)
-                    case (v, Some(k)) => (v, k)
-                  }, tpe))
+                val frees = frees0.map { case (ref, optK) =>
+                  ref.toBoundVar -> optK
                 }
-                else {
-                  val kindMap = frees.iterator.collect { case (v, Some(k)) => (v, k) }.toMap
-                  val vs = freeBound.map { v => (v, kindMap.getOrElse(v, Kind.Type)) }
+                if (
+                  frees.iterator.map(_._1).toSet === freeBound
+                    .toSet[rankn.Type.Var.Bound]
+                ) {
+                  success(
+                    rankn.Type.forAll(
+                      frees.map {
+                        case (v, None)    => (v, Kind.Type)
+                        case (v, Some(k)) => (v, k)
+                      },
+                      tpe
+                    )
+                  )
+                } else {
+                  val kindMap = frees.iterator.collect { case (v, Some(k)) =>
+                    (v, k)
+                  }.toMap
+                  val vs = freeBound.map { v =>
+                    (v, kindMap.getOrElse(v, Kind.Type))
+                  }
                   val t = rankn.Type.forAll(vs, tpe)
                   SourceConverter.partial(
                     SourceConverter.InvalidDefTypeParameters(
@@ -1917,14 +1936,13 @@ object SourceConverter {
 
     def name: Identifier.Bindable = defstmt match {
       case Right(ds) => ds.name
-      case Left(ed) => ed.name
+      case Left(ed)  => ed.name
     }
 
     def expectation: String = defstmt match {
       case Right(_) => "a subset of"
-      case Left(_) => "the same as"
+      case Left(_)  => "the same as"
     }
-
 
     def message = {
       def tstr(l: List[Type.Var.Bound]): String =
@@ -1974,9 +1992,14 @@ object SourceConverter {
       }
   }
 
-  final case class NonBindingPattern(pattern: Pattern.Parsed, bound: Declaration) extends Error {
+  final case class NonBindingPattern(
+      pattern: Pattern.Parsed,
+      bound: Declaration
+  ) extends Error {
     def message =
-      (Document[Pattern.Parsed].document(pattern) + Doc.text(" does not bind any names.")).render(80)
+      (Document[Pattern.Parsed].document(pattern) + Doc.text(
+        " does not bind any names."
+      )).render(80)
     def region = bound.region
   }
 }

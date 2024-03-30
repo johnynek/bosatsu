@@ -1531,7 +1531,9 @@ object TypedExpr {
     }
   }
 
-  def usedGlobals[A](te: TypedExpr[A]): State[Set[(PackageName, Identifier)], TypedExpr[A]] = {
+  def usedGlobals[A](
+      te: TypedExpr[A]
+  ): State[Set[(PackageName, Identifier)], TypedExpr[A]] = {
     type VSet = Set[(PackageName, Identifier)]
     type VState[X] = State[VSet, X]
     te.traverseUp[VState] {

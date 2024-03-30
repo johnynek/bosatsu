@@ -51,7 +51,9 @@ object Store {
         )
         val handler: HandlerFn = {
           case memoryMain.Output.TestOutput(resMap, color) =>
-            val evaluatedTests = resMap.map { case (p, opt) => (p, opt.map(_.value)) }
+            val evaluatedTests = resMap.map { case (p, opt) =>
+              (p, opt.map(_.value))
+            }
             val testReport = Test.outputFor(evaluatedTests, color)
             testReport.doc.render(80)
           case other =>
@@ -162,7 +164,10 @@ object Store {
                 (next, stateSetter(next))
               case unexpected =>
                 // TODO send some error message
-                (unexpected, IO.println(s"unexpected Complete: $result => $unexpected"))
+                (
+                  unexpected,
+                  IO.println(s"unexpected Complete: $result => $unexpected")
+                )
             }
         }
       }

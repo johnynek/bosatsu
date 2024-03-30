@@ -141,11 +141,18 @@ object Dag {
         depCache.getOrElseUpdate(a, s.nfn(a).to(SortedSet))
     }
 
-  def transitiveSet[A: Ordering](nodes: List[A])(nfn: A => Iterable[A]): SortedSet[A] = {
-    def loop(stack: List[A], inStack: SortedSet[A], reached: SortedSet[A]): SortedSet[A] =
+  def transitiveSet[A: Ordering](
+      nodes: List[A]
+  )(nfn: A => Iterable[A]): SortedSet[A] = {
+    def loop(
+        stack: List[A],
+        inStack: SortedSet[A],
+        reached: SortedSet[A]
+    ): SortedSet[A] =
       stack match {
         case head :: tail =>
-          val next = nfn(head).iterator.filterNot { n => inStack(n) || reached(n) }
+          val next = nfn(head).iterator
+            .filterNot(n => inStack(n) || reached(n))
             .toList
             .sorted
           loop(next ::: tail, inStack ++ next, reached + head)

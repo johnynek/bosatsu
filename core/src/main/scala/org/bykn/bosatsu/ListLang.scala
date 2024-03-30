@@ -111,9 +111,7 @@ object ListLang {
         P.string("in") *> spacesAndLines *> pa <* maybeSpacesAndLines,
         filterExpr.?
       )
-        .mapN { (b, i, f) =>
-          (e: F[A]) => Comprehension(e, b, i, f)
-        }
+        .mapN((b, i, f) => (e: F[A]) => Comprehension(e, b, i, f))
 
     val commaCons = P.char(',') *> maybeSpacesAndLines *> consTail
     val inner = commaCons.orElse(spacesAndLines.soft *> commaCons.orElse(comp))

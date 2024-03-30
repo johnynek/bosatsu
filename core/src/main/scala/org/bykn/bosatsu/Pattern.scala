@@ -1211,9 +1211,7 @@ object Pattern {
       ((maybeSpace.with1 *> P.string(
         "as"
       ) <* Parser.spaces).backtrack *> Identifier.bindableParser)
-        .map { n =>
-          (pat: Parsed) => Named(n, pat)
-        }
+        .map(n => (pat: Parsed) => Named(n, pat))
 
     val withAs: P[Parsed] =
       (nonAnnotated ~ namedOp.rep0)
@@ -1226,15 +1224,11 @@ object Pattern {
         .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
 
       (maybeSpace.with1.soft *> bar *> maybeSpace *> unionRest)
-        .map { ne =>
-          (pat: Parsed) => union(pat, ne.toList)
-        }
+        .map(ne => (pat: Parsed) => union(pat, ne.toList))
     }
     val typeAnnotOp: P[Parsed => Parsed] =
       TypeRef.annotationParser
-        .map { tpe =>
-          (pat: Parsed) => Annotation(pat, tpe)
-        }
+        .map(tpe => (pat: Parsed) => Annotation(pat, tpe))
 
     // We only allow type annotation not at the top level, must be inside
     // Struct or parens

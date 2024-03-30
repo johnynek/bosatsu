@@ -80,9 +80,8 @@ abstract class TypeParser[A] {
       (P.char('[') *> maybeSpacesAndLines *> recurse.nonEmptyListOfWs(
         maybeSpacesAndLines
       ) <* maybeSpacesAndLines <* P.char(']'))
-        .map { args =>
-          left =>
-            MaybeTupleOrParens.Bare(applyTypes(nonArrow(left), args))
+        .map { args => left =>
+          MaybeTupleOrParens.Bare(applyTypes(nonArrow(left), args))
         }
 
     val arrowP: P[MaybeTupleOrParens[A] => MaybeTupleOrParens[A]] =

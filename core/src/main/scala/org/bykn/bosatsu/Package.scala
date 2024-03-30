@@ -190,7 +190,6 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-
   def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
     val spaceComment: P0[Unit] =
       (Parser.spaces.? ~ CommentStatement.commentPart.?).void
@@ -198,8 +197,7 @@ object Package {
     val eol = spaceComment <* Parser.termination
     val parsePack = Padding
       .parser(
-        (P.string("package")
-          .soft ~ spaces) *> PackageName.parser <* eol,
+        (P.string("package").soft ~ spaces) *> PackageName.parser <* eol,
         spaceComment
       )
       .map(_.padded)
@@ -209,7 +207,8 @@ object Package {
         case Some(p) => parsePack.?.map(_.getOrElse(p))
       }
 
-    val im = Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
+    val im =
+      Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
     val ex = Padding
       .parser(
         (P.string("export")
@@ -260,7 +259,8 @@ object Package {
     val optProg = SourceConverter
       .toProgram(p, imps.map(i => i.copy(pack = i.pack.name)), stmts)
       .leftMap { scerrs =>
-        scerrs.groupByNem(_.region)
+        scerrs
+          .groupByNem(_.region)
           .transform { (region, errs) =>
             val uniqs = ListUtil.distinctByHashSet(errs.toNonEmptyList)
             PackageError.SourceConverterErrorsIn(region, uniqs, p): PackageError
@@ -292,8 +292,7 @@ object Package {
                 necError
                   .map(PackageError.KindInferenceError(p, _, typeDefRegions))
                   .toNonEmptyList,
-              infDTs =>
-                ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
+              infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
@@ -342,13 +341,11 @@ object Package {
               }
 
           val theseExternals =
-            parsedTypeEnv
-              .externalDefs
-              .collect { case (pack, b, t) if pack === p =>
+            parsedTypeEnv.externalDefs.collect {
+              case (pack, b, t) if pack === p =>
                 // by construction this has to have all the regions
-                (b, (t, extDefRegions(b))) 
-              }
-              .toMap
+                (b, (t, extDefRegions(b)))
+            }.toMap
 
           val inferenceEither = Infer
             .typeCheckLets(p, lets, theseExternals)
