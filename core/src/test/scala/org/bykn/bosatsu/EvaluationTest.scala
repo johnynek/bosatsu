@@ -4004,4 +4004,20 @@ external def foo[b](lst: List[a]) -> a
         ()
     }
   }
+
+  test("test nested if matches") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+export fn
+
+def fn(x):
+  if x matches True: False
+  elif x matches False: True
+  else: False
+
+test = Assertion(fn(False), "")
+"""), "Foo", 1)
+  }
 }
