@@ -7,7 +7,7 @@ from Bosatsu/BinNat import (BinNat, toBinNat as int_to_BinNat, is_even as is_eve
   )
 from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
   times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
-  mult as mult_Nat, exp as exp_Nat, sub_Nat)
+  mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
 from Bosatsu/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
 from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, prod_Rand)
 
@@ -103,6 +103,15 @@ nat_props = suite_Prop(
       t2_2 = mult_Nat(n, NSucc(NSucc(NZero)))
       Assertion(cmp_Nat(t2, t2_2) matches EQ, "times2 == mult(2, _)")
     )),
+    forall_Prop(prod_Rand(rand_Nat, rand_Nat), "divmod homomorphism", ((n1, n2)) -> (
+      (dn, mn) = divmod_Nat(n1, n2)
+      di = div(n1.nat_to_Int(), n2.nat_to_Int())
+      mi = mod_Int(n1.nat_to_Int(), n2.nat_to_Int())
+      Assertion(
+        (eq_Int(dn.nat_to_Int(), di), eq_Int(mn.nat_to_Int(), mi)) matches (True, True),
+        "div Nat")
+    )),
+
   ]
 )
 
