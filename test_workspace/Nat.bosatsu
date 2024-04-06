@@ -95,8 +95,9 @@ def divmod(numerator: Nat, divisor: Nat) -> (Nat, Nat):
         else: loop(n, d, m1)
 
   match divisor:
+    case Succ(Zero): (numerator, Zero)
+    case Succ(_): loop(numerator, Zero, Zero)
     case Zero: (Zero, numerator)
-    case _: loop(numerator, Zero, Zero)
 
 one = Succ(Zero)
 
