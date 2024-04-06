@@ -16,7 +16,9 @@ class NatTest extends munit.ScalaCheckSuite {
   lazy val genNat: Gen[Nat] = {
     val recur = Gen.lzy(genNat)
     Gen.frequency(
-      (5, Gen.chooseNum(0, Long.MaxValue).map(Nat.fromLong(_))),
+      // make sure to exercise the cached table
+      (1, Gen.chooseNum(0, 1024, 1).map(Nat.fromInt(_))),
+      (5, Gen.chooseNum(0, Long.MaxValue, Int.MaxValue.toLong, Int.MaxValue.toLong + 1).map(Nat.fromLong(_))),
       (1, Gen.zip(recur, recur).map { case (a, b) => a + b }),
       (1, Gen.zip(recur, recur).map { case (a, b) => a * b })
     )
@@ -78,13 +80,9 @@ class NatTest extends munit.ScalaCheckSuite {
   }
 
   property("x * y homomorphism") {
-    forAll { (i0: Long, j0: Long) =>
-      val i = i0 & Long.MaxValue
-      val j = j0 & Long.MaxValue
-      val ni = Nat.fromLong(i) 
-      val nj = Nat.fromLong(j)
+    forAll(genNat, genNat) { (ni, nj) =>
       val nk = ni * nj
-      assertEquals(nk.toBigInt, BigInt(i) * BigInt(j))
+      assertEquals(nk.toBigInt, ni.toBigInt * nj.toBigInt)
     }
   }
 
@@ -93,6 +91,14 @@ class NatTest extends munit.ScalaCheckSuite {
       val i = n.inc  
       val a = n + Nat.one
       assertEquals(i.toBigInt, a.toBigInt)
+    }
+  }
+
+  property("x.dec == x - 1 when x > 0") {
+    forAll(genNat) { n =>
+      val i = n.dec.toBigInt  
+      if (n == Nat.zero) assertEquals(i, BigInt(0))
+      else assertEquals(i, n.toBigInt - 1)
     }
   }
 
@@ -130,6 +136,19 @@ class NatTest extends munit.ScalaCheckSuite {
   property("x.dec.inc == x || x.isZero") {
     forAll(genNat) { n =>
       assert((n.dec.inc == n) || n.isZero)
+    }
+  }
+
+  property("if the value is > Long.MaxValue maybeLong = None") {
+    forAll(genNat) { n =>
+      val bi = n.toBigInt  
+      val ml = n.maybeLong
+      assertEquals(ml.isEmpty, bi > Long.MaxValue)
+    }
+  }
+  property("the string repr matches toBigInt") {
+    forAll(genNat) { n =>
+      assertEquals(n.toString, n.toBigInt.toString)  
     }
   }
 }
