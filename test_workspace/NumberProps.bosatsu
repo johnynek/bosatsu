@@ -4,10 +4,18 @@ from Bosatsu/BinNat import (BinNat, toBinNat as int_to_BinNat, is_even as is_eve
     times2 as times2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
     times_BinNat, exp as exp_BinNat, cmp_BinNat, toInt as binNat_to_Int, add_BinNat,
     next as next_BinNat, sub_BinNat, eq_BinNat, sub_Option as sub_BinNat_Option,
+    divmod as divmod_BinNat,
   )
+
 from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
   times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
   mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
+
+from Bosatsu/BinInt import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
+  negate as negate_BinNat, abs as abs_BinInt, sub as sub_BinInt, binNat_to_BinInt,
+  cmp as cmp_BinInt, not as not_BinInt, eq as eq_BinInt,
+  )
+
 from Bosatsu/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
 from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, prod_Rand)
 
@@ -20,6 +28,11 @@ export (rand_Int, rand_Nat, rand_BinNat)
 rand_Int: Rand[Int] = from_pair(int_range(128), geometric_Int)
 rand_Nat: Rand[Nat] = rand_Int.map_Rand(int_to_Nat)
 rand_BinNat: Rand[BinNat] = rand_Int.map_Rand(int_to_BinNat)
+rand_BinInt: Rand[BinInt] = (
+  pos = rand_Int.map_Rand(int_to_BinInt)
+  neg = pos.map_Rand(not_BinInt)
+  from_pair(pos, neg)
+)
 
 int_props = suite_Prop(
   "Int props",
@@ -181,10 +194,56 @@ binnat_props = suite_Prop(
       t2_2 = times_BinNat(n, BNEven(BNZero))
       Assertion(cmp_BinNat(t2, t2_2) matches EQ, "times2 == mult(2, _)")
     )),
+    forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "divmod homomorphism", ((n1, n2)) -> (
+      (dn, mn) = divmod_BinNat(n1, n2)
+      di = div(n1.binNat_to_Int(), n2.binNat_to_Int())
+      mi = mod_Int(n1.binNat_to_Int(), n2.binNat_to_Int())
+      Assertion(
+        (eq_Int(dn.binNat_to_Int(), di), eq_Int(mn.binNat_to_Int(), mi)) matches (True, True),
+        "div BinNat")
+    )),
   ]
 )
 
-all_props = [int_props, nat_props, binnat_props]
+binint_props = suite_Prop(
+  "BinInt props",
+  [
+    forall_Prop(prod_Rand(rand_BinInt, rand_BinInt), "add homomorphism", ((n1, n2)) -> (
+      n3 = add_BinInt(n1, n2)
+      n3i = binInt_to_Int(n3)
+      i3 = add(binInt_to_Int(n1), binInt_to_Int(n2))
+      Assertion(eq_Int(n3i, i3), "add BinInt")
+    )),
+    forall_Prop(prod_Rand(rand_BinInt, rand_BinInt), "sub homomorphism", ((n1, n2)) -> (
+      n3 = sub_BinInt(n1, n2)
+      n3i = binInt_to_Int(n3)
+      i3 = sub(binInt_to_Int(n1), binInt_to_Int(n2))
+      Assertion(eq_Int(n3i, i3), "sub BinInt")
+    )),
+    forall_Prop(rand_BinInt, "x + (-x) == 0", x -> (
+      nx = negate_BinNat(x)
+      z = add_BinInt(x, nx).binInt_to_Int()
+      Assertion(eq_Int(z, 0), "x + (-x) == 0")
+    )),
+    forall_Prop(rand_BinInt, "x + |x| == 0 or 2x", x -> (
+      ax = abs_BinInt(x)
+      sum = add_BinInt(x, binNat_to_BinInt(ax))
+      xi = x.binInt_to_Int()
+      if cmp_Int(xi, 0) matches GT:
+        Assertion(eq_Int(sum.binInt_to_Int(), times(xi, 2)), "x + |x| == 2|x|")
+      else:
+        Assertion(eq_Int(sum.binInt_to_Int(), 0), "x + |x| == 0 if x <= 0")
+    )),
+    forall_Prop(rand_BinInt, "x + not(x) == x - x - 1 = -1", x -> (
+      nx = not_BinInt(x)
+      z = add_BinInt(x, nx)
+      neg_1 = int_to_BinInt(-1)
+      Assertion(
+        (cmp_BinInt(z, neg_1), eq_BinInt(z, neg_1)) matches (EQ, True), "x + not(x) = -1")
+    )),
+  ])
+
+all_props = [int_props, nat_props, binnat_props, binint_props]
 
 seed = 123456
 test = TestSuite("properties", [

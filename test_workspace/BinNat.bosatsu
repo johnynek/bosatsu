@@ -3,7 +3,7 @@ package Bosatsu/BinNat
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
 export (BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2,
-  prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat)
+  prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -224,6 +224,55 @@ def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
           times2(prod.add_BinNat(right))
 
 one = Odd(Zero)
+
+def divmod(numerator: BinNat, divisor: BinNat) -> (BinNat, BinNat):
+  # invariant: divisor >= 2
+  # x.divmod(y) = (d, m) <=> x = y * d + m
+  # n.divmod(y) = (d1, m1) <=>
+  #   n = y * d + m
+  #   2n + 1 = 2 * y * d + 2m + 1 = (2d) * y + (2m + 1)
+  #   2n + 2 = 2 * y * d + 2m + 2
+  def loop(numerator):
+    recur numerator:
+      case Odd(n):
+        (d1, m1) = loop(n)
+        m = Odd(m1)
+        # if (2m + 1) < y => mod = 2m + 1
+        # if (2m + 1) == y => mod = 0, increment d
+        # we know m < y, so 2m + 1 < 2y + 1,
+        # so we at most have to subtract 2 times
+        match cmp_BinNat(m, divisor):
+          case LT: (d1.times2(), m)
+          case _: 
+            m2 = sub_BinNat(m, divisor)
+            match cmp_BinNat(m2, divisor):
+              case LT: (Odd(d1), m2)
+              case EQ: (Even(d1), Zero)
+              case GT: (Even(d1), sub_BinNat(m2, divisor))
+      case Even(n):
+        (d1, m1) = loop(n)
+        m = Even(m1)
+        # we know m < y, so 2m + 2 < 2y + 2,
+        # subtracting twice: (2y + 2) - y - y < 2
+        # so we at most have to subtract 2 times
+        match cmp_BinNat(m, divisor):
+          case LT: (d1.times2(), m)
+          case _: 
+            m2 = sub_BinNat(m, divisor)
+            match cmp_BinNat(m2, divisor):
+              case LT: (Odd(d1), m2)
+              case EQ: (Even(d1), Zero)
+              case GT:
+                m3 = sub_BinNat(m2, divisor)
+                (Even(d1), m3)
+      case Zero: (Zero, Zero)
+
+  match divisor:
+    case Odd(Zero):
+      # x.divmod(1) == (x, Zero)
+      (numerator, Zero)
+    case Odd(_) | Even(_): loop(numerator)
+    case Zero: (Zero, numerator)
 
 def exp(base: BinNat, power: BinNat) -> BinNat:
   recur power:
