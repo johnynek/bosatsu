@@ -26,10 +26,7 @@ def cmp(a: BinInt, b: BinInt) -> Comparison:
       match b:
         case BWNot(b):
           # -a - 1 <> -b - 1 == (a <> b).invert
-          match cmp_BinNat(a, b):
-            case GT: LT
-            case LT: GT
-            case EQ: EQ
+          cmp_BinNat(b, a)
         case FromBinNat(_): LT
 
 def eq(a: BinInt, b: BinInt) -> Bool:
