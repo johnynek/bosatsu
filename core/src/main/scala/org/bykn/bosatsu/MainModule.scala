@@ -654,7 +654,7 @@ abstract class MainModule[IO[_]](implicit
               ).get
 
               val evalMap = pm.toMap.iterator.flatMap { case (n, p) =>
-                val optEval = p.program.lets.findLast { case (_, _, te) =>
+                val optEval = p.lets.findLast { case (_, _, te) =>
                   typeEvalMap.contains(te.getType)
                 }
                 optEval.map { case (b, _, te) =>

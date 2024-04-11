@@ -25,11 +25,11 @@ object NameKind {
 
   def externals[T](from: Package.Typed[T]): Iterable[ExternalDef[T]] = {
     val prog = from.program
-    prog.externalDefs.to(LazyList).map { n =>
+    prog._1.externalDefs.to(LazyList).map { n =>
       // The type could be an import, so we need to check for the type
       // in the TypeEnv
       val pn = from.name
-      val tpe = prog.types.getExternalValue(pn, n).get
+      val tpe = prog._1.types.getExternalValue(pn, n).get
       ExternalDef[T](pn, n, tpe)
     }
   }
@@ -42,12 +42,12 @@ object NameKind {
 
     def getLet: Option[NameKind[T]] =
       item.toBindable.flatMap { b =>
-        prog.getLet(b).map { case (rec, d) => Let[T](b, rec, d) }
+        prog._1.getLet(b).map { case (rec, d) => Let[T](b, rec, d) }
       }
 
     def getConstructor: Option[NameKind[T]] =
       item.toConstructor.flatMap { cn =>
-        prog.types
+        prog._1.types
           .getConstructor(from.name, cn)
           .map { case (dt, cfn) =>
             Constructor(cn, cfn.args, dt, dt.fnTypeOf(cfn))

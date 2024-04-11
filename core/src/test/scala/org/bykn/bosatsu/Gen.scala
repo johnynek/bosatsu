@@ -1676,10 +1676,12 @@ object Generators {
       pn <- packageNameGen
       // we can't reuse package names
       if !existing.contains(pn)
-      imps <- genImports
+      imps0 <- genImports
+      impMap = ImportMap.fromImports(imps0)((_, _) => None)._2
+      imps = impMap.toList(Package.orderByName)
       prog <- genProg(pn, imps)
       exps <- genExports(pn, prog)
-    } yield Package(pn, imps, exps, prog)
+    } yield Package(pn, imps, exps, (prog, impMap))
   }
 
   def genPackagesSt[A](

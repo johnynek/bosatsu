@@ -46,12 +46,12 @@ class TestProtoType extends AnyFunSuite with ParTest {
         .map(_._2)
         .getOrElse(0)
 
-    val context = 100
+    val context = 1000
     assert(
       Eq[A].eqv(a, orig),
       s"${a.toString.drop(diffIdx - context / 2).take(context)} != ${orig.toString.drop(diffIdx - context / 2).take(context)}"
     )
-    // assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
+    //assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
   }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
@@ -59,7 +59,7 @@ class TestProtoType extends AnyFunSuite with ParTest {
       val f = File.createTempFile("proto_test", ".proto")
       f.toPath
     }) { path =>
-      IO {
+      IO.blocking {
         val _ = path.toFile.delete
         ()
       }

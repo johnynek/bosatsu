@@ -32,22 +32,22 @@ case class PackageMap[A, B, C, +D](
     packs.foldLeft(this: PackageMap[A, B, C, D1])(_ + _)
 
   def getDataRepr(implicit
-      ev: D <:< Program[TypeEnv[Any], Any, Any]
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): (PackageName, Constructor) => Option[DataRepr] = { (pname, cons) =>
     toMap
       .get(pname)
       .flatMap { pack =>
-        ev(pack.program).types
+        ev(pack).types
           .getConstructor(pname, cons)
           .map(_._1.dataRepr(cons))
       }
   }
 
   def allExternals(implicit
-      ev: D <:< Program[TypeEnv[Any], Any, Any]
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Map[PackageName, List[Identifier.Bindable]] =
     toMap.iterator.map { case (name, pack) =>
-      (name, ev(pack.program).externalDefs)
+      (name, ev(pack).externalDefs)
     }.toMap
 }
 
@@ -75,11 +75,12 @@ object PackageMap {
     Package.Interface,
     NonEmptyList[Referant[Kind.Arg]],
     Referant[Kind.Arg],
-    Program[
+    (Program[
       TypeEnv[Kind.Arg],
       TypedExpr[T],
       Any
-    ]
+    ],
+      ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]])
   ]
 
   type SourceMap = Map[PackageName, (LocationMap, String)]
@@ -230,7 +231,14 @@ object PackageMap {
         ]
     ) = {
 
-      val (errs0, imap) = ImportMap.fromImports(p.imports)
+      val (errs0, imap) = ImportMap.fromImports(p.imports) { (p1, p2) => 
+        if (p1 === p2) None
+        else {
+          if (p1 === PackageName.PredefName) Some(Right(()))
+          else if (p2 === PackageName.PredefName) Some(Left(()))
+          else None
+        }
+      }
       val errs =
         NonEmptyList
           .fromList(errs0)
@@ -313,9 +321,24 @@ object PackageMap {
       Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[
         PackageError
       ], (TypeEnv[Kind.Arg], Package.Inferred)]] {
-        // TODO, we ignore importMap here, we only check earlier we don't
-        // have duplicate imports
-        case (Package(nm, imports, exports, (stmt, _)), recurse) =>
+        case (Package(nm, imports, exports, (stmt, imps)), recurse) =>
+
+          val nameToRes = imports.iterator.map { i => 
+            val resolved: Package.Resolved = i.pack
+            val name = FixType.unfix(resolved) match {
+              case Left(iface) => iface.name
+              case Right(pack) => pack.name
+            }
+            
+            (name, resolved)
+          }
+          .toMap
+
+          def resolvedImports: ImportMap[Package.Resolved, Unit] = 
+            imps.traverse[cats.Id, Package.Resolved, Unit] { (p, i) =>
+              (nameToRes(p), i)
+            }
+
           def getImport[A, B](
               packF: Package.Inferred,
               exMap: Map[Identifier, NonEmptyList[ExportedName[A]]],
@@ -328,7 +351,7 @@ object PackageMap {
                     PackageError.UnknownImportName(
                       nm,
                       packF.name,
-                      packF.program.lets.iterator.map { case (n, _, _) =>
+                      packF.program._1.lets.iterator.map { case (n, _, _) =>
                         (n: Identifier, ())
                       }.toMap,
                       i,
@@ -371,12 +394,12 @@ object PackageMap {
            * type can have the same name as a constructor. After this step, each
            * distinct object has its own entry in the list
            */
-          type ImpRes =
-            Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+          type IName = NonEmptyList[Referant[Kind.Arg]]
+
           def stepImport(
-              imp: Import[Package.Resolved, Unit]
-          ): FutVal[ImpRes] = {
-            val Import(fixpack, items) = imp
+              fixpack: Package.Resolved,
+              item: ImportedName[Unit]
+          ): FutVal[(Package.Interface, ImportedName[IName])] = {
             Package.unfix(fixpack) match {
               case Right(p) =>
                 /*
@@ -386,9 +409,8 @@ object PackageMap {
                   .flatMap { case (_, packF) =>
                     val packInterface = Package.interfaceOf(packF)
                     val exMap = packF.exports.groupByNel(_.name)
-                    val ior = items
-                      .parTraverse(getImport(packF, exMap, _))
-                      .map(Import(packInterface, _))
+                    val ior = getImport(packF, exMap, item)
+                      .map((packInterface, _))
                     IorT.fromIor(ior)
                   }
               case Left(iface) =>
@@ -397,40 +419,42 @@ object PackageMap {
                  */
                 val exMap = iface.exports.groupByNel(_.name)
                 // this is very fast and does not need to be done in a thread
-                val ior = items
-                  .parTraverse(getImportIface(iface, exMap, _))
-                  .map(Import(iface, _))
+                val ior =
+                  getImportIface(iface, exMap, item)
+                  .map((iface, _))
                 IorT.fromIor(ior)
             }
           }
 
-          val inferImports: FutVal[List[ImpRes]] =
-            imports.parTraverse(stepImport(_))
+          val inferImports: FutVal[ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]] =
+            resolvedImports.traverse(stepImport(_, _))
 
           val inferBody =
             inferImports
-              .flatMap { imps =>
+              .flatMap { impMap =>
                 // run this in a thread
+                val ilist = impMap.toList(Package.orderByName)
                 IorT(
                   Par.start(
-                    Package.inferBodyUnopt(nm, imps, stmt).map((imps, _))
+                    Package.inferBodyUnopt(nm, ilist, stmt)
+                      .map((ilist, impMap, _))
                   )
                 )
               }
 
           inferBody.flatMap {
-            case (imps, (fte, program @ Program(types, lets, _, _))) =>
+            case (ilist, imap, (fte, program @ Program(types, lets, _, _))) =>
               val ior = ExportedName
                 .buildExports(nm, exports, types, lets) match {
                 case Validated.Valid(exports) =>
                   // We have a result, which we can continue to check
-                  val pack = Package(nm, imps, exports, program)
-                  val res = (fte, pack)
+                  val pack = Package(nm, ilist, exports, (program, imap))
                   // We have to check the "customs" before any normalization
                   // or optimization
                   PackageCustoms(pack) match {
                     case Validated.Valid(p1) => Ior.right((fte, p1))
                     case Validated.Invalid(errs) =>
+                      val res = (fte, pack)
                       Ior.both(errs.toNonEmptyList, res)
                   }
                 case Validated.Invalid(badPackages) =>
@@ -456,11 +480,11 @@ object PackageMap {
           ior.traverse { case (fte, pack) =>
             Par.start {
               val optPack = pack.copy(program =
-                TypedExprNormalization.normalizeProgram(
+                (TypedExprNormalization.normalizeProgram(
                   pack.name,
                   fte,
-                  pack.program
-                )
+                  pack.program._1
+                ), pack.program._2)
               )
               Package.discardUnused(optPack)
             }

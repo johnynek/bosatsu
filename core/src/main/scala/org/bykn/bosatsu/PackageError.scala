@@ -27,21 +27,29 @@ object PackageError {
       ident: Identifier,
       existing: Iterable[(Identifier, A)],
       count: Int
-  ): List[(Identifier, A)] =
-    existing.iterator
+  ): List[(Identifier, A)] = {
+    val istr = ident.asString
+    val prefixes =
+      existing.iterator.filter { case (i, _) =>
+        i.asString.startsWith(istr)
+      }
+      .toList
+
+    prefixes ::: existing.iterator
       .map { case (i, a) =>
-        val d = EditDistance.string(ident.asString, i.asString)
+        val d = EditDistance.string(istr, i.asString)
         (i, d, a)
       }
       .filter { case (i, d, _) =>
         // don't show things that require total edits
-        (d < ident.asString.length) && (d < i.asString.length)
+        (d < istr.length) && (d < i.asString.length)
       }
       .toList
       .sortBy { case (_, d, _) => d }
       .distinct
       .take(count)
       .map { case (i, _, a) => (i, a) }
+    }
 
   private val emptyLocMap = LocationMap("")
 
@@ -168,9 +176,13 @@ object PackageError {
         case Some(_) =>
           s"in $sourceName package: ${ipname.asString} has ${iname.originalName.sourceCodeRepr} but it is not exported. Add to exports"
         case None =>
-          val near = nearest(iname.originalName, letMap, 3)
+          val cands = nearest(iname.originalName, letMap, 3)
             .map { case (n, _) => n.sourceCodeRepr }
-            .mkString(" Nearest: ", ", ", "")
+
+          val near =
+            if (cands.nonEmpty) cands.mkString(" Nearest: ", ", ", "")
+            else ""
+
           s"in $sourceName package: ${ipname.asString} does not have name ${iname.originalName.sourceCodeRepr}.$near"
       }
     }
@@ -190,13 +202,13 @@ object PackageError {
 
       val exportMap = exportNames.map(e => (e, ())).toMap
 
+      val candidates =
+        nearest(iname.originalName, exportMap, 3)
+          .map(ident => Doc.text(ident._1.sourceCodeRepr))
+
       val near = Doc.text(" Nearest: ") +
         (Doc
-          .intercalate(
-            Doc.text(",") + Doc.line,
-            nearest(iname.originalName, exportMap, 3)
-              .map(ident => Doc.text(ident._1.sourceCodeRepr))
-          )
+          .intercalate(Doc.text(",") + Doc.line, candidates)
           .nested(4)
           .grouped)
 
