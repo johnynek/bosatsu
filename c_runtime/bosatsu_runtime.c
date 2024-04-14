@@ -47,16 +47,26 @@ static _Atomic Stack statics;
 // for now, we only push refcounted values on here while they are still valid
 // then we | STATIC_VALUE_TAG to avoid bothering with ref-counting during operation
 static void push(RefCounted* static_value) {
-  Stack next;
-  Stack current = atomic_load(&statics);
+  // TODO what if this malloc fails
   Node* node = malloc(sizeof(Node));
   node->value = static_value;
+
+  Stack current;
+  Stack next;
   do {
+    current = atomic_load(&statics);
     node->next = current.head; //step 2
     next.head = node; //local change of head
   } while(!atomic_compare_exchange_weak(&statics, &current, next));
 }
 
+void free_on_close(BValue v) {
+  if (IS_POINTER(v)) {
+    push(v);
+  }
+}
+
+// Returns NULl when there is nothing to pop
 static RefCounted* pop() {
   Stack next;
   Stack current = atomic_load(&statics);
@@ -153,7 +163,13 @@ void release_value(BValue value) {
 // Helper function to allocate a RefCounted structure with a specified number of BValues
 static RefCounted* alloc_ref_counted(int len, BValue values[]) {
     RefCounted* rc = malloc(sizeof(RefCounted) + sizeof(BValue) * len);
-    if (!rc) return NULL;
+    if (!rc) {
+      // we need to release the values now
+      for (int i = 0; i < len; i++) {
+          release_value(values[i]);
+      }
+      return NULL;
+    }
     
     atomic_init(&rc->ref_count, 1);
     rc->len = len;
@@ -203,7 +219,11 @@ BValue alloc_closure(uint8_t len, BValue captures[], BClosure fn) {
 
 BValue alloc_external(void* eval, FreeFn free_fn) {
     RefCounted* rc = malloc(sizeof(RefCounted) + sizeof(BValue) * 2);
-    if (!rc) return NULL;
+    if (!rc) {
+      // we need to release the values now
+      free_fn(eval);
+      return NULL;
+    }
     
     atomic_init(&rc->ref_count, 1);
     rc->len = EX_VAL_TAG;
@@ -246,21 +266,14 @@ int get_variant(BValue v) {
 
 BValue make_static(BValue v) {
   if (IS_POINTER(v)) {
-    push(v);
     return (BValue)(((uintptr_t)v) | STATIC_VALUE_TAG);
   }
   return v;
 }
 
 // Example static
-
-static atomic_flag __init_foo = ATOMIC_FLAG_INIT;
-static BValue __bvalue_foo = NULL;
+BValue make_foo();
+static _Atomic BValue __bvalue_foo = NULL;
 BValue foo() {
-  if (!atomic_flag_test_and_set(&__init_foo)) {
-    BValue bv = NULL; // put the real allocation/access code here
-    __bvalue_foo = make_static(bv);
-  }
-
-  return __bvalue_foo;
+  return CONSTRUCT(&__bvalue_foo, make_foo);
 }

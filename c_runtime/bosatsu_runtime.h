@@ -32,6 +32,8 @@ typedef BValue (*BClosure)(BValue*, BValue*);
 typedef BValue (*BPureFn)(BValue*);
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
+// A function which constructs a BValue
+typedef BValue (*BConstruct)();
 
 // Function to determine the type of the given value pointer and clone if necessary
 BValue clone_value(BValue value);
@@ -67,7 +69,32 @@ void init_statics();
 void free_statics();
 
 // This should only be called immediately on allocated values
-// on top level allocations that get cached using atomic_bool flags
+// on top level allocations that are made
 BValue make_static(BValue v);
+void free_on_close(BValue v);
+
+#define CONSTRUCT(target, cons) (\
+{\
+    BValue result = atomic_load(target);\
+    if (result == NULL) {\
+        result = (cons)();\
+        BValue static_version = make_static(result);\
+        BValue expected = NULL;\
+        do {\
+            if (atomic_compare_exchange_weak(target, &expected, static_version)) {\
+                free_on_close(result);\
+                break;\
+            } else {\
+                expected = atomic_load(target);\
+                if (expected != NULL) {\
+                    release_value(result);\
+                    result = expected;\
+                    break;\
+                }\
+            }\
+        } while (1);\
+    }\
+    result;\
+})
 
 #endif
