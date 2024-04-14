@@ -69,8 +69,9 @@ void free_on_close(BValue v) {
 // Returns NULl when there is nothing to pop
 static RefCounted* pop() {
   Stack next;
-  Stack current = atomic_load(&statics);
+  Stack current;
   do {
+    current = atomic_load(&statics);
     if (current.head == NULL) {
       return NULL;
     }
