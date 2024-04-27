@@ -13,7 +13,7 @@ object Dependencies {
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.3")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.0.0-M12")
   lazy val munitScalaCheck =
-    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.0.0-M12")
+    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.0.0-RC1")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.3")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.18.0")
