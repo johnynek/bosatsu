@@ -1552,7 +1552,7 @@ object ProtoConverter {
     // the Int is in index in the list of definedTypes:
     val allDts
         : SortedMap[(PackageName, TypeName), (DefinedType[Kind.Arg], Int)] =
-      cpack.program.types.definedTypes.mapWithIndex((dt, idx) => (dt, idx))
+      cpack.types.definedTypes.mapWithIndex((dt, idx) => (dt, idx))
     val dtVect: Vector[DefinedType[Kind.Arg]] =
       allDts.values.iterator.map(_._1).toVector
     val tab =
@@ -1560,10 +1560,9 @@ object ProtoConverter {
         nmId <- getId(cpack.name.asString)
         imps <- cpack.imports.traverse(importToProto(allDts, _))
         exps <- cpack.exports.traverse(expNameToProto(allDts, _))
-        prog = cpack.program
-        lets <- prog.lets.traverse(letToProto)
-        exdefs <- prog.externalDefs.traverse { nm =>
-          extDefToProto(nm, prog.types.getValue(cpack.name, nm))
+        lets <- cpack.lets.traverse(letToProto)
+        exdefs <- cpack.externalDefs.traverse { nm =>
+          extDefToProto(nm, cpack.types.getValue(cpack.name, nm))
         }
         dts <- dtVect.traverse(definedTypeToProto)
       } yield { (ss: SerState) =>
@@ -1774,7 +1773,7 @@ object ProtoConverter {
               case Left((_, dt)) =>
                 dt.toDefinedType(tc)
               case Right(comp) =>
-                comp.program.types.toDefinedType(tc)
+                comp.types.toDefinedType(tc)
             }
 
             res.flatMap {
@@ -1816,13 +1815,19 @@ object ProtoConverter {
               imps <- pack.imports.toList.traverse(
                 importsFromProto(_, loadIface, loadDT)
               )
+              impMap <- ReaderT.liftF(
+                ImportMap.fromImports(imps)((_, _) => ImportMap.Unify.Error) match {
+                  case (Nil, im) => Success(im)
+                  case (nel, _) =>
+                    Failure(new Exception(s"duplicated imports in package: $nel"))
+                })
               exps <- pack.exports.toList.traverse(
                 exportedNameFromProto(loadDT, _)
               )
               lets <- pack.lets.toList.traverse(letsFromProto)
               eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
               prog <- buildProgram(packageName, lets, eds)
-            } yield Package(packageName, imps, exps, prog)
+            } yield Package(packageName, imps, exps, (prog, impMap))
 
           // build up the decoding state by decoding the tables in order
           val tab1 = Scoped.run(

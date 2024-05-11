@@ -27,21 +27,30 @@ object PackageError {
       ident: Identifier,
       existing: Iterable[(Identifier, A)],
       count: Int
-  ): List[(Identifier, A)] =
-    existing.iterator
+  ): List[(Identifier, A)] = {
+    val istr = ident.asString
+    val prefixes =
+      existing.iterator.filter { case (i, _) =>
+        i.asString.startsWith(istr)
+      }
+      .toList
+
+    val close = existing.iterator
       .map { case (i, a) =>
-        val d = EditDistance.string(ident.asString, i.asString)
+        val d = EditDistance.string(istr, i.asString)
         (i, d, a)
       }
       .filter { case (i, d, _) =>
         // don't show things that require total edits
-        (d < ident.asString.length) && (d < i.asString.length)
+        (d < istr.length) && (d < i.asString.length)
       }
       .toList
       .sortBy { case (_, d, _) => d }
-      .distinct
       .take(count)
       .map { case (i, _, a) => (i, a) }
+
+      (prefixes.sortBy(_._1) ::: close).distinct
+    }
 
   private val emptyLocMap = LocationMap("")
 
@@ -131,21 +140,30 @@ object PackageError {
   }
 
   case class DuplicatedImport(
+      inPackage: PackageName,
       duplicates: NonEmptyList[(PackageName, ImportedName[Unit])]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
-    ) =
+    ) = {
+      val (_, sourceName) = sourceMap.getMapSrc(inPackage)
+      val first = s"duplicate import in $sourceName package ${inPackage.asString}"
+
       duplicates
         .sortBy(_._2.localName)
         .toList
         .iterator
         .map { case (pack, imp) =>
-          val (_, sourceName) = sourceMap.getMapSrc(pack)
-          s"duplicate import in $sourceName package ${pack.asString} imports ${imp.originalName.sourceCodeRepr} as ${imp.localName.sourceCodeRepr}"
+          if (imp.isRenamed) {
+            s"\tfrom ${pack.asString} import ${imp.originalName.sourceCodeRepr} as ${imp.localName.sourceCodeRepr}" 
+          }
+          else {
+            s"\tfrom ${pack.asString} import ${imp.originalName.sourceCodeRepr}" 
+          }
         }
-        .mkString("\n")
+        .mkString(first + "\n", "\n", "\n")
+      }
   }
 
   // We could check if we forgot to export the name in the package and give that error
@@ -168,9 +186,13 @@ object PackageError {
         case Some(_) =>
           s"in $sourceName package: ${ipname.asString} has ${iname.originalName.sourceCodeRepr} but it is not exported. Add to exports"
         case None =>
-          val near = nearest(iname.originalName, letMap, 3)
+          val cands = nearest(iname.originalName, letMap, 3)
             .map { case (n, _) => n.sourceCodeRepr }
-            .mkString(" Nearest: ", ", ", "")
+
+          val near =
+            if (cands.nonEmpty) cands.mkString(" Nearest: ", ", ", "")
+            else ""
+
           s"in $sourceName package: ${ipname.asString} does not have name ${iname.originalName.sourceCodeRepr}.$near"
       }
     }
@@ -190,13 +212,13 @@ object PackageError {
 
       val exportMap = exportNames.map(e => (e, ())).toMap
 
+      val candidates =
+        nearest(iname.originalName, exportMap, 3)
+          .map(ident => Doc.text(ident._1.sourceCodeRepr))
+
       val near = Doc.text(" Nearest: ") +
         (Doc
-          .intercalate(
-            Doc.text(",") + Doc.line,
-            nearest(iname.originalName, exportMap, 3)
-              .map(ident => Doc.text(ident._1.sourceCodeRepr))
-          )
+          .intercalate(Doc.text(",") + Doc.line, candidates)
           .nested(4)
           .grouped)
 
@@ -238,7 +260,9 @@ object PackageError {
         .mkString(", ")
   }
 
-  case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName)
+  case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName,
+    lets: List[(Identifier.Bindable, RecursionKind, Expr[Declaration])],
+    externals: Map[Identifier.Bindable, (Type, Region)])
       extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
@@ -292,14 +316,18 @@ object PackageError {
           case Infer.Error.VarNotInScope((_, name), scope, region) =>
             val ctx =
               lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+
+            val names = (scope.map { case ((_, n), _) => n }.toList ::: lets.map(_._1)).distinct
+
             val candidates: List[String] =
-              nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
-                .map { case (n, _) => n.asString }
+              nearest(name, names.map((_, ())), 3)
+               .map { case (n, _) => n.asString }
 
             val cmessage =
               if (candidates.nonEmpty)
                 candidates.mkString("\nClosest: ", ", ", ".\n")
               else ""
+
             val qname = "\"" + name.sourceCodeRepr + "\""
             (
               Doc.text("name ") + Doc.text(qname) + Doc.text(" unknown.") + Doc

@@ -23,6 +23,6 @@ def applyFields(fields, row):
 
 hlist = (Field("a", x -> "a"), Some((Field("b", x -> "b"), None)))
 main = applyFields(hlist, 1)
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
   }
 }

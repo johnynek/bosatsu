@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Functor, Parallel}
+import cats.{Functor, Order, Parallel}
 import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -39,12 +39,6 @@ final case class Package[A, B, C, +D](
       case _ => false
     }
 
-  // TODO, this isn't great
-  private lazy val importMap: ImportMap[A, B] =
-    ImportMap.fromImports(imports)._2
-
-  def localImport(n: Identifier): Option[(A, ImportedName[B])] = importMap(n)
-
   def withImport(i: Import[A, B]): Package[A, B, C, D] =
     copy(imports = i :: imports)
 
@@ -72,7 +66,11 @@ object Package {
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type Typed[T] = Package[Interface, NonEmptyList[Referant[Kind.Arg]], Referant[
     Kind.Arg
-  ], Program[TypeEnv[Kind.Arg], TypedExpr[T], Any]]
+  ], (
+    Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+    ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
+    )
+  ]
   type Inferred = Typed[Declaration]
 
   type Header =
@@ -81,10 +79,11 @@ object Package {
   val typedFunctor: Functor[Typed] =
     new Functor[Typed] {
       def map[A, B](fa: Typed[A])(fn: A => B): Typed[B] = {
-        val mapLet = fa.program.lets.map { case (n, r, te) =>
+        val mapLet = fa.lets.map { case (n, r, te) =>
           (n, r, Functor[TypedExpr].map(te)(fn))
         }
-        fa.copy(program = fa.program.copy(lets = mapLet))
+        val (prog, imap) = fa.program
+        fa.copy(program = (prog.copy(lets = mapLet), imap))
       }
     }
 
@@ -93,14 +92,14 @@ object Package {
   def testValue[A](
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
-    tp.program.lets.filter { case (_, _, te) =>
+    tp.lets.filter { case (_, _, te) =>
       te.getType == Type.TestType
     }.lastOption
 
   def mainValue[A](
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
-    tp.program.lets.lastOption
+    tp.lets.lastOption
 
   /** Discard any top level values that are not referenced, exported, the final
     * test value, or the final expression
@@ -110,13 +109,13 @@ object Package {
   def discardUnused[A](tp: Typed[A]): Typed[A] = {
     val pinned: Set[Identifier] =
       tp.exports.iterator.map(_.name).toSet ++
-        tp.program.lets.lastOption.map(_._1) ++
+        tp.lets.lastOption.map(_._1) ++
         testValue(tp).map(_._1)
 
     def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =
       s.collect { case (p, i) if p === tp.name => i }
 
-    val letWithGlobals = tp.program.lets.map { case tup @ (_, _, te) =>
+    val letWithGlobals = tp.lets.map { case tup @ (_, _, te) =>
       (tup, topLevels(te.globals))
     }
 
@@ -136,7 +135,7 @@ object Package {
     val reachedLets = letWithGlobals.collect {
       case (tup @ (bn, _, _), _) if reached(bn) => tup
     }
-    tp.copy(program = tp.program.copy(lets = reachedLets))
+    tp.copy(program = (tp.program._1.copy(lets = reachedLets), tp.program._2))
   }
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
@@ -155,7 +154,7 @@ object Package {
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
-    t.copy(program = t.program.copy(from = newFrom))
+    t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
 
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =
@@ -358,7 +357,7 @@ object Package {
               (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
             }
             .left
-            .map(PackageError.TypeErrorIn(_, p))
+            .map(PackageError.TypeErrorIn(_, p, lets, theseExternals))
 
           val checkUnusedLets =
             lets
@@ -468,7 +467,7 @@ object Package {
           val tpes = Doc.text("types: ") + Doc
             .intercalate(
               Doc.comma + Doc.line,
-              pack.program.types.definedTypes.toList.map { case (_, t) =>
+              pack.types.definedTypes.toList.map { case (_, t) =>
                 Doc.text(t.name.ident.sourceCodeRepr)
               }
             )
@@ -478,7 +477,7 @@ object Package {
           val eqDoc = Doc.text(" = ")
           val exprs = Doc.intercalate(
             Doc.hardLine + Doc.hardLine,
-            pack.program.lets.map { case (n, _, te) =>
+            pack.lets.map { case (n, _, te) =>
               Doc.text(n.sourceCodeRepr) + eqDoc + te.repr
             }
           )
@@ -510,4 +509,21 @@ object Package {
           Doc.intercalate(Doc.hardLine, all)
         }.nested(4)
     }
+
+  implicit class TypedMethods[A](private val pack: Typed[A]) extends AnyVal {
+    def lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
+      pack.program._1.lets
+
+    def types: TypeEnv[Kind.Arg] =
+      pack.program._1.types
+
+    def externalDefs: List[Identifier.Bindable] =
+      pack.program._1.externalDefs
+
+    def localImport(n: Identifier): Option[(Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])] =
+      pack.program._2(n)
+  }
+
+  def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =
+    Order.by[Package[A, B, C, D], PackageName](_.name)
 }
