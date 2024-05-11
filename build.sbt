@@ -178,12 +178,12 @@ lazy val core =
         munit.value % Test,
         munitScalaCheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.11" % "provided"
+        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.12" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.11"),
+    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.12"),
     scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
