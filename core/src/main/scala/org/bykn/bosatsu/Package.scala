@@ -357,7 +357,7 @@ object Package {
               (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
             }
             .left
-            .map(PackageError.TypeErrorIn(_, p))
+            .map(PackageError.TypeErrorIn(_, p, lets, theseExternals))
 
           val checkUnusedLets =
             lets
@@ -467,7 +467,7 @@ object Package {
           val tpes = Doc.text("types: ") + Doc
             .intercalate(
               Doc.comma + Doc.line,
-              pack.program._1.types.definedTypes.toList.map { case (_, t) =>
+              pack.types.definedTypes.toList.map { case (_, t) =>
                 Doc.text(t.name.ident.sourceCodeRepr)
               }
             )
@@ -520,8 +520,8 @@ object Package {
     def externalDefs: List[Identifier.Bindable] =
       pack.program._1.externalDefs
 
-  def localImport(n: Identifier): Option[(Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])] =
-    pack.program._2(n)
+    def localImport(n: Identifier): Option[(Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])] =
+      pack.program._2(n)
   }
 
   def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =

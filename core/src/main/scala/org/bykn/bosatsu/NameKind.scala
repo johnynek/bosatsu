@@ -23,16 +23,14 @@ object NameKind {
       defType: rankn.Type
   ) extends NameKind[T]
 
-  def externals[T](from: Package.Typed[T]): Iterable[ExternalDef[T]] = {
-    val prog = from.program
-    prog._1.externalDefs.to(LazyList).map { n =>
+  def externals[T](from: Package.Typed[T]): Iterable[ExternalDef[T]] =
+    from.externalDefs.to(LazyList).map { n =>
       // The type could be an import, so we need to check for the type
       // in the TypeEnv
       val pn = from.name
-      val tpe = prog._1.types.getExternalValue(pn, n).get
+      val tpe = from.types.getExternalValue(pn, n).get
       ExternalDef[T](pn, n, tpe)
     }
-  }
 
   def apply[T](
       from: Package.Typed[T],

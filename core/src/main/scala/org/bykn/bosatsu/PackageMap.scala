@@ -154,7 +154,7 @@ object PackageMap {
               A
             ]]) =>
               deps
-                .traverse { i =>
+                .parTraverse { i =>
                   i.pack match {
                     case Right(pack) =>
                       rec(pack)
@@ -181,7 +181,7 @@ object PackageMap {
     type M = SortedMap[PackageName, PackageFix]
     val r
         : ReaderT[Either[NonEmptyList[PackageError], *], List[PackageName], M] =
-      map.toMap.traverse(step)
+      map.toMap.parTraverse(step)
 
     // we start with no imports on
     val m: Either[NonEmptyList[PackageError], M] = r.run(Nil)
@@ -231,18 +231,45 @@ object PackageMap {
         ]
     ) = {
 
-      val (errs0, imap) = ImportMap.fromImports(p.imports) { (p1, p2) => 
-        if (p1 === p2) None
+      val (errs0, imap) = ImportMap.fromImports(p.imports) { case ((p1, i1), (p2, i2)) => 
+        val leftPredef = p1 === PackageName.PredefName
+        val rightPredef = p2 === PackageName.PredefName
+
+        if (leftPredef) {
+          if (rightPredef) {
+            // Both are predef, if one is renamed, choose that, else error
+            val r1 = i1.isRenamed
+            val r2 = i2.isRenamed
+            if (r1 && !r2) ImportMap.Unify.Left
+            else if (!r1 && r2) ImportMap.Unify.Right
+            else if ((i1 == i2) && !r1) {
+              // explicitly importing from predef is allowed.
+              // choose one, doesn't matter which they are the same
+              ImportMap.Unify.Left
+            }
+            else {
+              // Both are renamed... this isn't allowed
+              ImportMap.Unify.Error
+            }
+          }
+          else {
+            // Predef is replaced by non-predef
+            ImportMap.Unify.Right
+          }
+        }
+        else if (rightPredef) {
+          // Predef is replaced by non-predef
+          ImportMap.Unify.Left
+        }
         else {
-          if (p1 === PackageName.PredefName) Some(Right(()))
-          else if (p2 === PackageName.PredefName) Some(Left(()))
-          else None
+          // neither are Predef, so we error
+          ImportMap.Unify.Error
         }
       }
       val errs =
         NonEmptyList
           .fromList(errs0)
-          .map(PackageError.DuplicatedImport)
+          .map(PackageError.DuplicatedImport(p.name, _))
 
       (errs, p.mapProgram((_, imap)))
     }
@@ -336,6 +363,8 @@ object PackageMap {
 
           def resolvedImports: ImportMap[Package.Resolved, Unit] = 
             imps.traverse[cats.Id, Package.Resolved, Unit] { (p, i) =>
+              // the Map.apply below should be safe because the imps
+              // are aligned with imports
               (nameToRes(p), i)
             }
 
@@ -427,7 +456,7 @@ object PackageMap {
           }
 
           val inferImports: FutVal[ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]] =
-            resolvedImports.traverse(stepImport(_, _))
+            resolvedImports.parTraverse(stepImport(_, _))
 
           val inferBody =
             inferImports

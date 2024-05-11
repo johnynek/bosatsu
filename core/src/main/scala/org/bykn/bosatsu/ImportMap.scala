@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Order}
+import cats.{Applicative, Functor, Order, Parallel}
 import scala.collection.immutable.SortedMap
 
 import cats.syntax.all._
@@ -28,29 +28,38 @@ case class ImportMap[A, B](toMap: SortedMap[Identifier, (A, ImportedName[B])]) {
   def traverse[F[_]: Applicative, C, D](fn: (A, ImportedName[B]) => F[(C, ImportedName[D])]): F[ImportMap[C, D]] =
     toMap.traverse[F, (C, ImportedName[D])] { case (a, ib) => fn(a, ib) }
       .map(ImportMap(_))
+
+  def parTraverse[F[_]: Parallel: Functor, C, D](fn: (A, ImportedName[B]) => F[(C, ImportedName[D])]): F[ImportMap[C, D]] =
+    toMap.parTraverse[F, (C, ImportedName[D])] { case (a, ib) => fn(a, ib) }
+      .map(ImportMap(_))
 }
 
 object ImportMap {
   def empty[A, B]: ImportMap[A, B] = ImportMap(SortedMap.empty)
 
+  sealed abstract class Unify
+  object Unify {
+    case object Error extends Unify
+    case object Left extends Unify
+    case object Right extends Unify
+  }
   // Return the list of collisions in local names along with a map
   // with the last name overwriting the import
   def fromImports[A, B](
       is: List[Import[A, B]]
-  )(unify: (A, A) => Option[Either[Unit, Unit]]): (List[(A, ImportedName[B])], ImportMap[A, B]) =
+  )(unify: ((A, ImportedName[B]), (A, ImportedName[B])) => Unify): (List[(A, ImportedName[B])], ImportMap[A, B]) =
     is.iterator
       .flatMap { case Import(p, is) => is.toList.iterator.map((p, _)) }
       .foldLeft((List.empty[(A, ImportedName[B])], ImportMap.empty[A, B])) {
-        case (old @ (dups, imap), pim @ (pack, im)) =>
+        case (old @ (dups, imap), pim @ (_, im)) =>
           val (dups1, imap1) = imap(im.localName) match {
             case Some(nm) =>
-              val oldPack = nm._1
-              unify(oldPack, pack) match {
-                case None =>
+              unify(nm, pim) match {
+                case Unify.Error =>
                   // pim and nm are a collision, add both
                   (pim :: nm :: dups, imap + pim)
-                case Some(Left(_)) => old
-                case Some(Right(_)) => (dups, imap + pim)
+                case Unify.Left => old
+                case Unify.Right => (dups, imap + pim)
               }
             case None     => (dups, imap + pim)
           }

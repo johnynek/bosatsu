@@ -234,7 +234,7 @@ def go(x):
   y
 
 main = go(IntCase(42))
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
 
     val errPack = """
 package Err
@@ -250,7 +250,7 @@ main = go(IntCase(42))
 """
     val packs =
       Map((PackageName.parts("Err"), (LocationMap(errPack), "Err.bosatsu")))
-    evalFail(List(errPack)) { case te @ PackageError.TypeErrorIn(_, _) =>
+    evalFail(List(errPack)) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(packs, Colorize.None)
       assert(
         msg.contains(
@@ -667,7 +667,7 @@ main = if True:
   1
 else:
   "1"
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
   }
 
   test(
@@ -741,7 +741,7 @@ struct W(wf: f[a, b] -> a -> b)
 def apply(w):
   W(fn) = w
   fn(w)
-""")) { case err @ PackageError.TypeErrorIn(_, _) =>
+""")) { case err: PackageError.TypeErrorIn =>
       val message = err.message(Map.empty, Colorize.None)
       assert(message.contains("illegal recursive type or function"))
       ()
@@ -877,7 +877,7 @@ def getValue(v):
     case IsInt(i, _): i
 
 main = getValue(int)
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
 
   }
 
@@ -890,7 +890,7 @@ def plus(x: a, y):
   x.add(y)
 
 main = plus(1, 2)
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
   }
 
   test("unused let fails compilation") {
@@ -1715,7 +1715,7 @@ main = a""")) { case PackageError.UnknownImportPackage(_, _) => () }
     evalFail(List("""
 package B
 
-main = a""")) { case te @ PackageError.TypeErrorIn(_, _) =>
+main = a""")) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
       assert(msg.contains("package B\nname \"a\" unknown"))
@@ -1909,7 +1909,7 @@ def fn(x, y):
     case x: x
 
 main = fn(0, 1, 2)
-""")) { case te @ PackageError.TypeErrorIn(_, _) =>
+""")) { case te: PackageError.TypeErrorIn =>
       assert(
         te.message(Map.empty, Colorize.None)
           .contains("does not match function with 3 arguments at:")
@@ -1928,7 +1928,7 @@ def fn(x):
 
 main = fn([1, 2])
 """
-    evalFail(code1571 :: Nil) { case te @ PackageError.TypeErrorIn(_, _) =>
+    evalFail(code1571 :: Nil) { case te: PackageError.TypeErrorIn =>
       // Make sure we point at the function directly
       assert(code1571.substring(67, 69) == "fn")
       assert(
@@ -2769,24 +2769,6 @@ main = Foo(1, "2")
     }
   }
 
-  test("test duplicate import message") {
-    evalFail(List("""
-package Err
-
-from Bosatsu/Predef import foldLeft
-
-main = 1
-""")) { case sce @ PackageError.DuplicatedImport(_) =>
-      assert(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft"
-      )
-      ()
-    }
-  }
-
   test("test duplicate package message") {
     val pack =
       """
@@ -3341,7 +3323,7 @@ struct RecordGetter[shape, t](
 def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter()
   result
-""")) { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case _: PackageError.TypeErrorIn => () }
   }
 
   test("test quicklook example") {
@@ -3462,7 +3444,7 @@ struct Id(a)
 # this code could run if we ignored kinds
 def makeFoo(v: Int): Foo(Id(v))
 
-""")) { case kie @ PackageError.TypeErrorIn(_, _) =>
+""")) { case kie: PackageError.TypeErrorIn =>
       assert(
         kie.message(Map.empty, Colorize.None) ==
           """in file: <unknown source>, package Foo
@@ -3485,7 +3467,7 @@ struct Id(a)
 # this code could run if we ignored kinds
 def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
 
-""")) { case kie @ PackageError.TypeErrorIn(_, _) =>
+""")) { case kie: PackageError.TypeErrorIn =>
       assert(
         kie.message(Map.empty, Colorize.None) ==
           """in file: <unknown source>, package Foo
@@ -3512,7 +3494,7 @@ def quick_sort0(cmp, left, right):
         # we accidentally omit bigger below
         bigs = quick_sort0(cmp, tail)
         [*smalls, *bigs]
-""")) { case kie @ PackageError.TypeErrorIn(_, _) =>
+""")) { case kie: PackageError.TypeErrorIn =>
       assert(kie.message(Map.empty, Colorize.None) == """in file: <unknown source>, package QS
 type error: expected type Bosatsu/Predef::Fn3[(?13, ?9) -> Bosatsu/Predef::Comparison]
 Region(403,414)
@@ -3536,7 +3518,7 @@ def toInt(n: N, acc: Int) -> Int:
     case S(n): toInt(n, "foo")
 
 """
-    evalFail(List(testCode)) { case kie @ PackageError.TypeErrorIn(_, _) =>
+    evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("Region(122,127)"))
       val badRegion = testCode.substring(122, 127)
@@ -3757,7 +3739,7 @@ x: Int = "1"
 y: String = 1
 
 """
-    evalFail(List(testCode)) { case kie @ PackageError.TypeErrorIn(_, _) =>
+    evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("Region(30,33)"))
       assert(testCode.substring(30, 33) == "\"1\"")
@@ -3778,7 +3760,7 @@ z = (
 )
 
 """
-    evalFail(List(testCode)) { case kie @ PackageError.TypeErrorIn(_, _) =>
+    evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("Region(38,41)"))
       assert(testCode.substring(38, 41) == "\"1\"")
@@ -4019,5 +4001,91 @@ def fn(x):
 
 test = Assertion(fn(False), "")
 """), "Foo", 1)
+  }
+
+  test("test duplicate import error messages") {
+    val testCode = List("""
+package P1
+export foo
+
+foo = 1
+
+""", """
+package P2
+export foo
+
+foo = 2
+""", """
+package P3
+
+from P1 import foo
+from P2 import foo
+
+main = foo
+""")
+
+    evalFail(testCode) {
+      case kie @ PackageError.DuplicatedImport(_, _) =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message == "duplicate import in <unknown source> package P3\n\tfrom P1 import foo\n\tfrom P2 import foo\n")
+        ()
+    }
+
+    // explicit predefs are allowed
+    runBosatsuTest(List("""
+package P
+
+from Bosatsu/Predef import foldLeft
+
+main = Assertion(True, "")
+"""), "P", 1)
+    // explicit predefs renamed are allowed
+    runBosatsuTest(List("""
+package P
+
+from Bosatsu/Predef import foldLeft as fl
+
+res = [].fl(True, (_, _) -> False)
+
+main = Assertion(res, "")
+"""), "P", 1)
+    evalFail(List("""
+package P
+
+from Bosatsu/Predef import concat as fl
+from Bosatsu/Predef import foldLeft as fl
+
+res = [].fl(True, (_, _) -> False)
+
+main = Assertion(res, "")
+    """)) {
+      case kie @ PackageError.DuplicatedImport(_, _) =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message == "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldLeft as fl\n")
+        ()
+    }
+  }
+
+  test("we always suggest names which share a prefix with an unknown name") {
+    val testCode = List("""
+package P1
+
+fofoooooooo = 1
+
+ofof = 2
+
+main = fof
+""")
+
+    evalFail(testCode) {
+      case kie: PackageError.TypeErrorIn =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message == """in file: <unknown source>, package P1
+name "fof" unknown.
+Closest: fofoooooooo, ofof.
+
+Region(47,50)""")
+        ()
+    }
   }
 }

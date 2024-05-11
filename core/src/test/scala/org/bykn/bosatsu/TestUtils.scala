@@ -227,8 +227,8 @@ object TestUtils {
 
       case Validated.Invalid(errs) =>
         val tes = errs.toList
-          .collect { case PackageError.TypeErrorIn(te, _) =>
-            te.toString
+          .collect { case te: PackageError.TypeErrorIn =>
+            te.tpeErr.toString
           }
           .mkString("\n")
         fail(tes + "\n" + errs.toString)

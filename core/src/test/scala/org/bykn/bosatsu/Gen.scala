@@ -1677,7 +1677,7 @@ object Generators {
       // we can't reuse package names
       if !existing.contains(pn)
       imps0 <- genImports
-      impMap = ImportMap.fromImports(imps0)((_, _) => None)._2
+      impMap = ImportMap.fromImports(imps0)((_, _) => ImportMap.Unify.Error)._2
       imps = impMap.toList(Package.orderByName)
       prog <- genProg(pn, imps)
       exps <- genExports(pn, prog)
