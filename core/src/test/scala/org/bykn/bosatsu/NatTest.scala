@@ -11,14 +11,24 @@ class NatTest extends munit.ScalaCheckSuite {
       .withMinSuccessfulTests(if (Platform.isScalaJvm) 100000 else 100)
       .withMaxDiscardRatio(10)
 
-  //override def scalaCheckInitialSeed = "YOFqcGzXOFtFVgRFxOmODi5100tVovDS3EPOv0Ihk4C="
+  // override def scalaCheckInitialSeed = "YOFqcGzXOFtFVgRFxOmODi5100tVovDS3EPOv0Ihk4C="
 
   lazy val genNat: Gen[Nat] = {
     val recur = Gen.lzy(genNat)
     Gen.frequency(
       // make sure to exercise the cached table
       (1, Gen.chooseNum(0, 1024, 1).map(Nat.fromInt(_))),
-      (5, Gen.chooseNum(0, Long.MaxValue, Int.MaxValue.toLong, Int.MaxValue.toLong + 1).map(Nat.fromLong(_))),
+      (
+        5,
+        Gen
+          .chooseNum(
+            0,
+            Long.MaxValue,
+            Int.MaxValue.toLong,
+            Int.MaxValue.toLong + 1
+          )
+          .map(Nat.fromLong(_))
+      ),
       (1, Gen.zip(recur, recur).map { case (a, b) => a + b }),
       (1, Gen.zip(recur, recur).map { case (a, b) => a * b })
     )
@@ -31,19 +41,19 @@ class NatTest extends munit.ScalaCheckSuite {
   }
   property("fromInt/maybeLong identity") {
     forAll { (i: Int) =>
-      val n = Nat.fromInt(i)  
+      val n = Nat.fromInt(i)
       n.maybeLong match {
-        case None => fail(s"couldn't maybeLong $i")
+        case None    => fail(s"couldn't maybeLong $i")
         case Some(l) => assert(i < 0 || (l.toInt == i))
       }
     }
   }
   property("fromLong/maybeLong identity") {
     forAll { (i: Long) =>
-      val n = Nat.fromLong(i)  
+      val n = Nat.fromLong(i)
       n.maybeLong match {
         case Some(l) => assert(i < 0 || (l == i))
-        case None => fail(s"couldn't maybeLong $i")
+        case None    => fail(s"couldn't maybeLong $i")
       }
     }
   }
@@ -53,10 +63,10 @@ class NatTest extends munit.ScalaCheckSuite {
   property("toLong => lowBits is identity") {
     val big = 0x80000000L
 
-    assertEquals(Nat.lowBits(big), Int.MinValue, s"${Nat.lowBits(big)}")  
+    assertEquals(Nat.lowBits(big), Int.MinValue, s"${Nat.lowBits(big)}")
     forAll(Gen.chooseNum(Int.MinValue, Int.MaxValue)) { (i: Int) =>
       val l = Nat.toLong(i)
-      assertEquals(Nat.lowBits(Nat.toLong(i)), i, s"long = $l")  
+      assertEquals(Nat.lowBits(Nat.toLong(i)), i, s"long = $l")
     }
   }
 
@@ -88,7 +98,7 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("x.inc == x + 1") {
     forAll(genNat) { n =>
-      val i = n.inc  
+      val i = n.inc
       val a = n + Nat.one
       assertEquals(i.toBigInt, a.toBigInt)
     }
@@ -96,7 +106,7 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("x.dec == x - 1 when x > 0") {
     forAll(genNat) { n =>
-      val i = n.dec.toBigInt  
+      val i = n.dec.toBigInt
       if (n == Nat.zero) assertEquals(i, BigInt(0))
       else assertEquals(i, n.toBigInt - 1)
     }
@@ -121,7 +131,7 @@ class NatTest extends munit.ScalaCheckSuite {
 
     forAll { (bi0: BigInt) =>
       val bi = bi0.abs
-      val n = Nat.fromBigInt(bi)  
+      val n = Nat.fromBigInt(bi)
       val b2 = n.toBigInt
       assertEquals(b2, bi)
     }
@@ -129,7 +139,7 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("x.inc.dec == x") {
     forAll(genNat) { n =>
-      assertEquals(n.inc.dec, n)  
+      assertEquals(n.inc.dec, n)
     }
   }
 
@@ -141,14 +151,14 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("if the value is > Long.MaxValue maybeLong = None") {
     forAll(genNat) { n =>
-      val bi = n.toBigInt  
+      val bi = n.toBigInt
       val ml = n.maybeLong
       assertEquals(ml.isEmpty, bi > Long.MaxValue)
     }
   }
   property("the string repr matches toBigInt") {
     forAll(genNat) { n =>
-      assertEquals(n.toString, n.toBigInt.toString)  
+      assertEquals(n.toString, n.toBigInt.toString)
     }
   }
 }
