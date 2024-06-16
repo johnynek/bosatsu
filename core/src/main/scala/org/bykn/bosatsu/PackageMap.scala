@@ -75,12 +75,14 @@ object PackageMap {
     Package.Interface,
     NonEmptyList[Referant[Kind.Arg]],
     Referant[Kind.Arg],
-    (Program[
-      TypeEnv[Kind.Arg],
-      TypedExpr[T],
-      Any
-    ],
-      ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]])
+    (
+        Program[
+          TypeEnv[Kind.Arg],
+          TypedExpr[T],
+          Any
+        ],
+        ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+    )
   ]
 
   type SourceMap = Map[PackageName, (LocationMap, String)]
@@ -231,40 +233,37 @@ object PackageMap {
         ]
     ) = {
 
-      val (errs0, imap) = ImportMap.fromImports(p.imports) { case ((p1, i1), (p2, i2)) => 
-        val leftPredef = p1 === PackageName.PredefName
-        val rightPredef = p2 === PackageName.PredefName
+      val (errs0, imap) = ImportMap.fromImports(p.imports) {
+        case ((p1, i1), (p2, i2)) =>
+          val leftPredef = p1 === PackageName.PredefName
+          val rightPredef = p2 === PackageName.PredefName
 
-        if (leftPredef) {
-          if (rightPredef) {
-            // Both are predef, if one is renamed, choose that, else error
-            val r1 = i1.isRenamed
-            val r2 = i2.isRenamed
-            if (r1 && !r2) ImportMap.Unify.Left
-            else if (!r1 && r2) ImportMap.Unify.Right
-            else if ((i1 == i2) && !r1) {
-              // explicitly importing from predef is allowed.
-              // choose one, doesn't matter which they are the same
-              ImportMap.Unify.Left
+          if (leftPredef) {
+            if (rightPredef) {
+              // Both are predef, if one is renamed, choose that, else error
+              val r1 = i1.isRenamed
+              val r2 = i2.isRenamed
+              if (r1 && !r2) ImportMap.Unify.Left
+              else if (!r1 && r2) ImportMap.Unify.Right
+              else if ((i1 == i2) && !r1) {
+                // explicitly importing from predef is allowed.
+                // choose one, doesn't matter which they are the same
+                ImportMap.Unify.Left
+              } else {
+                // Both are renamed... this isn't allowed
+                ImportMap.Unify.Error
+              }
+            } else {
+              // Predef is replaced by non-predef
+              ImportMap.Unify.Right
             }
-            else {
-              // Both are renamed... this isn't allowed
-              ImportMap.Unify.Error
-            }
-          }
-          else {
+          } else if (rightPredef) {
             // Predef is replaced by non-predef
-            ImportMap.Unify.Right
+            ImportMap.Unify.Left
+          } else {
+            // neither are Predef, so we error
+            ImportMap.Unify.Error
           }
-        }
-        else if (rightPredef) {
-          // Predef is replaced by non-predef
-          ImportMap.Unify.Left
-        }
-        else {
-          // neither are Predef, so we error
-          ImportMap.Unify.Error
-        }
       }
       val errs =
         NonEmptyList
@@ -349,19 +348,17 @@ object PackageMap {
         PackageError
       ], (TypeEnv[Kind.Arg], Package.Inferred)]] {
         case (Package(nm, imports, exports, (stmt, imps)), recurse) =>
-
-          val nameToRes = imports.iterator.map { i => 
+          val nameToRes = imports.iterator.map { i =>
             val resolved: Package.Resolved = i.pack
             val name = FixType.unfix(resolved) match {
               case Left(iface) => iface.name
               case Right(pack) => pack.name
             }
-            
-            (name, resolved)
-          }
-          .toMap
 
-          def resolvedImports: ImportMap[Package.Resolved, Unit] = 
+            (name, resolved)
+          }.toMap
+
+          def resolvedImports: ImportMap[Package.Resolved, Unit] =
             imps.traverse[cats.Id, Package.Resolved, Unit] { (p, i) =>
               // the Map.apply below should be safe because the imps
               // are aligned with imports
@@ -428,7 +425,7 @@ object PackageMap {
           def stepImport(
               fixpack: Package.Resolved,
               item: ImportedName[Unit]
-          ): FutVal[(Package.Interface, ImportedName[IName])] = {
+          ): FutVal[(Package.Interface, ImportedName[IName])] =
             Package.unfix(fixpack) match {
               case Right(p) =>
                 /*
@@ -450,12 +447,13 @@ object PackageMap {
                 // this is very fast and does not need to be done in a thread
                 val ior =
                   getImportIface(iface, exMap, item)
-                  .map((iface, _))
+                    .map((iface, _))
                 IorT.fromIor(ior)
             }
-          }
 
-          val inferImports: FutVal[ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]] =
+          val inferImports: FutVal[
+            ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+          ] =
             resolvedImports.parTraverse(stepImport(_, _))
 
           val inferBody =
@@ -465,7 +463,8 @@ object PackageMap {
                 val ilist = impMap.toList(Package.orderByName)
                 IorT(
                   Par.start(
-                    Package.inferBodyUnopt(nm, ilist, stmt)
+                    Package
+                      .inferBodyUnopt(nm, ilist, stmt)
                       .map((ilist, impMap, _))
                   )
                 )
@@ -509,11 +508,14 @@ object PackageMap {
           ior.traverse { case (fte, pack) =>
             Par.start {
               val optPack = pack.copy(program =
-                (TypedExprNormalization.normalizeProgram(
-                  pack.name,
-                  fte,
-                  pack.program._1
-                ), pack.program._2)
+                (
+                  TypedExprNormalization.normalizeProgram(
+                    pack.name,
+                    fte,
+                    pack.program._1
+                  ),
+                  pack.program._2
+                )
               )
               Package.discardUnused(optPack)
             }
@@ -596,9 +598,12 @@ object PackageMap {
         }
       case Validated.Invalid(errs) =>
         val map = Map(
-          PackageName.PredefName -> (LocationMap(
-            Predef.predefString
-          ), "<predef>")
+          PackageName.PredefName -> (
+            LocationMap(
+              Predef.predefString
+            ),
+            "<predef>"
+          )
         )
         errs.iterator.foreach { err =>
           println(err.message(map, LocationMap.Colorize.None))

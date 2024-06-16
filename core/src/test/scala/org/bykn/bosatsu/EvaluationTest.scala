@@ -4000,47 +4000,60 @@ def fn(x):
   else: False
 
 test = Assertion(fn(False), "")
-"""), "Foo", 1)
+"""),
+      "Foo",
+      1
+    )
   }
 
   test("test duplicate import error messages") {
-    val testCode = List("""
+    val testCode = List(
+      """
 package P1
 export foo
 
 foo = 1
 
-""", """
+""",
+      """
 package P2
 export foo
 
 foo = 2
-""", """
+""",
+      """
 package P3
 
 from P1 import foo
 from P2 import foo
 
 main = foo
-""")
+"""
+    )
 
-    evalFail(testCode) {
-      case kie @ PackageError.DuplicatedImport(_, _) =>
-        val message = kie.message(Map.empty, Colorize.None)
-        assert(message == "duplicate import in <unknown source> package P3\n\tfrom P1 import foo\n\tfrom P2 import foo\n")
-        ()
+    evalFail(testCode) { case kie @ PackageError.DuplicatedImport(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(
+        message == "duplicate import in <unknown source> package P3\n\tfrom P1 import foo\n\tfrom P2 import foo\n"
+      )
+      ()
     }
 
     // explicit predefs are allowed
-    runBosatsuTest(List("""
+    runBosatsuTest(
+      List("""
 package P
 
 from Bosatsu/Predef import foldLeft
 
 main = Assertion(True, "")
-"""), "P", 1)
+"""),
+      "P",
+      1
+    )
     // explicit predefs renamed are allowed
-    runBosatsuTest(List("""
+    runBosatsuTest(
+      List("""
 package P
 
 from Bosatsu/Predef import foldLeft as fl
@@ -4048,7 +4061,10 @@ from Bosatsu/Predef import foldLeft as fl
 res = [].fl(True, (_, _) -> False)
 
 main = Assertion(res, "")
-"""), "P", 1)
+"""),
+      "P",
+      1
+    )
     evalFail(List("""
 package P
 
@@ -4058,11 +4074,12 @@ from Bosatsu/Predef import foldLeft as fl
 res = [].fl(True, (_, _) -> False)
 
 main = Assertion(res, "")
-    """)) {
-      case kie @ PackageError.DuplicatedImport(_, _) =>
-        val message = kie.message(Map.empty, Colorize.None)
-        assert(message == "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldLeft as fl\n")
-        ()
+    """)) { case kie @ PackageError.DuplicatedImport(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(
+        message == "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldLeft as fl\n"
+      )
+      ()
     }
   }
 
@@ -4077,15 +4094,14 @@ ofof = 2
 main = fof
 """)
 
-    evalFail(testCode) {
-      case kie: PackageError.TypeErrorIn =>
-        val message = kie.message(Map.empty, Colorize.None)
-        assert(message == """in file: <unknown source>, package P1
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message == """in file: <unknown source>, package P1
 name "fof" unknown.
 Closest: fofoooooooo, ofof.
 
 Region(47,50)""")
-        ()
+      ()
     }
   }
 }

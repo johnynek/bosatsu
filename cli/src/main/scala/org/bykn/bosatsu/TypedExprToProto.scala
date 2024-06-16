@@ -1816,11 +1816,16 @@ object ProtoConverter {
                 importsFromProto(_, loadIface, loadDT)
               )
               impMap <- ReaderT.liftF(
-                ImportMap.fromImports(imps)((_, _) => ImportMap.Unify.Error) match {
+                ImportMap.fromImports(imps)((_, _) =>
+                  ImportMap.Unify.Error
+                ) match {
                   case (Nil, im) => Success(im)
                   case (nel, _) =>
-                    Failure(new Exception(s"duplicated imports in package: $nel"))
-                })
+                    Failure(
+                      new Exception(s"duplicated imports in package: $nel")
+                    )
+                }
+              )
               exps <- pack.exports.toList.traverse(
                 exportedNameFromProto(loadDT, _)
               )
