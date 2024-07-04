@@ -16,9 +16,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     MMap.empty
 
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
-    val externalNames = p.program.externalDefs
+    val externalNames = p.externalDefs
     externalNames.iterator.map { n =>
-      val tpe = p.program.types.getValue(p.name, n) match {
+      val tpe = p.types.getValue(p.name, n) match {
         case Some(t) => t
         case None    =>
           // $COVERAGE-OFF$
@@ -70,7 +70,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     envCache.getOrElseUpdate(
       packName, {
         val pack = pm.toMap(packName)
-        externalEnv(pack) ++ evalLets(packName, pack.program.lets)
+        externalEnv(pack) ++ evalLets(packName, pack.lets)
       }
     )
 
@@ -81,7 +81,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   ): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, _, tpe) <- pack.program.lets.filter { case (n, _, _) =>
+      (_, _, tpe) <- pack.lets.filter { case (n, _, _) =>
         n == name
       }.lastOption
       value <- evaluate(p).get(name)
@@ -133,7 +133,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   val valueToJson: ValueToJson = ValueToJson { case Type.Const.Defined(pn, t) =>
     for {
       pack <- pm.toMap.get(pn)
-      dt <- pack.program.types.getType(pn, t)
+      dt <- pack.types.getType(pn, t)
     } yield dt
   }
 
@@ -143,7 +143,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   val valueToDoc: ValueToDoc = ValueToDoc { case Type.Const.Defined(pn, t) =>
     for {
       pack <- pm.toMap.get(pn)
-      dt <- pack.program.types.getType(pn, t)
+      dt <- pack.types.getType(pn, t)
     } yield dt
   }
 }

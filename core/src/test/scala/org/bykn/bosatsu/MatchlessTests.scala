@@ -38,15 +38,15 @@ class MatchlessTest extends AnyFunSuite {
     Generators
       .genPackage(Gen.const(()), 5)
       .flatMap { (m: Map[PackageName, Package.Typed[Unit]]) =>
-        val candidates = m.filter { case (_, t) => t.program.lets.nonEmpty }
+        val candidates = m.filter { case (_, t) => t.lets.nonEmpty }
 
         if (candidates.isEmpty) genInputs
         else
           for {
             packName <- Gen.oneOf(candidates.keys.toSeq)
-            prog = m(packName).program
-            (b, r, t) <- Gen.oneOf(prog.lets)
-            fn = fnFromTypeEnv(prog.types)
+            pack = m(packName)
+            (b, r, t) <- Gen.oneOf(pack.lets)
+            fn = fnFromTypeEnv(pack.types)
           } yield (b, r, t, fn)
       }
 

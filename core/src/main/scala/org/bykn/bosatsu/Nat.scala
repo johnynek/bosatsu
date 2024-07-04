@@ -19,19 +19,17 @@ sealed abstract class Nat { lhs =>
   def maybeLong: Option[Long] =
     lhs match {
       case Small(asInt) => Some(toLong(asInt))
-      case Shift(x, b) =>
+      case Shift(x, b)  =>
         // 2^32 * (x + 1) + b
         x.maybeLong match {
           case Some(v0) =>
             if (v0 < Int.MaxValue) {
               val value = v0 + 1
               Some((value << 32) + toLong(b))
-            }
-            else None
+            } else None
           case None => None
         }
     }
-
 
   def inc: Nat =
     lhs match {
@@ -45,7 +43,7 @@ sealed abstract class Nat { lhs =>
         if (b1 != 0) Shift(x, b1)
         else {
           // m(x + 1) + m
-          // m(x + 1 + 1) 
+          // m(x + 1 + 1)
           Shift(x.inc, 0)
         }
     }
@@ -53,7 +51,7 @@ sealed abstract class Nat { lhs =>
   def dec: Nat =
     lhs match {
       case Small(asInt) =>
-        if (asInt != 0) wrapInt(asInt - 1) 
+        if (asInt != 0) wrapInt(asInt - 1)
         else zero
       case Shift(x, b) =>
         if (b != 0) Shift(x, b - 1)
@@ -66,7 +64,7 @@ sealed abstract class Nat { lhs =>
   def isZero: Boolean =
     lhs match {
       case Small(0) => true
-      case _ => false
+      case _        => false
     }
 
   // this * 2^32
@@ -84,30 +82,28 @@ sealed abstract class Nat { lhs =>
         if (b != 0) {
           val b1 = b - 1
           Shift(Shift(x, b1), 0)
-        }
-        else if (x.isZero) {
+        } else if (x.isZero) {
           // m * (m(0 + 1) + 0)
           // m * ((m - 1) + 1) + 0
-          val inner = wrapLong(0xFFFFFFFFL)
+          val inner = wrapLong(0xffffffffL)
           Shift(inner, 0)
-        }
-        else {
+        } else {
           // x > 0
-          //m(m(x + 1)) =
-          //m(m(x + 1) - 1 + 1) + 0
-          //m((m(x + 1) - 1) + 1) + 0
+          // m(m(x + 1)) =
+          // m(m(x + 1) - 1 + 1) + 0
+          // m((m(x + 1) - 1) + 1) + 0
           val inner = x.inc.shift_32.dec
           Shift(inner, 0)
         }
     }
 
-  def +(rhs: Nat): Nat = {
+  def +(rhs: Nat): Nat =
     lhs match {
       case Small(l) =>
         rhs match {
           case Small(r) =>
             wrapLong(toLong(l) + toLong(r))
-          case Shift(x, b) => 
+          case Shift(x, b) =>
             val res = toLong(l) + toLong(b)
             val low = lowBits(res)
             val high = highBits(res)
@@ -119,7 +115,7 @@ sealed abstract class Nat { lhs =>
 
       case Shift(x, b) =>
         rhs match {
-          case Small(l) => 
+          case Small(l) =>
             val res = toLong(l) + toLong(b)
             val low = lowBits(res)
             val high = highBits(res)
@@ -139,32 +135,31 @@ sealed abstract class Nat { lhs =>
             }
         }
     }
-  }
-  def *(rhs: Nat): Nat = {
+  def *(rhs: Nat): Nat =
     lhs match {
       case Small(l) =>
         if (l == 0) zero
-        else (rhs match {
-          case Small(r) =>
-            // can't overflow Long
-            wrapLong(toLong(l) * toLong(r))
-          case Shift(x, b) => 
-            // (m(x + 1) + b) * l
-            (x.inc * lhs).shift_32 + wrapInt(b) * lhs
-        })
+        else
+          (rhs match {
+            case Small(r) =>
+              // can't overflow Long
+              wrapLong(toLong(l) * toLong(r))
+            case Shift(x, b) =>
+              // (m(x + 1) + b) * l
+              (x.inc * lhs).shift_32 + wrapInt(b) * lhs
+          })
 
       case Shift(x, b) =>
         // (m(x + 1) + b) * rhs
         // (x + 1)*rhs*m + b * rhs
         (rhs * x.inc).shift_32 + rhs * wrapInt(b)
     }
-  }
 }
 
 object Nat {
   private val two_32_BigInt = BigInt(1L << 32)
 
-  private val intMaskLow: Long = 0xFFFFFFFFL
+  private val intMaskLow: Long = 0xffffffffL
   def toLong(i: Int): Long = i.toLong & intMaskLow
   def lowBits(l: Long): Int = l.toInt
   private def highBits(l: Long): Int = lowBits(l >> 32)
@@ -210,8 +205,7 @@ object Nat {
     if (b <= 0) zero
     else if (b < two_32_BigInt) {
       fromLong(b.toLong)
-    }
-    else {
+    } else {
       val low = b % two_32_BigInt
       val high = b >> 32
       Shift(fromBigInt(high - 1), lowBits(low.toLong))
