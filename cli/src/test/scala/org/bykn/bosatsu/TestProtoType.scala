@@ -51,7 +51,7 @@ class TestProtoType extends AnyFunSuite with ParTest {
       Eq[A].eqv(a, orig),
       s"${a.toString.drop(diffIdx - context / 2).take(context)} != ${orig.toString.drop(diffIdx - context / 2).take(context)}"
     )
-    //assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
+    // assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
   }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {

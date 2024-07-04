@@ -348,7 +348,8 @@ final class SourceConverter(
             else RecursionKind.NonRecursive
           Expr.Let(boundName, lam, in, recursive = rec, decl)
         }
-      case IfElse(NonEmptyList((Matches(a, p), res), tail), elseCase) if p.names.isEmpty =>
+      case IfElse(NonEmptyList((Matches(a, p), res), tail), elseCase)
+          if p.names.isEmpty =>
         // if x matches p: res
         // else: elseCase
         // same as: match x:
@@ -366,13 +367,18 @@ final class SourceConverter(
               // keep the OptIndent from the first item
               nel.head._2.map(_ => IfElse(nel, elseCase)(restRegion))
           }
-        loop(Match(
-          RecursionKind.NonRecursive,
-          a,
-          OptIndent.same(NonEmptyList(
-            (p, res),
-            (Pattern.WildCard, restDecl) :: Nil
-          )))(decl.region))
+        loop(
+          Match(
+            RecursionKind.NonRecursive,
+            a,
+            OptIndent.same(
+              NonEmptyList(
+                (p, res),
+                (Pattern.WildCard, restDecl) :: Nil
+              )
+            )
+          )(decl.region)
+        )
       case IfElse(ifCases, elseCase) =>
         def loop0(
             ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])],

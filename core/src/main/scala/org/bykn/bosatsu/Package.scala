@@ -64,11 +64,15 @@ object Package {
   type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
   type Resolved =
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
-  type Typed[T] = Package[Interface, NonEmptyList[Referant[Kind.Arg]], Referant[
-    Kind.Arg
-  ], (
-    Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
-    ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
+  type Typed[T] = Package[
+    Interface,
+    NonEmptyList[Referant[Kind.Arg]],
+    Referant[
+      Kind.Arg
+    ],
+    (
+        Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+        ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
     )
   ]
   type Inferred = Typed[Declaration]
@@ -520,7 +524,9 @@ object Package {
     def externalDefs: List[Identifier.Bindable] =
       pack.program._1.externalDefs
 
-    def localImport(n: Identifier): Option[(Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])] =
+    def localImport(n: Identifier): Option[
+      (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])
+    ] =
       pack.program._2(n)
   }
 
