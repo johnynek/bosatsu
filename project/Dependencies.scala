@@ -17,7 +17,7 @@ object Dependencies {
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.18.0")
-  lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.18")
+  lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.19")
   lazy val scalaTestPlusScalacheck =
     Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.18.0")
 }
