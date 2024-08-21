@@ -10,7 +10,7 @@ object Dependencies {
   lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.24.0")
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
-  lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.3")
+  lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.0.1")
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.0.0")
