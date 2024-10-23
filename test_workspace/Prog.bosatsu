@@ -1,0 +1,53 @@
+package Bosatsu/Prog
+
+export (unit, Prog)
+
+external struct Prog[env: -*, err: +*, res: +*]
+
+external def pure(a: res) -> Prog[(), forall e. e, res]
+external def raise_error(e: err) -> Prog[(), err, forall a. a]
+external read_env: forall a. Prog[a, forall e. e, a]
+external def flat_map(prog: Prog[env, err, res], fn: res -> Prog[env, err, res1]) -> Prog[env, err, res1]
+external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+external def apply_fix(a: a,
+  fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> Prog[env, err, b]
+
+external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err, res]
+
+external def println(str: String) -> Prog[Unit, forall e. e, Unit]
+external get_args: Prog[Unit, forall e. e, List[String]]
+
+def await(p): fn -> p.flat_map(fn)
+
+def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a -> Prog[env, err, b]):
+  a -> apply_fix(a, fn)
+
+unit: Prog[(), forall e. e, ()] = pure(())
+
+# this is just here so you can assert you have a valid "main" type
+# for you final value
+def declare_main(p: Prog[(), String, Int]) -> Prog[(), String, Int]:
+  p
+
+count_down = recursive(loop -> (
+    def compute(i):
+      if cmp_Int(i, 0) matches EQ | LT:
+        println("done")
+      else:
+        _ <- println("${int_to_String(i)}").await()
+        loop(i.sub(1))
+    
+    compute
+  ))
+
+to_run = declare_main(
+  (
+    _ <- count_down(10).await()
+    args <- get_args.await()
+    arg_str = args.foldLeft("", (s, item) -> match s:
+      case "": item
+      case _: "${s}, ${item}")
+    _ <- println("args = ${arg_str}").await()
+    pure(0)
+  )
+)
