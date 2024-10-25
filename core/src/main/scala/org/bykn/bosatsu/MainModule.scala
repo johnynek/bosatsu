@@ -647,6 +647,9 @@ abstract class MainModule[IO[_]](implicit
 
               val parsedEvals =
                 evaluators.map(Parser.unsafeParse(PythonGen.evaluatorParser, _))
+              // TODO, we don't check that these types even exist in the fully
+              // universe, we should. If you have a typo in a type or package name
+              // you just get silently ignored
               val typeEvalMap = listToUnique(parsedEvals.flatten)(
                 t => t._1,
                 t => t._2,
@@ -655,6 +658,8 @@ abstract class MainModule[IO[_]](implicit
 
               val evalMap = pm.toMap.iterator.flatMap { case (n, p) =>
                 val optEval = p.lets.findLast { case (_, _, te) =>
+                  // TODO this should really e checking that te.getType <:< a key
+                  // in the map.
                   typeEvalMap.contains(te.getType)
                 }
                 optEval.map { case (b, _, te) =>

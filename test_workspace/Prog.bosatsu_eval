@@ -1,0 +1,3 @@
+{
+  Bosatsu/Prog::Prog[Bosatsu/Predef::Unit, Bosatsu/Predef::String, Bosatsu/Predef::Int]: ProgExt.run
+}

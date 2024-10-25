@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{Combinators, maybeSpace}
+import Parser.{Combinators, maybeSpace, maybeSpacesAndLines}
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -62,9 +62,9 @@ object DefStatement {
       resultTParser: P[B]
   ): P[DefStatement[A, B]] = {
     val args = argParser.parensLines1Cut
-    val result = (P.string("->") *> maybeSpace *> TypeRef.parser).?
+    val result = (P.string("->") *> maybeSpacesAndLines *> TypeRef.parser).?
     val kindAnnot: P[Kind] =
-      (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpace *> Kind.parser))
+      (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
 
     (
       Parser.keySpace(
