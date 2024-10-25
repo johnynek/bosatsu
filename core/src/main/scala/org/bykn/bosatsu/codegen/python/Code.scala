@@ -931,6 +931,7 @@ object Code {
 
   val pyKeywordList: Set[String] = Set(
     "and",
+    "await",
     "del",
     "from",
     "not",
