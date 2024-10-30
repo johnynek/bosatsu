@@ -473,6 +473,20 @@ object Infer {
       * has x in a return position of a function, or not at all, which then
       * gives us that (forall x. (A(x) u B(x))) == (forall x A(x)) u (forall x
       * B(x)) where A(x) and B(x) represent the union branches of the type C
+      *
+      * Here, we only float quantification above completely covariant paths,
+      * which includes function results returning functions, etc.
+      * I don't really know why this works, but it is skolemizing in a smaller set of
+      * cases compared to *any* covariant path (including contra * contra), yet still
+      * keeping functions in weak-prenex form (which isn't type checked, but is
+      * asserted in the inference and typechecking process).
+      *
+      * So, I guess one argument is we want to skolemize the least we can to make
+      * inference work, especially with function return types, and this is sufficient
+      * to do it. It also passes all the current tests.
+      *
+      * The paper we base the type inference on doesn't have a type system as complex
+      * as bosatsu, so we have to generalize it.
       */
     private def skolemize(
         t: Type,
