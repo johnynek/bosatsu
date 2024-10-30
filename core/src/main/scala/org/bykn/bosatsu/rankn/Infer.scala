@@ -43,6 +43,12 @@ sealed abstract class Infer[+A] {
   final def mapEither[B](fn: A => Either[Error, B]): Infer[B] =
     Infer.Impl.MapEither(this, fn)
 
+  def debug(showFn: A => String): Infer[A] =
+    mapEither { a =>
+      println(showFn(a))  
+      Right(a)
+    }
+
   final def runVar(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -94,6 +100,8 @@ object Infer {
       val typeCons: Map[(PackageName, Constructor), Cons],
       val variances: Map[Type.Const.Defined, Kind]
   ) {
+
+    override def toString() = s"Env($uniq, $vars, $typeCons, $variances)"
 
     def addVars(vt: NonEmptyList[(Name, Type)]): Env =
       new Env(uniq, vars = (vars + vt.head) ++ vt.tail, typeCons, variances)
@@ -467,7 +475,7 @@ object Infer {
       * covariant, then C[forall x. D[x]] == forall x. C[D[x]]
       *
       * this is always true for existential quantification I think, but for
-      * universal, we need that C is covariant which roughtly means C[x] either
+      * universal, we need that C is covariant which roughly means C[x] either
       * has x in a return position of a function, or not at all, which then
       * gives us that (forall x. (A(x) u B(x))) == (forall x A(x)) u (forall x
       * B(x)) where A(x) and B(x) represent the union branches of the type C
@@ -480,13 +488,14 @@ object Infer {
       // Invariant: if t is Rho, then result._3 is Rho
       def loop(
           t: Type,
-          path: Variance
+          path: Variance,
+          top: Boolean
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
         t match {
           case q: Type.Quantified =>
             if (path == Variance.co) {
               val univ = q.forallList
-              val exists = q.existList
+              val exists = if (top) q.existList else Nil
               val ty = q.in
               // Rule PRPOLY
               for {
@@ -500,20 +509,21 @@ object Infer {
                   (exists.map(_._1).iterator.zip(ms) ++
                     univ.map(_._1).iterator.zip(sksT.iterator)).toMap
                 )
-                (sks2, ms2, ty) <- loop(ty1, path)
-              } yield (sks1 ::: sks2, ms ::: ms2, ty)
+                (sks2, ms2, ty) <- loop(ty1, path, false)
+                tyx = if (top) ty else Type.exists(q.existList, ty)
+              } yield (sks1 ::: sks2, ms ::: ms2, tyx)
             } else pure((Nil, Nil, t))
 
           case ta @ Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
             // since left: Rho, we know loop(left, path)._3 is Rho
-            (varianceOfCons(ta, region), loop(left, path))
+            (varianceOfCons(ta, region), loop(left, path, false))
               .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
                 // due to loop invariant
                 val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
                 val rightPath = consVar * path
-                loop(right, rightPath)
+                loop(right, rightPath, false)
                   .map { case (sksr, er, rtpe) =>
                     (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe))
                   }
@@ -523,7 +533,7 @@ object Infer {
             pure((Nil, Nil, other))
         }
 
-      loop(t, Variance.co).map {
+      loop(t, Variance.co, true).map {
         case (skols, metas, rho: Type.Rho) =>
           (skols, metas, rho)
         // $COVERAGE-OFF$ this should be unreachable
@@ -533,6 +543,7 @@ object Infer {
         // $COVERAGE-ON$ this should be unreachable
       }
     }
+    .debug { case (s, m, rho) => s"skolemize(${show(t)}) == ($s, $m, ${show(rho)})"}
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
@@ -1067,8 +1078,10 @@ object Infer {
 
     /** Set the meta variable to point to a Tau type
       */
-    private def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
+    private def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] = {
+      println(s"writeMeta($m, $v)")
       lift(m.ref.set(Some(v)))
+    }
 
     private def clearMeta(m: Type.Meta): Infer[Unit] =
       lift(m.ref.set(None))
@@ -1161,6 +1174,7 @@ object Infer {
     ): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
+        _ = println(s"subsUpper skolemize(${show(declared)}) result ($skols, $metas, ${show(rho)})")
         coerce <- fn(metas, rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         resSkols <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
@@ -1590,11 +1604,13 @@ object Infer {
         tpe: Type,
         tpeRegion: Region,
         expect: Expected[(Type.Rho, Region)]
-    ): Infer[TypedExpr.Rho[A]] =
-      (checkSigma(inner, tpe), instSigma(tpe, expect, tpeRegion))
+    ): Infer[TypedExpr.Rho[A]] = {
+      println(s"checkAnnotated($inner, ${show(tpe)}, $expect)")
+      (checkSigma(inner, tpe).debug(sig => s"checkSigma($inner, ${show(tpe)}) == ${sig.repr}"), instSigma(tpe, expect, tpeRegion).debug(inst => s"instSigma(${show(tpe)}, $expect) == $inst"))
         .parFlatMapN { (typedTerm, coerce) =>
           zonkTypedExpr(typedTerm).map(coerce(_))
         }
+      }
 
     /** Invariant: if the second argument is (Check rho) then rho is in weak
       * prenex form
@@ -1687,8 +1703,9 @@ object Infer {
                 )
                 // the length of args and varsT must be the same because of unifyFnRho
                 zipped = args.zip(varsT)
+                _ = println(s"in Lambda check: zipped = $zipped")
                 namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
-                typedBody <- extendEnvList(namesVarsT.toList) {
+                typedBody <- extendEnvNonEmptyList(namesVarsT) {
                   // TODO we are ignoring the result of subsCheck here
                   // should we be coercing a var?
                   //
@@ -1697,6 +1714,8 @@ object Infer {
                   // indicates the testing coverage is incomplete
                   zipped.parTraverse_ {
                     case ((_, Some(tpe)), varT) =>
+                      // since a -> b <:< c -> d means, b <:< d and c <:< a
+                      // we check that the varT <:< tpe
                       subsCheck(varT, tpe, region(term), rr)
                     case ((_, None), _) => unit
                   } &>
@@ -1939,6 +1958,9 @@ object Infer {
               }
             }
       }
+    }
+    .debug { te =>
+      s"term = $term, expect = $expect, typed = $te"  
     }
 
     def widenBranches[A: HasRegion](
@@ -2444,12 +2466,14 @@ object Infer {
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
+      println(s"inside: checkSigma($t, ${show(tpe)})")
       for {
         check <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](
           tpe,
           regionT,
           envTypes
         ) { (metas, rho) =>
+          println(s"inside subsUpper(${show(tpe)}), metas = $metas, rho = ${show(rho)}")
           val cRho = checkRhoK(rho)
           if (tpe === rho) {
             // we don't need to zonk here
@@ -2465,7 +2489,10 @@ object Infer {
         } { badTvs =>
           Error.NotPolymorphicEnough(tpe, t, badTvs, regionT)
         }
+        e <- GetEnv
+        _ = println(s"about to check(${show(tpe)}) $t with vars = ${e.vars.map { case (n, t) => s"$n => ${show(t)}"}}")
         te <- check((t, implicitly[HasRegion[A]]))
+        _ = println(s"checked(${show(tpe)}): $t\n\t\t${te.repr}")
       } yield te
     }
 
@@ -2474,8 +2501,11 @@ object Infer {
     def checkRho[A: HasRegion](
         t: Expr[A],
         rho: Type.Rho
-    ): Infer[TypedExpr.Rho[A]] =
+    ): Infer[TypedExpr.Rho[A]] = {
+      println(s"checkRho($t, ${show(rho)})")
       typeCheckRho(t, Expected.Check((rho, region(t))))
+        .debug { te => s"checkRho($t, ${show(rho)}) == ${te.repr}"}
+    }
 
     // same as checkRho but as a FunctionK
     def checkRhoK(rho: Type.Rho): FunctionK[Lambda[
@@ -2602,8 +2632,10 @@ object Infer {
 
   def extendEnvNonEmptyList[A](bindings: NonEmptyList[(Bindable, Type)])(
       of: Infer[A]
-  ): Infer[A] =
+  ): Infer[A] = {
+    println(s"extendEnv(${bindings.map { case (b, t) => s"$b: ${show(t)}"}})")
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
+  }
 
   private def extendEnvListPack[A](
       pack: PackageName,
