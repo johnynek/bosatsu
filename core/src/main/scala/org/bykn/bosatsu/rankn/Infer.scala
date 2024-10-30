@@ -488,14 +488,13 @@ object Infer {
       // Invariant: if t is Rho, then result._3 is Rho
       def loop(
           t: Type,
-          path: Variance,
-          top: Boolean
+          allCo: Boolean
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
         t match {
           case q: Type.Quantified =>
-            if (path == Variance.co) {
+            if (allCo) {
               val univ = q.forallList
-              val exists = if (top) q.existList else Nil
+              val exists = q.existList
               val ty = q.in
               // Rule PRPOLY
               for {
@@ -509,21 +508,20 @@ object Infer {
                   (exists.map(_._1).iterator.zip(ms) ++
                     univ.map(_._1).iterator.zip(sksT.iterator)).toMap
                 )
-                (sks2, ms2, ty) <- loop(ty1, path, false)
-                tyx = if (top) ty else Type.exists(q.existList, ty)
-              } yield (sks1 ::: sks2, ms ::: ms2, tyx)
+                (sks2, ms2, ty) <- loop(ty1, allCo)
+              } yield (sks1 ::: sks2, ms ::: ms2, ty)
             } else pure((Nil, Nil, t))
 
           case ta @ Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
             // since left: Rho, we know loop(left, path)._3 is Rho
-            (varianceOfCons(ta, region), loop(left, path, false))
+            (varianceOfCons(ta, region), loop(left, allCo))
               .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
                 // due to loop invariant
                 val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
-                val rightPath = consVar * path
-                loop(right, rightPath, false)
+                val allCoRight = allCo && (consVar == Variance.co)
+                loop(right, allCoRight)
                   .map { case (sksr, er, rtpe) =>
                     (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe))
                   }
@@ -533,7 +531,7 @@ object Infer {
             pure((Nil, Nil, other))
         }
 
-      loop(t, Variance.co, true).map {
+      loop(t, true).map {
         case (skols, metas, rho: Type.Rho) =>
           (skols, metas, rho)
         // $COVERAGE-OFF$ this should be unreachable

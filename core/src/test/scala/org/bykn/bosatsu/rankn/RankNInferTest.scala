@@ -252,7 +252,7 @@ class RankNInferTest extends munit.FunSuite {
     assert_:<:("(exists a. a) -> Int", "Int -> Int")
     assertTypesUnify("(exists a. a) -> Int", "forall a. a -> Int")
     assertTypesUnify("exists a. List[a]", "List[exists a. a]")
-    assertTypesUnify("Int -> (exists a. a)", "exists a. (Int -> a)")
+    assertTypesUnify("exists a. (Int -> a)", "Int -> (exists a. a)")
     assertTypesUnify("(exists a. a) -> Int", "(exists a. a) -> Int")
     assert_:<:("forall a. a -> a", "(exists a. a) -> (exists a. a)")
 
