@@ -1931,7 +1931,6 @@ f = Foo
   }
 
   test("identity function with existential") {
-    /*
     parseProgram(
       """
 struct Prog[a: -*, e: +*, b: +*]
@@ -1943,7 +1942,6 @@ x = 1
     """,
       "Int"
     )
-      */
 
     parseProgram(
       """
