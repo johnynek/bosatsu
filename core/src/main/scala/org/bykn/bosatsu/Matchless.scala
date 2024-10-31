@@ -217,18 +217,12 @@ object Matchless {
 
   case class PrevNat(of: Expr) extends Expr
 
-  private def asCheap(expr: Expr): Option[CheapExpr] =
-    expr match {
-      case c: CheapExpr => Some(c)
-      case _            => None
-    }
-
   private def maybeMemo[F[_]: Monad](
       tmp: F[Long]
   )(fn: CheapExpr => F[Expr]): Expr => F[Expr] = { (arg: Expr) =>
-    asCheap(arg) match {
-      case Some(c) => fn(c)
-      case None =>
+    arg match {
+      case c: CheapExpr => fn(c)
+      case _ =>
         for {
           nm <- tmp
           bound = LocalAnon(nm)
