@@ -100,7 +100,7 @@ object Code {
         case Pass => this
         case _ =>
           if (this == Pass) stmt
-          else Block(statements :+ stmt)
+          else Block(statements ::: stmt.statements)
       }
 
     def withValue(vl: ValueLike): ValueLike =
@@ -735,6 +735,8 @@ object Code {
             case Assign(ident: Ident, ex0) :: tail
               if ex0.isInstanceOf[Ident] || expr.countOf(ident) == 1 => 
                 simplifyStack(substitute(Map(ident -> ex0), expr), tail)
+            case Block(items) :: tail =>
+              simplifyStack(expr, items.toList reverse_::: tail)
             case _ =>
               blockFromList((Return(expr) :: stmts).reverse)
           }
