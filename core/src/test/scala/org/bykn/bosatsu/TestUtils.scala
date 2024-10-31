@@ -78,9 +78,9 @@ object TestUtils {
 
   val testPackage: PackageName = PackageName.parts("Test")
 
-  def checkLast(
+  def checkLast[A](
       statement: String
-  )(fn: TypedExpr[Declaration] => Assertion): Assertion = {
+  )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
@@ -91,7 +91,7 @@ object TestUtils {
             err.message(packMap, LocationMap.Colorize.None)
           }
           .mkString("", "\n==========\n", "\n")
-        fail("inference failure: " + msg)
+        sys.error("inference failure: " + msg)
       case Validated.Valid(program) =>
         // make sure all the TypedExpr are valid
         program.lets.foreach { case (_, _, te) => assertValid(te) }
