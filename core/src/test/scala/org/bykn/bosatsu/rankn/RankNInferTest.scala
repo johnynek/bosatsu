@@ -1937,10 +1937,8 @@ struct Prog[a: -*, e: +*, b: +*]
 
 def pass_thru(f: Prog[exists a. a, e, b]) -> Prog[exists a. a, e, b]:
   f
-
-x = 1
     """,
-      "Int"
+      "forall e, b. Prog[exists a. a, e, b] -> Prog[exists a. a, e, b]"
     )
 
     parseProgram(
@@ -1950,10 +1948,8 @@ struct Prog[a: -*, e: +*, b: +*]
 
 def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
   f
-
-x = 1
     """,
-      "Int"
+      "Prog[exists a. a, Foo, Foo] -> Prog[exists a. a, Foo, Foo]"
     )
   }
 }
