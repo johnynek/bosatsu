@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.codegen.python
 
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
 import org.bykn.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
@@ -832,24 +832,24 @@ object Code {
 
   def toReturn(v: ValueLike): Statement = {
 
-    def nosimplify(v: ValueLike): Statement =
+    def nosimplify(prefix: Chain[Statement], v: ValueLike): Statement =
       v match {
-        case x: Expression => Code.Return(x)
+        case x: Expression => blockFromList((prefix :+ Code.Return(x)).toList)
         case WithValue(stmt, v) =>
           // re don't simplify here and wait until the end
-          stmt :+ nosimplify(v)
+          nosimplify(prefix :+ stmt, v)
         case IfElse(conds, elseCond) =>
           // we do simplify inside the if/else because simplify doesn't
           // look inside those
-          ifStatement(
+          blockFromList((prefix :+ ifStatement(
             conds.map { case (c, v) =>
               (c, toReturn(v))
             },
             Some(toReturn(elseCond))
-          )
+          )).toList)
       }
       
-    simplifyReturn(nosimplify(v))
+    simplifyReturn(nosimplify(Chain.empty, v))
   }
 
   // boolean expressions can contain side effects
