@@ -8,7 +8,7 @@ class StateTest extends munit.ScalaCheckSuite {
   val genState: Gen[State] = {
     val genWithText: Gen[State.HasText] =
       Gen.oneOf(
-        Gen.asciiStr.map(State.WithText),
+        Gen.asciiStr.map(State.WithText(_)),
         Gen
           .zip(
             Gen.asciiStr,

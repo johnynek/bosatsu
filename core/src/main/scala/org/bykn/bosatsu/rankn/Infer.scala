@@ -670,7 +670,7 @@ object Infer {
               }
               env = exists.iterator
                 .map(_._1)
-                .zip(skols.iterator.map(Type.TyVar))
+                .zip(skols.iterator.map(Type.TyVar(_)))
                 .toMap[Type.Var, Type.TyVar]
               rho1 = Type.substituteRhoVar(rho, env)
             } yield (skols, rho1)
@@ -2009,7 +2009,7 @@ object Infer {
       }
 
       for {
-        (maxRes, (maxPat, resTRho, maxIdx)) <- maxBy(
+        (maxRes, (_, resTRho, maxIdx)) <- maxBy(
           withIdx.head,
           withIdx.tail
         )((a, b) => gtEq(a, b))
