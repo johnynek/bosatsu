@@ -95,6 +95,8 @@ object Infer {
       val variances: Map[Type.Const.Defined, Kind]
   ) {
 
+    override def toString() = s"Env($uniq, $vars, $typeCons, $variances)"
+
     def addVars(vt: NonEmptyList[(Name, Type)]): Env =
       new Env(uniq, vars = (vars + vt.head) ++ vt.tail, typeCons, variances)
 
@@ -467,10 +469,24 @@ object Infer {
       * covariant, then C[forall x. D[x]] == forall x. C[D[x]]
       *
       * this is always true for existential quantification I think, but for
-      * universal, we need that C is covariant which roughtly means C[x] either
+      * universal, we need that C is covariant which roughly means C[x] either
       * has x in a return position of a function, or not at all, which then
       * gives us that (forall x. (A(x) u B(x))) == (forall x A(x)) u (forall x
       * B(x)) where A(x) and B(x) represent the union branches of the type C
+      *
+      * Here, we only float quantification above completely covariant paths,
+      * which includes function results returning functions, etc.
+      * I don't really know why this works, but it is skolemizing in a smaller set of
+      * cases compared to *any* covariant path (including contra * contra), yet still
+      * keeping functions in weak-prenex form (which isn't type checked, but is
+      * asserted in the inference and typechecking process).
+      *
+      * So, I guess one argument is we want to skolemize the least we can to make
+      * inference work, especially with function return types, and this is sufficient
+      * to do it. It also passes all the current tests.
+      *
+      * The paper we base the type inference on doesn't have a type system as complex
+      * as bosatsu, so we have to generalize it.
       */
     private def skolemize(
         t: Type,
@@ -480,11 +496,11 @@ object Infer {
       // Invariant: if t is Rho, then result._3 is Rho
       def loop(
           t: Type,
-          path: Variance
+          allCo: Boolean
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
         t match {
           case q: Type.Quantified =>
-            if (path == Variance.co) {
+            if (allCo) {
               val univ = q.forallList
               val exists = q.existList
               val ty = q.in
@@ -500,7 +516,7 @@ object Infer {
                   (exists.map(_._1).iterator.zip(ms) ++
                     univ.map(_._1).iterator.zip(sksT.iterator)).toMap
                 )
-                (sks2, ms2, ty) <- loop(ty1, path)
+                (sks2, ms2, ty) <- loop(ty1, allCo)
               } yield (sks1 ::: sks2, ms ::: ms2, ty)
             } else pure((Nil, Nil, t))
 
@@ -508,12 +524,12 @@ object Infer {
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
             // since left: Rho, we know loop(left, path)._3 is Rho
-            (varianceOfCons(ta, region), loop(left, path))
+            (varianceOfCons(ta, region), loop(left, allCo))
               .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
                 // due to loop invariant
                 val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
-                val rightPath = consVar * path
-                loop(right, rightPath)
+                val allCoRight = allCo && (consVar == Variance.co)
+                loop(right, allCoRight)
                   .map { case (sksr, er, rtpe) =>
                     (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe))
                   }
@@ -523,7 +539,7 @@ object Infer {
             pure((Nil, Nil, other))
         }
 
-      loop(t, Variance.co).map {
+      loop(t, true).map {
         case (skols, metas, rho: Type.Rho) =>
           (skols, metas, rho)
         // $COVERAGE-OFF$ this should be unreachable
@@ -1688,7 +1704,7 @@ object Infer {
                 // the length of args and varsT must be the same because of unifyFnRho
                 zipped = args.zip(varsT)
                 namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
-                typedBody <- extendEnvList(namesVarsT.toList) {
+                typedBody <- extendEnvNonEmptyList(namesVarsT) {
                   // TODO we are ignoring the result of subsCheck here
                   // should we be coercing a var?
                   //
@@ -1697,6 +1713,8 @@ object Infer {
                   // indicates the testing coverage is incomplete
                   zipped.parTraverse_ {
                     case ((_, Some(tpe)), varT) =>
+                      // since a -> b <:< c -> d means, b <:< d and c <:< a
+                      // we check that the varT <:< tpe
                       subsCheck(varT, tpe, region(term), rr)
                     case ((_, None), _) => unit
                   } &>

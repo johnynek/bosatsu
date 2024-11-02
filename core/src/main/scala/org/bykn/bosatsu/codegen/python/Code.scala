@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.codegen.python
 
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
 import org.bykn.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
@@ -20,6 +20,9 @@ object Code {
   sealed trait ValueLike
 
   sealed abstract class Expression extends ValueLike with Code {
+
+    def countOf(ident: Ident): Int
+
     def identOrParens: Expression =
       this match {
         case i: Code.Ident      => i
@@ -97,7 +100,7 @@ object Code {
         case Pass => this
         case _ =>
           if (this == Pass) stmt
-          else Block(statements :+ stmt)
+          else Block(statements ::: stmt.statements)
       }
 
     def withValue(vl: ValueLike): ValueLike =
@@ -255,19 +258,25 @@ object Code {
 
   case class PyInt(toBigInteger: BigInteger) extends Expression {
     def simplify: Expression = this
+    def countOf(i: Ident) = 0
   }
   case class PyString(content: String) extends Expression {
     def simplify: Expression = this
+    def countOf(i: Ident) = 0
   }
   case class PyBool(toBoolean: Boolean) extends Expression {
     def simplify: Expression = this
+    def countOf(i: Ident) = 0
   }
   case class Ident(name: String) extends Expression {
     def simplify: Expression = this
+    def countOf(i: Ident) = if (i == this) 1 else 0
   }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression)
       extends Expression {
+    def countOf(i: Ident) = left.countOf(i) + right.countOf(i)
+
     // operators like + can associate
     //
     def toDoc: Doc = {
@@ -460,9 +469,13 @@ object Code {
           x
         case exprS => Parens(exprS)
       }
+
+    def countOf(i: Ident) = expr.countOf(i)
   }
   case class SelectItem(arg: Expression, position: Expression)
       extends Expression {
+    def countOf(i: Ident) = arg.countOf(i) + position.countOf(i)
+
     def simplify: Expression =
       (arg.simplify, position.simplify) match {
         case (MakeTuple(items), PyInt(bi))
@@ -489,9 +502,12 @@ object Code {
   ) extends Expression {
     def simplify: Expression =
       SelectRange(arg, start.map(_.simplify), end.map(_.simplify))
+
+    def countOf(i: Ident) = arg.countOf(i) + start.fold(0)(_.countOf(i)) + end.fold(0)(_.countOf(i))
   }
   case class Ternary(ifTrue: Expression, cond: Expression, ifFalse: Expression)
       extends Expression {
+    def countOf(i: Ident) = ifTrue.countOf(i) + cond.countOf(i) + ifFalse.countOf(i)
     def simplify: Expression =
       cond.simplify match {
         case PyBool(b) =>
@@ -504,13 +520,16 @@ object Code {
   }
   case class MakeTuple(args: List[Expression]) extends Expression {
     def simplify: Expression = MakeTuple(args.map(_.simplify))
+    def countOf(i: Ident) = args.iterator.map(_.countOf(i)).sum
   }
   case class MakeList(args: List[Expression]) extends Expression {
     def simplify: Expression = MakeList(args.map(_.simplify))
+    def countOf(i: Ident) = args.iterator.map(_.countOf(i)).sum
   }
   case class Lambda(args: List[Ident], result: Expression) extends Expression {
     def simplify: Expression = Lambda(args, result.simplify)
 
+    def countOf(i: Ident) = if (args.exists(_ == i)) 0 else result.countOf(i)
     // make sure args don't shadow the given freeSet
     def unshadow(freeSet: Set[Ident]): Lambda = {
       val clashIdent =
@@ -550,6 +569,7 @@ object Code {
   }
 
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
+    def countOf(i: Ident) = fn.countOf(i) + args.iterator.map(_.countOf(i)).sum
     def simplify: Expression =
       fn.simplify match {
         case Lambda(largs, result) if largs.length == args.length =>
@@ -573,6 +593,7 @@ object Code {
   }
   case class DotSelect(ex: Expression, ident: Ident) extends Expression {
     def simplify: Expression = DotSelect(ex.simplify, ident)
+    def countOf(i: Ident) = ex.countOf(i)
   }
 
   /////////////////////////
@@ -650,8 +671,6 @@ object Code {
         last
     }
   }
-  def if1(cond: Expression, stmt: Statement): Statement =
-    ifStatement(NonEmptyList.one((cond, stmt)), None)
 
   def ifElseS(
       cond: Expression,
@@ -707,23 +726,26 @@ object Code {
   // just for better type inference
   def pass: Statement = Pass
 
-  private object FinalAssign {
-    def unapply(stmt: Statement): Option[(Statement, Ident, Expression)] =
-      stmt match {
-        case Block(stmts) =>
-          unapply(stmts.last).map { case (s0, i, e) =>
-            val s1 =
-              NonEmptyList.fromList(stmts.init) match {
-                case None        => s0
-                case Some(inits) => Block(inits) :+ s0
-              }
-            (s1, i, e)
+  // Convert chains of x = y; return x into return y
+  private def simplifyReturn(stmt: Statement): Statement =
+    stmt match {
+      case Block(stmts) =>
+        def simplifyStack(expr: Expression, stmts: List[Statement]): Statement =
+          stmts match {
+            case Assign(ident: Ident, ex0) :: tail
+              if ex0.isInstanceOf[Ident] || expr.countOf(ident) == 1 => 
+                simplifyStack(substitute(Map(ident -> ex0), expr), tail)
+            case Block(items) :: tail =>
+              simplifyStack(expr, items.toList reverse_::: tail)
+            case _ =>
+              blockFromList((Return(expr) :: stmts).reverse)
           }
-
-        case Assign(i @ Ident(_), expr) => Some((Pass, i, expr))
-        case _                          => None
-      }
-  }
+        stmts.toList.reverse match {
+          case Return(expr) :: tail => simplifyStack(expr, tail)
+          case _ => stmt
+        }
+      case _ => stmt
+    }
 
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
@@ -810,21 +832,27 @@ object Code {
     loop(ex, Set.empty)
   }
 
-  def toReturn(v: ValueLike): Statement =
-    v match {
-      case x: Expression => Code.Return(x)
-      case WithValue(FinalAssign(s0, v0, x0), v) if v0 == v =>
-        s0 :+ Code.Return(x0)
-      case WithValue(stmt, v) =>
-        stmt :+ toReturn(v)
-      case IfElse(conds, elseCond) =>
-        ifStatement(
-          conds.map { case (c, v) =>
-            (c, toReturn(v))
-          },
-          Some(toReturn(elseCond))
-        )
-    }
+  def toReturn(v: ValueLike): Statement = {
+
+    def nosimplify(prefix: Chain[Statement], v: ValueLike): Statement =
+      v match {
+        case x: Expression => blockFromList((prefix :+ Code.Return(x)).toList)
+        case WithValue(stmt, v) =>
+          // re don't simplify here and wait until the end
+          nosimplify(prefix :+ stmt, v)
+        case IfElse(conds, elseCond) =>
+          // we do simplify inside the if/else because simplify doesn't
+          // look inside those
+          blockFromList((prefix :+ ifStatement(
+            conds.map { case (c, v) =>
+              (c, toReturn(v))
+            },
+            Some(toReturn(elseCond))
+          )).toList)
+      }
+      
+    simplifyReturn(nosimplify(Chain.empty, v))
+  }
 
   // boolean expressions can contain side effects
   // this runs the side effects but discards
@@ -931,6 +959,7 @@ object Code {
 
   val pyKeywordList: Set[String] = Set(
     "and",
+    "await",
     "del",
     "from",
     "not",

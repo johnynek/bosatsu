@@ -11,11 +11,9 @@ import TestUtils.{checkLast, testPackage}
 
 import Identifier.Constructor
 
-import org.scalatest.funsuite.AnyFunSuite
-
 import cats.syntax.all._
 
-class RankNInferTest extends AnyFunSuite {
+class RankNInferTest extends munit.FunSuite {
 
   val emptyRegion: Region = Region(0, 0)
 
@@ -254,7 +252,9 @@ class RankNInferTest extends AnyFunSuite {
     assert_:<:("(exists a. a) -> Int", "Int -> Int")
     assertTypesUnify("(exists a. a) -> Int", "forall a. a -> Int")
     assertTypesUnify("exists a. List[a]", "List[exists a. a]")
-    assertTypesUnify("Int -> (exists a. a)", "exists a. (Int -> a)")
+    assertTypesUnify("exists a. (Int -> a)", "Int -> (exists a. a)")
+    assertTypesUnify("(exists a. a) -> Int", "(exists a. a) -> Int")
+    assert_:<:("forall a. a -> a", "(exists a. a) -> (exists a. a)")
 
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
     assertTypesUnify(
@@ -1928,5 +1928,28 @@ external foo: Box
 struct Foo
 f = Foo
 """)
+  }
+
+  test("identity function with existential") {
+    parseProgram(
+      """
+struct Prog[a: -*, e: +*, b: +*]
+
+def pass_thru(f: Prog[exists a. a, e, b]) -> Prog[exists a. a, e, b]:
+  f
+    """,
+      "forall e, b. Prog[exists a. a, e, b] -> Prog[exists a. a, e, b]"
+    )
+
+    parseProgram(
+      """
+struct Foo
+struct Prog[a: -*, e: +*, b: +*]
+
+def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
+  f
+    """,
+      "Prog[exists a. a, Foo, Foo] -> Prog[exists a. a, Foo, Foo]"
+    )
   }
 }
