@@ -28,7 +28,7 @@ class CodeTest extends AnyFunSuite {
     } yield res
   }
 
-  val genIdent: Gen[Code.Ident] = genPy2Name.map(Code.Ident)
+  val genIdent: Gen[Code.Ident] = genPy2Name.map(Code.Ident(_))
 
   def genExpr(depth: Int): Gen[Code.Expression] = {
     val genDotselect =
@@ -39,7 +39,7 @@ class CodeTest extends AnyFunSuite {
 
     val genZero =
       Gen.oneOf(
-        Gen.identifier.map(Code.PyString),
+        Gen.identifier.map(Code.PyString(_)),
         genIdent,
         Gen.oneOf(
           Code.Const.Zero,
