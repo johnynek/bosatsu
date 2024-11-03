@@ -10,7 +10,7 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "run JVM tests"
         run: |
-          sbt "++${{matrix.scala}} coreJVM/test; cli/test; doc; paradox"
+          sbt "++${{matrix.scala}}; coreJVM/test; cli/test; doc; paradox"
           ./test_cli.sh
     strategy:
       matrix:
@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: "${{matrix.python}}"
       - name: "build assembly"
-        run: "sbt \"++${{matrix.scala}} cli/assembly\""
+        run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate python code"
         run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --lang python --outdir pyout  --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
       - name: "run python tests"
@@ -59,8 +59,8 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "run coreJS tests"
         run: |
-          sbt "++${{matrix.scala}} coreJS/test; jsapiJS/compile"
-          sbt "++${{matrix.scala}} jsuiJS/test"
+          sbt "++${{matrix.scala}}; coreJS/test; jsapiJS/compile"
+          sbt "++${{matrix.scala}}; jsuiJS/test"
     strategy:
       matrix:
         java:
@@ -97,7 +97,7 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "build native image"
         run: |
-          sbt "++${{matrix.scala}} cli/nativeImage"
+          sbt "++${{matrix.scala}}; cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu
       - name: "run bosatsu tests"
         run: |
