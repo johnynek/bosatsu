@@ -79,11 +79,11 @@ class KindParseTest extends ParserTestBase {
 
   test("toArgs and Kind.apply are inverses") {
     forAll(genKind) { k =>
-      assert(Kind(k.toArgs: _*) == k)
+      assert(Kind(k.toArgs*) == k)
     }
 
     forAll(Gen.listOf(genArg)) { args =>
-      assert(Kind(args: _*).toArgs == args)
+      assert(Kind(args*).toArgs == args)
     }
   }
 

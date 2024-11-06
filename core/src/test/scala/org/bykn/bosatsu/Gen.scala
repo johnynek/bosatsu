@@ -174,7 +174,7 @@ object Generators {
     for {
       cs <- nonEmpty(Arbitrary.arbitrary[String])
       t <- dec
-    } yield CommentStatement(cs.map(cleanNewLine _), t)
+    } yield CommentStatement(cs.map(cleanNewLine), t)
   }
 
   val argGen: Gen[(Identifier.Bindable, Option[TypeRef])] =
@@ -909,16 +909,16 @@ object Generators {
           case Annotation(t, _) => t #:: apply(t)
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
-            next.flatMap(apply _)
+            next.flatMap(apply)
           case ao @ ApplyOp(left, _, right) =>
             left #:: ao.opVar #:: right #:: Stream.empty
           case Binding(b) =>
             val next = b.value #:: b.in.padded #:: Stream.empty
-            next #::: next.flatMap(apply _)
+            next #::: next.flatMap(apply)
           case DefFn(d) =>
             val (b, r) = d.result
             val inner = b.get #:: r.padded #:: Stream.empty
-            inner #::: inner.flatMap(apply _)
+            inner #::: inner.flatMap(apply)
           case IfElse(ifCases, elseCase) =>
             elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
           case Ternary(t, c, f) =>
@@ -1034,7 +1034,7 @@ object Generators {
             case Pattern.Named(_, pat)               => pat #:: Stream.empty
             case Pattern.PositionalStruct(n, params) =>
               // shrink all the params
-              shrinkOne(params)(res).map(Pattern.PositionalStruct(n, _))
+              shrinkOne(params)(using res).map(Pattern.PositionalStruct(n, _))
             case Pattern.Literal(Lit.Str(s)) =>
               implicitly[Shrink[String]]
                 .shrink(s)
@@ -1056,7 +1056,7 @@ object Generators {
             case u @ Pattern.Union(_, _) =>
               val flat = Pattern.flatten(u).toList
               val sameLen =
-                shrinkOne[Pattern[N, T]](flat)(res)
+                shrinkOne[Pattern[N, T]](flat)(using res)
                   .map { us =>
                     Pattern.union(us.head, us.tail)
                   }
