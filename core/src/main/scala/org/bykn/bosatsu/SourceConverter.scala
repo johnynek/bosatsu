@@ -781,11 +781,11 @@ final class SourceConverter(
     def buildParams(
         args: List[(Bindable, Option[Type])]
     ): VarState[List[(Bindable, Type)]] =
-      args.traverse(buildParam _)
+      args.traverse(buildParam)
 
     // This is a traverse on List[(Bindable, Option[A])]
     val deep =
-      Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
+      Traverse[List].compose[[X] =>> (Bindable, X)].compose[Option]
 
     def updateInferedWithDecl(
         typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
@@ -947,11 +947,11 @@ final class SourceConverter(
     }
   }
 
-  private[this] val empty = Pattern.PositionalStruct(
+  private val empty = Pattern.PositionalStruct(
     (PackageName.PredefName, Constructor("EmptyList")),
     Nil
   )
-  private[this] val nonEmpty =
+  private val nonEmpty =
     (PackageName.PredefName, Constructor("NonEmptyList"))
 
   /** As much as possible, convert a list pattern into a normal enum pattern
@@ -1093,7 +1093,7 @@ final class SourceConverter(
                 val mapping =
                   fs.toList.iterator.map(_.field).zip(args.iterator).toMap
                 lazy val present =
-                  SortedSet(fs.toList.iterator.map(_.field).toList: _*)
+                  SortedSet(fs.toList.iterator.map(_.field).toList*)
                 def get(
                     b: Bindable
                 ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
@@ -1194,7 +1194,7 @@ final class SourceConverter(
       t => toType(t, region),
       items => items.map(unlistPattern)
     )(
-      SourceConverter.parallelIor
+      using SourceConverter.parallelIor
     ) // use the parallel, not the default Applicative which is Monadic
 
   private lazy val toTypeEnv: Result[ParsedTypeEnv[Option[Kind.Arg]]] = {

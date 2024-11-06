@@ -10,7 +10,7 @@ import cats.implicits._
 class MemoryMain[F[_], K: Ordering](split: K => List[String])(implicit
     val pathArg: Argument[K],
     val innerMonad: MonadError[F, Throwable]
-) extends MainModule[Kleisli[F, MemoryMain.State[K], *]] {
+) extends MainModule[[X] =>> Kleisli[F, MemoryMain.State[K], X]] {
 
   type IO[A] = Kleisli[F, MemoryMain.State[K], A]
 

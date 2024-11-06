@@ -241,7 +241,7 @@ abstract class MainModule[IO[_]](implicit
     private def flatTrav[A, B, C](va: Validated[A, B])(
         fn: B => IO[Validated[A, C]]
     ): IO[Validated[A, C]] =
-      va.traverse(fn).map(_.andThen(identity _))
+      va.traverse(fn).map(_.andThen(identity))
 
     /** This parses all the given paths and returns them first, and if the
       * PackageResolver supports it, we look for any missing dependencies that

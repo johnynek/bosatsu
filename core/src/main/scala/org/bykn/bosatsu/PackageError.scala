@@ -701,7 +701,7 @@ object PackageError {
             .distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+          val doc = Pattern.compiledDocument(using Document.instance[Type] { t =>
             showT(t)
           })
 
@@ -719,7 +719,7 @@ object PackageError {
             .distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+          val doc = Pattern.compiledDocument(using Document.instance[Type] { t =>
             showT(t)
           })
 

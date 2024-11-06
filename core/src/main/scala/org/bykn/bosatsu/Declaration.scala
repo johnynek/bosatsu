@@ -65,7 +65,7 @@ sealed abstract class Declaration {
           Doc.line + d0.document(pd)
         }
         BindingStatement
-          .document(
+          .document(using
             Document[Pattern.Parsed],
             Document.instance[NonBinding](_.toDoc),
             withNewLine
@@ -151,7 +151,7 @@ sealed abstract class Declaration {
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts =>
-            Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _))
+            Doc.intercalate(Doc.line, ts.toList.map(x => Document[T].document(x)))
           }
 
         val piPat = Document[OptIndent[
@@ -1302,7 +1302,7 @@ object Declaration {
    * or not. If false, we only parse NonBinding, if true
    * we also parse Bind, Def, Comment
    */
-  private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
+  private val parserCache: ((ParseMode, String)) => P[Declaration] =
     Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] {
       case ((pm, indent), rec) =>
         // TODO:

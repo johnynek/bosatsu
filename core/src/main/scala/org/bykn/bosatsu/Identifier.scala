@@ -48,7 +48,7 @@ object Identifier {
   final case class Backticked(asString: String) extends Bindable
   final case class Operator(asString: String) extends Bindable
 
-  private[this] val opPrefix = Doc.text("operator ")
+  private val opPrefix = Doc.text("operator ")
 
   object Bindable {
     implicit def bindableOrder: Order[Bindable] =

@@ -30,8 +30,8 @@ object MatchlessToValue {
     }
   }
 
-  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-  private[this] val succNat: Value = {
+  private val zeroNat: Value = ExternalValue(BigInteger.ZERO)
+  private val succNat: Value = {
     def inc(v: Value): Value = {
       val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
       ExternalValue(bi.add(BigInteger.ONE))
@@ -555,7 +555,7 @@ object MatchlessToValue {
 
     }
 
-    private[this] val emptyStringArray: Array[String] = new Array[String](0)
+    private val emptyStringArray: Array[String] = new Array[String](0)
     def matchString(
         str: String,
         pat: List[StrPart],

@@ -111,7 +111,7 @@ final case class DefinedType[+A](
   }
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
-    Kind(toAnnotatedKinds.map(_._2): _*)
+    Kind(toAnnotatedKinds.map(_._2)*)
 }
 
 object DefinedType {
@@ -121,7 +121,7 @@ object DefinedType {
   def listToMap[A](
       dts: List[DefinedType[A]]
   ): SortedMap[(PackageName, TypeName), DefinedType[A]] =
-    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt): _*)
+    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt)*)
 
   def toKindMap[F[_]: Foldable](
       dts: F[DefinedType[Kind.Arg]]
@@ -134,7 +134,7 @@ object DefinedType {
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {
-      val listTup = Traverse[List].compose[(Type.Var.Bound, *)]
+      val listTup = Traverse[List].compose[[X] =>> (Type.Var.Bound, X)]
       def traverse[F[_]: Applicative, A, B](
           da: DefinedType[A]
       )(fn: A => F[B]): F[DefinedType[B]] =

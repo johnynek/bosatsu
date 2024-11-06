@@ -231,9 +231,9 @@ object Matchless {
     }
   }
 
-  private[this] val empty = (PackageName.PredefName, Constructor("EmptyList"))
-  private[this] val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
-  private[this] val reverseFn =
+  private val empty = (PackageName.PredefName, Constructor("EmptyList"))
+  private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
+  private val reverseFn =
     Global(PackageName.PredefName, Identifier.Name("reverse"))
 
   // drop all items in the tail after the first time fn returns true

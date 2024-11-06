@@ -9,7 +9,7 @@ case class Program[+T, +D, +S](
     from: S
 ) {
 
-  private[this] lazy val letMap: Map[Bindable, (RecursionKind, D)] =
+  private lazy val letMap: Map[Bindable, (RecursionKind, D)] =
     lets.iterator.map { case (n, r, d) => (n, (r, d)) }.toMap
 
   def getLet(name: Bindable): Option[(RecursionKind, D)] = letMap.get(name)

@@ -162,8 +162,8 @@ object SeqPattern {
             .map(_.toList)
         }.map(s => normalize(SeqPattern.fromList(s))).sorted
 
-      private[this] val someWild = Some(Wildcard :: Nil)
-      private[this] val someNil = Some(Nil)
+      private val someWild = Some(Wildcard :: Nil)
+      private val someNil = Some(Nil)
 
       private def unifyUnionList(
           union: List[List[SeqPart[A]]]

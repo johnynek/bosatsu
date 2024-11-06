@@ -84,7 +84,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           )
     }
 
-  private[this] val validUnit: Res[Unit] = Right(())
+  private val validUnit: Res[Unit] = Right(())
 
   /** Check that a given pattern follows all the rules.
     *
@@ -322,7 +322,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   })
               }
             }
-          )(new Relatable[List[Pattern[Cons, Type]]] {
+          )(using new Relatable[List[Pattern[Cons, Type]]] {
             def relate(
                 a: List[Pattern[Cons, Type]],
                 b: List[Pattern[Cons, Type]]

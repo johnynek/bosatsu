@@ -56,7 +56,7 @@ object Lit {
     private def build(cp: Int): Chr =
       Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
 
-    private[this] val cache: Array[Chr] =
+    private val cache: Array[Chr] =
       (0 until 256).map(build).toArray
 
     /** @throws IllegalArgumentException
