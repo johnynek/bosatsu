@@ -7,7 +7,7 @@ package org.bykn.bosatsu
   */
 object Par {
   class Box[A] {
-    private[this] var value: A = _
+    private var value: A = scala.compiletime.uninitialized
     def set(a: A): Unit =
       value = a
     def get: A = value

@@ -122,7 +122,7 @@ class PathModuleTest extends AnyFunSuite {
     val out = run(
       s"test $inputs --test_file test_workspace/Queue.bosatsu"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     )
     out match {
       case PathModule.Output.TestOutput(results, _) =>
@@ -138,7 +138,7 @@ class PathModuleTest extends AnyFunSuite {
     val out = run(
       "test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     )
     out match {
       case PathModule.Output.TestOutput(results, _) =>
@@ -156,7 +156,7 @@ class PathModuleTest extends AnyFunSuite {
     val out = run(
       "transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     )
     out match {
       case PathModule.Output.TranspileOut(_, _) =>
@@ -170,7 +170,7 @@ class PathModuleTest extends AnyFunSuite {
     val out = run(
       "json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     )
     out match {
       case PathModule.Output.JsonOutput(j @ Json.JObject(_), _) =>
@@ -191,7 +191,7 @@ class PathModuleTest extends AnyFunSuite {
         .split("\\s+")
         .toList :+ "[2, 4]"
 
-    run(cmd: _*) match {
+    run(cmd*) match {
       case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
@@ -203,7 +203,7 @@ class PathModuleTest extends AnyFunSuite {
         .split("\\s+")
         .toList :+ "[[2, 4], [3, 5]]"
 
-    run(cmd: _*) match {
+    run(cmd*) match {
       case PathModule.Output.JsonOutput(
             Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))),
             _
@@ -267,7 +267,7 @@ class PathModuleTest extends AnyFunSuite {
     val out = run(
       "test --package_root test_workspace --input_dir test_workspace"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     )
     out match {
       case PathModule.Output.TestOutput(res, _) =>
@@ -285,7 +285,7 @@ class PathModuleTest extends AnyFunSuite {
     run(
       "json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x"
         .split("\\s+")
-        .toSeq: _*
+        .toSeq*
     ) match {
       case PathModule.Output.JsonOutput(Json.JString("this is Foo"), _) =>
         succeed

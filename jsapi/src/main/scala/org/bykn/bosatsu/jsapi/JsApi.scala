@@ -16,7 +16,7 @@ object JsApi {
   private def splitPath(p: String): List[String] =
     p.split("/", -1).toList.map(_.toLowerCase.capitalize)
 
-  private val module = new MemoryMain[Either[Throwable, *], String](splitPath)
+  private val module = new MemoryMain[[X] =>> Either[Throwable, X], String](splitPath)
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap(key => "--input" :: key :: Nil).toList
@@ -71,7 +71,7 @@ object JsApi {
       case Json.JObject(kvs) =>
         js.Dictionary[js.Any](kvs.map { case (k, v) =>
           (k, jsonToAny(v))
-        }: _*)
+        }*)
     }
 
   /** mainPackage can be null, in which case we find the package in mainFile
