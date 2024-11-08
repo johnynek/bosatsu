@@ -18,6 +18,12 @@ class CodeTest extends munit.FunSuite {
     checkCode(DeclareVar(Nil, TypeIdent.Named("Foo").ptr, Ident("bar"), None), "Foo* bar;")
     checkCode(DeclareVar(Attr.Static :: Nil, TypeIdent.Named("Foo").ptr, Ident("bar"), None), "static Foo* bar;")
 
+    checkCode(DeclareFn(Nil, TypeIdent.Named("Foo").ptr, Ident("bar"), Nil, None), "Foo* bar();")
+    checkCode(DeclareFn(Nil, TypeIdent.Named("Foo").ptr, Ident("bar"),
+      List(Param(TypeIdent.Named("bar"), Ident("baz"))), Some(block(Ident("baz").ret))), "Foo* bar(bar baz) {\n" +
+        "    return baz;\n" +
+        "}")
+
     checkCode(TypeIdent.Named("Foo").typedefAs(Ident("Baz")), "typedef Foo Baz;")
     checkCode(TypeIdent.Named("Foo").cast(Ident("Baz")), "(Foo)Baz")
 
@@ -60,5 +66,26 @@ class CodeTest extends munit.FunSuite {
     checkCode(Ident("foo")(Ident("bar"), Ident("baz")), "foo(bar, baz)")
     checkCode(Ident("foo")(), "foo()")
     checkCode(TypeIdent.Named("Foo").cast(Ident("foo"))(), "((Foo)foo)()")
+
+    checkCode(block(Ident("foo")()).doWhile(Ident("bar")), "do {\n" +
+    "    foo()\n" +
+    "} while(bar);")
+
+    checkCode(Ident("foo").deref, "*foo")
+    checkCode(Ident("foo").select(Ident("bar")), "foo.bar")
+    checkCode(Ident("foo").select(Ident("bar")).select("baz"), "foo.bar.baz")
+    checkCode(Ident("foo").deref.select(Ident("bar")), "foo->bar")
+    checkCode(Ident("foo")().select(Ident("bar")), "foo().bar")
+    checkCode(Ident("foo")().deref.select(Ident("bar")), "foo()->bar")
+    checkCode(Ident("foo").bracket(Ident("bar")), "foo[bar]")
+    checkCode(Ident("foo").bracket(IntLiteral(BigInt(42))), "foo[42]")
+    checkCode(DeclareArray(TypeIdent.Named("Foo"), "bar", Right(List(Ident("baz"), IntLiteral(BigInt(42))))),
+      "Foo bar[2] = { baz, 42 };"
+    )
+    checkCode(DeclareArray(TypeIdent.Named("Foo"), "bar", Left(42)),
+      "Foo bar[42];"
+    )
+    checkCode(Ident("foo").addr, "&foo")
+    checkCode(Ident("foo").select("bar").addr, "&foo.bar")
   }
 }
