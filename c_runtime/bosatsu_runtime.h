@@ -54,9 +54,6 @@ BValue alloc_enum0(ENUM_TAG variant);
 BValue alloc_enum1(ENUM_TAG variant, BValue b1);
 BValue alloc_enum2(ENUM_TAG variant, BValue b1, BValue b2);
 
-// Helper function to allocate a RefCounted structure with a specified number of BValues
-BValue alloc_closure(uint8_t len, BValue captures[], BClosure1 fn);
-
 BValue alloc_external(void* eval, FreeFn free_fn);
 
 void* get_external(BValue v);

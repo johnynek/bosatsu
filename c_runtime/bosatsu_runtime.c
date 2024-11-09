@@ -71,11 +71,6 @@ void init_statics() {
   atomic_store(&statics, empty);
 }
 
-// we *always* put an array of values immediately after rc
-BValue* values_of(RefCounted* rc) {
-  return (BValue*)(rc + 1);
-}
-
 // Function to clone a referenced counted value
 static RefCounted *clone_ref_counted(RefCounted *original) {
     if (original == NULL) return NULL;
@@ -159,8 +154,9 @@ BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
 }
 
 BValue get_index(BValue v, int idx) {
-  RefCounted* rc = (RefCounted*)v;
-  return values_of(rc)[idx];
+  uintptr_t rc = (uintptr_t)v;
+  BValue* ptr = (BValue*)(rc + sizeof(RefCounted));
+  return ptr[idx];
 }
 
 void* get_external(BValue v) {
