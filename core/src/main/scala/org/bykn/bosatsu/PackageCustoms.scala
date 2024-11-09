@@ -57,7 +57,8 @@ object PackageCustoms {
           }
         }
 
-        pack.copy(imports = i)
+        val cleanImap = ImportMap.fromImportsUnsafe(i)
+        pack.copy(imports = i, program = (pack.program._1, cleanImap))
     }
 
   private type VSet = Set[(PackageName, Identifier)]
@@ -67,7 +68,7 @@ object PackageCustoms {
       pack: Package.Typed[A]
   ): Set[(PackageName, Identifier)] = {
     val usedValuesSt: VState[Unit] =
-      pack.program.lets.traverse_ { case (_, _, te) =>
+      pack.lets.traverse_ { case (_, _, te) =>
         TypedExpr.usedGlobals(te)
       }
 
@@ -112,7 +113,7 @@ object PackageCustoms {
       val usedValues = usedGlobals(pack)
 
       val usedTypes: Set[Type.Const] =
-        pack.program.lets.iterator
+        pack.program._1.lets.iterator
           .flatMap(
             _._3.allTypes.flatMap(Type.constantsOf(_))
           )
@@ -245,7 +246,7 @@ object PackageCustoms {
           .toList).distinct
 
     val bindMap: Map[Bindable, TypedExpr[A]] =
-      pack.program.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
+      pack.program._1.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
 
     def internalDeps(te: TypedExpr[A]): Set[Bindable] =
       TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
@@ -267,7 +268,7 @@ object PackageCustoms {
       }
     val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
 
-    val unused = pack.program.lets.filter { case (bn, _, _) =>
+    val unused = pack.lets.filter { case (bn, _, _) =>
       !canReach.contains(Right(bn))
     }
 

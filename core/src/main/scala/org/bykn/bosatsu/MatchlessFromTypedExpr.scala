@@ -17,7 +17,7 @@ object MatchlessFromTypedExpr {
     val allItemsList = pm.toMap.toList
       .traverse[Par.F, (PackageName, List[(Bindable, Matchless.Expr)])] {
         case (pname, pack) =>
-          val lets = pack.program.lets
+          val lets = pack.lets
 
           Par.start {
             val exprs: List[(Bindable, Matchless.Expr)] =
