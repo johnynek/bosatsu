@@ -67,8 +67,8 @@ class CodeTest extends munit.FunSuite {
     checkCode(Ident("foo")(), "foo()")
     checkCode(TypeIdent.Named("Foo").cast(Ident("foo"))(), "((Foo)foo)()")
 
-    checkCode(block(Ident("foo")()).doWhile(Ident("bar")), "do {\n" +
-    "    foo()\n" +
+    checkCode(block(Ident("foo")().stmt).doWhile(Ident("bar")), "do {\n" +
+    "    foo();\n" +
     "} while(bar);")
 
     checkCode(Ident("foo").deref, "*foo")
@@ -87,5 +87,23 @@ class CodeTest extends munit.FunSuite {
     )
     checkCode(Ident("foo").addr, "&foo")
     checkCode(Ident("foo").select("bar").addr, "&foo.bar")
+    checkCode(Ternary(Ident("foo"), Ident("bar"), Ident("baz")), "foo ? bar : baz")
+    checkCode(Ternary(Ident("foo").select("q"), Ident("bar"), Ident("baz")), "foo.q ? bar : baz")
+    checkCode(Ternary(Ident("foo").deref, Ident("bar"), Ident("baz")), "*foo ? bar : baz")
+
+    checkCode(While(Ident("foo"), block(Ident("bar").stmt)),
+      "while (foo) {\n" +
+      "    bar;\n" +
+      "}")
+
+    checkCode(Ident("i").postInc, "i++")
+    checkCode(Ident("i").postDec, "i--")
+    checkCode(Ident("i") + Ident("j"), "i + j")
+    checkCode(Ident("i") * Ident("j"), "i * j")
+    checkCode(Ident("i") - Ident("j"), "i - j")
+    checkCode(Ident("i") / Ident("j"), "i / j")
+
+    checkCode(Include(true, "foo"), "#include \"foo\"")
+    checkCode(Include(false, "foo"), "#include <foo>")
   }
 }
