@@ -50,19 +50,31 @@ how to clone values.
 
 DEFINE_RC_STRUCT(RefCounted,);
 
-DEFINE_RC_STRUCT(Struct2,BValue _0; BValue _1;);
-DEFINE_RC_STRUCT(Struct3,BValue _0; BValue _1; BValue _2;);
-DEFINE_RC_STRUCT(Struct4,BValue _0; BValue _1; BValue _2; BValue _3;);
+// Closures:
+DEFINE_RC_STRUCT(Closure1Data, BClosure1 fn; size_t slot_len;);
+
+size_t closure_data_size(size_t slot_len) {
+  return sizeof(Closure1Data) + slot_len * sizeof(BValue);
+}
+BValue* closure_data_of(Closure1Data* s) {
+  return (BValue*)((uintptr_t)s + sizeof(Closure1Data));
+}
+void free_closure(Closure1Data* s) {
+  size_t slots = s->slot_len;
+  BValue* items = closure_data_of(s);
+  while (slots > 0) {
+    release_value(items);
+    items = items + 1;
+    slots = slots - 1;
+  }
+  free(s);
+}
+
+#include "bosatsu_generated.h"
+
 // ENUM0 can always be encoded into a BValue, but we define it to
 // be able to get sizeof() to skip the header
 DEFINE_RC_ENUM(Enum0,);
-DEFINE_RC_ENUM(Enum1,BValue _0;);
-DEFINE_RC_ENUM(Enum2,BValue _0; BValue _1;);
-DEFINE_RC_ENUM(Enum3,BValue _0; BValue _1; BValue _2;);
-
-// we allocate space for slot_len BValues at the end
-DEFINE_RC_STRUCT(Closure1Data, BClosure1 fn; size_t slot_len;);
-DEFINE_RC_STRUCT(Closure2Data, BClosure2 fn; size_t slot_len;);
 
 DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
 // A general structure for a reference counted memory block
@@ -128,98 +140,6 @@ BValue get_struct_index(BValue v, int idx) {
   return ptr[idx];
 }
 
-void free_struct2(Struct2* s) {
-  release_value(s->_0);
-  release_value(s->_1);
-  free(s);
-}
-BValue alloc_struct2(BValue b0, BValue b1) {
-    Struct2* rc = malloc(sizeof(Struct2));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_struct2;
-    rc->_0 = b0;
-    rc->_1 = b1;
-    return (BValue)rc;
-}
-void free_struct3(Struct3* s) {
-  release_value(s->_0);
-  release_value(s->_1);
-  release_value(s->_2);
-  free(s);
-}
-BValue alloc_struct3(BValue b0, BValue b1, BValue b2) {
-    Struct3* rc = malloc(sizeof(Struct3));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_struct3;
-    rc->_0 = b0;
-    rc->_1 = b1;
-    rc->_2 = b2;
-    return (BValue)rc;
-}
-
-void free_struct4(Struct4* s) {
-  release_value(s->_0);
-  release_value(s->_1);
-  release_value(s->_2);
-  release_value(s->_3);
-  free(s);
-}
-
-BValue alloc_struct4(BValue b0, BValue b1, BValue b2, BValue b3) {
-    Struct3* rc = malloc(sizeof(Struct3));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_struct4;
-    rc->_0 = b0;
-    rc->_1 = b1;
-    rc->_2 = b2;
-    rc->_2 = b3;
-    return (BValue)rc;
-}
-
-// Enum functions
-void free_enum1(Enum1* s) {
-  release_value(s->_0);
-  free(s);
-}
-BValue alloc_enum1(ENUM_TAG tag, BValue b0) {
-    Enum1* rc = malloc(sizeof(Enum1));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_enum1;
-    rc->tag = tag;
-    rc->_0 = b0;
-    return (BValue)rc;
-}
-void free_enum2(Enum2* s) {
-  release_value(s->_0);
-  release_value(s->_1);
-  free(s);
-}
-BValue alloc_enum2(ENUM_TAG tag, BValue b0, BValue b1) {
-    Enum2* rc = malloc(sizeof(Enum2));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_enum2;
-    rc->tag = tag;
-    rc->_0 = b0;
-    rc->_1 = b1;
-    return (BValue)rc;
-}
-void free_enum3(Enum3* s) {
-  release_value(s->_0);
-  release_value(s->_1);
-  release_value(s->_2);
-  free(s);
-}
-BValue alloc_enum3(ENUM_TAG tag, BValue b0, BValue b1, BValue b2) {
-    Enum3* rc = malloc(sizeof(Enum3));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_enum3;
-    rc->tag = tag;
-    rc->_0 = b0;
-    rc->_1 = b1;
-    rc->_2 = b2;
-    return (BValue)rc;
-}
-
 ENUM_TAG get_variant(BValue v) {
   if (IS_PURE_VALUE(v)) {
     return (ENUM_TAG)PURE_VALUE(v);
@@ -234,82 +154,6 @@ BValue get_enum_index(BValue v, int idx) {
   uintptr_t rc = TO_POINTER(v);
   BValue* ptr = (BValue*)(rc + sizeof(Enum0));
   return ptr[idx];
-}
-
-// Closures:
-size_t closure_data_size(size_t slot_len) {
-  return sizeof(Closure1Data) + slot_len * sizeof(BValue);
-}
-BValue* closure_data_of(Closure1Data* s) {
-  return (BValue*)((uintptr_t)s + sizeof(Closure1Data));
-}
-void free_closure(Closure1Data* s) {
-  size_t slots = s->slot_len;
-  BValue* items = closure_data_of(s);
-  while (slots > 0) {
-    release_value(items);
-    items = items + 1;
-    slots = slots - 1;
-  }
-  free(s);
-}
-BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
-    Closure1Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_closure;
-    rc->fn = fn;
-    rc->slot_len = size;
-    BValue* closure_data = closure_data_of(rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
-    return (BValue)rc;
-}
-
-BValue call_fn1(BValue fn, BValue arg0) {
-  if (IS_STATIC_VALUE(fn)) {
-    BPureFn1 pfn = (BPureFn1)TO_POINTER(fn);
-    return pfn(arg0);
-  }
-  else {
-    // this must be a closure:
-    Closure1Data* rc = (Closure1Data*)fn;
-    BValue* data = closure_data_of(rc);
-    return rc->fn(data, arg0);
-  }
-}
-
-BValue value_from_pure_fn1(BPureFn1 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
-}
-
-BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
-    Closure2Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_closure;
-    rc->fn = fn;
-    rc->slot_len = size;
-    BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
-    return (BValue)rc;
-}
-
-BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
-  if (IS_STATIC_VALUE(fn)) {
-    BPureFn2 pfn = (BPureFn2)TO_POINTER(fn);
-    return pfn(arg0, arg1);
-  }
-  else {
-    // this must be a closure:
-    Closure2Data* rc = (Closure2Data*)fn;
-    BValue* data = closure_data_of((Closure1Data*)rc);
-    return ((BClosure2)(rc->fn))(data, arg0, arg1);
-  }
-}
-BValue value_from_pure_fn2(BPureFn2 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 // Externals:
