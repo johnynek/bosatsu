@@ -11,6 +11,7 @@ import org.bykn.bosatsu.{
   Parser,
   RecursionKind
 }
+import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 
@@ -69,7 +70,7 @@ object PythonGen {
 
         def bind(b: Bindable): (EnvState, Code.Ident) =
           bindInc(b, 1) { c =>
-            Code.Ident(escapeRaw("___b", b.asString + c.toString))
+            Code.Ident(Idents.escape("___b", b.asString + c.toString))
           }
 
         // in loops we need to substitute
@@ -114,7 +115,7 @@ object PythonGen {
             case None =>
               val impNumber = imports.size
               val alias = Code.Ident(
-                escapeRaw("___i", mod.last.name + impNumber.toString)
+                Idents.escape("___i", mod.last.name + impNumber.toString)
               )
               (copy(imports = imports.updated(mod, alias)), alias)
           }
@@ -464,75 +465,6 @@ object PythonGen {
 
   }
 
-  private[this] val base62Items =
-    (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toSet
-
-  private def toBase62(c: Char): String =
-    if (base62Items(c)) c.toString
-    else if (c == '_') "__"
-    else {
-      def toChar(i0: Int): Char =
-        if (i0 < 0) {
-          // $COVERAGE-OFF$
-          sys.error(s"invalid in: $i0")
-          // $COVERAGE-ON$
-        } else if (i0 < 10) (i0 + '0'.toInt).toChar
-        else if (i0 < 36) (i0 - 10 + 'A'.toInt).toChar
-        else if (i0 < 62) (i0 - 36 + 'a'.toInt).toChar
-        else {
-          // $COVERAGE-OFF$
-          sys.error(s"invalid int: $i0")
-          // $COVERAGE-ON$
-        }
-
-      def toString(i: Int): String =
-        if (i < 62) toChar(i).toString
-        else {
-          val i0 = i % 62
-          val i1 = i / 62
-          toString(i1) + toChar(i0)
-        }
-
-      "_" + toString(c.toInt) + "_"
-    }
-
-  private def escapeRaw(prefix: String, str: String): String =
-    str.map(toBase62).mkString(prefix, "", "")
-
-  private def unBase62(
-      str: String,
-      offset: Int,
-      bldr: java.lang.StringBuilder
-  ): Int = {
-    var idx = offset
-    var num = 0
-
-    while (idx < str.length) {
-      val c = str.charAt(idx)
-      idx += 1
-      if (c == '_') {
-        if (idx != offset + 1) {
-          // done
-          val numC = num.toChar
-          bldr.append(numC)
-          return (idx - offset)
-        } else {
-          // "__" decodes to "_"
-          bldr.append('_')
-          return (idx - offset)
-        }
-      } else {
-        val base =
-          if (c <= '9') '0'.toInt
-          else if (c <= 'Z') ('A'.toInt - 10)
-          else ('a'.toInt - 36)
-
-        num = num * 62 + c.toInt - base
-      }
-    }
-    return -1
-  }
-
   // we escape by prefixing by three underscores, ___ and n (for name)
   // we use other ___x escapes for different name spaces, e.g. tmps, and anons
   // then we escape _ by __ and any character outside the allowed
@@ -551,7 +483,7 @@ object PythonGen {
     ) Code.Ident(str)
     else {
       // we need to escape
-      Code.Ident(escapeRaw("___n", str))
+      Code.Ident(Idents.escape("___n", str))
     }
   }
 
@@ -562,31 +494,14 @@ object PythonGen {
     ) Code.Ident(str)
     else {
       // we need to escape
-      Code.Ident(escapeRaw("___m", str))
+      Code.Ident(Idents.escape("___m", str))
     }
 
   def unescape(ident: Code.Ident): Option[Bindable] = {
     val str = ident.name
-    val res = if (str.startsWith("___n")) {
-      val bldr = new java.lang.StringBuilder()
-      var idx = 4
-      while (idx < str.length) {
-        val c = str.charAt(idx)
-        idx += 1
-        if (c == '_') {
-          val res = unBase62(str, idx, bldr)
-          if (res < 1) return None
-          else {
-            idx += res
-          }
-        } else {
-          bldr.append(c)
-        }
-      }
-
-      bldr.toString()
-    } else {
-      str
+    val res = Idents.unescape("__n", str) match {
+      case Some(n) => n
+      case None => str
     }
 
     if (str.isEmpty) None
