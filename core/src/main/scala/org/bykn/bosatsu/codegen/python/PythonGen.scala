@@ -497,21 +497,6 @@ object PythonGen {
       Code.Ident(Idents.escape("___m", str))
     }
 
-  def unescape(ident: Code.Ident): Option[Bindable] = {
-    val str = ident.name
-    val res = Idents.unescape("__n", str) match {
-      case Some(n) => n
-      case None => str
-    }
-
-    if (str.isEmpty) None
-    else {
-      Identifier
-        .optionParse(Identifier.bindableParser, res)
-        .orElse(Some(Identifier.Backticked(res)))
-    }
-  }
-
   /** Remap is used to handle remapping external values
     */
   private def apply(packName: PackageName, name: Bindable, me: Expr)(
