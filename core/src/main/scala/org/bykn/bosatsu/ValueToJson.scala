@@ -73,7 +73,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
   }
 
   // used only after we have checked that types are supported
-  private[this] def get[A](e: Either[UnsupportedType, A]): A =
+  private def get[A](e: Either[UnsupportedType, A]): A =
     e match {
       case Right(a) => a
       // $COVERAGE-OFF$

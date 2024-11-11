@@ -312,7 +312,7 @@ object TypedExpr {
       case _ => None
     }
 
-  private[this] val emptyBound: SortedSet[Type.Var.Bound] =
+  private val emptyBound: SortedSet[Type.Var.Bound] =
     SortedSet.empty
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
@@ -457,10 +457,10 @@ object TypedExpr {
     /** Here are all the global names inside this expression
       */
     def globals: Set[(PackageName, Identifier)] =
-      traverseUp[Writer[Set[(PackageName, Identifier)], *]] {
+      traverseUp[[X] =>> Writer[Set[(PackageName, Identifier)], X]] {
         case g @ Global(p, i, _, _) =>
           Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
-        case notG => Monad[Writer[Set[(PackageName, Identifier)], *]].pure(notG)
+        case notG => Monad[[X] =>> Writer[Set[(PackageName, Identifier)], X]].pure(notG)
       }.written
   }
 
@@ -1129,7 +1129,7 @@ object TypedExpr {
     freeVarsDup(ts).distinct
 
   def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
-    SortedSet(freeVarsDup(ts): _*)
+    SortedSet(freeVarsDup(ts)*)
 
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)

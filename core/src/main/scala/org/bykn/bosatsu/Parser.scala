@@ -237,7 +237,7 @@ object Parser {
     (P.charIn("+-").?.with1 *> positiveIntegerString).string
 
   // all two character base 10 BigIntegers
-  private[this] val smallBase10: Map[String, BigInteger] = {
+  private val smallBase10: Map[String, BigInteger] = {
     val signs = "+" :: "-" :: Nil
 
     ((0 to 99).iterator.map { i =>

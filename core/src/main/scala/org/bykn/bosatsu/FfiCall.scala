@@ -10,7 +10,7 @@ object FfiCall {
   final case class Fn1(fn: Value => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: FnValue = FnValue { case NonEmptyList(a, _) =>
+    private val evalFn: FnValue = FnValue { case NonEmptyList(a, _) =>
       fn(a)
     }
 
@@ -19,7 +19,7 @@ object FfiCall {
   final case class Fn2(fn: (Value, Value) => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: FnValue =
+    private val evalFn: FnValue =
       FnValue { case NonEmptyList(e1, e2 :: _) =>
         fn(e1, e2)
       }
@@ -29,7 +29,7 @@ object FfiCall {
   final case class Fn3(fn: (Value, Value, Value) => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: FnValue =
+    private val evalFn: FnValue =
       FnValue { case NonEmptyList(e1, e2 :: e3 :: _) =>
         fn(e1, e2, e3)
       }
@@ -41,14 +41,14 @@ object FfiCall {
     def call(t: rankn.Type): Value = callFn(t)
   }
 
-  def getJavaType(t: rankn.Type): List[Class[_]] = {
-    def one(t: rankn.Type): Option[Class[_]] =
+  def getJavaType(t: rankn.Type): List[Class[?]] = {
+    def one(t: rankn.Type): Option[Class[?]] =
       loop(t, false) match {
         case c :: Nil => Some(c)
         case _        => None
       }
 
-    def loop(t: rankn.Type, top: Boolean): List[Class[_]] =
+    def loop(t: rankn.Type, top: Boolean): List[Class[?]] =
       t match {
         case rankn.Type.Fun(as, b) if top =>
           val ats = as.map { a =>

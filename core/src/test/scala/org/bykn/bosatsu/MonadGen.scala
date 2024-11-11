@@ -4,7 +4,7 @@ import cats.{Monad, Defer}
 import org.scalacheck.Gen
 
 object MonadGen {
-  implicit val genMonad: Monad[Gen] with Defer[Gen] =
+  implicit val genMonad: Monad[Gen] & Defer[Gen] =
     new Monad[Gen] with Defer[Gen] {
       def pure[A](a: A): Gen[A] = Gen.const(a)
       def defer[A](ga: => Gen[A]): Gen[A] = Gen.lzy(ga)

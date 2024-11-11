@@ -320,7 +320,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(types.toArray)(typeFromProto _)
+      buildTable(types.toArray)(typeFromProto)
     }
 
   def buildPatterns(
@@ -426,7 +426,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(pats.toArray)(patternFromProto _)
+      buildTable(pats.toArray)(patternFromProto)
     }
 
   def recursionKindFromProto(
@@ -567,7 +567,7 @@ object ProtoConverter {
         }
       }
 
-      buildTable(exprs.toArray)(expressionFromProto _)
+      buildTable(exprs.toArray)(expressionFromProto)
     }
 
   private def parsePack(pstr: String, context: => String): Try[PackageName] =

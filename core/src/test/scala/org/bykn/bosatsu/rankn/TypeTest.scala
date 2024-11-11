@@ -330,7 +330,7 @@ class TypeTest extends AnyFunSuite {
       else assert(allT.exists(t => !Type.hasNoVars(t)), "hasNoVars == false")
     }
 
-    forAll(NTypeGen.genDepth03)(law _)
+    forAll(NTypeGen.genDepth03)(law)
 
     val pastFails =
       List(
@@ -409,7 +409,7 @@ class TypeTest extends AnyFunSuite {
       assert(t2 == t1)
     }
 
-    forAll(NTypeGen.genDepth03, genSubs(3))(law _)
+    forAll(NTypeGen.genDepth03, genSubs(3))(law)
 
     val ba: Type.Var = Type.Var.Bound("a")
 
@@ -435,7 +435,7 @@ class TypeTest extends AnyFunSuite {
       )
     }
 
-    forAll(NTypeGen.genDepth03, genSubs(3))(law _)
+    forAll(NTypeGen.genDepth03, genSubs(3))(law)
   }
 
   test("we can substitute to get an instantiation") {
@@ -475,13 +475,13 @@ class TypeTest extends AnyFunSuite {
 
   test("some example instantiations") {
     def check(forall: String, matches: String, subs: List[(String, String)]) = {
-      val Type.ForAll(fas, t) = parse(forall)
+      val Type.ForAll(fas, t) = parse(forall): @unchecked
       val targ = parse(matches)
       Type.instantiate(fas.iterator.toMap, t, targ, Map.empty) match {
         case Some((_, subMap)) =>
           assert(subMap.size == subs.size)
           subs.foreach { case (k, v) =>
-            val Type.TyVar(b: Type.Var.Bound) = parse(k)
+            val Type.TyVar(b: Type.Var.Bound) = parse(k): @unchecked
             assert(subMap(b)._2 == parse(v))
           }
         case None =>
@@ -490,7 +490,7 @@ class TypeTest extends AnyFunSuite {
     }
 
     def noSub(forall: String, matches: String) = {
-      val Type.ForAll(fas, t) = parse(forall)
+      val Type.ForAll(fas, t) = parse(forall): @unchecked
       val targ = parse(matches)
       val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
       assert(res == None)

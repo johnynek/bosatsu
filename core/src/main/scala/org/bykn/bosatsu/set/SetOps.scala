@@ -94,7 +94,7 @@ trait SetOps[A] extends Relatable[A] {
     val normB = clearSubs(branches, Nil)
     val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(
       differenceAll(_, _)
-    )(superSetIsSmaller)
+    )(using superSetIsSmaller)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones

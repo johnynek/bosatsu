@@ -321,11 +321,11 @@ object Pattern {
 
     // this is to circumvent scala warnings because these bosatsu
     // patterns like right.
-    private[this] val dollar = "$"
-    private[this] val wildDoc = Doc.text(s"$dollar{_}")
-    private[this] val wildCharDoc = Doc.text(s"${dollar}.{_}")
-    private[this] val prefix = Doc.text(s"$dollar{")
-    private[this] val prefixChar = Doc.text(s"${dollar}.{")
+    private val dollar = "$"
+    private val wildDoc = Doc.text(s"$dollar{_}")
+    private val wildCharDoc = Doc.text(s"${dollar}.{_}")
+    private val prefix = Doc.text(s"$dollar{")
+    private val prefixChar = Doc.text(s"${dollar}.{")
 
     def document(q: Char): Document[StrPart] =
       Document.instance {
@@ -483,21 +483,21 @@ object Pattern {
     */
   case class Named[N, T](name: Bindable, pat: Pattern[N, T])
       extends Pattern[N, T]
-  case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]])
+  case class ListPat[+N, +T](parts: List[ListPart[Pattern[N, T]]])
       extends Pattern[N, T] {
     lazy val toNamedSeqPattern: NamedSeqPattern[Pattern[N, T]] =
       ListPat.toNamedSeqPattern(this)
 
     lazy val toSeqPattern: SeqPattern[Pattern[N, T]] = toNamedSeqPattern.unname
 
-    def toPositionalStruct(empty: N, cons: N): Either[
-      (ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]),
-      Pattern[N, T]
+    def toPositionalStruct[N1 >: N](empty: N1, cons: N1): Either[
+      (ListPart.Glob, NonEmptyList[ListPart[Pattern[N1, T]]]),
+      Pattern[N1, T]
     ] = {
       def loop(
           parts: List[ListPart[Pattern[N, T]]]
-      ): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]), Pattern[
-        N,
+      ): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N1, T]]]), Pattern[
+        N1,
         T
       ]] =
         parts match {
@@ -1040,8 +1040,8 @@ object Pattern {
     loop(p, None, env)
   }
 
-  private[this] val pwild = P.char('_').as(WildCard)
-  private[this] val plit: P[Pattern[Nothing, Nothing]] = {
+  private val pwild = P.char('_').as(WildCard)
+  private val plit: P[Pattern[Nothing, Nothing]] = {
     val intp = (Lit.integerParser | Lit.codePointParser).map(Literal(_))
     val startStr = P.string("${").as { (opt: Option[Bindable]) =>
       opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_))

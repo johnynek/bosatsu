@@ -18,10 +18,10 @@ case class DefStatement[A, B](
 )
 
 object DefStatement {
-  private[this] val defDoc = Doc.text("def ")
-  private[this] val arrow = Doc.text(" -> ")
-  private[this] val commaSpace = Doc.text(", ")
-  private[this] val colonSpace = Doc.text(": ")
+  private val defDoc = Doc.text("def ")
+  private val arrow = Doc.text(" -> ")
+  private val commaSpace = Doc.text(", ")
+  private val colonSpace = Doc.text(": ")
 
   implicit def document[A: Document, B: Document]
       : Document[DefStatement[A, B]] =

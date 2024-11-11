@@ -320,7 +320,7 @@ object Statement {
       (if (args.nonEmpty) {
          Doc.char('(') + Doc.intercalate(
            Doc.text(", "),
-           args.toList.map(TypeRef.argDoc[Bindable] _)
+           args.toList.map(TypeRef.argDoc[Bindable])
          ) + Doc.char(')')
        } else Doc.empty)
 
@@ -342,7 +342,7 @@ object Statement {
     implicit val pair: Document[OptIndent[Declaration]] =
       Document.instance[OptIndent[Declaration]] { body =>
         body.sepDoc +
-          OptIndent.document(Declaration.document).document(body)
+          OptIndent.document(using Declaration.document).document(body)
       }
     val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
 
@@ -376,10 +376,10 @@ object Statement {
 
         implicit def neDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ne =>
-            Doc.intercalate(itemSep, ne.toList.map(Document[T].document _))
+            Doc.intercalate(itemSep, ne.toList.map(x => Document[T].document(x)))
           }
 
-        val indentedCons = OptIndent.document(neDoc(consDoc)).document(parts)
+        val indentedCons = OptIndent.document(using neDoc(using consDoc)).document(parts)
 
         val taDoc = typeArgs match {
           case None     => Doc.empty

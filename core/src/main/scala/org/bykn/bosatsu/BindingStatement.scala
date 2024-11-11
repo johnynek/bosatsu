@@ -5,7 +5,7 @@ import org.typelevel.paiges.{Doc, Document}
 case class BindingStatement[B, V, T](name: B, value: V, in: T)
 
 object BindingStatement {
-  private[this] val eqDoc = Doc.text(" = ")
+  private val eqDoc = Doc.text(" = ")
 
   implicit def document[A: Document, V: Document, T: Document]
       : Document[BindingStatement[A, V, T]] =

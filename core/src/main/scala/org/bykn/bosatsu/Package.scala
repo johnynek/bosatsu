@@ -57,7 +57,7 @@ object Package {
   /** This is a package whose import type is Either: 1 a package of the same
     * kind 2 an interface
     */
-  type FixPackage[B, C, D] = Fix[λ[a => Either[Interface, Package[a, B, C, D]]]]
+  type FixPackage[B, C, D] = Fix[[X] =>> Either[Interface, Package[X, B, C, D]]]
   type PackageF[A, B, C] =
     Either[Interface, Package[FixPackage[A, B, C], A, B, C]]
   type PackageF2[A, B] = PackageF[A, A, B]
@@ -143,10 +143,10 @@ object Package {
   }
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
-    FixType.fix[λ[a => Either[Interface, Package[a, A, B, C]]]](p)
+    FixType.fix[[X] =>> Either[Interface, Package[X, A, B, C]]](p)
 
   def unfix[A, B, C](fp: FixPackage[A, B, C]): PackageF[A, B, C] =
-    FixType.unfix[λ[a => Either[Interface, Package[a, A, B, C]]]](fp)
+    FixType.unfix[[X] =>> Either[Interface, Package[X, A, B, C]]](fp)
 
   /** build a Parsed Package from a Statement. This is useful for testing or
     * library usages.
@@ -173,7 +173,7 @@ object Package {
               Doc.intercalate(
                 Doc.line,
                 nonEmptyImports.map(
-                  Document[Import[PackageName, Unit]].document _
+                  x => Document[Import[PackageName, Unit]].document(x)
                 )
               ) +
               Doc.line
@@ -185,7 +185,7 @@ object Package {
               Doc.text("export ") +
               Doc.intercalate(
                 Doc.text(", "),
-                nonEmptyExports.map(Document[ExportedName[Unit]].document _)
+                nonEmptyExports.map(x => Document[ExportedName[Unit]].document(x))
               ) +
               Doc.line
         }
@@ -388,7 +388,7 @@ object Package {
           val inference =
             Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          Parallel[Ior[NonEmptyList[PackageError], *]]
+          Parallel[[X] =>> Ior[NonEmptyList[PackageError], X]]
             .parProductR(checks.toIor)(inference.toIor)
         }
     }

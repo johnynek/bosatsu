@@ -9,7 +9,7 @@ import Action.Cmd
 
 object Store {
   val memoryMain =
-    new MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
+    new MemoryMain[[X] =>> Either[Throwable, X], String](_.split("/", -1).toList)
 
   type HandlerFn = memoryMain.Output => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =

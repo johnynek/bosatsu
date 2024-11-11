@@ -51,7 +51,7 @@ class TypedExprTest extends AnyFunSuite {
       )
     }
 
-    forAll(genTypedExpr)(law _)
+    forAll(genTypedExpr)(law)
 
     checkLast("""
 enum AB: A, B(x)
@@ -752,7 +752,7 @@ x = Foo
         .traverseType { (t: Type) =>
           t match {
             case q: Type.Quantified =>
-              Writer(SortedSet[Type.Var](q.vars.toList.map(_._1): _*), t)
+              Writer(SortedSet[Type.Var](q.vars.toList.map(_._1)*), t)
             case _ => Writer(SortedSet[Type.Var](), t)
           }
         }
@@ -885,7 +885,7 @@ x = (
   test("TypedExpr.fold matches traverse") {
     def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {
       val viaFold = te.foldLeft(init)(fn)
-      val viaTraverse = te.traverse_[State[A, *], Unit] { b =>
+      val viaTraverse = te.traverse_[[X] =>> State[A, X], Unit] { b =>
         for {
           i <- State.get[A]
           i1 = fn(i, b)
@@ -900,7 +900,7 @@ x = (
       val viaFold = te
         .foldRight(cats.Eval.now(a))((b, r) => r.map(j => fn(b, j)))
         .value
-      val viaTraverse: State[A, Unit] = te.traverse_[State[A, *], Unit] { b =>
+      val viaTraverse: State[A, Unit] = te.traverse_[[X] =>> State[A, X], Unit] { b =>
         for {
           i <- State.get[A]
           i1 = fn(b, i)
@@ -926,7 +926,7 @@ x = (
     def law[A, B: Monoid](te: TypedExpr[A])(fn: A => B) = {
       val viaFold = te.foldMap(fn)
       val viaTraverse: Const[B, Unit] = te
-        .traverse[Const[B, *], Unit] { b =>
+        .traverse[[X] =>> Const[B, X], Unit] { b =>
           Const[B, Unit](fn(b))
         }
         .void

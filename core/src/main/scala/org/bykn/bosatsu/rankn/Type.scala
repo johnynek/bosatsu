@@ -897,7 +897,7 @@ object Type {
     val FnKinds: List[(Type.TyConst, Kind)] = {
       // -* -> -* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co): _*)
+        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co)*)
 
       tpes.iterator.zipWithIndex.map { case (t, n1) =>
         (t, kindSize(n1 + 1))
@@ -1050,7 +1050,7 @@ object Type {
     val Kinds: List[(Type.TyConst, Kind)] = {
       // +* -> +* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind(Vector.fill(n)(Kind.Type.co): _*)
+        Kind(Vector.fill(n)(Kind.Type.co)*)
 
       (1 to 32).iterator.map(n => (Arity(n), kindSize(n))).toList
     }
@@ -1102,8 +1102,8 @@ object Type {
     implicit val orderingTyConst: Ordering[Const] =
       new Ordering[Const] {
         def compare(a: Const, b: Const) = {
-          val Const.Defined(p0, n0) = a
-          val Const.Defined(p1, n1) = b
+          val Const.Defined(p0, n0) = a: @unchecked
+          val Const.Defined(p1, n1) = b: @unchecked
           val c = Ordering[PackageName].compare(p0, p1)
           if (c == 0) Ordering[TypeName].compare(n0, n1) else c
         }
@@ -1119,7 +1119,7 @@ object Type {
         extends Var
 
     object Bound {
-      private[this] val cache: Array[Bound] =
+      private val cache: Array[Bound] =
         ('a' to 'z').map(c => new Bound(c.toString)).toArray
 
       def apply(str: String): Bound =
@@ -1374,7 +1374,7 @@ object Type {
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
-    private[this] val coloncolon = Doc.text("::")
+    private val coloncolon = Doc.text("::")
 
     def unapplyRoot(a: Type): Option[Doc] =
       a match {

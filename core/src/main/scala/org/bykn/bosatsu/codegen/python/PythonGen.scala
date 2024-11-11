@@ -34,7 +34,7 @@ object PythonGen {
       new Monad[Env] {
         import Impl._
 
-        val m = Monad[State[EnvState, *]]
+        val m = Monad[[X] =>> State[EnvState, X]]
         def pure[A](a: A): Env[A] = EnvImpl(m.pure(a))
         override def map[A, B](ea: Env[A])(fn: A => B): Env[B] =
           EnvImpl(m.map(ea.state)(fn))
@@ -217,7 +217,7 @@ object PythonGen {
               case None => res
               case Some(nel) =>
                 val stmts = nel.reverse
-                val stmt = Code.block(stmts.head, stmts.tail: _*)
+                val stmt = Code.block(stmts.head, stmts.tail*)
                 res.map(stmt.withValue(_))
             }
           case (e: Expression) :: t            => loop(t, setup, e :: args)
@@ -464,7 +464,7 @@ object PythonGen {
 
   }
 
-  private[this] val base62Items =
+  private val base62Items =
     (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toSet
 
   private def toBase62(c: Char): String =

@@ -38,10 +38,10 @@ object Test {
     go(t :: Nil, 0)
   }
 
-  private[this] val colonSpace = Doc.text(": ")
-  private[this] val passed = Doc.text(" passed")
-  private[this] val failed = Doc.text(" failed")
-  private[this] val oneTest = Doc.text("1 test, ")
+  private val colonSpace = Doc.text(": ")
+  private val passed = Doc.text(" passed")
+  private val failed = Doc.text(" failed")
+  private val oneTest = Doc.text("1 test, ")
 
   def summary(passes: Int, fails: Int, c: LocationMap.Colorize): Doc = {
     @inline def failMsg = Doc.str(fails) + failed

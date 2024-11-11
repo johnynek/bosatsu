@@ -4,24 +4,31 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version := "0.0.7",
+  /*
   addCompilerPlugin(
     "org.typelevel" %% "kind-projector" % "0.13.3" cross CrossVersion.full
   ),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.13.15",
-  crossScalaVersions := Seq("2.13.15"),
+  */
+  //scalaVersion := "2.13.15",
+  scalaVersion := "3.5.2",
+  //crossScalaVersions := Seq("2.13.15"),
+  crossScalaVersions := Seq("3.5.2"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation", // Emit warning and location for usages of deprecated APIs.
     "-encoding",
     "utf-8", // Specify character encoding used by source files.
+    //"-rewrite", "-source", "3.4-migration",
     "-explaintypes", // Explain type errors in more detail.
+    "-explain",
     "-feature", // Emit warning and location for usages of features that should be imported explicitly.
     "-language:existentials", // Existential types (besides wildcard types) can be written and inferred
     "-language:higherKinds", // Allow higher-kinded types
     "-unchecked", // Enable additional warnings where generated code depends on assumptions.
-    "-Xcheckinit", // Wrap field accessors to throw an exception on uninitialized access.
+    //"-Xcheckinit", // Wrap field accessors to throw an exception on uninitialized access.
     // "-Xfatal-warnings",                  // Fail the compilation if there are any warnings.
+    /*
     "-Xlint:adapted-args", // Warn if an argument list is modified to match the receiver.
     // "-Xlint:constant",                   // Evaluation of a constant arithmetic expression results in an error.
     "-Xlint:delayedinit-select", // Selecting member of DelayedInit.
@@ -35,19 +42,19 @@ lazy val commonSettings = Seq(
     "-Xlint:private-shadow", // A private field (or class parameter) shadows a superclass field.
     "-Xlint:stars-align", // Pattern sequence wildcard must align with sequence component.
     "-Xlint:type-parameter-shadow", // A local type parameter shadows a type already in scope.
+    */
     // "-Ywarn-dead-code",                  // Warn when dead code is identified. // this kills ability to use ???
     // "-Ywarn-extra-implicit",             // Warn when more than one implicit parameter section is defined.
-    "-Ywarn-numeric-widen", // Warn when numerics are widened.
-    "-Ywarn-unused",
+    //"-Ywarn-numeric-widen", // Warn when numerics are widened.
+    //"-Ywarn-unused",
     // "-Ywarn-unused:implicits",           // Warn if an implicit parameter is unused.
     /* "-Ywarn-unused:locals",              // Warn if a local definition is unused */
     /* "-Ywarn-unused:params",              // Warn if a value parameter is unused. */
     /* "-Ywarn-unused:patvars",             // Warn if a variable bound in a pattern is unused. */
     /* "-Ywarn-unused:privates",            // Warn if a private member is unused. */
-    "-Ywarn-value-discard", // Warn when non-Unit expression results are unused.
-    "-Xsource:3",
-    "-Ypatmat-exhaust-depth",
-    "40",
+    //"-Ywarn-value-discard", // Warn when non-Unit expression results are unused.
+    //"-Xsource:3",
+    //"-Ypatmat-exhaust-depth", "40",
     "-Wconf:cat=deprecation&msg=.*Stream.*:s"
   ),
   Compile / console / scalacOptions --= Seq(
@@ -106,7 +113,7 @@ lazy val base =
     .settings(
       commonSettings,
       name := "bosatsu-base",
-      libraryDependencies += scalaReflect.value,
+      //libraryDependencies += scalaReflect.value,
       buildInfoKeys := Seq[BuildInfoKey](
         name,
         version,
@@ -178,13 +185,13 @@ lazy val core =
         munit.value % Test,
         munitScalaCheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.15" % "provided"
+        //"com.lihaoyi" % "acyclic_2.13.12" % "0.3.15" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.15"),
-    scalacOptions += "-P:acyclic:force"
+    //addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.15"),
+    //scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
 

@@ -455,7 +455,7 @@ else:
     assert(block(Pass, Pass) == Pass)
 
     forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
-      val stmt = block(h, t: _*)
+      val stmt = block(h, t*)
 
       def passCount(s: Statement): Int =
         s match {
@@ -560,7 +560,7 @@ else:
 
     forAll(genArgs) { case (lam, arg) =>
       assert(
-        lam(arg: _*).simplify == Code
+        lam(arg*).simplify == Code
           .substitute(lam.args.zip(arg).toMap, lam.result)
           .simplify
       )

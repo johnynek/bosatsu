@@ -30,7 +30,7 @@ object Matcher {
       }
   }
 
-  private[this] val someUnit = Some(())
+  private val someUnit = Some(())
 
   def eqMatcher[A](implicit eqA: Eq[A]): Matcher[A, A, Unit] =
     new Matcher[A, A, Unit] {

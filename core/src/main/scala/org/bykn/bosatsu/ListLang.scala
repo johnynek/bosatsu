@@ -52,7 +52,7 @@ object ListLang {
   }
 
   object KVPair {
-    private[this] val sep: Doc = Doc.text(": ")
+    private val sep: Doc = Doc.text(": ")
 
     def parser[A](p: P[A]): P[KVPair[A]] =
       ((p <* maybeSpacesAndLines <* P.char(':') <* maybeSpacesAndLines) ~ p)

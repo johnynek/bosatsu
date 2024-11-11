@@ -22,7 +22,7 @@ class NatTest extends munit.ScalaCheckSuite {
         5,
         Gen
           .chooseNum(
-            0,
+            0L,
             Long.MaxValue,
             Int.MaxValue.toLong,
             Int.MaxValue.toLong + 1

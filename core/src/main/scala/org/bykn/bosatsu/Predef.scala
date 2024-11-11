@@ -6,17 +6,10 @@ import language.experimental.macros
 
 object Predef {
 
-  /** Loads a file *at compile time* as a means of embedding external files into
-    * strings. This lets us avoid resources which compilicate matters for
-    * scalajs.
-    */
-  private[bosatsu] def loadFileInCompile(file: String): String =
-    macro Macro.loadFileInCompileImpl
-
   /** String representation of the predef
     */
   val predefString: String =
-    loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
+    Macro.loadFile("core/src/main/resources/bosatsu/predef.bosatsu")
 
   private def packageName: PackageName =
     PackageName.PredefName
@@ -227,7 +220,7 @@ object PredefImpl {
     Value.Str(i(intValue).toString)
 
   def trace(prefix: Value, v: Value): Value = {
-    val Value.Str(prestr) = prefix
+    val Value.Str(prestr) = prefix: @unchecked
     println(s"$prestr: $v")
     v
   }

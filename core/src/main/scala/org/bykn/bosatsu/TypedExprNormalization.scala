@@ -13,18 +13,18 @@ object TypedExprNormalization {
 
   type ScopeT[A, S] =
     Map[(Option[PackageName], Bindable), (RecursionKind, TypedExpr[A], S)]
-  type Scope[A] = FixType.Fix[ScopeT[A, *]]
+  type Scope[A] = FixType.Fix[[X] =>> ScopeT[A, X]]
 
   def emptyScope[A]: Scope[A] =
-    FixType.fix[ScopeT[A, *]](Map.empty)
+    FixType.fix[[X] =>> ScopeT[A, X]](Map.empty)
 
   implicit final class ScopeOps[A](private val scope: Scope[A]) extends AnyVal {
     def updated(
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope).updated((None, key), value)
+      FixType.fix[[X] =>> ScopeT[A, X]](
+        FixType.unfix[[X] =>> ScopeT[A, X]](scope).updated((None, key), value)
       )
 
     def updatedGlobal(
@@ -32,13 +32,13 @@ object TypedExprNormalization {
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope).updated((Some(pack), key), value)
+      FixType.fix[[X] =>> ScopeT[A, X]](
+        FixType.unfix[[X] =>> ScopeT[A, X]](scope).updated((Some(pack), key), value)
       )
 
     def -(key: Bindable): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope) - (None -> key)
+      FixType.fix[[X] =>> ScopeT[A, X]](
+        FixType.unfix[[X] =>> ScopeT[A, X]](scope) - (None -> key)
       )
 
     def --(keys: Iterable[Bindable]): Scope[A] =
@@ -47,13 +47,13 @@ object TypedExprNormalization {
     def getLocal(
         key: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeT[A, *]](scope).get((None, key))
+      FixType.unfix[[X] =>> ScopeT[A, X]](scope).get((None, key))
 
     def getGlobal(
         pack: PackageName,
         n: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeT[A, *]](scope).get((Some(pack), n))
+      FixType.unfix[[X] =>> ScopeT[A, X]](scope).get((Some(pack), n))
   }
 
   private def nameScope[A](
@@ -705,7 +705,7 @@ object TypedExprNormalization {
     type Branch[A] = (Pat, TypedExpr[A])
 
     def maybeEvalMatch[A](
-        m: Match[_ <: A],
+        m: Match[? <: A],
         scope: Scope[A]
     ): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {

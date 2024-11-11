@@ -1,5 +1,7 @@
 package org.bykn.bosatsu
 
+/*
+
 import reflect.macros.blackbox.Context
 import java.io.File
 import scala.io.Source
@@ -43,6 +45,36 @@ class Macro(val c: Context) {
           c.enclosingPosition,
           s"expected string literal, found: $otherTree"
         )
+    }
+  }
+}
+*/
+import scala.quoted.*
+import java.nio.file.{Files, Paths}
+import java.nio.charset.StandardCharsets
+
+/** Loads a file *at compile time* as a means of embedding external files into
+  * strings. This lets us avoid resources which compilicate matters for
+  * scalajs.
+  */
+object Macro {
+  inline def loadFile(path: String): String = ${ loadFileImpl('path) }
+
+  def loadFileImpl(pathExpr: Expr[String])(using Quotes): Expr[String] = {
+    import quotes.reflect.*
+
+    // Extract the file path from the inline argument
+    val path = pathExpr.valueOrAbort
+
+    // Read the file and check if it exists
+    val filePath = Paths.get(path)
+    if (!Files.exists(filePath)) {
+      report.error(s"File at path '$path' does not exist.")
+      '{""} // This won't be used, but it's required for return type consistency
+    } else {
+      // Read the file as UTF-8 string
+      val content = new String(Files.readAllBytes(filePath), StandardCharsets.UTF_8)
+      Expr(content)
     }
   }
 }
