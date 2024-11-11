@@ -110,11 +110,33 @@ def print_impls():
     print(function_impl(i+1))
     print("")
 
+def print_headers():
+  print("//FUNCTION typedefs")
+  for i in range(32):
+    print("typedef BValue (*BClosure%i)(BValue*,%s);" % (i + 1, just_bvalue(i + 1)))
+  for i in range(32):
+    print("typedef BValue (*BPureFn%i)(%s);" % (i + 1, just_bvalue(i + 1)))
+  print("")
+  print("//STRUCTS")
+  for i in range(1, 32):
+    print("BValue alloc_struct%i(%s);" % (i + 1, bvalue_arg(i + 1)))
+  print("")
+  print("//ENUMS")
+  for i in range(32):
+    print("BValue alloc_enum%i(ENUM_TAG variant, %s);" % (i + 1, bvalue_arg(i + 1)))
+  print("")
+  print("//FUNCTIONS")
+  for i in range(32):
+    print(fn_decls(i+1))
+    print()
+
 if __name__ == "__main__":
-  print_impls()
-  #for i in range(32):
-    #print("typedef BValue (*BClosure%i)(BValue*,%s);" % (i + 1, just_bvalue(i + 1)))
-    #print("typedef BValue (*BPureFn%i)(%s);" % (i + 1, just_bvalue(i + 1)))
-    #print("BValue alloc_struct%i(%s);" % (i + 1, bvalue_arg(i + 1)))
-    #print("BValue alloc_enum%i(ENUM_TAG variant, %s);" % (i + 1, bvalue_arg(i + 1)))
-    #print(fn_decls(i+1))
+  import sys
+  arg = sys.argv[1] if len(sys.argv) > 1 else None
+  if arg == "impls":
+    print_impls()
+  elif arg == "headers":
+    print_headers()
+  else:
+    print("unknown args: %s" % sys.argv)
+    sys.exit(1)
