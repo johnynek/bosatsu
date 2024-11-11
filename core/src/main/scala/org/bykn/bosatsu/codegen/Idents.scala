@@ -5,33 +5,40 @@ object Idents {
   private[this] val base62Items =
     (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toSet
 
-  private def toBase62(c: Char): String =
-    if (base62Items(c)) c.toString
-    else if (c == '_') "__"
+  private[this] val offset0: Int = '0'.toInt
+  private[this] val offsetA: Int = 'A'.toInt - 10
+  private[this] val offseta: Int = 'a'.toInt - 36
+
+  private def toBase62(c: Char, bldr: java.lang.StringBuilder): java.lang.StringBuilder =
+    if (base62Items(c)) bldr.append(c)
+    else if (c == '_') bldr.append("__")
     else {
       def toChar(i0: Int): Char =
-        if (i0 < 0) {
-          // $COVERAGE-OFF$
-          sys.error(s"invalid in: $i0")
-          // $COVERAGE-ON$
-        } else if (i0 < 10) (i0 + '0'.toInt).toChar
-        else if (i0 < 36) (i0 - 10 + 'A'.toInt).toChar
-        else if (i0 < 62) (i0 - 36 + 'a'.toInt).toChar
-        else {
-          // $COVERAGE-OFF$
-          sys.error(s"invalid int: $i0")
-          // $COVERAGE-ON$
-        }
+        (i0 + (
+          if (i0 < 36) {
+            if (i0 < 10) offset0
+            else offsetA
+          }
+          else offseta
+        )).toChar
 
-      def toString(i: Int): String =
-        if (i < 62) toChar(i).toString
+      def toString(i: Int): Unit =
+        if (i < 62) {
+          val _ = bldr.append(toChar(i))
+        }
         else {
-          val i0 = i % 62
           val i1 = i / 62
-          toString(i1) + toChar(i0)
+          val i0 = i % 62
+          // this isn't tail recursion, but it's okay
+          // because the int can't be that big so we can
+          // only divide by 62 a few times
+          toString(i1)
+          val _ = bldr.append(toChar(i0))
         }
 
-      "_" + toString(c.toInt) + "_"
+      bldr.append('_')
+      toString(c.toInt)
+      bldr.append('_')
     }
 
   def escape(prefix: String, str: CharSequence): String = {
@@ -40,7 +47,7 @@ object Idents {
     val len = str.length
     bldr.append(prefix)
     while (idx < len) {
-      bldr.append(toBase62(str.charAt(idx)))
+      toBase62(str.charAt(idx), bldr)
       idx += 1
     }
     bldr.toString()
@@ -69,9 +76,11 @@ object Idents {
         return (idx - offset)
       } else {
         val base =
-          if (c <= '9') '0'.toInt
-          else if (c <= 'Z') ('A'.toInt - 10)
-          else ('a'.toInt - 36)
+          if (c <= 'Z') {
+            if (c <= '9') offset0
+            else offsetA
+          }
+          else offseta
 
         num = num * 62 + c.toInt - base
       }
@@ -83,7 +92,8 @@ object Idents {
     if (str.startsWith(prefix)) {
       val bldr = new java.lang.StringBuilder()
       var idx = prefix.length
-      while (idx < str.length) {
+      val len = str.length
+      while (idx < len) {
         val c = str.charAt(idx)
         idx += 1
         if (c == '_') {
