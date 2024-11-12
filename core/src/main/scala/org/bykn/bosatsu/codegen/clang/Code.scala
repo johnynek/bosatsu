@@ -34,6 +34,8 @@ object Code {
     case class UnionType(name: String) extends ComplexType
     case class Named(name: String) extends TypeIdent
     case class Ptr(tpe: TypeIdent) extends TypeIdent
+    val Int: TypeIdent = Named("int")
+    val BValue: TypeIdent = Named("BValue")
 
     private val structDoc = Doc.text("struct ")
     private val unionDoc = Doc.text("union ")
@@ -47,7 +49,9 @@ object Code {
       }
   }
 
-  sealed trait Expression extends Code {
+  sealed trait ValueLike
+
+  sealed trait Expression extends Code with ValueLike {
     def :=(rhs: Expression): Statement =
       Assignment(this, rhs)
 
@@ -76,6 +80,16 @@ object Code {
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
   }
+
+  /////////////////////////
+  // Here are all the ValueLike
+  /////////////////////////
+
+  // this prepares an expression with a number of statements
+  case class WithValue(statement: Statement, value: ValueLike) extends ValueLike
+  case class IfElseValue(cond: Expression, thenCond: ValueLike, elseCond: ValueLike) extends ValueLike
+
+  def returnValue(vl: ValueLike): Statement = ???
 
   sealed abstract class BinOp(repr: String) {
     val toDoc: Doc = Doc.text(repr)
@@ -131,6 +145,10 @@ object Code {
     implicit def fromString(str: String): Ident = Ident(str)
   }
   case class IntLiteral(value: BigInt) extends Expression
+  object IntLiteral {
+    val One: IntLiteral = IntLiteral(BigInt(1))
+    val Zero: IntLiteral = IntLiteral(BigInt(0))
+  }
   case class Cast(tpe: TypeIdent, expr: Expression) extends Expression
   case class Apply(fn: Expression, args: List[Expression]) extends Expression
   case class Select(target: Expression, name: Ident) extends Expression

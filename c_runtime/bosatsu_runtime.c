@@ -227,11 +227,34 @@ BValue make_static(BValue v) {
   return v;
 }
 
+BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
+    BValue result = atomic_load(target);
+    if (result == NULL) {
+        result = cons();
+        BValue static_version = make_static(result);
+        BValue expected = NULL;
+        do {
+            if (atomic_compare_exchange_weak(target, &expected, static_version)) {
+                free_on_close(result);
+                break;
+            } else {
+                expected = atomic_load(target);
+                if (expected != NULL) {
+                    release_value(result);
+                    result = expected;
+                    break;
+                }
+            }
+        } while (1);
+    }
+    return result;
+}
+
 // Example static
 BValue make_foo();
 static _Atomic BValue __bvalue_foo = NULL;
 // Add this to the main function to construct all
 // the top level values before we start
 BValue foo() {
-  return CONSTRUCT(&__bvalue_foo, make_foo);
+  return read_or_build(&__bvalue_foo, make_foo);
 }

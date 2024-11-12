@@ -36,6 +36,8 @@ void free_statics();
 BValue make_static(BValue v);
 void free_on_close(BValue v);
 
+BValue read_or_build(_Atomic BValue* v, BConstruct cons);
+
 #define CONSTRUCT(target, cons) (\
 {\
     BValue result = atomic_load(target);\
