@@ -616,7 +616,6 @@ abstract class MainModule[IO[_]](implicit
           import codegen.python.PythonGen
 
           val allExternals = pm.allExternals
-          val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
             val parsedExt =
               externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
@@ -668,6 +667,13 @@ abstract class MainModule[IO[_]](implicit
                 }
               }.toMap
 
+              val allRoots: Set[(PackageName, Identifier)] =
+                tests.iterator.toSet ++
+                  evalMap.iterator.map { case (n, (b, _, _)) =>
+                    (n, b) 
+                  }
+              val cleanPm = PackageMap.treeShake(pm, allRoots)
+              val cmp = MatchlessFromTypedExpr.compile(cleanPm)
               val docs = PythonGen
                 .renderAll(cmp, extMap, tests, evalMap)
                 .iterator
