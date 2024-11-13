@@ -13,7 +13,12 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
-  sealed abstract class FnExpr extends Expr
+  sealed abstract class FnExpr extends Expr {
+    def captures: List[Expr]
+    def recursiveName: Option[Bindable]
+
+    def recursionKind: RecursionKind = RecursionKind.recursive(recursiveName.isDefined)
+  }
 
   sealed abstract class StrPart
   object StrPart {
@@ -81,7 +86,9 @@ object Matchless {
       name: Option[Bindable],
       args: NonEmptyList[Bindable],
       expr: Expr
-  ) extends FnExpr
+  ) extends FnExpr {
+    def recursiveName = name
+  }
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
@@ -92,7 +99,9 @@ object Matchless {
       name: Bindable,
       arg: NonEmptyList[Bindable],
       body: Expr
-  ) extends FnExpr
+  ) extends FnExpr {
+    def recursiveName: Option[Bindable] = Some(name)
+  }
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 

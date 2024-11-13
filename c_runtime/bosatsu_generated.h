@@ -2916,7 +2916,7 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
 }
 
 BValue call_fn1(BValue fn, BValue arg0) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn1 pfn = (BPureFn1)TO_POINTER(fn);
     return pfn(arg0);
   }
@@ -2926,10 +2926,6 @@ BValue call_fn1(BValue fn, BValue arg0) {
     BValue* data = closure_data_of(rc);
     return rc->fn(data, arg0);
   }
-}
-
-BValue value_from_pure_fn1(BPureFn1 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -2949,7 +2945,7 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
 }
 
 BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn2 pfn = (BPureFn2)TO_POINTER(fn);
     return pfn(arg0, arg1);
   }
@@ -2959,10 +2955,6 @@ BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1);
   }
-}
-
-BValue value_from_pure_fn2(BPureFn2 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -2982,7 +2974,7 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
 }
 
 BValue call_fn3(BValue fn, BValue arg0, BValue arg1, BValue arg2) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn3 pfn = (BPureFn3)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2);
   }
@@ -2992,10 +2984,6 @@ BValue call_fn3(BValue fn, BValue arg0, BValue arg1, BValue arg2) {
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2);
   }
-}
-
-BValue value_from_pure_fn3(BPureFn3 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3015,7 +3003,7 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
 }
 
 BValue call_fn4(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn4 pfn = (BPureFn4)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3);
   }
@@ -3025,10 +3013,6 @@ BValue call_fn4(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3) {
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3);
   }
-}
-
-BValue value_from_pure_fn4(BPureFn4 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3048,7 +3032,7 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
 }
 
 BValue call_fn5(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn5 pfn = (BPureFn5)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4);
   }
@@ -3058,10 +3042,6 @@ BValue call_fn5(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4);
   }
-}
-
-BValue value_from_pure_fn5(BPureFn5 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3081,7 +3061,7 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
 }
 
 BValue call_fn6(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn6 pfn = (BPureFn6)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5);
   }
@@ -3091,10 +3071,6 @@ BValue call_fn6(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5);
   }
-}
-
-BValue value_from_pure_fn6(BPureFn6 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3114,7 +3090,7 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
 }
 
 BValue call_fn7(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn7 pfn = (BPureFn7)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
@@ -3124,10 +3100,6 @@ BValue call_fn7(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
-}
-
-BValue value_from_pure_fn7(BPureFn7 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3147,7 +3119,7 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
 }
 
 BValue call_fn8(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn8 pfn = (BPureFn8)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
@@ -3157,10 +3129,6 @@ BValue call_fn8(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
-}
-
-BValue value_from_pure_fn8(BPureFn8 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3180,7 +3148,7 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
 }
 
 BValue call_fn9(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn9 pfn = (BPureFn9)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
@@ -3190,10 +3158,6 @@ BValue call_fn9(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
-}
-
-BValue value_from_pure_fn9(BPureFn9 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3213,7 +3177,7 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
 }
 
 BValue call_fn10(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn10 pfn = (BPureFn10)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
@@ -3223,10 +3187,6 @@ BValue call_fn10(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
-}
-
-BValue value_from_pure_fn10(BPureFn10 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3246,7 +3206,7 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
 }
 
 BValue call_fn11(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn11 pfn = (BPureFn11)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
@@ -3256,10 +3216,6 @@ BValue call_fn11(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
-}
-
-BValue value_from_pure_fn11(BPureFn11 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3279,7 +3235,7 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
 }
 
 BValue call_fn12(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn12 pfn = (BPureFn12)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
@@ -3289,10 +3245,6 @@ BValue call_fn12(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
-}
-
-BValue value_from_pure_fn12(BPureFn12 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3312,7 +3264,7 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
 }
 
 BValue call_fn13(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn13 pfn = (BPureFn13)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
@@ -3322,10 +3274,6 @@ BValue call_fn13(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
-}
-
-BValue value_from_pure_fn13(BPureFn13 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3345,7 +3293,7 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
 }
 
 BValue call_fn14(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn14 pfn = (BPureFn14)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
@@ -3355,10 +3303,6 @@ BValue call_fn14(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
-}
-
-BValue value_from_pure_fn14(BPureFn14 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3378,7 +3322,7 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
 }
 
 BValue call_fn15(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn15 pfn = (BPureFn15)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
@@ -3388,10 +3332,6 @@ BValue call_fn15(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
-}
-
-BValue value_from_pure_fn15(BPureFn15 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3411,7 +3351,7 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
 }
 
 BValue call_fn16(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn16 pfn = (BPureFn16)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
@@ -3421,10 +3361,6 @@ BValue call_fn16(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
-}
-
-BValue value_from_pure_fn16(BPureFn16 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3444,7 +3380,7 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
 }
 
 BValue call_fn17(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn17 pfn = (BPureFn17)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
@@ -3454,10 +3390,6 @@ BValue call_fn17(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
-}
-
-BValue value_from_pure_fn17(BPureFn17 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3477,7 +3409,7 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
 }
 
 BValue call_fn18(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn18 pfn = (BPureFn18)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
@@ -3487,10 +3419,6 @@ BValue call_fn18(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
-}
-
-BValue value_from_pure_fn18(BPureFn18 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3510,7 +3438,7 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
 }
 
 BValue call_fn19(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn19 pfn = (BPureFn19)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
@@ -3520,10 +3448,6 @@ BValue call_fn19(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
-}
-
-BValue value_from_pure_fn19(BPureFn19 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3543,7 +3467,7 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
 }
 
 BValue call_fn20(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn20 pfn = (BPureFn20)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
@@ -3553,10 +3477,6 @@ BValue call_fn20(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
-}
-
-BValue value_from_pure_fn20(BPureFn20 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3576,7 +3496,7 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
 }
 
 BValue call_fn21(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn21 pfn = (BPureFn21)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
@@ -3586,10 +3506,6 @@ BValue call_fn21(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
-}
-
-BValue value_from_pure_fn21(BPureFn21 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3609,7 +3525,7 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
 }
 
 BValue call_fn22(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn22 pfn = (BPureFn22)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
@@ -3619,10 +3535,6 @@ BValue call_fn22(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
-}
-
-BValue value_from_pure_fn22(BPureFn22 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3642,7 +3554,7 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
 }
 
 BValue call_fn23(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn23 pfn = (BPureFn23)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
@@ -3652,10 +3564,6 @@ BValue call_fn23(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
-}
-
-BValue value_from_pure_fn23(BPureFn23 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3675,7 +3583,7 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
 }
 
 BValue call_fn24(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn24 pfn = (BPureFn24)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
@@ -3685,10 +3593,6 @@ BValue call_fn24(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
-}
-
-BValue value_from_pure_fn24(BPureFn24 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3708,7 +3612,7 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
 }
 
 BValue call_fn25(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn25 pfn = (BPureFn25)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
@@ -3718,10 +3622,6 @@ BValue call_fn25(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
-}
-
-BValue value_from_pure_fn25(BPureFn25 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3741,7 +3641,7 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
 }
 
 BValue call_fn26(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn26 pfn = (BPureFn26)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
@@ -3751,10 +3651,6 @@ BValue call_fn26(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
-}
-
-BValue value_from_pure_fn26(BPureFn26 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3774,7 +3670,7 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
 }
 
 BValue call_fn27(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn27 pfn = (BPureFn27)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
@@ -3784,10 +3680,6 @@ BValue call_fn27(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
-}
-
-BValue value_from_pure_fn27(BPureFn27 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3807,7 +3699,7 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
 }
 
 BValue call_fn28(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn28 pfn = (BPureFn28)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
@@ -3817,10 +3709,6 @@ BValue call_fn28(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
-}
-
-BValue value_from_pure_fn28(BPureFn28 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3840,7 +3728,7 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
 }
 
 BValue call_fn29(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn29 pfn = (BPureFn29)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
@@ -3850,10 +3738,6 @@ BValue call_fn29(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
-}
-
-BValue value_from_pure_fn29(BPureFn29 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3873,7 +3757,7 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
 }
 
 BValue call_fn30(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn30 pfn = (BPureFn30)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
@@ -3883,10 +3767,6 @@ BValue call_fn30(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
-}
-
-BValue value_from_pure_fn30(BPureFn30 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3906,7 +3786,7 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
 }
 
 BValue call_fn31(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn31 pfn = (BPureFn31)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
@@ -3916,10 +3796,6 @@ BValue call_fn31(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
-}
-
-BValue value_from_pure_fn31(BPureFn31 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 
 
@@ -3939,7 +3815,7 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
 }
 
 BValue call_fn32(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30, BValue arg31) {
-  if (IS_STATIC_VALUE(fn)) {
+  if (IS_PURE_VALUE(fn)) {
     BPureFn32 pfn = (BPureFn32)TO_POINTER(fn);
     return pfn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }
@@ -3949,9 +3825,5 @@ BValue call_fn32(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }
-}
-
-BValue value_from_pure_fn32(BPureFn32 fn) {
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }
 

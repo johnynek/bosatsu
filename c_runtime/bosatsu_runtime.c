@@ -3,34 +3,6 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 
-/*
-There are a few kinds of values:
-
-1. pure values: small ints, characters, small strings that can fit into 63 bits.
-2. pointers to referenced counted values
-3. pointers to static values stack allocated at startup
-
-to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
-boundaries:
-  a. ends with 1: pure value
-  b. ends with 10: static pointer (allocated once and deleteds at the end of the world)
-  c. ends with 00: refcount pointer.
-
-We need to know which case we are in because in generic context we need to know
-how to clone values.
-*/
-#define TAG_MASK 0x3
-#define PURE_VALUE_TAG 0x1
-#define STATIC_VALUE_TAG 0x3
-#define POINTER_TAG 0x0
-
-// Utility macros to check the tag of a value
-#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & PURE_VALUE_TAG) == PURE_VALUE_TAG)
-#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 1)
-#define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
-#define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
-#define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
-
 #define DEFINE_RC_STRUCT(name, fields) \
     struct name { \
       atomic_int ref_count; \
