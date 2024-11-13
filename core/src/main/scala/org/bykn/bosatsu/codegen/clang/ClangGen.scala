@@ -63,12 +63,13 @@ object ClangGen {
       // used for temporary variables of type BValue
       def newLocalName: T[Code.Ident]
       // record that this name is a top level function, so applying it can be direct
-      def declareTopLevelFn(p: Option[PackageName], bn: Bindable, rec: RecursionKind): T[Unit]
-      def liftToTop[A](b: Bindable)(in: T[A]): T[A]
-      def isLifted(b: Bindable): T[Boolean]
-      def staticValueName(p: Option[PackageName], b: Bindable): T[Code.Ident]
-      def constructorFn(p: Option[PackageName], b: Bindable): T[Code.Ident]
-      def isFn(p: Option[PackageName], b: Bindable): T[Boolean]
+      def declareTopLevelFn(p: PackageName, bn: Bindable, rec: RecursionKind): T[Unit]
+      // when we directly call a function, we want to be able to directly invoke
+      def scopedLocalFn[A](bn: Bindable)(ta: T[A]): T[A]
+      def directFn(p: Option[PackageName], b: Bindable): T[Option[Code.Ident]]
+      def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
+      def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
+      def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
       def anonName(idx: Long): T[Code.Ident]
       def anonMutName(idx: Long): T[Code.Ident]
       def withAnon[A](idx: Long)(t: T[A]): T[A]
@@ -122,33 +123,32 @@ object ClangGen {
 
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
+          // We have to lift functions to the top level and not
+          // create any nesting
           case Lambda(captures, name, args, expr) => ???
           case LoopFn(captures, name, arg, body) => ???
+          case Let(arg, expr: FnExpr, in) => ???
+          // All the rest are not functions or binding a function
+          case Let(arg, notFn, in) => ???
           case Global(pack, name) =>
-            isFn(Some(pack), name)
+            directFn(Some(pack), name)
               .flatMap {
-                case true =>
-                  // global functions are converted to values by tagging the pointer
-                  globalIdent(pack, name)
-                    .map { nm =>
-                      Code.Ident("STATIC_PUREFN")(nm): Code.ValueLike 
-                    }
-                case false =>
+                case Some(nm) =>
+                  monadImpl.pure(Code.Ident("STATIC_PUREFN")(nm): Code.ValueLike)
+                case None =>
                   // read_or_build(&__bvalue_foo, make_foo);
                   for {
-                    value <- staticValueName(Some(pack), name)
-                    consFn <- constructorFn(Some(pack), name)
+                    value <- staticValueName(pack, name)
+                    consFn <- constructorFn(pack, name)
                   } yield Code.Ident("read_or_build")(value.addr, consFn): Code.ValueLike
               }
           case Local(arg) =>
-            isLifted(arg)
+            directFn(None, arg)
               .flatMap {
-                case false => getBinding(arg).widen
-                case true =>
-                  for {
-                    value <- staticValueName(None, arg)
-                    consFn <- constructorFn(None, arg)
-                  } yield Code.Ident("read_or_build")(value.addr, consFn): Code.ValueLike
+                case Some(nm) =>
+                  monadImpl.pure(Code.Ident("STATIC_PUREFN")(nm): Code.ValueLike)
+                case None =>
+                  getBinding(arg).widen
               }
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
@@ -157,13 +157,13 @@ object ClangGen {
           case LocalAnon(ident) => anonName(ident).widen
           case LocalAnonMut(ident) => anonMutName(ident).widen
           case App(LocalOrGlobal(optPack, fnName), args) =>
-            isFn(optPack, fnName).flatMap {
-              case true =>
+            directFn(optPack, fnName).flatMap {
+              case Some(ident) =>
                 // just directly invoke
-                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).mapN { (ident, argsVL) =>
+                args.traverse(innerToValue(_)).map { argsVL =>
                   Code.ValueLike.applyArgs(ident, argsVL)
                 }
-              case false =>
+              case None =>
                 // the ref be holding the result of another function call
                 (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
                   // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
@@ -181,7 +181,6 @@ object ClangGen {
               val callFn = Code.Ident(s"call_fn$fnSize")
               Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
             }
-          case Let(arg, expr, in) => ???
           case LetMut(name, span) => ???
           case Literal(lit) => ???
           case If(cond, thenExpr, elseExpr) => ???
@@ -236,29 +235,14 @@ object ClangGen {
         }
 
       def renderTop(p: PackageName, b: Bindable, expr: Expr): T[Unit] =
-        renderTopInner(Some(p), b, expr)
-
-      private def renderTopInner(p: Option[PackageName], b: Bindable, expr: Expr): T[Unit] =
-        expr match {
+        inTop(p, b) { expr match {
           case fn: FnExpr =>
             for {
               _ <- declareTopLevelFn(p, b, fn.recursionKind)
-              fnName <- maybeGlobalIdent(p, b)
+              fnName <- globalIdent(p, b)
               stmt <- topFn(fnName, fn)
               _ <- appendStatement(stmt)
             } yield ()
-          case Let(Right(n1), inner, Local(n2)) if n1 === n2 =>
-            // TODO: this should be moved to Matchless
-            // let x = y in x == y (this probably never comes up, since it should be optimized away be here)
-            renderTopInner(p, b, inner)
-          case Let(Right(n1), inner, result) =>
-            liftToTop(n1) {
-              // TODO: now that we have lifted n1, we may have created a closure
-              // at the top level... this seems too complex to do at this stage
-              // and we should push this optimization into Matchless or TypedExpr Normalization
-              // where it can be tested on all the backends.
-              renderTopInner(None, n1, inner) *> renderTopInner(p, b, result)
-            }
           case someValue =>
             // we materialize an Atomic value to hold the static data
             // then we generate a function to populate the value
@@ -274,13 +258,14 @@ object ClangGen {
               ))
               _ <- appendStatement(Code.DeclareFn(
                 Code.Attr.Static :: Nil,
-                Code.TypeIdent.AtomicBValue,
+                Code.TypeIdent.BValue,
                 consFn,
                 Nil,
                 Some(Code.block(Code.returnValue(vl)))
               ))
             } yield ()
         }
+      }
 
       def renderMain(p: PackageName, b: Bindable, evalInc: Code.Include, evalFn: Code.Ident): T[Unit]
     }
