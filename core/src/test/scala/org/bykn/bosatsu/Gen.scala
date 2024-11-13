@@ -677,6 +677,12 @@ object Generators {
       useAnnotation = useAnnotation
     )
 
+  val genRecursionKind: Gen[RecursionKind] =
+    Gen.frequency(
+      (20, Gen.const(RecursionKind.NonRecursive)),
+      (1, Gen.const(RecursionKind.Recursive))
+    )
+
   def matchGen(
       argGen0: Gen[NonBinding],
       bodyGen: Gen[Declaration]
@@ -696,10 +702,7 @@ object Generators {
 
     for {
       cnt <- Gen.choose(1, 2)
-      kind <- Gen.frequency(
-        (10, Gen.const(RecursionKind.NonRecursive)),
-        (1, Gen.const(RecursionKind.Recursive))
-      )
+      kind <- genRecursionKind
       expr <- argGen
       cases <- optIndent(nonEmptyN(genCase, cnt))
     } yield Match(kind, expr, cases)(emptyRegion)
@@ -1401,7 +1404,7 @@ object Generators {
             bindIdentGen,
             recurse,
             recurse,
-            Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive),
+            genRecursionKind,
             genTag
           )
           .map { case (n, ex, in, rec, tag) =>
@@ -1618,7 +1621,7 @@ object Generators {
       )
       val oneLet = Gen.zip(
         bindIdentGen.filter(b => !exts(b)),
-        Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive),
+        genRecursionKind,
         genTypedExpr(genA, 4, theseTypes)
       )
 
@@ -1782,7 +1785,7 @@ object Generators {
                 bindIdentGen,
                 recur,
                 recur,
-                Gen.oneOf(RecursionKind.Recursive, RecursionKind.NonRecursive),
+                genRecursionKind,
                 genA
               )
               .map { case (a, e, in, r, t) => Let(a, e, in, r, t) }

@@ -119,6 +119,19 @@ object Matchless {
       expr: Expr,
       in: Expr
   ) extends Expr
+
+  object Let {
+    def apply(arg: Bindable, expr: Expr, in: Expr): Expr =
+      // don't create let x = y in x, just return y
+      if (in == Local(arg)) expr
+      else Let(Right(arg), expr, in)
+
+    def apply(arg: LocalAnon, expr: Expr, in: Expr): Expr =
+      // don't create let x = y in x, just return y
+      if (in == arg) expr
+      else Let(Left(arg), expr, in)
+  }
+
   case class LetMut(name: LocalAnonMut, span: Expr) extends Expr
   case class Literal(lit: Lit) extends CheapExpr
 
@@ -234,7 +247,7 @@ object Matchless {
           nm <- tmp
           bound = LocalAnon(nm)
           res <- fn(bound)
-        } yield Let(Left(bound), arg, res)
+        } yield Let(bound, arg, res)
     }
   }
 
@@ -410,7 +423,7 @@ object Matchless {
             .mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
-            .mapN(Let(Right(a), _, _))
+            .mapN(Let(a, _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (
@@ -780,11 +793,16 @@ object Matchless {
 
     def lets(binds: List[(Bindable, Expr)], in: Expr): Expr =
       binds.foldRight(in) { case ((b, e), r) =>
-        Let(Right(b), e, r)
+        Let(b, e, r)
       }
 
     def checkLets(binds: List[LocalAnonMut], in: Expr): Expr =
       binds.foldLeft(in) { case (rest, anon) =>
+        // TODO: sometimes we generate code like
+        // LetMut(x, Always(SetMut(x, y), f))
+        // with no side effects in y or f
+        // this would be better written as
+        // Let(x, y, f)
         LetMut(anon, rest)
       }
 
