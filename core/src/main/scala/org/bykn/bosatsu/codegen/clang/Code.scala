@@ -36,6 +36,7 @@ object Code {
     case class Ptr(tpe: TypeIdent) extends TypeIdent
     val Int: TypeIdent = Named("int")
     val BValue: TypeIdent = Named("BValue")
+    val AtomicBValue: TypeIdent = Named("_Atomic BValue")
 
     private val structDoc = Doc.text("struct ")
     private val unionDoc = Doc.text("union ")
@@ -88,6 +89,10 @@ object Code {
   // this prepares an expression with a number of statements
   case class WithValue(statement: Statement, value: ValueLike) extends ValueLike
   case class IfElseValue(cond: Expression, thenCond: ValueLike, elseCond: ValueLike) extends ValueLike
+
+  object ValueLike {
+    def applyArgs(fn: ValueLike, args: NonEmptyList[ValueLike]): ValueLike = ???
+  }
 
   def returnValue(vl: ValueLike): Statement = ???
 

@@ -17,6 +17,7 @@ object Matchless {
     def captures: List[Expr]
     // this is set if the function is recursive
     def recursiveName: Option[Bindable]
+    def recursionKind: RecursionKind = RecursionKind.recursive(recursiveName.isDefined)
   }
 
   sealed abstract class StrPart
