@@ -85,7 +85,7 @@ object PythonGen {
             case other             =>
               // $COVERAGE-OFF$
               throw new IllegalStateException(
-                s"unexpected deref: $b with bindings: $other"
+                s"unexpected deref: $b with bindings: $other, in $this"
               )
             // $COVERAGE-ON$
           }
@@ -1617,20 +1617,22 @@ object PythonGen {
 
       def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
-          case Lambda(captures, _, args, res) =>
-            // we ignore name because python already supports recursion
-            // we can use topLevelName on makeDefs since they are already
-            // shadowing in the same rules as bosatsu
+          case Lambda(captures, recName, args, res) =>
+            val defName = recName match {
+              case None => Env.newAssignableVar
+              case Some(n) => Env.bind(n)
+            }
             (
               args.traverse(Env.topLevelName(_)),
+              defName,
               makeSlots(captures, slotName)(loop(res, _))
             )
               .flatMapN {
-                case (args, (None, x: Expression)) =>
+                case (args, _, (None, x: Expression)) if recName.isEmpty =>
                   Env.pure(Code.Lambda(args.toList, x))
-                case (args, (prefix, v)) =>
+                case (args, defName, (prefix, v)) =>
                   for {
-                    defName <- Env.newAssignableVar
+                    _ <- recName.fold(Monad[Env].unit)(Env.unbind(_))
                     defn = Env.makeDef(defName, args, v)
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
@@ -1649,7 +1651,7 @@ object PythonGen {
             }
 
             for {
-              nameI <- Env.deref(thisName)
+              nameI <- Env.bind(thisName)
               as <- boundA
               subs <- subsA
               (prefix, body) <- makeSlots(captures, slotName)(loop(body, _))
@@ -1657,6 +1659,7 @@ object PythonGen {
               loopRes <- Env.buildLoop(nameI, subs1, body)
               // we have bound the args twice: once as args, once as interal muts
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
+              _ <- Env.unbind(thisName)
             } yield Code
               .blockFromList(prefix.toList :+ loopRes)
               .withValue(nameI)
