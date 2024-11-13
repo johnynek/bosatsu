@@ -94,12 +94,9 @@ object MatchlessToValue {
         ()
       }
 
-      def capture(it: Vector[Value], name: Option[Bindable]): Scope =
+      def capture(it: Vector[Value]): Scope =
         Scope(
-          name match {
-            case None    => Map.empty
-            case Some(n) => Map((n, locals(n)))
-          },
+          Map.empty,
           LongMap.empty,
           MLongMap(),
           it
@@ -353,7 +350,7 @@ object MatchlessToValue {
             // It may make things go faster
             // if the caps are really small
             // or if we can GC things sooner.
-            val scope1 = scope.capture(caps.map(s => s(scope)), Some(fnName))
+            val scope1 = scope.capture(caps.map(s => s(scope)))
 
             FnValue { allArgs =>
               var registers: NonEmptyList[Value] = allArgs
@@ -393,30 +390,45 @@ object MatchlessToValue {
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
-          case Lambda(caps, name, args, res) =>
+          case Lambda(Nil, None, args, res) =>
             val resFn = loop(res)
+            // we can allocate once if there is no closure
+            val scope1 = Scope.empty()
+            val fn = FnValue { argV =>
+              val scope2 = scope1.letAll(args, argV)
+              resFn(scope2)
+            }
+            Static(fn)
+          case Lambda(caps, None, args, res) =>
+            val resFn = loop(res)
+            val capScoped = caps.map(loop).toVector
+            Dynamic { scope =>
+              val scope1 = scope
+                .capture(capScoped.map(scoped => scoped(scope)))
 
-            if (caps.isEmpty && name.isEmpty) {
-              // we can allocate once if there is no closure
-              val scope1 = Scope.empty()
-              val fn = FnValue { argV =>
+              // hopefully optimization/normalization has lifted anything
+              // that doesn't depend on argV above this lambda
+              FnValue { argV =>
                 val scope2 = scope1.letAll(args, argV)
                 resFn(scope2)
               }
-              Static(fn)
-            } else {
-              val capScoped = caps.map(loop).toVector
-              Dynamic { scope =>
-                val scope1 = scope
-                  .capture(capScoped.map(scoped => scoped(scope)), name)
+            }
+          case Lambda(caps, Some(name), args, res) =>
+            val resFn = loop(res)
+            val capScoped = caps.map(loop).toVector
+            Dynamic { scope =>
+              lazy val scope1: Scope = scope
+                .capture(capScoped.map(scoped => scoped(scope)))
+                .let(name, Eval.later(fn))
 
-                // hopefully optimization/normalization has lifted anything
-                // that doesn't depend on argV above this lambda
-                FnValue { argV =>
-                  val scope2 = scope1.letAll(args, argV)
-                  resFn(scope2)
-                }
+              // hopefully optimization/normalization has lifted anything
+              // that doesn't depend on argV above this lambda
+              lazy val fn = FnValue { argV =>
+                val scope2 = scope1.letAll(args, argV)
+                resFn(scope2)
               }
+
+              fn
             }
           case LoopFn(caps, thisName, args, body) =>
             val bodyFn = loop(body)
@@ -444,34 +456,15 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
-          case Let(Right((n1, r)), loopFn @ LoopFn(_, n2, _, _), Local(n3))
-              if (n1 === n3) && (n1 === n2) && r.isRecursive =>
-            // LoopFn already correctly handles recursion
-            loop(loopFn)
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
             val inF = loop(in)
 
             localOrBind match {
-              case Right((b, rec)) =>
-                if (rec.isRecursive) {
-
-                  inF.withScope { scope =>
-                    // this is the only one that should
-                    // use lazy/Eval.later
-                    // we use it to tie the recursive knot
-                    lazy val scope1: Scope =
-                      scope.let(b, vv)
-
-                    lazy val vv = Eval.later(valueF(scope1))
-
-                    scope1
-                  }
-                } else {
-                  inF.withScope { (scope: Scope) =>
-                    val vv = Eval.now(valueF(scope))
-                    scope.let(b, vv)
-                  }
+              case Right(b) =>
+                inF.withScope { (scope: Scope) =>
+                  val vv = Eval.now(valueF(scope))
+                  scope.let(b, vv)
                 }
               case Left(LocalAnon(l)) =>
                 inF.withScope { (scope: Scope) =>

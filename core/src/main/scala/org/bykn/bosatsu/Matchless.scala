@@ -13,7 +13,11 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
-  sealed abstract class FnExpr extends Expr
+  sealed abstract class FnExpr extends Expr {
+    def captures: List[Expr]
+    // this is set if the function is recursive
+    def recursiveName: Option[Bindable]
+  }
 
   sealed abstract class StrPart
   object StrPart {
@@ -78,7 +82,7 @@ object Matchless {
   // name is set for recursive (but not tail recursive) methods
   case class Lambda(
       captures: List[Expr],
-      name: Option[Bindable],
+      recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
       expr: Expr
   ) extends FnExpr
@@ -92,7 +96,9 @@ object Matchless {
       name: Bindable,
       arg: NonEmptyList[Bindable],
       body: Expr
-  ) extends FnExpr
+  ) extends FnExpr {
+    val recursiveName: Option[Bindable] = Some(name)
+  }
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -108,7 +114,7 @@ object Matchless {
   // note fn is never an App
   case class App(fn: Expr, arg: NonEmptyList[Expr]) extends Expr
   case class Let(
-      arg: Either[LocalAnon, (Bindable, RecursionKind)],
+      arg: Either[LocalAnon, Bindable],
       expr: Expr,
       in: Expr
   ) extends Expr
@@ -324,12 +330,19 @@ object Matchless {
         e: TypedExpr[A],
         rec: RecursionKind,
         slots: LambdaState
-    ): F[Expr] = {
-      lazy val e0 = loop(e, if (rec.isRecursive) slots.inLet(name) else slots)
+    ): F[Expr] =
       rec match {
         case RecursionKind.Recursive =>
-          def letrec(e: Expr): Expr =
-            Let(Right((name, RecursionKind.Recursive)), e, Local(name))
+          lazy val e0 = loop(e, slots.inLet(name))
+          def letrec(expr: Expr): Expr =
+            expr match {
+              case fn: FnExpr if fn.recursiveName == Some(name) => fn
+              case fn: FnExpr =>
+                // loops always have a function name
+                sys.error(s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn")
+              case _ =>
+                sys.error(s"expected ${e.repr.render(80)} to compile to a function, but got: $expr")
+            }
 
           // this could be tail recursive
           if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
@@ -345,20 +358,20 @@ object Matchless {
                 val (slots1, caps) = slots.inLet(name).lambdaFrees(frees)
                 loop(body, slots1)
                   .map { v =>
-                    letrec(LoopFn(caps, name, args, v))
+                    LoopFn(caps, name, args, v)
                   }
+              // $COVERAGE-OFF$
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
                 e0.map(letrec)
+              // $COVERAGE-ON$
             }
           } else {
-            // otherwise let rec x = fn in x
             e0.map(letrec)
           }
-        case RecursionKind.NonRecursive => e0
+        case RecursionKind.NonRecursive => loop(e, slots)
       }
-    }
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr] =
       te match {
@@ -396,7 +409,7 @@ object Matchless {
             .mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
-            .mapN(Let(Right((a, r)), _, _))
+            .mapN(Let(Right(a), _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (
@@ -766,8 +779,7 @@ object Matchless {
 
     def lets(binds: List[(Bindable, Expr)], in: Expr): Expr =
       binds.foldRight(in) { case ((b, e), r) =>
-        val arg = Right((b, RecursionKind.NonRecursive))
-        Let(arg, e, r)
+        Let(Right(b), e, r)
       }
 
     def checkLets(binds: List[LocalAnonMut], in: Expr): Expr =
