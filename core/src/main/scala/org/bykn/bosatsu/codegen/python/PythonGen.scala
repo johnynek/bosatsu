@@ -9,7 +9,6 @@ import org.bykn.bosatsu.{
   Matchless,
   Par,
   Parser,
-  RecursionKind
 }
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.Type
@@ -506,7 +505,7 @@ object PythonGen {
 
     // if we have a top level let rec with the same name, handle it more cleanly
     me match {
-      case Let(Right((n1, RecursionKind.NonRecursive)), inner, Local(n2))
+      case Let(Right(n1), inner, Local(n2))
           if ((n1 === name) && (n2 === name)) =>
         // we can just bind now at the top level
         for {
@@ -515,12 +514,6 @@ object PythonGen {
             case fn: FnExpr => ops.topFn(nm, fn, None)
             case _          => ops.loop(inner, None).map(nm := _)
           }
-        } yield res
-      case Let(Right((n1, RecursionKind.Recursive)), fn: FnExpr, Local(n2))
-          if (n1 === name) && (n2 === name) =>
-        for {
-          nm <- Env.topLevelName(name)
-          res <- ops.topFn(nm, fn, None)
         } yield res
       case fn: FnExpr =>
         for {
@@ -1723,7 +1716,7 @@ object PythonGen {
             val inF = loop(in, slotName)
 
             localOrBind match {
-              case Right((b, _)) =>
+              case Right(b) =>
                 // for fn, bosatsu doesn't allow bind name
                 // shadowing, so the bind order of the name
                 // doesn't matter
@@ -1747,24 +1740,14 @@ object PythonGen {
             val inF = loop(in, slotName)
 
             localOrBind match {
-              case Right((b, rec)) =>
-                if (rec.isRecursive) {
-                  // value b is in scope first
-                  for {
-                    bi <- Env.bind(b)
-                    v <- loop(notFn, slotName)
-                    ine <- inF
-                    _ <- Env.unbind(b)
-                  } yield ((bi := v).withValue(ine))
-                } else {
-                  // value b is in scope after ve
-                  for {
-                    ve <- loop(notFn, slotName)
-                    bi <- Env.bind(b)
-                    ine <- inF
-                    _ <- Env.unbind(b)
-                  } yield ((bi := ve).withValue(ine))
-                }
+              case Right(b) =>
+                // value b is in scope after ve
+                for {
+                  ve <- loop(notFn, slotName)
+                  bi <- Env.bind(b)
+                  ine <- inF
+                  _ <- Env.unbind(b)
+                } yield ((bi := ve).withValue(ine))
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
                 (Env.nameForAnon(l), loop(notFn, slotName))
