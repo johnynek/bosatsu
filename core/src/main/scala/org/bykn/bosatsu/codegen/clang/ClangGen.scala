@@ -55,13 +55,16 @@ object ClangGen {
       def run(pm: AllValues, externals: Externals, t: T[Unit]): Either[Error, Doc]
       def appendStatement(stmt: Code.Statement): T[Unit]
       def error[A](e: Error): T[A]
-      def getBinding(bn: Bindable): T[Code.Ident]
       def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident]
       def bind[A](bn: Bindable)(in: T[A]): T[A]
+      def getBinding(bn: Bindable): T[Code.Ident]
+      def bindAnon[A](idx: Long)(in: T[A]): T[A]
+      def getAnon(idx: Long): T[Code.Ident]
       // a recursive function needs to remap the Bindable to the top-level mangling
-      def recursiveName[A](bn: Bindable)(in: T[A]): T[A]
+      def recursiveName[A](fnName: Code.Ident, bn: Bindable)(in: T[A]): T[A]
       // used for temporary variables of type BValue
-      def newLocalName: T[Code.Ident]
+      def newLocalName(tag: String): T[Code.Ident]
+      def newTopName(tag: String): T[Code.Ident]
       // record that this name is a top level function, so applying it can be direct
       def declareTopLevelFn(p: PackageName, bn: Bindable, rec: RecursionKind): T[Unit]
       // when we directly call a function, we want to be able to directly invoke
@@ -85,7 +88,8 @@ object ClangGen {
           case None => getBinding(b)
         }
 
-      val slotsArgName: Code.Ident = Code.Ident("__bsts_slot")
+      // This name has to be impossible to give out for any other purpose
+      val slotsArgName: Code.Ident = Code.Ident("__bstsi_slot")
 
       // assign any results to result and set the condition to false
       // and replace any calls to nm(args) with assigning args to those values
@@ -121,15 +125,57 @@ object ClangGen {
           case TrueConst => monadImpl.pure(Code.IntLiteral.One)
         }
 
+      // We have to lift functions to the top level and not
+      // create any nesting
+      def innerFn(fn: FnExpr): T[Code.ValueLike] = 
+        if (fn.captures.isEmpty) {
+          for {
+            ident <- newTopName("lambda")
+            stmt <- topFn(ident, fn)
+            _ <- appendStatement(stmt)
+          } yield Code.Ident("STATIC_PUREFN")(ident)
+        }
+        else {
+          // we create the function, then we allocate
+          // values for the capture
+          // alloc_closure<n>(capLen, captures, fnName)
+          for {
+            ident <- newTopName("closure")
+            stmt <- topFn(ident, fn)
+            _ <- appendStatement(stmt)
+            capName <- newLocalName("captures")
+            capValues <- fn.captures.traverse(innerToValue(_))
+            decl = Code.ValueLike.declareArray(capName, Code.TypeIdent.BValue, capValues)
+          } yield Code.WithValue(decl,
+            Code.Ident(s"alloc_closure${fn.arity}")(
+              Code.IntLiteral(BigInt(fn.captures.length)),
+              capName.addr,
+              ident
+            )
+          )
+        }
+
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
-          // We have to lift functions to the top level and not
-          // create any nesting
-          case Lambda(captures, name, args, expr) => ???
-          case LoopFn(captures, name, arg, body) => ???
-          case Let(arg, expr: FnExpr, in) => ???
-          // All the rest are not functions or binding a function
-          case Let(arg, notFn, in) => ???
+          case fn: FnExpr => innerFn(fn)
+          case Let(Right(arg), argV, in) =>
+            bind(arg) {
+              for {
+                name <- getBinding(arg)
+                v <- innerToValue(argV)
+                result <- innerToValue(in)
+                stmt = Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)
+              } yield stmt +: result
+            }
+          case Let(Left(LocalAnon(idx)), argV, in) =>
+            bindAnon(idx) {
+              for {
+                name <- getAnon(idx)
+                v <- innerToValue(argV)
+                result <- innerToValue(in)
+                stmt = Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)
+              } yield stmt +: result
+            }
           case Global(pack, name) =>
             directFn(Some(pack), name)
               .flatMap {
@@ -196,14 +242,11 @@ object ClangGen {
 
       def topFn(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
          fn match {
-          case Lambda(_ :: _, _, _, _) | LoopFn(_ :: _, _, _, _) =>
-            // TODO: handle this by adding the slots parameter first
-            error(Error.InvariantViolation(s"unexpected top level captures", fn))
-          case Lambda(Nil, name, args, expr) =>
+          case Lambda(captures, name, args, expr) =>
             val body = bindAll(args) { innerToValue(expr).map(Code.returnValue(_)) }
             val body1 = name match {
               case None => body
-              case Some(rec) => recursiveName(rec)(body)
+              case Some(rec) => recursiveName(fnName, rec)(body)
             }
 
             for {
@@ -211,13 +254,18 @@ object ClangGen {
                 getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
               }
               fnBody <- body1
-            } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, argParams.toList, Some(Code.block(fnBody)))
-          case LoopFn(Nil, nm, args, body) =>
-            recursiveName(nm) {
+              allArgs =
+                if (captures.isEmpty) argParams
+                else {
+                  Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
+                }
+            } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
+          case LoopFn(captures, nm, args, body) =>
+            recursiveName(fnName, nm) {
               bindAll(args) {
                 for {
-                  cond <- newLocalName
-                  res <- newLocalName
+                  cond <- newLocalName("cond")
+                  res <- newLocalName("res")
                   bodyVL <- innerToValue(body)
                   whileBody <- toWhileBody(nm, args, cond = cond, result = res, body = bodyVL)
                   argParams <- args.traverse { b =>
@@ -229,7 +277,12 @@ object ClangGen {
                     Code.While(cond, whileBody),
                     Code.Return(Some(res))
                   )
-                } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, argParams.toList, Some(fnBody))
+                  allArgs =
+                    if (captures.isEmpty) argParams
+                    else {
+                      Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
+                    }
+                } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(fnBody))
               }
             }
         }

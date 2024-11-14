@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.clang
 
 import org.typelevel.paiges.Doc
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, NonEmptyChain}
 import scala.language.implicitConversions
 
 sealed trait Code
@@ -50,11 +50,14 @@ object Code {
       }
   }
 
-  sealed trait ValueLike
+  sealed trait ValueLike {
+    def +:(prefix: Statement): ValueLike =
+      ValueLike.prefix(prefix, this)
+  }
 
   sealed trait Expression extends Code with ValueLike {
-    def :=(rhs: Expression): Statement =
-      Assignment(this, rhs)
+    def :=(rhs: ValueLike): Statement =
+      ValueLike.assign(this, rhs)
 
     def ret: Statement = Return(Some(this))
 
@@ -92,6 +95,22 @@ object Code {
 
   object ValueLike {
     def applyArgs(fn: ValueLike, args: NonEmptyList[ValueLike]): ValueLike = ???
+    def declareArray(ident: Ident, tpe: TypeIdent, values: List[ValueLike]): Statement = ???
+    def declareVar(ident: Ident, tpe: TypeIdent, value: ValueLike): Statement = ???
+
+    def prefix(stmt: Statement, of: ValueLike): ValueLike =
+      of match {
+        case (_: Expression) | (_: IfElseValue) => WithValue(stmt, of)
+        case WithValue(stmt1, v) => WithValue(stmt + stmt1, v)
+      }
+
+    def assign(left: Expression, rhs: ValueLike): Statement =
+      rhs match {
+        case expr: Expression => Assignment(left, expr)
+        case WithValue(stmt, v) => stmt + (left := v)
+        case IfElseValue(cond, thenC, elseC) =>
+          IfElse(NonEmptyList.one(cond -> block(left := thenC)), Some(block(left := elseC)))
+      }
   }
 
   def returnValue(vl: ValueLike): Statement = ???
@@ -167,7 +186,9 @@ object Code {
     def toDoc: Doc = TypeIdent.toDoc(tpe) + Doc.space + Doc.text(name.name)
   }
 
-  sealed trait Statement extends Code
+  sealed trait Statement extends Code {
+    def +(stmt: Statement): Statement = Statements.combine(this, stmt)
+  }
   case class Assignment(target: Expression, value: Expression) extends Statement
   case class DeclareArray(tpe: TypeIdent, ident: Ident, values: Either[Int, List[Expression]]) extends Statement
   case class DeclareVar(attrs: List[Attr], tpe: TypeIdent, ident: Ident, value: Option[Expression]) extends Statement
@@ -177,6 +198,23 @@ object Code {
   case class Return(expr: Option[Expression]) extends Statement
   case class Block(items: NonEmptyList[Statement]) extends Statement {
     def doWhile(cond: Expression): Statement = DoWhile(this, cond)
+  }
+  // nothing more than a collection of statements
+  case class Statements(items: NonEmptyChain[Statement]) extends Statement
+  object Statements {
+    def combine(first: Statement, last: Statement): Statement =
+      first match {
+        case Statements(items) =>
+          last match {
+            case Statements(rhs) => Statements(items ++ rhs)
+            case notStmts => Statements(items :+ notStmts)
+          }
+        case notBlock =>
+          last match {
+            case Statements(rhs) => Statements(notBlock +: rhs)
+            case notStmts => Statements(NonEmptyChain.of(notBlock, notStmts))
+          }
+      }
   }
   case class IfElse(ifs: NonEmptyList[(Expression, Block)], elseCond: Option[Block]) extends Statement
   case class DoWhile(block: Block, whileCond: Expression) extends Statement
@@ -365,6 +403,8 @@ object Code {
           case Some(expr) => returnSpace + toDoc(expr) + semiDoc
         }
       case Block(items) => curlyBlock(items.toList) { s => toDoc(s) }
+      case Statements(items) =>
+        Doc.intercalate(Doc.line, items.toNonEmptyList.toList.map(toDoc(_)))
       case IfElse(ifs, els) =>
         //"if (ex) {} else if"
         val (fcond, fblock) = ifs.head
