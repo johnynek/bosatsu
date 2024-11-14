@@ -138,6 +138,7 @@ object Code {
     def *(that: Expression): Expression = bin(BinOp.Mult, that)
     def /(that: Expression): Expression = bin(BinOp.Div, that)
     def unary_! : Expression = PrefixExpr(PrefixUnary.Not, this)
+    def =:=(that: Expression): Expression = bin(BinOp.Eq, that)
 
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
@@ -152,7 +153,23 @@ object Code {
   case class IfElseValue(cond: Expression, thenCond: ValueLike, elseCond: ValueLike) extends ValueLike
 
   object ValueLike {
-    def applyArgs(fn: ValueLike, args: NonEmptyList[ValueLike]): ValueLike = ???
+    def applyArgs[F[_]: Monad](
+      fn: ValueLike,
+      args: NonEmptyList[ValueLike]
+    )(newLocalName: String => F[Code.Ident]): F[ValueLike] =
+      fn.onExpr { fnExpr =>
+        def loop(rest: List[ValueLike], acc: NonEmptyList[Expression]): F[ValueLike] =
+          rest match {
+            case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList: _*))
+            case h :: t => h.onExpr { hexpr => loop(t, hexpr :: acc)  }(newLocalName)
+          }
+
+        args.head.onExpr { hexpr =>
+          loop(args.tail, NonEmptyList.one(hexpr))
+        }(newLocalName)
+      }(newLocalName)
+
+
     def declareArray[F[_]: Monad](ident: Ident, tpe: TypeIdent, values: List[ValueLike])(newLocalName: String => F[Code.Ident]): F[Statement] = {
       def loop(values: List[ValueLike], acc: List[Expression]): F[Statement] =
         values match {

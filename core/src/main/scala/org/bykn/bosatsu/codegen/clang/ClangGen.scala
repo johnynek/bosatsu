@@ -119,14 +119,17 @@ object ClangGen {
       def equalsInt(expr: Code.Expression, i: BigInteger): Code.Expression = ???
       def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression = ???
 
+      def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
+
+      // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
           case EqualsLit(expr, lit) =>
             innerToValue(expr).flatMap { vl =>
               lit match {
-                case Lit.Str(str) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsString(e, str)) }(newLocalName)
-                case c @ Lit.Chr(_) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsChar(e, c.toCodePoint)) }(newLocalName)
-                case Lit.Integer(i) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsInt(e, i)) }(newLocalName)
+                case Lit.Str(str) => vl.onExpr { e => pv(equalsString(e, str)) }(newLocalName)
+                case c @ Lit.Chr(_) => vl.onExpr { e => pv(equalsChar(e, c.toCodePoint)) }(newLocalName)
+                case Lit.Integer(i) => vl.onExpr { e => pv(equalsInt(e, i)) }(newLocalName)
               }  
             }
           case EqualsNat(expr, nat) =>
@@ -135,14 +138,21 @@ object ClangGen {
               case DataRepr.SuccNat => Code.Ident("BSTS_NAT_GT_0")
             }
             innerToValue(expr).flatMap { vl =>
-              vl.onExpr { expr => monadImpl.pure[Code.ValueLike](fn(expr)) }(newLocalName)  
+              vl.onExpr { expr => pv(fn(expr)) }(newLocalName)  
             }
           case And(e1, e2) =>
             (boolToValue(e1), boolToValue(e2))
-              .mapN { (a, b) =>
-                Code.ValueLike.applyArgs(Code.Ident("BSTS_AND"), NonEmptyList(a, b :: Nil))  
+              .flatMapN { (a, b) =>
+                Code.ValueLike.applyArgs(
+                  Code.Ident("BSTS_AND"),
+                  NonEmptyList(a, b :: Nil)
+                )(newLocalName)
               }
-          case CheckVariant(expr, expect, size, famArities) => ???
+          case CheckVariant(expr, expect, _, _) =>
+            innerToValue(expr).flatMap { vl =>
+            // this is just get_variant(expr) == expect
+              vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
+            }
           case SearchList(lst, init, check, leftAcc) => ???
           case MatchString(arg, parts, binds) => ???
           case SetMut(LocalAnonMut(idx), expr) =>
@@ -150,7 +160,7 @@ object ClangGen {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
-          case TrueConst => monadImpl.pure(Code.TrueLit)
+          case TrueConst => pv(Code.TrueLit)
         }
 
       // We have to lift functions to the top level and not
@@ -191,24 +201,24 @@ object ClangGen {
             directFn(optPack, fnName).flatMap {
               case Some(ident) =>
                 // directly invoke instead of by treating them like lambdas
-                args.traverse(innerToValue(_)).map { argsVL =>
-                  Code.ValueLike.applyArgs(ident, argsVL)
+                args.traverse(innerToValue(_)).flatMap { argsVL =>
+                  Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
                 }
               case None =>
                 // the ref be holding the result of another function call
-                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
+                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
                   // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
                   // but since these are ValueLike, we need to handle more carefully
                   val fnSize = argsVL.length
                   val callFn = Code.Ident(s"call_fn$fnSize")
-                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
+                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
                 }
             }
           case App(MakeEnum(variant, arity, _), args) =>
             // to type check, we know that the arity must have the same length as args
-            args.traverse(innerToValue).map { argsVL =>
+            args.traverse(innerToValue).flatMap { argsVL =>
               val tag = Code.IntLiteral(variant)
-              Code.ValueLike.applyArgs(Code.Ident(s"alloc_enum$arity"), tag :: argsVL)  
+              Code.ValueLike.applyArgs(Code.Ident(s"alloc_enum$arity"), tag :: argsVL)(newLocalName)
             }
           case App(MakeStruct(arity), args) =>
             if (arity == 1) {
@@ -217,21 +227,21 @@ object ClangGen {
             }
             else {
               // to type check, we know that the arity must have the same length as args
-              args.traverse(innerToValue).map { argsVL =>
-                Code.ValueLike.applyArgs(Code.Ident(s"alloc_struct$arity"), argsVL)  
+              args.traverse(innerToValue).flatMap { argsVL =>
+                Code.ValueLike.applyArgs(Code.Ident(s"alloc_struct$arity"), argsVL)(newLocalName)
               }
           }
           case App(SuccNat, args) =>
-            innerToValue(args.head).map { arg =>
-              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_SUCC"), NonEmptyList.one(arg))
+            innerToValue(args.head).flatMap { arg =>
+              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_SUCC"), NonEmptyList.one(arg))(newLocalName)
             }
           case App(fn, args) =>
-            (innerToValue(fn), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
+            (innerToValue(fn), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
               // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
               // but since these are ValueLike, we need to handle more carefully
               val fnSize = argsVL.length
               val callFn = Code.Ident(s"call_fn$fnSize")
-              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
+              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
             }
           }
 
@@ -261,7 +271,7 @@ object ClangGen {
             directFn(Some(pack), name)
               .flatMap {
                 case Some(nm) =>
-                  monadImpl.pure(Code.Ident("STATIC_PUREFN")(nm): Code.ValueLike)
+                  pv(Code.Ident("STATIC_PUREFN")(nm))
                 case None =>
                   // read_or_build(&__bvalue_foo, make_foo);
                   for {
@@ -273,13 +283,13 @@ object ClangGen {
             directFn(None, arg)
               .flatMap {
                 case Some(nm) =>
-                  monadImpl.pure(Code.Ident("STATIC_PUREFN")(nm): Code.ValueLike)
+                  pv(Code.Ident("STATIC_PUREFN")(nm))
                 case None =>
                   getBinding(arg).widen
               }
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
-            monadImpl.pure(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
+            pv(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
           case LocalAnon(ident) => anonName(ident).widen
           case LocalAnonMut(ident) => anonMutName(ident).widen
           case LetMut(LocalAnonMut(m), span) =>
@@ -290,7 +300,7 @@ object ClangGen {
                 rest <- innerToValue(span)
               } yield decl +: rest
             }
-          case Literal(lit) => monadImpl.pure(literal(lit))
+          case Literal(lit) => pv(literal(lit))
           case If(cond, thenExpr, elseExpr) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>
@@ -306,7 +316,7 @@ object ClangGen {
           case GetEnumElement(arg, _, index, _) =>
             // call get_enum_index(v, index)
             innerToValue(arg).flatMap { v =>
-              v.onExpr(e => monadImpl.pure[Code.ValueLike](Code.Ident("get_enum_index")(e, Code.IntLiteral(index))))(newLocalName)
+              v.onExpr(e => pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index))))(newLocalName)
             }
           case GetStructElement(arg, index, size) =>
             if (size == 1) {
@@ -317,14 +327,14 @@ object ClangGen {
               // call get_struct_index(v, index)
               innerToValue(arg).flatMap { v =>
                 v.onExpr { e =>
-                  monadImpl.pure[Code.ValueLike](Code.Ident("get_struct_index")(e, Code.IntLiteral(index)))
+                  pv(Code.Ident("get_struct_index")(e, Code.IntLiteral(index)))
                 }(newLocalName)
               }
             }
           case makeEnum @ MakeEnum(variant, arity, _) =>
             // this is a closure over variant, we rewrite this
             NonEmptyList.fromList((0 until arity).toList) match {
-              case None => monadImpl.pure(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
+              case None => pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
               case Some(args) =>
                 val named = args.map { idx => Identifier.Name(s"arg$idx") }
                 // This relies on optimizing App(MakeEnum, _) otherwise
@@ -333,7 +343,7 @@ object ClangGen {
                 innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
             }
           case MakeStruct(arity) =>
-            monadImpl.pure {
+            pv {
               if (arity == 0) Code.Ident("PURE_VALUE_TAG")
               else {
                 val allocStructFn = s"alloc_struct$arity"
@@ -341,7 +351,7 @@ object ClangGen {
               }
             }
           case ZeroNat =>
-            monadImpl.pure(Code.Ident("BSTS_NAT_0"))
+            pv(Code.Ident("BSTS_NAT_0"))
           case SuccNat =>
             val arg = Identifier.Name("arg0")
             // This relies on optimizing App(SuccNat, _) otherwise
@@ -350,8 +360,11 @@ object ClangGen {
             innerToValue(Lambda(Nil, None, NonEmptyList.one(arg),
               App(SuccNat, NonEmptyList.one(Local(arg)))))
           case PrevNat(of) =>
-            innerToValue(of).map { argVL =>
-              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_PREV"), NonEmptyList.one(argVL))  
+            innerToValue(of).flatMap { argVL =>
+              Code.ValueLike.applyArgs(
+                Code.Ident("BSTS_NAT_PREV"),
+                NonEmptyList.one(argVL)
+              )(newLocalName)
             }
         }
 
