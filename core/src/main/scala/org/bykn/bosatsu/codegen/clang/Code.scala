@@ -1,8 +1,11 @@
 package org.bykn.bosatsu.codegen.clang
 
-import org.typelevel.paiges.Doc
+import cats.Monad
 import cats.data.{NonEmptyList, NonEmptyChain}
+import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
+
+import cats.syntax.all._
 
 sealed trait Code
 
@@ -37,6 +40,7 @@ object Code {
     val Int: TypeIdent = Named("int")
     val BValue: TypeIdent = Named("BValue")
     val AtomicBValue: TypeIdent = Named("_Atomic BValue")
+    val Bool: TypeIdent = Named("_Bool")
 
     private val structDoc = Doc.text("struct ")
     private val unionDoc = Doc.text("union ")
@@ -53,6 +57,59 @@ object Code {
   sealed trait ValueLike {
     def +:(prefix: Statement): ValueLike =
       ValueLike.prefix(prefix, this)
+
+    def discardValue: Option[Statement] =
+      this match {
+        case _: Expression => None
+        case WithValue(stmt, vl) =>
+          vl.discardValue match {
+            case None => Some(stmt)
+            case Some(rhs) => Some(stmt + rhs)
+          }
+        case IfElseValue(cond, thenC, elseC) =>
+          (thenC.discardValue, elseC.discardValue) match {
+            case (Some(ts), Some(es)) => Some(ifThenElse(cond, ts, es))
+            case (Some(ts), None) => Some(IfElse(NonEmptyList.one(cond -> block(ts)), None))
+            case (None, Some(es)) =>
+              // if (cond) {} else {es} == if (!cond) { es }
+              Some(IfElse(NonEmptyList.one(!cond -> block(es)), None))
+            case (None, None) => None
+          }
+      }
+
+    def onExpr[F[_]: Monad](fn: Expression => F[ValueLike])(newLocalName: String => F[Code.Ident]): F[ValueLike] =
+      this match {
+        case expr: Expression => fn(expr)
+        case WithValue(stmt, vl) => vl.onExpr[F](fn)(newLocalName).map(stmt +: _)
+        case branch @ IfElseValue(_, _, _) =>
+          for {
+            resIdent <- newLocalName("branch_res")
+            value <- fn(resIdent)
+          } yield (
+            // Assign branchCond to a temp variable in both branches
+            // and then use it so we don't exponentially blow up the code
+            // size
+            (Code.DeclareVar(Nil, Code.TypeIdent.BValue, resIdent, None) +
+            (resIdent := branch)) +: value
+          )
+      }
+
+    def exprToStatement[F[_]: Monad](fn: Expression => F[Statement])(newLocalName: String => F[Code.Ident]): F[Statement] =
+      this match {
+        case expr: Expression => fn(expr)
+        case WithValue(stmt, vl) => vl.exprToStatement[F](fn)(newLocalName).map(stmt + _)
+        case branch @ IfElseValue(_, _, _) =>
+          for {
+            resIdent <- newLocalName("branch_res")
+            last <- fn(resIdent)
+          } yield
+            // Assign branchCond to a temp variable in both branches
+            // and then use it so we don't exponentially blow up the code
+            // size
+            (Code.DeclareVar(Nil, Code.TypeIdent.BValue, resIdent, None) +
+              (resIdent := branch)) +
+              last
+      }
   }
 
   sealed trait Expression extends Code with ValueLike {
@@ -80,6 +137,7 @@ object Code {
     def -(that: Expression): Expression = bin(BinOp.Sub, that)
     def *(that: Expression): Expression = bin(BinOp.Mult, that)
     def /(that: Expression): Expression = bin(BinOp.Div, that)
+    def unary_! : Expression = PrefixExpr(PrefixUnary.Not, this)
 
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
@@ -95,8 +153,28 @@ object Code {
 
   object ValueLike {
     def applyArgs(fn: ValueLike, args: NonEmptyList[ValueLike]): ValueLike = ???
-    def declareArray(ident: Ident, tpe: TypeIdent, values: List[ValueLike]): Statement = ???
-    def declareVar(ident: Ident, tpe: TypeIdent, value: ValueLike): Statement = ???
+    def declareArray[F[_]: Monad](ident: Ident, tpe: TypeIdent, values: List[ValueLike])(newLocalName: String => F[Code.Ident]): F[Statement] = {
+      def loop(values: List[ValueLike], acc: List[Expression]): F[Statement] =
+        values match {
+          case Nil => Monad[F].pure(DeclareArray(tpe, ident, Right(acc.reverse)))
+          case (e: Expression) :: tail =>
+            loop(tail, e :: acc)
+          case h :: tail =>
+            h.exprToStatement { e =>
+              loop(tail, e :: acc)  
+            }(newLocalName)
+        }
+
+      loop(values, Nil)
+    }
+
+    def declareVar[F[_]: Monad](
+      ident: Ident,
+      tpe: TypeIdent,
+      value: ValueLike)(newLocalName: String => F[Code.Ident]): F[Statement] =
+        value.exprToStatement[F] { expr =>
+          Monad[F].pure(DeclareVar(Nil, tpe, ident, Some(expr)))
+        }(newLocalName)
 
     def prefix(stmt: Statement, of: ValueLike): ValueLike =
       of match {
@@ -109,11 +187,35 @@ object Code {
         case expr: Expression => Assignment(left, expr)
         case WithValue(stmt, v) => stmt + (left := v)
         case IfElseValue(cond, thenC, elseC) =>
-          IfElse(NonEmptyList.one(cond -> block(left := thenC)), Some(block(left := elseC)))
+          ifThenElse(cond, left := thenC, left := elseC)
       }
+
+    def ifThenElseV[F[_]: Monad](cond: Code.ValueLike, thenC: Code.ValueLike, elseC: Code.ValueLike)(newLocalName: String => F[Code.Ident]): F[Code.ValueLike] = {
+      cond match {
+        case expr: Code.Expression =>
+          Monad[F].pure(IfElseValue(expr, thenC, elseC))
+        case Code.WithValue(stmt, v) =>
+          ifThenElseV(v, thenC, elseC)(newLocalName).map(stmt +: _)
+        case branchCond @ Code.IfElseValue(_, _, _) =>
+          newLocalName("cond").map { condIdent =>
+            // Assign branchCond to a temp variable in both branches
+            // and then use it so we don't exponentially blow up the code
+            // size
+            (Code.DeclareVar(Nil, Code.TypeIdent.Bool, condIdent, None) +
+            (condIdent := branchCond)) +:
+              Code.IfElseValue(condIdent, thenC, elseC)
+          }
+      }
+    }
   }
 
-  def returnValue(vl: ValueLike): Statement = ???
+  def returnValue(vl: ValueLike): Statement =
+    vl match {
+        case expr: Expression => Return(Some(expr))
+        case WithValue(stmt, v) => stmt + returnValue(v)
+        case IfElseValue(cond, thenC, elseC) =>
+          ifThenElse(cond, returnValue(thenC), returnValue(elseC))
+    }
 
   sealed abstract class BinOp(repr: String) {
     val toDoc: Doc = Doc.text(repr)
@@ -172,7 +274,12 @@ object Code {
   object IntLiteral {
     val One: IntLiteral = IntLiteral(BigInt(1))
     val Zero: IntLiteral = IntLiteral(BigInt(0))
+    def apply(i: Int): IntLiteral = IntLiteral(BigInt(i))
   }
+
+  def TrueLit: Expression = IntLiteral.One
+  def FalseLit: Expression = IntLiteral.Zero
+
   case class Cast(tpe: TypeIdent, expr: Expression) extends Expression
   case class Apply(fn: Expression, args: List[Expression]) extends Expression
   case class Select(target: Expression, name: Ident) extends Expression
@@ -188,6 +295,7 @@ object Code {
 
   sealed trait Statement extends Code {
     def +(stmt: Statement): Statement = Statements.combine(this, stmt)
+    def :+(vl: ValueLike): ValueLike = (this +: vl)
   }
   case class Assignment(target: Expression, value: Expression) extends Statement
   case class DeclareArray(tpe: TypeIdent, ident: Ident, values: Either[Int, List[Expression]]) extends Statement
@@ -225,8 +333,20 @@ object Code {
   val returnVoid: Statement = Return(None)
 
   def block(item: Statement, rest: Statement*): Block =
-    Block(NonEmptyList(item, rest.toList))
+    item match {
+      case block @ Block(_) if rest.isEmpty => block
+      case _ => Block(NonEmptyList(item, rest.toList))
+    }
 
+  def ifThenElse(cond: Expression, thenCond: Statement, elseCond: Statement): Statement = {
+    val first = cond -> block(thenCond)
+    elseCond match {
+      case IfElse(ifs, elseCond) =>
+        IfElse(first :: ifs, elseCond)
+      case notIfElse =>
+        IfElse(NonEmptyList.one(first), Some(block(notIfElse)))
+    }
+  }
   private val equalsDoc = Doc.text(" = ")
   private val semiDoc = Doc.char(';')
   private val typeDefDoc = Doc.text("typedef ")

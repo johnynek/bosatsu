@@ -2,8 +2,10 @@ package org.bykn.bosatsu.codegen.clang
 
 import cats.{Monad, Traverse}
 import cats.data.NonEmptyList
+import java.math.BigInteger
 import org.bykn.bosatsu.codegen.Idents
-import org.bykn.bosatsu.{Matchless, PackageName, RecursionKind}
+import org.bykn.bosatsu.rankn.DataRepr
+import org.bykn.bosatsu.{Identifier, Lit, Matchless, PackageName, RecursionKind}
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -113,16 +115,42 @@ object ClangGen {
           }
       }
 
+      def equalsString(expr: Code.Expression, str: String): Code.Expression = ???
+      def equalsInt(expr: Code.Expression, i: BigInteger): Code.Expression = ???
+      def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression = ???
+
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
-          case EqualsLit(expr, lit) => ???
-          case EqualsNat(expr, nat) => ???
-          case And(e1, e2) => ???
+          case EqualsLit(expr, lit) =>
+            innerToValue(expr).flatMap { vl =>
+              lit match {
+                case Lit.Str(str) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsString(e, str)) }(newLocalName)
+                case c @ Lit.Chr(_) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsChar(e, c.toCodePoint)) }(newLocalName)
+                case Lit.Integer(i) => vl.onExpr { e => monadImpl.pure[Code.ValueLike](equalsInt(e, i)) }(newLocalName)
+              }  
+            }
+          case EqualsNat(expr, nat) =>
+            val fn = nat match {
+              case DataRepr.ZeroNat => Code.Ident("BSTS_NAT_IS_0")
+              case DataRepr.SuccNat => Code.Ident("BSTS_NAT_GT_0")
+            }
+            innerToValue(expr).flatMap { vl =>
+              vl.onExpr { expr => monadImpl.pure[Code.ValueLike](fn(expr)) }(newLocalName)  
+            }
+          case And(e1, e2) =>
+            (boolToValue(e1), boolToValue(e2))
+              .mapN { (a, b) =>
+                Code.ValueLike.applyArgs(Code.Ident("BSTS_AND"), NonEmptyList(a, b :: Nil))  
+              }
           case CheckVariant(expr, expect, size, famArities) => ???
           case SearchList(lst, init, check, leftAcc) => ???
           case MatchString(arg, parts, binds) => ???
-          case SetMut(target, expr) => ???
-          case TrueConst => monadImpl.pure(Code.IntLiteral.One)
+          case SetMut(LocalAnonMut(idx), expr) =>
+            for {
+              name <- getAnon(idx)
+              vl <- innerToValue(expr)
+            } yield (name := vl) +: Code.TrueLit
+          case TrueConst => monadImpl.pure(Code.TrueLit)
         }
 
       // We have to lift functions to the top level and not
@@ -145,7 +173,7 @@ object ClangGen {
             _ <- appendStatement(stmt)
             capName <- newLocalName("captures")
             capValues <- fn.captures.traverse(innerToValue(_))
-            decl = Code.ValueLike.declareArray(capName, Code.TypeIdent.BValue, capValues)
+            decl <- Code.ValueLike.declareArray(capName, Code.TypeIdent.BValue, capValues)(newLocalName)
           } yield Code.WithValue(decl,
             Code.Ident(s"alloc_closure${fn.arity}")(
               Code.IntLiteral(BigInt(fn.captures.length)),
@@ -154,6 +182,58 @@ object ClangGen {
             )
           )
         }
+
+      def literal(lit: Lit): Code.Expression = ???
+
+      def innerApp(app: App): T[Code.ValueLike] =
+        app match {
+          case App(LocalOrGlobal(optPack, fnName), args) =>
+            directFn(optPack, fnName).flatMap {
+              case Some(ident) =>
+                // directly invoke instead of by treating them like lambdas
+                args.traverse(innerToValue(_)).map { argsVL =>
+                  Code.ValueLike.applyArgs(ident, argsVL)
+                }
+              case None =>
+                // the ref be holding the result of another function call
+                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
+                  // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                  // but since these are ValueLike, we need to handle more carefully
+                  val fnSize = argsVL.length
+                  val callFn = Code.Ident(s"call_fn$fnSize")
+                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
+                }
+            }
+          case App(MakeEnum(variant, arity, _), args) =>
+            // to type check, we know that the arity must have the same length as args
+            args.traverse(innerToValue).map { argsVL =>
+              val tag = Code.IntLiteral(variant)
+              Code.ValueLike.applyArgs(Code.Ident(s"alloc_enum$arity"), tag :: argsVL)  
+            }
+          case App(MakeStruct(arity), args) =>
+            if (arity == 1) {
+              // this is a new-type, just return the arg
+              innerToValue(args.head)
+            }
+            else {
+              // to type check, we know that the arity must have the same length as args
+              args.traverse(innerToValue).map { argsVL =>
+                Code.ValueLike.applyArgs(Code.Ident(s"alloc_struct$arity"), argsVL)  
+              }
+          }
+          case App(SuccNat, args) =>
+            innerToValue(args.head).map { arg =>
+              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_SUCC"), NonEmptyList.one(arg))
+            }
+          case App(fn, args) =>
+            (innerToValue(fn), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
+              // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+              // but since these are ValueLike, we need to handle more carefully
+              val fnSize = argsVL.length
+              val callFn = Code.Ident(s"call_fn$fnSize")
+              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
+            }
+          }
 
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
@@ -164,7 +244,7 @@ object ClangGen {
                 name <- getBinding(arg)
                 v <- innerToValue(argV)
                 result <- innerToValue(in)
-                stmt = Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)
+                stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
               } yield stmt +: result
             }
           case Let(Left(LocalAnon(idx)), argV, in) =>
@@ -173,9 +253,10 @@ object ClangGen {
                 name <- getAnon(idx)
                 v <- innerToValue(argV)
                 result <- innerToValue(in)
-                stmt = Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)
+                stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
               } yield stmt +: result
             }
+          case app @ App(_, _) => innerApp(app)
           case Global(pack, name) =>
             directFn(Some(pack), name)
               .flatMap {
@@ -199,45 +280,79 @@ object ClangGen {
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
             monadImpl.pure(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
-          // Anons are never lifted
           case LocalAnon(ident) => anonName(ident).widen
           case LocalAnonMut(ident) => anonMutName(ident).widen
-          case App(LocalOrGlobal(optPack, fnName), args) =>
-            directFn(optPack, fnName).flatMap {
-              case Some(ident) =>
-                // just directly invoke
-                args.traverse(innerToValue(_)).map { argsVL =>
-                  Code.ValueLike.applyArgs(ident, argsVL)
-                }
-              case None =>
-                // the ref be holding the result of another function call
-                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
-                  // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-                  // but since these are ValueLike, we need to handle more carefully
-                  val fnSize = argsVL.length
-                  val callFn = Code.Ident(s"call_fn$fnSize")
-                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
-                }
+          case LetMut(LocalAnonMut(m), span) =>
+            bindAnon(m) {
+              for {
+                ident <- getAnon(m)
+                decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
+                rest <- innerToValue(span)
+              } yield decl +: rest
             }
-          case App(fn, args) =>
-            (innerToValue(fn), args.traverse(innerToValue(_))).mapN { (fnVL, argsVL) =>
-              // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-              // but since these are ValueLike, we need to handle more carefully
-              val fnSize = argsVL.length
-              val callFn = Code.Ident(s"call_fn$fnSize")
-              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)  
+          case Literal(lit) => monadImpl.pure(literal(lit))
+          case If(cond, thenExpr, elseExpr) =>
+            (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
+              .flatMapN { (c, thenC, elseC) =>
+                Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
+              }
+          case Always(cond, thenExpr) =>
+            boolToValue(cond).flatMap { bv =>
+              bv.discardValue match {
+                case None => innerToValue(thenExpr)
+                case Some(effect) => innerToValue(thenExpr).map(effect +: _)
+              }
             }
-          case LetMut(name, span) => ???
-          case Literal(lit) => ???
-          case If(cond, thenExpr, elseExpr) => ???
-          case Always(cond, thenExpr) => ???
-          case GetEnumElement(arg, variant, index, size) => ???
-          case GetStructElement(arg, index, size) => ???
-          case MakeEnum(variant, arity, famArities) => ???
-          case MakeStruct(arity) => ???
-          case ZeroNat => ???
-          case SuccNat => ???
-          case PrevNat(of) => ???
+          case GetEnumElement(arg, _, index, _) =>
+            // call get_enum_index(v, index)
+            innerToValue(arg).flatMap { v =>
+              v.onExpr(e => monadImpl.pure[Code.ValueLike](Code.Ident("get_enum_index")(e, Code.IntLiteral(index))))(newLocalName)
+            }
+          case GetStructElement(arg, index, size) =>
+            if (size == 1) {
+              // this is just a new-type wrapper, ignore it
+              innerToValue(arg)
+            }
+            else {
+              // call get_struct_index(v, index)
+              innerToValue(arg).flatMap { v =>
+                v.onExpr { e =>
+                  monadImpl.pure[Code.ValueLike](Code.Ident("get_struct_index")(e, Code.IntLiteral(index)))
+                }(newLocalName)
+              }
+            }
+          case makeEnum @ MakeEnum(variant, arity, _) =>
+            // this is a closure over variant, we rewrite this
+            NonEmptyList.fromList((0 until arity).toList) match {
+              case None => monadImpl.pure(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
+              case Some(args) =>
+                val named = args.map { idx => Identifier.Name(s"arg$idx") }
+                // This relies on optimizing App(MakeEnum, _) otherwise
+                // it creates an infinite loop.
+                // Also, this we should cache creation of Lambda/Closure values
+                innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
+            }
+          case MakeStruct(arity) =>
+            monadImpl.pure {
+              if (arity == 0) Code.Ident("PURE_VALUE_TAG")
+              else {
+                val allocStructFn = s"alloc_struct$arity"
+                Code.Ident("STATIC_PUREFN")(Code.Ident(allocStructFn))
+              }
+            }
+          case ZeroNat =>
+            monadImpl.pure(Code.Ident("BSTS_NAT_0"))
+          case SuccNat =>
+            val arg = Identifier.Name("arg0")
+            // This relies on optimizing App(SuccNat, _) otherwise
+            // it creates an infinite loop.
+            // Also, this we should cache creation of Lambda/Closure values
+            innerToValue(Lambda(Nil, None, NonEmptyList.one(arg),
+              App(SuccNat, NonEmptyList.one(Local(arg)))))
+          case PrevNat(of) =>
+            innerToValue(of).map { argVL =>
+              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_PREV"), NonEmptyList.one(argVL))  
+            }
         }
 
       def topFn(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
@@ -272,7 +387,7 @@ object ClangGen {
                     getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
                   }
                   fnBody = Code.block(
-                    Code.DeclareVar(Nil, Code.TypeIdent.Int, cond, Some(Code.IntLiteral.One)),
+                    Code.DeclareVar(Nil, Code.TypeIdent.Bool, cond, Some(Code.TrueLit)),
                     Code.DeclareVar(Nil, Code.TypeIdent.BValue, res, None),
                     Code.While(cond, whileBody),
                     Code.Return(Some(res))

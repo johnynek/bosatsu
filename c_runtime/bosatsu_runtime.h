@@ -42,6 +42,15 @@ typedef void* BValue;
 typedef uint32_t ENUM_TAG;
 #include "bosatsu_decls_generated.h"
 
+// Nat values are encoded in integers
+#define BSTS_NAT_0 ((BValue)0x1)
+#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 2))
+#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 2))
+#define BSTS_NAT_IS_0(n) (((uintptr_t)(n)) == 0x1)
+#define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
+
+#define BSTS_AND(x, y) ((x) && (y))
+
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
 // A function which constructs a BValue
@@ -55,6 +64,8 @@ BValue get_struct_index(BValue v, int idx);
 
 ENUM_TAG get_variant(BValue v);
 BValue get_enum_index(BValue v, int idx);
+// This one is not auto generated because it can always be fit into the BValue directly
+BValue alloc_enum0(ENUM_TAG tag);
 
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);
