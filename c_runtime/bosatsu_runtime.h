@@ -22,6 +22,19 @@ when it comes to functions there are three types:
   b. static closure (something that closes over static things, ideally we would optimize this away): ends with 10
   c. refcounted closure: ends with 00
 
+Nat-like values are represented by positive integers encoded as PURE_VALUE such that
+NAT(x) = (x << 1) | 1, since we don't have enough time to increment through 2^{63} values
+this is a safe encoding.
+
+Char values are stored as unicode code points with a trailing 1.
+
+String values encodings, string values are like ref-counted structs with
+a length and char* holding the utf-8 bytes. We could also potentially optimize
+short strings by packing them literally into 63 bits with a length.
+
+Integer values are either pure values (signed values packed into 63 bits),
+or ref-counted big integers
+
 We need to know which case we are in because in generic context we need to know
 how to clone values.
 */
@@ -37,6 +50,14 @@ how to clone values.
 #define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
 #define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
 #define STATIC_PUREFN(ptr) (BValue*)((uintptr_t)(ptr) | PURE_VALUE_TAG)
+
+#define DEFINE_RC_STRUCT(name, fields) \
+    struct name { \
+      atomic_int ref_count; \
+      FreeFn free; \
+      fields \
+    }; \
+    typedef struct name name
 
 typedef void* BValue;
 typedef uint32_t ENUM_TAG;
@@ -66,6 +87,8 @@ ENUM_TAG get_variant(BValue v);
 BValue get_enum_index(BValue v, int idx);
 // This one is not auto generated because it can always be fit into the BValue directly
 BValue alloc_enum0(ENUM_TAG tag);
+
+BValue bsts_string_from_utf8_bytes(size_t len, char* bytes);
 
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);

@@ -11,6 +11,8 @@ import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
+import org.bykn.bosatsu.Lit.Chr
+import org.bykn.bosatsu.Lit.Str
 
 object ClangGen {
   sealed abstract class Error
@@ -193,7 +195,17 @@ object ClangGen {
           )
         }
 
-      def literal(lit: Lit): Code.Expression = ???
+      def literal(lit: Lit): Code.Expression =
+        lit match {
+          case Lit.Chr(asStr) =>
+            // encoded as integers in pure values
+            ???
+          case Lit.Integer(toBigInteger) =>
+            ???
+          case Lit.Str(toStr) =>
+            // convert to utf8 and then to a literal array of bytes
+            ???
+        }
 
       def innerApp(app: App): T[Code.ValueLike] =
         app match {

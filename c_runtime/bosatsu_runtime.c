@@ -3,22 +3,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 
-#define DEFINE_RC_STRUCT(name, fields) \
-    struct name { \
-      atomic_int ref_count; \
-      FreeFn free; \
-      fields \
-    }; \
-    typedef struct name name
-
-#define DEFINE_RC_ENUM(name, fields) \
-    struct name { \
-      atomic_int ref_count; \
-      FreeFn free; \
-      ENUM_TAG tag; \
-      fields \
-    }; \
-    typedef struct name name
+#define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
 DEFINE_RC_STRUCT(RefCounted,);
 
@@ -49,6 +34,9 @@ void free_closure(Closure1Data* s) {
 DEFINE_RC_ENUM(Enum0,);
 
 DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
+
+DEFINE_RC_STRUCT(BSTS_String, size_t len; char* bytes;);
+
 // A general structure for a reference counted memory block
 // it is always allocated with len BValue array immediately after
 typedef struct _Node {
@@ -147,6 +135,27 @@ void* get_external(BValue v) {
   // Externals can be static also, top level external values
   External* rc = (External*)TO_POINTER(v);
   return rc->external;
+}
+
+void free_string(void* str) {
+  BSTS_String* casted = (BSTS_String*)str;
+  free(casted->bytes);
+  free(str);
+}
+
+// this copies the bytes in, it does not take ownership
+BValue bsts_copy_string_from_utf8_bytes(size_t len, char* bytes) {
+  BSTS_String* str = malloc(sizeof(BSTS_String));
+  char* bytes_copy = malloc(sizeof(char) * len);
+  for(size_t i = 0; i < len; i++) {
+    bytes_copy[i] = bytes[i];
+  }
+  str->len = len;
+  str->bytes = bytes_copy;
+  atomic_init(&str->ref_count, 1);
+  str->free = (FreeFn)free_string;
+
+  return (BValue)str;
 }
 
 // Function to determine the type of the given value pointer and clone if necessary
