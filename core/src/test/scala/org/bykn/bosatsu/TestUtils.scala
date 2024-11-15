@@ -99,6 +99,35 @@ object TestUtils {
     }
   }
 
+  def checkMatchless[A](
+      statement: String
+  )(fn: List[(Identifier.Bindable, Matchless.Expr)] => A): A = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
+      case Validated.Invalid(errs) =>
+        val lm = LocationMap(statement)
+        val packMap = Map((testPackage, (lm, statement)))
+        val msg = errs.toList
+          .map { err =>
+            err.message(packMap, LocationMap.Colorize.None)
+          }
+          .mkString("", "\n==========\n", "\n")
+        sys.error("inference failure: " + msg)
+      case Validated.Valid(program) =>
+        // make sure all the TypedExpr are valid
+        program.lets.foreach { case (_, _, te) => assertValid(te) }
+        val pack: Package.Typed[Declaration] = Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+        val pm: PackageMap.Typed[Declaration] = PackageMap.empty + pack + PackageMap.predefCompiled
+        val srv = Par.newService()
+        try {
+          implicit val ec = Par.ecFromService(srv)
+          val comp = MatchlessFromTypedExpr.compile(pm)
+          fn(comp(testPackage))
+        }
+        finally Par.shutdownService(srv)
+    }
+  }
+
   def makeInputArgs(files: List[(Int, Any)]): List[String] =
     ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap {
       case (idx, _) => "--input" :: idx.toString :: Nil
