@@ -18,7 +18,7 @@ object ClangGen {
   object Error {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
     case class InvariantViolation(message: String, expr: Expr) extends Error
-    case class Unbound(bn: Bindable) extends Error
+    case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
   }
 
   def renderMain(
@@ -136,7 +136,7 @@ object ClangGen {
               StrLiteral(_) => None
           }
 
-        loop(result) match {
+        loop(body) match {
           case Some(stmt) => block(stmt)
           case None =>
             sys.error("invariant violation: could not find tail calls in:" +
@@ -499,23 +499,25 @@ object ClangGen {
       def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
          fn match {
           case Lambda(captures, name, args, expr) =>
-            val body = bindAll(args) { innerToValue(expr).map(Code.returnValue(_)) }
+            val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
               case None => body
               case Some(rec) => recursiveName(fnName, rec)(body)
             }
 
-            for {
-              argParams <- args.traverse { b =>
-                getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
-              }
-              fnBody <- body1
-              allArgs =
-                if (captures.isEmpty) argParams
-                else {
-                  Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
+            bindAll(args) {
+              for {
+                argParams <- args.traverse { b =>
+                  getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
                 }
-            } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
+                fnBody <- body1
+                allArgs =
+                  if (captures.isEmpty) argParams
+                  else {
+                    Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
+                  }
+              } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
+            }
           case LoopFn(captures, nm, args, body) =>
             recursiveName(fnName, nm) {
               bindAll(args) {
@@ -689,7 +691,7 @@ object ClangGen {
                     case Left((ident, _)) =>
                       result(s, ident)
                   }
-                case None => errorRes(Error.Unbound(bn))
+                case None => errorRes(Error.Unbound(bn, s.currentTop))
               }  
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =

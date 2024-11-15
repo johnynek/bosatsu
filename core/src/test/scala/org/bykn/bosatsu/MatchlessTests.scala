@@ -176,7 +176,7 @@ class MatchlessTest extends AnyFunSuite {
     TestUtils.checkMatchless("""
 x = 1    
 """) { binds =>
-      val map = binds.toMap
+      val map = binds(TestUtils.testPackage).toMap
 
       assert(map.contains(Identifier.Name("x")))
       assert(map(Identifier.Name("x")) == Matchless.Literal(Lit(1)))
