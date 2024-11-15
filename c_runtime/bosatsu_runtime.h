@@ -13,8 +13,8 @@ There are a few kinds of values:
 
 to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
 boundaries:
-  a. ends with 1: pure value
-  b. ends with 10: static pointer (allocated once and deleteds at the end of the world)
+  a. ends with 01: pure value
+  b. ends with 11: static pointer (allocated once and deleteds at the end of the world)
   c. ends with 00: refcount pointer.
 
 when it comes to functions there are three types:
@@ -72,6 +72,9 @@ typedef uint32_t ENUM_TAG;
 
 #define BSTS_AND(x, y) ((x) && (y))
 
+#define BSTS_TO_CHAR(x) (BValue)((x << 1) | 1)
+#define BSTS_NULL_TERM_STATIC_STR(x) (BValue)(((uintptr_t)(x)) | PURE_VALUE_TAG)
+
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
 // A function which constructs a BValue
@@ -89,6 +92,11 @@ BValue get_enum_index(BValue v, int idx);
 BValue alloc_enum0(ENUM_TAG tag);
 
 BValue bsts_string_from_utf8_bytes(size_t len, char* bytes);
+_Bool bsts_equals_string(BValue left, BValue right);
+
+BValue bsts_integer_from_int(int small_int);
+BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+_Bool bsts_equals_int(BValue left, BValue right);
 
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);

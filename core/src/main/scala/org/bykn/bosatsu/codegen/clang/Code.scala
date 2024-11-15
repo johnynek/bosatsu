@@ -2,6 +2,7 @@ package org.bykn.bosatsu.codegen.clang
 
 import cats.Monad
 import cats.data.{NonEmptyList, NonEmptyChain}
+import java.nio.charset.StandardCharsets
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
 
@@ -38,6 +39,7 @@ object Code {
     case class Named(name: String) extends TypeIdent
     case class Ptr(tpe: TypeIdent) extends TypeIdent
     val Int: TypeIdent = Named("int")
+    val UInt32: TypeIdent = Named("uint32_t")
     val BValue: TypeIdent = Named("BValue")
     val AtomicBValue: TypeIdent = Named("_Atomic BValue")
     val Bool: TypeIdent = Named("_Bool")
@@ -288,10 +290,13 @@ object Code {
     implicit def fromString(str: String): Ident = Ident(str)
   }
   case class IntLiteral(value: BigInt) extends Expression
+  case class StrLiteral(value: String) extends Expression
   object IntLiteral {
     val One: IntLiteral = IntLiteral(BigInt(1))
     val Zero: IntLiteral = IntLiteral(BigInt(0))
+
     def apply(i: Int): IntLiteral = IntLiteral(BigInt(i))
+    def apply(i: Long): IntLiteral = IntLiteral(BigInt(i))
   }
 
   def TrueLit: Expression = IntLiteral.One
@@ -416,6 +421,25 @@ object Code {
     c match {
       case Ident(n) => Doc.text(n)
       case IntLiteral(bi) => Doc.str(bi)
+      case StrLiteral(str) =>
+        val result = new java.lang.StringBuilder()
+        val bytes = str.getBytes(StandardCharsets.US_ASCII)
+        bytes.foreach { c =>
+          val cint = c.toInt & 0xFF
+          if (25 <= cint && cint <= 126) {
+            result.append(cint.toChar)
+          }
+          else if (cint == 92) { // this is \
+            result.append("\\\\")
+          }
+          else if (cint == 34) { // this is "
+            result.append("\\\"")
+          }
+          else {
+            result.append(s"\\x${java.lang.Integer.toHexString(cint)}")
+          }
+        }
+        quoteDoc + (Doc.text(result.toString()) + quoteDoc)
       case Cast(tpe, expr) =>
         val edoc = expr match {
           case Ident(n) => Doc.text(n)

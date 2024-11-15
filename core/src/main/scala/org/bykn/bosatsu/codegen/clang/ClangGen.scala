@@ -3,6 +3,7 @@ package org.bykn.bosatsu.codegen.clang
 import cats.{Monad, Traverse}
 import cats.data.NonEmptyList
 import java.math.BigInteger
+import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.DataRepr
 import org.bykn.bosatsu.{Identifier, Lit, Matchless, PackageName, RecursionKind}
@@ -11,8 +12,6 @@ import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
-import org.bykn.bosatsu.Lit.Chr
-import org.bykn.bosatsu.Lit.Str
 
 object ClangGen {
   sealed abstract class Error
@@ -117,9 +116,8 @@ object ClangGen {
           }
       }
 
-      def equalsString(expr: Code.Expression, str: String): Code.Expression = ???
-      def equalsInt(expr: Code.Expression, i: BigInteger): Code.Expression = ???
-      def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression = ???
+      def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression =
+        expr =:= Code.Ident("BSTS_TO_CHAR")(Code.IntLiteral(codePoint))
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
@@ -129,9 +127,23 @@ object ClangGen {
           case EqualsLit(expr, lit) =>
             innerToValue(expr).flatMap { vl =>
               lit match {
-                case Lit.Str(str) => vl.onExpr { e => pv(equalsString(e, str)) }(newLocalName)
                 case c @ Lit.Chr(_) => vl.onExpr { e => pv(equalsChar(e, c.toCodePoint)) }(newLocalName)
-                case Lit.Integer(i) => vl.onExpr { e => pv(equalsInt(e, i)) }(newLocalName)
+                case Lit.Str(_) =>
+                  vl.onExpr { e =>
+                    literal(lit).flatMap { litStr =>
+                      Code.ValueLike.applyArgs(Code.Ident("bsts_equals_string"),
+                        NonEmptyList(e, litStr :: Nil)
+                      )(newLocalName)
+                    }
+                  }(newLocalName)
+                case Lit.Integer(_) =>
+                  vl.onExpr { e =>
+                    literal(lit).flatMap { litStr =>
+                      Code.ValueLike.applyArgs(Code.Ident("bsts_equals_int"),
+                        NonEmptyList(e, litStr :: Nil)
+                      )(newLocalName)
+                    }
+                  }(newLocalName)
               }  
             }
           case EqualsNat(expr, nat) =>
@@ -195,16 +207,56 @@ object ClangGen {
           )
         }
 
-      def literal(lit: Lit): Code.Expression =
+      def literal(lit: Lit): T[Code.ValueLike] =
         lit match {
-          case Lit.Chr(asStr) =>
+          case c @ Lit.Chr(_) =>
             // encoded as integers in pure values
-            ???
+            pv(Code.Ident("BSTS_TO_CHAR")(Code.IntLiteral(c.toCodePoint)))
           case Lit.Integer(toBigInteger) =>
-            ???
+            try {
+              val iv = toBigInteger.intValueExact()
+              pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
+            }
+            catch {
+              case _: ArithmeticException =>
+                // emit the uint32 words and sign
+                val isPos = toBigInteger.signum >= 0
+                var current = if (isPos) toBigInteger else toBigInteger.negate()
+                val two32 = BigInteger.ONE.shiftLeft(32)
+                val bldr = List.newBuilder[Code.IntLiteral]
+                while (current.compareTo(BigInteger.ZERO) > 0) {
+                  bldr += Code.IntLiteral(current.mod(two32).longValue())
+                  current = current.shiftRight(32)
+                }
+                val lits = bldr.result()
+                //call:
+                // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+                newLocalName("int").map { ident =>
+                  Code.DeclareArray(Code.TypeIdent.UInt32, ident, Right(lits)) +:
+                    Code.Ident("bsts_integer_from_words_copy")(
+                      if (isPos) Code.TrueLit else Code.FalseLit,
+                      Code.IntLiteral(lits.length),
+                      ident
+                    )
+                }
+            }
+
           case Lit.Str(toStr) =>
             // convert to utf8 and then to a literal array of bytes
-            ???
+            val bytes = toStr.getBytes(StandardCharsets.UTF_8)
+            if (bytes.forall(_.toInt != 0)) {
+              // just send the utf8 bytes as a string to C
+              pv(
+                Code.Ident("BSTS_NULL_TERM_STATIC_STR")(Code.StrLiteral(
+                  new String(bytes.map(_.toChar))
+                ))
+              )
+            }
+            else {
+              // We have some null bytes, we have to encode the length
+              sys.error(s"todo: be able to encode: $toStr")
+              ???
+            }
         }
 
       def innerApp(app: App): T[Code.ValueLike] =
@@ -309,10 +361,10 @@ object ClangGen {
               for {
                 ident <- getAnon(m)
                 decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
-                rest <- innerToValue(span)
-              } yield decl +: rest
+                res <- innerToValue(span)
+              } yield decl +: res
             }
-          case Literal(lit) => pv(literal(lit))
+          case Literal(lit) => literal(lit)
           case If(cond, thenExpr, elseExpr) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>
