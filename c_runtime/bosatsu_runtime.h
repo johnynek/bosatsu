@@ -91,7 +91,7 @@ BValue get_enum_index(BValue v, int idx);
 // This one is not auto generated because it can always be fit into the BValue directly
 BValue alloc_enum0(ENUM_TAG tag);
 
-BValue bsts_string_from_utf8_bytes(size_t len, char* bytes);
+BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 _Bool bsts_equals_string(BValue left, BValue right);
 
 BValue bsts_integer_from_int(int small_int);

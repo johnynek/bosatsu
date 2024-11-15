@@ -40,6 +40,7 @@ object Code {
     case class Ptr(tpe: TypeIdent) extends TypeIdent
     val Int: TypeIdent = Named("int")
     val UInt32: TypeIdent = Named("uint32_t")
+    val Char: TypeIdent = Named("char")
     val BValue: TypeIdent = Named("BValue")
     val AtomicBValue: TypeIdent = Named("_Atomic BValue")
     val Bool: TypeIdent = Named("_Bool")
@@ -332,6 +333,9 @@ object Code {
   // nothing more than a collection of statements
   case class Statements(items: NonEmptyChain[Statement]) extends Statement
   object Statements {
+    def apply(nel: NonEmptyList[Statement]): Statements =
+      Statements(NonEmptyChain.fromNonEmptyList(nel))
+
     def combine(first: Statement, last: Statement): Statement =
       first match {
         case Statements(items) =>

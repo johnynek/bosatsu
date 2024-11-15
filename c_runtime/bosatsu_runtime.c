@@ -144,7 +144,7 @@ void free_string(void* str) {
 }
 
 // this copies the bytes in, it does not take ownership
-BValue bsts_copy_string_from_utf8_bytes(size_t len, char* bytes) {
+BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
   char* bytes_copy = malloc(sizeof(char) * len);
   for(size_t i = 0; i < len; i++) {
