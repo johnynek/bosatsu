@@ -171,4 +171,15 @@ class MatchlessTest extends AnyFunSuite {
       case _ => ()
     }
   }
+
+  test("check compilation of some matchless") {
+    TestUtils.checkMatchless("""
+x = 1    
+""") { binds =>
+      val map = binds.toMap
+
+      assert(map.contains(Identifier.Name("x")))
+      assert(map(Identifier.Name("x")) == Matchless.Literal(Lit(1)))
+    }
+  }
 }
