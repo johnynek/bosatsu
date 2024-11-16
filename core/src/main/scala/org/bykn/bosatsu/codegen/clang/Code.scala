@@ -153,6 +153,7 @@ object Code {
 
   // this prepares an expression with a number of statements
   case class WithValue(statement: Statement, value: ValueLike) extends ValueLike
+  // At least one of thenCond or elseCond should not be an expression
   case class IfElseValue(cond: Expression, thenCond: ValueLike, elseCond: ValueLike) extends ValueLike
 
   object ValueLike {
@@ -213,17 +214,25 @@ object Code {
     def ifThenElseV[F[_]: Monad](cond: Code.ValueLike, thenC: Code.ValueLike, elseC: Code.ValueLike)(newLocalName: String => F[Code.Ident]): F[Code.ValueLike] = {
       cond match {
         case expr: Code.Expression =>
-          Monad[F].pure(IfElseValue(expr, thenC, elseC))
+          Monad[F].pure {
+            (thenC, elseC) match {
+              case (thenX: Expression, elseX: Expression) => Ternary(expr, thenX, elseX)
+              case _ => IfElseValue(expr, thenC, elseC)
+            }
+          }
         case Code.WithValue(stmt, v) =>
           ifThenElseV(v, thenC, elseC)(newLocalName).map(stmt +: _)
         case branchCond @ Code.IfElseValue(_, _, _) =>
-          newLocalName("cond").map { condIdent =>
+          for {
+            condIdent <- newLocalName("cond")
+            res <- ifThenElseV(condIdent, thenC, elseC)(newLocalName)
+          } yield {
             // Assign branchCond to a temp variable in both branches
             // and then use it so we don't exponentially blow up the code
             // size
             (Code.DeclareVar(Nil, Code.TypeIdent.Bool, condIdent, None) +
             (condIdent := branchCond)) +:
-              Code.IfElseValue(condIdent, thenC, elseC)
+            res
           }
       }
     }
