@@ -542,7 +542,7 @@ object Code {
             Doc.intercalate(Doc.space, attrs.map(a => Attr.toDoc(a))) + Doc.space
           }
 
-        val paramDoc = Doc.intercalate(Doc.line, args.map(_.toDoc)).nested(4).grouped
+        val paramDoc = Doc.intercalate(commaLine, args.map(_.toDoc)).nested(4).grouped
 
         val prefix = Doc.intercalate(Doc.space,
           (attrDoc + TypeIdent.toDoc(tpe)) ::

@@ -76,11 +76,12 @@ object ClangGen {
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
       def getAnon(idx: Long): T[Code.Ident]
       // a recursive function needs to remap the Bindable to the top-level mangling
-      def recursiveName[A](fnName: Code.Ident, bn: Bindable)(in: T[A]): T[A]
+      def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean)(in: T[A]): T[A]
       // used for temporary variables of type BValue
       def newLocalName(tag: String): T[Code.Ident]
       def newTopName(tag: String): T[Code.Ident]
-      def directFn(p: Option[PackageName], b: Bindable): T[Option[Code.Ident]]
+      def directFn(p: PackageName, b: Bindable): T[Option[Code.Ident]]
+      def directFn(b: Bindable): T[Option[(Code.Ident, Boolean)]]
       def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
@@ -89,12 +90,6 @@ object ClangGen {
       // the below are independent of the environment implementation
       /////////////////////////////////////////
     
-      def maybeGlobalIdent(p: Option[PackageName], b: Bindable): T[Code.Ident] =
-        p match {
-          case Some(value) => globalIdent(value, b)
-          case None => getBinding(b)
-        }
-
       // This name has to be impossible to give out for any other purpose
       val slotsArgName: Code.Ident = Code.Ident("__bstsi_slot")
 
@@ -151,15 +146,6 @@ object ClangGen {
             case Some(rest) => bindAll(rest)(in)
           }
         }
-
-      object LocalOrGlobal {
-        def unapply(expr: Expr): Option[(Option[PackageName], Bindable)] =
-          expr match {
-            case Global(p, n) => Some((Some(p), n))
-            case Local(n) => Some((None, n))
-            case _ => None
-          }
-      }
 
       def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression =
         expr =:= Code.Ident("BSTS_TO_CHAR")(Code.IntLiteral(codePoint))
@@ -252,7 +238,7 @@ object ClangGen {
           } yield Code.WithValue(decl,
             Code.Ident(s"alloc_closure${fn.arity}")(
               Code.IntLiteral(BigInt(fn.captures.length)),
-              capName.addr,
+              capName,
               ident
             )
           )
@@ -325,8 +311,8 @@ object ClangGen {
 
       def innerApp(app: App): T[Code.ValueLike] =
         app match {
-          case App(LocalOrGlobal(optPack, fnName), args) =>
-            directFn(optPack, fnName).flatMap {
+          case App(Global(pack, fnName), args) =>
+            directFn(pack, fnName).flatMap {
               case Some(ident) =>
                 // directly invoke instead of by treating them like lambdas
                 args.traverse(innerToValue(_)).flatMap { argsVL =>
@@ -334,7 +320,27 @@ object ClangGen {
                 }
               case None =>
                 // the ref be holding the result of another function call
-                (maybeGlobalIdent(optPack, fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
+                (globalIdent(pack, fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
+                  // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                  // but since these are ValueLike, we need to handle more carefully
+                  val fnSize = argsVL.length
+                  val callFn = Code.Ident(s"call_fn$fnSize")
+                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
+                }
+            }
+          case App(Local(fnName), args) =>
+            directFn(fnName).flatMap {
+              case Some((ident, isClosure)) =>
+                // directly invoke instead of by treating them like lambdas
+                args.traverse(innerToValue(_)).flatMap { argsVL =>
+                  val withSlot =
+                    if (isClosure) slotsArgName :: argsVL
+                    else argsVL
+                  Code.ValueLike.applyArgs(ident, withSlot)(newLocalName)
+                }
+              case None =>
+                // the ref be holding the result of another function call
+                (getBinding(fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
                   // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
                   // but since these are ValueLike, we need to handle more carefully
                   val fnSize = argsVL.length
@@ -396,7 +402,7 @@ object ClangGen {
             }
           case app @ App(_, _) => innerApp(app)
           case Global(pack, name) =>
-            directFn(Some(pack), name)
+            directFn(pack, name)
               .flatMap {
                 case Some(nm) =>
                   pv(Code.Ident("STATIC_PUREFN")(nm))
@@ -408,11 +414,12 @@ object ClangGen {
                   } yield Code.Ident("read_or_build")(value.addr, consFn): Code.ValueLike
               }
           case Local(arg) =>
-            directFn(None, arg)
+            directFn(arg)
               .flatMap {
-                case Some(nm) =>
+                case Some((nm, false)) =>
+                  // a closure can't be a static name
                   pv(Code.Ident("STATIC_PUREFN")(nm))
-                case None =>
+                case _ =>
                   getBinding(arg).widen
               }
           case ClosureSlot(idx) =>
@@ -461,14 +468,17 @@ object ClangGen {
             }
           case makeEnum @ MakeEnum(variant, arity, _) =>
             // this is a closure over variant, we rewrite this
-            NonEmptyList.fromList((0 until arity).toList) match {
-              case None => pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
-              case Some(args) =>
-                val named = args.map { idx => Identifier.Name(s"arg$idx") }
-                // This relies on optimizing App(MakeEnum, _) otherwise
-                // it creates an infinite loop.
-                // Also, this we should cache creation of Lambda/Closure values
-                innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
+            if (arity == 0) pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
+            else {
+              val named =
+                // safe because arity > 0
+                NonEmptyList.fromListUnsafe(
+                  Idents.allSimpleIdents.take(arity).map { nm => Identifier.Name(nm) }.toList
+                )
+              // This relies on optimizing App(MakeEnum, _) otherwise
+              // it creates an infinite loop.
+              // Also, this we should cache creation of Lambda/Closure values
+              innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
             }
           case MakeStruct(arity) =>
             pv {
@@ -502,7 +512,7 @@ object ClangGen {
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
               case None => body
-              case Some(rec) => recursiveName(fnName, rec)(body)
+              case Some(rec) => recursiveName(fnName, rec, isClosure = captures.nonEmpty)(body)
             }
 
             bindAll(args) {
@@ -519,7 +529,7 @@ object ClangGen {
               } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
             }
           case LoopFn(captures, nm, args, body) =>
-            recursiveName(fnName, nm) {
+            recursiveName(fnName, nm, isClosure = captures.nonEmpty) {
               bindAll(args) {
                 for {
                   cond <- newLocalName("cond")
@@ -592,19 +602,24 @@ object ClangGen {
             includes: Chain[Code.Include],
             stmts: Chain[Code.Statement],
             currentTop: Option[(PackageName, Bindable)],
-            binds: Map[Bindable, NonEmptyList[Either[(Code.Ident, Int), Int]]],
+            binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean), Int), Int]]],
             counter: Long
           ) {
             def finalFile: Doc =
-              Doc.intercalate(Doc.line, includes.iterator.map(Code.toDoc(_)).toList) +
-                Doc.intercalate(Doc.line + Doc.line, stmts.iterator.map(Code.toDoc(_)).toList)
+              Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
+                Doc.hardLine + Doc.hardLine +
+                Doc.intercalate(Doc.hardLine + Doc.hardLine, stmts.iterator.map(Code.toDoc(_)).toList)
           }
 
           object State {
-            def init(allValues: AllValues, externals: Externals): State =
-              State(allValues, externals, Set.empty, Chain.empty, Chain.empty,
+            def init(allValues: AllValues, externals: Externals): State = {
+              val defaultIncludes =
+                List(Code.Include(true, "bosatsu_runtime.h"))
+
+              State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
                 None, Map.empty, 0L
               )
+            }
           }
 
           type T[A] = StateT[EitherT[Eval, Error, *], State, A]
@@ -688,7 +703,8 @@ object ClangGen {
                   stack.head match {
                     case Right(idx) =>
                       result(s, Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
-                    case Left((ident, _)) =>
+                    case Left(((ident, _), _)) =>
+                      // TODO: suspicious to ignore isClosure here
                       result(s, ident)
                   }
                 case None => errorRes(Error.Unbound(bn, s.currentTop))
@@ -703,14 +719,15 @@ object ClangGen {
             monadImpl.pure(Code.Ident(Idents.escape("__bsts_a_", idx.toString)))
 
           // a recursive function needs to remap the Bindable to the top-level mangling
-          def recursiveName[A](fnName: Code.Ident, bn: Bindable)(in: T[A]): T[A] = {
+          def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean)(in: T[A]): T[A] = {
             val init: T[Unit] = StateT { s =>
+              val entry = (fnName, isClosure)
               val v = s.binds.get(bn) match {
-                case None => NonEmptyList.one(Left((fnName, -1)))
+                case None => NonEmptyList.one(Left((entry, -1)))
                 case Some(items @ NonEmptyList(Right(idx), _)) =>
-                  Left((fnName, idx)) :: items
+                  Left((entry, idx)) :: items
                 case Some(items @ NonEmptyList(Left((_, idx)), _)) =>
-                  Left((fnName, idx)) :: items
+                  Left((entry, idx)) :: items
               }  
               result(s.copy(binds = s.binds.updated(bn, v)), ())
             }
@@ -753,26 +770,25 @@ object ClangGen {
               Code.Ident(Idents.escape("__bsts_t_", tag + cnt.toString))  
             }
           // record that this name is a top level function, so applying it can be direct
-          def directFn(p: Option[PackageName], b: Bindable): T[Option[Code.Ident]] =
-            p match {
-              case None =>
-                StateT { s =>
-                  s.binds.get(b) match {
-                    case Some(NonEmptyList(Left((c, _)), _)) =>
-                      result(s, Some(c))
-                    case _ =>
-                      result(s, None)
-                  } 
-                }
-              case Some(pack) =>
-                StateT { s =>
-                  s.allValues.get((pack, b)) match {
-                    case Some((_: Matchless.FnExpr, ident)) =>
-                      result(s, Some(ident))
-                    case _ => result(s, None)
-                  }  
-                }
+          def directFn(pack: PackageName, b: Bindable): T[Option[Code.Ident]] =
+            StateT { s =>
+              s.allValues.get((pack, b)) match {
+                case Some((_: Matchless.FnExpr, ident)) =>
+                  result(s, Some(ident))
+                case _ => result(s, None)
+              }  
             }
+
+          def directFn(b: Bindable): T[Option[(Code.Ident, Boolean)]] =
+            StateT { s =>
+              s.binds.get(b) match {
+                case Some(NonEmptyList(Left((c, _)), _)) =>
+                  result(s, Some(c))
+                case _ =>
+                  result(s, None)
+              } 
+            }
+
           def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
             for {
               _ <- StateT { (s: State) => result(s.copy(currentTop = Some((p, bn))), ())}
