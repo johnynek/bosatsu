@@ -95,7 +95,7 @@ object ClangGen {
 
       // assign any results to result and set the condition to false
       // and replace any tail calls to nm(args) with assigning args to those values
-      def toWhileBody(fnName: Code.Ident, args: NonEmptyList[Code.Param], cond: Code.Ident, result: Code.Ident, body: Code.ValueLike): Code.Block = {
+      def toWhileBody(fnName: Code.Ident, args: NonEmptyList[Code.Param], isClosure: Boolean, cond: Code.Ident, result: Code.Ident, body: Code.ValueLike): Code.Block = {
       
         import Code._
 
@@ -105,10 +105,13 @@ object ClangGen {
 
         def loop(vl: ValueLike): Option[Statement] =
           vl match {
-            case Apply(fn, argHead :: argTail) if fn == fnName =>
+            case Apply(fn, appArgs) if fn == fnName =>
               // this is a tail call
-              val newArgs = NonEmptyList(argHead, argTail)
-              val assigns = args.zipWith(newArgs) {
+              val newArgsList =
+                if (isClosure) appArgs.tail
+                else appArgs
+              // we know the length of appArgs must match args or the code wouldn't have compiled
+              val assigns = args.zipWith(NonEmptyList.fromListUnsafe(newArgsList)) {
                 case (Param(_, name), value) =>
                   Assignment(name, value)
               }
@@ -538,7 +541,7 @@ object ClangGen {
                   argParams <- args.traverse { b =>
                     getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
                   }
-                  whileBody = toWhileBody(fnName, argParams, cond = cond, result = res, body = bodyVL)
+                  whileBody = toWhileBody(fnName, argParams, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
                   fnBody = Code.block(
                     Code.DeclareVar(Nil, Code.TypeIdent.Bool, cond, Some(Code.TrueLit)),
                     Code.DeclareVar(Nil, Code.TypeIdent.BValue, res, None),

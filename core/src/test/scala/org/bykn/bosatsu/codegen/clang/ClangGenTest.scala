@@ -81,4 +81,40 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     return call_fn1(__bsts_b_loop0, __bsts_b_list0);
 }""")
   }
+
+  test("check foldLeft") {
+    assertPredefFns("foldLeft")("""#include "bosatsu_runtime.h"
+
+BValue __bsts_t_closure0(BValue* __bstsi_slot,
+    BValue __bsts_b_lst1,
+    BValue __bsts_b_item1) {
+    _Bool __bsts_l_cond1 = 1;
+    BValue __bsts_l_res2;
+    while (__bsts_l_cond1) {
+        if (get_variant(__bsts_b_lst1) == (0)) {
+            __bsts_l_cond1 = 0;
+            __bsts_l_res2 = __bsts_b_item1;
+        }
+        else {
+            BValue __bsts_b_head0 = get_enum_index(__bsts_b_lst1, 0);
+            BValue __bsts_b_tail0 = get_enum_index(__bsts_b_lst1, 1);
+            __bsts_b_lst1 = __bsts_b_tail0;
+            __bsts_b_item1 = call_fn2(__bstsi_slot[0],
+                __bsts_b_item1,
+                __bsts_b_head0);
+        }
+    }
+    return __bsts_l_res2;
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_foldLeft(BValue __bsts_b_lst0,
+    BValue __bsts_b_item0,
+    BValue __bsts_b_fn0) {
+    BValue __bsts_l_captures3[1] = { __bsts_b_fn0 };
+    BValue __bsts_b_loop0 = alloc_closure2(1,
+        __bsts_l_captures3,
+        __bsts_t_closure0);
+    return call_fn2(__bsts_b_loop0, __bsts_b_lst0, __bsts_b_item0);
+}""")
+  }
 }
