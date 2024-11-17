@@ -46,3 +46,5 @@ node_modules/
 project/metals.sbt
 project/project/*
 jsui/bosatsu_ui.js
+
+c_runtime/bosatsu_runtime.o

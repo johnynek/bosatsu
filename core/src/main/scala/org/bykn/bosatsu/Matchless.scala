@@ -17,6 +17,11 @@ object Matchless {
     def captures: List[Expr]
     // this is set if the function is recursive
     def recursiveName: Option[Bindable]
+    def recursionKind: RecursionKind = RecursionKind.recursive(recursiveName.isDefined)
+
+    def args: NonEmptyList[Bindable]
+    def arity: Int = args.length
+    def body: Expr
   }
 
   sealed abstract class StrPart
@@ -84,7 +89,7 @@ object Matchless {
       captures: List[Expr],
       recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
-      expr: Expr
+      body: Expr
   ) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
@@ -94,7 +99,7 @@ object Matchless {
   case class LoopFn(
       captures: List[Expr],
       name: Bindable,
-      arg: NonEmptyList[Bindable],
+      args: NonEmptyList[Bindable],
       body: Expr
   ) extends FnExpr {
     val recursiveName: Option[Bindable] = Some(name)

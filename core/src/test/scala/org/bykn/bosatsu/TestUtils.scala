@@ -101,7 +101,7 @@ object TestUtils {
 
   def checkMatchless[A](
       statement: String
-  )(fn: List[(Identifier.Bindable, Matchless.Expr)] => A): A = {
+  )(fn: Map[PackageName, List[(Identifier.Bindable, Matchless.Expr)]] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
@@ -122,7 +122,7 @@ object TestUtils {
         try {
           implicit val ec = Par.ecFromService(srv)
           val comp = MatchlessFromTypedExpr.compile(pm)
-          fn(comp(testPackage))
+          fn(comp)
         }
         finally Par.shutdownService(srv)
     }
