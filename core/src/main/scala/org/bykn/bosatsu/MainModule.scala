@@ -630,7 +630,7 @@ abstract class MainModule[IO[_]](implicit
             val intrinsic = PythonGen.intrinsicValues
             val missingExternals =
               allExternals.iterator.flatMap { case (p, names) =>
-                val missing = names.filterNot { case n =>
+                val missing = names.filterNot { case (n, _) =>
                   exts((p, n)) || intrinsic.get(p).exists(_(n))
                 }
 
@@ -703,7 +703,7 @@ abstract class MainModule[IO[_]](implicit
                       Doc.char('[') +
                       Doc.intercalate(
                         Doc.comma + Doc.lineOrSpace,
-                        names.map(b => Doc.text(b.sourceCodeRepr))
+                        names.map { case (b, _) => Doc.text(b.sourceCodeRepr) }
                       ) + Doc.char(']')).nested(4)
                   }
 

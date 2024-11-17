@@ -401,8 +401,8 @@ object Code {
   private val doDoc = Doc.text("do ")
   private val whileDoc = Doc.text("while")
   private val arrow = Doc.text("->")
-  private val questionDoc = Doc.text(" ? ")
-  private val colonDoc = Doc.text(" : ")
+  private val questionDoc = Doc.text(" ?") + Doc.line
+  private val colonDoc = Doc.text(" :") + Doc.line
   private val quoteDoc = Doc.char('"')
   private def leftAngleDoc = BinOp.Lt.toDoc
   private def rightAngleDoc = BinOp.Gt.toDoc
@@ -506,7 +506,7 @@ object Code {
             case noPar @ (Tight(_) | PrefixExpr(_, _) | BinExpr(_, _, _)) => toDoc(noPar)
             case yesPar => par(toDoc(yesPar))
           }
-        d(cond) + questionDoc + d(t) + colonDoc + d(f)
+        (d(cond) + (questionDoc + d(t) + colonDoc + d(f)).nested(4)).grouped
       // Statements
       case Assignment(t, v) => toDoc(t) + (equalsDoc + (toDoc(v) + semiDoc))
       case DeclareArray(tpe, nm, values) =>

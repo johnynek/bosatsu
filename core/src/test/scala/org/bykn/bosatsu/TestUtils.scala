@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.data.{Ior, Validated}
-import cats.implicits._
+import cats.data.{Ior, Validated, NonEmptyList}
+import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 
 import Assertions.{succeed, fail}
 import IorMethods.IorExtension
+
+import cats.syntax.all._
 
 object TestUtils {
 
@@ -127,6 +129,28 @@ object TestUtils {
         finally Par.shutdownService(srv)
     }
   }
+
+  def compileFile(path: String, rest: String*)(implicit ec: Par.EC): PackageMap.Typed[Any] = {
+    def toS(s: String): String =
+      new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
+
+    val packNEL =
+      NonEmptyList(path, rest.toList)
+        .map { s =>
+          val str = toS(s)
+          val pack = Parser.unsafeParse(Package.parser(None), str)
+          (("", LocationMap(str)), pack)
+        }
+
+    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
+    res.left match {
+      case Some(err) => sys.error(err.toString)
+      case None      => ()
+    }
+
+    res.right.get
+  }
+
 
   def makeInputArgs(files: List[(Int, Any)]): List[String] =
     ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap {
