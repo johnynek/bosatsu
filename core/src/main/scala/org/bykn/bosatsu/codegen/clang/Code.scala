@@ -133,6 +133,8 @@ object Code {
 
     def stmt: Statement = Effect(this)
 
+    def castTo(tpe: TypeIdent): Expression = Cast(tpe, this)
+
     def bin(op: BinOp, rhs: Expression): Expression =
       BinExpr(this, op, rhs)
 
@@ -439,14 +441,14 @@ object Code {
         val bytes = str.getBytes(StandardCharsets.US_ASCII)
         bytes.foreach { c =>
           val cint = c.toInt & 0xFF
-          if (25 <= cint && cint <= 126) {
-            result.append(cint.toChar)
-          }
-          else if (cint == 92) { // this is \
+          if (cint == 92) { // this is \
             result.append("\\\\")
           }
           else if (cint == 34) { // this is "
             result.append("\\\"")
+          }
+          else if (25 <= cint && cint <= 126) {
+            result.append(cint.toChar)
           }
           else {
             result.append(s"\\x${java.lang.Integer.toHexString(cint)}")

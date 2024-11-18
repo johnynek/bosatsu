@@ -334,7 +334,7 @@ object Matchless {
               .map { case (b, idx) => (b, ClosureSlot(idx)) }
               .toMap
             val captures = frees.flatMap { f =>
-              if (f != n) (apply(f) :: Nil)
+              if (cats.Eq[Identifier].neqv(f, n)) (apply(f) :: Nil)
               else Nil
             }
             (copy(slots = newSlots), captures)
