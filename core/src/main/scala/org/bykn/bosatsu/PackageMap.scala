@@ -45,13 +45,17 @@ case class PackageMap[A, B, C, +D](
 
   def allExternals(implicit
       ev: Package[A, B, C, D] <:< Package.Typed[Any]
-  ): Map[PackageName, List[Identifier.Bindable]] =
+  ): Map[PackageName, List[(Identifier.Bindable, rankn.Type)]] =
     toMap.iterator.map { case (name, pack) =>
-      (name, ev(pack).externalDefs)
+      val tpack = ev(pack)
+      (name, tpack.externalDefs.map { n =>
+        (n, tpack.types.getExternalValue(name, n)
+          .getOrElse(sys.error(s"invariant violation, unknown type: $name $n")) )
+      })
     }.toMap
 
   def topoSort(
-    ev: Package[A, B, C, D] <:< Package.Typed[Any]
+    implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Toposort.Result[PackageName] = {
 
     val packNames = toMap.keys.iterator.toList.sorted

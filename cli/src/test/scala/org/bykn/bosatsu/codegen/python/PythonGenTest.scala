@@ -1,17 +1,12 @@
 package org.bykn.bosatsu.codegen.python
 
 import cats.Show
-import cats.data.NonEmptyList
 import java.io.{ByteArrayInputStream, InputStream}
-import java.nio.file.{Paths, Files}
 import java.util.concurrent.Semaphore
 import org.bykn.bosatsu.{
-  PackageMap,
   MatchlessFromTypedExpr,
-  Parser,
-  Package,
-  LocationMap,
-  PackageName
+  PackageName,
+  TestUtils
 }
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
@@ -23,6 +18,8 @@ import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
 import org.scalatest.funsuite.AnyFunSuite
+
+import TestUtils.compileFile
 
 // Jython seems to have some thread safety issues
 object JythonBarrier {
@@ -85,27 +82,6 @@ class PythonGenTest extends AnyFunSuite {
         )
         ()
     }
-  }
-
-  def compileFile(path: String, rest: String*): PackageMap.Typed[Any] = {
-    def toS(s: String): String =
-      new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
-
-    val packNEL =
-      NonEmptyList(path, rest.toList)
-        .map { s =>
-          val str = toS(s)
-          val pack = Parser.unsafeParse(Package.parser(None), str)
-          (("", LocationMap(str)), pack)
-        }
-
-    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
-    res.left match {
-      case Some(err) => sys.error(err.toString)
-      case None      => ()
-    }
-
-    res.right.get
   }
 
   def isfromString(s: String): InputStream =

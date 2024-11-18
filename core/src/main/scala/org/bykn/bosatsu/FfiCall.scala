@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 
-sealed abstract class FfiCall {
+sealed abstract class FfiCall(val arity: Int) {
   def call(t: rankn.Type): Value
 }
 
 object FfiCall {
-  final case class Fn1(fn: Value => Value) extends FfiCall {
+  final case class Fn1(fn: Value => Value) extends FfiCall(1) {
     import Value.FnValue
 
     private[this] val evalFn: FnValue = FnValue { case NonEmptyList(a, _) =>
@@ -16,7 +16,7 @@ object FfiCall {
 
     def call(t: rankn.Type): Value = evalFn
   }
-  final case class Fn2(fn: (Value, Value) => Value) extends FfiCall {
+  final case class Fn2(fn: (Value, Value) => Value) extends FfiCall(2) {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
@@ -26,7 +26,7 @@ object FfiCall {
 
     def call(t: rankn.Type): Value = evalFn
   }
-  final case class Fn3(fn: (Value, Value, Value) => Value) extends FfiCall {
+  final case class Fn3(fn: (Value, Value, Value) => Value) extends FfiCall(3) {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
@@ -35,10 +35,6 @@ object FfiCall {
       }
 
     def call(t: rankn.Type): Value = evalFn
-  }
-
-  final case class FromFn(callFn: rankn.Type => Value) extends FfiCall {
-    def call(t: rankn.Type): Value = callFn(t)
   }
 
   def getJavaType(t: rankn.Type): List[Class[_]] = {

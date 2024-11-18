@@ -1,16 +1,23 @@
 package org.bykn.bosatsu.codegen.clang
 
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.{PackageName, TestUtils, Identifier, Predef}
 import Identifier.Name
 
 class ClangGenTest extends munit.FunSuite {
   val predef_c = Code.Include(true, "bosatsu_predef.h")
 
-  def predef(s: String) =
+  def predef(s: String, arity: Int) =
     (PackageName.PredefName -> Name(s)) -> (predef_c,
-      Code.Ident(Idents.escape("__bsts_predef_", s)))
+      ClangGen.generatedName(PackageName.PredefName, Name(s)),
+      arity)
+
+  val jvmExternals = {
+    val ext = Predef.jvmExternals.toMap.iterator.map { case ((_, n), ffi) => predef(n, ffi.arity) }
+      .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
+    
+    { (pn: (PackageName, Identifier)) => ext.get(pn) }
+  }
 
   def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
     TestUtils.checkMatchless("""
@@ -30,8 +37,7 @@ x = 1
         sortedEnv = Vector(
           NonEmptyList.one(PackageName.PredefName -> matchlessMap(PackageName.PredefName)),
         ),
-        externals =
-          Predef.jvmExternals.toMap.keys.iterator.map { case (_, n) => predef(n) }.toMap,
+        externals = jvmExternals,
         value = (PackageName.PredefName, Identifier.Name(fns.last)),
         evaluator = (Code.Include(true, "eval.h"), Code.Ident("evaluator_run"))
       )
@@ -41,6 +47,12 @@ x = 1
         case Left(e) => fail(e.toString)
       }
     }
+
+  def md5HashToHex(content: String): String = {
+    val md = java.security.MessageDigest.getInstance("MD5")
+    val digest = md.digest(content.getBytes("UTF-8"))
+    digest.map("%02x".format(_)).mkString
+  }
 
   test("check build_List") {
     assertPredefFns("build_List")("""#include "bosatsu_runtime.h"

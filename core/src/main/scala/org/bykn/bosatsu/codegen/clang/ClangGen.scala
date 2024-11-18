@@ -5,8 +5,8 @@ import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
-import org.bykn.bosatsu.rankn.DataRepr
-import org.bykn.bosatsu.{Identifier, Lit, Matchless, PackageName}
+import org.bykn.bosatsu.rankn.{DataRepr, Type}
+import org.bykn.bosatsu.{Identifier, Lit, Matchless, PackageName, PackageMap}
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -21,9 +21,43 @@ object ClangGen {
     case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
   }
 
+  def generateExternalsStub(pm: PackageMap.Typed[Any]): Doc = {
+    val includes = Code.Include(true, "bosatsu_runtime.h") :: Nil
+
+    def toStmt(pn: PackageName, ident: Identifier.Bindable, arity: Int): Code.Statement = {
+      val cIdent = generatedName(pn, ident)
+      val args = Idents.allSimpleIdents.take(arity).map { nm =>
+        Code.Param(Code.TypeIdent.BValue, Code.Ident(nm))
+      }
+      Code.DeclareFn(Nil, Code.TypeIdent.BValue, cIdent, args.toList, Some(
+        Code.block(Code.Return(Some(Code.IntLiteral.Zero)))
+      ))
+    }
+
+    def tpeArity(t: Type): Int =
+      t match {
+        case Type.Fun.MaybeQuant(_, args, _) => args.length
+        case _ => 0
+      }
+
+    val fns = pm.allExternals
+      .iterator
+      .flatMap { case (p, vs) =>
+        vs.iterator.map { case (n, tpe) =>
+          Code.toDoc(toStmt(p, n, tpeArity(tpe)))
+        }
+      }
+      .toList
+
+    val line2 = Doc.hardLine + Doc.hardLine
+
+    Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc)) + line2 +
+      Doc.intercalate(line2, fns)
+  }
+
   def renderMain(
       sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
-      externals: Map[(PackageName, Bindable), (Code.Include, Code.Ident)],
+      externals: ((PackageName, Bindable)) => Option[(Code.Include, Code.Ident, Int)],
       value: (PackageName, Bindable),
       evaluator: (Code.Include, Code.Ident)
   ): Either[Error, Doc] = {
@@ -44,7 +78,7 @@ object ClangGen {
         .iterator.flatMap(_.iterator)
         .flatMap { case (p, vs) =>
           vs.iterator.map { case (b, e) =>
-            (p, b) -> (e, Impl.generatedName(p, b)) 
+            (p, b) -> (e, generatedName(p, b)) 
           }  
         }
         .toMap
@@ -52,15 +86,15 @@ object ClangGen {
     run(allValues, externals, res)
   }
 
+  private def fullName(p: PackageName, b: Bindable): String =
+    p.asString + "/" + b.asString
+
+  def generatedName(p: PackageName, b: Bindable): Code.Ident =
+    Code.Ident(Idents.escape("___bsts_g_", fullName(p, b)))
+
   private object Impl {
     type AllValues = Map[(PackageName, Bindable), (Expr, Code.Ident)]
-    type Externals = Map[(PackageName, Bindable), (Code.Include, Code.Ident)]
-
-    def fullName(p: PackageName, b: Bindable): String =
-      p.asString + "/" + b.asString
-
-    def generatedName(p: PackageName, b: Bindable): Code.Ident =
-      Code.Ident(Idents.escape("___bsts_g_", fullName(p, b)))
+    type Externals = Function1[(PackageName, Bindable), Option[(Code.Include, Code.Ident, Int)]]
 
     trait Env {
       import Matchless._
@@ -410,11 +444,7 @@ object ClangGen {
                 case Some(nm) =>
                   pv(Code.Ident("STATIC_PUREFN")(nm))
                 case None =>
-                  // read_or_build(&__bvalue_foo, make_foo);
-                  for {
-                    value <- staticValueName(pack, name)
-                    consFn <- constructorFn(pack, name)
-                  } yield Code.Ident("read_or_build")(value.addr, consFn): Code.ValueLike
+                  globalIdent(pack, name).map { nm => nm()  }
               }
           case Local(arg) =>
             directFn(arg)
@@ -494,7 +524,7 @@ object ClangGen {
           case ZeroNat =>
             pv(Code.Ident("BSTS_NAT_0"))
           case SuccNat =>
-            val arg = Identifier.Name("arg0")
+            val arg = Identifier.Name("nat")
             // This relies on optimizing App(SuccNat, _) otherwise
             // it creates an infinite loop.
             // Also, this we should cache creation of Lambda/Closure values
@@ -567,24 +597,36 @@ object ClangGen {
               _ <- appendStatement(stmt)
             } yield ()
           case someValue =>
+            // TODO: if we can create the value statically, we don't
+            // need the read_or_build trick
+            //
             // we materialize an Atomic value to hold the static data
             // then we generate a function to populate the value
             for {
               vl <- innerToValue(someValue)
               value <- staticValueName(p, b)
-              consFn <- constructorFn(p, b)
               _ <- appendStatement(Code.DeclareVar(
                 Code.Attr.Static :: Nil,
                 Code.TypeIdent.AtomicBValue,
                 value,
                 Some(Code.IntLiteral.Zero)
               ))
+              consFn <- constructorFn(p, b)
               _ <- appendStatement(Code.DeclareFn(
                 Code.Attr.Static :: Nil,
                 Code.TypeIdent.BValue,
                 consFn,
                 Nil,
                 Some(Code.block(Code.returnValue(vl)))
+              ))
+              readFn <- globalIdent(p, b)
+              res = Code.Ident("read_or_build")(value.addr, consFn)
+              _ <- appendStatement(Code.DeclareFn(
+                Code.Attr.Static :: Nil,
+                Code.TypeIdent.BValue,
+                readFn,
+                Nil,
+                Some(Code.block(Code.returnValue(res)))
               ))
             } yield ()
         }
@@ -652,8 +694,9 @@ object ClangGen {
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
             StateT { s =>
               val key = (pn, bn)
-              s.externals.get(key) match {
-                case Some((incl, ident)) =>
+              s.externals(key) match {
+                case Some((incl, ident, _)) =>
+                  // TODO: suspect that we are ignoring arity here
                   val withIncl =
                     if (s.includeSet(incl)) s
                     else s.copy(includeSet = s.includeSet + incl, includes = s.includes :+ incl)
@@ -775,9 +818,21 @@ object ClangGen {
           // record that this name is a top level function, so applying it can be direct
           def directFn(pack: PackageName, b: Bindable): T[Option[Code.Ident]] =
             StateT { s =>
-              s.allValues.get((pack, b)) match {
+              val key = (pack, b)
+              s.allValues.get(key) match {
                 case Some((_: Matchless.FnExpr, ident)) =>
                   result(s, Some(ident))
+                case None =>
+                  // this is external
+                  s.externals(key) match {
+                    case Some((incl, ident, arity)) if arity > 0 =>
+                      // TODO: suspect that we are ignoring arity here
+                      val withIncl =
+                        if (s.includeSet(incl)) s
+                        else s.copy(includeSet = s.includeSet + incl, includes = s.includes :+ incl)
+                      result(withIncl, Some(ident))
+                    case _ => result(s, None)
+                  }
                 case _ => result(s, None)
               }  
             }
