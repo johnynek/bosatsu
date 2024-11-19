@@ -46,14 +46,14 @@ object Lit {
   }
 
   // Means this lit could be the result of a string match
-  sealed trait StringMatchResult {
+  sealed abstract class StringMatchResult extends Lit {
     def asStr: String
   }
-  case class Str(toStr: String) extends Lit with StringMatchResult {
+  case class Str(toStr: String) extends StringMatchResult {
     def unboxToAny: Any = toStr
     def asStr = toStr
   }
-  case class Chr(asStr: String) extends Lit with StringMatchResult {
+  case class Chr(asStr: String) extends StringMatchResult {
     def toCodePoint: Int = asStr.codePointAt(0)
     def unboxToAny: Any = asStr
   }
