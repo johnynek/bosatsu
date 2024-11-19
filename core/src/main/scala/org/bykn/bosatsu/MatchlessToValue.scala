@@ -10,8 +10,6 @@ import scala.collection.mutable.{LongMap => MLongMap}
 import Identifier.Bindable
 import Value._
 
-import cats.implicits._
-
 object MatchlessToValue {
   import Matchless._
 
@@ -209,7 +207,7 @@ object MatchlessToValue {
                 // we have nothing to bind
                 loop(str).map { strV =>
                   val arg = strV.asExternal.toAny.asInstanceOf[String]
-                  matchString(arg, pat, 0) != null
+                  StrPart.matchString(arg, pat, 0) != null
                 }
               case _ =>
                 val bary = binds.iterator.collect { case LocalAnonMut(id) =>
@@ -219,7 +217,7 @@ object MatchlessToValue {
                 // this may be static
                 val matchScope = loop(str).map { str =>
                   val arg = str.asExternal.toAny.asInstanceOf[String]
-                  matchString(arg, pat, bary.length)
+                  StrPart.matchString(arg, pat, bary.length)
                 }
                 // if we mutate scope, it has to be dynamic
                 Dynamic { scope =>
@@ -546,124 +544,6 @@ object MatchlessToValue {
             Static(c)
         }
 
-    }
-
-    private[this] val emptyStringArray: Array[String] = new Array[String](0)
-    def matchString(
-        str: String,
-        pat: List[StrPart],
-        binds: Int
-    ): Array[String] = {
-      import Matchless.StrPart._
-
-      val strLen = str.length()
-      val results =
-        if (binds > 0) new Array[String](binds) else emptyStringArray
-
-      def loop(offset: Int, pat: List[StrPart], next: Int): Boolean =
-        pat match {
-          case Nil => offset == strLen
-          case LitStr(expect) :: tail =>
-            val len = expect.length
-            str.regionMatches(offset, expect, 0, len) && loop(
-              offset + len,
-              tail,
-              next
-            )
-          case (c: CharPart) :: tail =>
-            try {
-              val nextOffset = str.offsetByCodePoints(offset, 1)
-              val n =
-                if (c.capture) {
-                  results(next) = str.substring(offset, nextOffset)
-                  next + 1
-                } else next
-
-              loop(nextOffset, tail, n)
-            } catch {
-              case _: IndexOutOfBoundsException => false
-            }
-          case (h: Glob) :: tail =>
-            tail match {
-              case Nil =>
-                // we capture all the rest
-                if (h.capture) {
-                  results(next) = str.substring(offset)
-                }
-                true
-              case rest @ ((_: CharPart) :: _) =>
-                val matchableSizes = MatchSize[List](rest)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatch(str.codePointCount(off, strLen))
-
-                // (.*)(.)tail2
-                // this is a naive algorithm that just
-                // checks at all possible later offsets
-                // a smarter algorithm could see if there
-                // are Lit parts that can match or not
-                var matched = false
-                var off1 = offset
-                val n1 = if (h.capture) (next + 1) else next
-                while (!matched && (off1 < strLen)) {
-                  matched = canMatch(off1) && loop(off1, rest, n1)
-                  if (!matched) {
-                    off1 = off1 + Character.charCount(str.codePointAt(off1))
-                  }
-                }
-
-                matched && {
-                  if (h.capture) {
-                    results(next) = str.substring(offset, off1)
-                  }
-                  true
-                }
-              case LitStr(expect) :: tail2 =>
-                val next1 = if (h.capture) next + 1 else next
-
-                val matchableSizes = MatchSize(tail2)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatchUtf16Count(strLen - off)
-
-                var start = offset
-                var result = false
-                while (start >= 0) {
-                  val candidate = str.indexOf(expect, start)
-                  if (candidate >= 0) {
-                    // we have to skip the current expect string
-                    val nextOff = candidate + expect.length
-                    val check1 =
-                      canMatch(nextOff) && loop(nextOff, tail2, next1)
-                    if (check1) {
-                      // this was a match, write into next if needed
-                      if (h.capture) {
-                        results(next) = str.substring(offset, candidate)
-                      }
-                      result = true
-                      start = -1
-                    } else {
-                      // we couldn't match here, try just after candidate
-                      start = candidate + Character.charCount(
-                        str.codePointAt(candidate)
-                      )
-                    }
-                  } else {
-                    // no more candidates
-                    start = -1
-                  }
-                }
-                result
-              // $COVERAGE-OFF$
-              case (_: Glob) :: _ =>
-                // this should be an error at compile time since it
-                // is never meaningful to have two adjacent globs
-                sys.error(s"invariant violation, adjacent globs: $pat")
-              // $COVERAGE-ON$
-            }
-        }
-
-      if (loop(0, pat, 0)) results else null
     }
   }
 }
