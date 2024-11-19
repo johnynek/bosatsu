@@ -494,9 +494,10 @@ object Pattern {
             RegexPattern.quote(s)
         }
       RegexPattern.compile(
-        parts.init
+        parts
+          .iterator
           .map(mapPart(_))
-          .mkString("", "", mapPart(parts.last)),
+          .mkString,
         RegexPattern.DOTALL
       )
     }
