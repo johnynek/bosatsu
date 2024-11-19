@@ -5,20 +5,6 @@ import org.bykn.bosatsu.{PackageName, TestUtils, Identifier, Predef}
 import Identifier.Name
 
 class ClangGenTest extends munit.FunSuite {
-  val predef_c = Code.Include(true, "bosatsu_predef.h")
-
-  def predef(s: String, arity: Int) =
-    (PackageName.PredefName -> Name(s)) -> (predef_c,
-      ClangGen.generatedName(PackageName.PredefName, Name(s)),
-      arity)
-
-  val jvmExternals = {
-    val ext = Predef.jvmExternals.toMap.iterator.map { case ((_, n), ffi) => predef(n, ffi.arity) }
-      .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
-    
-    { (pn: (PackageName, Identifier)) => ext.get(pn) }
-  }
-
   def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
     TestUtils.checkMatchless("""
 x = 1    
@@ -37,7 +23,7 @@ x = 1
         sortedEnv = Vector(
           NonEmptyList.one(PackageName.PredefName -> matchlessMap(PackageName.PredefName)),
         ),
-        externals = jvmExternals,
+        externals = ClangGen.ExternalResolver.FromJvmExternals,
         value = (PackageName.PredefName, Identifier.Name(fns.last)),
         evaluator = (Code.Include(true, "eval.h"), Code.Ident("evaluator_run"))
       )
