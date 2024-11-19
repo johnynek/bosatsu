@@ -478,16 +478,16 @@ object Pattern {
     def matches(str: String): Boolean =
       isTotal || matcher(str).isDefined
 
+    /**
+     * Convert to a regular expression matching this pattern, which
+     * uses reluctant modifiers
+     */
     def toRegex: RegexPattern = {
-      def mapPart(p: StrPart, isLast: Boolean): String = 
+      def mapPart(p: StrPart): String = 
         p match {
-          case StrPart.NamedStr(_) =>
-            if (isLast) "(.*)"
-            else "(.*?)"
+          case StrPart.NamedStr(_) => "(.*?)"
+          case StrPart.WildStr  => ".*?"
           case StrPart.NamedChar(_) => "(.)"
-          case StrPart.WildStr  =>
-            if (isLast) ".*"
-            else ".*?"
           case StrPart.WildChar => "."
           case StrPart.LitStr(s) =>
             // we need to escape any characters that may be in regex
@@ -495,8 +495,8 @@ object Pattern {
         }
       RegexPattern.compile(
         parts.init
-          .map(mapPart(_, false))
-          .mkString("", "", mapPart(parts.last, true)),
+          .map(mapPart(_))
+          .mkString("", "", mapPart(parts.last)),
         RegexPattern.DOTALL
       )
     }
