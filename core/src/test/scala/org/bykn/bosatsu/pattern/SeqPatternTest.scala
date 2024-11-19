@@ -878,7 +878,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
   test("Named.matches + render agree") {
     def law(n: Named, str: String) =
       namedMatch(n, str).foreach { m =>
-        n.render(m)(_.toString) match {
+        n.render(m) { codePoint => StringUtil.fromCodePoints(codePoint :: Nil) } match {
           case Some(s0) => assert(s0 == str, s"m = $m")
           case None     =>
             // this can only happen if we have unnamed Wild/AnyElem

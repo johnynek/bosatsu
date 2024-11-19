@@ -8,7 +8,7 @@ import org.scalacheck.Gen
 class StrPartTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(20000)
+      .withMinSuccessfulTests(100000)
       .withMaxDiscardRatio(10)
 
   val nonUnicode: Gen[String] =
@@ -47,6 +47,7 @@ class StrPartTest extends munit.ScalaCheckSuite {
       } 
     }
   }
+
   property("matches finds all the bindings in order (unicode)") {
     forAll(genStr, genStrPat) { (str, pat) =>
       StrPart.matchPattern(str, pat) match {
@@ -59,6 +60,22 @@ class StrPartTest extends munit.ScalaCheckSuite {
         case None =>
           assert(!pat.matches(str))
       } 
+    }
+  }
+
+  property("matchPattern agrees with NamedPattern.matcher (unicode)") {
+    val nm = NamedSeqPattern.matcher(Splitter.stringUnit)
+    forAll(genStr, genStrPat) { (str, pat) =>
+      val namedMatcher = nm(pat.toNamedSeqPattern)
+
+      val res1 = StrPart.matchPattern(str, pat).map { pairs =>
+        pairs.map { case (b, sr) =>
+          (b.sourceCodeRepr, sr.asStr)  
+        }
+        .toMap
+      }
+      val matchRes = namedMatcher(str).map(_._2)
+      assertEquals(matchRes, res1)
     }
   }
 
