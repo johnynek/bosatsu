@@ -746,6 +746,6 @@ object SeqPattern {
         }
     }
 
-  val stringUnitMatcher: Matcher[SeqPattern[Char], String, Unit] =
+  val stringUnitMatcher: Matcher[SeqPattern[Int], String, Unit] =
     matcher(Splitter.stringUnit)
 }

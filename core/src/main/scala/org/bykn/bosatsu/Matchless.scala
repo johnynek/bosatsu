@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monad, Monoid}
 import cats.data.{Chain, NonEmptyList, WriterT}
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
@@ -22,187 +23,6 @@ object Matchless {
     def args: NonEmptyList[Bindable]
     def arity: Int = args.length
     def body: Expr
-  }
-
-  sealed abstract class StrPart
-  object StrPart {
-    sealed abstract class Glob(val capture: Boolean) extends StrPart
-    sealed abstract class CharPart(val capture: Boolean) extends StrPart
-    case object WildStr extends Glob(false)
-    case object IndexStr extends Glob(true)
-    case object WildChar extends CharPart(false)
-    case object IndexChar extends CharPart(true)
-    case class LitStr(asString: String) extends StrPart
-
-    sealed abstract class MatchSize(val isExact: Boolean) {
-      def charCount: Int
-      def canMatch(cp: Int): Boolean
-      // we know chars/2 <= cpCount <= chars for utf16
-      def canMatchUtf16Count(chars: Int): Boolean
-    }
-    object MatchSize {
-      case class Exactly(charCount: Int) extends MatchSize(true) {
-        def canMatch(cp: Int): Boolean = cp == charCount
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmin = chars / 2
-          val cpmax = chars
-          (cpmin <= charCount) && (charCount <= cpmax)
-        }
-      }
-      case class AtLeast(charCount: Int) extends MatchSize(false) {
-        def canMatch(cp: Int): Boolean = charCount <= cp
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmax = chars
-          // we have any cp in [cpmin, cpmax]
-          // but we require charCount <= cp
-          (charCount <= cpmax)
-        }
-      }
-
-      private val atLeast0 = AtLeast(0)
-      private val exactly0 = Exactly(0)
-      private val exactly1 = Exactly(1)
-
-      def from(sp: StrPart): MatchSize =
-        sp match {
-          case _: Glob     => atLeast0
-          case _: CharPart => exactly1
-          case LitStr(str) =>
-            Exactly(str.codePointCount(0, str.length))
-        }
-
-      def apply[F[_]: cats.Foldable](f: F[StrPart]): MatchSize =
-        cats.Foldable[F].foldMap(f)(from)
-
-      implicit val monoidMatchSize: Monoid[MatchSize] =
-        new Monoid[MatchSize] {
-          def empty: MatchSize = exactly0
-          def combine(l: MatchSize, r: MatchSize) =
-            if (l.isExact && r.isExact) Exactly(l.charCount + r.charCount)
-            else AtLeast(l.charCount + r.charCount)
-        }
-    }
-
-    private[this] val emptyStringArray: Array[String] = new Array[String](0)
-    /**
-     * This performs the matchstring algorithm on a literal string
-     * it returns null if there is no match, or the array of binds
-     * in order if there is a match
-     */
-    def matchString(
-        str: String,
-        pat: List[StrPart],
-        binds: Int
-    ): Array[String] = {
-      val strLen = str.length()
-      val results =
-        if (binds > 0) new Array[String](binds) else emptyStringArray
-
-      def loop(offset: Int, pat: List[StrPart], next: Int): Boolean =
-        pat match {
-          case Nil => offset == strLen
-          case LitStr(expect) :: tail =>
-            val len = expect.length
-            str.regionMatches(offset, expect, 0, len) && loop(
-              offset + len,
-              tail,
-              next
-            )
-          case (c: CharPart) :: tail =>
-            try {
-              val nextOffset = str.offsetByCodePoints(offset, 1)
-              val n =
-                if (c.capture) {
-                  results(next) = str.substring(offset, nextOffset)
-                  next + 1
-                } else next
-
-              loop(nextOffset, tail, n)
-            } catch {
-              case _: IndexOutOfBoundsException => false
-            }
-          case (h: Glob) :: tail =>
-            tail match {
-              case Nil =>
-                // we capture all the rest
-                if (h.capture) {
-                  results(next) = str.substring(offset)
-                }
-                true
-              case rest @ ((_: CharPart) :: _) =>
-                val matchableSizes = MatchSize[List](rest)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatch(str.codePointCount(off, strLen))
-
-                // (.*)(.)tail2
-                // this is a naive algorithm that just
-                // checks at all possible later offsets
-                // a smarter algorithm could see if there
-                // are Lit parts that can match or not
-                var matched = false
-                var off1 = offset
-                val n1 = if (h.capture) (next + 1) else next
-                while (!matched && (off1 < strLen)) {
-                  matched = canMatch(off1) && loop(off1, rest, n1)
-                  if (!matched) {
-                    off1 = off1 + Character.charCount(str.codePointAt(off1))
-                  }
-                }
-
-                matched && {
-                  if (h.capture) {
-                    results(next) = str.substring(offset, off1)
-                  }
-                  true
-                }
-              case LitStr(expect) :: tail2 =>
-                val next1 = if (h.capture) next + 1 else next
-
-                val matchableSizes = MatchSize(tail2)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatchUtf16Count(strLen - off)
-
-                var start = offset
-                var result = false
-                while (start >= 0) {
-                  val candidate = str.indexOf(expect, start)
-                  if (candidate >= 0) {
-                    // we have to skip the current expect string
-                    val nextOff = candidate + expect.length
-                    val check1 =
-                      canMatch(nextOff) && loop(nextOff, tail2, next1)
-                    if (check1) {
-                      // this was a match, write into next if needed
-                      if (h.capture) {
-                        results(next) = str.substring(offset, candidate)
-                      }
-                      result = true
-                      start = -1
-                    } else {
-                      // we couldn't match here, try just after candidate
-                      start = candidate + Character.charCount(
-                        str.codePointAt(candidate)
-                      )
-                    }
-                  } else {
-                    // no more candidates
-                    start = -1
-                  }
-                }
-                result
-              // $COVERAGE-OFF$
-              case (_: Glob) :: _ =>
-                // this should be an error at compile time since it
-                // is never meaningful to have two adjacent globs
-                sys.error(s"invariant violation, adjacent globs: $pat")
-              // $COVERAGE-ON$
-            }
-        }
-
-      if (loop(0, pat, 0)) results else null
-    }
   }
 
   // name is set for recursive (but not tail recursive) methods
@@ -930,139 +750,62 @@ object Matchless {
         LetMut(anon, rest)
       }
 
-    def staticMatch(arg: Expr, branches: NonEmptyList[
-        (Pattern[(PackageName, Constructor), Type], Expr)
-      ]
-    ): Option[Expr] =
-      arg match {
-        case Literal(Lit.Str(s)) =>
-          // we can always match a literal string
-          def loop(branches: List[
-            (Pattern[(PackageName, Constructor), Type], Expr)
-          ]): Option[Expr] =
-            branches match {
-              case Nil => None
-              case (Pattern.WildCard, e) :: _ => Some(e)
-              case (Pattern.Var(n), e) :: _ =>
-                Some(Let(Right(n), arg, e))
-              case (Pattern.Literal(Lit.Str(s1)), e) :: tail =>
-                if (s == s1) Some(e)
-                else loop(tail)
-              case (Pattern.Named(b, p), e) :: tail =>
-                loop((p, e) :: Nil) match {
-                  case None => loop(tail)
-                  case Some(e) =>
-                    Some(Let(Right(b), arg, e))
-                }
-              case (Pattern.StrPat(items), e) :: tail =>
-                val sbinds: List[String => Expr => Expr] =
-                  items.toList
-                    .collect {
-                      // that each name is distinct
-                      // should be checked in the SourceConverter/TotalityChecking code
-                      case Pattern.StrPart.NamedStr(n)  =>
-                        { (value: String) =>
-                            (result: Expr) => Let(Right(n), Literal(Lit.Str(value)), result)  
-                        }
-                      case Pattern.StrPart.NamedChar(n) =>
-                        { (value: String) =>
-                            (result: Expr) => Let(Right(n), Literal(Lit.Chr(value)), result)  
-                        }
-                    }
-
-                val pat = items.toList.map {
-                  case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
-                  case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
-                  case Pattern.StrPart.WildStr      => StrPart.WildStr
-                  case Pattern.StrPart.WildChar     => StrPart.WildChar
-                  case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
-                }
-
-                val result = StrPart.matchString(s, pat, sbinds.length)
-                if (result == null) loop(tail)
-                else {
-                  // we match:
-                  val matched = result.toList
-                    .zip(sbinds)
-                    .map { case (m, fn) => fn(m) }
-                    .foldRight(e) { (fn, e1) => fn(e1) }
-
-                  Some(matched)
-                }
-              case (Pattern.ListPat(_) | Pattern.PositionalStruct(_, _) | Pattern.Literal(_), _) :: tail =>
-                // a string is not a list or struct or other literal
-                loop(tail)
-              case (Pattern.Union(h, t), e) :: rest =>
-                loop((h :: t).toList.map((_, e)) ::: rest)
-              case ((Pattern.Annotation(p, _), e) :: tail) =>
-                loop((p, e) :: tail)
-            }
-
-            loop(branches.toList)
-        case _ =>
-          // TODO there are others we could match
-          None
-      }
-
     def matchExpr(
         arg: Expr,
         tmp: F[Long],
         branches: NonEmptyList[
           (Pattern[(PackageName, Constructor), Type], Expr)
         ]
-    ): F[Expr] =
-      staticMatch(arg, branches) match {
-        case Some(expr) => Monad[F].pure(expr)
-        case None =>
-          def recur(
-              arg: CheapExpr,
-              branches: NonEmptyList[
-                (Pattern[(PackageName, Constructor), Type], Expr)
-              ]
-          ): F[Expr] = {
-            val (p1, r1) = branches.head
+    ): F[Expr] = {
+      def recur(
+          arg: CheapExpr,
+          branches: NonEmptyList[
+            (Pattern[(PackageName, Constructor), Type], Expr)
+          ]
+      ): F[Expr] = {
+        val (p1, r1) = branches.head
 
-            def loop(
-                cbs: NonEmptyList[
-                  (List[LocalAnonMut], BoolExpr, List[(Bindable, Expr)])
-                ]
-            ): F[Expr] =
-              cbs match {
-                case NonEmptyList((b0, TrueConst, binds), _) =>
-                  // this is a total match, no fall through
-                  val right = lets(binds, r1)
-                  Monad[F].pure(checkLets(b0, right))
-                case NonEmptyList((b0, cond, binds), others) =>
-                  val thisBranch = lets(binds, r1)
-                  val res = others match {
-                    case oh :: ot =>
-                      loop(NonEmptyList(oh, ot)).map { te =>
+        def loop(
+            cbs: NonEmptyList[
+              (List[LocalAnonMut], BoolExpr, List[(Bindable, Expr)])
+            ]
+        ): F[Expr] =
+          cbs match {
+            case NonEmptyList((b0, TrueConst, binds), _) =>
+              // this is a total match, no fall through
+              val right = lets(binds, r1)
+              Monad[F].pure(checkLets(b0, right))
+            case NonEmptyList((b0, cond, binds), others) =>
+              val thisBranch = lets(binds, r1)
+              val res = others match {
+                case oh :: ot =>
+                  loop(NonEmptyList(oh, ot)).map { te =>
+                    If(cond, thisBranch, te)
+                  }
+                case Nil =>
+                  branches.tail match {
+                    case Nil =>
+                      // this must be total, but we still need
+                      // to evaluate cond since it can have side
+                      // effects
+                      Monad[F].pure(always(cond, thisBranch))
+                    case bh :: bt =>
+                      recur(arg, NonEmptyList(bh, bt)).map { te =>
                         If(cond, thisBranch, te)
                       }
-                    case Nil =>
-                      branches.tail match {
-                        case Nil =>
-                          // this must be total, but we still need
-                          // to evaluate cond since it can have side
-                          // effects
-                          Monad[F].pure(always(cond, thisBranch))
-                        case bh :: bt =>
-                          recur(arg, NonEmptyList(bh, bt)).map { te =>
-                            If(cond, thisBranch, te)
-                          }
-                      }
                   }
-
-                  res.map(checkLets(b0, _))
               }
 
-            doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
+              res.map(checkLets(b0, _))
           }
 
-          val argFn = maybeMemo(tmp)(recur(_, branches))
+        doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
+      }
 
-          argFn(arg)
-        }
+      val argFn = maybeMemo(tmp)(recur(_, branches))
+
+      argFn(arg)
+    }
 
     loopLetVal(name, te, rec, LambdaState(None, Map.empty))
   }

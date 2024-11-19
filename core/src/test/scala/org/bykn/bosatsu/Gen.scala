@@ -18,6 +18,25 @@ object Generators {
   val num: Gen[Char] = Gen.oneOf('0' to '9')
   val identC: Gen[Char] = Gen.frequency((10, lower), (1, upper), (1, num))
 
+  val genCodePoints: Gen[Int] =
+    Gen.frequency(
+      (10, Gen.choose(0, 0xd7ff)),
+      (
+        1,
+        Gen.choose(0, 0x10ffff).filterNot { cp =>
+          (0xd800 <= cp && cp <= 0xdfff)
+        }
+      )
+    )
+  
+  val genValidUtf: Gen[String] =
+    Gen.listOf(genCodePoints)
+      .map { points =>
+        val bldr = new java.lang.StringBuilder
+        points.foreach(bldr.appendCodePoint(_))
+        bldr.toString
+      }
+
   val whiteSpace: Gen[String] =
     Gen.listOf(Gen.oneOf(' ', '\t', '\n')).map(_.mkString)
 
@@ -561,15 +580,22 @@ object Generators {
     ): NonEmptyList[Pattern.StrPart] =
       nel match {
         case NonEmptyList(_, Nil) => nel
-        case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
-          makeValid(NonEmptyList(h2, t))
+        case NonEmptyList(h1, h2 :: t)
+          if Pattern.StrPat(NonEmptyList.one(h1)).names.exists(Pattern.StrPat(NonEmptyList(h2, t)).names.toSet) =>
+            makeValid(NonEmptyList(h2, t))
         case NonEmptyList(
               Pattern.StrPart.LitStr(h1),
               Pattern.StrPart.LitStr(h2) :: t
             ) =>
           makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
         case NonEmptyList(h1, h2 :: t) =>
-          NonEmptyList(h1, makeValid(NonEmptyList(h2, t)).toList)
+          val tail = makeValid(NonEmptyList(h2, t))
+          if (isWild(tail.head) && isWild(h1)) {
+            tail
+          }
+          else {
+            h1 :: tail
+          }
       }
 
     for {

@@ -4,6 +4,7 @@ import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
+import org.bykn.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
 import scala.collection.mutable.{LongMap => MLongMap}
 

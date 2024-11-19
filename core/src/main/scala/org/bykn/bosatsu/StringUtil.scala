@@ -211,6 +211,25 @@ object StringUtil extends GenericStringUtil {
       ('t', '\t'),
       ('v', 11.toChar)
     ) // vertical tab
+
+  def codePoints(s: String): List[Int] = {
+    // .codePoints isn't available in scalajs
+    var idx = 0
+    val bldr = List.newBuilder[Int]
+    while (idx < s.length) {
+      val cp = s.codePointAt(idx)
+      idx += Character.charCount(cp)
+      bldr += cp
+    }
+
+    bldr.result()
+  }
+
+  def fromCodePoints(it: Iterable[Int]): String = {
+    val bldr = new java.lang.StringBuilder
+    it.foreach(bldr.appendCodePoint(_))
+    bldr.toString
+  }
 }
 
 object JsonStringUtil extends GenericStringUtil {

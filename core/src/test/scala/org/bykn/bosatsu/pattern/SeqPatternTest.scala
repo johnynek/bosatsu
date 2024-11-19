@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.pattern
 
 import org.bykn.bosatsu.set.{Rel, SetOps}
+import org.bykn.bosatsu.StringUtil
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   forAll,
@@ -15,8 +16,10 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object StringSeqPatternGen {
 
-  type Named = NamedSeqPattern[Char]
+  type Named = NamedSeqPattern[Int]
   val Named = NamedSeqPattern
+
+  def lit(c: Char): SeqPart[Int] = Lit(c.toInt)
 
   // generate a string of 0s and 1s to make matches more likely
   val genBitString: Gen[String] =
@@ -26,17 +29,17 @@ object StringSeqPatternGen {
       list <- Gen.listOfN(sz, g)
     } yield list.mkString
 
-  val genPart: Gen[SeqPart[Char]] = {
+  val genPart: Gen[SeqPart[Int]] = {
     import SeqPart._
 
     Gen.frequency(
-      (15, Gen.oneOf(Lit('0'), Lit('1'))),
+      (15, Gen.oneOf(lit('0'), lit('1'))),
       (2, Gen.const(AnyElem)),
       (1, Gen.const(Wildcard))
     )
   }
 
-  val genPat: Gen[SeqPattern[Char]] = {
+  val genPat: Gen[SeqPattern[Int]] = {
 
     val cat = for {
       h <- genPart
@@ -46,9 +49,9 @@ object StringSeqPatternGen {
     Gen.frequency((1, Gen.const(Empty)), (5, cat))
   }
 
-  implicit val arbPattern: Arbitrary[SeqPattern[Char]] = Arbitrary(genPat)
+  implicit val arbPattern: Arbitrary[SeqPattern[Int]] = Arbitrary(genPat)
 
-  implicit lazy val shrinkPat: Shrink[SeqPattern[Char]] =
+  implicit lazy val shrinkPat: Shrink[SeqPattern[Int]] =
     Shrink {
       case Empty => Empty #:: Stream.empty
       case Cat(Wildcard, t) =>
@@ -89,10 +92,10 @@ object StringSeqPatternGen {
     res
   }
 
-  val genNamed: Gen[NamedSeqPattern[Char]] =
+  val genNamed: Gen[NamedSeqPattern[Int]] =
     genNamedFn(genPart, 0).map(_._2)
 
-  implicit val arbNamed: Arbitrary[NamedSeqPattern[Char]] = Arbitrary(genNamed)
+  implicit val arbNamed: Arbitrary[NamedSeqPattern[Int]] = Arbitrary(genNamed)
 
   def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
     if (s1.isEmpty) s2
@@ -101,7 +104,7 @@ object StringSeqPatternGen {
       s1.head #:: interleave(s2, s1.tail)
     }
 
-  implicit val shrinkNamedSeqPattern: Shrink[NamedSeqPattern[Char]] =
+  implicit val shrinkNamedSeqPattern: Shrink[NamedSeqPattern[Int]] =
     Shrink {
       case NamedSeqPattern.NEmpty => Stream.Empty
       case NamedSeqPattern.Bind(n, p) =>
@@ -109,8 +112,8 @@ object StringSeqPatternGen {
         val binded = sp.map(NamedSeqPattern.Bind(n, _))
         interleave(sp, binded)
       case NamedSeqPattern.NSeqPart(p) =>
-        def tail: Stream[SeqPart[Char]] =
-          Lit('0') #:: Lit('1') #:: Stream.Empty
+        def tail: Stream[SeqPart[Int]] =
+          lit('0') #:: lit('1') #:: Stream.Empty
 
         val sp = p match {
           case Wildcard => AnyElem #:: tail
@@ -744,14 +747,14 @@ class BoolSeqPatternTest
   }
 }
 
-class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
+class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
   import SeqPart._
 
   def genPattern = StringSeqPatternGen.genPat
   def genNamed = StringSeqPatternGen.genNamed
   def genSeq = StringSeqPatternGen.genBitString
 
-  def splitter: Splitter[Char, Char, String, Unit] =
+  def splitter: Splitter[Int, Int, String, Unit] =
     Splitter.stringSplitter(_ => ())
 
   val pmatcher = Pattern.matcher(splitter)
@@ -763,23 +766,23 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
   def namedMatch(p: Named, s: String): Option[Map[String, String]] =
     NamedSeqPattern.matcher(Splitter.stringSplitter(_.toString))(p)(s).map(_._2)
 
-  implicit val setOpsChar: SetOps[Char] = SetOps.distinct[Char]
-  def setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Char]
+  implicit val setOpsChar: SetOps[Int] = SetOps.distinct[Int]
+  def setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Int]
 
   import StringSeqPatternGen._
 
   def toPattern(s: String): Pattern =
-    s.toList.foldRight(Pattern.Empty: Pattern) { (c, r) =>
+    StringUtil.codePoints(s).foldRight(Pattern.Empty: Pattern) { (c, r) =>
       Pattern.Cat(Lit(c), r)
     }
 
   override def diffUBRegressions
-      : List[(SeqPattern[Char], SeqPattern[Char], String)] =
+      : List[(SeqPattern[Int], SeqPattern[Int], String)] =
     List({
       val p1 = Cat(AnyElem, Cat(Wildcard, Empty))
       val p2 = Cat(
         Wildcard,
-        Cat(AnyElem, Cat(Lit('0'), Cat(Lit('1'), Cat(Wildcard, Empty))))
+        Cat(AnyElem, Cat(lit('0'), Cat(lit('1'), Cat(Wildcard, Empty))))
       )
       (p1, p2, "11")
     })
@@ -905,9 +908,9 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
 
     import Named._
     val regressions: List[(Named, String)] =
-      (NCat(NEmpty, NCat(NSeqPart(Lit('1')), NSeqPart(Wildcard))), "1") ::
-        (NCat(NSeqPart(Lit('1')), NSeqPart(Wildcard)), "1") ::
-        (NSeqPart(Lit('1')), "1") ::
+      (NCat(NEmpty, NCat(NSeqPart(lit('1')), NSeqPart(Wildcard))), "1") ::
+        (NCat(NSeqPart(lit('1')), NSeqPart(Wildcard)), "1") ::
+        (NSeqPart(lit('1')), "1") ::
         Nil
 
     regressions.foreach { case (n, s) => namedMatchesPatternLaw(n, s) }
@@ -926,14 +929,14 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
 
   test("regression subset example") {
     val p1 = Cat(AnyElem, Cat(Wildcard, Empty))
-    val p2 = Cat(Wildcard, Cat(Lit('0'), Cat(Lit('1'), Empty)))
+    val p2 = Cat(Wildcard, Cat(lit('0'), Cat(lit('1'), Empty)))
 
     assert(setOps.subset(p2, p1))
   }
 
   test("intersection regression") {
-    val p1 = Cat(Wildcard, Cat(Lit('0'), Cat(Lit('1'), Empty)))
-    val p2 = Cat(Lit('0'), Cat(Lit('0'), Cat(Lit('0'), Cat(Wildcard, Empty))))
+    val p1 = Cat(Wildcard, Cat(lit('0'), Cat(lit('1'), Empty)))
+    val p2 = Cat(lit('0'), Cat(lit('0'), Cat(lit('0'), Cat(Wildcard, Empty))))
 
     assert(setOps.relate(p2, p1) == Rel.Intersects)
     assert(setOps.intersection(p1, p2).nonEmpty)

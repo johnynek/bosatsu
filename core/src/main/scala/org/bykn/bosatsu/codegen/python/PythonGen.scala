@@ -11,6 +11,7 @@ import org.bykn.bosatsu.{
   Parser,
 }
 import org.bykn.bosatsu.codegen.Idents
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 

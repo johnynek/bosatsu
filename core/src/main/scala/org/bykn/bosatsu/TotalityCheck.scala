@@ -237,9 +237,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     )
 
   private val strPatternSetOps: SetOps[StrPat] =
-    SetOps.imap[SeqPattern[Char], StrPat](
+    SetOps.imap[SeqPattern[Int], StrPat](
       SeqPattern.seqPatternSetOps(
-        SeqPart.part1SetOps(SetOps.distinct[Char]),
+        SeqPart.part1SetOps(SetOps.distinct[Int]),
         implicitly
       ),
       StrPat.fromSeqPattern(_),
