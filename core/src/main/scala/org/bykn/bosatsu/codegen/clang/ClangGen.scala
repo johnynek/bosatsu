@@ -6,58 +6,142 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.{DataRepr, Type}
-import org.bykn.bosatsu.{Identifier, Lit, Matchless, PackageName, PackageMap}
+import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName, PackageMap}
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 import cats.syntax.all._
 
 object ClangGen {
-  sealed abstract class Error
+  sealed abstract class Error {
+    // TODO: implement this in a nice way
+    def display: Doc = Doc.text(this.toString)
+  }
+
   object Error {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
     case class InvariantViolation(message: String, expr: Expr) extends Error
     case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
   }
 
-  def generateExternalsStub(pm: PackageMap.Typed[Any]): Doc = {
-    val includes = Code.Include(true, "bosatsu_runtime.h") :: Nil
+  trait ExternalResolver {
+    def names: SortedMap[PackageName, SortedSet[Bindable]]
+    def apply(p: PackageName, b: Bindable): Option[(Code.Include, Code.Ident, Int)]
 
-    def toStmt(pn: PackageName, ident: Identifier.Bindable, arity: Int): Code.Statement = {
-      val cIdent = generatedName(pn, ident)
-      val args = Idents.allSimpleIdents.take(arity).map { nm =>
-        Code.Param(Code.TypeIdent.BValue, Code.Ident(nm))
+    final def generateExternalsStub: SortedMap[String, Doc] = {
+      val includes = Code.Include(true, "bosatsu_runtime.h") :: Nil
+
+      def toStmt(cIdent: Code.Ident, arity: Int): Code.Statement = {
+        val args = Idents.allSimpleIdents.take(arity).map { nm =>
+          Code.Param(Code.TypeIdent.BValue, Code.Ident(nm))
+        }
+        Code.DeclareFn(Nil, Code.TypeIdent.BValue, cIdent, args.toList, None)
       }
-      Code.DeclareFn(Nil, Code.TypeIdent.BValue, cIdent, args.toList, Some(
-        Code.block(Code.Return(Some(Code.IntLiteral.Zero)))
-      ))
+
+      val line2 = Doc.hardLine + Doc.hardLine
+      val includeRuntime = Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc))
+
+      SortedMap.empty[String, Doc] ++ names
+        .iterator
+        .flatMap { case (p, binds) =>
+
+          val fns = binds.iterator.flatMap { n =>
+            apply(p, n)
+          }
+          .map { case (i, n, arity) =>
+            i.filename -> Code.toDoc(toStmt(n, arity))
+          }
+          .toList
+          .groupByNel(_._1)
+
+
+          fns.iterator.map { case (incl, nelInner) =>
+            incl -> (
+              includeRuntime +
+                line2 +
+                Doc.intercalate(line2, nelInner.toList.map(_._2)))
+          }
+        }
     }
 
-    def tpeArity(t: Type): Int =
-      t match {
-        case Type.Fun.MaybeQuant(_, args, _) => args.length
-        case _ => 0
-      }
+  }
 
-    val fns = pm.allExternals
-      .iterator
-      .flatMap { case (p, vs) =>
-        vs.iterator.map { case (n, tpe) =>
-          Code.toDoc(toStmt(p, n, tpeArity(tpe)))
+  object ExternalResolver {
+    def stdExtFileName(pn: PackageName): String =
+      s"${Idents.escape("bosatsu_ext_", pn.asString)}.h"
+
+    def stdExternals(pm: PackageMap.Typed[Any]): ExternalResolver = {
+
+      def tpeArity(t: Type): Int =
+        t match {
+          case Type.Fun.MaybeQuant(_, args, _) => args.length
+          case _ => 0
         }
+
+      val allExt = pm.allExternals
+      val extMap = allExt
+        .iterator
+        .map { case (p, vs) =>
+          val fileName = ExternalResolver.stdExtFileName(p)
+
+          val fns = vs.iterator.map { case (n, tpe) =>
+            val cIdent = generatedName(p, n)
+            n -> (cIdent, tpeArity(tpe))
+          }
+          .toMap
+
+          p -> (Code.Include(true, fileName), fns)
+        }
+        .toMap
+
+      new ExternalResolver {
+        lazy val names: SortedMap[PackageName, SortedSet[Bindable]] =
+          allExt.iterator.map { case (p, vs) =>
+            p -> vs.iterator.map { case (b, _) => b }.to(SortedSet)
+          }
+          .to(SortedMap)
+
+        def apply(p: PackageName, b: Bindable): Option[(Code.Include, Code.Ident, Int)] =
+          for {
+            (include, inner) <- extMap.get(p)
+            (ident, arity) <- inner.get(b)
+          } yield (include, ident, arity)
       }
-      .toList
+    }
 
-    val line2 = Doc.hardLine + Doc.hardLine
+    val FromJvmExternals: ExternalResolver =
+      new ExternalResolver {
+        val predef_c = Code.Include(true, stdExtFileName(PackageName.PredefName))
 
-    Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc)) + line2 +
-      Doc.intercalate(line2, fns)
+        def predef(s: String, arity: Int) =
+          (PackageName.PredefName -> Identifier.Name(s)) -> (predef_c,
+            ClangGen.generatedName(PackageName.PredefName, Identifier.Name(s)), arity)
+
+        val ext = Predef
+          .jvmExternals.toMap.iterator.map { case ((_, n), ffi) =>
+            predef(n, ffi.arity)
+          }
+          .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
+
+        lazy val names: SortedMap[PackageName, SortedSet[Bindable]] = {
+          val sm = Predef
+            .jvmExternals.toMap.iterator.map { case (pn, _) => pn }
+            .toList
+            .groupByNel(_._1)
+
+          sm.map { case (k, vs) =>
+            (k, vs.toList.iterator.map { case (_, n) => Identifier.Name(n) }.to(SortedSet))
+          }
+        }
+        def apply(p: PackageName, b: Bindable) = ext.get((p, b))
+      }
   }
 
   def renderMain(
       sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
-      externals: ((PackageName, Bindable)) => Option[(Code.Include, Code.Ident, Int)],
+      externals: ExternalResolver,
       value: (PackageName, Bindable),
       evaluator: (Code.Include, Code.Ident)
   ): Either[Error, Doc] = {
@@ -94,14 +178,13 @@ object ClangGen {
 
   private object Impl {
     type AllValues = Map[(PackageName, Bindable), (Expr, Code.Ident)]
-    type Externals = Function1[(PackageName, Bindable), Option[(Code.Include, Code.Ident, Int)]]
 
     trait Env {
       import Matchless._
 
       type T[A]
       implicit val monadImpl: Monad[T]
-      def run(pm: AllValues, externals: Externals, t: T[Unit]): Either[Error, Doc]
+      def run(pm: AllValues, externals: ExternalResolver, t: T[Unit]): Either[Error, Doc]
       def appendStatement(stmt: Code.Statement): T[Unit]
       def error[A](e: => Error): T[A]
       def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident]
@@ -420,23 +503,28 @@ object ClangGen {
         expr match {
           case fn: FnExpr => innerFn(fn)
           case Let(Right(arg), argV, in) =>
-            bind(arg) {
-              for {
-                name <- getBinding(arg)
-                v <- innerToValue(argV)
-                result <- innerToValue(in)
-                stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
-              } yield stmt +: result
+            // arg isn't in scope for argV
+            innerToValue(argV).flatMap { v =>
+              bind(arg) {
+                for {
+                  name <- getBinding(arg)
+                  result <- innerToValue(in)
+                  stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
+                } yield stmt +: result
+              }
             }
           case Let(Left(LocalAnon(idx)), argV, in) =>
-            bindAnon(idx) {
-              for {
-                name <- getAnon(idx)
-                v <- innerToValue(argV)
-                result <- innerToValue(in)
-                stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
-              } yield stmt +: result
-            }
+            // LocalAnon(idx) isn't in scope for argV
+            innerToValue(argV)
+              .flatMap { v =>
+                bindAnon(idx) {
+                  for {
+                    name <- getAnon(idx)
+                    result <- innerToValue(in)
+                    stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
+                  } yield stmt +: result
+                }
+              }
           case app @ App(_, _) => innerApp(app)
           case Global(pack, name) =>
             directFn(pack, name)
@@ -515,7 +603,7 @@ object ClangGen {
             }
           case MakeStruct(arity) =>
             pv {
-              if (arity == 0) Code.Ident("PURE_VALUE_TAG")
+              if (arity == 0) Code.Ident("PURE_VALUE_TAG").castTo(Code.TypeIdent.BValue)
               else {
                 val allocStructFn = s"alloc_struct$arity"
                 Code.Ident("STATIC_PUREFN")(Code.Ident(allocStructFn))
@@ -642,7 +730,7 @@ object ClangGen {
         new Env {
           case class State(
             allValues: AllValues,
-            externals: Externals,
+            externals: ExternalResolver,
             includeSet: Set[Code.Include],
             includes: Chain[Code.Include],
             stmts: Chain[Code.Statement],
@@ -657,7 +745,7 @@ object ClangGen {
           }
 
           object State {
-            def init(allValues: AllValues, externals: Externals): State = {
+            def init(allValues: AllValues, externals: ExternalResolver): State = {
               val defaultIncludes =
                 List(Code.Include(true, "bosatsu_runtime.h"))
 
@@ -671,7 +759,7 @@ object ClangGen {
 
           implicit val monadImpl: Monad[T] = catsMonad[State]
 
-          def run(pm: AllValues, externals: Externals, t: T[Unit]): Either[Error, Doc] =
+          def run(pm: AllValues, externals: ExternalResolver, t: T[Unit]): Either[Error, Doc] =
             t.run(State.init(pm, externals))
               .value // get the value out of the EitherT
               .value // evaluate the Eval
@@ -693,8 +781,7 @@ object ClangGen {
 
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
             StateT { s =>
-              val key = (pn, bn)
-              s.externals(key) match {
+              s.externals(pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl =
@@ -703,6 +790,7 @@ object ClangGen {
 
                   result(withIncl, ident)
                 case None =>
+                  val key = (pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => result(s, ident)
                     case None => errorRes(Error.UnknownValue(pn, bn))
@@ -824,9 +912,8 @@ object ClangGen {
                   result(s, Some(ident))
                 case None =>
                   // this is external
-                  s.externals(key) match {
+                  s.externals(pack, b) match {
                     case Some((incl, ident, arity)) if arity > 0 =>
-                      // TODO: suspect that we are ignoring arity here
                       val withIncl =
                         if (s.includeSet(incl)) s
                         else s.copy(includeSet = s.includeSet + incl, includes = s.includes :+ incl)

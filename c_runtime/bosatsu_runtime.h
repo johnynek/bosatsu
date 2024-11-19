@@ -95,7 +95,7 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 _Bool bsts_equals_string(BValue left, BValue right);
 
 BValue bsts_integer_from_int(int small_int);
-BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 _Bool bsts_equals_int(BValue left, BValue right);
 
 BValue alloc_external(void* eval, FreeFn free_fn);
