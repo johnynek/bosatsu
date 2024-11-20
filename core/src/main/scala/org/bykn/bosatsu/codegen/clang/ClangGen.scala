@@ -200,6 +200,7 @@ object ClangGen {
       def directFn(p: PackageName, b: Bindable): T[Option[Code.Ident]]
       def directFn(b: Bindable): T[Option[(Code.Ident, Boolean)]]
       def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
+      def currentTop: T[Option[(PackageName, Bindable)]]
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
 
@@ -318,10 +319,11 @@ object ClangGen {
             // this is just get_variant(expr) == expect
               vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
-          case sl @ SearchList(lst, init, check, leftAcc) =>
-            // TODO: ???
-            println(s"TODO: implement boolToValue($sl) returning false")
-            pv(Code.FalseLit)
+          case SearchList(lst, init, check, leftAcc) =>
+            (boolToValue(check), innerToValue(init))
+              .flatMapN { (condV, initV) =>
+                searchList(lst, initV, condV, leftAcc)
+              }
           case ms @ MatchString(arg, parts, binds) =>
             // TODO: ???
             println(s"TODO: implement boolToValue($ms) returning false")
@@ -333,6 +335,100 @@ object ClangGen {
             } yield (name := vl) +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
         }
+
+      def searchList(
+          locMut: LocalAnonMut,
+          initVL: Code.ValueLike,
+          checkVL: Code.ValueLike,
+          optLeft: Option[LocalAnonMut]
+      ): T[Code.ValueLike] = {
+        import Code.Expression
+
+        val emptyList: Expression =
+          Code.Ident("alloc_enum0")(Code.IntLiteral(0))
+
+        def isNonEmptyList(expr: Expression): Expression =
+          Code.Ident("get_variant")(expr) =:= Code.IntLiteral(1)
+
+        def headList(expr: Expression): Expression =
+          Code.Ident("get_enum_index")(expr, Code.IntLiteral(0))
+
+        def tailList(expr: Expression): Expression =
+          Code.Ident("get_enum_index")(expr, Code.IntLiteral(1))
+
+        def consList(head: Expression, tail: Expression): Expression =
+          Code.Ident("alloc_enum2")(Code.IntLiteral(1), head, tail)
+        /*
+         * here is the implementation from MatchlessToValue
+         *
+            Dynamic { (scope: Scope) =>
+              var res = false
+              var currentList = initF(scope)
+              var leftList = VList.VNil
+              while (currentList ne null) {
+                currentList match {
+                  case nonempty@VList.Cons(head, tail) =>
+                    scope.updateMut(mutV, nonempty)
+                    scope.updateMut(left, leftList)
+                    res = checkF(scope)
+                    if (res) { currentList = null }
+                    else {
+                      currentList = tail
+                      leftList = VList.Cons(head, leftList)
+                    }
+                  case _ =>
+                    currentList = null
+                    // we don't match empty lists
+                }
+              }
+              res
+            }
+         */
+        for {
+          currentList <- getAnon(locMut.ident)
+          optLeft <- optLeft.traverse(lm => getAnon(lm.ident))
+          res <- newLocalName("result")
+          tmpList <- newLocalName("tmp_list")
+          declTmpList <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, tmpList, initVL)(newLocalName)
+          /*
+          top <- currentTop
+          _ = println(s"""in $top: searchList(
+          $locMut: LocalAnonMut,
+          $initVL: Code.ValueLike,
+          $checkVL: Code.ValueLike,
+          $optLeft: Option[LocalAnonMut]
+          )""")
+          */
+        } yield
+            (Code
+              .Statements(
+                Code.DeclareVar(Nil, Code.TypeIdent.Bool, res, Some(Code.FalseLit)),
+                declTmpList
+              )
+              .maybeCombine(
+                optLeft.map(_ := emptyList),
+              ) +
+                // we don't match empty lists, so if currentList reaches Empty we are done
+                Code.While(
+                  isNonEmptyList(tmpList),
+                  Code.block(
+                    currentList := tmpList,
+                    res := checkVL,
+                    Code.ifThenElse(res,
+                      { tmpList := emptyList },
+                      {
+                        (tmpList := tailList(tmpList))
+                          .maybeCombine(
+                            optLeft.map { left =>
+                              left := consList(headList(currentList), left)
+                            }
+                          )
+                      }
+                    )
+                  )
+                )
+              ) :+ res
+      }
 
       // We have to lift functions to the top level and not
       // create any nesting
@@ -509,7 +605,7 @@ object ClangGen {
                 for {
                   name <- getBinding(arg)
                   result <- innerToValue(in)
-                  stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
+                  stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
                 } yield stmt +: result
               }
             }
@@ -521,7 +617,7 @@ object ClangGen {
                   for {
                     name <- getAnon(idx)
                     result <- innerToValue(in)
-                    stmt <- Code.ValueLike.declareVar(name, Code.TypeIdent.BValue, v)(newLocalName)
+                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
                   } yield stmt +: result
                 }
               }
@@ -940,6 +1036,9 @@ object ClangGen {
               a <- ta
               _ <- StateT { (s: State) => result(s.copy(currentTop = None), ()) }
             } yield a
+
+          val currentTop: T[Option[(PackageName, Bindable)]] =
+            StateT { (s: State) => result(s, s.currentTop) }
 
           def staticValueName(p: PackageName, b: Bindable): T[Code.Ident] =
             monadImpl.pure(Code.Ident(Idents.escape("___bsts_s_", fullName(p, b))))
