@@ -390,6 +390,7 @@ object ClangGen {
           res <- newLocalName("result")
           tmpList <- newLocalName("tmp_list")
           declTmpList <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, tmpList, initVL)(newLocalName)
+          /*
           top <- currentTop
           _ = println(s"""in $top: searchList(
           $locMut: LocalAnonMut,
@@ -397,6 +398,7 @@ object ClangGen {
           $checkVL: Code.ValueLike,
           $optLeft: Option[LocalAnonMut]
           )""")
+          */
         } yield
             (Code
               .Statements(
@@ -412,17 +414,16 @@ object ClangGen {
                   Code.block(
                     currentList := tmpList,
                     res := checkVL,
-                    Code.ifThenElse(
-                      res,
-                      tmpList := emptyList,
-                      (
+                    Code.ifThenElse(res,
+                      { tmpList := emptyList },
+                      {
                         (tmpList := tailList(tmpList))
                           .maybeCombine(
                             optLeft.map { left =>
                               left := consList(headList(currentList), left)
                             }
                           )
-                      )
+                      }
                     )
                   )
                 )
