@@ -70,7 +70,7 @@ object Code {
       evalPlus(that)
 
     def unary_! : Expression =
-      Code.Ident("not")(this)
+      Not(this)
 
     def evalMinus(that: Expression): Expression =
       eval(Const.Minus, that)
@@ -157,6 +157,13 @@ object Code {
       case PyBool(b) =>
         if (b) trueDoc
         else falseDoc
+      case Not(n) =>
+        val nd = n match {
+          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | Apply(_, _) | DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
+            exprToDoc(n) 
+          case p => par(exprToDoc(p))
+        }
+        Doc.text("not ") + nd
       case Ident(i)                  => Doc.text(i)
       case o @ Op(_, _, _)           => o.toDoc
       case Parens(inner @ Parens(_)) => exprToDoc(inner)
@@ -280,6 +287,18 @@ object Code {
   case class Ident(name: String) extends Expression {
     def simplify: Expression = this
     def countOf(i: Ident) = if (i == this) 1 else 0
+  }
+  case class Not(arg: Expression) extends Expression {
+    def simplify: Expression =
+      arg.simplify match {
+        case Not(a) => a
+        case PyBool(b) => PyBool(true ^ b)
+        case Const.Zero => Const.True
+        case Const.One => Const.False
+        case other => Not(other)
+      }
+
+    def countOf(i: Ident) = arg.countOf(i)
   }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression)
@@ -531,7 +550,7 @@ object Code {
               notStatic
             case (Const.Zero | Const.False, Const.One | Const.True) =>
               // this is just the not(condition)
-              Code.Ident("not")(notStatic)
+              Not(notStatic)
             case (st, sf) =>
               Ternary(st, notStatic, sf)
           }
@@ -789,6 +808,7 @@ object Code {
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
       case PyInt(_) | PyString(_) | PyBool(_) => in
+      case Not(n) => Not(substitute(subMap, n))
       case i @ Ident(_) =>
         subMap.get(i) match {
           case Some(value) => value
@@ -842,6 +862,7 @@ object Code {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
         case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
+        case Not(e) => loop(e, bound)
         case i @ Ident(n) =>
           if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
