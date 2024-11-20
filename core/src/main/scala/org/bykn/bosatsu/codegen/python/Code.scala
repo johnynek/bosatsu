@@ -17,7 +17,16 @@ object Code {
   // Not necessarily code, but something that has a final value
   // this allows us to add IfElse as a an expression (which
   // is not yet valid python) a series of lets before an expression
-  sealed trait ValueLike
+  sealed trait ValueLike {
+    def returnsBool: Boolean =
+      this match {
+        case PyBool(_) => true
+        case _: Expression => false
+        case WithValue(_, v) => v.returnsBool
+        case IfElse(ifs, elseCond) =>
+          elseCond.returnsBool && ifs.forall { case (_, v) => v.returnsBool }
+      } 
+  }
 
   sealed abstract class Expression extends ValueLike with Code {
 
@@ -429,7 +438,7 @@ object Code {
         case Op(a, Const.And, b) =>
           a.simplify match {
             case Const.True  => b.simplify
-            case Const.False => Const.False
+            case as @ (Const.False | Const.Zero) => as
             case a1 =>
               b.simplify match {
                 case Const.True  => a1
@@ -520,6 +529,9 @@ object Code {
             case (Const.One | Const.True, Const.Zero | Const.False) =>
               // this is just the condition
               notStatic
+            case (Const.Zero | Const.False, Const.One | Const.True) =>
+              // this is just the not(condition)
+              Code.Ident("not")(notStatic)
             case (st, sf) =>
               Ternary(st, notStatic, sf)
           }
@@ -620,6 +632,26 @@ object Code {
       conds: NonEmptyList[(Expression, ValueLike)],
       elseCond: ValueLike
   ) extends ValueLike
+
+  object ValueLike {
+    def ifThenElse(c: Expression, t: ValueLike, e: ValueLike): ValueLike =
+      c match {
+        case PyBool(b) => if (b) t else e
+        case Const.Zero => e
+        case Const.One => t
+        case _=>
+          // we can't evaluate now
+          e match {
+            case IfElse(econds, eelse) => IfElse((c, t) :: econds, eelse)
+            case ex: Expression =>
+              t match {
+                case tx: Expression => Ternary(tx, c, ex).simplify
+                case _ => IfElse(NonEmptyList.one((c, t)), ex)
+              }
+            case notIf => IfElse(NonEmptyList.one((c, t)), notIf)
+          }
+      }
+  }
 
   /////////////////////////
   // Here are all the Statements
