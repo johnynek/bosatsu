@@ -842,8 +842,8 @@ object Code {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
         case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
-        case i @ Ident(_) =>
-          if (bound(i)) Set.empty
+        case i @ Ident(n) =>
+          if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
         case Op(left, _, right) => loop(left, bound) | loop(right, bound)
         case Parens(expr) =>
