@@ -521,7 +521,17 @@ else:
             assert(tern == f.simplify)
           }
         case whoKnows =>
-          assert(tern == Code.Ternary(t.simplify, whoKnows, f.simplify))
+          if (tern == whoKnows) {
+            (t.simplify, f.simplify) match {
+              case (Code.Const.One | Code.Const.True, Code.Const.False | Code.Const.Zero) =>
+                ()
+              case tf =>
+                fail(s"$tern == $whoKnows but (t,f) = $tf")
+            }
+          }
+          else {
+            assert(tern == Code.Ternary(t.simplify, whoKnows, f.simplify))
+          }
       }
     }
   }
