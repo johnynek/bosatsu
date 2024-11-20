@@ -192,8 +192,8 @@ object Code {
     }
 
     def declareVar[F[_]: Monad](
-      ident: Ident,
       tpe: TypeIdent,
+      ident: Ident,
       value: ValueLike)(newLocalName: String => F[Code.Ident]): F[Statement] =
         value.exprToStatement[F] { expr =>
           Monad[F].pure(DeclareVar(Nil, tpe, ident, Some(expr)))
@@ -329,8 +329,15 @@ object Code {
 
   sealed trait Statement extends Code {
     def +(stmt: Statement): Statement = Statements.combine(this, stmt)
+    def maybeCombine(that: Option[Statement]): Statement =
+      that match {
+        case Some(t) => Statements.combine(this, t)
+        case None => this
+
+      }
     def :+(vl: ValueLike): ValueLike = (this +: vl)
   }
+
   case class Assignment(target: Expression, value: Expression) extends Statement
   case class DeclareArray(tpe: TypeIdent, ident: Ident, values: Either[Int, List[Expression]]) extends Statement
   case class DeclareVar(attrs: List[Attr], tpe: TypeIdent, ident: Ident, value: Option[Expression]) extends Statement
@@ -346,6 +353,9 @@ object Code {
   object Statements {
     def apply(nel: NonEmptyList[Statement]): Statements =
       Statements(NonEmptyChain.fromNonEmptyList(nel))
+
+    def apply(first: Statement, rest: Statement*): Statements =
+      Statements(NonEmptyChain.of(first, rest: _*))
 
     def combine(first: Statement, last: Statement): Statement =
       first match {

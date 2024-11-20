@@ -1,8 +1,7 @@
 package org.bykn.bosatsu.codegen.clang
 
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.{PackageName, TestUtils, Identifier, Predef}
-import Identifier.Name
+import org.bykn.bosatsu.{PackageName, TestUtils, Identifier}
 
 class ClangGenTest extends munit.FunSuite {
   def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
