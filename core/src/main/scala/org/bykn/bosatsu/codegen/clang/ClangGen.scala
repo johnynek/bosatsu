@@ -324,7 +324,7 @@ object ClangGen {
               .flatMapN { (condV, initV) =>
                 searchList(lst, initV, condV, leftAcc)
               }
-          case ms @ MatchString(arg, parts, binds) =>
+          case ms @ MatchString(arg, parts, binds, mustMatch) =>
             // TODO: ???
             println(s"TODO: implement boolToValue($ms) returning false")
             pv(Code.FalseLit)

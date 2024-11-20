@@ -120,7 +120,8 @@ object Matchless {
   case class MatchString(
       arg: CheapExpr,
       parts: List[StrPart],
-      binds: List[LocalAnonMut]
+      binds: List[LocalAnonMut],
+      mustMatch: Boolean
   ) extends BoolExpr
   // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
@@ -132,7 +133,7 @@ object Matchless {
       case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
-      case MatchString(_, _, b) => b.nonEmpty
+      case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)          => hasSideEffect(b1) || hasSideEffect(b2)
       case SearchList(_, _, b, l) =>
         l.nonEmpty || hasSideEffect(b)
@@ -485,7 +486,7 @@ object Matchless {
               .map { binds =>
                 val ms = binds.map(_._2)
 
-                NonEmptyList.one((ms, MatchString(arg, pat, ms), binds))
+                NonEmptyList.one((ms, MatchString(arg, pat, ms, mustMatch), binds))
               }
             }
         case lp @ Pattern.ListPat(_) =>

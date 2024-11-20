@@ -330,28 +330,21 @@ object PythonGen {
 
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       (c1, c2) match {
-        case (t: Expression, c2) if t.simplify == Code.Const.True =>
-          Env.pure(c2)
+        case (e1: Expression, c2) =>
+          // and(x, y) == if x: y else: False
+          Env.pure(c2 match {
+            case _ if e1.simplify == Code.Const.True => c2
+            case e2: Expression =>
+              // both are expressions
+              // e2 if e1 else False
+              Code.Ternary(e2, e1, Code.Const.False)
+            case _ =>
+              Code.IfElse(NonEmptyList.one((e1, c2)), Code.Const.False)
+          })
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
         case _ =>
-          // we know that c2 is not a simple expression
-          // res = False
-          // if c1:
-          //   res = c2
-          Env.onLastM(c1) { x1 =>
-            for {
-              res <- Env.newAssignableVar
-              ifstmt <- ifElseS(x1, res := c2, Code.Pass)
-            } yield {
-              Code
-                .block(
-                  res := Code.Const.False,
-                  ifstmt
-                )
-                .withValue(res)
-            }
-          }
+          Env.onLastM(c1) { andCode(_, c2) }
       }
 
     def makeDef(
@@ -1257,12 +1250,12 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }.flatten
-          case MatchString(str, pat, binds) =>
+          case MatchString(str, pat, binds, mustMatch) =>
             (
               loop(str, slotName),
               binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) }
             ).mapN { (strVL, binds) =>
-              Env.onLastM(strVL)(matchString(_, pat, binds))
+              Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }.flatten
           case SearchList(locMut, init, check, optLeft) =>
             // check to see if we can find a non-empty
@@ -1276,7 +1269,8 @@ object PythonGen {
       def matchString(
           strEx: Expression,
           pat: List[StrPart],
-          binds: List[Code.Ident]
+          binds: List[Code.Ident],
+          mustMatch: Boolean
       ): Env[ValueLike] = {
         import StrPart.{LitStr, Glob, CharPart}
         val bindArray = binds.toArray
@@ -1285,18 +1279,21 @@ object PythonGen {
         def loop(
             offsetIdent: Code.Ident,
             pat: List[StrPart],
-            next: Int
+            next: Int,
+            mustMatch: Boolean
         ): Env[ValueLike] =
           pat match {
             case Nil =>
               // offset == str.length
-              Env.pure(offsetIdent =:= strEx.len())
+              if (mustMatch) Env.pure(Code.Const.True)
+              else Env.pure(offsetIdent =:= strEx.len())
             case LitStr(expect) :: tail =>
               // val len = expect.length
               // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
               //
               // strEx.startswith(expect, offsetIdent)
-              loop(offsetIdent, tail, next)
+              // note: a literal string can never be a total match, so mustMatch is false
+              loop(offsetIdent, tail, next, mustMatch = false)
                 .flatMap { loopRes =>
                   val regionMatches =
                     strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
@@ -1311,7 +1308,9 @@ object PythonGen {
                   Env.andCode(regionMatches, rest)
                 }
             case (c: CharPart) :: tail =>
-              val matches = offsetIdent :< strEx.len()
+              val matches =
+                if (mustMatch) Code.Const.True
+                else offsetIdent :< strEx.len()
               val n1 = if (c.capture) (next + 1) else next
               val stmt =
                 if (c.capture) {
@@ -1324,7 +1323,7 @@ object PythonGen {
                     .withValue(true)
                 } else (offsetIdent := offsetIdent + 1).withValue(true)
               for {
-                tailRes <- loop(offsetIdent, tail, n1)
+                tailRes <- loop(offsetIdent, tail, n1, mustMatch)
                 and2 <- Env.andCode(stmt, tailRes)
                 and1 <- Env.andCode(matches, and2)
               } yield and1
@@ -1385,7 +1384,8 @@ object PythonGen {
                     Env.newAssignableVar,
                     Env.newAssignableVar
                   ).mapN { (start, result, candidate, candOffset) =>
-                    val searchEnv = loop(candOffset, tail2, next1)
+                    // note, a literal prefix can never be a total match
+                    val searchEnv = loop(candOffset, tail2, next1, mustMatch = false)
 
                     def onSearch(search: ValueLike): Env[Statement] =
                       Env.ifElseS(
@@ -1451,7 +1451,7 @@ object PythonGen {
                   for {
                     matched <- Env.newAssignableVar
                     off1 <- Env.newAssignableVar
-                    tailMatched <- loop(off1, tail, next1)
+                    tailMatched <- loop(off1, tail, next1, mustMatch)
 
                     matchStmt = Code
                       .block(
@@ -1488,7 +1488,7 @@ object PythonGen {
 
         for {
           offsetIdent <- Env.newAssignableVar
-          res <- loop(offsetIdent, pat, 0)
+          res <- loop(offsetIdent, pat, 0, mustMatch)
         } yield (offsetIdent := 0).withValue(res)
       }
 

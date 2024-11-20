@@ -515,7 +515,14 @@ object Code {
         case PyInt(i) =>
           if (i != BigInteger.ZERO) ifTrue.simplify else ifFalse.simplify
         case notStatic =>
-          Ternary(ifTrue.simplify, notStatic, ifFalse.simplify)
+
+          (ifTrue.simplify, ifFalse.simplify) match {
+            case (Const.One | Const.True, Const.Zero | Const.False) =>
+              // this is just the condition
+              notStatic
+            case (st, sf) =>
+              Ternary(st, notStatic, sf)
+          }
       }
   }
   case class MakeTuple(args: List[Expression]) extends Expression {
