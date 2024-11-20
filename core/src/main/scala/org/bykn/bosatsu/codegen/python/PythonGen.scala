@@ -332,14 +332,16 @@ object PythonGen {
       (c1, c2) match {
         case (e1: Expression, c2) =>
           // and(x, y) == if x: y else: False
+          val s1 = e1.simplify
           Env.pure(c2 match {
-            case _ if e1.simplify == Code.Const.True => c2
+            case _ if s1 == Code.Const.True || s1 == Code.Const.One =>
+              c2
             case e2: Expression =>
               // both are expressions
               // e2 if e1 else False
-              Code.Ternary(e2, e1, Code.Const.False)
+              Code.Ternary(e2, s1, Code.Const.False)
             case _ =>
-              Code.IfElse(NonEmptyList.one((e1, c2)), Code.Const.False)
+              Code.IfElse(NonEmptyList.one((s1, c2)), Code.Const.False)
           })
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
