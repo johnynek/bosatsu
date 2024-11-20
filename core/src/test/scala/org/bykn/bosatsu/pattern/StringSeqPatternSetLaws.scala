@@ -6,12 +6,14 @@ import cats.Eq
 import org.scalacheck.Gen
 
 import SeqPattern.{Cat, Empty}
-import SeqPart.{AnyElem, Lit, Wildcard}
+import SeqPart.{AnyElem, Wildcard}
 
 import cats.implicits._
 
-class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
-  type Pattern = SeqPattern[Char]
+import StringSeqPatternGen.lit
+
+class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Int]] {
+  type Pattern = SeqPattern[Int]
   val Pattern = SeqPattern
 
   override def scalaCheckTestParameters =
@@ -66,21 +68,20 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
         }
       }
 
-  implicit val setOpsChar: SetOps[Char] = SetOps.distinct[Char]
-  val setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Char]
+  implicit val setOpsChar: SetOps[Int] = SetOps.distinct[Int]
+  val setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Int]
 
   test("subsetConsistencyLaw regressions") {
     import SeqPattern.{Cat, Empty}
-    import SeqPart.Lit
 
-    val regressions: List[(SeqPattern[Char], SeqPattern[Char])] =
+    val regressions: List[(SeqPattern[Int], SeqPattern[Int])] =
       (
-        Cat(Lit('1'), Cat(Lit('1'), Cat(Lit('1'), Cat(Lit('1'), Empty)))),
-        Cat(Lit('0'), Cat(Lit('1'), Cat(Lit('1'), Empty)))
+        Cat(lit('1'), Cat(lit('1'), Cat(lit('1'), Cat(lit('1'), Empty)))),
+        Cat(lit('0'), Cat(lit('1'), Cat(lit('1'), Empty)))
       ) ::
         (
-          Cat(Lit('1'), Cat(Lit('0'), Cat(Lit('1'), Cat(Lit('0'), Empty)))),
-          Cat(Lit('0'), Cat(Lit('1'), Empty))
+          Cat(lit('1'), Cat(lit('0'), Cat(lit('1'), Cat(lit('0'), Empty)))),
+          Cat(lit('0'), Cat(lit('1'), Empty))
         ) ::
         Nil
 
@@ -91,14 +92,14 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
 
   test("*x* problems") {
     import SeqPattern.{Cat, Empty}
-    import SeqPart.{Lit, Wildcard}
+    import SeqPart.Wildcard
 
     val x = Cat(
       Wildcard,
-      Cat(Lit('q'), Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty))))
+      Cat(lit('q'), Cat(Wildcard, Cat(lit('p'), Cat(Wildcard, Empty))))
     )
-    val y = Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))
-    val z = Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty)))
+    val y = Cat(Wildcard, Cat(lit('p'), Cat(Wildcard, Empty)))
+    val z = Cat(Wildcard, Cat(lit('q'), Cat(Wildcard, Empty)))
     // note y and z are clearly bigger than x because they are prefix/suffix that end/start with
     // Wildcard
     assert(setOps.difference(x, y).isEmpty)
@@ -107,29 +108,29 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
 
   test("(a - b) n c = (a n c) - (b n c) regressions") {
     val regressions
-        : List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
+        : List[(SeqPattern[Int], SeqPattern[Int], SeqPattern[Int])] =
       (
         Cat(Wildcard, Empty),
-        Cat(AnyElem, Cat(Lit('1'), Cat(AnyElem, Empty))),
-        Cat(AnyElem, Cat(Lit('1'), Cat(Lit('0'), Empty)))
+        Cat(AnyElem, Cat(lit('1'), Cat(AnyElem, Empty))),
+        Cat(AnyElem, Cat(lit('1'), Cat(lit('0'), Empty)))
       ) ::
         (
-          Cat(Wildcard, Cat(Lit('0'), Empty)),
-          Cat(AnyElem, Cat(Lit('1'), Cat(AnyElem, Cat(Lit('0'), Empty)))),
-          Cat(AnyElem, Cat(Lit('1'), Cat(Lit('0'), Cat(Lit('0'), Empty))))
+          Cat(Wildcard, Cat(lit('0'), Empty)),
+          Cat(AnyElem, Cat(lit('1'), Cat(AnyElem, Cat(lit('0'), Empty)))),
+          Cat(AnyElem, Cat(lit('1'), Cat(lit('0'), Cat(lit('0'), Empty))))
         ) ::
         (
-          Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty))),
+          Cat(Wildcard, Cat(lit('q'), Cat(Wildcard, Empty))),
           Cat(Wildcard, Empty),
-          Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))
+          Cat(Wildcard, Cat(lit('p'), Cat(Wildcard, Empty)))
         ) ::
         /*
          * This fails currently
          * see: https://github.com/johnynek/bosatsu/issues/486
       {
-        val p1 = Cat(Wildcard,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))
-        val p2  = Cat(AnyElem,Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
-        val p3 = Cat(Lit('1'),Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
+        val p1 = Cat(Wildcard,Cat(lit('1'),Cat(lit('0'),Cat(lit('0'),Empty))))
+        val p2  = Cat(AnyElem,Cat(lit('1'),Cat(Wildcard,Cat(lit('0'),Empty))))
+        val p3 = Cat(lit('1'),Cat(lit('1'),Cat(Wildcard,Cat(lit('0'),Empty))))
         (p1, p2, p3)
       } ::
          */
@@ -139,8 +140,8 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   }
 
   test("intersection regression") {
-    val p1 = Cat(Wildcard, Cat(Lit('0'), Cat(Lit('1'), Empty)))
-    val p2 = Cat(Lit('0'), Cat(Lit('0'), Cat(Lit('0'), Cat(Wildcard, Empty))))
+    val p1 = Cat(Wildcard, Cat(lit('0'), Cat(lit('1'), Empty)))
+    val p2 = Cat(lit('0'), Cat(lit('0'), Cat(lit('0'), Cat(Wildcard, Empty))))
 
     assert(setOps.relate(p1, p2) == Rel.Intersects)
     assert(setOps.relate(p2, p1) == Rel.Intersects)

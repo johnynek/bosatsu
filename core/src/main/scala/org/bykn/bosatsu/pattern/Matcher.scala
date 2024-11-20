@@ -39,8 +39,8 @@ object Matcher {
       }
     }
 
-  val charMatcher: Matcher[Char, Char, Unit] = eqMatcher(
-    Eq.fromUniversalEquals[Char]
+  val intMatcher: Matcher[Int, Int, Unit] = eqMatcher(
+    Eq.fromUniversalEquals[Int]
   )
 
   def fnMatch[A]: Matcher[A => Boolean, A, Unit] =

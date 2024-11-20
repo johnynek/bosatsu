@@ -2,6 +2,8 @@ package org.bykn.bosatsu.pattern
 
 import cats.Monoid
 
+import org.bykn.bosatsu.StringUtil
+
 import cats.implicits._
 
 abstract class Splitter[-Elem, Item, Sequence, R] {
@@ -25,37 +27,49 @@ abstract class Splitter[-Elem, Item, Sequence, R] {
 
 object Splitter {
   def stringSplitter[R](
-      fn: Char => R
-  )(implicit m: Monoid[R]): Splitter[Char, Char, String, R] =
-    new Splitter[Char, Char, String, R] {
+      fn: Int => R
+  )(implicit m: Monoid[R]): Splitter[Int, Int, String, R] =
+    new Splitter[Int, Int, String, R] {
       val matcher =
-        Matcher.charMatcher
+        Matcher.intMatcher
           .mapWithInput((s, _) => fn(s))
 
       val monoidResult = m
-      def positions(c: Char): String => LazyList[(String, Char, R, String)] = {
-        str =>
-          def loop(init: Int): LazyList[(String, Char, R, String)] =
-            if (init >= str.length) LazyList.empty
-            else if (str.charAt(init) == c) {
-              (
-                str.substring(0, init),
-                c,
-                fn(c),
-                str.substring(init + 1)
-              ) #:: loop(init + 1)
-            } else loop(init + 1)
+      def positions(c: Int): String => LazyList[(String, Int, R, String)] = {
+        str => {
+          def loop(strOffset: Int): LazyList[(String, Int, R, String)] =
+            if (strOffset >= str.length) LazyList.empty
+            else {
+              // we have to skip the entire codepoint
+              val cp = str.codePointAt(strOffset)
+              val csize = Character.charCount(cp)
+              if (cp == c) {
+                // this is a valid match
+                (
+                  str.substring(0, strOffset),
+                  c,
+                  fn(c),
+                  str.substring(strOffset + csize)
+                ) #:: loop(strOffset + csize)
+              } else {
+                loop(strOffset + csize)
+              }
+            }
 
           loop(0)
+        }
       }
 
-      def anySplits(str: String): LazyList[(String, Char, R, String)] =
-        (0 until str.length)
+      def anySplits(str: String): LazyList[(String, Int, R, String)] =
+        (0 until str.codePointCount(0, str.length))
           .to(LazyList)
           .map { idx =>
-            val prefix = str.substring(0, idx)
-            val post = str.substring(idx + 1)
-            val c = str.charAt(idx)
+            // we have to skip to valid offsets
+            val offset = str.offsetByCodePoints(0, idx)
+            val prefix = str.substring(0, offset)
+            val c = str.codePointAt(offset)
+            val csize = Character.charCount(c)
+            val post = str.substring(offset + csize)
             (prefix, c, fn(c), post)
           }
 
@@ -63,17 +77,27 @@ object Splitter {
 
       def uncons(s: String) =
         if (s.isEmpty) None
-        else Some((s.head, s.tail))
+        else {
+          val c = s.codePointAt(0)
+          val csize = Character.charCount(c)
+          Some((c, s.substring(csize)))
+        }
 
-      def cons(c: Char, s: String) = s"$c$s"
+      def toStr(cp: Int): String =
+        (new java.lang.StringBuilder).appendCodePoint(cp).toString
+
+      def cons(c: Int, s: String) = s"${toStr(c)}$s"
 
       def emptySeq = ""
       def catSeqs(s: List[String]) = s.mkString
-      override def toList(s: String) = s.toList
-      override def fromList(cs: List[Char]) = cs.mkString
+      override def toList(s: String) = 
+        StringUtil.codePoints(s)
+
+      override def fromList(cs: List[Int]) =
+        cs.iterator.map(toStr(_)).mkString
     }
 
-  val stringUnit: Splitter[Char, Char, String, Unit] =
+  val stringUnit: Splitter[Int, Int, String, Unit] =
     stringSplitter(_ => ())
 
   abstract class ListSplitter[P, V, R] extends Splitter[P, V, List[V], R] {

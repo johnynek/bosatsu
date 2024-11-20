@@ -45,10 +45,15 @@ object Lit {
       } else new Integer(BigInteger.valueOf(l))
   }
 
-  case class Str(toStr: String) extends Lit {
-    def unboxToAny: Any = toStr
+  // Means this lit could be the result of a string match
+  sealed abstract class StringMatchResult extends Lit {
+    def asStr: String
   }
-  case class Chr(asStr: String) extends Lit {
+  case class Str(toStr: String) extends StringMatchResult {
+    def unboxToAny: Any = toStr
+    def asStr = toStr
+  }
+  case class Chr(asStr: String) extends StringMatchResult {
     def toCodePoint: Int = asStr.codePointAt(0)
     def unboxToAny: Any = asStr
   }

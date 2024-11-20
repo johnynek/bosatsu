@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monad, Monoid}
 import cats.data.{Chain, NonEmptyList, WriterT}
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
@@ -22,66 +23,6 @@ object Matchless {
     def args: NonEmptyList[Bindable]
     def arity: Int = args.length
     def body: Expr
-  }
-
-  sealed abstract class StrPart
-  object StrPart {
-    sealed abstract class Glob(val capture: Boolean) extends StrPart
-    sealed abstract class CharPart(val capture: Boolean) extends StrPart
-    case object WildStr extends Glob(false)
-    case object IndexStr extends Glob(true)
-    case object WildChar extends CharPart(false)
-    case object IndexChar extends CharPart(true)
-    case class LitStr(asString: String) extends StrPart
-
-    sealed abstract class MatchSize(val isExact: Boolean) {
-      def charCount: Int
-      def canMatch(cp: Int): Boolean
-      // we know chars/2 <= cpCount <= chars for utf16
-      def canMatchUtf16Count(chars: Int): Boolean
-    }
-    object MatchSize {
-      case class Exactly(charCount: Int) extends MatchSize(true) {
-        def canMatch(cp: Int): Boolean = cp == charCount
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmin = chars / 2
-          val cpmax = chars
-          (cpmin <= charCount) && (charCount <= cpmax)
-        }
-      }
-      case class AtLeast(charCount: Int) extends MatchSize(false) {
-        def canMatch(cp: Int): Boolean = charCount <= cp
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmax = chars
-          // we have any cp in [cpmin, cpmax]
-          // but we require charCount <= cp
-          (charCount <= cpmax)
-        }
-      }
-
-      private val atLeast0 = AtLeast(0)
-      private val exactly0 = Exactly(0)
-      private val exactly1 = Exactly(1)
-
-      def from(sp: StrPart): MatchSize =
-        sp match {
-          case _: Glob     => atLeast0
-          case _: CharPart => exactly1
-          case LitStr(str) =>
-            Exactly(str.codePointCount(0, str.length))
-        }
-
-      def apply[F[_]: cats.Foldable](f: F[StrPart]): MatchSize =
-        cats.Foldable[F].foldMap(f)(from)
-
-      implicit val monoidMatchSize: Monoid[MatchSize] =
-        new Monoid[MatchSize] {
-          def empty: MatchSize = exactly0
-          def combine(l: MatchSize, r: MatchSize) =
-            if (l.isExact && r.isExact) Exactly(l.charCount + r.charCount)
-            else AtLeast(l.charCount + r.charCount)
-        }
-    }
   }
 
   // name is set for recursive (but not tail recursive) methods
@@ -527,10 +468,6 @@ object Matchless {
                 case Pattern.StrPart.NamedChar(n) => n
               }
 
-          val muts = sbinds.traverse { b =>
-            makeAnon.map(LocalAnonMut(_)).map((b, _))
-          }
-
           val pat = items.toList.map {
             case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
             case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
@@ -539,10 +476,13 @@ object Matchless {
             case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
           }
 
-          muts.map { binds =>
+          sbinds.traverse { b =>
+            makeAnon.map(LocalAnonMut(_)).map((b, _))
+          }
+          .map { binds =>
             val ms = binds.map(_._2)
 
-            NonEmptyList.of((ms, MatchString(arg, pat, ms), binds))
+            NonEmptyList.one((ms, MatchString(arg, pat, ms), binds))
           }
         case lp @ Pattern.ListPat(_) =>
           lp.toPositionalStruct(empty, cons) match {
@@ -817,7 +757,6 @@ object Matchless {
           (Pattern[(PackageName, Constructor), Type], Expr)
         ]
     ): F[Expr] = {
-
       def recur(
           arg: CheapExpr,
           branches: NonEmptyList[
