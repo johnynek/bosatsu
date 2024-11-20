@@ -1267,10 +1267,10 @@ object PythonGen {
           case SearchList(locMut, init, check, optLeft) =>
             // check to see if we can find a non-empty
             // list that matches check
-            (loop(init, slotName), boolExpr(check, slotName)).mapN {
+            (loop(init, slotName), boolExpr(check, slotName)).flatMapN {
               (initVL, checkVL) =>
                 searchList(locMut, initVL, checkVL, optLeft)
-            }.flatten
+            }
         }
 
       def matchString(
