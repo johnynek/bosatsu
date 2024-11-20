@@ -1451,7 +1451,9 @@ object PythonGen {
                   for {
                     matched <- Env.newAssignableVar
                     off1 <- Env.newAssignableVar
-                    tailMatched <- loop(off1, tail, next1, mustMatch)
+                    // the tail match isn't true, because we loop until we find
+                    // a case
+                    tailMatched <- loop(off1, tail, next1, false)
 
                     matchStmt = Code
                       .block(
@@ -1462,7 +1464,7 @@ object PythonGen {
                           matched := tailMatched // the tail match increments the
                         )
                       )
-                      .withValue(matched)
+                      .withValue(if (mustMatch) Code.Const.True else matched)
 
                     fullMatch <-
                       if (!h.capture) Env.pure(matchStmt)
