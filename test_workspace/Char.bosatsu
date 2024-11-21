@@ -58,11 +58,31 @@ match_tests = TestSuite("match tests",
     Assertion("abc👋👋👋" matches "${_}👋", "test matching 6"),
   ])
 
+def starts_with_foo(s): s matches "foo${_}"
+def ends_with_foo(s): s matches "${_}foo"
+def contains_foo(s): s matches "${_}foo${_}"
+def contains_foo_bar(s): s matches "${_}foo${_}bar${_}"
+
+glob_match_tests = TestSuite("glob_match_suites",
+  [
+    Assertion(starts_with_foo("foobar"), "starts_with_foo(foobar)"),
+    Assertion(starts_with_foo("barfoo") matches False, "starts_with_foo(foobar)"),
+    Assertion(ends_with_foo("foobar") matches False, "ends_with_foo(foobar)"),
+    Assertion(ends_with_foo("barfoo"), "ends_with_foo(foobar)"),
+    Assertion(contains_foo("barfoo"), "contains_foo(foobar)"),
+    Assertion(contains_foo("barbar") matches False, "contains_foo(barbar)"),
+    Assertion(contains_foo_bar("there is foo and bar"), "there is foo and bar"),
+    Assertion(contains_foo_bar("there is foobar"), "there is foobar"),
+    Assertion(contains_foo_bar("there is foo but not the other") matches False,
+      "there is foo but not the other"),
+  ])
+
 tests = TestSuite("Char tests",
   [
     str_to_char_tests,
     len_test,
     last_tests,
     match_tests,
+    glob_match_tests,
   ]
 )
