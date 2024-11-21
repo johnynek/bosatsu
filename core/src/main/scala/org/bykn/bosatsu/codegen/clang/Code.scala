@@ -323,6 +323,11 @@ object Code {
   case class Bracket(target: Expression, item: Expression) extends Expression
   case class Ternary(cond: Expression, whenTrue: Expression, whenFalse: Expression) extends Expression
 
+  object Expression {
+    implicit def expressionFromInt(i: Int): Expression =
+      IntLiteral(i)
+  }
+
   case class Param(tpe: TypeIdent, name: Ident) {
     def toDoc: Doc = TypeIdent.toDoc(tpe) + Doc.space + Doc.text(name.name)
   }

@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.{DataRepr, Type}
 import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName, PackageMap}
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -273,6 +274,16 @@ object ClangGen {
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
+      def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
+        // TODO we need copy Env.andCode from python generator here
+        // we very often simplify the code here more effectively
+        // also, if the value in a is false, we don't need to do
+        // the effects in b, and this is pretty important
+        Code.ValueLike.applyArgs(
+          Code.Ident("BSTS_AND"),
+          NonEmptyList(l, r :: Nil)
+        )(newLocalName)
+
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
@@ -308,12 +319,8 @@ object ClangGen {
             }
           case And(e1, e2) =>
             (boolToValue(e1), boolToValue(e2))
-              .flatMapN { (a, b) =>
-                Code.ValueLike.applyArgs(
-                  Code.Ident("BSTS_AND"),
-                  NonEmptyList(a, b :: Nil)
-                )(newLocalName)
-              }
+              .flatMapN { (a, b) => andCode(a, b) }
+
           case CheckVariant(expr, expect, _, _) =>
             innerToValue(expr).flatMap { vl =>
             // this is just get_variant(expr) == expect
@@ -324,10 +331,13 @@ object ClangGen {
               .flatMapN { (condV, initV) =>
                 searchList(lst, initV, condV, leftAcc)
               }
-          case ms @ MatchString(arg, parts, binds, mustMatch) =>
-            // TODO: ???
-            println(s"TODO: implement boolToValue($ms) returning false")
-            pv(Code.FalseLit)
+          case MatchString(arg, parts, binds, mustMatch) =>
+            (
+              innerToValue(arg),
+              binds.traverse { case LocalAnonMut(m) => getAnon(m) }
+            ).flatMapN { (strVL, binds) =>
+              strVL.onExpr { arg => matchString(arg, parts, binds, mustMatch) }(newLocalName)
+            }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)
@@ -335,6 +345,282 @@ object ClangGen {
             } yield (name := vl) +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
         }
+
+      def matchString(
+          strEx: Code.Expression,
+          pat: List[StrPart],
+          binds: List[Code.Ident],
+          mustMatch: Boolean
+      ): T[Code.ValueLike] = {
+        import StrPart.{LitStr, Glob, CharPart}
+        val bindArray = binds.toArray
+        // return a value like expression that contains the boolean result
+        // and assigns all the bindings along the way
+        def loop(
+            offsetIdent: Code.Ident,
+            pat: List[StrPart],
+            next: Int,
+            mustMatch: Boolean
+        ): T[Code.ValueLike] =
+          pat match {
+            case _ if mustMatch && next == bindArray.length =>
+              // we have to match and we've captured everything
+              pv(Code.TrueLit)
+            case Nil =>
+              // offset == str.length
+              if (mustMatch) pv(Code.TrueLit)
+              else {
+                //Env.pure(offsetIdent =:= strEx.len())
+                ???
+              }
+            case LitStr(expect) :: tail =>
+              // val len = expect.length
+              // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+              //
+              // strEx.startswith(expect, offsetIdent)
+              // note: a literal string can never be a total match, so mustMatch is false
+              loop(offsetIdent, tail, next, mustMatch = false)
+                .flatMap { loopRes =>
+                  val regionMatches: Code.Expression =
+                    //strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
+                    ???
+                  val rest =
+                    (
+                      offsetIdent := offsetIdent + Code.IntLiteral(expect.codePointCount(
+                        0,
+                        expect.length
+                      ))
+                    ) +: (loopRes)
+
+                  andCode(regionMatches, rest)
+                }
+            case (c: CharPart) :: tail =>
+              val matches =
+                if (mustMatch) Code.TrueLit
+                else {
+                  //offsetIdent :< strEx.len()
+                  ???
+                }
+              val n1 = if (c.capture) (next + 1) else next
+              val updateOffset =
+                offsetIdent := offsetIdent + Code.IntLiteral(1)
+
+              val stmt =
+                if (c.capture) {
+                  // b = str[offset]
+                  Code
+                    .Statements(
+                      bindArray(next) := ???, // Code.SelectItem(strEx, offsetIdent),
+                      updateOffset
+                    ) +: Code.TrueLit
+
+                } else {
+                  updateOffset +: Code.TrueLit
+                }
+              for {
+                tailRes <- loop(offsetIdent, tail, n1, mustMatch)
+                and2 <- andCode(stmt, tailRes)
+                and1 <- andCode(matches, and2)
+              } yield and1
+            case (h: Glob) :: tail =>
+              tail match {
+                case Nil =>
+                  // we capture all the rest
+                  pv(
+                    if (h.capture) {
+                      // b = str[offset:]
+                      //(bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), None))
+                      (bindArray(next) := ???) +: Code.TrueLit
+                    } else Code.TrueLit
+                  )
+                case LitStr(expect) :: tail2 =>
+                  // here we have to make a loop
+                  // searching for expect, and then see if we
+                  // can match the rest of the pattern
+                  val next1 = if (h.capture) next + 1 else next
+
+                  /*
+                   * this is the scala code for the below
+                   * it is in MatchlessToValue but left here
+                   * as an aid to read the code below
+                   *
+                  var start = offset
+                  var result = false
+                  while (start >= 0) {
+                    val candidate = str.indexOf(expect, start)
+                    if (candidate >= 0) {
+                      // we have to skip the current expect string
+                      val candidateOffset = candidate + expect.lenth
+                      val check1 = loop(candidateOffset, tail2, next1)
+                      if (check1) {
+                        // this was a match, write into next if needed
+                        if (h.capture) {
+                          results(next) = str.substring(offset, candidate)
+                        }
+                        result = true
+                        start = -1
+                      }
+                      else {
+                        // we couldn't match here, try just after candidate
+                        start = candidate + 1
+                      }
+                    }
+                    else {
+                      // no more candidates
+                      start = -1
+                    }
+                  }
+                  result
+                   */
+                  (
+                    newLocalName("start"),
+                    newLocalName("result"),
+                    newLocalName("candidate"),
+                    newLocalName("cand_offset")
+                  ).flatMapN { (start, result, candidate, candOffset) =>
+                    // note, a literal prefix can never be a total match
+                    val searchEnv = loop(candOffset, tail2, next1, mustMatch = false)
+
+                    def onSearch(search: Code.ValueLike): T[Code.Statement] =
+                      search.exprToStatement { search =>
+                        monadImpl.pure(Code.ifThenElse(search, {
+                          // we have matched
+                          val capture: Code.Statement =
+                              /*
+                              (bindArray(next) := Code.SelectRange(
+                                strEx,
+                                Some(offsetIdent),
+                                Some(candidate)
+                              ))
+                                */
+                              ???
+
+                          val after = Code.Statements(
+                            result := Code.TrueLit,
+                            start := Code.IntLiteral(-1)
+                          )
+
+                          if (h.capture) (capture + after)
+                          else after
+                        },
+                        // we couldn't match at start, advance just after the
+                        // candidate
+                        start := candidate + Code.IntLiteral.One
+                      ))
+                    }(newLocalName)
+
+                    def ifElseS(e: Code.Expression, t: Code.Statement, f: Code.Statement): T[Code.Statement] =
+                      ???
+                    def findBranch(search: Code.ValueLike): T[Code.Statement] =
+                      onSearch(search)
+                        .flatMap { onS =>
+                          ifElseS(
+                            ???, //candidate :> -1,
+                            // update candidate and search
+                            Code.block(
+                              candOffset := candidate + expect.codePointCount(
+                                0,
+                                expect.length
+                              ),
+                              onS
+                            ),
+                            // else no more candidates
+                            start := Code.IntLiteral(-1)
+                          )
+                        }
+
+                    for {
+                      search <- searchEnv
+                      find <- findBranch(search)
+                    } yield (Code
+                      .Statements(
+                        start := offsetIdent,
+                        result := Code.FalseLit,
+                        Code.While(
+                          ???, //(start :> -1),
+                          Code.block(
+                            candidate := ???, //strEx.dot(Code.Ident("find"))(expect, start),
+                            find
+                          )
+                        )
+                      ) +: result)
+                  }
+                case (_: CharPart) :: _ =>
+                  val next1 = if (h.capture) (next + 1) else next
+                  for {
+                    matched <- newLocalName("matched")
+                    off1 <- newLocalName("off1")
+                    // the tail match isn't true, because we loop until we find
+                    // a case
+                    tailMatched <- loop(off1, tail, next1, false)
+
+                    matchStmt = Code
+                      .Statements(
+                        // TODO we need to declar these in C
+                        matched := Code.FalseLit,
+                        off1 := offsetIdent,
+                        Code.While(
+                          ???, //(!matched).evalAnd(off1 :< strEx.len()),
+                          Code.block(matched := tailMatched) // the tail match increments the
+                        )
+                      ) +: (if (mustMatch) Code.TrueLit else matched)
+
+                    fullMatch <-
+                      if (!h.capture) pv(matchStmt)
+                      else {
+                          //Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
+                        val capture =
+                          (bindArray(next) := ???) +: (Code.TrueLit)
+
+                        andCode(matchStmt, capture)
+                      }
+
+                  } yield fullMatch
+                // $COVERAGE-OFF$
+                case (_: Glob) :: _ =>
+                  throw new IllegalArgumentException(
+                    s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)"
+                  )
+                // $COVERAGE-ON$
+              }
+          }
+
+        pat match {
+          // handle some common special cases
+          case (c: StrPart.CharPart) :: Nil =>
+            // single character
+            val matches = if (mustMatch) Code.TrueLit else ??? //strEx.len() =:= 1
+            if (c.capture) {
+              val stmt = bindArray(0) := ???//Code.SelectItem(strEx, 0)
+              Code.ValueLike.ifThenElseV(
+                matches,
+                stmt +: Code.TrueLit,
+                Code.FalseLit)(newLocalName)
+            }
+            else {
+              pv(matches)
+            }
+          case StrPart.WildStr :: (c: StrPart.CharPart) :: Nil =>
+            // last character
+            val matches = if (mustMatch) Code.TrueLit else ??? ///strEx.len() :> 0
+            if (c.capture) {
+              val stmt = bindArray(0) := ??? //Code.SelectItem(strEx, -1)
+              Code.ValueLike.ifThenElseV(
+                matches,
+                stmt +: Code.TrueLit,
+                Code.FalseLit)(newLocalName)
+            }
+            else {
+              pv(matches)
+            }
+          case _ =>
+            for {
+              // TODO: need to declare this
+              offsetIdent <- newLocalName("offset")
+              res <- loop(offsetIdent, pat, 0, mustMatch)
+            } yield (offsetIdent := Code.IntLiteral.Zero) +: res
+        }
+      }
 
       def searchList(
           locMut: LocalAnonMut,
