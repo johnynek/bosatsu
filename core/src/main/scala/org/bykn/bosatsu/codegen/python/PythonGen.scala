@@ -1296,9 +1296,6 @@ object PythonGen {
         val bindArray = binds.toArray
         // return a value like expression that contains the boolean result
         // and assigns all the bindings along the way
-        // TODO: we could keep track of exactOffset: Option[Int]
-        // and in some cases we know the offset we are at
-        // also, we could use pa
         def loop(
             knownPos: Option[Int],
             offsetIdent: Code.Ident,
