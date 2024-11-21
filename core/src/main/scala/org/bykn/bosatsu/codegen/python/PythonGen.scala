@@ -1418,6 +1418,7 @@ object PythonGen {
                     var npos = next
                     for {
                       pres <- Env.newAssignableVar
+                      // TODO, maybe partition isn't actually ideal here
                       cmd = pres := base.dot(Code.Ident("partition"))(expect)
                       hbind =
                         if (h.capture) {
@@ -1439,14 +1440,30 @@ object PythonGen {
                   }
                   else {
                     // this is just expect in strEx[off:]
-                    Env.pure(Code.Op(Code.PyString(expect), Code.Const.In, base))
+                    Env.pure(knownPos match {
+                      case Some(0) =>
+                        Code.Op(Code.PyString(expect), Code.Const.In, strEx)
+                      case _ =>
+                        strEx.dot(Code.Ident("find"))(expect, off) :> (-1: Expression)
+                    })
                   }
-                case LitStr(expect) :: tail2 =>
+                case LitStr(expect) :: (tail2 @ (th :: _)) =>
+                  // well formed patterns can really only
+                  // have Nil, Glob :: _, Char :: _ after LitStr
+                  // since we should have combined adjacent LitStr
+                  // 
                   // here we have to make a loop
                   // searching for expect, and then see if we
                   // can match the rest of the pattern
                   val next1 = if (h.capture) next + 1 else next
 
+                  // there is a glob before and after expect, 
+                  // so, if the tail, .*x can't match s
+                  // then it can't match any suffix of s.
+                  val shouldSearch = th match {
+                    case _: Glob => false
+                    case _ => true
+                  }
                   /*
                    * this is the scala code for the below
                    * it is in MatchlessToValue but left here
@@ -1485,7 +1502,7 @@ object PythonGen {
                     Env.newAssignableVar,
                     Env.newAssignableVar,
                     Env.newAssignableVar
-                  ).mapN { (start, result, candidate, candOffset) =>
+                  ).flatMapN { (start, result, candidate, candOffset) =>
                     // note, a literal prefix can never be a total match
                     val searchEnv = loop(knownPos1, candOffset, tail2, next1, mustMatch = false)
 
@@ -1533,21 +1550,33 @@ object PythonGen {
                     for {
                       search <- searchEnv
                       find <- findBranch(search)
-                    } yield (Code
-                      .block(
-                        start := off,
-                        result := false,
-                        Code.While(
-                          (start :> -1),
-                          Code.block(
-                            candidate := strEx
-                              .dot(Code.Ident("find"))(expect, start),
-                            find
+                    } yield if (shouldSearch) {
+                      Code
+                        .block(
+                          start := off,
+                          result := false,
+                          Code.While(
+                            (start :> -1),
+                            Code.block(
+                              candidate := strEx
+                                .dot(Code.Ident("find"))(expect, start),
+                              find
+                            )
                           )
                         )
-                      )
-                      .withValue(result))
-                  }.flatten
+                        .withValue(result)
+                    }
+                    else {
+                      Code
+                        .block(
+                          start := off,
+                          result := false,
+                          candidate := strEx.dot(Code.Ident("find"))(expect, start),
+                          find
+                        )
+                        .withValue(result)
+                    }
+                  }
                 case (c: CharPart) :: Nil =>
                   // last character
                   val matches = if (mustMatch) Code.Const.True else (strEx.len() :> off)
