@@ -277,7 +277,7 @@ object PythonGen {
       cond match {
         case cx: Expression =>
           Env.pure(Code.ValueLike.ifThenElse(cx, tCase, fCase))
-        case WithValue(cs, cv) if cv.returnsBool =>
+        case WithValue(cs, cv) =>
           // Nest into the condition
           ifElse1(cv, tCase, fCase).map(cs.withValue(_))
         case ife@ IfElse(ccond, celse) if ife.returnsBool =>
@@ -354,13 +354,16 @@ object PythonGen {
               // and(x, y) == if x: y else: False
               Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
           }
-        case (IfElse(cs, e), x2: Expression) =>
+        case (ife @ IfElse(cs, e), x2) if ife.returnsBool || x2.isInstanceOf[Expression] =>
+          // push down into the lhs since this won't increase the final branch count
           (cs.traverse { case (c, t) => andCode(t, x2).map(t => (c, t)) },
             andCode(e, x2)
           ).mapN(IfElse(_, _))
         case (WithValue(s, c1), c2) =>
           andCode(c1, c2).map(s.withValue(_))
         case _ =>
+          // we don't nest pairs of IfElse if the tails can't be evaluated now
+          // since that could cause an exponential explosion of code size
           Env.onLastM(c1) { andCode(_, c2) }
       }
 
@@ -1293,7 +1296,11 @@ object PythonGen {
         val bindArray = binds.toArray
         // return a value like expression that contains the boolean result
         // and assigns all the bindings along the way
+        // TODO: we could keep track of exactOffset: Option[Int]
+        // and in some cases we know the offset we are at
+        // also, we could use pa
         def loop(
+            knownPos: Option[Int],
             offsetIdent: Code.Ident,
             pat: List[StrPart],
             next: Int,
@@ -1305,49 +1312,70 @@ object PythonGen {
               Env.pure(Code.Const.True)
             case Nil =>
               // offset == str.length
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
               if (mustMatch) Env.pure(Code.Const.True)
-              else Env.pure(offsetIdent =:= strEx.len())
+              else Env.pure(off =:= strEx.len())
             case LitStr(expect) :: tail =>
               // val len = expect.length
               // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
               //
               // strEx.startswith(expect, offsetIdent)
               // note: a literal string can never be a total match, so mustMatch is false
-              loop(offsetIdent, tail, next, mustMatch = false)
+              val expectSize = expect.codePointCount(0, expect.length)
+              loop(knownPos.map(_ + expectSize), offsetIdent, tail, next, mustMatch = false)
                 .flatMap { loopRes =>
+                  val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
                   val regionMatches =
-                    strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
+                    strEx.dot(Code.Ident("startswith"))(expect, off)
                   val rest =
-                    (
-                      offsetIdent := offsetIdent + expect.codePointCount(
-                        0,
-                        expect.length
-                      )
-                    ).withValue(loopRes)
+                    if (tail.nonEmpty && (tail != (StrPart.WildStr :: Nil))) {
+                      // we aren't done matching
+                      (offsetIdent := offsetIdent + expectSize)
+                        .withValue(loopRes)
+                    }
+                    else {
+                      // we are done matching, no need to update offset
+                      loopRes
+                    }
 
                   Env.andCode(regionMatches, rest)
                 }
+            case (c: CharPart) :: Nil =>
+              // last character
+              val off = knownPos.fold(offsetIdent + 1) { i => (i + 1): Expression }
+              val matches = if (mustMatch) Code.Const.True else (strEx.len() =:= off)
+              if (c.capture) {
+                val stmt = bindArray(next) := Code.SelectItem(strEx, -1)
+                Env.andCode(matches, stmt.withValue(true))
+              }
+              else {
+                Env.pure(matches)
+              }
             case (c: CharPart) :: tail =>
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
               val matches =
                 if (mustMatch) Code.Const.True
-                else offsetIdent :< strEx.len()
+                else (off :< strEx.len())
               val n1 = if (c.capture) (next + 1) else next
               val stmt =
                 if (c.capture) {
                   // b = str[offset]
                   Code
                     .block(
-                      bindArray(next) := Code.SelectItem(strEx, offsetIdent),
+                      bindArray(next) := Code.SelectItem(strEx, off),
                       offsetIdent := offsetIdent + 1
                     )
                     .withValue(true)
                 } else (offsetIdent := offsetIdent + 1).withValue(true)
               for {
-                tailRes <- loop(offsetIdent, tail, n1, mustMatch)
+                tailRes <- loop(knownPos.map(_ + 1), offsetIdent, tail, n1, mustMatch)
                 and2 <- Env.andCode(stmt, tailRes)
                 and1 <- Env.andCode(matches, and2)
               } yield and1
             case (h: Glob) :: tail =>
+              // after a glob, we no longer know the knownPos
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
+              val knownPos1 = None
               tail match {
                 case Nil =>
                   // we capture all the rest
@@ -1355,10 +1383,67 @@ object PythonGen {
                     if (h.capture) {
                       // b = str[offset:]
                       (bindArray(next) := Code
-                        .SelectRange(strEx, Some(offsetIdent), None))
+                        .SelectRange(strEx, Some(off), None))
                         .withValue(true)
                     } else Code.Const.True
                   )
+                case LitStr(expect) :: Nil =>
+                  // if strEx.endswith(expect):
+                  //   h = strEx[off:-(expect.len)]
+                  val elen = expect.codePointCount(0, expect.length)
+                  val matches =
+                    if (mustMatch) Code.Const.True
+                    else strEx.dot(Code.Ident("endswith"))(Code.PyString(expect))
+
+                  if (h.capture) {
+                    Env.andCode(matches,
+                      (binds(next) := Code.SelectRange(strEx, Some(off), Some(-elen: Expression)))
+                        .withValue(true)
+                    )
+                  }
+                  else 
+                    Env.pure(matches)
+                case LitStr(expect) :: (g2: Glob) :: Nil =>
+                  // we could implement this kind of match: .*expect.*
+                  // which is partition:
+                  // (left, e, right) = strEx[offset:].partition(expect)
+                  // if e:
+                  //   h = left
+                  //   e = right
+                  //   True
+                  // else:
+                  //   False
+                  val base = knownPos match {
+                    case Some(0) => strEx
+                    case _ => Code.SelectRange(strEx, Some(off), None)
+                  }
+                  if (h.capture || g2.capture) {
+                    var npos = next
+                    for {
+                      pres <- Env.newAssignableVar
+                      cmd = pres := base.dot(Code.Ident("partition"))(expect)
+                      hbind =
+                        if (h.capture) {
+                          val b = npos
+                          npos = npos + 1
+                          binds(b) := pres.get(0)
+                        } else Code.Pass
+                      gbind =
+                        if (g2.capture) {
+                          val b = npos
+                          npos = npos + 1
+                          binds(b) := pres.get(2)
+                        } else Code.Pass
+                      cond = pres.get(1) =!= Code.PyString("")
+                      m <- Env.andCode(
+                        cmd.withValue(cond),
+                        (hbind +: gbind).withValue(true))
+                    } yield m
+                  }
+                  else {
+                    // this is just expect in strEx[off:]
+                    Env.pure(Code.Op(Code.PyString(expect), Code.Const.In, base))
+                  }
                 case LitStr(expect) :: tail2 =>
                   // here we have to make a loop
                   // searching for expect, and then see if we
@@ -1405,7 +1490,7 @@ object PythonGen {
                     Env.newAssignableVar
                   ).mapN { (start, result, candidate, candOffset) =>
                     // note, a literal prefix can never be a total match
-                    val searchEnv = loop(candOffset, tail2, next1, mustMatch = false)
+                    val searchEnv = loop(knownPos1, candOffset, tail2, next1, mustMatch = false)
 
                     def onSearch(search: ValueLike): Env[Statement] =
                       Env.ifElseS(
@@ -1415,7 +1500,7 @@ object PythonGen {
                             if (h.capture)
                               (bindArray(next) := Code.SelectRange(
                                 strEx,
-                                Some(offsetIdent),
+                                Some(off),
                                 Some(candidate)
                               ))
                             else Code.Pass
@@ -1453,7 +1538,7 @@ object PythonGen {
                       find <- findBranch(search)
                     } yield (Code
                       .block(
-                        start := offsetIdent,
+                        start := off,
                         result := false,
                         Code.While(
                           (start :> -1),
@@ -1466,6 +1551,24 @@ object PythonGen {
                       )
                       .withValue(result))
                   }.flatten
+                case (c: CharPart) :: Nil =>
+                  // last character
+                  val matches = if (mustMatch) Code.Const.True else (strEx.len() :> off)
+                  val cpart = if (c.capture) {
+                    val cnext = if (h.capture) (next + 1) else next
+                    val stmt = bindArray(cnext) := Code.SelectItem(strEx, -1)
+                    Env.andCode(matches, stmt.withValue(true))
+                  }
+                  else {
+                    Env.pure(matches)
+                  }
+                  val hpart =
+                    if (h.capture) {
+                      bindArray(next) := Code.SelectRange(strEx, Some(off), Some(-1: Expression))
+                    }
+                    else Code.Pass
+
+                  cpart.map(hpart.withValue(_))
                 case (_: CharPart) :: _ =>
                   val next1 = if (h.capture) (next + 1) else next
                   for {
@@ -1473,12 +1576,12 @@ object PythonGen {
                     off1 <- Env.newAssignableVar
                     // the tail match isn't true, because we loop until we find
                     // a case
-                    tailMatched <- loop(off1, tail, next1, false)
+                    tailMatched <- loop(knownPos1, off1, tail, next1, false)
 
                     matchStmt = Code
                       .block(
                         matched := false,
-                        off1 := offsetIdent,
+                        off1 := off,
                         Code.While(
                           (!matched).evalAnd(off1 :< strEx.len()),
                           matched := tailMatched // the tail match increments the
@@ -1492,7 +1595,7 @@ object PythonGen {
                         val capture = Code
                           .block(
                             bindArray(next) := Code
-                              .SelectRange(strEx, Some(offsetIdent), Some(off1))
+                              .SelectRange(strEx, Some(off), Some(off1))
                           )
                           .withValue(true)
                         Env.andCode(matchStmt, capture)
@@ -1508,38 +1611,10 @@ object PythonGen {
               }
           }
 
-        pat match {
-          // handle some common special cases
-          case (c: StrPart.CharPart) :: Nil =>
-            // single character
-            val matches = if (mustMatch) Code.Const.True else strEx.len() =:= 1
-            if (c.capture) {
-              val stmt = bindArray(0) := Code.SelectItem(strEx, 0)
-              Env.ifElse(
-                NonEmptyList.one((matches, stmt.withValue(true))),
-                Code.Const.False)
-            }
-            else {
-              Env.pure(matches)
-            }
-          case StrPart.WildStr :: (c: StrPart.CharPart) :: Nil =>
-            // last character
-            val matches = if (mustMatch) Code.Const.True else strEx.len() :> 0
-            if (c.capture) {
-              val stmt = bindArray(0) := Code.SelectItem(strEx, -1)
-              Env.ifElse(
-                NonEmptyList.one((matches, stmt.withValue(true))),
-                Code.Const.False)
-            }
-            else {
-              Env.pure(matches)
-            }
-          case _ =>
-            for {
-              offsetIdent <- Env.newAssignableVar
-              res <- loop(offsetIdent, pat, 0, mustMatch)
-            } yield (offsetIdent := 0).withValue(res)
-        }
+        for {
+          offsetIdent <- Env.newAssignableVar
+          res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
+        } yield (offsetIdent := 0).withValue(res)
       }
 
       def searchList(

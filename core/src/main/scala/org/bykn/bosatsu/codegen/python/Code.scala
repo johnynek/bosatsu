@@ -60,6 +60,9 @@ object Code {
     def =:=(that: Expression): Expression =
       Code.Op(this, Code.Const.Eq, that)
 
+    def =!=(that: Expression): Expression =
+      Code.Op(this, Code.Const.Neq, that)
+
     def evalAnd(that: Expression): Expression =
       eval(Const.And, that)
 
@@ -295,6 +298,10 @@ object Code {
         case PyBool(b) => PyBool(true ^ b)
         case Const.Zero => Const.True
         case Const.One => Const.False
+        case Op(left, Const.Eq, right) =>
+          Op(left, Const.Neq, right)
+        case Op(left, Const.Neq, right) =>
+          Op(left, Const.Eq, right)
         case other => Not(other)
       }
 
@@ -550,7 +557,7 @@ object Code {
               notStatic
             case (Const.Zero | Const.False, Const.One | Const.True) =>
               // this is just the not(condition)
-              Not(notStatic)
+              Not(notStatic).simplify
             case (st, sf) =>
               Ternary(st, notStatic, sf)
           }
@@ -715,6 +722,7 @@ object Code {
       lst match {
         case Nil                          => (Nil, Pass)
         case (Code.Const.True, last) :: _ => (Nil, last)
+        case (Code.Const.False, _) :: tail => untilTrue(tail)
         case head :: tail =>
           val (rest, e) = untilTrue(tail)
           (head :: rest, e)
@@ -1004,6 +1012,7 @@ object Code {
     case object Neq extends Operator("!=")
     case object Gt extends Operator(">")
     case object Lt extends Operator("<")
+    case object In extends Operator("in")
 
     val True = PyBool(true)
     val False = PyBool(false)
