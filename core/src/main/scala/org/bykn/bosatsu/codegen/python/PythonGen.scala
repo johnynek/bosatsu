@@ -347,9 +347,13 @@ object PythonGen {
 
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       (c1, c2) match {
-        case (e1: Expression, c2) =>
-          // and(x, y) == if x: y else: False
-          Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
+        case (e1: Expression, _) =>
+          c2 match {
+            case e2: Expression => Env.pure(e1.evalAnd(e2))
+            case _ =>
+              // and(x, y) == if x: y else: False
+              Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
+          }
         case (IfElse(cs, e), x2: Expression) =>
           (cs.traverse { case (c, t) => andCode(t, x2).map(t => (c, t)) },
             andCode(e, x2)
