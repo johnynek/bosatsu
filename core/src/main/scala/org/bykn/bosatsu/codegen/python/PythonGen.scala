@@ -349,19 +349,13 @@ object PythonGen {
       (c1, c2) match {
         case (e1: Expression, c2) =>
           // and(x, y) == if x: y else: False
-          val s1 = e1.simplify
-          Env.pure(c2 match {
-            case _ if s1 == Code.Const.True || s1 == Code.Const.One =>
-              c2
-            case e2: Expression =>
-              // both are expressions
-              // e2 if e1 else False
-              Code.Ternary(e2, s1, Code.Const.False).simplify
-            case _ =>
-              Code.IfElse(NonEmptyList.one((s1, c2)), Code.Const.False)
-          })
-        case (_, x2: Expression) =>
-          onLast(c1)(_.evalAnd(x2))
+          Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
+        case (IfElse(cs, e), x2: Expression) =>
+          (cs.traverse { case (c, t) => andCode(t, x2).map(t => (c, t)) },
+            andCode(e, x2)
+          ).mapN(IfElse(_, _))
+        case (WithValue(s, c1), c2) =>
+          andCode(c1, c2).map(s.withValue(_))
         case _ =>
           Env.onLastM(c1) { andCode(_, c2) }
       }
@@ -414,7 +408,7 @@ object PythonGen {
           // the rest cannot have a call in the tail position
           case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) |
               MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) |
-              PyBool(_) | PyString(_) | PyInt(_) =>
+              PyBool(_) | PyString(_) | PyInt(_) | Not(_) =>
             Env.pure(body)
         }
 
