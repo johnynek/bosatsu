@@ -465,6 +465,25 @@ object Pattern {
       }
     }
 
+    /**
+     * Convert this to simpler pattern, if possible (such
+     * as Literal, Wild, Var)
+     */
+    def simplify: Option[Pattern[Nothing, Nothing]] =
+      parts match {
+        case NonEmptyList(StrPart.WildStr, Nil) => Some(Pattern.WildCard)
+        case NonEmptyList(StrPart.NamedStr(n), Nil) => Some(Pattern.Var(n))
+        case _ =>
+          val allStrings = parts.traverse {
+            case StrPart.LitStr(s) => Some(s)
+            case _ => None
+          }
+
+          allStrings.map { strs =>
+            Pattern.Literal(Lit.Str(strs.combineAll))
+          }
+      }
+
     lazy val toNamedSeqPattern: NamedSeqPattern[Int] =
       StrPat.toNamedSeqPattern(this)
 

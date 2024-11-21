@@ -201,7 +201,7 @@ object MatchlessToValue {
               scope.updateMut(mut, exprF(scope))
               true
             }
-          case MatchString(str, pat, binds) =>
+          case MatchString(str, pat, binds, _) =>
             // do this before we evaluate the string
             binds match {
               case Nil =>

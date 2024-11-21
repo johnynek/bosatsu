@@ -17,7 +17,16 @@ object Code {
   // Not necessarily code, but something that has a final value
   // this allows us to add IfElse as a an expression (which
   // is not yet valid python) a series of lets before an expression
-  sealed trait ValueLike
+  sealed trait ValueLike {
+    def returnsBool: Boolean =
+      this match {
+        case PyBool(_) => true
+        case _: Expression => false
+        case WithValue(_, v) => v.returnsBool
+        case IfElse(ifs, elseCond) =>
+          elseCond.returnsBool && ifs.forall { case (_, v) => v.returnsBool }
+      } 
+  }
 
   sealed abstract class Expression extends ValueLike with Code {
 
@@ -61,7 +70,7 @@ object Code {
       evalPlus(that)
 
     def unary_! : Expression =
-      Code.Ident("not")(this)
+      Not(this)
 
     def evalMinus(that: Expression): Expression =
       eval(Const.Minus, that)
@@ -148,6 +157,13 @@ object Code {
       case PyBool(b) =>
         if (b) trueDoc
         else falseDoc
+      case Not(n) =>
+        val nd = n match {
+          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | Apply(_, _) | DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
+            exprToDoc(n) 
+          case p => par(exprToDoc(p))
+        }
+        Doc.text("not ") + nd
       case Ident(i)                  => Doc.text(i)
       case o @ Op(_, _, _)           => o.toDoc
       case Parens(inner @ Parens(_)) => exprToDoc(inner)
@@ -271,6 +287,18 @@ object Code {
   case class Ident(name: String) extends Expression {
     def simplify: Expression = this
     def countOf(i: Ident) = if (i == this) 1 else 0
+  }
+  case class Not(arg: Expression) extends Expression {
+    def simplify: Expression =
+      arg.simplify match {
+        case Not(a) => a
+        case PyBool(b) => PyBool(true ^ b)
+        case Const.Zero => Const.True
+        case Const.One => Const.False
+        case other => Not(other)
+      }
+
+    def countOf(i: Ident) = arg.countOf(i)
   }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression)
@@ -429,7 +457,7 @@ object Code {
         case Op(a, Const.And, b) =>
           a.simplify match {
             case Const.True  => b.simplify
-            case Const.False => Const.False
+            case as @ (Const.False | Const.Zero) => as
             case a1 =>
               b.simplify match {
                 case Const.True  => a1
@@ -515,7 +543,17 @@ object Code {
         case PyInt(i) =>
           if (i != BigInteger.ZERO) ifTrue.simplify else ifFalse.simplify
         case notStatic =>
-          Ternary(ifTrue.simplify, notStatic, ifFalse.simplify)
+
+          (ifTrue.simplify, ifFalse.simplify) match {
+            case (Const.One | Const.True, Const.Zero | Const.False) =>
+              // this is just the condition
+              notStatic
+            case (Const.Zero | Const.False, Const.One | Const.True) =>
+              // this is just the not(condition)
+              Not(notStatic)
+            case (st, sf) =>
+              Ternary(st, notStatic, sf)
+          }
       }
   }
   case class MakeTuple(args: List[Expression]) extends Expression {
@@ -613,6 +651,26 @@ object Code {
       conds: NonEmptyList[(Expression, ValueLike)],
       elseCond: ValueLike
   ) extends ValueLike
+
+  object ValueLike {
+    def ifThenElse(c: Expression, t: ValueLike, e: ValueLike): ValueLike =
+      c match {
+        case PyBool(b) => if (b) t else e
+        case Const.Zero => e
+        case Const.One => t
+        case _=>
+          // we can't evaluate now
+          e match {
+            case IfElse(econds, eelse) => IfElse((c, t) :: econds, eelse)
+            case ex: Expression =>
+              t match {
+                case tx: Expression => Ternary(tx, c, ex).simplify
+                case _ => IfElse(NonEmptyList.one((c, t)), ex)
+              }
+            case notIf => IfElse(NonEmptyList.one((c, t)), notIf)
+          }
+      }
+  }
 
   /////////////////////////
   // Here are all the Statements
@@ -750,6 +808,7 @@ object Code {
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
       case PyInt(_) | PyString(_) | PyBool(_) => in
+      case Not(n) => Not(substitute(subMap, n))
       case i @ Ident(_) =>
         subMap.get(i) match {
           case Some(value) => value
@@ -803,8 +862,9 @@ object Code {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
         case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
-        case i @ Ident(_) =>
-          if (bound(i)) Set.empty
+        case Not(e) => loop(e, bound)
+        case i @ Ident(n) =>
+          if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
         case Op(left, _, right) => loop(left, bound) | loop(right, bound)
         case Parens(expr) =>

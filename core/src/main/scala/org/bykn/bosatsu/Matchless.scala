@@ -120,7 +120,8 @@ object Matchless {
   case class MatchString(
       arg: CheapExpr,
       parts: List[StrPart],
-      binds: List[LocalAnonMut]
+      binds: List[LocalAnonMut],
+      mustMatch: Boolean
   ) extends BoolExpr
   // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
@@ -132,7 +133,7 @@ object Matchless {
       case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
-      case MatchString(_, _, b) => b.nonEmpty
+      case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)          => hasSideEffect(b1) || hasSideEffect(b2)
       case SearchList(_, _, b, l) =>
         l.nonEmpty || hasSideEffect(b)
@@ -458,32 +459,36 @@ object Matchless {
           doesMatch(arg, p, mustMatch).map(_.map { case (l0, cond, bs) =>
             (l0, cond, (v, arg) :: bs)
           })
-        case Pattern.StrPat(items) =>
-          val sbinds: List[Bindable] =
-            items.toList
-              .collect {
-                // that each name is distinct
-                // should be checked in the SourceConverter/TotalityChecking code
-                case Pattern.StrPart.NamedStr(n)  => n
-                case Pattern.StrPart.NamedChar(n) => n
+        case strPat @ Pattern.StrPat(items) =>
+          strPat.simplify match {
+            case Some(simpler) => doesMatch(arg, simpler, mustMatch)
+            case None =>
+              val sbinds: List[Bindable] =
+                items.toList
+                  .collect {
+                    // that each name is distinct
+                    // should be checked in the SourceConverter/TotalityChecking code
+                    case Pattern.StrPart.NamedStr(n)  => n
+                    case Pattern.StrPart.NamedChar(n) => n
+                  }
+
+              val pat = items.toList.map {
+                case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
+                case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
+                case Pattern.StrPart.WildStr      => StrPart.WildStr
+                case Pattern.StrPart.WildChar     => StrPart.WildChar
+                case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
               }
 
-          val pat = items.toList.map {
-            case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
-            case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
-            case Pattern.StrPart.WildStr      => StrPart.WildStr
-            case Pattern.StrPart.WildChar     => StrPart.WildChar
-            case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
-          }
+              sbinds.traverse { b =>
+                makeAnon.map(LocalAnonMut(_)).map((b, _))
+              }
+              .map { binds =>
+                val ms = binds.map(_._2)
 
-          sbinds.traverse { b =>
-            makeAnon.map(LocalAnonMut(_)).map((b, _))
-          }
-          .map { binds =>
-            val ms = binds.map(_._2)
-
-            NonEmptyList.one((ms, MatchString(arg, pat, ms), binds))
-          }
+                NonEmptyList.one((ms, MatchString(arg, pat, ms, mustMatch), binds))
+              }
+            }
         case lp @ Pattern.ListPat(_) =>
           lp.toPositionalStruct(empty, cons) match {
             case Right(p) => doesMatch(arg, p, mustMatch)

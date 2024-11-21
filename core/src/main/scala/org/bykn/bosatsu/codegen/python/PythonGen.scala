@@ -269,43 +269,51 @@ object PythonGen {
         // $COVERAGE-ON$
       }
 
-    def ifElse(
-        conds: NonEmptyList[(ValueLike, ValueLike)],
-        elseV: ValueLike
-    ): Env[ValueLike] =
-      // for all the non-expression conditions, we need to defer evaluating them
-      // until they are really needed
-      conds match {
-        case NonEmptyList((cx: Expression, t), Nil) =>
-          (t, elseV) match {
-            case (tx: Expression, elseX: Expression) =>
-              Env.pure(Ternary(tx, cx, elseX).simplify)
-            case _ =>
-              Env.pure(IfElse(NonEmptyList.one((cx, t)), elseV))
-          }
-        case NonEmptyList((cx: Expression, t), rh :: rt) =>
-          val head = (cx, t)
-          ifElse(NonEmptyList(rh, rt), elseV).map {
-            case IfElse(crest, er) =>
-              // preserve IfElse chains
-              IfElse(head :: crest, er)
-            case nestX: Expression =>
-              t match {
-                case tx: Expression =>
-                  Ternary(tx, cx, nestX).simplify
-                case _ =>
-                  IfElse(NonEmptyList.one(head), nestX)
-              }
-            case nest =>
-              IfElse(NonEmptyList.one(head), nest)
-          }
-        case NonEmptyList((cx, t), rest) =>
+    def ifElse1(
+        cond: ValueLike,
+        tCase: ValueLike,
+        fCase: ValueLike): Env[ValueLike] =
+
+      cond match {
+        case cx: Expression =>
+          Env.pure(Code.ValueLike.ifThenElse(cx, tCase, fCase))
+        case WithValue(cs, cv) if cv.returnsBool =>
+          // Nest into the condition
+          ifElse1(cv, tCase, fCase).map(cs.withValue(_))
+        case ife@ IfElse(ccond, celse) if ife.returnsBool =>
+          // this is basically the distributive property over if/else
+          // if (if (c) then x else y) then z else w ==
+          // if (c) then (if x then z else w) else (if y then z else w)
+          (ccond.traverse { case (c, ct) =>
+            ifElse1(ct, tCase, fCase)  
+              .map(r => (c, r))
+          }, ifElse1(celse, tCase, fCase))
+            .flatMapN { (conds, elseCase) =>
+              ifElse(conds, elseCase)  
+            }
+        case _ =>
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
-            res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield (cv := cx).withValue(res)
+            res <- ifElse1(cv, tCase, fCase)
+          } yield (cv := cond).withValue(res)
       }
+
+    def ifElse(
+        conds: NonEmptyList[(ValueLike, ValueLike)],
+        elseV: ValueLike
+    ): Env[ValueLike] = {
+      // for all the non-expression conditions, we need to defer evaluating them
+      // until they are really needed
+      val (c, t) = conds.head
+      NonEmptyList.fromList(conds.tail) match {
+        case Some(rest) =>
+          ifElse(rest, elseV).flatMap { fcase =>
+            ifElse1(c, t, fcase)
+          }
+        case None => ifElse1(c, t, elseV)
+      }
+    }
 
     def ifElseS(
         cond: ValueLike,
@@ -316,6 +324,15 @@ object PythonGen {
         case x: Expression => Env.pure(Code.ifElseS(x, thenS, elseS))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
+        case ife @ IfElse(ifs, elseCond) if ife.returnsBool =>
+          // every branch has a statically known boolean result
+          (ifs.traverse { case (cond, t) =>
+            ifElseS(t, thenS, elseS)  
+              .map(s => (cond, s))
+          }, ifElseS(elseCond, thenS, elseS))
+            .mapN { (ifs, elseCond) =>
+              Code.ifStatement(ifs, Some(elseCond))
+            }
         case v =>
           // this is a branch, don't multiply code by writing on each
           // branch, that could give an exponential blowup
@@ -330,28 +347,21 @@ object PythonGen {
 
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       (c1, c2) match {
-        case (t: Expression, c2) if t.simplify == Code.Const.True =>
-          Env.pure(c2)
-        case (_, x2: Expression) =>
-          onLast(c1)(_.evalAnd(x2))
-        case _ =>
-          // we know that c2 is not a simple expression
-          // res = False
-          // if c1:
-          //   res = c2
-          Env.onLastM(c1) { x1 =>
-            for {
-              res <- Env.newAssignableVar
-              ifstmt <- ifElseS(x1, res := c2, Code.Pass)
-            } yield {
-              Code
-                .block(
-                  res := Code.Const.False,
-                  ifstmt
-                )
-                .withValue(res)
-            }
+        case (e1: Expression, _) =>
+          c2 match {
+            case e2: Expression => Env.pure(e1.evalAnd(e2))
+            case _ =>
+              // and(x, y) == if x: y else: False
+              Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
           }
+        case (IfElse(cs, e), x2: Expression) =>
+          (cs.traverse { case (c, t) => andCode(t, x2).map(t => (c, t)) },
+            andCode(e, x2)
+          ).mapN(IfElse(_, _))
+        case (WithValue(s, c1), c2) =>
+          andCode(c1, c2).map(s.withValue(_))
+        case _ =>
+          Env.onLastM(c1) { andCode(_, c2) }
       }
 
     def makeDef(
@@ -395,14 +405,14 @@ object PythonGen {
           case Ternary(ifTrue, cond, ifFalse) =>
             // both results are in the tail position
             (loop(ifTrue), loop(ifFalse)).mapN { (t, f) =>
-              ifElse(NonEmptyList.one((cond, t)), f)
+              ifElse1(cond, t, f)
             }.flatten
           case WithValue(stmt, v) =>
             loop(v).map(stmt.withValue(_))
           // the rest cannot have a call in the tail position
           case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) |
               MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) |
-              PyBool(_) | PyString(_) | PyInt(_) =>
+              PyBool(_) | PyString(_) | PyInt(_) | Not(_) =>
             Env.pure(body)
         }
 
@@ -1257,12 +1267,12 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }.flatten
-          case MatchString(str, pat, binds) =>
+          case MatchString(str, pat, binds, mustMatch) =>
             (
               loop(str, slotName),
               binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) }
             ).mapN { (strVL, binds) =>
-              Env.onLastM(strVL)(matchString(_, pat, binds))
+              Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }.flatten
           case SearchList(locMut, init, check, optLeft) =>
             // check to see if we can find a non-empty
@@ -1276,7 +1286,8 @@ object PythonGen {
       def matchString(
           strEx: Expression,
           pat: List[StrPart],
-          binds: List[Code.Ident]
+          binds: List[Code.Ident],
+          mustMatch: Boolean
       ): Env[ValueLike] = {
         import StrPart.{LitStr, Glob, CharPart}
         val bindArray = binds.toArray
@@ -1285,18 +1296,24 @@ object PythonGen {
         def loop(
             offsetIdent: Code.Ident,
             pat: List[StrPart],
-            next: Int
+            next: Int,
+            mustMatch: Boolean
         ): Env[ValueLike] =
           pat match {
+            case _ if mustMatch && next == bindArray.length =>
+              // we have to match and we've captured everything
+              Env.pure(Code.Const.True)
             case Nil =>
               // offset == str.length
-              Env.pure(offsetIdent =:= strEx.len())
+              if (mustMatch) Env.pure(Code.Const.True)
+              else Env.pure(offsetIdent =:= strEx.len())
             case LitStr(expect) :: tail =>
               // val len = expect.length
               // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
               //
               // strEx.startswith(expect, offsetIdent)
-              loop(offsetIdent, tail, next)
+              // note: a literal string can never be a total match, so mustMatch is false
+              loop(offsetIdent, tail, next, mustMatch = false)
                 .flatMap { loopRes =>
                   val regionMatches =
                     strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
@@ -1311,7 +1328,9 @@ object PythonGen {
                   Env.andCode(regionMatches, rest)
                 }
             case (c: CharPart) :: tail =>
-              val matches = offsetIdent :< strEx.len()
+              val matches =
+                if (mustMatch) Code.Const.True
+                else offsetIdent :< strEx.len()
               val n1 = if (c.capture) (next + 1) else next
               val stmt =
                 if (c.capture) {
@@ -1324,7 +1343,7 @@ object PythonGen {
                     .withValue(true)
                 } else (offsetIdent := offsetIdent + 1).withValue(true)
               for {
-                tailRes <- loop(offsetIdent, tail, n1)
+                tailRes <- loop(offsetIdent, tail, n1, mustMatch)
                 and2 <- Env.andCode(stmt, tailRes)
                 and1 <- Env.andCode(matches, and2)
               } yield and1
@@ -1385,7 +1404,8 @@ object PythonGen {
                     Env.newAssignableVar,
                     Env.newAssignableVar
                   ).mapN { (start, result, candidate, candOffset) =>
-                    val searchEnv = loop(candOffset, tail2, next1)
+                    // note, a literal prefix can never be a total match
+                    val searchEnv = loop(candOffset, tail2, next1, mustMatch = false)
 
                     def onSearch(search: ValueLike): Env[Statement] =
                       Env.ifElseS(
@@ -1451,7 +1471,9 @@ object PythonGen {
                   for {
                     matched <- Env.newAssignableVar
                     off1 <- Env.newAssignableVar
-                    tailMatched <- loop(off1, tail, next1)
+                    // the tail match isn't true, because we loop until we find
+                    // a case
+                    tailMatched <- loop(off1, tail, next1, false)
 
                     matchStmt = Code
                       .block(
@@ -1462,7 +1484,7 @@ object PythonGen {
                           matched := tailMatched // the tail match increments the
                         )
                       )
-                      .withValue(matched)
+                      .withValue(if (mustMatch) Code.Const.True else matched)
 
                     fullMatch <-
                       if (!h.capture) Env.pure(matchStmt)
@@ -1486,10 +1508,38 @@ object PythonGen {
               }
           }
 
-        for {
-          offsetIdent <- Env.newAssignableVar
-          res <- loop(offsetIdent, pat, 0)
-        } yield (offsetIdent := 0).withValue(res)
+        pat match {
+          // handle some common special cases
+          case (c: StrPart.CharPart) :: Nil =>
+            // single character
+            val matches = if (mustMatch) Code.Const.True else strEx.len() =:= 1
+            if (c.capture) {
+              val stmt = bindArray(0) := Code.SelectItem(strEx, 0)
+              Env.ifElse(
+                NonEmptyList.one((matches, stmt.withValue(true))),
+                Code.Const.False)
+            }
+            else {
+              Env.pure(matches)
+            }
+          case StrPart.WildStr :: (c: StrPart.CharPart) :: Nil =>
+            // last character
+            val matches = if (mustMatch) Code.Const.True else strEx.len() :> 0
+            if (c.capture) {
+              val stmt = bindArray(0) := Code.SelectItem(strEx, -1)
+              Env.ifElse(
+                NonEmptyList.one((matches, stmt.withValue(true))),
+                Code.Const.False)
+            }
+            else {
+              Env.pure(matches)
+            }
+          case _ =>
+            for {
+              offsetIdent <- Env.newAssignableVar
+              res <- loop(offsetIdent, pat, 0, mustMatch)
+            } yield (offsetIdent := 0).withValue(res)
+        }
       }
 
       def searchList(
