@@ -36,7 +36,7 @@ jobs:
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate python code"
-        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --lang python --outdir pyout  --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir pyout python --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
       - name: "run python tests"
         run: "PYTHONPATH=$PYTHONPATH:$(pwd)/test_workspace:$(pwd)/pyout python3 -m unittest discover pyout -v --pattern \"*.py\""
     strategy:
@@ -127,7 +127,7 @@ jobs:
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
-        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --lang c --outdir c_out"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c"
       - name: "compile generated c code"
         run: |
           cp c_runtime/* c_out

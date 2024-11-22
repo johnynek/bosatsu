@@ -1,12 +1,25 @@
 package org.bykn.bosatsu.codegen.clang
 
-import cats.data.NonEmptyList
+import cats.Traverse
+import cats.data.{Const, NonEmptyList}
+import com.monovore.decline.{Argument, Opts}
 import org.bykn.bosatsu.codegen.Transpiler
 import org.bykn.bosatsu.{Identifier, MatchlessFromTypedExpr, PackageName, PackageMap, Par}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 
 case object ClangTranspiler extends Transpiler {
+
+  case class Arguments()
+  type Args[P] = Const[Arguments, P]
+
+  def traverseArgs: Traverse[Args] = implicitly
+
+  def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]] =
+    Opts.subcommand("c", "generate c code") {
+      Opts(Transpiler.optioned(this)(Const[Arguments, P](Arguments())))
+    }
+
   case class GenError(error: ClangGen.Error) extends Exception(s"clang gen error: ${error.display.render(80)}")
 
   case class CircularPackagesFound(loop: NonEmptyList[PackageName])
@@ -14,17 +27,12 @@ case object ClangTranspiler extends Transpiler {
       loop.map(_.asString).toList.mkString(", ")
     }")
 
-  def name = "c"
-
-  def externalsFor(pm: PackageMap.Typed[Any], arg: List[String]): ClangGen.ExternalResolver =
-    // TODO: we shouldn't take the arg at the higher level, but customizing args
-    // for backends hasn't be implemented yet
+  def externalsFor(pm: PackageMap.Typed[Any]): ClangGen.ExternalResolver =
     ClangGen.ExternalResolver.stdExternals(pm)
 
   def renderAll(
       pm: PackageMap.Typed[Any],
-      externals: List[String],
-      evaluators: List[String]
+      args: Args[String]
   )(implicit ec: Par.EC): Try[List[(NonEmptyList[String], Doc)]] = {
     // we have to render the code in sorted order
     val sorted = pm.topoSort
@@ -33,7 +41,7 @@ case object ClangTranspiler extends Transpiler {
       case None =>
         val matchlessMap = MatchlessFromTypedExpr.compile(pm)
 
-        val ext = externalsFor(pm, externals)
+        val ext = externalsFor(pm)
         val doc = ClangGen.renderMain(
           sortedEnv = cats.Functor[Vector]
             .compose[NonEmptyList]
