@@ -2,21 +2,67 @@ package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
 import cats.implicits.catsKernelOrderingForOrder
-import org.bykn.bosatsu.{Package, PackageMap, Par, Parser, MatchlessFromTypedExpr}
+import cats.{Eval, Traverse}
+import com.monovore.decline.{Argument, Opts}
+import org.bykn.bosatsu.CollectionUtils.listToUnique
 import org.bykn.bosatsu.codegen.Transpiler
+import org.bykn.bosatsu.{Package, PackageMap, Par, Parser, MatchlessFromTypedExpr}
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
-import org.bykn.bosatsu.CollectionUtils.listToUnique
+import cats.syntax.all._
 
 case object PythonTranspiler extends Transpiler {
-  val name: String = "python"
+  case class Arguments[P](externals: List[P], evaluators: List[P])
+
+  type Args[P] = Arguments[P]
+  def traverseArgs: Traverse[Args] =
+    new Traverse[Args] {
+      def foldLeft[A, B](fa: Args[A], b: B)(f: (B, A) => B): B = {
+        import fa._
+        evaluators.foldLeft(externals.foldLeft(b)(f))(f)
+      }
+
+      def foldRight[A, B](fa: Args[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = {
+        import fa._
+        externals.foldRight(evaluators.foldRight(lb)(f))(f)
+      }
+
+      def traverse[G[_], A, B](fa: Args[A])(f: A => G[B])(implicit evidence$1: cats.Applicative[G]): G[Args[B]] = {
+        import fa._
+        (externals.traverse(f), evaluators.traverse(f)).mapN(Arguments(_, _))
+      }
+    }
+
+  // this gives the argument for reading files into strings
+  // this is a bit limited, but good enough for now
+  def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]] =
+    Opts.subcommand("python", "generate python code") {
+      implicit val impPathArg: Argument[P] = pathArg
+        (Opts
+          .options[P](
+            "externals",
+            help =
+              "external descriptors the transpiler uses to rewrite external defs"
+          )
+          .orEmpty,
+          Opts
+            .options[P](
+              "evaluators",
+              help = "evaluators which run values of certain types"
+            )
+            .orEmpty
+        )
+        .mapN(Arguments(_, _))
+        .map { arg => Transpiler.optioned(this)(arg) }
+    }
 
   def renderAll(
       pm: PackageMap.Typed[Any],
-      externals: List[String],
-      evaluators: List[String]
+      args: Args[String]
   )(implicit ec: Par.EC): Try[List[(NonEmptyList[String], Doc)]] = {
+
+    import args._
 
     val cmp = MatchlessFromTypedExpr.compile(pm)
     Try {

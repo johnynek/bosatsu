@@ -600,17 +600,11 @@ abstract class MainModule[IO[_]](implicit
       }
     }
 
-    val transOpt: Opts[Transpiler] = {
-      val allTrans: List[Transpiler] =
-        codegen.python.PythonTranspiler ::
-        codegen.clang.ClangTranspiler ::
-        Nil
-
-      implicit val arg = Transpiler.argumentFromTranspilers(allTrans)
-
-      Opts.option[Transpiler]("lang",
-        s"language to transpile to (${allTrans.map(_.name).sorted.mkString(", ")})")
-    }
+    val transOpt: Opts[Transpiler.Optioned[Path]] =
+      cats.Alternative[Opts].combineAllK(
+        codegen.python.PythonTranspiler.opts(pathArg) ::
+        codegen.clang.ClangTranspiler.opts(pathArg) ::
+        Nil)
 
     sealed abstract class JsonInput {
       def read: IO[String]
@@ -864,13 +858,10 @@ abstract class MainModule[IO[_]](implicit
     case class TranspileCommand(
         inputs: Inputs.Runtime,
         errColor: Colorize,
-        generator: Transpiler,
-        outDir: Path,
-        exts: List[Path],
-        evals: List[Path]
+        generator: Transpiler.Optioned[Path],
+        outDir: Path
     ) extends MainCommand("transpile") {
 
-      // case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
       type Result = Output.TranspileOut
 
       def run =
@@ -878,9 +869,8 @@ abstract class MainModule[IO[_]](implicit
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            extStrs <- exts.traverse(readPath)
-            evalStrs <- evals.traverse(readPath)
-            dataTry = generator.renderAll(packs, extStrs, evalStrs)
+            optString <- generator.traverse(readPath)
+            dataTry = optString.transpiler.renderAll(packs, optString.args)
             data <- moduleIOMonad.fromTry(dataTry)
           } yield Output.TranspileOut(data, outDir)
         }
@@ -1381,22 +1371,9 @@ abstract class MainModule[IO[_]](implicit
         Opts.option[Path](
           "outdir",
           help = "directory to write all output into"
-        ),
-        Opts
-          .options[Path](
-            "externals",
-            help =
-              "external descriptors the transpiler uses to rewrite external defs"
-          )
-          .orEmpty,
-        Opts
-          .options[Path](
-            "evaluators",
-            help = "evaluators which run values of certain types"
-          )
-          .orEmpty
+        )
       )
-        .mapN(TranspileCommand(_, _, _, _, _, _))
+      .mapN(TranspileCommand(_, _, _, _))
 
       val evalOpt = (Inputs.runtimeOpts, mainP, colorOpt)
         .mapN(Evaluate(_, _, _))
