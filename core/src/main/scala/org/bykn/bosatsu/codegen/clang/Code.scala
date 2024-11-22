@@ -144,6 +144,10 @@ object Code {
     def /(that: Expression): Expression = bin(BinOp.Div, that)
     def unary_! : Expression = PrefixExpr(PrefixUnary.Not, this)
     def =:=(that: Expression): Expression = bin(BinOp.Eq, that)
+    def :<(that: Expression): Expression = bin(BinOp.Lt, that)
+    def :>(that: Expression): Expression = bin(BinOp.Gt, that)
+
+    def &&(that: Expression): Expression = bin(BinOp.And, that)
 
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
@@ -174,7 +178,6 @@ object Code {
           loop(args.tail, NonEmptyList.one(hexpr))
         }(newLocalName)
       }(newLocalName)
-
 
     def declareArray[F[_]: Monad](ident: Ident, tpe: TypeIdent, values: List[ValueLike])(newLocalName: String => F[Code.Ident]): F[Statement] = {
       def loop(values: List[ValueLike], acc: List[Expression]): F[Statement] =
@@ -383,6 +386,12 @@ object Code {
   case class Include(quote: Boolean, filename: String) extends Statement
 
   val returnVoid: Statement = Return(None)
+
+  def declareInt(ident: Ident, init: Option[Int]): Statement =
+    DeclareVar(Nil, TypeIdent.Int, ident, init.map(IntLiteral(_)))
+
+  def declareBool(ident: Ident, init: Option[Boolean]): Statement =
+    DeclareVar(Nil, TypeIdent.Bool, ident, init.map(if (_) TrueLit else FalseLit))
 
   def block(item: Statement, rest: Statement*): Block =
     item match {
