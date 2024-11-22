@@ -531,10 +531,9 @@ object Package {
       pack.program._2(n)
 
     def filterLets(fn: Identifier => Boolean): Typed[A] = {
-      val lets = pack.program._1.lets
-      val prog1: Program[TypeEnv[Kind.Arg], TypedExpr[A], Any] =
-        pack.program._1.copy(lets = lets.filter { case (b, _, _) => fn(b) })
-      pack.copy(program = (prog1, pack.program._2))
+      val (prog, importMap) = pack.program
+      val prog1 = prog.copy(lets = prog.lets.filter { case (b, _, _) => fn(b) })
+      pack.copy(program = (prog1, importMap))
     }
   }
 

@@ -92,6 +92,7 @@ object PackageMap {
 
   def treeShake[A](p: Typed[A], roots: Set[(PackageName, Identifier)]): Typed[A] = {
     type Ident = (PackageName, Identifier)
+
     def dependency(a: Ident): Iterable[Ident] =
       p.toMap.get(a._1) match {
         case Some(pack) =>
