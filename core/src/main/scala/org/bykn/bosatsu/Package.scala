@@ -64,16 +64,17 @@ object Package {
   type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
   type Resolved =
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+  type TypedProgram[T] = (
+        Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+        ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
+    )
   type Typed[T] = Package[
     Interface,
     NonEmptyList[Referant[Kind.Arg]],
     Referant[
       Kind.Arg
     ],
-    (
-        Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
-        ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
-    )
+    TypedProgram[T]
   ]
   type Inferred = Typed[Declaration]
 
@@ -528,6 +529,12 @@ object Package {
       (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])
     ] =
       pack.program._2(n)
+
+    def filterLets(fn: Identifier => Boolean): Typed[A] = {
+      val (prog, importMap) = pack.program
+      val prog1 = prog.copy(lets = prog.lets.filter { case (b, _, _) => fn(b) })
+      pack.copy(program = (prog1, importMap))
+    }
   }
 
   def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =
