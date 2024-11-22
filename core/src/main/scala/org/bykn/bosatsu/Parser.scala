@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import cats.parse.{Parser0 => P0, Parser => P}
+import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
@@ -480,4 +481,23 @@ object Parser {
     def parser[A](p: P[A]): P[MaybeTupleOrParens[A]] =
       tupleOrParens(p) | p.map(Bare(_))
   }
+
+  def argFromParser[A](
+      p: P0[A],
+      defmeta: String,
+      typeName: String,
+      suggestion: String
+  ): Argument[A] =
+    new Argument[A] {
+      def defaultMetavar: String = defmeta
+      def read(string: String): ValidatedNel[String, A] =
+        p.parseAll(string) match {
+          case Right(a) => Validated.valid(a)
+          case _ =>
+            val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
+            Validated.invalidNel(
+              s"could not parse $string as a $typeName." + sugSpace
+            )
+        }
+    }
 }

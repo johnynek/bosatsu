@@ -127,7 +127,7 @@ jobs:
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
-        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test"
       - name: "compile generated c code"
         run: |
           cp c_runtime/* c_out

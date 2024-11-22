@@ -54,6 +54,15 @@ case class PackageMap[A, B, C, +D](
       })
     }.toMap
 
+  def testValues(
+    implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  ): Map[PackageName, Identifier.Bindable] =
+    toMap.iterator.flatMap { case (n, pack) =>
+      Package.testValue(ev(pack)).iterator.map { case (bn, _, _) =>
+        (n, bn)
+      }
+    }.toMap
+
   def topoSort(
     implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Toposort.Result[PackageName] = {

@@ -4,6 +4,7 @@ import cats.Order
 import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser => P}
+import com.monovore.decline.Argument
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
@@ -41,4 +42,12 @@ object PackageName {
 
   val PredefName: PackageName =
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
+
+  implicit val argPack: Argument[PackageName] =
+    Parser.argFromParser(
+      parser,
+      "packageName",
+      "package name",
+      "Must be capitalized strings separated by /"
+    )
 }

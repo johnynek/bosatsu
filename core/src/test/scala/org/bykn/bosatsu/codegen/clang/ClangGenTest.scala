@@ -23,8 +23,7 @@ x = 1
           NonEmptyList.one(PackageName.PredefName -> matchlessMap(PackageName.PredefName)),
         ),
         externals = ClangGen.ExternalResolver.FromJvmExternals,
-        value = (PackageName.PredefName, Identifier.Name(fns.last)),
-        evaluator = (Code.Include(true, "eval.h"), Code.Ident("evaluator_run"))
+        value = (PackageName.PredefName, Identifier.Name(fns.last))
       )
 
       res match {

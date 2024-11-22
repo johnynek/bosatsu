@@ -6,6 +6,7 @@ import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
+import org.bykn.bosatsu.Parser.argFromParser
 
 import codegen.Transpiler
 
@@ -1235,33 +1236,6 @@ abstract class MainModule[IO[_]](implicit
       }
 
     val opts: Opts[MainCommand] = {
-
-      def argFromParser[A](
-          p: P0[A],
-          defmeta: String,
-          typeName: String,
-          suggestion: String
-      ): Argument[A] =
-        new Argument[A] {
-          def defaultMetavar: String = defmeta
-          def read(string: String): ValidatedNel[String, A] =
-            p.parseAll(string) match {
-              case Right(a) => Validated.valid(a)
-              case _ =>
-                val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
-                Validated.invalidNel(
-                  s"could not parse $string as a $typeName." + sugSpace
-                )
-            }
-        }
-
-      implicit val argPack: Argument[PackageName] =
-        argFromParser(
-          PackageName.parser,
-          "packageName",
-          "package name",
-          "Must be capitalized strings separated by /"
-        )
 
       implicit val argValue: Argument[(PackageName, Option[Bindable])] =
         argFromParser(
