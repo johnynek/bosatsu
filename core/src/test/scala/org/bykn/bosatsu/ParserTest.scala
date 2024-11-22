@@ -14,7 +14,7 @@ import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
 import Parser.{optionParse, unsafeParse, Indy}
 
-import Generators.{shrinkDecl, shrinkStmt}
+import Generators.{shrinkDecl, shrinkStmt, genCodePoints}
 import org.scalatest.funsuite.AnyFunSuite
 
 trait ParseFns {
@@ -271,24 +271,6 @@ class ParserTest extends ParserTestBase {
       StringUtil.utf16Codepoint.repAs(StringUtil.codePointAccumulator) | P.pure(
         ""
       )
-    val genCodePoints: Gen[Int] =
-      Gen.frequency(
-        (10, Gen.choose(0, 0xd7ff)),
-        (
-          1,
-          Gen.choose(0, 0x10ffff).filterNot { cp =>
-            (0xd800 <= cp && cp <= 0xdfff)
-          }
-        )
-      )
-
-    // .codePoints isn't available in scalajs
-    def jsCompatCodepoints(s: String): List[Int] =
-      if (s.isEmpty) Nil
-      else
-        (s.codePointAt(0) :: jsCompatCodepoints(
-          s.substring(s.offsetByCodePoints(0, 1))
-        ))
 
     forAll(Gen.listOf(genCodePoints)) { cps =>
       val strbuilder = new java.lang.StringBuilder
@@ -300,8 +282,8 @@ class ParserTest extends ParserTestBase {
       assert(parsed == Right(str))
 
       assert(
-        parsed.map(jsCompatCodepoints) == Right(cps),
-        s"hex = $hex, str = ${jsCompatCodepoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}"
+        parsed.map(StringUtil.codePoints) == Right(cps),
+        s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}"
       )
     }
   }

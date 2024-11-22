@@ -75,7 +75,7 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
 }}
 
 BValue call_fn{size}(BValue fn, {arg_params}) {{
-  if (IS_STATIC_VALUE(fn)) {{
+  if (IS_PURE_VALUE(fn)) {{
     BPureFn{size} pfn = (BPureFn{size})TO_POINTER(fn);
     return pfn({just_args});
   }}
@@ -85,10 +85,6 @@ BValue call_fn{size}(BValue fn, {arg_params}) {{
     BValue* data = closure_data_of({cast_to_1}rc);
     return rc->fn(data, {just_args});
   }}
-}}
-
-BValue value_from_pure_fn{size}(BPureFn{size} fn) {{
-  return (BValue)(((uintptr_t)fn) | STATIC_VALUE_TAG);
 }}"""
   cast_to_1 = "" if size == 1 else "(Closure1Data*)"
   arg_params = ", ".join("BValue arg{i}".format(i = i) for i in range(size))

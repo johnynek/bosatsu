@@ -16,6 +16,16 @@ class IdentsTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("allSimpleIdents escape to identity") {
+    Idents.allSimpleIdents.take(10000).foreach { str =>
+      assertEquals(Idents.escape("", str), str)  
+    }
+  }
+
+  test("allSimpleIdents are distinct") {
+    assertEquals(Idents.allSimpleIdents.take(10000).toSet.size, 10000)
+  }
+
   property("escape starts with prefix") {
     forAll { (prefix: String, content: String) =>
       assert(Idents.escape(prefix, content).startsWith(prefix))

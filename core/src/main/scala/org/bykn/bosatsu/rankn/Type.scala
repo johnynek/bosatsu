@@ -923,6 +923,15 @@ object Type {
       else None
     }
 
+    object MaybeQuant {
+      def unapply(t: Type): Option[(Option[Quantification], NonEmptyList[Type], Type)] =
+        t match {
+          case Quantified(quant, Fun(args, res)) => Some((Some(quant), args, res))
+          case Fun(args, res) => Some((None, args, res))
+          case _ => None
+        }
+    }
+
     def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {
       def check(
           n: Int,

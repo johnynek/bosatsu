@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.data.{Ior, Validated}
-import cats.implicits._
+import cats.data.{Ior, Validated, NonEmptyList}
+import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 
 import Assertions.{succeed, fail}
 import IorMethods.IorExtension
+
+import cats.syntax.all._
 
 object TestUtils {
 
@@ -98,6 +100,57 @@ object TestUtils {
         fn(program.lets.last._3)
     }
   }
+
+  def checkMatchless[A](
+      statement: String
+  )(fn: Map[PackageName, List[(Identifier.Bindable, Matchless.Expr)]] => A): A = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
+      case Validated.Invalid(errs) =>
+        val lm = LocationMap(statement)
+        val packMap = Map((testPackage, (lm, statement)))
+        val msg = errs.toList
+          .map { err =>
+            err.message(packMap, LocationMap.Colorize.None)
+          }
+          .mkString("", "\n==========\n", "\n")
+        sys.error("inference failure: " + msg)
+      case Validated.Valid(program) =>
+        // make sure all the TypedExpr are valid
+        program.lets.foreach { case (_, _, te) => assertValid(te) }
+        val pack: Package.Typed[Declaration] = Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+        val pm: PackageMap.Typed[Declaration] = PackageMap.empty + pack + PackageMap.predefCompiled
+        val srv = Par.newService()
+        try {
+          implicit val ec = Par.ecFromService(srv)
+          val comp = MatchlessFromTypedExpr.compile(pm)
+          fn(comp)
+        }
+        finally Par.shutdownService(srv)
+    }
+  }
+
+  def compileFile(path: String, rest: String*)(implicit ec: Par.EC): PackageMap.Typed[Any] = {
+    def toS(s: String): String =
+      new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
+
+    val packNEL =
+      NonEmptyList(path, rest.toList)
+        .map { s =>
+          val str = toS(s)
+          val pack = Parser.unsafeParse(Package.parser(None), str)
+          (("", LocationMap(str)), pack)
+        }
+
+    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
+    res.left match {
+      case Some(err) => sys.error(err.toString)
+      case None      => ()
+    }
+
+    res.right.get
+  }
+
 
   def makeInputArgs(files: List[(Int, Any)]): List[String] =
     ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap {

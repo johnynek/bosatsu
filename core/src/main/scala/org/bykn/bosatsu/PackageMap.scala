@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import org.bykn.bosatsu.graph.{Dag, Memoize}
+import org.bykn.bosatsu.graph.{Dag, Memoize, Toposort}
 import cats.{Foldable, Monad, Show}
 import cats.data.{
   Ior,
@@ -45,10 +45,31 @@ case class PackageMap[A, B, C, +D](
 
   def allExternals(implicit
       ev: Package[A, B, C, D] <:< Package.Typed[Any]
-  ): Map[PackageName, List[Identifier.Bindable]] =
+  ): Map[PackageName, List[(Identifier.Bindable, rankn.Type)]] =
     toMap.iterator.map { case (name, pack) =>
-      (name, ev(pack).externalDefs)
+      val tpack = ev(pack)
+      (name, tpack.externalDefs.map { n =>
+        (n, tpack.types.getExternalValue(name, n)
+          .getOrElse(sys.error(s"invariant violation, unknown type: $name $n")) )
+      })
     }.toMap
+
+  def topoSort(
+    implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  ): Toposort.Result[PackageName] = {
+
+    val packNames = toMap.keys.iterator.toList.sorted
+
+    def nfn(p: PackageName): List[PackageName] =
+      toMap.get(p) match {
+        case None => Nil
+        case Some(pack) =>
+          val tpack = ev(pack)
+          tpack.imports.map(_.pack.name).sorted
+      }
+
+    Toposort.sort(packNames)(nfn)
+  }
 }
 
 object PackageMap {

@@ -3,50 +3,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 
-/*
-There are a few kinds of values:
-
-1. pure values: small ints, characters, small strings that can fit into 63 bits.
-2. pointers to referenced counted values
-3. pointers to static values stack allocated at startup
-
-to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
-boundaries:
-  a. ends with 1: pure value
-  b. ends with 10: static pointer (allocated once and deleteds at the end of the world)
-  c. ends with 00: refcount pointer.
-
-We need to know which case we are in because in generic context we need to know
-how to clone values.
-*/
-#define TAG_MASK 0x3
-#define PURE_VALUE_TAG 0x1
-#define STATIC_VALUE_TAG 0x3
-#define POINTER_TAG 0x0
-
-// Utility macros to check the tag of a value
-#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & PURE_VALUE_TAG) == PURE_VALUE_TAG)
-#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 1)
-#define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
-#define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
-#define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
-
-#define DEFINE_RC_STRUCT(name, fields) \
-    struct name { \
-      atomic_int ref_count; \
-      FreeFn free; \
-      fields \
-    }; \
-    typedef struct name name
-
-#define DEFINE_RC_ENUM(name, fields) \
-    struct name { \
-      atomic_int ref_count; \
-      FreeFn free; \
-      ENUM_TAG tag; \
-      fields \
-    }; \
-    typedef struct name name
+#define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
 DEFINE_RC_STRUCT(RefCounted,);
 
@@ -77,6 +34,9 @@ void free_closure(Closure1Data* s) {
 DEFINE_RC_ENUM(Enum0,);
 
 DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
+
+DEFINE_RC_STRUCT(BSTS_String, size_t len; char* bytes;);
+
 // A general structure for a reference counted memory block
 // it is always allocated with len BValue array immediately after
 typedef struct _Node {
@@ -177,6 +137,27 @@ void* get_external(BValue v) {
   return rc->external;
 }
 
+void free_string(void* str) {
+  BSTS_String* casted = (BSTS_String*)str;
+  free(casted->bytes);
+  free(str);
+}
+
+// this copies the bytes in, it does not take ownership
+BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
+  BSTS_String* str = malloc(sizeof(BSTS_String));
+  char* bytes_copy = malloc(sizeof(char) * len);
+  for(size_t i = 0; i < len; i++) {
+    bytes_copy[i] = bytes[i];
+  }
+  str->len = len;
+  str->bytes = bytes_copy;
+  atomic_init(&str->ref_count, 1);
+  str->free = (FreeFn)free_string;
+
+  return (BValue)str;
+}
+
 // Function to determine the type of the given value pointer and clone if necessary
 BValue clone_value(BValue value) {
     if (IS_POINTER(value)) {
@@ -227,11 +208,34 @@ BValue make_static(BValue v) {
   return v;
 }
 
+BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
+    BValue result = atomic_load(target);
+    if (result == NULL) {
+        result = cons();
+        BValue static_version = make_static(result);
+        BValue expected = NULL;
+        do {
+            if (atomic_compare_exchange_weak(target, &expected, static_version)) {
+                free_on_close(result);
+                break;
+            } else {
+                expected = atomic_load(target);
+                if (expected != NULL) {
+                    release_value(result);
+                    result = expected;
+                    break;
+                }
+            }
+        } while (1);
+    }
+    return result;
+}
+
 // Example static
 BValue make_foo();
 static _Atomic BValue __bvalue_foo = NULL;
 // Add this to the main function to construct all
 // the top level values before we start
 BValue foo() {
-  return CONSTRUCT(&__bvalue_foo, make_foo);
+  return read_or_build(&__bvalue_foo, make_foo);
 }

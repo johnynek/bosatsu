@@ -9,9 +9,9 @@ import org.bykn.bosatsu.{
   Matchless,
   Par,
   Parser,
-  RecursionKind
 }
 import org.bykn.bosatsu.codegen.Idents
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 
@@ -86,7 +86,7 @@ object PythonGen {
             case other             =>
               // $COVERAGE-OFF$
               throw new IllegalStateException(
-                s"unexpected deref: $b with bindings: $other"
+                s"unexpected deref: $b with bindings: $other, in $this"
               )
             // $COVERAGE-ON$
           }
@@ -269,43 +269,51 @@ object PythonGen {
         // $COVERAGE-ON$
       }
 
-    def ifElse(
-        conds: NonEmptyList[(ValueLike, ValueLike)],
-        elseV: ValueLike
-    ): Env[ValueLike] =
-      // for all the non-expression conditions, we need to defer evaluating them
-      // until they are really needed
-      conds match {
-        case NonEmptyList((cx: Expression, t), Nil) =>
-          (t, elseV) match {
-            case (tx: Expression, elseX: Expression) =>
-              Env.pure(Ternary(tx, cx, elseX).simplify)
-            case _ =>
-              Env.pure(IfElse(NonEmptyList.one((cx, t)), elseV))
-          }
-        case NonEmptyList((cx: Expression, t), rh :: rt) =>
-          val head = (cx, t)
-          ifElse(NonEmptyList(rh, rt), elseV).map {
-            case IfElse(crest, er) =>
-              // preserve IfElse chains
-              IfElse(head :: crest, er)
-            case nestX: Expression =>
-              t match {
-                case tx: Expression =>
-                  Ternary(tx, cx, nestX).simplify
-                case _ =>
-                  IfElse(NonEmptyList.one(head), nestX)
-              }
-            case nest =>
-              IfElse(NonEmptyList.one(head), nest)
-          }
-        case NonEmptyList((cx, t), rest) =>
+    def ifElse1(
+        cond: ValueLike,
+        tCase: ValueLike,
+        fCase: ValueLike): Env[ValueLike] =
+
+      cond match {
+        case cx: Expression =>
+          Env.pure(Code.ValueLike.ifThenElse(cx, tCase, fCase))
+        case WithValue(cs, cv) =>
+          // Nest into the condition
+          ifElse1(cv, tCase, fCase).map(cs.withValue(_))
+        case ife@ IfElse(ccond, celse) if ife.returnsBool =>
+          // this is basically the distributive property over if/else
+          // if (if (c) then x else y) then z else w ==
+          // if (c) then (if x then z else w) else (if y then z else w)
+          (ccond.traverse { case (c, ct) =>
+            ifElse1(ct, tCase, fCase)  
+              .map(r => (c, r))
+          }, ifElse1(celse, tCase, fCase))
+            .flatMapN { (conds, elseCase) =>
+              ifElse(conds, elseCase)  
+            }
+        case _ =>
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
-            res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield (cv := cx).withValue(res)
+            res <- ifElse1(cv, tCase, fCase)
+          } yield (cv := cond).withValue(res)
       }
+
+    def ifElse(
+        conds: NonEmptyList[(ValueLike, ValueLike)],
+        elseV: ValueLike
+    ): Env[ValueLike] = {
+      // for all the non-expression conditions, we need to defer evaluating them
+      // until they are really needed
+      val (c, t) = conds.head
+      NonEmptyList.fromList(conds.tail) match {
+        case Some(rest) =>
+          ifElse(rest, elseV).flatMap { fcase =>
+            ifElse1(c, t, fcase)
+          }
+        case None => ifElse1(c, t, elseV)
+      }
+    }
 
     def ifElseS(
         cond: ValueLike,
@@ -316,6 +324,15 @@ object PythonGen {
         case x: Expression => Env.pure(Code.ifElseS(x, thenS, elseS))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
+        case ife @ IfElse(ifs, elseCond) if ife.returnsBool =>
+          // every branch has a statically known boolean result
+          (ifs.traverse { case (cond, t) =>
+            ifElseS(t, thenS, elseS)  
+              .map(s => (cond, s))
+          }, ifElseS(elseCond, thenS, elseS))
+            .mapN { (ifs, elseCond) =>
+              Code.ifStatement(ifs, Some(elseCond))
+            }
         case v =>
           // this is a branch, don't multiply code by writing on each
           // branch, that could give an exponential blowup
@@ -330,28 +347,24 @@ object PythonGen {
 
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       (c1, c2) match {
-        case (t: Expression, c2) if t.simplify == Code.Const.True =>
-          Env.pure(c2)
-        case (_, x2: Expression) =>
-          onLast(c1)(_.evalAnd(x2))
-        case _ =>
-          // we know that c2 is not a simple expression
-          // res = False
-          // if c1:
-          //   res = c2
-          Env.onLastM(c1) { x1 =>
-            for {
-              res <- Env.newAssignableVar
-              ifstmt <- ifElseS(x1, res := c2, Code.Pass)
-            } yield {
-              Code
-                .block(
-                  res := Code.Const.False,
-                  ifstmt
-                )
-                .withValue(res)
-            }
+        case (e1: Expression, _) =>
+          c2 match {
+            case e2: Expression => Env.pure(e1.evalAnd(e2))
+            case _ =>
+              // and(x, y) == if x: y else: False
+              Env.pure(Code.ValueLike.ifThenElse(e1, c2, Code.Const.False))
           }
+        case (ife @ IfElse(cs, e), x2) if ife.returnsBool || x2.isInstanceOf[Expression] =>
+          // push down into the lhs since this won't increase the final branch count
+          (cs.traverse { case (c, t) => andCode(t, x2).map(t => (c, t)) },
+            andCode(e, x2)
+          ).mapN(IfElse(_, _))
+        case (WithValue(s, c1), c2) =>
+          andCode(c1, c2).map(s.withValue(_))
+        case _ =>
+          // we don't nest pairs of IfElse if the tails can't be evaluated now
+          // since that could cause an exponential explosion of code size
+          Env.onLastM(c1) { andCode(_, c2) }
       }
 
     def makeDef(
@@ -395,14 +408,14 @@ object PythonGen {
           case Ternary(ifTrue, cond, ifFalse) =>
             // both results are in the tail position
             (loop(ifTrue), loop(ifFalse)).mapN { (t, f) =>
-              ifElse(NonEmptyList.one((cond, t)), f)
+              ifElse1(cond, t, f)
             }.flatten
           case WithValue(stmt, v) =>
             loop(v).map(stmt.withValue(_))
           // the rest cannot have a call in the tail position
           case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) |
               MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) |
-              PyBool(_) | PyString(_) | PyInt(_) =>
+              PyBool(_) | PyString(_) | PyInt(_) | Not(_) =>
             Env.pure(body)
         }
 
@@ -506,7 +519,7 @@ object PythonGen {
 
     // if we have a top level let rec with the same name, handle it more cleanly
     me match {
-      case Let(Right((n1, RecursionKind.NonRecursive)), inner, Local(n2))
+      case Let(Right(n1), inner, Local(n2))
           if ((n1 === name) && (n2 === name)) =>
         // we can just bind now at the top level
         for {
@@ -515,12 +528,6 @@ object PythonGen {
             case fn: FnExpr => ops.topFn(nm, fn, None)
             case _          => ops.loop(inner, None).map(nm := _)
           }
-        } yield res
-      case Let(Right((n1, RecursionKind.Recursive)), fn: FnExpr, Local(n2))
-          if (n1 === name) && (n2 === name) =>
-        for {
-          nm <- Env.topLevelName(name)
-          res <- ops.topFn(nm, fn, None)
         } yield res
       case fn: FnExpr =>
         for {
@@ -1263,78 +1270,109 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }.flatten
-          case MatchString(str, pat, binds) =>
+          case MatchString(str, pat, binds, mustMatch) =>
             (
               loop(str, slotName),
               binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) }
             ).mapN { (strVL, binds) =>
-              Env.onLastM(strVL)(matchString(_, pat, binds))
+              Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }.flatten
           case SearchList(locMut, init, check, optLeft) =>
             // check to see if we can find a non-empty
             // list that matches check
-            (loop(init, slotName), boolExpr(check, slotName)).mapN {
+            (loop(init, slotName), boolExpr(check, slotName)).flatMapN {
               (initVL, checkVL) =>
                 searchList(locMut, initVL, checkVL, optLeft)
-            }.flatten
+            }
         }
 
       def matchString(
           strEx: Expression,
           pat: List[StrPart],
-          binds: List[Code.Ident]
+          binds: List[Code.Ident],
+          mustMatch: Boolean
       ): Env[ValueLike] = {
         import StrPart.{LitStr, Glob, CharPart}
         val bindArray = binds.toArray
         // return a value like expression that contains the boolean result
         // and assigns all the bindings along the way
         def loop(
+            knownPos: Option[Int],
             offsetIdent: Code.Ident,
             pat: List[StrPart],
-            next: Int
+            next: Int,
+            mustMatch: Boolean
         ): Env[ValueLike] =
           pat match {
+            case _ if mustMatch && next == bindArray.length =>
+              // we have to match and we've captured everything
+              Env.pure(Code.Const.True)
             case Nil =>
               // offset == str.length
-              Env.pure(offsetIdent =:= strEx.len())
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
+              if (mustMatch) Env.pure(Code.Const.True)
+              else Env.pure(off =:= strEx.len())
             case LitStr(expect) :: tail =>
               // val len = expect.length
               // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
               //
               // strEx.startswith(expect, offsetIdent)
-              loop(offsetIdent, tail, next)
+              // note: a literal string can never be a total match, so mustMatch is false
+              val expectSize = expect.codePointCount(0, expect.length)
+              loop(knownPos.map(_ + expectSize), offsetIdent, tail, next, mustMatch = false)
                 .flatMap { loopRes =>
+                  val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
                   val regionMatches =
-                    strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
+                    strEx.dot(Code.Ident("startswith"))(expect, off)
                   val rest =
-                    (
-                      offsetIdent := offsetIdent + expect.codePointCount(
-                        0,
-                        expect.length
-                      )
-                    ).withValue(loopRes)
+                    if (tail.nonEmpty && (tail != (StrPart.WildStr :: Nil))) {
+                      // we aren't done matching
+                      (offsetIdent := offsetIdent + expectSize)
+                        .withValue(loopRes)
+                    }
+                    else {
+                      // we are done matching, no need to update offset
+                      loopRes
+                    }
 
                   Env.andCode(regionMatches, rest)
                 }
+            case (c: CharPart) :: Nil =>
+              // last character
+              val off = knownPos.fold(offsetIdent + 1) { i => (i + 1): Expression }
+              val matches = if (mustMatch) Code.Const.True else (strEx.len() =:= off)
+              if (c.capture) {
+                val stmt = bindArray(next) := Code.SelectItem(strEx, -1)
+                Env.andCode(matches, stmt.withValue(true))
+              }
+              else {
+                Env.pure(matches)
+              }
             case (c: CharPart) :: tail =>
-              val matches = offsetIdent :< strEx.len()
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
+              val matches =
+                if (mustMatch) Code.Const.True
+                else (off :< strEx.len())
               val n1 = if (c.capture) (next + 1) else next
               val stmt =
                 if (c.capture) {
                   // b = str[offset]
                   Code
                     .block(
-                      bindArray(next) := Code.SelectItem(strEx, offsetIdent),
+                      bindArray(next) := Code.SelectItem(strEx, off),
                       offsetIdent := offsetIdent + 1
                     )
                     .withValue(true)
                 } else (offsetIdent := offsetIdent + 1).withValue(true)
               for {
-                tailRes <- loop(offsetIdent, tail, n1)
+                tailRes <- loop(knownPos.map(_ + 1), offsetIdent, tail, n1, mustMatch)
                 and2 <- Env.andCode(stmt, tailRes)
                 and1 <- Env.andCode(matches, and2)
               } yield and1
             case (h: Glob) :: tail =>
+              // after a glob, we no longer know the knownPos
+              val off = knownPos.fold(offsetIdent: Expression) { i => (i: Expression) }
+              val knownPos1 = None
               tail match {
                 case Nil =>
                   // we capture all the rest
@@ -1342,16 +1380,90 @@ object PythonGen {
                     if (h.capture) {
                       // b = str[offset:]
                       (bindArray(next) := Code
-                        .SelectRange(strEx, Some(offsetIdent), None))
+                        .SelectRange(strEx, Some(off), None))
                         .withValue(true)
                     } else Code.Const.True
                   )
-                case LitStr(expect) :: tail2 =>
+                case LitStr(expect) :: Nil =>
+                  // if strEx.endswith(expect):
+                  //   h = strEx[off:-(expect.len)]
+                  val elen = expect.codePointCount(0, expect.length)
+                  val matches =
+                    if (mustMatch) Code.Const.True
+                    else strEx.dot(Code.Ident("endswith"))(Code.PyString(expect))
+
+                  if (h.capture) {
+                    Env.andCode(matches,
+                      (binds(next) := Code.SelectRange(strEx, Some(off), Some(-elen: Expression)))
+                        .withValue(true)
+                    )
+                  }
+                  else 
+                    Env.pure(matches)
+                case LitStr(expect) :: (g2: Glob) :: Nil =>
+                  // we could implement this kind of match: .*expect.*
+                  // which is partition:
+                  // (left, e, right) = strEx[offset:].partition(expect)
+                  // if e:
+                  //   h = left
+                  //   e = right
+                  //   True
+                  // else:
+                  //   False
+                  val base = knownPos match {
+                    case Some(0) => strEx
+                    case _ => Code.SelectRange(strEx, Some(off), None)
+                  }
+                  if (h.capture || g2.capture) {
+                    var npos = next
+                    for {
+                      pres <- Env.newAssignableVar
+                      // TODO, maybe partition isn't actually ideal here
+                      cmd = pres := base.dot(Code.Ident("partition"))(expect)
+                      hbind =
+                        if (h.capture) {
+                          val b = npos
+                          npos = npos + 1
+                          binds(b) := pres.get(0)
+                        } else Code.Pass
+                      gbind =
+                        if (g2.capture) {
+                          val b = npos
+                          npos = npos + 1
+                          binds(b) := pres.get(2)
+                        } else Code.Pass
+                      cond = pres.get(1) =!= Code.PyString("")
+                      m <- Env.andCode(
+                        cmd.withValue(cond),
+                        (hbind +: gbind).withValue(true))
+                    } yield m
+                  }
+                  else {
+                    // this is just expect in strEx[off:]
+                    Env.pure(knownPos match {
+                      case Some(0) =>
+                        Code.Op(Code.PyString(expect), Code.Const.In, strEx)
+                      case _ =>
+                        strEx.dot(Code.Ident("find"))(expect, off) :> (-1: Expression)
+                    })
+                  }
+                case LitStr(expect) :: (tail2 @ (th :: _)) =>
+                  // well formed patterns can really only
+                  // have Nil, Glob :: _, Char :: _ after LitStr
+                  // since we should have combined adjacent LitStr
+                  // 
                   // here we have to make a loop
                   // searching for expect, and then see if we
                   // can match the rest of the pattern
                   val next1 = if (h.capture) next + 1 else next
 
+                  // there is a glob before and after expect, 
+                  // so, if the tail, .*x can't match s
+                  // then it can't match any suffix of s.
+                  val shouldSearch = th match {
+                    case _: Glob => false
+                    case _ => true
+                  }
                   /*
                    * this is the scala code for the below
                    * it is in MatchlessToValue but left here
@@ -1390,8 +1502,9 @@ object PythonGen {
                     Env.newAssignableVar,
                     Env.newAssignableVar,
                     Env.newAssignableVar
-                  ).mapN { (start, result, candidate, candOffset) =>
-                    val searchEnv = loop(candOffset, tail2, next1)
+                  ).flatMapN { (start, result, candidate, candOffset) =>
+                    // note, a literal prefix can never be a total match
+                    val searchEnv = loop(knownPos1, candOffset, tail2, next1, mustMatch = false)
 
                     def onSearch(search: ValueLike): Env[Statement] =
                       Env.ifElseS(
@@ -1401,7 +1514,7 @@ object PythonGen {
                             if (h.capture)
                               (bindArray(next) := Code.SelectRange(
                                 strEx,
-                                Some(offsetIdent),
+                                Some(off),
                                 Some(candidate)
                               ))
                             else Code.Pass
@@ -1437,38 +1550,70 @@ object PythonGen {
                     for {
                       search <- searchEnv
                       find <- findBranch(search)
-                    } yield (Code
-                      .block(
-                        start := offsetIdent,
-                        result := false,
-                        Code.While(
-                          (start :> -1),
-                          Code.block(
-                            candidate := strEx
-                              .dot(Code.Ident("find"))(expect, start),
-                            find
+                    } yield if (shouldSearch) {
+                      Code
+                        .block(
+                          start := off,
+                          result := false,
+                          Code.While(
+                            (start :> -1),
+                            Code.block(
+                              candidate := strEx
+                                .dot(Code.Ident("find"))(expect, start),
+                              find
+                            )
                           )
                         )
-                      )
-                      .withValue(result))
-                  }.flatten
+                        .withValue(result)
+                    }
+                    else {
+                      Code
+                        .block(
+                          start := off,
+                          result := false,
+                          candidate := strEx.dot(Code.Ident("find"))(expect, start),
+                          find
+                        )
+                        .withValue(result)
+                    }
+                  }
+                case (c: CharPart) :: Nil =>
+                  // last character
+                  val matches = if (mustMatch) Code.Const.True else (strEx.len() :> off)
+                  val cpart = if (c.capture) {
+                    val cnext = if (h.capture) (next + 1) else next
+                    val stmt = bindArray(cnext) := Code.SelectItem(strEx, -1)
+                    Env.andCode(matches, stmt.withValue(true))
+                  }
+                  else {
+                    Env.pure(matches)
+                  }
+                  val hpart =
+                    if (h.capture) {
+                      bindArray(next) := Code.SelectRange(strEx, Some(off), Some(-1: Expression))
+                    }
+                    else Code.Pass
+
+                  cpart.map(hpart.withValue(_))
                 case (_: CharPart) :: _ =>
                   val next1 = if (h.capture) (next + 1) else next
                   for {
                     matched <- Env.newAssignableVar
                     off1 <- Env.newAssignableVar
-                    tailMatched <- loop(off1, tail, next1)
+                    // the tail match isn't true, because we loop until we find
+                    // a case
+                    tailMatched <- loop(knownPos1, off1, tail, next1, false)
 
                     matchStmt = Code
                       .block(
                         matched := false,
-                        off1 := offsetIdent,
+                        off1 := off,
                         Code.While(
                           (!matched).evalAnd(off1 :< strEx.len()),
                           matched := tailMatched // the tail match increments the
                         )
                       )
-                      .withValue(matched)
+                      .withValue(if (mustMatch) Code.Const.True else matched)
 
                     fullMatch <-
                       if (!h.capture) Env.pure(matchStmt)
@@ -1476,7 +1621,7 @@ object PythonGen {
                         val capture = Code
                           .block(
                             bindArray(next) := Code
-                              .SelectRange(strEx, Some(offsetIdent), Some(off1))
+                              .SelectRange(strEx, Some(off), Some(off1))
                           )
                           .withValue(true)
                         Env.andCode(matchStmt, capture)
@@ -1494,7 +1639,7 @@ object PythonGen {
 
         for {
           offsetIdent <- Env.newAssignableVar
-          res <- loop(offsetIdent, pat, 0)
+          res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
         } yield (offsetIdent := 0).withValue(res)
       }
 
@@ -1624,20 +1769,22 @@ object PythonGen {
 
       def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
-          case Lambda(captures, _, args, res) =>
-            // we ignore name because python already supports recursion
-            // we can use topLevelName on makeDefs since they are already
-            // shadowing in the same rules as bosatsu
+          case Lambda(captures, recName, args, res) =>
+            val defName = recName match {
+              case None => Env.newAssignableVar
+              case Some(n) => Env.bind(n)
+            }
             (
               args.traverse(Env.topLevelName(_)),
+              defName,
               makeSlots(captures, slotName)(loop(res, _))
             )
               .flatMapN {
-                case (args, (None, x: Expression)) =>
+                case (args, _, (None, x: Expression)) if recName.isEmpty =>
                   Env.pure(Code.Lambda(args.toList, x))
-                case (args, (prefix, v)) =>
+                case (args, defName, (prefix, v)) =>
                   for {
-                    defName <- Env.newAssignableVar
+                    _ <- recName.fold(Monad[Env].unit)(Env.unbind(_))
                     defn = Env.makeDef(defName, args, v)
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
@@ -1656,7 +1803,7 @@ object PythonGen {
             }
 
             for {
-              nameI <- Env.deref(thisName)
+              nameI <- Env.bind(thisName)
               as <- boundA
               subs <- subsA
               (prefix, body) <- makeSlots(captures, slotName)(loop(body, _))
@@ -1664,6 +1811,7 @@ object PythonGen {
               loopRes <- Env.buildLoop(nameI, subs1, body)
               // we have bound the args twice: once as args, once as interal muts
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
+              _ <- Env.unbind(thisName)
             } yield Code
               .blockFromList(prefix.toList :+ loopRes)
               .withValue(nameI)
@@ -1723,7 +1871,7 @@ object PythonGen {
             val inF = loop(in, slotName)
 
             localOrBind match {
-              case Right((b, _)) =>
+              case Right(b) =>
                 // for fn, bosatsu doesn't allow bind name
                 // shadowing, so the bind order of the name
                 // doesn't matter
@@ -1747,24 +1895,14 @@ object PythonGen {
             val inF = loop(in, slotName)
 
             localOrBind match {
-              case Right((b, rec)) =>
-                if (rec.isRecursive) {
-                  // value b is in scope first
-                  for {
-                    bi <- Env.bind(b)
-                    v <- loop(notFn, slotName)
-                    ine <- inF
-                    _ <- Env.unbind(b)
-                  } yield ((bi := v).withValue(ine))
-                } else {
-                  // value b is in scope after ve
-                  for {
-                    ve <- loop(notFn, slotName)
-                    bi <- Env.bind(b)
-                    ine <- inF
-                    _ <- Env.unbind(b)
-                  } yield ((bi := ve).withValue(ine))
-                }
+              case Right(b) =>
+                // value b is in scope after ve
+                for {
+                  ve <- loop(notFn, slotName)
+                  bi <- Env.bind(b)
+                  ine <- inF
+                  _ <- Env.unbind(b)
+                } yield ((bi := ve).withValue(ine))
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
                 (Env.nameForAnon(l), loop(notFn, slotName))

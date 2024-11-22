@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
+import java.util.regex.{Pattern => RegexPattern}
 
 import Parser.{Combinators, maybeSpace, MaybeTupleOrParens}
 import cats.implicits._
@@ -464,10 +465,29 @@ object Pattern {
       }
     }
 
-    lazy val toNamedSeqPattern: NamedSeqPattern[Char] =
+    /**
+     * Convert this to simpler pattern, if possible (such
+     * as Literal, Wild, Var)
+     */
+    def simplify: Option[Pattern[Nothing, Nothing]] =
+      parts match {
+        case NonEmptyList(StrPart.WildStr, Nil) => Some(Pattern.WildCard)
+        case NonEmptyList(StrPart.NamedStr(n), Nil) => Some(Pattern.Var(n))
+        case _ =>
+          val allStrings = parts.traverse {
+            case StrPart.LitStr(s) => Some(s)
+            case _ => None
+          }
+
+          allStrings.map { strs =>
+            Pattern.Literal(Lit.Str(strs.combineAll))
+          }
+      }
+
+    lazy val toNamedSeqPattern: NamedSeqPattern[Int] =
       StrPat.toNamedSeqPattern(this)
 
-    lazy val toSeqPattern: SeqPattern[Char] = toNamedSeqPattern.unname
+    lazy val toSeqPattern: SeqPattern[Int] = toNamedSeqPattern.unname
 
     lazy val toLiteralString: Option[String] =
       toSeqPattern.toLiteralSeq.map(_.mkString)
@@ -476,6 +496,30 @@ object Pattern {
 
     def matches(str: String): Boolean =
       isTotal || matcher(str).isDefined
+
+    /**
+     * Convert to a regular expression matching this pattern, which
+     * uses reluctant modifiers
+     */
+    def toRegex: RegexPattern = {
+      def mapPart(p: StrPart): String = 
+        p match {
+          case StrPart.NamedStr(_) => "(.*?)"
+          case StrPart.WildStr  => ".*?"
+          case StrPart.NamedChar(_) => "(.)"
+          case StrPart.WildChar => "."
+          case StrPart.LitStr(s) =>
+            // we need to escape any characters that may be in regex
+            RegexPattern.quote(s)
+        }
+      RegexPattern.compile(
+        parts
+          .iterator
+          .map(mapPart(_))
+          .mkString,
+        RegexPattern.DOTALL
+      )
+    }
   }
 
   /** Patterns like Some(_) as foo as binds tighter than |, so use ( ) with
@@ -600,14 +644,19 @@ object Pattern {
     val Empty: StrPat = fromLitStr("")
     val Wild: StrPat = StrPat(NonEmptyList.one(StrPart.WildStr))
 
-    def fromSeqPattern(sp: SeqPattern[Char]): StrPat = {
-      def lit(rev: List[Char]): List[StrPart.LitStr] =
+    def fromSeqPattern(sp: SeqPattern[Int]): StrPat = {
+      def lit(rev: List[Int]): List[StrPart.LitStr] =
         if (rev.isEmpty) Nil
-        else StrPart.LitStr(rev.reverse.mkString) :: Nil
+        else {
+          val cps = rev.reverse
+          val bldr = new java.lang.StringBuilder
+          cps.foreach(bldr.appendCodePoint(_))
+          StrPart.LitStr(bldr.toString) :: Nil
+        }
 
       def loop(
-          ps: List[SeqPart[Char]],
-          front: List[Char]
+          ps: List[SeqPart[Int]],
+          front: List[Int]
       ): NonEmptyList[StrPart] =
         ps match {
           case Nil => NonEmptyList.fromList(lit(front)).getOrElse(Empty.parts)
@@ -638,10 +687,10 @@ object Pattern {
       StrPat(loop(sp.toList, Nil))
     }
 
-    def toNamedSeqPattern(sp: StrPat): NamedSeqPattern[Char] = {
-      val empty: NamedSeqPattern[Char] = NamedSeqPattern.NEmpty
+    def toNamedSeqPattern(sp: StrPat): NamedSeqPattern[Int] = {
+      val empty: NamedSeqPattern[Int] = NamedSeqPattern.NEmpty
 
-      def partToNsp(s: StrPart): NamedSeqPattern[Char] =
+      def partToNsp(s: StrPart): NamedSeqPattern[Int] =
         s match {
           case StrPart.NamedStr(n) =>
             NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
@@ -650,9 +699,9 @@ object Pattern {
           case StrPart.WildStr  => NamedSeqPattern.Wild
           case StrPart.WildChar => NamedSeqPattern.Any
           case StrPart.LitStr(s) =>
-            if (s.isEmpty) empty
-            else
-              s.toList.foldRight(empty) { (c, tail) =>
+            StringUtil
+              .codePoints(s)
+              .foldRight(empty) { (c, tail) =>
                 NamedSeqPattern.NCat(NamedSeqPattern.fromLit(c), tail)
               }
         }

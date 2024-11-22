@@ -4,13 +4,12 @@ import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
+import org.bykn.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
 import scala.collection.mutable.{LongMap => MLongMap}
 
 import Identifier.Bindable
 import Value._
-
-import cats.implicits._
 
 object MatchlessToValue {
   import Matchless._
@@ -94,12 +93,9 @@ object MatchlessToValue {
         ()
       }
 
-      def capture(it: Vector[Value], name: Option[Bindable]): Scope =
+      def capture(it: Vector[Value]): Scope =
         Scope(
-          name match {
-            case None    => Map.empty
-            case Some(n) => Map((n, locals(n)))
-          },
+          Map.empty,
           LongMap.empty,
           MLongMap(),
           it
@@ -205,14 +201,14 @@ object MatchlessToValue {
               scope.updateMut(mut, exprF(scope))
               true
             }
-          case MatchString(str, pat, binds) =>
+          case MatchString(str, pat, binds, _) =>
             // do this before we evaluate the string
             binds match {
               case Nil =>
                 // we have nothing to bind
                 loop(str).map { strV =>
                   val arg = strV.asExternal.toAny.asInstanceOf[String]
-                  matchString(arg, pat, 0) != null
+                  StrPart.matchString(arg, pat, 0) != null
                 }
               case _ =>
                 val bary = binds.iterator.collect { case LocalAnonMut(id) =>
@@ -222,7 +218,7 @@ object MatchlessToValue {
                 // this may be static
                 val matchScope = loop(str).map { str =>
                   val arg = str.asExternal.toAny.asInstanceOf[String]
-                  matchString(arg, pat, bary.length)
+                  StrPart.matchString(arg, pat, bary.length)
                 }
                 // if we mutate scope, it has to be dynamic
                 Dynamic { scope =>
@@ -353,7 +349,7 @@ object MatchlessToValue {
             // It may make things go faster
             // if the caps are really small
             // or if we can GC things sooner.
-            val scope1 = scope.capture(caps.map(s => s(scope)), Some(fnName))
+            val scope1 = scope.capture(caps.map(s => s(scope)))
 
             FnValue { allArgs =>
               var registers: NonEmptyList[Value] = allArgs
@@ -393,30 +389,45 @@ object MatchlessToValue {
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
-          case Lambda(caps, name, args, res) =>
+          case Lambda(Nil, None, args, res) =>
             val resFn = loop(res)
+            // we can allocate once if there is no closure
+            val scope1 = Scope.empty()
+            val fn = FnValue { argV =>
+              val scope2 = scope1.letAll(args, argV)
+              resFn(scope2)
+            }
+            Static(fn)
+          case Lambda(caps, None, args, res) =>
+            val resFn = loop(res)
+            val capScoped = caps.map(loop).toVector
+            Dynamic { scope =>
+              val scope1 = scope
+                .capture(capScoped.map(scoped => scoped(scope)))
 
-            if (caps.isEmpty && name.isEmpty) {
-              // we can allocate once if there is no closure
-              val scope1 = Scope.empty()
-              val fn = FnValue { argV =>
+              // hopefully optimization/normalization has lifted anything
+              // that doesn't depend on argV above this lambda
+              FnValue { argV =>
                 val scope2 = scope1.letAll(args, argV)
                 resFn(scope2)
               }
-              Static(fn)
-            } else {
-              val capScoped = caps.map(loop).toVector
-              Dynamic { scope =>
-                val scope1 = scope
-                  .capture(capScoped.map(scoped => scoped(scope)), name)
+            }
+          case Lambda(caps, Some(name), args, res) =>
+            val resFn = loop(res)
+            val capScoped = caps.map(loop).toVector
+            Dynamic { scope =>
+              lazy val scope1: Scope = scope
+                .capture(capScoped.map(scoped => scoped(scope)))
+                .let(name, Eval.later(fn))
 
-                // hopefully optimization/normalization has lifted anything
-                // that doesn't depend on argV above this lambda
-                FnValue { argV =>
-                  val scope2 = scope1.letAll(args, argV)
-                  resFn(scope2)
-                }
+              // hopefully optimization/normalization has lifted anything
+              // that doesn't depend on argV above this lambda
+              lazy val fn = FnValue { argV =>
+                val scope2 = scope1.letAll(args, argV)
+                resFn(scope2)
               }
+
+              fn
             }
           case LoopFn(caps, thisName, args, body) =>
             val bodyFn = loop(body)
@@ -444,34 +455,15 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
-          case Let(Right((n1, r)), loopFn @ LoopFn(_, n2, _, _), Local(n3))
-              if (n1 === n3) && (n1 === n2) && r.isRecursive =>
-            // LoopFn already correctly handles recursion
-            loop(loopFn)
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
             val inF = loop(in)
 
             localOrBind match {
-              case Right((b, rec)) =>
-                if (rec.isRecursive) {
-
-                  inF.withScope { scope =>
-                    // this is the only one that should
-                    // use lazy/Eval.later
-                    // we use it to tie the recursive knot
-                    lazy val scope1: Scope =
-                      scope.let(b, vv)
-
-                    lazy val vv = Eval.later(valueF(scope1))
-
-                    scope1
-                  }
-                } else {
-                  inF.withScope { (scope: Scope) =>
-                    val vv = Eval.now(valueF(scope))
-                    scope.let(b, vv)
-                  }
+              case Right(b) =>
+                inF.withScope { (scope: Scope) =>
+                  val vv = Eval.now(valueF(scope))
+                  scope.let(b, vv)
                 }
               case Left(LocalAnon(l)) =>
                 inF.withScope { (scope: Scope) =>
@@ -553,124 +545,6 @@ object MatchlessToValue {
             Static(c)
         }
 
-    }
-
-    private[this] val emptyStringArray: Array[String] = new Array[String](0)
-    def matchString(
-        str: String,
-        pat: List[StrPart],
-        binds: Int
-    ): Array[String] = {
-      import Matchless.StrPart._
-
-      val strLen = str.length()
-      val results =
-        if (binds > 0) new Array[String](binds) else emptyStringArray
-
-      def loop(offset: Int, pat: List[StrPart], next: Int): Boolean =
-        pat match {
-          case Nil => offset == strLen
-          case LitStr(expect) :: tail =>
-            val len = expect.length
-            str.regionMatches(offset, expect, 0, len) && loop(
-              offset + len,
-              tail,
-              next
-            )
-          case (c: CharPart) :: tail =>
-            try {
-              val nextOffset = str.offsetByCodePoints(offset, 1)
-              val n =
-                if (c.capture) {
-                  results(next) = str.substring(offset, nextOffset)
-                  next + 1
-                } else next
-
-              loop(nextOffset, tail, n)
-            } catch {
-              case _: IndexOutOfBoundsException => false
-            }
-          case (h: Glob) :: tail =>
-            tail match {
-              case Nil =>
-                // we capture all the rest
-                if (h.capture) {
-                  results(next) = str.substring(offset)
-                }
-                true
-              case rest @ ((_: CharPart) :: _) =>
-                val matchableSizes = MatchSize[List](rest)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatch(str.codePointCount(off, strLen))
-
-                // (.*)(.)tail2
-                // this is a naive algorithm that just
-                // checks at all possible later offsets
-                // a smarter algorithm could see if there
-                // are Lit parts that can match or not
-                var matched = false
-                var off1 = offset
-                val n1 = if (h.capture) (next + 1) else next
-                while (!matched && (off1 < strLen)) {
-                  matched = canMatch(off1) && loop(off1, rest, n1)
-                  if (!matched) {
-                    off1 = off1 + Character.charCount(str.codePointAt(off1))
-                  }
-                }
-
-                matched && {
-                  if (h.capture) {
-                    results(next) = str.substring(offset, off1)
-                  }
-                  true
-                }
-              case LitStr(expect) :: tail2 =>
-                val next1 = if (h.capture) next + 1 else next
-
-                val matchableSizes = MatchSize(tail2)
-
-                def canMatch(off: Int): Boolean =
-                  matchableSizes.canMatchUtf16Count(strLen - off)
-
-                var start = offset
-                var result = false
-                while (start >= 0) {
-                  val candidate = str.indexOf(expect, start)
-                  if (candidate >= 0) {
-                    // we have to skip the current expect string
-                    val nextOff = candidate + expect.length
-                    val check1 =
-                      canMatch(nextOff) && loop(nextOff, tail2, next1)
-                    if (check1) {
-                      // this was a match, write into next if needed
-                      if (h.capture) {
-                        results(next) = str.substring(offset, candidate)
-                      }
-                      result = true
-                      start = -1
-                    } else {
-                      // we couldn't match here, try just after candidate
-                      start = candidate + Character.charCount(
-                        str.codePointAt(candidate)
-                      )
-                    }
-                  } else {
-                    // no more candidates
-                    start = -1
-                  }
-                }
-                result
-              // $COVERAGE-OFF$
-              case (_: Glob) :: _ =>
-                // this should be an error at compile time since it
-                // is never meaningful to have two adjacent globs
-                sys.error(s"invariant violation, adjacent globs: $pat")
-              // $COVERAGE-ON$
-            }
-        }
-
-      if (loop(0, pat, 0)) results else null
     }
   }
 }

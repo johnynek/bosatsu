@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.Foldable
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.{Type, TypeEnv}
+import org.bykn.bosatsu.pattern.StrPart
 
 import Identifier.{Bindable, Constructor}
 
@@ -826,25 +827,33 @@ object TypedExprNormalization {
               }
             }
 
-        case EvalResult.Constant(li @ Lit.Integer(i)) =>
+        case EvalResult.Constant(li) =>
+
           def makeLet(
               p: Pattern[(PackageName, Constructor), Type]
-          ): Option[List[Bindable]] =
+          ): Option[List[(Bindable, Lit)]] =
             p match {
               case Pattern.Named(v, p) =>
-                makeLet(p).map(v :: _)
+                makeLet(p).map((v, li) :: _)
               case Pattern.WildCard         => Some(Nil)
-              case Pattern.Var(v)           => Some(v :: Nil)
+              case Pattern.Var(v)           =>
+                Some((v, li) :: Nil)
               case Pattern.Annotation(p, _) => makeLet(p)
-              case Pattern.Literal(Lit.Integer(j)) =>
-                if (j == i) Some(Nil)
+              case Pattern.Literal(litj) =>
+                if (li == litj) Some(Nil)
                 else None
               case Pattern.Union(h, t) =>
                 (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
-              // $COVERAGE-OFF$ this is ill-typed so should be unreachable
-              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) |
-                  Pattern.StrPat(_) |
-                  Pattern.Literal(Lit.Str(_) | Lit.Chr(_)) =>
+              case sp @ Pattern.StrPat(_) =>
+                li match {
+                  case Lit.Str(str) =>
+                    StrPart.matchPattern(str, sp)
+                  // $COVERAGE-OFF$ these are ill-typed so should be unreachable
+                  case _ => None
+                }
+
+              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) =>
+                // 
                 None
               // $COVERAGE-ON$
             }
@@ -852,17 +861,13 @@ object TypedExprNormalization {
           Foldable[NonEmptyList]
             .collectFirstSome[Branch[A], TypedExpr[A]](m.branches) {
               case (p, r) =>
-                makeLet(p).map { names =>
-                  val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
-                  // all these names are bound to the lit
-                  names.distinct.foldLeft(r) { case (r, n) =>
-                    Let(n, lit, r, RecursionKind.NonRecursive, m.tag)
+                makeLet(p).map { binds =>
+                  binds.foldRight(r) { case ((n, li), r) =>
+                    val te = Literal[A](li, Type.getTypeOf(li), m.arg.tag)
+                    Let(n, te, r, RecursionKind.NonRecursive, m.tag)
                   }
                 }
             }
-        case EvalResult.Constant(Lit.Str(_) | Lit.Chr(_)) =>
-          // TODO, we can match some of these statically
-          None
       }
   }
 

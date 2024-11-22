@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monad, Monoid}
 import cats.data.{Chain, NonEmptyList, WriterT}
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
@@ -13,74 +14,23 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
-  sealed abstract class FnExpr extends Expr
+  sealed abstract class FnExpr extends Expr {
+    def captures: List[Expr]
+    // this is set if the function is recursive
+    def recursiveName: Option[Bindable]
+    def recursionKind: RecursionKind = RecursionKind.recursive(recursiveName.isDefined)
 
-  sealed abstract class StrPart
-  object StrPart {
-    sealed abstract class Glob(val capture: Boolean) extends StrPart
-    sealed abstract class CharPart(val capture: Boolean) extends StrPart
-    case object WildStr extends Glob(false)
-    case object IndexStr extends Glob(true)
-    case object WildChar extends CharPart(false)
-    case object IndexChar extends CharPart(true)
-    case class LitStr(asString: String) extends StrPart
-
-    sealed abstract class MatchSize(val isExact: Boolean) {
-      def charCount: Int
-      def canMatch(cp: Int): Boolean
-      // we know chars/2 <= cpCount <= chars for utf16
-      def canMatchUtf16Count(chars: Int): Boolean
-    }
-    object MatchSize {
-      case class Exactly(charCount: Int) extends MatchSize(true) {
-        def canMatch(cp: Int): Boolean = cp == charCount
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmin = chars / 2
-          val cpmax = chars
-          (cpmin <= charCount) && (charCount <= cpmax)
-        }
-      }
-      case class AtLeast(charCount: Int) extends MatchSize(false) {
-        def canMatch(cp: Int): Boolean = charCount <= cp
-        def canMatchUtf16Count(chars: Int): Boolean = {
-          val cpmax = chars
-          // we have any cp in [cpmin, cpmax]
-          // but we require charCount <= cp
-          (charCount <= cpmax)
-        }
-      }
-
-      private val atLeast0 = AtLeast(0)
-      private val exactly0 = Exactly(0)
-      private val exactly1 = Exactly(1)
-
-      def from(sp: StrPart): MatchSize =
-        sp match {
-          case _: Glob     => atLeast0
-          case _: CharPart => exactly1
-          case LitStr(str) =>
-            Exactly(str.codePointCount(0, str.length))
-        }
-
-      def apply[F[_]: cats.Foldable](f: F[StrPart]): MatchSize =
-        cats.Foldable[F].foldMap(f)(from)
-
-      implicit val monoidMatchSize: Monoid[MatchSize] =
-        new Monoid[MatchSize] {
-          def empty: MatchSize = exactly0
-          def combine(l: MatchSize, r: MatchSize) =
-            if (l.isExact && r.isExact) Exactly(l.charCount + r.charCount)
-            else AtLeast(l.charCount + r.charCount)
-        }
-    }
+    def args: NonEmptyList[Bindable]
+    def arity: Int = args.length
+    def body: Expr
   }
 
   // name is set for recursive (but not tail recursive) methods
   case class Lambda(
       captures: List[Expr],
-      name: Option[Bindable],
+      recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
-      expr: Expr
+      body: Expr
   ) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
@@ -90,9 +40,11 @@ object Matchless {
   case class LoopFn(
       captures: List[Expr],
       name: Bindable,
-      arg: NonEmptyList[Bindable],
+      args: NonEmptyList[Bindable],
       body: Expr
-  ) extends FnExpr
+  ) extends FnExpr {
+    val recursiveName: Option[Bindable] = Some(name)
+  }
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -108,10 +60,23 @@ object Matchless {
   // note fn is never an App
   case class App(fn: Expr, arg: NonEmptyList[Expr]) extends Expr
   case class Let(
-      arg: Either[LocalAnon, (Bindable, RecursionKind)],
+      arg: Either[LocalAnon, Bindable],
       expr: Expr,
       in: Expr
   ) extends Expr
+
+  object Let {
+    def apply(arg: Bindable, expr: Expr, in: Expr): Expr =
+      // don't create let x = y in x, just return y
+      if (in == Local(arg)) expr
+      else Let(Right(arg), expr, in)
+
+    def apply(arg: LocalAnon, expr: Expr, in: Expr): Expr =
+      // don't create let x = y in x, just return y
+      if (in == arg) expr
+      else Let(Left(arg), expr, in)
+  }
+
   case class LetMut(name: LocalAnonMut, span: Expr) extends Expr
   case class Literal(lit: Lit) extends CheapExpr
 
@@ -155,7 +120,8 @@ object Matchless {
   case class MatchString(
       arg: CheapExpr,
       parts: List[StrPart],
-      binds: List[LocalAnonMut]
+      binds: List[LocalAnonMut],
+      mustMatch: Boolean
   ) extends BoolExpr
   // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
@@ -167,7 +133,7 @@ object Matchless {
       case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
-      case MatchString(_, _, b) => b.nonEmpty
+      case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)          => hasSideEffect(b1) || hasSideEffect(b2)
       case SearchList(_, _, b, l) =>
         l.nonEmpty || hasSideEffect(b)
@@ -227,7 +193,7 @@ object Matchless {
           nm <- tmp
           bound = LocalAnon(nm)
           res <- fn(bound)
-        } yield Let(Left(bound), arg, res)
+        } yield Let(bound, arg, res)
     }
   }
 
@@ -310,7 +276,7 @@ object Matchless {
               .map { case (b, idx) => (b, ClosureSlot(idx)) }
               .toMap
             val captures = frees.flatMap { f =>
-              if (f != n) (apply(f) :: Nil)
+              if (cats.Eq[Identifier].neqv(f, n)) (apply(f) :: Nil)
               else Nil
             }
             (copy(slots = newSlots), captures)
@@ -324,12 +290,19 @@ object Matchless {
         e: TypedExpr[A],
         rec: RecursionKind,
         slots: LambdaState
-    ): F[Expr] = {
-      lazy val e0 = loop(e, if (rec.isRecursive) slots.inLet(name) else slots)
+    ): F[Expr] =
       rec match {
         case RecursionKind.Recursive =>
-          def letrec(e: Expr): Expr =
-            Let(Right((name, RecursionKind.Recursive)), e, Local(name))
+          lazy val e0 = loop(e, slots.inLet(name))
+          def letrec(expr: Expr): Expr =
+            expr match {
+              case fn: FnExpr if fn.recursiveName == Some(name) => fn
+              case fn: FnExpr =>
+                // loops always have a function name
+                sys.error(s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn")
+              case _ =>
+                sys.error(s"expected ${e.repr.render(80)} to compile to a function, but got: $expr")
+            }
 
           // this could be tail recursive
           if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
@@ -345,20 +318,20 @@ object Matchless {
                 val (slots1, caps) = slots.inLet(name).lambdaFrees(frees)
                 loop(body, slots1)
                   .map { v =>
-                    letrec(LoopFn(caps, name, args, v))
+                    LoopFn(caps, name, args, v)
                   }
+              // $COVERAGE-OFF$
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
                 e0.map(letrec)
+              // $COVERAGE-ON$
             }
           } else {
-            // otherwise let rec x = fn in x
             e0.map(letrec)
           }
-        case RecursionKind.NonRecursive => e0
+        case RecursionKind.NonRecursive => loop(e, slots)
       }
-    }
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr] =
       te match {
@@ -396,7 +369,7 @@ object Matchless {
             .mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
-            .mapN(Let(Right((a, r)), _, _))
+            .mapN(Let(a, _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (
@@ -486,33 +459,36 @@ object Matchless {
           doesMatch(arg, p, mustMatch).map(_.map { case (l0, cond, bs) =>
             (l0, cond, (v, arg) :: bs)
           })
-        case Pattern.StrPat(items) =>
-          val sbinds: List[Bindable] =
-            items.toList
-              .collect {
-                // that each name is distinct
-                // should be checked in the SourceConverter/TotalityChecking code
-                case Pattern.StrPart.NamedStr(n)  => n
-                case Pattern.StrPart.NamedChar(n) => n
+        case strPat @ Pattern.StrPat(items) =>
+          strPat.simplify match {
+            case Some(simpler) => doesMatch(arg, simpler, mustMatch)
+            case None =>
+              val sbinds: List[Bindable] =
+                items.toList
+                  .collect {
+                    // that each name is distinct
+                    // should be checked in the SourceConverter/TotalityChecking code
+                    case Pattern.StrPart.NamedStr(n)  => n
+                    case Pattern.StrPart.NamedChar(n) => n
+                  }
+
+              val pat = items.toList.map {
+                case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
+                case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
+                case Pattern.StrPart.WildStr      => StrPart.WildStr
+                case Pattern.StrPart.WildChar     => StrPart.WildChar
+                case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
               }
 
-          val muts = sbinds.traverse { b =>
-            makeAnon.map(LocalAnonMut(_)).map((b, _))
-          }
+              sbinds.traverse { b =>
+                makeAnon.map(LocalAnonMut(_)).map((b, _))
+              }
+              .map { binds =>
+                val ms = binds.map(_._2)
 
-          val pat = items.toList.map {
-            case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
-            case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
-            case Pattern.StrPart.WildStr      => StrPart.WildStr
-            case Pattern.StrPart.WildChar     => StrPart.WildChar
-            case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
-          }
-
-          muts.map { binds =>
-            val ms = binds.map(_._2)
-
-            NonEmptyList.of((ms, MatchString(arg, pat, ms), binds))
-          }
+                NonEmptyList.one((ms, MatchString(arg, pat, ms, mustMatch), binds))
+              }
+            }
         case lp @ Pattern.ListPat(_) =>
           lp.toPositionalStruct(empty, cons) match {
             case Right(p) => doesMatch(arg, p, mustMatch)
@@ -766,12 +742,16 @@ object Matchless {
 
     def lets(binds: List[(Bindable, Expr)], in: Expr): Expr =
       binds.foldRight(in) { case ((b, e), r) =>
-        val arg = Right((b, RecursionKind.NonRecursive))
-        Let(arg, e, r)
+        Let(b, e, r)
       }
 
     def checkLets(binds: List[LocalAnonMut], in: Expr): Expr =
       binds.foldLeft(in) { case (rest, anon) =>
+        // TODO: sometimes we generate code like
+        // LetMut(x, Always(SetMut(x, y), f))
+        // with no side effects in y or f
+        // this would be better written as
+        // Let(x, y, f)
         LetMut(anon, rest)
       }
 
@@ -782,7 +762,6 @@ object Matchless {
           (Pattern[(PackageName, Constructor), Type], Expr)
         ]
     ): F[Expr] = {
-
       def recur(
           arg: CheapExpr,
           branches: NonEmptyList[

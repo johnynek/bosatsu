@@ -10,8 +10,8 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
 
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
+import scala.util.Try
 
 class MatchlessTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
@@ -52,28 +52,23 @@ class MatchlessTest extends AnyFunSuite {
 
   test("matchless.fromLet is pure: f(x) == f(x)") {
     forAll(genInputs) { case (b, r, t, fn) =>
-      def run(): Matchless.Expr =
-        Matchless.fromLet(b, r, t)(fn)
+      def run(): Option[Matchless.Expr] =
+        // ill-formed inputs can fail
+        Try(Matchless.fromLet(b, r, t)(fn)).toOption
 
       assert(run() == run())
     }
   }
 
-  val genMatchlessExpr: Gen[Matchless.Expr] =
+  lazy val genMatchlessExpr: Gen[Matchless.Expr] =
     genInputs.map { case (b, r, t, fn) =>
-      Matchless.fromLet(b, r, t)(fn)
+      // ill-formed inputs can fail
+      Try(Matchless.fromLet(b, r, t)(fn)).toOption
     }
-
-  test("regressions") {
-    // this is illegal code, but it shouldn't throw a match error:
-    val name = Identifier.Name("foo")
-    val te = TypedExpr.Local(name, rankn.Type.IntType, ())
-    // this should not throw
-    val me = Matchless.fromLet(name, RecursionKind.Recursive, te)(
-      fnFromTypeEnv(rankn.TypeEnv.empty)
-    )
-    assert(me != null)
-  }
+    .flatMap {
+      case Some(e) => Gen.const(e)
+      case None => genMatchlessExpr
+    }
 
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {
@@ -174,6 +169,17 @@ class MatchlessTest extends AnyFunSuite {
 
         assert(unflatten(chain, rest) == ifexpr)
       case _ => ()
+    }
+  }
+
+  test("check compilation of some matchless") {
+    TestUtils.checkMatchless("""
+x = 1    
+""") { binds =>
+      val map = binds(TestUtils.testPackage).toMap
+
+      assert(map.contains(Identifier.Name("x")))
+      assert(map(Identifier.Name("x")) == Matchless.Literal(Lit(1)))
     }
   }
 }
