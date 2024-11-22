@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import org.bykn.bosatsu.graph.Memoize
+import org.bykn.bosatsu.graph.{Dag, Memoize}
 import cats.{Foldable, Monad, Show}
 import cats.data.{
   Ior,
@@ -89,6 +89,25 @@ object PackageMap {
 
   // convenience for type inference
   def toAnyTyped[A](p: Typed[A]): Typed[Any] = p
+
+  def treeShake[A](p: Typed[A], roots: Set[(PackageName, Identifier)]): Typed[A] = {
+    type Ident = (PackageName, Identifier)
+    def dependency(a: Ident): Iterable[Ident] =
+      p.toMap.get(a._1) match {
+        case Some(pack) =>
+          pack.lets.flatMap { case (_, _, te) => te.globals }
+        case None => Nil
+      }
+
+    val keep = Dag.transitiveSet(roots.toList.sorted)(dependency)
+
+    val kept = p.toMap.iterator.map { case (_, pack) =>
+      pack.filterLets { nm => keep((pack.name, nm)) }
+    }
+    .toList
+
+    fromIterable(kept)
+  }
 
   type Inferred = Typed[Declaration]
 
