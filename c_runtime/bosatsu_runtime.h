@@ -70,8 +70,6 @@ typedef uint32_t ENUM_TAG;
 #define BSTS_NAT_IS_0(n) (((uintptr_t)(n)) == 0x1)
 #define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
 
-#define BSTS_AND(x, y) ((x) && (y))
-
 #define BSTS_TO_CHAR(x) (BValue)((x << 1) | 1)
 #define BSTS_NULL_TERM_STATIC_STR(x) (BValue)(((uintptr_t)(x)) | PURE_VALUE_TAG)
 

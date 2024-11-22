@@ -286,14 +286,28 @@ object ClangGen {
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
       def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
-        // TODO we need copy Env.andCode from python generator here
-        // we very often simplify the code here more effectively
-        // also, if the value in a is false, we don't need to do
-        // the effects in b, and this is pretty important
-        Code.ValueLike.applyArgs(
-          Code.Ident("BSTS_AND"),
-          NonEmptyList(l, r :: Nil)
-        )(newLocalName)
+        l match {
+          case le: Code.Expression =>
+            r.onExpr { re => pv(le && re) }(newLocalName)
+          case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
+          case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
+            for {
+              t1 <- t.onExpr { te => andCode(te, r) }(newLocalName)
+              f1 <- f.onExpr { te => andCode(te, r) }(newLocalName)
+            } yield Code.IfElseValue(c, t1, f1)
+          case ife @ Code.IfElseValue(_, _, _) =>
+            for {
+              resIdent <- newLocalName("branch_res")
+              value <- andCode(resIdent, r)
+            } yield (
+              // Assign branchCond to a temp variable in both branches
+              // and then use it so we don't exponentially blow up the code
+              // size
+              // TODO: not all onExpr uses have this type, we need to take type argument
+              (Code.DeclareVar(Nil, Code.TypeIdent.Bool, resIdent, None) +
+              (resIdent := ife)) +: value
+            )
+          }
 
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =

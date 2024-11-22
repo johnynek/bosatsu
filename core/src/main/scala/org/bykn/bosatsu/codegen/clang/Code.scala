@@ -61,6 +61,14 @@ object Code {
     def +:(prefix: Statement): ValueLike =
       ValueLike.prefix(prefix, this)
 
+    // returns something we can evaluate as an arg to if
+    def returnsBool: Boolean =
+      this match {
+        case e: Expression => e.evalToInt.isDefined
+        case WithValue(_, v) => v.returnsBool
+        case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
+      }
+
     def discardValue: Option[Statement] =
       this match {
         case _: Expression => None
@@ -92,6 +100,7 @@ object Code {
             // Assign branchCond to a temp variable in both branches
             // and then use it so we don't exponentially blow up the code
             // size
+            // TODO: not all onExpr uses have this type, we need to take type argument
             (Code.DeclareVar(Nil, Code.TypeIdent.BValue, resIdent, None) +
             (resIdent := branch)) +: value
           )
@@ -151,6 +160,14 @@ object Code {
 
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
+
+    lazy val evalToInt: Option[IntLiteral] =
+      this match {
+        case i @ IntLiteral(_) => Some(i)
+        case _ =>
+          // TODO we can do a lot more here
+          None
+      }
   }
 
   /////////////////////////
