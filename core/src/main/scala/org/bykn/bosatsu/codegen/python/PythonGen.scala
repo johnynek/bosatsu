@@ -1246,8 +1246,7 @@ object PythonGen {
           case TrueConst => Env.pure(Code.Const.True)
           case And(ix1, ix2) =>
             (boolExpr(ix1, slotName), boolExpr(ix2, slotName))
-              .mapN(Env.andCode(_, _))
-              .flatten
+              .flatMapN(Env.andCode(_, _))
           case CheckVariant(enumV, idx, _, famArities) =>
             // if all arities are 0, we use
             // integers to represent,
@@ -1264,19 +1263,19 @@ object PythonGen {
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
-            (Env.nameForAnon(mut), loop(expr, slotName)).mapN {
+            (Env.nameForAnon(mut), loop(expr, slotName)).flatMapN {
               (ident, result) =>
                 Env.onLast(result) { resx =>
                   (ident := resx).withValue(Code.Const.True)
                 }
-            }.flatten
+            }
           case MatchString(str, pat, binds, mustMatch) =>
             (
               loop(str, slotName),
               binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) }
-            ).mapN { (strVL, binds) =>
+            ).flatMapN { (strVL, binds) =>
               Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
-            }.flatten
+            }
           case SearchList(locMut, init, check, optLeft) =>
             // check to see if we can find a non-empty
             // list that matches check

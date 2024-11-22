@@ -61,6 +61,14 @@ object Code {
     def +:(prefix: Statement): ValueLike =
       ValueLike.prefix(prefix, this)
 
+    // returns something we can evaluate as an arg to if
+    def returnsBool: Boolean =
+      this match {
+        case e: Expression => e.evalToInt.isDefined
+        case WithValue(_, v) => v.returnsBool
+        case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
+      }
+
     def discardValue: Option[Statement] =
       this match {
         case _: Expression => None
@@ -92,6 +100,7 @@ object Code {
             // Assign branchCond to a temp variable in both branches
             // and then use it so we don't exponentially blow up the code
             // size
+            // TODO: not all onExpr uses have this type, we need to take type argument
             (Code.DeclareVar(Nil, Code.TypeIdent.BValue, resIdent, None) +
             (resIdent := branch)) +: value
           )
@@ -144,9 +153,21 @@ object Code {
     def /(that: Expression): Expression = bin(BinOp.Div, that)
     def unary_! : Expression = PrefixExpr(PrefixUnary.Not, this)
     def =:=(that: Expression): Expression = bin(BinOp.Eq, that)
+    def :<(that: Expression): Expression = bin(BinOp.Lt, that)
+    def :>(that: Expression): Expression = bin(BinOp.Gt, that)
+
+    def &&(that: Expression): Expression = bin(BinOp.And, that)
 
     def postInc: Expression = PostfixExpr(this, PostfixUnary.Inc)
     def postDec: Expression = PostfixExpr(this, PostfixUnary.Dec)
+
+    lazy val evalToInt: Option[IntLiteral] =
+      this match {
+        case i @ IntLiteral(_) => Some(i)
+        case _ =>
+          // TODO we can do a lot more here
+          None
+      }
   }
 
   /////////////////////////
@@ -174,7 +195,6 @@ object Code {
           loop(args.tail, NonEmptyList.one(hexpr))
         }(newLocalName)
       }(newLocalName)
-
 
     def declareArray[F[_]: Monad](ident: Ident, tpe: TypeIdent, values: List[ValueLike])(newLocalName: String => F[Code.Ident]): F[Statement] = {
       def loop(values: List[ValueLike], acc: List[Expression]): F[Statement] =
@@ -323,6 +343,11 @@ object Code {
   case class Bracket(target: Expression, item: Expression) extends Expression
   case class Ternary(cond: Expression, whenTrue: Expression, whenFalse: Expression) extends Expression
 
+  object Expression {
+    implicit def expressionFromInt(i: Int): Expression =
+      IntLiteral(i)
+  }
+
   case class Param(tpe: TypeIdent, name: Ident) {
     def toDoc: Doc = TypeIdent.toDoc(tpe) + Doc.space + Doc.text(name.name)
   }
@@ -378,6 +403,12 @@ object Code {
   case class Include(quote: Boolean, filename: String) extends Statement
 
   val returnVoid: Statement = Return(None)
+
+  def declareInt(ident: Ident, init: Option[Int]): Statement =
+    DeclareVar(Nil, TypeIdent.Int, ident, init.map(IntLiteral(_)))
+
+  def declareBool(ident: Ident, init: Option[Boolean]): Statement =
+    DeclareVar(Nil, TypeIdent.Bool, ident, init.map(if (_) TrueLit else FalseLit))
 
   def block(item: Statement, rest: Statement*): Block =
     item match {

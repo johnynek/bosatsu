@@ -694,17 +694,35 @@ object Matchless {
                       val check =
                         if (mustMatch) TrueConst
                         else EqualsNat(arg, DataRepr.SuccNat)
-                      for {
-                        nm <- makeAnon
-                        loc = LocalAnonMut(nm)
-                        prev = PrevNat(arg)
-                        rest <- doesMatch(loc, single, mustMatch)
-                      } yield rest.map { case (preLets, cond, res) =>
-                        (
-                          loc :: preLets,
-                          check && SetMut(loc, prev) && cond,
-                          res
-                        )
+                      
+                      val ignoreInner = single match {
+                        case Pattern.WildCard => true
+                        case _ => false
+                      }
+
+                      if (!ignoreInner) {
+                        for {
+                          nm <- makeAnon
+                          loc = LocalAnonMut(nm)
+                          prev = PrevNat(arg)
+                          rest <- doesMatch(loc, single, mustMatch)
+                        } yield rest.map { case (preLets, cond, res) =>
+                          (
+                            loc :: preLets,
+                            check && SetMut(loc, prev) && cond,
+                            res
+                          )
+                        }
+                      }
+                      else {
+                        // we don't need to bind the prev
+                        Monad[F].pure(wildMatch.map { case (preLets, cond, res) =>
+                          (
+                            preLets,
+                            check && cond,
+                            res
+                          )
+                        })
                       }
                     case other =>
                       // $COVERAGE-OFF$

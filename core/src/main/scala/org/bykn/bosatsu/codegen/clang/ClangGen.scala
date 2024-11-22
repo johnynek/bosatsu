@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.{DataRepr, Type}
 import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName, PackageMap}
+import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -229,11 +230,22 @@ object ClangGen {
                 if (isClosure) appArgs.tail
                 else appArgs
               // we know the length of appArgs must match args or the code wouldn't have compiled
-              val assigns = args.zipWith(NonEmptyList.fromListUnsafe(newArgsList)) {
-                case (Param(_, name), value) =>
-                  Assignment(name, value)
-              }
-              Some(Statements(assigns))
+              val assigns = args
+                .iterator
+                .zip(newArgsList.iterator)
+                .flatMap { case (Param(_, name), value) =>
+                  if (name != value)
+                    // don't create self assignments
+                    Iterator.single(Assignment(name, value))
+                  else
+                    Iterator.empty
+                }
+                .toList
+
+              // there is always at least one new argument or the loop
+              // won't terminate
+              val assignNEL = NonEmptyList.fromListUnsafe(assigns)
+              Some(Statements(assignNEL))
             case IfElseValue(c, t, f) =>
               // this can possible have tail calls inside the branches
               (loop(t), loop(f)) match {
@@ -273,6 +285,30 @@ object ClangGen {
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
+      def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
+        l match {
+          case le: Code.Expression =>
+            r.onExpr { re => pv(le && re) }(newLocalName)
+          case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
+          case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
+            for {
+              t1 <- t.onExpr { te => andCode(te, r) }(newLocalName)
+              f1 <- f.onExpr { te => andCode(te, r) }(newLocalName)
+            } yield Code.IfElseValue(c, t1, f1)
+          case ife @ Code.IfElseValue(_, _, _) =>
+            for {
+              resIdent <- newLocalName("branch_res")
+              value <- andCode(resIdent, r)
+            } yield (
+              // Assign branchCond to a temp variable in both branches
+              // and then use it so we don't exponentially blow up the code
+              // size
+              // TODO: not all onExpr uses have this type, we need to take type argument
+              (Code.DeclareVar(Nil, Code.TypeIdent.Bool, resIdent, None) +
+              (resIdent := ife)) +: value
+            )
+          }
+
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
@@ -283,7 +319,7 @@ object ClangGen {
                 case Lit.Str(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_equals_string"),
+                      Code.ValueLike.applyArgs(Code.Ident("bsts_string_equals"),
                         NonEmptyList(e, litStr :: Nil)
                       )(newLocalName)
                     }
@@ -291,7 +327,7 @@ object ClangGen {
                 case Lit.Integer(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_equals_int"),
+                      Code.ValueLike.applyArgs(Code.Ident("bsts_integer_equals"),
                         NonEmptyList(e, litStr :: Nil)
                       )(newLocalName)
                     }
@@ -308,12 +344,8 @@ object ClangGen {
             }
           case And(e1, e2) =>
             (boolToValue(e1), boolToValue(e2))
-              .flatMapN { (a, b) =>
-                Code.ValueLike.applyArgs(
-                  Code.Ident("BSTS_AND"),
-                  NonEmptyList(a, b :: Nil)
-                )(newLocalName)
-              }
+              .flatMapN { (a, b) => andCode(a, b) }
+
           case CheckVariant(expr, expect, _, _) =>
             innerToValue(expr).flatMap { vl =>
             // this is just get_variant(expr) == expect
@@ -324,10 +356,13 @@ object ClangGen {
               .flatMapN { (condV, initV) =>
                 searchList(lst, initV, condV, leftAcc)
               }
-          case ms @ MatchString(arg, parts, binds, mustMatch) =>
-            // TODO: ???
-            println(s"TODO: implement boolToValue($ms) returning false")
-            pv(Code.FalseLit)
+          case MatchString(arg, parts, binds, mustMatch) =>
+            (
+              innerToValue(arg),
+              binds.traverse { case LocalAnonMut(m) => getAnon(m) }
+            ).flatMapN { (strVL, binds) =>
+              strVL.onExpr { arg => matchString(arg, parts, binds, mustMatch) }(newLocalName)
+            }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)
@@ -335,6 +370,318 @@ object ClangGen {
             } yield (name := vl) +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
         }
+
+      object StringApi {
+        import Code.{Expression}
+        private val prefix = "bsts_string_"
+        def fn(nm: String): Expression = Code.Ident(prefix + nm)
+
+        // string -> int
+        def utf8ByteLength(e: Expression): Expression =
+          fn("utf8_len")(e)
+
+        // (string, int) -> int
+        def codePointBytes(str: Expression, byteOffset: Expression): Expression =
+          fn("code_point_bytes")(str, byteOffset)
+
+        // (string, int) -> char
+        def getCharAt(str: Expression, byteOffset: Expression): Expression = 
+          fn("char_at")(str, byteOffset)
+
+        // (string, int) -> string
+        def substringTail(str: Expression, byteOffset: Expression): Expression =
+          fn("substring_tail")(str, byteOffset)
+
+        // (string, int, int) -> string
+        def substring(str: Expression, startOffset: Expression, endOff: Expression): Expression =
+          fn("substring")(str, startOffset, endOff)
+
+        // return -1 if the needle isn't in the haystack, else the offset >= byteOffset it was found
+        // (string, string, int) -> int
+        def find(haystack: Expression, needle: Expression, byteOffset: Expression): Expression =
+          fn("find")(haystack, needle, byteOffset)
+
+        // basically python src.startswith(expected, _) but with utf8 byte offsets
+        // (string, int, string) -> _Bool
+        def matchesAt(src: Expression, byteOffset: Expression, expected: Expression): Expression =
+          fn("matches_at")(src, byteOffset, expected)
+
+        def fromString(s: String): T[Code.ValueLike] = {
+          // convert to utf8 and then to a literal array of bytes
+          val bytes = s.getBytes(StandardCharsets.UTF_8)
+          if (bytes.forall(_.toInt != 0)) {
+            // just send the utf8 bytes as a string to C
+            pv(
+              Code.Ident("BSTS_NULL_TERM_STATIC_STR")(Code.StrLiteral(
+                new String(bytes.map(_.toChar))
+              ))
+            )
+          }
+          else {
+            // We have some null bytes, we have to encode the length
+            val lits =
+              bytes.iterator.map { byte =>
+                Code.IntLiteral(byte.toInt & 0xff)
+              }.toList
+            //call:
+            // bsts_string_from_utf8_bytes_copy(size_t size, char* bytes);
+            newLocalName("str").map { ident =>
+              // TODO: this could be a static top level definition to initialize
+              // one time and avoid the copy probably, but copies are fast....
+              Code.DeclareArray(Code.TypeIdent.Char, ident, Right(lits)) +:
+                Code.Ident("bsts_string_from_utf8_bytes_copy")(
+                  Code.IntLiteral(lits.length),
+                  ident
+                )
+            }
+          }
+        }
+
+      }
+
+      def matchString(
+          strEx: Code.Expression,
+          pat: List[StrPart],
+          binds: List[Code.Ident],
+          mustMatch: Boolean
+      ): T[Code.ValueLike] = {
+        import StrPart.{LitStr, Glob, CharPart}
+        val bindArray = binds.toArray
+        // return a value like expression that contains the boolean result
+        // and assigns all the bindings along the way
+        def loop(
+            knownOffset: Option[Int],
+            offsetIdent: Code.Ident,
+            pat: List[StrPart],
+            next: Int,
+            mustMatch: Boolean
+        ): T[Code.ValueLike] =
+          pat match {
+            case _ if mustMatch && next == bindArray.length =>
+              // we have to match and we've captured everything
+              pv(Code.TrueLit)
+            case Nil =>
+              // offset == str.length
+              pv(
+                if (mustMatch) Code.TrueLit
+                else (offsetIdent =:= StringApi.utf8ByteLength(strEx))
+              )
+            case LitStr(expect) :: tail =>
+              // val len = expect.length
+              // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+              //
+              // strEx.startswith(expect, offsetIdent)
+              // note: a literal string can never be a total match, so mustMatch is false
+              val utf8bytes = expect.getBytes(StandardCharsets.UTF_8).length
+              for {
+                str <- StringApi.fromString(expect)
+                loopRes <- loop(knownOffset.map(_ + utf8bytes), offsetIdent, tail, next, mustMatch = false)
+                regionMatches <- str.onExpr { s => pv(StringApi.matchesAt(strEx, offsetIdent, s)) }(newLocalName)
+                rest = (offsetIdent := offsetIdent + Code.IntLiteral(utf8bytes)) +: (loopRes)
+                bothMatch <- andCode(regionMatches, rest)
+              } yield bothMatch
+            case (c: CharPart) :: tail =>
+              val matches =
+                if (mustMatch) Code.TrueLit
+                else {
+                  offsetIdent :< StringApi.utf8ByteLength(strEx)
+                }
+              // the character at the current byte offset is how many bytes?
+              val n1 = if (c.capture) (next + 1) else next
+              val updateOffset =
+                offsetIdent := offsetIdent + StringApi.codePointBytes(strEx, offsetIdent)
+
+              val stmt =
+                if (c.capture) {
+                  // b = str[offset]
+                  Code
+                    .Statements(
+                      bindArray(next) := StringApi.getCharAt(strEx, offsetIdent),
+                      updateOffset
+                    ) +: Code.TrueLit
+
+                } else {
+                  updateOffset +: Code.TrueLit
+                }
+              for {
+                // we don't know how many bytes this character took, so
+                // we have lost track of the total offset
+                tailRes <- loop(knownOffset = None, offsetIdent, tail, n1, mustMatch)
+                and2 <- andCode(stmt, tailRes)
+                and1 <- andCode(matches, and2)
+              } yield and1
+            case (h: Glob) :: tail =>
+              tail match {
+                case Nil =>
+                  // we capture all the rest
+                  pv(
+                    if (h.capture) {
+                      // b = str[offset:]
+                      (bindArray(next) := StringApi.substringTail(strEx, offsetIdent)) +: Code.TrueLit
+                    } else Code.TrueLit
+                  )
+                case LitStr(expect) :: tail2 =>
+                  // here we have to make a loop
+                  // searching for expect, and then see if we
+                  // can match the rest of the pattern
+                  val next1 = if (h.capture) next + 1 else next
+
+                  /*
+                   * this is the scala code for the below
+                   * it is in MatchlessToValue but left here
+                   * as an aid to read the code below
+                   *
+                  var start = offset
+                  var result = false
+                  while (start >= 0) {
+                    val candidate = str.indexOf(expect, start)
+                    if (candidate >= 0) {
+                      // we have to skip the current expect string
+                      val candidateOffset = candidate + expect.lenth
+                      val check1 = loop(candidateOffset, tail2, next1)
+                      if (check1) {
+                        // this was a match, write into next if needed
+                        if (h.capture) {
+                          results(next) = str.substring(offset, candidate)
+                        }
+                        result = true
+                        start = -1
+                      }
+                      else {
+                        // we couldn't match here, try just after candidate
+                        start = candidate + 1
+                      }
+                    }
+                    else {
+                      // no more candidates
+                      start = -1
+                    }
+                  }
+                  result
+                   */
+                  (
+                    newLocalName("start"), // int
+                    newLocalName("result"), // bool
+                    newLocalName("candidate"), // int
+                    newLocalName("cand_offset") // int
+                  ).flatMapN { (start, result, candidate, candOffset) =>
+                    // TODO we have to declare these new names
+
+                    // note, a literal prefix can never be a total match
+                    // also, note, since we have a glob on the left we don't know the
+                    // offset the tail is matching at
+                    val searchEnv = loop(knownOffset = None, candOffset, tail2, next1, mustMatch = false)
+
+                    def onSearch(search: Code.ValueLike): T[Code.Statement] =
+                      search.exprToStatement { search =>
+                        monadImpl.pure(Code.ifThenElse(search, {
+                          // we have matched
+                          val after = Code.Statements(
+                            result := Code.TrueLit,
+                            start := Code.IntLiteral(-1)
+                          )
+
+                          if (h.capture) {
+                            val capture: Code.Statement =
+                              bindArray(next) := StringApi.substring(strEx, offsetIdent, candidate)
+
+                            capture + after
+                          }
+                          else after
+                        },
+                        // we couldn't match at start, advance just after the
+                        // candidate
+                        start := candidate + Code.IntLiteral.One
+                      ))
+                    }(newLocalName)
+
+                    val utf8bytes = expect.getBytes(StandardCharsets.UTF_8).length
+                    def findBranch(search: Code.ValueLike): T[Code.Statement] =
+                      onSearch(search)
+                        .map { onS =>
+                          Code.ifThenElse(
+                            candidate :> Code.IntLiteral(-1),
+                            // update candidate and search
+                            Code.Statements(
+                              candOffset := candidate + Code.IntLiteral(utf8bytes),
+                              onS
+                            ),
+                            // else no more candidates
+                            start := Code.IntLiteral(-1)
+                          )
+                        }
+
+                    for {
+                      search <- searchEnv
+                      find <- findBranch(search)
+                      expectStr <- StringApi.fromString(expect)
+                      found <- expectStr.onExpr { es =>
+                        pv(StringApi.find(strEx, es, start))  
+                      }(newLocalName)
+                    } yield (Code
+                      .Statements(
+                        Code.DeclareVar(Nil, Code.TypeIdent.Int, start, Some(offsetIdent)),
+                        // these are mutable variables used in the loop below
+                        Code.DeclareVar(Nil, Code.TypeIdent.Int, candidate, None),
+                        Code.DeclareVar(Nil, Code.TypeIdent.Int, candOffset, None),
+                        Code.declareBool(result, Some(false)),
+                        Code.While(
+                          (start :> -1),
+                          Code.block(
+                            candidate := found,
+                            find
+                          )
+                        )
+                      ) +: result)
+                  }
+                case (_: CharPart) :: _ =>
+                  // we no longer know the offset after this because
+                  // the character could be a multi-byte codepoint
+                  val next1 = if (h.capture) (next + 1) else next
+                  for {
+                    matched <- newLocalName("matched")
+                    decMatch = Code.declareBool(matched, Some(false))
+                    off1 <- newLocalName("off1")
+                    // the tail match isn't true, because we loop until we find
+                    // a case
+                    tailMatched <- loop(knownOffset = None, off1, tail, next1, false)
+
+                    matchStmt = Code
+                      .Statements(
+                        decMatch,
+                        Code.DeclareVar(Nil, Code.TypeIdent.Int, off1, Some(offsetIdent)),
+                        Code.While(
+                          // TODO: we should only compute the length 1 time per loop
+                          // if needed
+                          (!matched) && (off1 :< StringApi.utf8ByteLength(strEx)),
+                          Code.block(matched := tailMatched) // the tail match increments the
+                        )
+                      ) +: (if (mustMatch) Code.TrueLit else matched)
+
+                    fullMatch <-
+                      if (!h.capture) pv(matchStmt)
+                      else {
+                        val capture =
+                          (bindArray(next) := StringApi.substring(strEx, offsetIdent, off1)) +: (Code.TrueLit)
+
+                        andCode(matchStmt, capture)
+                      }
+
+                  } yield fullMatch
+                // $COVERAGE-OFF$
+                case (_: Glob) :: _ =>
+                  throw new IllegalArgumentException(
+                    s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)"
+                  )
+                // $COVERAGE-ON$
+              }
+          }
+
+          for {
+            offsetIdent <- newLocalName("offset")
+            res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
+          } yield Code.declareInt(offsetIdent, Some(0)) +: res
+      }
 
       def searchList(
           locMut: LocalAnonMut,
@@ -494,35 +841,7 @@ object ClangGen {
                 }
             }
 
-          case Lit.Str(toStr) =>
-            // convert to utf8 and then to a literal array of bytes
-            val bytes = toStr.getBytes(StandardCharsets.UTF_8)
-            if (bytes.forall(_.toInt != 0)) {
-              // just send the utf8 bytes as a string to C
-              pv(
-                Code.Ident("BSTS_NULL_TERM_STATIC_STR")(Code.StrLiteral(
-                  new String(bytes.map(_.toChar))
-                ))
-              )
-            }
-            else {
-              // We have some null bytes, we have to encode the length
-              val lits =
-                bytes.iterator.map { byte =>
-                  Code.IntLiteral(byte.toInt & 0xff)
-                }.toList
-              //call:
-              // bsts_string_from_utf8_bytes_copy(size_t size, char* bytes);
-              newLocalName("str").map { ident =>
-                // TODO: this could be a static top level definition to initialize
-                // one time and avoid the copy probably, but copies are fast....
-                Code.DeclareArray(Code.TypeIdent.Char, ident, Right(lits)) +:
-                  Code.Ident("bsts_string_from_utf8_bytes_copy")(
-                    Code.IntLiteral(lits.length),
-                    ident
-                  )
-              }
-            }
+          case Lit.Str(toStr) => StringApi.fromString(toStr)
         }
 
       def innerApp(app: App): T[Code.ValueLike] =
