@@ -2,6 +2,8 @@
 
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 #define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
@@ -116,6 +118,10 @@ BValue get_enum_index(BValue v, int idx) {
   return ptr[idx];
 }
 
+BValue alloc_enum0(ENUM_TAG tag) {
+  return (BValue)(((uintptr_t)tag << 1) | PURE_VALUE_TAG);
+}
+
 // Externals:
 void free_external(External* ex) {
   ex->ex_free(ex->external);
@@ -157,6 +163,51 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
 
   return (BValue)str;
 }
+
+char* bsts_string_utf8_bytes(BValue str) {
+  if (IS_PURE_VALUE(str)) {
+    return (char*)TO_POINTER(str);
+  }
+  else {
+    BSTS_String* strptr = (BSTS_String*)str;
+    return strptr->bytes;
+  }
+}
+
+_Bool bsts_string_equals(BValue left, BValue right) {
+  if (IS_PURE_VALUE(left) && IS_PURE_VALUE(right)) {
+    printf("both pure");
+    return (strcmp((char*)TO_POINTER(left), (char*)TO_POINTER(right)) == 0);
+  }
+  else {
+    size_t lsize = bsts_string_utf8_len(left);
+    size_t rsize = bsts_string_utf8_len(right);
+
+    if (lsize != rsize) {
+      printf("%li != %li\n", lsize, rsize);
+      return 0;
+    }
+    else {
+      printf("cheking strncmp\n");
+      return (strncmp(
+        bsts_string_utf8_bytes(left),
+        bsts_string_utf8_bytes(right),
+        rsize) == 0);
+    }
+  }
+}
+
+size_t bsts_string_utf8_len(BValue str) {
+  if (IS_PURE_VALUE(str)) {
+    char* strptr = (char*)TO_POINTER(str);
+    return strlen(strptr);
+  }
+  else {
+    BSTS_String* strptr = (BSTS_String*)str;
+    return strptr->len;
+  }
+}
+
 
 // Function to determine the type of the given value pointer and clone if necessary
 BValue clone_value(BValue value) {
@@ -229,13 +280,4 @@ BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
         } while (1);
     }
     return result;
-}
-
-// Example static
-BValue make_foo();
-static _Atomic BValue __bvalue_foo = NULL;
-// Add this to the main function to construct all
-// the top level values before we start
-BValue foo() {
-  return read_or_build(&__bvalue_foo, make_foo);
 }

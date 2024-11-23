@@ -91,8 +91,8 @@ BValue alloc_enum0(ENUM_TAG tag);
 
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 _Bool bsts_string_equals(BValue left, BValue right);
-// string -> int
-int bsts_string_utf8_len(BValue);
+// string -> int (lenght in bytes)
+size_t bsts_string_utf8_len(BValue);
 
 // (string, int) -> int
 int bsts_string_code_point_bytes(BValue, int offset);
