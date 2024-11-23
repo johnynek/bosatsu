@@ -149,6 +149,10 @@ void free_string(void* str) {
   free(str);
 }
 
+void free_static_string(void* str) {
+  free(str);
+}
+
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
@@ -164,50 +168,35 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   return (BValue)str;
 }
 
-char* bsts_string_utf8_bytes(BValue str) {
-  if (IS_PURE_VALUE(str)) {
-    return (char*)TO_POINTER(str);
-  }
-  else {
-    BSTS_String* strptr = (BSTS_String*)str;
-    return strptr->bytes;
-  }
-}
-
 _Bool bsts_string_equals(BValue left, BValue right) {
-  if (IS_PURE_VALUE(left) && IS_PURE_VALUE(right)) {
-    printf("both pure");
-    return (strcmp((char*)TO_POINTER(left), (char*)TO_POINTER(right)) == 0);
+  BSTS_String* lstr = (BSTS_String*)left;
+  BSTS_String* rstr = (BSTS_String*)right;
+
+  if (lstr->len == rstr->len) {
+    return (strncmp(
+      lstr->bytes,
+      rstr->bytes,
+      lstr->len) == 0);
   }
   else {
-    size_t lsize = bsts_string_utf8_len(left);
-    size_t rsize = bsts_string_utf8_len(right);
-
-    if (lsize != rsize) {
-      printf("%li != %li\n", lsize, rsize);
-      return 0;
-    }
-    else {
-      printf("cheking strncmp\n");
-      return (strncmp(
-        bsts_string_utf8_bytes(left),
-        bsts_string_utf8_bytes(right),
-        rsize) == 0);
-    }
+    return 0;
   }
 }
 
 size_t bsts_string_utf8_len(BValue str) {
-  if (IS_PURE_VALUE(str)) {
-    char* strptr = (char*)TO_POINTER(str);
-    return strlen(strptr);
-  }
-  else {
-    BSTS_String* strptr = (BSTS_String*)str;
-    return strptr->len;
-  }
+  BSTS_String* strptr = (BSTS_String*)str;
+  return strptr->len;
 }
 
+BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
+  BSTS_String* str = malloc(sizeof(BSTS_String));
+  str->len = len;
+  str->bytes = bytes;
+  atomic_init(&str->ref_count, 1);
+  str->free = (FreeFn)free_static_string;
+
+  return (BValue)str;
+}
 
 // Function to determine the type of the given value pointer and clone if necessary
 BValue clone_value(BValue value) {

@@ -456,9 +456,10 @@ object ClangGen {
           if (bytes.forall(_.toInt != 0)) {
             // just send the utf8 bytes as a string to C
             pv(
-              Code.Ident("BSTS_NULL_TERM_STATIC_STR")(Code.StrLiteral(
-                new String(bytes.map(_.toChar))
-              ))
+              Code.Ident("bsts_string_from_utf8_bytes_static")(
+                Code.IntLiteral(bytes.length),
+                Code.StrLiteral(new String(bytes.map(_.toChar)))
+              )
             )
           }
           else {
