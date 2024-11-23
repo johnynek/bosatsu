@@ -28,8 +28,7 @@ class ClangGenTest extends munit.FunSuite {
     val res = ClangGen.renderMain(
       sortedEnv = sortedEnv,
       externals = ClangGen.ExternalResolver.FromJvmExternals,
-      value = (PackageName.PredefName, Identifier.Name("ignored")),
-      evaluator = (Code.Include(true, "eval.h"), Code.Ident("evaluator_run"))
+      value = (PackageName.PredefName, Identifier.Name("ignored"))
     )
 
     res match {

@@ -6,7 +6,7 @@ import cats.{Eval, Traverse}
 import com.monovore.decline.{Argument, Opts}
 import org.bykn.bosatsu.CollectionUtils.listToUnique
 import org.bykn.bosatsu.codegen.Transpiler
-import org.bykn.bosatsu.{Package, PackageMap, Par, Parser, MatchlessFromTypedExpr}
+import org.bykn.bosatsu.{PackageMap, Par, Parser, MatchlessFromTypedExpr}
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
@@ -90,11 +90,7 @@ case object PythonTranspiler extends Transpiler {
         }.toList
 
       if (missingExternals.isEmpty) {
-        val tests = pm.toMap.iterator.flatMap { case (n, pack) =>
-          Package.testValue(pack).iterator.map { case (bn, _, _) =>
-            (n, bn)
-          }
-        }.toMap
+        val tests = pm.testValues
 
         val parsedEvals =
           evaluators.map(Parser.unsafeParse(PythonGen.evaluatorParser, _))

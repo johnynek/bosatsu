@@ -140,23 +140,29 @@ object ClangGen {
       }
   }
 
-  def renderMain(
-      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
-      externals: ExternalResolver,
-      value: (PackageName, Bindable),
-      evaluator: (Code.Include, Code.Ident)
-  ): Either[Error, Doc] = {
-    val env = Impl.Env.impl
+  private def renderDeps(
+      env: Impl.Env,
+      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]]
+  ): env.T[Unit] = {
     import env._
 
-    val trav2 = Traverse[Vector].compose[NonEmptyList]
-
-    val res =
-      trav2.traverse_(sortedEnv) { case (pn, values) =>
+    Traverse[Vector].compose[NonEmptyList]
+      .traverse_(sortedEnv) { case (pn, values) =>
         values.traverse_ { case (bindable, expr) =>
           renderTop(pn, bindable, expr)      
         }
-      } *> env.renderMain(value._1, value._2, evaluator._1, evaluator._2)
+      }
+  }
+
+  def renderMain(
+      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
+      externals: ExternalResolver,
+      value: (PackageName, Bindable)
+  ): Either[Error, Doc] = {
+    val env = Impl.Env.impl
+    import env.monadImpl
+
+    val res = renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2)
 
     val allValues: Impl.AllValues =
       sortedEnv
@@ -168,7 +174,30 @@ object ClangGen {
         }
         .toMap
     
-    run(allValues, externals, res)
+    env.run(allValues, externals, res)
+  }
+
+  def renderTests(
+      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
+      externals: ExternalResolver,
+      values: List[(PackageName, Bindable)]
+  ): Either[Error, Doc] = {
+    val env = Impl.Env.impl
+    import env.monadImpl
+
+    val res = renderDeps(env, sortedEnv) *> env.renderTests(values)
+
+    val allValues: Impl.AllValues =
+      sortedEnv
+        .iterator.flatMap(_.iterator)
+        .flatMap { case (p, vs) =>
+          vs.iterator.map { case (b, e) =>
+            (p, b) -> (e, generatedName(p, b)) 
+          }  
+        }
+        .toMap
+    
+    env.run(allValues, externals, res)
   }
 
   private def fullName(p: PackageName, b: Bindable): String =
@@ -1135,7 +1164,8 @@ object ClangGen {
         }
       }
 
-      def renderMain(p: PackageName, b: Bindable, evalInc: Code.Include, evalFn: Code.Ident): T[Unit]
+      def renderMain(p: PackageName, b: Bindable): T[Unit]
+      def renderTests(values: List[(PackageName, Bindable)]): T[Unit]
     }
 
     object Env {
@@ -1364,7 +1394,11 @@ object ClangGen {
           def constructorFn(p: PackageName, b: Bindable): T[Code.Ident] =
             monadImpl.pure(Code.Ident(Idents.escape("___bsts_c_", fullName(p, b))))
 
-          def renderMain(p: PackageName, b: Bindable, evalInc: Code.Include, evalFn: Code.Ident): T[Unit] =
+          def renderMain(p: PackageName, b: Bindable): T[Unit] =
+            // TODO ???
+            monadImpl.unit
+
+          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
             // TODO ???
             monadImpl.unit
         }
