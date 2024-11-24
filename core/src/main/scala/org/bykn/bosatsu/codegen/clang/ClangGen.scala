@@ -25,6 +25,7 @@ object ClangGen {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
     case class InvariantViolation(message: String, expr: Expr) extends Error
     case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
+    case class ExpectedStaticString(str: String) extends Error
   }
 
   trait ExternalResolver {
@@ -32,7 +33,7 @@ object ClangGen {
     def apply(p: PackageName, b: Bindable): Option[(Code.Include, Code.Ident, Int)]
 
     final def generateExternalsStub: SortedMap[String, Doc] = {
-      val includes = Code.Include(true, "bosatsu_runtime.h") :: Nil
+      val includes = Code.Include.quote("bosatsu_runtime.h") :: Nil
 
       def toStmt(cIdent: Code.Ident, arity: Int): Code.Statement = {
         val args = Idents.allSimpleIdents.take(arity).map { nm =>
@@ -93,7 +94,7 @@ object ClangGen {
           }
           .toMap
 
-          p -> (Code.Include(true, fileName), fns)
+          p -> (Code.Include.quote(fileName), fns)
         }
         .toMap
 
@@ -114,7 +115,7 @@ object ClangGen {
 
     val FromJvmExternals: ExternalResolver =
       new ExternalResolver {
-        val predef_c = Code.Include(true, stdExtFileName(PackageName.PredefName))
+        val predef_c = Code.Include.quote(stdExtFileName(PackageName.PredefName))
 
         def predef(s: String, arity: Int) =
           (PackageName.PredefName -> Identifier.Name(s)) -> (predef_c,
@@ -435,15 +436,30 @@ object ClangGen {
         def matchesAt(src: Expression, byteOffset: Expression, expected: Expression): Expression =
           fn("matches_at")(src, byteOffset, expected)
 
+        def staticString(s: String): T[Code.StrLiteral] = {
+          // convert to utf8 and then to a literal array of bytes
+          val bytes = s.getBytes(StandardCharsets.UTF_8)
+          if (bytes.forall(_.toInt != 0)) {
+            // just send the utf8 bytes as a string to C
+            monadImpl.pure(
+              Code.StrLiteral(new String(bytes.map(_.toChar)))
+            )
+          }
+          else {
+            error(Error.ExpectedStaticString(s))
+          }
+        }
+
         def fromString(s: String): T[Code.ValueLike] = {
           // convert to utf8 and then to a literal array of bytes
           val bytes = s.getBytes(StandardCharsets.UTF_8)
           if (bytes.forall(_.toInt != 0)) {
             // just send the utf8 bytes as a string to C
             pv(
-              Code.Ident("BSTS_NULL_TERM_STATIC_STR")(Code.StrLiteral(
-                new String(bytes.map(_.toChar))
-              ))
+              Code.Ident("bsts_string_from_utf8_bytes_static")(
+                Code.IntLiteral(bytes.length),
+                Code.StrLiteral(new String(bytes.map(_.toChar)))
+              )
             )
           }
           else {
@@ -1187,12 +1203,16 @@ object ClangGen {
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
                 Doc.hardLine + Doc.hardLine +
                 Doc.intercalate(Doc.hardLine + Doc.hardLine, stmts.iterator.map(Code.toDoc(_)).toList)
+
+            def include(incl: Code.Include): State =
+              if (includeSet(incl)) this
+              else copy(includeSet = includeSet + incl, includes = includes :+ incl)
           }
 
           object State {
             def init(allValues: AllValues, externals: ExternalResolver): State = {
               val defaultIncludes =
-                List(Code.Include(true, "bosatsu_runtime.h"))
+                List(Code.Include.quote("bosatsu_runtime.h"))
 
               State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
                 None, Map.empty, 0L
@@ -1229,10 +1249,7 @@ object ClangGen {
               s.externals(pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
-                  val withIncl =
-                    if (s.includeSet(incl)) s
-                    else s.copy(includeSet = s.includeSet + incl, includes = s.includes :+ incl)
-
+                  val withIncl = s.include(incl)
                   result(withIncl, ident)
                 case None =>
                   val key = (pn, bn)
@@ -1359,9 +1376,7 @@ object ClangGen {
                   // this is external
                   s.externals(pack, b) match {
                     case Some((incl, ident, arity)) if arity > 0 =>
-                      val withIncl =
-                        if (s.includeSet(incl)) s
-                        else s.copy(includeSet = s.includeSet + incl, includes = s.includes :+ incl)
+                      val withIncl = s.include(incl)
                       result(withIncl, Some(ident))
                     case _ => result(s, None)
                   }
@@ -1398,9 +1413,43 @@ object ClangGen {
             // TODO ???
             monadImpl.unit
 
-          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
-            // TODO ???
-            monadImpl.unit
+          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] = {
+            values.traverse { case (p, b) =>
+              (StringApi.staticString(p.asString), globalIdent(p, b)).tupled
+            }
+            .flatMap { packVals =>
+              /*
+              int main(int argc, char** argv) {
+                init_statics();
+                atexit(free_statics);
+
+                BSTS_Test_Result[size] results;
+                results[0] = bsts_test_run(pack[0], testVal[0]);
+                ...
+                int code = bsts_test_result_print_summary(size, results);
+                return code;
+              }
+              */     
+              val results = Code.Ident("results")
+              val runFn = Code.Ident("bsts_test_run")
+              val summaryFn = Code.Ident("bsts_test_result_print_summary")
+              val testCount = packVals.length
+              val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
+                results.bracket(Code.IntLiteral(idx)) := runFn(n, tv)
+              }
+              val header = Code.Statements(
+                Code.Ident("init_statics")().stmt,
+                Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                Code.DeclareArray(Code.TypeIdent.Named("BSTS_Test_Result"), results, Left(testCount))
+              )
+
+              val mainFn = Code.declareMain(header ++
+                allTests +
+                Code.returnValue(summaryFn(Code.IntLiteral(testCount), results)))
+
+              appendStatement(mainFn)
+            } *> StateT(s => result(s.include(Code.Include.angle("stdlib.h")), ()))
+          }
         }
       }
     }

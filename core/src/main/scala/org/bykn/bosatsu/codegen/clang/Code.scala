@@ -354,6 +354,13 @@ object Code {
 
   sealed trait Statement extends Code {
     def +(stmt: Statement): Statement = Statements.combine(this, stmt)
+
+    def ++(stmts: List[Statement]): Statement =
+      NonEmptyList.fromList(stmts) match {
+        case None => this
+        case Some(nel) => this + Statements(nel)
+      }
+
     def maybeCombine(that: Option[Statement]): Statement =
       that match {
         case Some(t) => Statements.combine(this, t)
@@ -401,6 +408,10 @@ object Code {
   case class Effect(expr: Expression) extends Statement
   case class While(cond: Expression, body: Block) extends Statement
   case class Include(quote: Boolean, filename: String) extends Statement
+  object Include {
+    def quote(filename: String): Include = Include(quote = true, filename)
+    def angle(filename: String): Include = Include(quote = false, filename)
+  }
 
   val returnVoid: Statement = Return(None)
 
@@ -409,6 +420,11 @@ object Code {
 
   def declareBool(ident: Ident, init: Option[Boolean]): Statement =
     DeclareVar(Nil, TypeIdent.Bool, ident, init.map(if (_) TrueLit else FalseLit))
+
+  def declareMain(body: Statement): DeclareFn =
+    DeclareFn(Nil, TypeIdent.Int,
+      "main", Param(TypeIdent.Int, "argc") :: Param(TypeIdent.Char.ptr.ptr, "argv") :: Nil,
+      Some(block(body)))
 
   def block(item: Statement, rest: Statement*): Block =
     item match {

@@ -2,6 +2,8 @@
 
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 #define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
@@ -116,6 +118,10 @@ BValue get_enum_index(BValue v, int idx) {
   return ptr[idx];
 }
 
+BValue alloc_enum0(ENUM_TAG tag) {
+  return (BValue)(((uintptr_t)tag << 1) | PURE_VALUE_TAG);
+}
+
 // Externals:
 void free_external(External* ex) {
   ex->ex_free(ex->external);
@@ -143,6 +149,10 @@ void free_string(void* str) {
   free(str);
 }
 
+void free_static_string(void* str) {
+  free(str);
+}
+
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
@@ -154,6 +164,36 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   str->bytes = bytes_copy;
   atomic_init(&str->ref_count, 1);
   str->free = (FreeFn)free_string;
+
+  return (BValue)str;
+}
+
+_Bool bsts_string_equals(BValue left, BValue right) {
+  BSTS_String* lstr = (BSTS_String*)left;
+  BSTS_String* rstr = (BSTS_String*)right;
+
+  if (lstr->len == rstr->len) {
+    return (strncmp(
+      lstr->bytes,
+      rstr->bytes,
+      lstr->len) == 0);
+  }
+  else {
+    return 0;
+  }
+}
+
+size_t bsts_string_utf8_len(BValue str) {
+  BSTS_String* strptr = (BSTS_String*)str;
+  return strptr->len;
+}
+
+BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
+  BSTS_String* str = malloc(sizeof(BSTS_String));
+  str->len = len;
+  str->bytes = bytes;
+  atomic_init(&str->ref_count, 1);
+  str->free = (FreeFn)free_static_string;
 
   return (BValue)str;
 }
@@ -229,13 +269,4 @@ BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
         } while (1);
     }
     return result;
-}
-
-// Example static
-BValue make_foo();
-static _Atomic BValue __bvalue_foo = NULL;
-// Add this to the main function to construct all
-// the top level values before we start
-BValue foo() {
-  return read_or_build(&__bvalue_foo, make_foo);
 }

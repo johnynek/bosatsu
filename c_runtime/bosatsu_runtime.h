@@ -71,7 +71,6 @@ typedef uint32_t ENUM_TAG;
 #define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
 
 #define BSTS_TO_CHAR(x) (BValue)((x << 1) | 1)
-#define BSTS_NULL_TERM_STATIC_STR(x) (BValue)(((uintptr_t)(x)) | PURE_VALUE_TAG)
 
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
@@ -90,9 +89,10 @@ BValue get_enum_index(BValue v, int idx);
 BValue alloc_enum0(ENUM_TAG tag);
 
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
+BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
 _Bool bsts_string_equals(BValue left, BValue right);
-// string -> int
-int bsts_string_utf8_len(BValue);
+// string -> int (lenght in bytes)
+size_t bsts_string_utf8_len(BValue);
 
 // (string, int) -> int
 int bsts_string_code_point_bytes(BValue, int offset);
@@ -133,6 +133,17 @@ BValue make_static(BValue v);
 void free_on_close(BValue v);
 
 BValue read_or_build(_Atomic BValue* v, BConstruct cons);
+
+typedef struct BSTS_Test_Result {
+  char* package_name;
+  int passes;
+  int fails;
+} BSTS_Test_Result;
+
+// This is the constructor to get a Test value for the given package name
+// and print to stdout
+BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value);
+int bsts_test_result_print_summary(int count, BSTS_Test_Result* results);
 
 #define CONSTRUCT(target, cons) (\
 {\
