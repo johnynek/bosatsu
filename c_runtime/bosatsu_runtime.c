@@ -168,15 +168,30 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   return (BValue)str;
 }
 
+BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
+  BSTS_String* str = malloc(sizeof(BSTS_String));
+  str->len = len;
+  str->bytes = bytes;
+  atomic_init(&str->ref_count, 1);
+  str->free = (FreeFn)free_static_string;
+
+  return (BValue)str;
+}
+
 _Bool bsts_string_equals(BValue left, BValue right) {
+  if (left == right) {
+    return 1;
+  }
+
   BSTS_String* lstr = (BSTS_String*)left;
   BSTS_String* rstr = (BSTS_String*)right;
 
-  if (lstr->len == rstr->len) {
+  size_t llen = lstr->len;
+  if (llen == rstr->len) {
     return (strncmp(
       lstr->bytes,
       rstr->bytes,
-      lstr->len) == 0);
+      llen) == 0);
   }
   else {
     return 0;
@@ -188,14 +203,153 @@ size_t bsts_string_utf8_len(BValue str) {
   return strptr->len;
 }
 
-BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
-  BSTS_String* str = malloc(sizeof(BSTS_String));
-  str->len = len;
-  str->bytes = bytes;
-  atomic_init(&str->ref_count, 1);
-  str->free = (FreeFn)free_static_string;
+/**
+ * return the number of bytes at this position, 1, 2, 3, 4 or -1 on error
+ * TODO: the runtime maybe should assume everything is safe, which the
+ * compiler should have guaranteed, so doing error checks here is probably
+ * wasteful once we debug the compiler.
+ */
+int bsts_string_code_point_bytes(BValue value, int offset) {
+    BSTS_String* str = (BSTS_String*)value;
+    if (str == NULL || offset < 0 || offset >= str->len) {
+        // Invalid input
+        return -1;
+    }
 
-  return (BValue)str;
+    // cast to an unsigned char for the math below
+    unsigned char *s = (unsigned char*)(str->bytes + offset);
+    unsigned char c = s[0];
+    int remaining = str->len - offset;
+    int bytes = -1;
+
+    if (c <= 0x7F) {
+        // 1-byte sequence (ASCII)
+        bytes = 1;
+    } else if ((c & 0xE0) == 0xC0) {
+        // 2-byte sequence
+        if (remaining < 2 || (s[1] & 0xC0) != 0x80) {
+            // Invalid continuation byte
+            bytes = -1;
+        }
+        else {
+          bytes = 2;
+        }
+    } else if ((c & 0xF0) == 0xE0) {
+        // 3-byte sequence
+        if (remaining < 3 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            bytes = -1;
+        }
+        else {
+          bytes = 3;
+        }
+    } else if ((c & 0xF8) == 0xF0) {
+        // 4-byte sequence
+        if (remaining < 4 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80 || (s[3] & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            bytes = -1;
+        }
+        else {
+          bytes = 4;
+        }
+    } else {
+        // Invalid UTF-8 leading byte
+        bytes = -1;
+    }
+
+    // Return the code point value
+    return bytes;
+}
+
+/**
+ * return char at the given offset
+ * TODO: the runtime maybe should assume everything is safe, which the
+ * compiler should have guaranteed, so doing error checks here is probably
+ * wasteful once we debug the compiler.
+ */
+BValue bsts_string_char_at(BValue value, int offset) {
+    BSTS_String* str = (BSTS_String*)value;
+    if (str == NULL || offset < 0 || offset >= str->len) {
+        // Invalid input
+        return 0;
+    }
+
+    // cast to an unsigned char for the math below
+    unsigned char *s = (unsigned char*)(str->bytes + offset);
+    unsigned char c = s[0];
+    int remaining = str->len - offset;
+    uint32_t code_point = 0;
+
+    if (c <= 0x7F) {
+        // 1-byte sequence (ASCII)
+        code_point = c;
+    } else if ((c & 0xE0) == 0xC0) {
+        // 2-byte sequence
+        if (remaining < 2 || (s[1] & 0xC0) != 0x80) {
+            // Invalid continuation byte
+            return 0;
+        }
+        code_point = ((c & 0x1F) << 6) | (s[1] & 0x3F);
+    } else if ((c & 0xF0) == 0xE0) {
+        // 3-byte sequence
+        if (remaining < 3 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            return 0;
+        }
+        code_point = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+    } else if ((c & 0xF8) == 0xF0) {
+        // 4-byte sequence
+        if (remaining < 4 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80 || (s[3] & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            return 0;
+        }
+        code_point = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+    } else {
+        // Invalid UTF-8 leading byte
+        return 0;
+    }
+
+    // Return the code point value
+    return BSTS_TO_CHAR((intptr_t)code_point);
+}
+
+_Bool bsts_rc_value_is_unique(RefCounted* value) {
+  return atomic_load(&(value->ref_count)) == 1;
+}
+
+// (string, int, int) -> string
+// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
+BValue bsts_string_substring(BValue value, int start, int end) {
+  BSTS_String* str = (BSTS_String*)value;
+  size_t len = str->len;
+  if (len < end || end <= start) {
+    // this is invalid
+    return 0;
+  }
+  size_t new_len = end - start;
+  if (str->free == free_static_string) {
+    if (new_len > 0) {
+      return bsts_string_from_utf8_bytes_static(new_len, str->bytes + start);
+    }
+    else {
+      // empty string, should probably be a constant
+      return bsts_string_from_utf8_bytes_static(0, "");
+    }
+  }
+  else {
+    // ref-counted bytes
+    // TODO: we could keep track of an offset into the string to optimize
+    // this case when refcount == 1, which may matter for tail recursion
+    // taking substrings....
+    return bsts_string_from_utf8_bytes_copy(new_len, str->bytes + start);
+  }
+}
+
+// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
+// (String, int) -> String
+BValue bsts_string_substring_tail(BValue value, int byte_offset) {
+  BSTS_String* str = (BSTS_String*)value;
+  return bsts_string_substring(str, byte_offset, str->len);
 }
 
 // Function to determine the type of the given value pointer and clone if necessary

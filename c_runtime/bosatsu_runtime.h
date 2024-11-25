@@ -78,33 +78,43 @@ typedef void (*FreeFn)(void*);
 typedef BValue (*BConstruct)();
 
 // Function to determine the type of the given value pointer and clone if necessary
+// &BValue -> BValue
 BValue clone_value(BValue value);
+// BValue -> ()
 void release_value(BValue value);
 
+// (&BValue, int) -> &BValue
 BValue get_struct_index(BValue v, int idx);
 
+// &BValue -> Tag
 ENUM_TAG get_variant(BValue v);
+// (&BValue, int) -> &BValue
 BValue get_enum_index(BValue v, int idx);
+
 // This one is not auto generated because it can always be fit into the BValue directly
 BValue alloc_enum0(ENUM_TAG tag);
 
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
+// (&String, &String) -> Bool
 _Bool bsts_string_equals(BValue left, BValue right);
-// string -> int (lenght in bytes)
+// &String -> int (length in bytes)
 size_t bsts_string_utf8_len(BValue);
 
-// (string, int) -> int
+// How many bytes is the codepoint at this offset, 1, 2, 3, 4, or -1 on error
+// (&String, int) -> int
 int bsts_string_code_point_bytes(BValue, int offset);
 
-// (string, int) -> char
+// (&String, int) -> char
 BValue bsts_string_char_at(BValue, int);
 
-// (string, int) -> string
-BValue bsts_string_substring_tail(BValue, int start);
-
 // (string, int, int) -> string
+// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
 BValue bsts_string_substring(BValue, int start, int end);
+
+// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
+// (String, int) -> String
+BValue bsts_string_substring_tail(BValue, int byte_offset);
 
 // return -1 if the needle isn't in the haystack, else the offset >= byteOffset it was found
 // (string, string, int) -> int
