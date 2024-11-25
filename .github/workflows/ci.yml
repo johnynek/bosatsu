@@ -123,8 +123,7 @@ jobs:
           cd c_runtime
           rm -f test
           make && git diff --quiet
-          ./test
-          cd ..
+          ./test_exe && cd ..
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
