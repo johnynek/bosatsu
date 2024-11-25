@@ -121,6 +121,7 @@ jobs:
       - name: "test runtime code"
         run: |
           cd c_runtime
+          rm -f test
           make && git diff --quiet
           ./test
           cd ..
