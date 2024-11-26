@@ -1,4 +1,4 @@
-all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o
+all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o
 
 bosatsu_generated.h: typegen.py
 	python3 typegen.py impls > bosatsu_generated.h
@@ -19,3 +19,6 @@ test_out: test_exe
 
 bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Predef.c
+
+bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
+	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Prog.c
