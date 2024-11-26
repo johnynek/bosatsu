@@ -38,6 +38,7 @@ DEFINE_RC_ENUM(Enum0,);
 DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
 
 DEFINE_RC_STRUCT(BSTS_String, size_t len; char* bytes;);
+DEFINE_RC_STRUCT(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
 
 // A general structure for a reference counted memory block
 // it is always allocated with len BValue array immediately after
@@ -128,10 +129,14 @@ void free_external(External* ex) {
   free(ex);
 }
 
+void bsts_init_rc(RefCounted* rc, FreeFn free) {
+    atomic_init(&rc->ref_count, 1);
+    rc->free = free;
+}
+
 BValue alloc_external(void* data, FreeFn free) {
     External* rc = malloc(sizeof(External));
-    atomic_init(&rc->ref_count, 1);
-    rc->free = (FreeFn)free_external;
+    bsts_init_rc((RefCounted*)rc, free);
     rc->external = data;
     rc->ex_free = free;
     return (BValue)rc;
@@ -162,8 +167,7 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   }
   str->len = len;
   str->bytes = bytes_copy;
-  atomic_init(&str->ref_count, 1);
-  str->free = (FreeFn)free_string;
+  bsts_init_rc((RefCounted*)str, free_string);
 
   return (BValue)str;
 }
@@ -172,8 +176,7 @@ BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
   str->len = len;
   str->bytes = bytes;
-  atomic_init(&str->ref_count, 1);
-  str->free = (FreeFn)free_static_string;
+  bsts_init_rc((RefCounted*)str, free_static_string);
 
   return (BValue)str;
 }
@@ -317,8 +320,7 @@ _Bool bsts_rc_value_is_unique(RefCounted* value) {
   return atomic_load(&(value->ref_count)) == 1;
 }
 
-// (string, int, int) -> string
-// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
+// (&string, int, int) -> string
 BValue bsts_string_substring(BValue value, int start, int end) {
   BSTS_String* str = (BSTS_String*)value;
   size_t len = str->len;
@@ -351,6 +353,172 @@ BValue bsts_string_substring_tail(BValue value, int byte_offset) {
   BSTS_String* str = (BSTS_String*)value;
   return bsts_string_substring(str, byte_offset, str->len);
 }
+
+int bsts_string_find(BValue haystack, BValue needle, int start) {
+    BSTS_String* haystack_str = (BSTS_String*)haystack;
+    BSTS_String* needle_str = (BSTS_String*)needle;
+
+    size_t haystack_len = haystack_str->len;
+    size_t needle_len = needle_str->len;
+    if (needle_len == 0) {
+        // Empty needle matches at start
+        return (start <= (int)haystack_len) ? start : -1;
+    }
+
+    if (start < 0 || start > (int)(haystack_len - needle_len)) {
+        // Start position is out of bounds
+        return -1;
+    }
+
+
+    // The maximum valid start index is haystack_len - needle_len
+    for (size_t i = (size_t)start; i <= haystack_len - needle_len; i++) {
+        if (haystack_str->bytes[i] == needle_str->bytes[0]) {
+            // Potential match found, check the rest of the needle
+            size_t j;
+            for (j = 1; j < needle_len; j++) {
+                if (haystack_str->bytes[i + j] != needle_str->bytes[j]) {
+                    break;
+                }
+            }
+            if (j == needle_len) {
+                // Full match found
+                return (int)i;
+            }
+        }
+    }
+
+    // No match found
+    return -1;
+}
+
+/*
+
+fbytes
+DEFINE_RC_STRUCT(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
+typedef struct {
+  size_t len;
+  _Bool sign;
+  uint32_t* words;
+} BSTS_Integer
+*/
+
+BValue bsts_integer_from_int(int small_int) {
+    // chatgpt
+    uintptr_t value = (((uintptr_t)(intptr_t)small_int) << 1) | 1;
+    return (BValue)value;
+}
+
+void free_integer(void* integer) {
+  BSTS_Integer* bint = (BSTS_Integer*)(integer);
+  free(bint->words);
+  free(integer);
+}
+
+BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) {
+    // chatgpt authored this
+    BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
+    if (integer == NULL) {
+        // Handle allocation failure
+        return NULL;
+    }
+
+    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
+    // remove any leading 0 words
+    while ((size > 1) && (*words == 0)) {
+      words++;
+      size--;
+    }
+    integer->len = size;
+    integer->words = (uint32_t*)malloc(size * sizeof(uint32_t));
+    if (integer->words == NULL) {
+        // Handle allocation failure
+        free(integer);
+        return NULL;
+    }
+    bsts_init_rc((RefCounted*)integer, free_integer);
+    memcpy(integer->words, words, size * sizeof(uint32_t));
+    return (BValue)integer; // Low bit is 0 since it's a pointer
+}
+
+// Function to check equality between two BValues
+_Bool bsts_integer_equals(BValue left, BValue right) {
+    if (left == right) { return 1; }
+
+    uintptr_t lval = (uintptr_t)left;
+    uintptr_t rval = (uintptr_t)right;
+
+    _Bool l_is_small = lval & 1;
+    _Bool r_is_small = rval & 1;
+
+    if (l_is_small && r_is_small) {
+        // Both are small integers, but they aren't equal
+        return 0;
+    } else if (!l_is_small && !r_is_small) {
+        // Both are BSTS_Integer pointers
+        BSTS_Integer* l_int = (BSTS_Integer*)left;
+        BSTS_Integer* r_int = (BSTS_Integer*)right;
+
+        // Compare sign
+        if (l_int->sign != r_int->sign)
+            return 0;
+        // Compare length
+        if (l_int->len != r_int->len)
+            return 0;
+        // Compare words
+        for (size_t i = 0; i < l_int->len; ++i) {
+            if (l_int->words[i] != r_int->words[i])
+                return 0;
+        }
+        return 1; // All equal
+    } else {
+        // One is small integer, one is BSTS_Integer*
+        // Ensure left is the small integer
+        if (!l_is_small) {
+            BValue temp = left;
+            left = right;
+            right = temp;
+            _Bool temp_is_small = l_is_small;
+            l_is_small = r_is_small;
+            r_is_small = temp_is_small;
+        }
+
+        // Extract small integer value
+        intptr_t small_int_value = (intptr_t)((uintptr_t)left >> 1);
+        BSTS_Integer* big_int = (BSTS_Integer*)right;
+
+        // Check sign
+        _Bool big_int_sign = big_int->sign; // 0 for positive, 1 for negative
+        _Bool small_int_sign = (small_int_value < 0) ? 1 : 0;
+        if (big_int_sign != small_int_sign) {
+            return 0; // Different signs
+        }
+
+        // Compare absolute values
+        uintptr_t abs_small_int_value = (uintptr_t)(small_int_value < 0 ? -small_int_value : small_int_value);
+
+        // Check if big_int can fit in uintptr_t
+        size_t bits_in_uintptr_t = sizeof(uintptr_t) * 8;
+        if (big_int->len * 32 > bits_in_uintptr_t) {
+            return 0; // big_int is too large
+        }
+
+        // Reconstruct big integer value
+        uintptr_t big_int_value = 0;
+        for (size_t i = 0; i < big_int->len; ++i) {
+            big_int_value |= ((uintptr_t)big_int->words[i]) << (32 * i);
+        }
+
+        // Compare values
+        if (big_int_value != abs_small_int_value) {
+            return 0;
+        }
+
+        return 1; // Values are equal
+    }
+}
+
+
 
 // Function to determine the type of the given value pointer and clone if necessary
 BValue clone_value(BValue value) {

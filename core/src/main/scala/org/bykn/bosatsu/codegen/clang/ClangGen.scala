@@ -434,7 +434,7 @@ object ClangGen {
         // basically python src.startswith(expected, _) but with utf8 byte offsets
         // (string, int, string) -> _Bool
         def matchesAt(src: Expression, byteOffset: Expression, expected: Expression): Expression =
-          fn("matches_at")(src, byteOffset, expected)
+          find(src, expected, byteOffset) =:= byteOffset
 
         def staticString(s: String): T[Code.StrLiteral] = {
           // convert to utf8 and then to a literal array of bytes

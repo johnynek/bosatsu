@@ -9,11 +9,14 @@ void assert(_Bool cond, char* message) {
   }
 }
 
-int main(int argc, char** argv) {
+void test_runtime_enum_struct() {
   BValue s1 = alloc_struct2(alloc_enum0(0), alloc_enum0(1));
   assert(get_variant(get_struct_index(s1, 0)) == 0, "index0 == alloc_enum0");
   assert(get_variant(get_struct_index(s1, 1)) == 1, "index0 == alloc_enum0(1)");
   release_value(s1);
+}
+
+void test_runtime_strings() {
 
   char* hello = "hello1";
 
@@ -42,6 +45,25 @@ int main(int argc, char** argv) {
   release_value(tail_expected);
   release_value(v3);
 
+  {
+    BValue hello_world1 = bsts_string_from_utf8_bytes_static(11, "hello world");
+    BValue hello1 = bsts_string_from_utf8_bytes_static(5, "world");
+    int find1 = bsts_string_find(hello_world1, hello1, 0);
+    assert(find1 == 6, "find1");
+    int find2 = bsts_string_find(hello_world1, hello1, 1);
+    assert(find2 == 6, "find2");
+    int find3 = bsts_string_find(hello_world1, hello1, 7);
+    assert(find3 == -1, "find3");
+    release_value(hello_world1);
+    release_value(hello1);
+  }
+
+}
+
+int main(int argc, char** argv) {
+
+  test_runtime_enum_struct();
+  test_runtime_strings();
   printf("success\n");
   return 0;
 }

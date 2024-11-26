@@ -108,21 +108,15 @@ int bsts_string_code_point_bytes(BValue, int offset);
 // (&String, int) -> char
 BValue bsts_string_char_at(BValue, int);
 
-// (string, int, int) -> string
-// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
+// (&string, int, int) -> string
 BValue bsts_string_substring(BValue, int start, int end);
 
-// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
-// (String, int) -> String
+// (&String, int) -> String
 BValue bsts_string_substring_tail(BValue, int byte_offset);
 
 // return -1 if the needle isn't in the haystack, else the offset >= byteOffset it was found
-// (string, string, int) -> int
+// (&string, string, int) -> int
 int bsts_string_find(BValue haystack, BValue needle, int start);
-
-// basically python src.startswith(expected, _) but with utf8 byte offsets
-// (string, int, string) -> _Bool
-_Bool bsts_string_matches_at(BValue src, int start, BValue expected);
 
 BValue bsts_integer_from_int(int small_int);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
