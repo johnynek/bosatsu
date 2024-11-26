@@ -1,4 +1,4 @@
-all: bosatsu_runtime.o test_out
+all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o
 
 bosatsu_generated.h: typegen.py
 	python3 typegen.py impls > bosatsu_generated.h
@@ -16,3 +16,6 @@ test_exe: test.c bosatsu_runtime.o
 test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }
 	touch test_out
+
+bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
+	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Predef.c
