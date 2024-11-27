@@ -36,7 +36,6 @@ void free_closure(Closure1Data* s) {
 DEFINE_RC_ENUM(Enum0,);
 
 DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
-
 DEFINE_RC_STRUCT(BSTS_String, size_t len; char* bytes;);
 DEFINE_RC_STRUCT(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
 
@@ -502,6 +501,20 @@ int bsts_string_rfind(BValue haystack, BValue needle, int start) {
 
     // No match found
     return -1;
+}
+
+void bsts_string_println(BValue v) {
+  char* bytes = bsts_string_utf8_bytes(v);
+  size_t len = bsts_string_utf8_len(v);
+  // TODO: if this string is somehow too big for an int this may fail
+  printf("%.*s\n", (int)len, bytes);
+}
+
+void bsts_string_print(BValue v) {
+  char* bytes = bsts_string_utf8_bytes(v);
+  size_t len = bsts_string_utf8_len(v);
+  // TODO: if this string is somehow too big for an int this may fail
+  printf("%.*s", (int)len, bytes);
 }
 
 // Helper macros and functions
@@ -2016,4 +2029,104 @@ BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
         } while (1);
     }
     return result;
+}
+
+/*
+typedef struct BSTS_Test_Result {
+  char* package_name;
+  int passes;
+  int fails;
+} BSTS_Test_Result;
+
+enum Test:
+  Assertion(value: Bool, message: String)
+  TestSuite(name: String, tests: List[Test])
+
+  test_value() returns a Test
+*/
+typedef struct BSTS_PassFail {
+  int passes;
+  int fails;
+} BSTS_PassFail;
+
+void print_indent(int indent) {
+  for(int z = 0; z < indent; z++) {
+    printf(" ");
+  }
+}
+
+BSTS_PassFail bsts_check_test(BValue v, int indent) {
+  int passes = 0;
+  int fails = 0;
+  if (get_variant(v) == 0) {
+    _Bool success = get_variant(get_enum_index(v, 0));
+    if (!success) {
+      BValue message = get_enum_index(v, 1);
+      print_indent(indent);
+      // red failure
+      printf("\033[31mfailure: ");
+      bsts_string_println(message);
+      printf("\033[0m");
+      ++fails;
+    }
+    else {
+      ++passes;
+    }
+  }
+  else {
+    // must be the (Suite, List[Test])
+    BValue suite_name = get_enum_index(v, 0);
+    BValue suite_tests = get_enum_index(v, 1);
+    print_indent(indent);
+    bsts_string_print(suite_name);
+    printf(":\n");
+    // loop through all the children
+    int next_indent = indent + 4;
+    int this_fails = 0;
+    int this_passes = 0;
+    while(get_variant(suite_tests) != 0) {
+      BValue t1 = get_enum_index(suite_tests, 0);
+      suite_tests = get_enum_index(suite_tests, 1);
+      BSTS_PassFail tests = bsts_check_test(t1, next_indent);
+      this_passes += tests.passes;
+      this_fails += tests.fails;
+    }
+    print_indent(next_indent);
+    printf("passed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", this_passes, this_fails);
+    passes += this_passes;
+    fails += this_fails;
+  }
+
+  BSTS_PassFail res = { passes, fails };
+  return res;
+}
+
+BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value) {
+  BValue res = test_value();
+  printf("%s:\n", package_name);
+  BSTS_PassFail this_test = bsts_check_test(res, 4);
+  BSTS_Test_Result test_res = { package_name, this_test.passes, this_test.fails };
+  return test_res;
+}
+
+int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
+  int total_fails = 0;
+  int total_passes = 0;
+  for (int i = 0; i < count; i++) {
+    total_fails += results[i].fails;
+    total_passes += results[i].passes;
+  }
+
+  if (total_fails > 0) {
+    printf("\n\npackages with failures:\n");
+    for (int i = 0; i < count; i++) {
+      if (results[i].fails > 0) {
+        printf("\t%s\n", results[i].package_name);
+      }
+    }
+    printf("\n");
+  }
+
+  printf("\npassed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", total_passes, total_fails);
+  return (total_fails > 0);
 }

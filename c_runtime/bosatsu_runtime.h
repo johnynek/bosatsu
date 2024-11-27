@@ -17,10 +17,9 @@ boundaries:
   b. ends with 11: static pointer (allocated once and deleteds at the end of the world)
   c. ends with 00: refcount pointer.
 
-when it comes to functions there are three types:
-  a. top level pure function: ends with 1
-  b. static closure (something that closes over static things, ideally we would optimize this away): ends with 10
-  c. refcounted closure: ends with 00
+when it comes to functions there are two types, PureFn and closures. We have to box
+  pointers to them, but when we know we have a global PureFn we can directly call it.
+  if we have a static boxed value, it ends in 1, else 0.
 
 Nat-like values are represented by positive integers encoded as PURE_VALUE such that
 NAT(x) = (x << 1) | 1, since we don't have enough time to increment through 2^{63} values
@@ -132,6 +131,8 @@ int bsts_string_find(BValue haystack, BValue needle, int start);
  * (&string, string, int) -> int
  */
 int bsts_string_rfind(BValue haystack, BValue needle, int start);
+// &String -> Unit
+void bsts_string_println(BValue v);
 
 BValue bsts_integer_from_int(int small_int);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);

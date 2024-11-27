@@ -1,3 +1,6 @@
+from typing import DefaultDict
+
+
 def just_bvalue(cnt):
   return ",".join(["BValue"] * cnt)
 
@@ -7,11 +10,11 @@ def bvalue_arg(cnt):
 def fn_decls(size):
   """
   BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn);
-  BValue value_from_pure_fn2(BPureFn2 fn);
+  BValue alloc_boxed_pure_fn2(BPureFn2 fn);
   BValue call_fn2(BValue fn, BValue arg0, BValue arg1);
   """
   alloc_c = "BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn);".format(size = size)
-  from_fn = "BValue value_from_pure_fn{size}(BPureFn{size} fn);".format(size = size)
+  from_fn = "BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn);".format(size = size);
   call_fn = "BValue call_fn{size}(BValue fn, {args});".format(size = size, args = bvalue_arg(size))
   return "\n".join([alloc_c, from_fn, call_fn])
 
@@ -57,7 +60,10 @@ BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
   return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, releases = releases, assigns = assigns)
 
 def function_impl(size):
-  define = "" if size == 1 else "DEFINE_RC_STRUCT(Closure{size}Data, BClosure{size} fn; size_t slot_len;);".format(size = size)
+  define_c = "" if size == 1 else "DEFINE_RC_STRUCT(Closure{size}Data, BClosure{size} fn; size_t slot_len;);\n".format(size = size)
+  define_p = "DEFINE_RC_STRUCT(BoxedPureFn{size}, BPureFn{size} fn; size_t slot_len;);".format(size = size)
+
+  define = define_c + define_p
   template = """
 {define}
 
@@ -74,14 +80,24 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     return (BValue)rc;
 }}
 
+BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
+    BoxedPureFn{size}* rc = (BoxedPureFn{size}*)malloc(sizeof(BoxedPureFn{size}));
+    atomic_init(&rc->ref_count, 1);
+    rc->free = free;
+    rc->fn = fn;
+    rc->slot_len = 0;
+    return (BValue)rc;
+}}
+
 BValue call_fn{size}(BValue fn, {arg_params}) {{
-  if (IS_PURE_VALUE(fn)) {{
-    BPureFn{size} pfn = (BPureFn{size})TO_POINTER(fn);
-    return pfn({just_args});
+  BValue ptr = (BValue)TO_POINTER(fn);
+  BoxedPureFn{size}* purefn = (BoxedPureFn{size}*)ptr;
+  if (purefn->slot_len == 0) {{
+    return purefn->fn({just_args});
   }}
   else {{
     // this must be a closure:
-    Closure{size}Data* rc = (Closure{size}Data*)fn;
+    Closure{size}Data* rc = (Closure{size}Data*)ptr;
     BValue* data = closure_data_of({cast_to_1}rc);
     return rc->fn(data, {just_args});
   }}

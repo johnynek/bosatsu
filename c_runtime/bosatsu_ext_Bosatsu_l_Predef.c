@@ -61,6 +61,9 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
     // we allocate some bytes and copy
     char* bytes = malloc(sizeof(char) * total_len);
     char* current_pos = bytes;
+    // reset to go through the list
+    amut = a;
+    v = get_variant(amut);
     while (v != 0) {
       BValue str = get_enum_index(amut, 0);
       size_t str_len = bsts_string_utf8_len(str);
@@ -250,12 +253,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_trace(BValue a, BValue b) {
-  char* bytes = bsts_string_utf8_bytes(a);
-  size_t len = bsts_string_utf8_len(a);
-  // TODO: if this string is somehow too big for an int this may fail
-  printf("%.*s\n", (int)len, bytes);
+  bsts_string_println(a);
   release_value(a);
-
   return b;
 }
 
