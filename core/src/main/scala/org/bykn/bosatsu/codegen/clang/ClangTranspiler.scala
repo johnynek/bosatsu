@@ -15,6 +15,32 @@ import cats.syntax.all._
 
 case object ClangTranspiler extends Transpiler {
 
+  sealed abstract class EmitMode {
+    def apply[A](pm: PackageMap.Typed[A], roots: Set[(PackageName, Identifier)]): PackageMap.Typed[A]
+  }
+  object EmitMode {
+    case object Shake extends EmitMode {
+      def apply[A](pm: PackageMap.Typed[A], roots: Set[(PackageName, Identifier)]): PackageMap.Typed[A] =
+        PackageMap.treeShake(pm, roots)
+    }
+    case object All extends EmitMode {
+      def apply[A](pm: PackageMap.Typed[A], roots: Set[(PackageName, Identifier)]): PackageMap.Typed[A] = pm
+    }
+
+    implicit val argumentEmitMode: Argument[EmitMode] =
+      new Argument[EmitMode] {
+        def defaultMetavar: String = "emitmode"
+        def read(string: String) =
+          string match {
+            case "shake" => Validated.valid(Shake)
+            case "all" => Validated.valid(All)
+            case other => Validated.invalidNel(s"expected (shake|all) got $other")
+          }
+      }
+
+      val opts: Opts[EmitMode] =
+        Opts.option[EmitMode]("emitmode", "emit mode: shake|all, default = all").withDefault(All)
+  }
   sealed abstract class Mode(val name: String)
   object Mode {
     case class Main(pack: PackageName) extends Mode("main")
@@ -45,15 +71,15 @@ case object ClangTranspiler extends Transpiler {
         )
   }
 
-  case class Arguments(mode: Mode)
+  case class Arguments(mode: Mode, emit: EmitMode)
   type Args[P] = Const[Arguments, P]
 
   def traverseArgs: Traverse[Args] = implicitly
 
   def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]] =
     Opts.subcommand("c", "generate c code") {
-      Mode.opts.map { m =>
-        Transpiler.optioned(this)(Const[Arguments, P](Arguments(m)))
+      (Mode.opts, EmitMode.opts).mapN { (m, e) =>
+        Transpiler.optioned(this)(Const[Arguments, P](Arguments(m, e)))
       }
     }
 
@@ -93,11 +119,6 @@ case object ClangTranspiler extends Transpiler {
     NonEmptyList.fromList(sorted.loopNodes) match {
       case Some(loop) => Failure(CircularPackagesFound(loop))
       case None =>
-        val matchlessMap = MatchlessFromTypedExpr.compile(pm)
-        val sortedEnv = cats.Functor[Vector]
-            .compose[NonEmptyList]
-            .map(sorted.layers) { pn => pn -> matchlessMap(pn) }
-
         val ext = externalsFor(pm)
         val doc = args.getConst.mode match {
           case Mode.Main(p) =>
@@ -105,6 +126,12 @@ case object ClangTranspiler extends Transpiler {
               case Some((b, _, t)) =>
                 validMain(t) match {
                   case Right(_) =>
+                    val pm1 = args.getConst.emit(pm, Set((p, b)))
+                    val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
+                    val sortedEnv = cats.Functor[Vector]
+                        .compose[NonEmptyList]
+                        .map(sorted.layers) { pn => pn -> matchlessMap(pn) }
+
                     ClangGen.renderMain(
                       sortedEnv = sortedEnv,
                       externals = ext,
@@ -121,6 +148,12 @@ case object ClangTranspiler extends Transpiler {
               case Nil =>
                 return Failure(NoTestsFound(pm.toMap.keySet.toList.sorted, re))
               case nonEmpty =>
+                val pm1 = args.getConst.emit(pm, nonEmpty.toSet)
+                val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
+                val sortedEnv = cats.Functor[Vector]
+                    .compose[NonEmptyList]
+                    .map(sorted.layers) { pn => pn -> matchlessMap(pn) }
+
                 ClangGen.renderTests(
                   sortedEnv = sortedEnv,
                   externals = ext,

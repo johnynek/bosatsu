@@ -20,12 +20,14 @@ BValue* closure_data_of(Closure1Data* s) {
 }
 void free_closure(Closure1Data* s) {
   size_t slots = s->slot_len;
-  BValue* items = closure_data_of(s);
+  BValue* items0 = closure_data_of(s);
+  BValue* items = items0;
   while (slots > 0) {
     release_value(items);
     items = items + 1;
     slots = slots - 1;
   }
+  free(items0);
   free(s);
 }
 
@@ -97,9 +99,9 @@ void init_statics() {
 }
 
 BValue get_struct_index(BValue v, int idx) {
-  uintptr_t rc = (uintptr_t)v;
-  BValue* ptr = (BValue*)(rc + sizeof(RefCounted));
-  return ptr[idx];
+  uintptr_t rc = TO_POINTER(v);
+  BValue* ptr = (BValue*)(rc + sizeof(RefCounted) + idx * sizeof(BValue));
+  return *ptr;
 }
 
 ENUM_TAG get_variant(BValue v) {
@@ -114,12 +116,12 @@ ENUM_TAG get_variant(BValue v) {
 
 BValue get_enum_index(BValue v, int idx) {
   uintptr_t rc = TO_POINTER(v);
-  BValue* ptr = (BValue*)(rc + sizeof(Enum0));
-  return ptr[idx];
+  BValue* ptr = (BValue*)(rc + sizeof(Enum0) + idx * sizeof(BValue));
+  return *ptr;
 }
 
 BValue alloc_enum0(ENUM_TAG tag) {
-  return (BValue)(((uintptr_t)tag << 1) | PURE_VALUE_TAG);
+  return TO_PURE_VALUE(tag);
 }
 
 // Externals:
@@ -225,13 +227,15 @@ int bsts_string_code_point_to_utf8(int code_point, char* output) {
     return -1;
 }
 
+#define GET_STRING(v) (BSTS_String*)(TO_POINTER(v))
+
 _Bool bsts_string_equals(BValue left, BValue right) {
   if (left == right) {
     return 1;
   }
 
-  BSTS_String* lstr = (BSTS_String*)left;
-  BSTS_String* rstr = (BSTS_String*)right;
+  BSTS_String* lstr = GET_STRING(left);
+  BSTS_String* rstr = GET_STRING(right);
 
   size_t llen = lstr->len;
   if (llen == rstr->len) {
@@ -250,8 +254,8 @@ int bsts_string_cmp(BValue left, BValue right) {
     return 0;
   }
 
-  BSTS_String* lstr = (BSTS_String*)left;
-  BSTS_String* rstr = (BSTS_String*)right;
+  BSTS_String* lstr = GET_STRING(left);
+  BSTS_String* rstr = GET_STRING(right);
 
   size_t llen = lstr->len;
   size_t rlen = rstr->len;
@@ -267,12 +271,12 @@ int bsts_string_cmp(BValue left, BValue right) {
 }
 
 size_t bsts_string_utf8_len(BValue str) {
-  BSTS_String* strptr = (BSTS_String*)str;
+  BSTS_String* strptr = GET_STRING(str);
   return strptr->len;
 }
 
 char* bsts_string_utf8_bytes(BValue str) {
-  BSTS_String* strptr = (BSTS_String*)str;
+  BSTS_String* strptr = GET_STRING(str);
   return strptr->bytes;
 }
 
@@ -283,7 +287,7 @@ char* bsts_string_utf8_bytes(BValue str) {
  * wasteful once we debug the compiler.
  */
 int bsts_string_code_point_bytes(BValue value, int offset) {
-    BSTS_String* str = (BSTS_String*)value;
+    BSTS_String* str = GET_STRING(value);
     if (str == NULL || offset < 0 || offset >= str->len) {
         // Invalid input
         return -1;
@@ -341,7 +345,7 @@ int bsts_string_code_point_bytes(BValue value, int offset) {
  * wasteful once we debug the compiler.
  */
 BValue bsts_string_char_at(BValue value, int offset) {
-    BSTS_String* str = (BSTS_String*)value;
+    BSTS_String* str = GET_STRING(value);
     if (str == NULL || offset < 0 || offset >= str->len) {
         // Invalid input
         return 0;
@@ -392,7 +396,7 @@ _Bool bsts_rc_value_is_unique(RefCounted* value) {
 
 // (&string, int, int) -> string
 BValue bsts_string_substring(BValue value, int start, int end) {
-  BSTS_String* str = (BSTS_String*)value;
+  BSTS_String* str = GET_STRING(value);
   size_t len = str->len;
   if (len < end || end <= start) {
     // this is invalid
@@ -420,13 +424,13 @@ BValue bsts_string_substring(BValue value, int start, int end) {
 // this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
 // (String, int) -> String
 BValue bsts_string_substring_tail(BValue value, int byte_offset) {
-  BSTS_String* str = (BSTS_String*)value;
+  BSTS_String* str = GET_STRING(value);
   return bsts_string_substring(str, byte_offset, str->len);
 }
 
 int bsts_string_find(BValue haystack, BValue needle, int start) {
-    BSTS_String* haystack_str = (BSTS_String*)haystack;
-    BSTS_String* needle_str = (BSTS_String*)needle;
+    BSTS_String* haystack_str = GET_STRING(haystack);
+    BSTS_String* needle_str = GET_STRING(needle);
 
     size_t haystack_len = haystack_str->len;
     size_t needle_len = needle_str->len;
@@ -463,8 +467,8 @@ int bsts_string_find(BValue haystack, BValue needle, int start) {
 }
 
 int bsts_string_rfind(BValue haystack, BValue needle, int start) {
-    BSTS_String* haystack_str = (BSTS_String*)haystack;
-    BSTS_String* needle_str = (BSTS_String*)needle;
+    BSTS_String* haystack_str = GET_STRING(haystack);
+    BSTS_String* needle_str = GET_STRING(needle);
 
     size_t haystack_len = haystack_str->len;
     size_t needle_len = needle_str->len;
@@ -518,14 +522,12 @@ void bsts_string_print(BValue v) {
 }
 
 // Helper macros and functions
-#define IS_SMALL(v) (((uintptr_t)(v)) & 1)
-#define GET_SMALL_INT(v) ((intptr_t)((uintptr_t)(v) >> 1))
-#define GET_BIG_INT(v) ((BSTS_Integer*)(v))
+#define IS_SMALL(v) IS_PURE_VALUE(v)
+#define GET_SMALL_INT(v) ((int)(PURE_VALUE(v))) & -1
+#define GET_BIG_INT(v) ((BSTS_Integer*)(TO_POINTER(v)))
 
 BValue bsts_integer_from_int(int small_int) {
-    // chatgpt
-    uintptr_t value = (((uintptr_t)(intptr_t)small_int) << 1) | 1;
-    return (BValue)value;
+    return TO_PURE_VALUE(small_int);
 }
 
 void free_integer(void* integer) {
@@ -563,11 +565,8 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
 _Bool bsts_integer_equals(BValue left, BValue right) {
     if (left == right) { return 1; }
 
-    uintptr_t lval = (uintptr_t)left;
-    uintptr_t rval = (uintptr_t)right;
-
-    _Bool l_is_small = lval & 1;
-    _Bool r_is_small = rval & 1;
+    _Bool l_is_small = IS_SMALL(left);
+    _Bool r_is_small = IS_SMALL(right);
 
     if (l_is_small && r_is_small) {
         // Both are small integers, but they aren't equal
@@ -602,7 +601,7 @@ _Bool bsts_integer_equals(BValue left, BValue right) {
         }
 
         // Extract small integer value
-        intptr_t small_int_value = GET_SMALL_INT(left);
+        int small_int_value = GET_SMALL_INT(left);
         BSTS_Integer* big_int = GET_BIG_INT(right);
 
         // Check sign
@@ -662,8 +661,8 @@ BValue bsts_integer_add(BValue l, BValue r) {
 
     // Case 1: Both are small integers
     if (l_is_small && r_is_small) {
-        intptr_t l_int = GET_SMALL_INT(l);
-        intptr_t r_int = GET_SMALL_INT(r);
+        intptr_t l_int = (intptr_t)GET_SMALL_INT(l);
+        intptr_t r_int = (intptr_t)GET_SMALL_INT(r);
         intptr_t result = l_int + r_int;
 
         // Check for overflow
@@ -710,7 +709,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
 
         // Process left operand
         if (l_is_small) {
-            intptr_t l_int = GET_SMALL_INT(l);
+            intptr_t l_int = (intptr_t)GET_SMALL_INT(l);
             left_operand.sign = l_int < 0;
             uintptr_t abs_l_int = (uintptr_t)(l_int < 0 ? -l_int : l_int);
 
@@ -743,7 +742,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
 
         // Process right operand
         if (r_is_small) {
-            intptr_t r_int = GET_SMALL_INT(r);
+            intptr_t r_int = (intptr_t)GET_SMALL_INT(r);
             right_operand.sign = r_int < 0;
             uintptr_t abs_r_int = (uintptr_t)(r_int < 0 ? -r_int : r_int);
 
@@ -890,10 +889,10 @@ BValue bsts_integer_add(BValue l, BValue r) {
 // Function to negate a BValue
 BValue bsts_integer_negate(BValue v) {
     if (IS_SMALL(v)) {
-        intptr_t small_int = GET_SMALL_INT(v);
+        int small = GET_SMALL_INT(v);
+        intptr_t small_int = (intptr_t)small;
         if (small_int != INTPTR_MIN) {
-            intptr_t negated_int = -small_int;
-            return bsts_integer_from_int((int)negated_int);
+            return bsts_integer_from_int(-small);
         } else {
             // Handle INT_MIN, which cannot be negated in two's complement
             uintmax_t abs_value = (uintmax_t)INTPTR_MAX + 1; // Absolute value of INTPTR_MIN
@@ -984,11 +983,11 @@ uint32_t bigint_divide_by_10(uint32_t* words, size_t len, uint32_t* quotient_wor
 // &Integer -> String
 BValue bsts_integer_to_string(BValue v) {
     if (IS_SMALL(v)) {
-        intptr_t value = GET_SMALL_INT(v);
+        int value = GET_SMALL_INT(v);
 
         // Convert small integer to string
         char buffer[32]; // Enough for 64-bit integer
-        int length = snprintf(buffer, sizeof(buffer), "%ld", value);
+        int length = snprintf(buffer, sizeof(buffer), "%d", value);
 
         if (length < 0) {
             // snprintf error

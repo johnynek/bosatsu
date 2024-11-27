@@ -16,6 +16,54 @@ void test_runtime_enum_struct() {
   release_value(s1);
 }
 
+void test_integer() {
+  {
+    BValue s1 = bsts_integer_to_string(bsts_integer_from_int(0));
+    BValue expects1 = bsts_string_from_utf8_bytes_static(1, "0");
+    if (bsts_string_cmp(s1, expects1) != 0) {
+      printf("0 didn't match, got: ");
+      bsts_string_println(s1);
+      exit(1);
+    }
+    release_value(s1);
+    release_value(expects1);
+  }
+
+  {
+    BValue s1 = bsts_integer_to_string(bsts_integer_from_int(-1));
+    BValue expects1 = bsts_string_from_utf8_bytes_static(2, "-1");
+    if (bsts_string_cmp(s1, expects1) != 0) {
+      printf("-1 didn't match, got: ");
+      bsts_string_println(s1);
+      exit(1);
+    }
+    release_value(s1);
+    release_value(expects1);
+  }
+
+  {
+
+    BValue s1 = bsts_integer_to_string(bsts_integer_from_int(123456));
+    BValue expects1 = bsts_string_from_utf8_bytes_static(6, "123456");
+    if (bsts_string_cmp(s1, expects1) != 0) {
+      printf("123456 didn't match, got: ");
+      bsts_string_println(s1);
+      exit(1);
+    }
+    release_value(s1);
+    release_value(expects1);
+  }
+
+  {
+    BValue s0 = bsts_integer_from_int(0);
+    BValue s1 = bsts_integer_from_int(1);
+    BValue s2 = bsts_integer_from_int(2);
+    assert(bsts_integer_cmp(s1, s2) < 0, "1 < 2");
+    assert(bsts_integer_cmp(s0, s2) < 0, "0 < 2");
+  }
+
+}
+
 void test_runtime_strings() {
 
   char* hello = "hello1";
@@ -64,6 +112,7 @@ int main(int argc, char** argv) {
 
   test_runtime_enum_struct();
   test_runtime_strings();
+  test_integer();
   printf("success\n");
   return 0;
 }

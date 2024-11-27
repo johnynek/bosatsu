@@ -118,7 +118,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue i, BValue a, BValue fn) {
   //     _i = tmp_i
   //   return _a
   BValue zero = bsts_integer_from_int(0);
-  int cont = bsts_integer_cmp(zero, i) > 0;
+  int cont = bsts_integer_cmp(zero, i) < 0;
   BValue _i = i;
   BValue _a = a;
   while (cont) {
@@ -135,9 +135,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue i, BValue a, BValue fn) {
     _i = tmp_i;
   }
   // all the rest of the values are references
-  release_value(i);
-  release_value(a);
   release_value(fn);
+  release_value(_i);
   return _a;
 }
 

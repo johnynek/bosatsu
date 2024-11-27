@@ -317,14 +317,28 @@ object ClangGen {
 
       def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
         l match {
+          case Code.IntLiteral(lit) =>
+            if (lit != 0) pv(r)
+            else pv(l)
           case le: Code.Expression =>
-            r.onExpr { re => pv(le && re) }(newLocalName)
+            r match {
+              case re: Code.Expression =>
+                // todo: we can generate more efficient code by evaluating this when possible
+                // that said, the compiler will definitely handle this too
+                pv(Code.evalAnd(le, re))
+              case _ =>
+                // we can only run the statements in r if le is true,
+                // since boolean expressions are where the side effects are.
+                //
+                // and(x, y) == if x: y else: False
+                pv(Code.IfElseValue(le, r, Code.FalseLit))
+            }
           case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
           case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
-            for {
-              t1 <- t.onExpr { te => andCode(te, r) }(newLocalName)
-              f1 <- f.onExpr { te => andCode(te, r) }(newLocalName)
-            } yield Code.IfElseValue(c, t1, f1)
+            // push down into the lhs since this won't increase the final branch count
+            (andCode(t, r), andCode(f, r)).mapN { (t1, r1) =>
+              Code.IfElseValue(c, t1, r1) 
+            }
           case ife @ Code.IfElseValue(_, _, _) =>
             for {
               resIdent <- newLocalName("branch_res")
@@ -1074,7 +1088,7 @@ object ClangGen {
               if (arity == 0) Code.Ident("PURE_VALUE_TAG").castTo(Code.TypeIdent.BValue)
               else {
                 val allocStructFn = s"alloc_struct$arity"
-                Code.Ident("STATIC_PUREFN")(Code.Ident(allocStructFn))
+                boxFn(Code.Ident(allocStructFn), arity)
               }
             }
           case ZeroNat =>

@@ -124,12 +124,31 @@ sortTest = (
     ])
 )
 
+stringTests = TestSuite("string tests", [
+  Assertion(int_to_String(0) matches "0", "int_to_String(0) == ${int_to_String(0)}"),
+  Assertion(int_to_String(1) matches "1", "int_to_String(1) == ${int_to_String(1)}"),
+  Assertion(int_to_String(2) matches "2", "int_to_String(2) == ${int_to_String(2)}"),
+])
+
+il = int_loop(5, 0, (i, a) -> (i.sub(1), i.add(a)))
+
 tests = TestSuite("List tests", [
+  Assertion(2.sub(3) matches -1, "2 - 3 = ${int_to_String(2.sub(3))}"),
+  Assertion(il matches 15, "int_loop test ${int_to_String(il)}"),
   Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),
   Assertion(not([1, 2, 3] =*= [1, 2]), "list [1, 2, 3] != [1, 2]"),
-  Assertion(range(6).sum().eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
+  Assertion(range(0) matches [], "range(0) matches []"),
+  Assertion(range(1) matches [0], "range(1) matches [0]"),
+  Assertion(range(2) matches [0, 1], "range(2) matches [0, 1]"),
+  Assertion(range(6) =*= [0, 1, 2, 3, 4, 5], "range(6) == ${concat_String(range(6).map_List(i -> "${int_to_String(i)}, "))}"),
+  Assertion(sum([]) matches 0, "sum([])"),
+  Assertion(sum([5]) matches 5, "sum([5])"),
+  Assertion(sum([5, 11]) matches 16, "sum([5, 11])"),
+  Assertion(sum([0, 1, 2, 3, 4, 5]) matches 15, "sum([0, 1, 2, 3, 4, 5])"),
+  #Assertion(range(6).sum().eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
   Assertion(range(6).exists(v -> v.eq_Int(5)), "range(6) does have 5"),
   Assertion(not(range(6).exists(v -> v.eq_Int(6))), "range(6) does not have 6"),
+  stringTests,
   headTest,
   unconsTest,
   zipTest,

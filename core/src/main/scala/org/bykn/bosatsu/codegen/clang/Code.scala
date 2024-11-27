@@ -170,6 +170,20 @@ object Code {
       }
   }
 
+  def evalAnd(l: Expression, r: Expression): Expression =
+    l.evalToInt match {
+      case Some(IntLiteral(lv)) =>
+        if (lv == 0) l
+        else r
+      case None =>
+        r.evalToInt match {
+          case Some(IntLiteral(rv)) =>
+            if (rv == 0) r
+            else l
+          case None =>
+            l && r
+        }
+    }
   /////////////////////////
   // Here are all the ValueLike
   /////////////////////////

@@ -43,12 +43,12 @@ how to clone values.
 #define POINTER_TAG 0x0
 
 // Utility macros to check the tag of a value
-#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & PURE_VALUE_TAG) == PURE_VALUE_TAG)
-#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 1)
+#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == PURE_VALUE_TAG)
+#define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
+#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
 #define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
 #define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
 #define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
-#define STATIC_PUREFN(ptr) (BValue*)((uintptr_t)(ptr) | PURE_VALUE_TAG)
 
 #define DEFINE_RC_STRUCT(name, fields) \
     struct name { \
@@ -64,12 +64,12 @@ typedef uint32_t ENUM_TAG;
 
 // Nat values are encoded in integers
 #define BSTS_NAT_0 ((BValue)0x1)
-#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 2))
-#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 2))
+#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 4))
+#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 4))
 #define BSTS_NAT_IS_0(n) (((uintptr_t)(n)) == 0x1)
 #define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
 
-#define BSTS_TO_CHAR(x) (BValue)((x << 1) | 1)
+#define BSTS_TO_CHAR(x) TO_PURE_VALUE(x)
 
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
