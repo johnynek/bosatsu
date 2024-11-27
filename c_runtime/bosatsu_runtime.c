@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
 
 #define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
@@ -890,8 +891,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
 BValue bsts_integer_negate(BValue v) {
     if (IS_SMALL(v)) {
         int small = GET_SMALL_INT(v);
-        intptr_t small_int = (intptr_t)small;
-        if (small_int != INTPTR_MIN) {
+        if (small != INT_MIN) {
             return bsts_integer_from_int(-small);
         } else {
             // Handle INT_MIN, which cannot be negated in two's complement
