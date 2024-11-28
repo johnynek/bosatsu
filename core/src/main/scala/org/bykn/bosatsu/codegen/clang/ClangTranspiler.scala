@@ -44,7 +44,7 @@ case object ClangTranspiler extends Transpiler {
   sealed abstract class Mode(val name: String)
   object Mode {
     case class Main(pack: PackageName) extends Mode("main")
-    case class Test(filter: Option[PackageName => Boolean], filterRegex: String) extends Mode("test") {
+    case class Test(filter: Option[PackageName => Boolean], filterRegexes: NonEmptyList[String]) extends Mode("test") {
       def values(p: PackageMap.Typed[Any]): List[(PackageName, Bindable)] =
         (filter match {
           case None =>
@@ -59,13 +59,15 @@ case object ClangTranspiler extends Transpiler {
         .map(Main(_))
         .orElse(
           Opts.flag("test", "compile the tests") *>
-            (Opts.option[String]("filter", "regular expression to filter package names").orNone)
+            (Opts.options[String]("filter", "regular expression to filter package names").orNone)
             .mapValidated {
-              case None => Validated.valid(Test(None, ".*"))
-              case Some(pat) =>
-                Try(RegexPat.compile(pat)) match {
-                  case Success(p) => Validated.valid(Test(Some(pn => p.matcher(pn.asString).matches()), pat))
-                  case Failure(e) => Validated.invalidNel(s"could not parse pattern: $pat\n\n${e.getMessage}")
+              case None => Validated.valid(Test(None, NonEmptyList.one(".*")))
+              case Some(res) =>
+                Try(res.map(RegexPat.compile(_))) match {
+                  case Success(pats) => Validated.valid(
+                    Test(Some(pn => pats.exists(_.matcher(pn.asString).matches())), res)
+                  )
+                  case Failure(e) => Validated.invalidNel(s"could not parse patterns: $res\n\n${e.getMessage}")
                 }
             }
         )
@@ -98,9 +100,12 @@ case object ClangTranspiler extends Transpiler {
   case class InvalidMainValue(pack: PackageName, message: String) extends
     Exception(s"invalid main ${pack.asString}: $message.")
 
-  case class NoTestsFound(packs: List[PackageName], regex: String) extends
+  case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String]) extends
     Exception(
-      (Doc.text("no tests found in:") + spacePackList(packs)).render(80)
+      (Doc.text("no tests found in:") + spacePackList(packs) + Doc.hardLine +
+        Doc.text("using regexes:") +
+        (Doc.line + Doc.intercalate(Doc.line, regex.toList.map(Doc.text(_))).nested(4)).grouped
+      ).render(80)
     )
 
   def externalsFor(pm: PackageMap.Typed[Any]): ClangGen.ExternalResolver =

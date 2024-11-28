@@ -27,7 +27,8 @@ void free_struct{size}(Struct{size}* s) {{
 }}
 BValue alloc_struct{size}({arg_params}) {{
     Struct{size}* rc = malloc(sizeof(Struct{size}));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct{size};
     {assigns}
     return (BValue)rc;
@@ -47,7 +48,8 @@ void free_enum{size}(Enum{size}* s) {{
 }}
 BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
     Enum{size}* rc = malloc(sizeof(Enum{size}));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum{size};
     rc->tag = tag;
     {assigns}
@@ -69,7 +71,8 @@ def function_impl(size):
 
 BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     Closure{size}Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -82,7 +85,8 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
 
 BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
     BoxedPureFn{size}* rc = (BoxedPureFn{size}*)malloc(sizeof(BoxedPureFn{size}));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;

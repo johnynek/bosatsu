@@ -8,7 +8,8 @@ void free_struct2(Struct2* s) {
 }
 BValue alloc_struct2(BValue b0, BValue b1) {
     Struct2* rc = malloc(sizeof(Struct2));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct2;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -25,7 +26,8 @@ void free_struct3(Struct3* s) {
 }
 BValue alloc_struct3(BValue b0, BValue b1, BValue b2) {
     Struct3* rc = malloc(sizeof(Struct3));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct3;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -44,7 +46,8 @@ void free_struct4(Struct4* s) {
 }
 BValue alloc_struct4(BValue b0, BValue b1, BValue b2, BValue b3) {
     Struct4* rc = malloc(sizeof(Struct4));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct4;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -65,7 +68,8 @@ void free_struct5(Struct5* s) {
 }
 BValue alloc_struct5(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4) {
     Struct5* rc = malloc(sizeof(Struct5));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct5;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -88,7 +92,8 @@ void free_struct6(Struct6* s) {
 }
 BValue alloc_struct6(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5) {
     Struct6* rc = malloc(sizeof(Struct6));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct6;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -113,7 +118,8 @@ void free_struct7(Struct7* s) {
 }
 BValue alloc_struct7(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6) {
     Struct7* rc = malloc(sizeof(Struct7));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct7;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -140,7 +146,8 @@ void free_struct8(Struct8* s) {
 }
 BValue alloc_struct8(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7) {
     Struct8* rc = malloc(sizeof(Struct8));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct8;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -169,7 +176,8 @@ void free_struct9(Struct9* s) {
 }
 BValue alloc_struct9(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8) {
     Struct9* rc = malloc(sizeof(Struct9));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct9;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -200,7 +208,8 @@ void free_struct10(Struct10* s) {
 }
 BValue alloc_struct10(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9) {
     Struct10* rc = malloc(sizeof(Struct10));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct10;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -233,7 +242,8 @@ void free_struct11(Struct11* s) {
 }
 BValue alloc_struct11(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10) {
     Struct11* rc = malloc(sizeof(Struct11));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct11;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -268,7 +278,8 @@ void free_struct12(Struct12* s) {
 }
 BValue alloc_struct12(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11) {
     Struct12* rc = malloc(sizeof(Struct12));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct12;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -305,7 +316,8 @@ void free_struct13(Struct13* s) {
 }
 BValue alloc_struct13(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12) {
     Struct13* rc = malloc(sizeof(Struct13));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct13;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -344,7 +356,8 @@ void free_struct14(Struct14* s) {
 }
 BValue alloc_struct14(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13) {
     Struct14* rc = malloc(sizeof(Struct14));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct14;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -385,7 +398,8 @@ void free_struct15(Struct15* s) {
 }
 BValue alloc_struct15(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14) {
     Struct15* rc = malloc(sizeof(Struct15));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct15;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -428,7 +442,8 @@ void free_struct16(Struct16* s) {
 }
 BValue alloc_struct16(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15) {
     Struct16* rc = malloc(sizeof(Struct16));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct16;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -473,7 +488,8 @@ void free_struct17(Struct17* s) {
 }
 BValue alloc_struct17(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16) {
     Struct17* rc = malloc(sizeof(Struct17));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct17;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -520,7 +536,8 @@ void free_struct18(Struct18* s) {
 }
 BValue alloc_struct18(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17) {
     Struct18* rc = malloc(sizeof(Struct18));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct18;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -569,7 +586,8 @@ void free_struct19(Struct19* s) {
 }
 BValue alloc_struct19(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18) {
     Struct19* rc = malloc(sizeof(Struct19));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct19;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -620,7 +638,8 @@ void free_struct20(Struct20* s) {
 }
 BValue alloc_struct20(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19) {
     Struct20* rc = malloc(sizeof(Struct20));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct20;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -673,7 +692,8 @@ void free_struct21(Struct21* s) {
 }
 BValue alloc_struct21(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20) {
     Struct21* rc = malloc(sizeof(Struct21));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct21;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -728,7 +748,8 @@ void free_struct22(Struct22* s) {
 }
 BValue alloc_struct22(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21) {
     Struct22* rc = malloc(sizeof(Struct22));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct22;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -785,7 +806,8 @@ void free_struct23(Struct23* s) {
 }
 BValue alloc_struct23(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22) {
     Struct23* rc = malloc(sizeof(Struct23));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct23;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -844,7 +866,8 @@ void free_struct24(Struct24* s) {
 }
 BValue alloc_struct24(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23) {
     Struct24* rc = malloc(sizeof(Struct24));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct24;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -905,7 +928,8 @@ void free_struct25(Struct25* s) {
 }
 BValue alloc_struct25(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24) {
     Struct25* rc = malloc(sizeof(Struct25));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct25;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -968,7 +992,8 @@ void free_struct26(Struct26* s) {
 }
 BValue alloc_struct26(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25) {
     Struct26* rc = malloc(sizeof(Struct26));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct26;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1033,7 +1058,8 @@ void free_struct27(Struct27* s) {
 }
 BValue alloc_struct27(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26) {
     Struct27* rc = malloc(sizeof(Struct27));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct27;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1100,7 +1126,8 @@ void free_struct28(Struct28* s) {
 }
 BValue alloc_struct28(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27) {
     Struct28* rc = malloc(sizeof(Struct28));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct28;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1169,7 +1196,8 @@ void free_struct29(Struct29* s) {
 }
 BValue alloc_struct29(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28) {
     Struct29* rc = malloc(sizeof(Struct29));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct29;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1240,7 +1268,8 @@ void free_struct30(Struct30* s) {
 }
 BValue alloc_struct30(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29) {
     Struct30* rc = malloc(sizeof(Struct30));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct30;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1313,7 +1342,8 @@ void free_struct31(Struct31* s) {
 }
 BValue alloc_struct31(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30) {
     Struct31* rc = malloc(sizeof(Struct31));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct31;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1388,7 +1418,8 @@ void free_struct32(Struct32* s) {
 }
 BValue alloc_struct32(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30, BValue b31) {
     Struct32* rc = malloc(sizeof(Struct32));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_struct32;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1434,7 +1465,8 @@ void free_enum1(Enum1* s) {
 }
 BValue alloc_enum1(ENUM_TAG tag, BValue b0) {
     Enum1* rc = malloc(sizeof(Enum1));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum1;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1450,7 +1482,8 @@ void free_enum2(Enum2* s) {
 }
 BValue alloc_enum2(ENUM_TAG tag, BValue b0, BValue b1) {
     Enum2* rc = malloc(sizeof(Enum2));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum2;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1468,7 +1501,8 @@ void free_enum3(Enum3* s) {
 }
 BValue alloc_enum3(ENUM_TAG tag, BValue b0, BValue b1, BValue b2) {
     Enum3* rc = malloc(sizeof(Enum3));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum3;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1488,7 +1522,8 @@ void free_enum4(Enum4* s) {
 }
 BValue alloc_enum4(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3) {
     Enum4* rc = malloc(sizeof(Enum4));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum4;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1510,7 +1545,8 @@ void free_enum5(Enum5* s) {
 }
 BValue alloc_enum5(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4) {
     Enum5* rc = malloc(sizeof(Enum5));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum5;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1534,7 +1570,8 @@ void free_enum6(Enum6* s) {
 }
 BValue alloc_enum6(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5) {
     Enum6* rc = malloc(sizeof(Enum6));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum6;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1560,7 +1597,8 @@ void free_enum7(Enum7* s) {
 }
 BValue alloc_enum7(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6) {
     Enum7* rc = malloc(sizeof(Enum7));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum7;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1588,7 +1626,8 @@ void free_enum8(Enum8* s) {
 }
 BValue alloc_enum8(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7) {
     Enum8* rc = malloc(sizeof(Enum8));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum8;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1618,7 +1657,8 @@ void free_enum9(Enum9* s) {
 }
 BValue alloc_enum9(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8) {
     Enum9* rc = malloc(sizeof(Enum9));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum9;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1650,7 +1690,8 @@ void free_enum10(Enum10* s) {
 }
 BValue alloc_enum10(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9) {
     Enum10* rc = malloc(sizeof(Enum10));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum10;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1684,7 +1725,8 @@ void free_enum11(Enum11* s) {
 }
 BValue alloc_enum11(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10) {
     Enum11* rc = malloc(sizeof(Enum11));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum11;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1720,7 +1762,8 @@ void free_enum12(Enum12* s) {
 }
 BValue alloc_enum12(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11) {
     Enum12* rc = malloc(sizeof(Enum12));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum12;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1758,7 +1801,8 @@ void free_enum13(Enum13* s) {
 }
 BValue alloc_enum13(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12) {
     Enum13* rc = malloc(sizeof(Enum13));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum13;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1798,7 +1842,8 @@ void free_enum14(Enum14* s) {
 }
 BValue alloc_enum14(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13) {
     Enum14* rc = malloc(sizeof(Enum14));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum14;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1840,7 +1885,8 @@ void free_enum15(Enum15* s) {
 }
 BValue alloc_enum15(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14) {
     Enum15* rc = malloc(sizeof(Enum15));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum15;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1884,7 +1930,8 @@ void free_enum16(Enum16* s) {
 }
 BValue alloc_enum16(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15) {
     Enum16* rc = malloc(sizeof(Enum16));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum16;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1930,7 +1977,8 @@ void free_enum17(Enum17* s) {
 }
 BValue alloc_enum17(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16) {
     Enum17* rc = malloc(sizeof(Enum17));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum17;
     rc->tag = tag;
     rc->_0 = b0;
@@ -1978,7 +2026,8 @@ void free_enum18(Enum18* s) {
 }
 BValue alloc_enum18(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17) {
     Enum18* rc = malloc(sizeof(Enum18));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum18;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2028,7 +2077,8 @@ void free_enum19(Enum19* s) {
 }
 BValue alloc_enum19(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18) {
     Enum19* rc = malloc(sizeof(Enum19));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum19;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2080,7 +2130,8 @@ void free_enum20(Enum20* s) {
 }
 BValue alloc_enum20(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19) {
     Enum20* rc = malloc(sizeof(Enum20));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum20;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2134,7 +2185,8 @@ void free_enum21(Enum21* s) {
 }
 BValue alloc_enum21(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20) {
     Enum21* rc = malloc(sizeof(Enum21));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum21;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2190,7 +2242,8 @@ void free_enum22(Enum22* s) {
 }
 BValue alloc_enum22(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21) {
     Enum22* rc = malloc(sizeof(Enum22));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum22;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2248,7 +2301,8 @@ void free_enum23(Enum23* s) {
 }
 BValue alloc_enum23(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22) {
     Enum23* rc = malloc(sizeof(Enum23));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum23;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2308,7 +2362,8 @@ void free_enum24(Enum24* s) {
 }
 BValue alloc_enum24(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23) {
     Enum24* rc = malloc(sizeof(Enum24));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum24;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2370,7 +2425,8 @@ void free_enum25(Enum25* s) {
 }
 BValue alloc_enum25(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24) {
     Enum25* rc = malloc(sizeof(Enum25));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum25;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2434,7 +2490,8 @@ void free_enum26(Enum26* s) {
 }
 BValue alloc_enum26(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25) {
     Enum26* rc = malloc(sizeof(Enum26));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum26;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2500,7 +2557,8 @@ void free_enum27(Enum27* s) {
 }
 BValue alloc_enum27(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26) {
     Enum27* rc = malloc(sizeof(Enum27));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum27;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2568,7 +2626,8 @@ void free_enum28(Enum28* s) {
 }
 BValue alloc_enum28(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27) {
     Enum28* rc = malloc(sizeof(Enum28));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum28;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2638,7 +2697,8 @@ void free_enum29(Enum29* s) {
 }
 BValue alloc_enum29(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28) {
     Enum29* rc = malloc(sizeof(Enum29));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum29;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2710,7 +2770,8 @@ void free_enum30(Enum30* s) {
 }
 BValue alloc_enum30(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29) {
     Enum30* rc = malloc(sizeof(Enum30));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum30;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2784,7 +2845,8 @@ void free_enum31(Enum31* s) {
 }
 BValue alloc_enum31(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30) {
     Enum31* rc = malloc(sizeof(Enum31));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum31;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2860,7 +2922,8 @@ void free_enum32(Enum32* s) {
 }
 BValue alloc_enum32(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30, BValue b31) {
     Enum32* rc = malloc(sizeof(Enum32));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_enum32;
     rc->tag = tag;
     rc->_0 = b0;
@@ -2904,7 +2967,8 @@ DEFINE_RC_STRUCT(BoxedPureFn1, BPureFn1 fn; size_t slot_len;);
 
 BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
     Closure1Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -2917,7 +2981,8 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
 
 BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
     BoxedPureFn1* rc = (BoxedPureFn1*)malloc(sizeof(BoxedPureFn1));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -2944,7 +3009,8 @@ DEFINE_RC_STRUCT(BoxedPureFn2, BPureFn2 fn; size_t slot_len;);
 
 BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
     Closure2Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -2957,7 +3023,8 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
 
 BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
     BoxedPureFn2* rc = (BoxedPureFn2*)malloc(sizeof(BoxedPureFn2));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -2984,7 +3051,8 @@ DEFINE_RC_STRUCT(BoxedPureFn3, BPureFn3 fn; size_t slot_len;);
 
 BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
     Closure3Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -2997,7 +3065,8 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
 
 BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
     BoxedPureFn3* rc = (BoxedPureFn3*)malloc(sizeof(BoxedPureFn3));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3024,7 +3093,8 @@ DEFINE_RC_STRUCT(BoxedPureFn4, BPureFn4 fn; size_t slot_len;);
 
 BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
     Closure4Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3037,7 +3107,8 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
 
 BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
     BoxedPureFn4* rc = (BoxedPureFn4*)malloc(sizeof(BoxedPureFn4));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3064,7 +3135,8 @@ DEFINE_RC_STRUCT(BoxedPureFn5, BPureFn5 fn; size_t slot_len;);
 
 BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
     Closure5Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3077,7 +3149,8 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
 
 BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
     BoxedPureFn5* rc = (BoxedPureFn5*)malloc(sizeof(BoxedPureFn5));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3104,7 +3177,8 @@ DEFINE_RC_STRUCT(BoxedPureFn6, BPureFn6 fn; size_t slot_len;);
 
 BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
     Closure6Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3117,7 +3191,8 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
 
 BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
     BoxedPureFn6* rc = (BoxedPureFn6*)malloc(sizeof(BoxedPureFn6));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3144,7 +3219,8 @@ DEFINE_RC_STRUCT(BoxedPureFn7, BPureFn7 fn; size_t slot_len;);
 
 BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
     Closure7Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3157,7 +3233,8 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
 
 BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
     BoxedPureFn7* rc = (BoxedPureFn7*)malloc(sizeof(BoxedPureFn7));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3184,7 +3261,8 @@ DEFINE_RC_STRUCT(BoxedPureFn8, BPureFn8 fn; size_t slot_len;);
 
 BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
     Closure8Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3197,7 +3275,8 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
 
 BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
     BoxedPureFn8* rc = (BoxedPureFn8*)malloc(sizeof(BoxedPureFn8));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3224,7 +3303,8 @@ DEFINE_RC_STRUCT(BoxedPureFn9, BPureFn9 fn; size_t slot_len;);
 
 BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
     Closure9Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3237,7 +3317,8 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
 
 BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
     BoxedPureFn9* rc = (BoxedPureFn9*)malloc(sizeof(BoxedPureFn9));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3264,7 +3345,8 @@ DEFINE_RC_STRUCT(BoxedPureFn10, BPureFn10 fn; size_t slot_len;);
 
 BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
     Closure10Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3277,7 +3359,8 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
 
 BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
     BoxedPureFn10* rc = (BoxedPureFn10*)malloc(sizeof(BoxedPureFn10));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3304,7 +3387,8 @@ DEFINE_RC_STRUCT(BoxedPureFn11, BPureFn11 fn; size_t slot_len;);
 
 BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
     Closure11Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3317,7 +3401,8 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
 
 BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
     BoxedPureFn11* rc = (BoxedPureFn11*)malloc(sizeof(BoxedPureFn11));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3344,7 +3429,8 @@ DEFINE_RC_STRUCT(BoxedPureFn12, BPureFn12 fn; size_t slot_len;);
 
 BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
     Closure12Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3357,7 +3443,8 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
 
 BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
     BoxedPureFn12* rc = (BoxedPureFn12*)malloc(sizeof(BoxedPureFn12));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3384,7 +3471,8 @@ DEFINE_RC_STRUCT(BoxedPureFn13, BPureFn13 fn; size_t slot_len;);
 
 BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
     Closure13Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3397,7 +3485,8 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
 
 BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
     BoxedPureFn13* rc = (BoxedPureFn13*)malloc(sizeof(BoxedPureFn13));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3424,7 +3513,8 @@ DEFINE_RC_STRUCT(BoxedPureFn14, BPureFn14 fn; size_t slot_len;);
 
 BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
     Closure14Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3437,7 +3527,8 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
 
 BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
     BoxedPureFn14* rc = (BoxedPureFn14*)malloc(sizeof(BoxedPureFn14));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3464,7 +3555,8 @@ DEFINE_RC_STRUCT(BoxedPureFn15, BPureFn15 fn; size_t slot_len;);
 
 BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
     Closure15Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3477,7 +3569,8 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
 
 BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
     BoxedPureFn15* rc = (BoxedPureFn15*)malloc(sizeof(BoxedPureFn15));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3504,7 +3597,8 @@ DEFINE_RC_STRUCT(BoxedPureFn16, BPureFn16 fn; size_t slot_len;);
 
 BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
     Closure16Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3517,7 +3611,8 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
 
 BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
     BoxedPureFn16* rc = (BoxedPureFn16*)malloc(sizeof(BoxedPureFn16));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3544,7 +3639,8 @@ DEFINE_RC_STRUCT(BoxedPureFn17, BPureFn17 fn; size_t slot_len;);
 
 BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
     Closure17Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3557,7 +3653,8 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
 
 BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
     BoxedPureFn17* rc = (BoxedPureFn17*)malloc(sizeof(BoxedPureFn17));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3584,7 +3681,8 @@ DEFINE_RC_STRUCT(BoxedPureFn18, BPureFn18 fn; size_t slot_len;);
 
 BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
     Closure18Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3597,7 +3695,8 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
 
 BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
     BoxedPureFn18* rc = (BoxedPureFn18*)malloc(sizeof(BoxedPureFn18));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3624,7 +3723,8 @@ DEFINE_RC_STRUCT(BoxedPureFn19, BPureFn19 fn; size_t slot_len;);
 
 BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
     Closure19Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3637,7 +3737,8 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
 
 BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
     BoxedPureFn19* rc = (BoxedPureFn19*)malloc(sizeof(BoxedPureFn19));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3664,7 +3765,8 @@ DEFINE_RC_STRUCT(BoxedPureFn20, BPureFn20 fn; size_t slot_len;);
 
 BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
     Closure20Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3677,7 +3779,8 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
 
 BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
     BoxedPureFn20* rc = (BoxedPureFn20*)malloc(sizeof(BoxedPureFn20));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3704,7 +3807,8 @@ DEFINE_RC_STRUCT(BoxedPureFn21, BPureFn21 fn; size_t slot_len;);
 
 BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
     Closure21Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3717,7 +3821,8 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
 
 BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
     BoxedPureFn21* rc = (BoxedPureFn21*)malloc(sizeof(BoxedPureFn21));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3744,7 +3849,8 @@ DEFINE_RC_STRUCT(BoxedPureFn22, BPureFn22 fn; size_t slot_len;);
 
 BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
     Closure22Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3757,7 +3863,8 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
 
 BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
     BoxedPureFn22* rc = (BoxedPureFn22*)malloc(sizeof(BoxedPureFn22));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3784,7 +3891,8 @@ DEFINE_RC_STRUCT(BoxedPureFn23, BPureFn23 fn; size_t slot_len;);
 
 BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
     Closure23Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3797,7 +3905,8 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
 
 BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
     BoxedPureFn23* rc = (BoxedPureFn23*)malloc(sizeof(BoxedPureFn23));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3824,7 +3933,8 @@ DEFINE_RC_STRUCT(BoxedPureFn24, BPureFn24 fn; size_t slot_len;);
 
 BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
     Closure24Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3837,7 +3947,8 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
 
 BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
     BoxedPureFn24* rc = (BoxedPureFn24*)malloc(sizeof(BoxedPureFn24));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3864,7 +3975,8 @@ DEFINE_RC_STRUCT(BoxedPureFn25, BPureFn25 fn; size_t slot_len;);
 
 BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
     Closure25Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3877,7 +3989,8 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
 
 BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
     BoxedPureFn25* rc = (BoxedPureFn25*)malloc(sizeof(BoxedPureFn25));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3904,7 +4017,8 @@ DEFINE_RC_STRUCT(BoxedPureFn26, BPureFn26 fn; size_t slot_len;);
 
 BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
     Closure26Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3917,7 +4031,8 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
 
 BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
     BoxedPureFn26* rc = (BoxedPureFn26*)malloc(sizeof(BoxedPureFn26));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3944,7 +4059,8 @@ DEFINE_RC_STRUCT(BoxedPureFn27, BPureFn27 fn; size_t slot_len;);
 
 BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
     Closure27Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3957,7 +4073,8 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
 
 BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
     BoxedPureFn27* rc = (BoxedPureFn27*)malloc(sizeof(BoxedPureFn27));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -3984,7 +4101,8 @@ DEFINE_RC_STRUCT(BoxedPureFn28, BPureFn28 fn; size_t slot_len;);
 
 BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
     Closure28Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -3997,7 +4115,8 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
 
 BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
     BoxedPureFn28* rc = (BoxedPureFn28*)malloc(sizeof(BoxedPureFn28));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -4024,7 +4143,8 @@ DEFINE_RC_STRUCT(BoxedPureFn29, BPureFn29 fn; size_t slot_len;);
 
 BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
     Closure29Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -4037,7 +4157,8 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
 
 BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
     BoxedPureFn29* rc = (BoxedPureFn29*)malloc(sizeof(BoxedPureFn29));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -4064,7 +4185,8 @@ DEFINE_RC_STRUCT(BoxedPureFn30, BPureFn30 fn; size_t slot_len;);
 
 BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
     Closure30Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -4077,7 +4199,8 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
 
 BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
     BoxedPureFn30* rc = (BoxedPureFn30*)malloc(sizeof(BoxedPureFn30));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -4104,7 +4227,8 @@ DEFINE_RC_STRUCT(BoxedPureFn31, BPureFn31 fn; size_t slot_len;);
 
 BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
     Closure31Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -4117,7 +4241,8 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
 
 BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
     BoxedPureFn31* rc = (BoxedPureFn31*)malloc(sizeof(BoxedPureFn31));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;
@@ -4144,7 +4269,8 @@ DEFINE_RC_STRUCT(BoxedPureFn32, BPureFn32 fn; size_t slot_len;);
 
 BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
     Closure32Data* rc = malloc(closure_data_size(size));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = (FreeFn)free_closure;
     rc->fn = fn;
     rc->slot_len = size;
@@ -4157,7 +4283,8 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
 
 BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
     BoxedPureFn32* rc = (BoxedPureFn32*)malloc(sizeof(BoxedPureFn32));
-    atomic_init(&rc->ref_count, 1);
+    // this is safe to do outside atomic because no other thread can see this yet
+    rc->ref_count = 1;
     rc->free = free;
     rc->fn = fn;
     rc->slot_len = 0;

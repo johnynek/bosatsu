@@ -134,7 +134,7 @@ int bsts_string_rfind(BValue haystack, BValue needle, int start);
 // &String -> Unit
 void bsts_string_println(BValue v);
 
-BValue bsts_integer_from_int(int small_int);
+BValue bsts_integer_from_int(int32_t small_int);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
