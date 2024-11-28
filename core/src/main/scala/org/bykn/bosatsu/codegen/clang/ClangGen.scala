@@ -311,7 +311,7 @@ object ClangGen {
         }
 
       def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression =
-        expr =:= Code.Ident("BSTS_TO_CHAR")(Code.IntLiteral(codePoint))
+        Code.Ident("bsts_char_code_point_from_value")(expr) =:= Code.IntLiteral(codePoint)
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
@@ -873,7 +873,7 @@ object ClangGen {
         lit match {
           case c @ Lit.Chr(_) =>
             // encoded as integers in pure values
-            pv(Code.Ident("BSTS_TO_CHAR")(Code.IntLiteral(c.toCodePoint)))
+            pv(Code.Ident("bsts_char_from_code_point")(Code.IntLiteral(c.toCodePoint)))
           case Lit.Integer(toBigInteger) =>
             try {
               val iv = toBigInteger.intValueExact()
@@ -1085,7 +1085,7 @@ object ClangGen {
             }
           case MakeStruct(arity) =>
             pv {
-              if (arity == 0) Code.Ident("PURE_VALUE_TAG").castTo(Code.TypeIdent.BValue)
+              if (arity == 0) Code.Ident("bsts_unit_value")()
               else {
                 val allocStructFn = s"alloc_struct$arity"
                 boxFn(Code.Ident(allocStructFn), arity)
