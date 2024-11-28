@@ -122,7 +122,7 @@ jobs:
         run: |
           cd c_runtime
           rm -f test
-          make && git diff --quiet
+          make && git diff --quiet || { git diff; false; }
           ./test_exe && cd ..
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
