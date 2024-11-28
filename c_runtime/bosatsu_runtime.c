@@ -21,14 +21,12 @@ BValue* closure_data_of(Closure1Data* s) {
 }
 void free_closure(Closure1Data* s) {
   size_t slots = s->slot_len;
-  BValue* items0 = closure_data_of(s);
-  BValue* items = items0;
+  BValue* items = closure_data_of(s);
   while (slots > 0) {
     release_value(items);
     items = items + 1;
     slots = slots - 1;
   }
-  free(items0);
   free(s);
 }
 
@@ -698,7 +696,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
         int64_t r_int = (int64_t)GET_SMALL_INT(r);
         int64_t result = l_int + r_int;
 
-        printf("small add(%lld, %lld) == %lld", l_int, r_int, result);
+        //printf("small add(%lld, %lld) == %lld", l_int, r_int, result);
         // Check for overflow
         if ((result < INT32_MIN) || (INT32_MAX < result)) {
             // Promote to big integer
