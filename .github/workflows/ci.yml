@@ -121,7 +121,7 @@ jobs:
       - name: "test runtime code"
         run: |
           cd c_runtime
-          rm -f test
+          rm -f test_exe
           make && git diff --quiet || { git diff; false; }
           ./test_exe && cd ..
       - name: "build assembly"
