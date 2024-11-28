@@ -48,3 +48,5 @@ project/project/*
 jsui/bosatsu_ui.js
 
 c_runtime/*.o
+c_runtime/test_exe
+c_runtime/test_out

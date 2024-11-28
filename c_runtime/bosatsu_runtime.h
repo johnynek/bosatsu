@@ -17,10 +17,9 @@ boundaries:
   b. ends with 11: static pointer (allocated once and deleteds at the end of the world)
   c. ends with 00: refcount pointer.
 
-when it comes to functions there are three types:
-  a. top level pure function: ends with 1
-  b. static closure (something that closes over static things, ideally we would optimize this away): ends with 10
-  c. refcounted closure: ends with 00
+when it comes to functions there are two types, PureFn and closures. We have to box
+  pointers to them, but when we know we have a global PureFn we can directly call it.
+  if we have a static boxed value, it ends in 1, else 0.
 
 Nat-like values are represented by positive integers encoded as PURE_VALUE such that
 NAT(x) = (x << 1) | 1, since we don't have enough time to increment through 2^{63} values
@@ -44,12 +43,12 @@ how to clone values.
 #define POINTER_TAG 0x0
 
 // Utility macros to check the tag of a value
-#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & PURE_VALUE_TAG) == PURE_VALUE_TAG)
-#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 1)
+#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == PURE_VALUE_TAG)
+#define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
+#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
 #define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
 #define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
 #define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
-#define STATIC_PUREFN(ptr) (BValue*)((uintptr_t)(ptr) | PURE_VALUE_TAG)
 
 #define DEFINE_RC_STRUCT(name, fields) \
     struct name { \
@@ -65,12 +64,12 @@ typedef uint32_t ENUM_TAG;
 
 // Nat values are encoded in integers
 #define BSTS_NAT_0 ((BValue)0x1)
-#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 2))
-#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 2))
+#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 4))
+#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 4))
 #define BSTS_NAT_IS_0(n) (((uintptr_t)(n)) == 0x1)
 #define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
 
-#define BSTS_TO_CHAR(x) (BValue)((x << 1) | 1)
+#define BSTS_TO_CHAR(x) TO_PURE_VALUE(x)
 
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
@@ -132,8 +131,10 @@ int bsts_string_find(BValue haystack, BValue needle, int start);
  * (&string, string, int) -> int
  */
 int bsts_string_rfind(BValue haystack, BValue needle, int start);
+// &String -> Unit
+void bsts_string_println(BValue v);
 
-BValue bsts_integer_from_int(int small_int);
+BValue bsts_integer_from_int(int32_t small_int);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer

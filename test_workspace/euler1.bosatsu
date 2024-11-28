@@ -19,4 +19,4 @@ def sum(as): as.foldLeft(0, add)
 # 233168
 computed = sum([i for i in range(1000) if keep(i)])
 
-test = Assertion(computed == 233168, "expected 233168")
+test = Assertion(computed == 233168, "expected 233168 got ${int_to_String(computed)}")

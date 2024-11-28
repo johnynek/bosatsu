@@ -121,18 +121,20 @@ jobs:
       - name: "test runtime code"
         run: |
           cd c_runtime
-          rm -f test
-          make && git diff --quiet
+          rm -f test_exe
+          make && git diff --quiet || { git diff; false; }
           ./test_exe && cd ..
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
-        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test --filter Bosatsu/List"
       - name: "compile generated c code"
         run: |
-          cp c_runtime/* c_out
+          cp c_runtime/*.h c_out
+          cp c_runtime/*.c c_out
+          cp c_runtime/Makefile.test c_out/Makefile
           cd c_out
-          gcc -c output.c
+          make
     timeout-minutes: 30
 name: ci
 on:

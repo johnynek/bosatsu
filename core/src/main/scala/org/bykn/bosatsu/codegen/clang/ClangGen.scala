@@ -224,12 +224,12 @@ object ClangGen {
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
       def getAnon(idx: Long): T[Code.Ident]
       // a recursive function needs to remap the Bindable to the top-level mangling
-      def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean)(in: T[A]): T[A]
+      def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean, arity: Int)(in: T[A]): T[A]
       // used for temporary variables of type BValue
       def newLocalName(tag: String): T[Code.Ident]
       def newTopName(tag: String): T[Code.Ident]
-      def directFn(p: PackageName, b: Bindable): T[Option[Code.Ident]]
-      def directFn(b: Bindable): T[Option[(Code.Ident, Boolean)]]
+      def directFn(p: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]]
+      def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]]
       def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
       def currentTop: T[Option[(PackageName, Bindable)]]
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
@@ -317,14 +317,28 @@ object ClangGen {
 
       def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
         l match {
+          case Code.IntLiteral(lit) =>
+            if (lit != 0) pv(r)
+            else pv(l)
           case le: Code.Expression =>
-            r.onExpr { re => pv(le && re) }(newLocalName)
+            r match {
+              case re: Code.Expression =>
+                // todo: we can generate more efficient code by evaluating this when possible
+                // that said, the compiler will definitely handle this too
+                pv(Code.evalAnd(le, re))
+              case _ =>
+                // we can only run the statements in r if le is true,
+                // since boolean expressions are where the side effects are.
+                //
+                // and(x, y) == if x: y else: False
+                pv(Code.IfElseValue(le, r, Code.FalseLit))
+            }
           case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
           case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
-            for {
-              t1 <- t.onExpr { te => andCode(te, r) }(newLocalName)
-              f1 <- f.onExpr { te => andCode(te, r) }(newLocalName)
-            } yield Code.IfElseValue(c, t1, f1)
+            // push down into the lhs since this won't increase the final branch count
+            (andCode(t, r), andCode(f, r)).mapN { (t1, r1) =>
+              Code.IfElseValue(c, t1, r1) 
+            }
           case ife @ Code.IfElseValue(_, _, _) =>
             for {
               resIdent <- newLocalName("branch_res")
@@ -822,6 +836,9 @@ object ClangGen {
               ) :+ res
       }
 
+      def boxFn(ident: Code.Ident, arity: Int): Code.Expression =
+        Code.Ident(s"alloc_boxed_pure_fn$arity")(ident)
+
       // We have to lift functions to the top level and not
       // create any nesting
       def innerFn(fn: FnExpr): T[Code.ValueLike] = 
@@ -830,7 +847,7 @@ object ClangGen {
             ident <- newTopName("lambda")
             stmt <- fnStatement(ident, fn)
             _ <- appendStatement(stmt)
-          } yield Code.Ident("STATIC_PUREFN")(ident)
+          } yield boxFn(ident, fn.arity);
         }
         else {
           // we create the function, then we allocate
@@ -893,7 +910,7 @@ object ClangGen {
         app match {
           case App(Global(pack, fnName), args) =>
             directFn(pack, fnName).flatMap {
-              case Some(ident) =>
+              case Some((ident, _)) =>
                 // directly invoke instead of by treating them like lambdas
                 args.traverse(innerToValue(_)).flatMap { argsVL =>
                   Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
@@ -903,16 +920,21 @@ object ClangGen {
                 (globalIdent(pack, fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
                   // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
                   // but since these are ValueLike, we need to handle more carefully
-                  val fnSize = argsVL.length
-                  val callFn = Code.Ident(s"call_fn$fnSize")
-                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
+                  val fnValue = fnVL.onExpr { e => pv(e()) }(newLocalName);
+                  fnValue.flatMap { fnValue =>
+                    val fnSize = argsVL.length
+                    val callFn = Code.Ident(s"call_fn$fnSize")
+                    Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(newLocalName)
+                  }
                 }
             }
           case App(Local(fnName), args) =>
             directFn(fnName).flatMap {
-              case Some((ident, isClosure)) =>
-                // directly invoke instead of by treating them like lambdas
+              case Some((ident, isClosure, _)) =>
+                // this can be an recursive call
                 args.traverse(innerToValue(_)).flatMap { argsVL =>
+                  // if we don't have a closure, which is lifted to top level
+                  // directly invoke instead of by treating them like lambdas
                   val withSlot =
                     if (isClosure) slotsArgName :: argsVL
                     else argsVL
@@ -989,17 +1011,17 @@ object ClangGen {
           case Global(pack, name) =>
             directFn(pack, name)
               .flatMap {
-                case Some(nm) =>
-                  pv(Code.Ident("STATIC_PUREFN")(nm))
+                case Some((ident, arity)) =>
+                  pv(boxFn(ident, arity))
                 case None =>
-                  globalIdent(pack, name).map { nm => nm()  }
+                  globalIdent(pack, name).map(nm => nm())
               }
           case Local(arg) =>
             directFn(arg)
               .flatMap {
-                case Some((nm, false)) =>
+                case Some((nm, false, arity)) =>
                   // a closure can't be a static name
-                  pv(Code.Ident("STATIC_PUREFN")(nm))
+                  pv(boxFn(nm, arity))
                 case _ =>
                   getBinding(arg).widen
               }
@@ -1066,7 +1088,7 @@ object ClangGen {
               if (arity == 0) Code.Ident("PURE_VALUE_TAG").castTo(Code.TypeIdent.BValue)
               else {
                 val allocStructFn = s"alloc_struct$arity"
-                Code.Ident("STATIC_PUREFN")(Code.Ident(allocStructFn))
+                boxFn(Code.Ident(allocStructFn), arity)
               }
             }
           case ZeroNat =>
@@ -1093,7 +1115,7 @@ object ClangGen {
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
               case None => body
-              case Some(rec) => recursiveName(fnName, rec, isClosure = captures.nonEmpty)(body)
+              case Some(rec) => recursiveName(fnName, rec, isClosure = captures.nonEmpty, arity = fn.arity)(body)
             }
 
             bindAll(args) {
@@ -1110,7 +1132,7 @@ object ClangGen {
               } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
             }
           case LoopFn(captures, nm, args, body) =>
-            recursiveName(fnName, nm, isClosure = captures.nonEmpty) {
+            recursiveName(fnName, nm, isClosure = captures.nonEmpty, arity = fn.arity) {
               bindAll(args) {
                 for {
                   cond <- newLocalName("cond")
@@ -1153,32 +1175,42 @@ object ClangGen {
             for {
               vl <- innerToValue(someValue)
               value <- staticValueName(p, b)
-              _ <- appendStatement(Code.DeclareVar(
-                Code.Attr.Static :: Nil,
-                Code.TypeIdent.AtomicBValue,
-                value,
-                Some(Code.IntLiteral.Zero)
-              ))
               consFn <- constructorFn(p, b)
-              _ <- appendStatement(Code.DeclareFn(
-                Code.Attr.Static :: Nil,
-                Code.TypeIdent.BValue,
-                consFn,
-                Nil,
-                Some(Code.block(Code.returnValue(vl)))
-              ))
               readFn <- globalIdent(p, b)
-              res = Code.Ident("read_or_build")(value.addr, consFn)
-              _ <- appendStatement(Code.DeclareFn(
-                Code.Attr.Static :: Nil,
-                Code.TypeIdent.BValue,
-                readFn,
-                Nil,
-                Some(Code.block(Code.returnValue(res)))
-              ))
+              _ <- makeConstructorsStatement(value, consFn, vl, readFn)
             } yield ()
         }
       }
+
+      def makeConstructorsStatement(value: Code.Ident, consFn: Code.Ident, vl: Code.ValueLike, readFn: Code.Ident): T[Unit] =
+        // TODO: if we can create the value statically, we don't
+        // need the read_or_build trick
+        //
+        // we materialize an Atomic value to hold the static data
+        // then we generate a function to populate the value
+        for {
+          _ <- appendStatement(Code.DeclareVar(
+            Code.Attr.Static :: Nil,
+            Code.TypeIdent.AtomicBValue,
+            value,
+            Some(Code.IntLiteral.Zero)
+          ))
+          _ <- appendStatement(Code.DeclareFn(
+            Code.Attr.Static :: Nil,
+            Code.TypeIdent.BValue,
+            consFn,
+            Nil,
+            Some(Code.block(Code.returnValue(vl)))
+          ))
+          res = Code.Ident("read_or_build")(value.addr, consFn)
+          _ <- appendStatement(Code.DeclareFn(
+            Code.Attr.Static :: Nil,
+            Code.TypeIdent.BValue,
+            readFn,
+            Nil,
+            Some(Code.block(Code.returnValue(res)))
+          ))
+        } yield ()
 
       def renderMain(p: PackageName, b: Bindable): T[Unit]
       def renderTests(values: List[(PackageName, Bindable)]): T[Unit]
@@ -1196,7 +1228,7 @@ object ClangGen {
             includes: Chain[Code.Include],
             stmts: Chain[Code.Statement],
             currentTop: Option[(PackageName, Bindable)],
-            binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean), Int), Int]]],
+            binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
             counter: Long
           ) {
             def finalFile: Doc =
@@ -1299,8 +1331,9 @@ object ClangGen {
                   stack.head match {
                     case Right(idx) =>
                       result(s, Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
-                    case Left(((ident, _), _)) =>
-                      // TODO: suspicious to ignore isClosure here
+                    case Left(((ident, _, _), _)) =>
+                      // TODO: suspicious to ignore isClosure and arity here
+                      // probably need to conv
                       result(s, ident)
                   }
                 case None => errorRes(Error.Unbound(bn, s.currentTop))
@@ -1315,9 +1348,9 @@ object ClangGen {
             monadImpl.pure(Code.Ident(Idents.escape("__bsts_a_", idx.toString)))
 
           // a recursive function needs to remap the Bindable to the top-level mangling
-          def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean)(in: T[A]): T[A] = {
+          def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean, arity: Int)(in: T[A]): T[A] = {
             val init: T[Unit] = StateT { s =>
-              val entry = (fnName, isClosure)
+              val entry = (fnName, isClosure, arity)
               val v = s.binds.get(bn) match {
                 case None => NonEmptyList.one(Left((entry, -1)))
                 case Some(items @ NonEmptyList(Right(idx), _)) =>
@@ -1366,25 +1399,25 @@ object ClangGen {
               Code.Ident(Idents.escape("__bsts_t_", tag + cnt.toString))  
             }
           // record that this name is a top level function, so applying it can be direct
-          def directFn(pack: PackageName, b: Bindable): T[Option[Code.Ident]] =
+          def directFn(pack: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
               val key = (pack, b)
               s.allValues.get(key) match {
-                case Some((_: Matchless.FnExpr, ident)) =>
-                  result(s, Some(ident))
+                case Some((fn: Matchless.FnExpr, ident)) =>
+                  result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external
                   s.externals(pack, b) match {
                     case Some((incl, ident, arity)) if arity > 0 =>
                       val withIncl = s.include(incl)
-                      result(withIncl, Some(ident))
+                      result(withIncl, Some((ident, arity)))
                     case _ => result(s, None)
                   }
                 case _ => result(s, None)
               }  
             }
 
-          def directFn(b: Bindable): T[Option[(Code.Ident, Boolean)]] =
+          def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]] =
             StateT { s =>
               s.binds.get(b) match {
                 case Some(NonEmptyList(Left((c, _)), _)) =>
@@ -1409,6 +1442,7 @@ object ClangGen {
           def constructorFn(p: PackageName, b: Bindable): T[Code.Ident] =
             monadImpl.pure(Code.Ident(Idents.escape("___bsts_c_", fullName(p, b))))
 
+          // this is the name of a function when it is directly invokable
           def renderMain(p: PackageName, b: Bindable): T[Unit] =
             // TODO ???
             monadImpl.unit

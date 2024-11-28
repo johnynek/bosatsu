@@ -47,7 +47,7 @@ BValue __bsts_t_lambda0(BValue __bsts_b_a0, BValue __bsts_b_b0) {
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
     return call_fn2(__bsts_b_fn0,
-        STATIC_PUREFN(__bsts_t_lambda0),
+        alloc_boxed_pure_fn2(__bsts_t_lambda0),
         alloc_enum0(0));
 }""")
   }
@@ -121,7 +121,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     BValue __bsts_b_back0) {
     return ___bsts_g_Bosatsu_l_Predef_l_foldLeft(__bsts_b_front0,
         __bsts_b_back0,
-        STATIC_PUREFN(__bsts_t_lambda4));
+        alloc_boxed_pure_fn2(__bsts_t_lambda4));
 }""")
   }
 }
