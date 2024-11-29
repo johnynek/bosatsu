@@ -256,10 +256,9 @@ void free_static_string(void* str) {
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
+  // TODO we could allocate just once and make sure this is the tail of BSTS_String
   char* bytes_copy = malloc(sizeof(char) * len);
-  for(size_t i = 0; i < len; i++) {
-    bytes_copy[i] = bytes[i];
-  }
+  memcpy(bytes_copy, bytes, len);
   str->len = len;
   str->bytes = bytes_copy;
   bsts_init_rc((RefCounted*)str, free_string);
@@ -630,7 +629,7 @@ void free_integer(void* integer) {
   free(integer);
 }
 
-BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) {
+BSTS_Integer* bsts_integer_alloc(size_t size) {
     // chatgpt authored this
     BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
@@ -638,25 +637,36 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
         return NULL;
     }
 
-    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
-    // remove any leading 0 words
-    while ((size > 1) && (words[size - 1] == 0)) {
-      size--;
-    }
-    integer->len = size;
+    // TODO we could allocate just once and make sure this is the tail of BSTS_Integer
     integer->words = (uint32_t*)malloc(size * sizeof(uint32_t));
     if (integer->words == NULL) {
         // Handle allocation failure
         free(integer);
         return NULL;
     }
+    integer->len = size;
     bsts_init_rc((RefCounted*)integer, free_integer);
+    return integer; // Low bit is 0 since it's a pointer
+}
+
+BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) {
+    // chatgpt authored this
+    // remove any leading 0 words
+    while ((size > 1) && (words[size - 1] == 0)) {
+      size--;
+    }
+    BSTS_Integer* integer = bsts_integer_alloc(size);
+    if (integer == NULL) {
+        // Handle allocation failure
+        return NULL;
+    }
+    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
 BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words) {
-    // chatgpt authored this
+    // TODO: use bsts_integer_alloc
     BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
         // Handle allocation failure
@@ -1150,7 +1160,8 @@ static void release_ref_counted(RefCounted *block) {
     // Decrement the reference count atomically using atomic_fetch_sub
     if (atomic_fetch_sub_explicit(&block->ref_count, 1, memory_order_seq_cst) == 1) {
         // If reference count drops to 0, free the memory
-        block->free(block);
+        // TODO actually free
+        //block->free(block);
     }
 }
 
@@ -1237,8 +1248,8 @@ BValue bsts_integer_and(BValue l, BValue r) {
     _Bool r_is_small = IS_SMALL(r);
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 4 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 4 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1257,9 +1268,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        intptr_t l_int = GET_SMALL_INT(l);
+        int64_t l_int = (int64_t)GET_SMALL_INT(l);
         _Bool l_sign = (l_int < 0) ? 1 : 0;
-        uintptr_t l_abs = (uintptr_t)(l_sign ? -l_int : l_int);
+        uint64_t l_abs = (u_int64_t)(l_sign ? -l_int : l_int);
         for (size_t i = 0; i < max_len && l_abs > 0; i++) {
             l_twos[i] = (uint32_t)(l_abs & 0xFFFFFFFF);
             l_abs >>= 32;
@@ -1284,9 +1295,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        intptr_t r_int = GET_SMALL_INT(r);
+        int64_t r_int = (int64_t)GET_SMALL_INT(r);
         _Bool r_sign = (r_int < 0) ? 1 : 0;
-        uintptr_t r_abs = (uintptr_t)(r_sign ? -r_int : r_int);
+        uint64_t r_abs = (uint64_t)(r_sign ? -r_int : r_int);
         for (size_t i = 0; i < max_len && r_abs > 0; i++) {
             r_twos[i] = (uint32_t)(r_abs & 0xFFFFFFFF);
             r_abs >>= 32;
