@@ -6,9 +6,75 @@
 #include <stdio.h>
 #include <limits.h>
 
+/*
+There are a few kinds of values:
+
+1. pure values: small ints, characters, small strings that can fit into 63 bits.
+2. pointers to referenced counted values
+3. pointers to static values stack allocated at startup
+
+to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
+boundaries:
+  a. ends with 01: pure value
+  b. ends with 11: static pointer (allocated once and deleteds at the end of the world)
+  c. ends with 00: refcount pointer.
+
+when it comes to functions there are two types, PureFn and closures. We have to box
+  pointers to them, but when we know we have a global PureFn we can directly call it.
+  if we have a static boxed value, it ends in 1, else 0.
+
+Nat-like values are represented by positive integers encoded as PURE_VALUE such that
+NAT(x) = (x << 1) | 1, since we don't have enough time to increment through 2^{63} values
+this is a safe encoding.
+
+Char values are stored as unicode code points with a trailing 1.
+
+String values encodings, string values are like ref-counted structs with
+a length and char* holding the utf-8 bytes. We could also potentially optimize
+short strings by packing them literally into 63 bits with a length.
+
+Integer values are either pure values (signed values packed into 63 bits),
+or ref-counted big integers
+
+We need to know which case we are in because in generic context we need to know
+how to clone values.
+*/
+#define TAG_MASK 0x3
+#define PURE_VALUE_TAG 0x1
+#define STATIC_VALUE_TAG 0x3
+#define POINTER_TAG 0x0
+
+// Utility macros to check the tag of a value
+#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == PURE_VALUE_TAG)
+#define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
+#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
+#define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
+#define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
+#define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
+
+#define DEFINE_RC_STRUCT(name, fields) \
+    struct name { \
+      atomic_int ref_count; \
+      FreeFn free; \
+      fields \
+    }; \
+    typedef struct name name
+
 #define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
 
 DEFINE_RC_STRUCT(RefCounted,);
+
+BValue bsts_unit_value() {
+  return (BValue)PURE_VALUE_TAG;
+}
+
+BValue bsts_char_from_code_point(int codepoint) {
+  return (BValue)PURE_VALUE(codepoint);
+}
+
+int bsts_char_code_point_from_value(BValue ch) {
+  return (int)PURE_VALUE(ch);
+}
 
 // Closures:
 DEFINE_RC_STRUCT(Closure1Data, BClosure1 fn; size_t slot_len;);
@@ -387,7 +453,7 @@ BValue bsts_string_char_at(BValue value, int offset) {
     }
 
     // Return the code point value
-    return BSTS_TO_CHAR((intptr_t)code_point);
+    return bsts_char_from_code_point(code_point);
 }
 
 _Bool bsts_rc_value_is_unique(RefCounted* value) {

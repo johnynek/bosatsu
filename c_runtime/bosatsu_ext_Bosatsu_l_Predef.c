@@ -18,7 +18,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a) {
-  int codepoint = (int)PURE_VALUE(a);
+  int codepoint = bsts_char_code_point_from_value(a);
   char bytes[4];
   int len = bsts_string_code_point_to_utf8(codepoint, bytes);
   return bsts_string_from_utf8_bytes_owned(len, bytes);

@@ -76,10 +76,10 @@ void test_runtime_strings() {
   assert(bsts_string_equals(v2, v2), "v2 == v2");
   //codepoint tests
   assert(bsts_string_code_point_bytes(v1, 0) == 1, "code_point_bytes(v[0]) == 1");
-  assert(bsts_string_char_at(v1, 0) == BSTS_TO_CHAR(104), "char_at(v, 0) == 104");
-  assert(bsts_string_char_at(v1, 1) == BSTS_TO_CHAR(101), "char_at(v, 1) == 101");
+  assert(bsts_string_char_at(v1, 0) == bsts_char_from_code_point(104), "char_at(v, 0) == 104");
+  assert(bsts_string_char_at(v1, 1) == bsts_char_from_code_point(101), "char_at(v, 1) == 101");
   BValue v3 = bsts_string_from_utf8_bytes_static(4, "\x00F0\x009F\x0098\x008A");
-  assert(bsts_string_char_at(v3, 0) == BSTS_TO_CHAR(0x1F60A), "smiley check char");
+  assert(bsts_string_char_at(v3, 0) == bsts_char_from_code_point(0x1F60A), "smiley check char");
   assert(bsts_string_code_point_bytes(v3, 0) == 4, "smiley length");
 
   BValue v1tail = bsts_string_substring_tail(v1, 1);
