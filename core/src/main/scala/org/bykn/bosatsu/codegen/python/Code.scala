@@ -213,7 +213,7 @@ object Code {
 
       case DotSelect(left, right) =>
         val ld = left match {
-          case PyInt(_) => par(exprToDoc(left))
+          case PyInt(_) | Op(_, _, _) => par(exprToDoc(left))
           case _        => exprToDoc(left)
         }
         ld + Doc.char('.') + exprToDoc(right)
