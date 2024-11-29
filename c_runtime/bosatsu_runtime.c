@@ -1248,8 +1248,8 @@ BValue bsts_integer_and(BValue l, BValue r) {
     _Bool r_is_small = IS_SMALL(r);
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? 4 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? 4 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
