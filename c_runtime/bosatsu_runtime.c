@@ -1249,12 +1249,49 @@ void twos_complement_to_sign_magnitude(size_t len, uint32_t* words, _Bool* sign,
     }
 }
 
+void bsts_interger_small_to_twos(int32_t value, uint32_t* target, size_t max_len) {
+  memcpy(target, &value, sizeof(int32_t));
+  if (value < 0) {
+    // fill with -1 all the rest
+    for (size_t i = 1; i < max_len; i++) {
+      target[i] = (uint32_t)-1;
+    }
+  }
+}
+
+BValue bsts_integer_from_twos(size_t max_len, u_int32_t* result_twos) {
+    // Convert result from two's complement to sign-magnitude
+    _Bool result_sign;
+    size_t result_len = max_len;
+    BSTS_Integer* result = bsts_integer_alloc(max_len);
+    if (result == NULL) {
+        free(result_twos);
+        return NULL;
+    }
+
+    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
+    free(result_twos);
+
+    // Check if result can be represented as small integer
+    if (result_len == 1) {
+        // Attempt to pack into small integer
+        BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
+        if (maybe) {
+          free(result);
+          return maybe;
+        }
+    }
+    result->len = result_len;
+    result->sign = result_sign;
+    return result;
+}
+
 // Function to perform bitwise AND on two BValues
 BValue bsts_integer_and(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
 
-    if (l_is_small && r_is_small) {
+    if (l_is_small & r_is_small) {
       return bsts_integer_from_int(GET_SMALL_INT(l) & GET_SMALL_INT(r));
     }
     // Determine maximum length in words
@@ -1278,26 +1315,7 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        int64_t l_int = (int64_t)GET_SMALL_INT(l);
-        _Bool l_sign = (l_int < 0) ? 1 : 0;
-        uint64_t l_abs = (u_int64_t)(l_sign ? -l_int : l_int);
-        for (size_t i = 0; i < max_len && l_abs > 0; i++) {
-            l_twos[i] = (uint32_t)(l_abs & 0xFFFFFFFF);
-            l_abs >>= 32;
-        }
-        if (l_sign) {
-            // Negative number: invert bits and add 1
-            for (size_t i = 0; i < max_len; i++) {
-                l_twos[i] = ~l_twos[i];
-            }
-            uint64_t carry = 1;
-            for (size_t i = 0; i < max_len; i++) {
-                uint64_t sum = (uint64_t)l_twos[i] + carry;
-                l_twos[i] = (uint32_t)(sum & 0xFFFFFFFF);
-                carry = sum >> 32;
-                if (carry == 0) break;
-            }
-        }
+        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1305,26 +1323,7 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        int64_t r_int = (int64_t)GET_SMALL_INT(r);
-        _Bool r_sign = (r_int < 0) ? 1 : 0;
-        uint64_t r_abs = (uint64_t)(r_sign ? -r_int : r_int);
-        for (size_t i = 0; i < max_len && r_abs > 0; i++) {
-            r_twos[i] = (uint32_t)(r_abs & 0xFFFFFFFF);
-            r_abs >>= 32;
-        }
-        if (r_sign) {
-            // Negative number: invert bits and add 1
-            for (size_t i = 0; i < max_len; i++) {
-                r_twos[i] = ~r_twos[i];
-            }
-            uint64_t carry = 1;
-            for (size_t i = 0; i < max_len; i++) {
-                uint64_t sum = (uint64_t)r_twos[i] + carry;
-                r_twos[i] = (uint32_t)(sum & 0xFFFFFFFF);
-                carry = sum >> 32;
-                if (carry == 0) break;
-            }
-        }
+        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1345,29 +1344,7 @@ BValue bsts_integer_and(BValue l, BValue r) {
     free(r_twos);
 
     // Convert result from two's complement to sign-magnitude
-    _Bool result_sign;
-    size_t result_len = max_len;
-    BSTS_Integer* result = bsts_integer_alloc(max_len);
-    if (result == NULL) {
-        return NULL;
-    }
-
-    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
-    free(result_twos);
-
-    // Check if result can be represented as small integer
-    if (result_len == 1) {
-      BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
-      if (maybe) {
-        free(result);
-        return maybe;
-      }
-    }
-    // Return result as big integer
-    result->sign = result_sign;
-    // this is maybe shortened
-    result->len = result_len;
-    return result;
+    return bsts_integer_from_twos(max_len, result_twos);
 }
 
 // Function to multiply two BValues
@@ -1375,7 +1352,7 @@ BValue bsts_integer_times(BValue left, BValue right) {
     _Bool left_is_small = IS_SMALL(left);
     _Bool right_is_small = IS_SMALL(right);
 
-    if (left_is_small && right_is_small) {
+    if (left_is_small & right_is_small) {
         // Both are small integers
         int32_t l_int = GET_SMALL_INT(left);
         int32_t r_int = GET_SMALL_INT(right);
@@ -1456,6 +1433,9 @@ BValue bsts_integer_times(BValue left, BValue right) {
 BValue bsts_integer_or(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
+    if (l_is_small & r_is_small) {
+      return bsts_integer_from_int(GET_SMALL_INT(l) | GET_SMALL_INT(r));
+    }
 
     // Determine maximum length in words
     size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
@@ -1478,8 +1458,7 @@ BValue bsts_integer_or(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        intptr_t l_int = GET_SMALL_INT(l);
-        memcpy(l_twos, &l_int, sizeof(intptr_t));
+        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1487,8 +1466,7 @@ BValue bsts_integer_or(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        intptr_t r_int = GET_SMALL_INT(r);
-        memcpy(r_twos, &r_int, sizeof(intptr_t));
+        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1505,53 +1483,20 @@ BValue bsts_integer_or(BValue l, BValue r) {
         result_twos[i] = l_twos[i] | r_twos[i];
     }
 
-    free(l_twos);
-    free(r_twos);
-
-    // Convert result from two's complement to sign-magnitude
-    _Bool result_sign;
-    size_t result_len = max_len;
-    uint32_t* result_words = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_words == NULL) {
-        free(result_twos);
-        return NULL;
-    }
-
-    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result_words);
-
-    free(result_twos);
-
-    // Check if result can be represented as small integer
-    if (result_len * 32 <= sizeof(intptr_t) * 8) {
-        // Attempt to pack into small integer
-        intptr_t result_int = 0;
-        for (size_t i = 0; i < result_len; i++) {
-            result_int |= ((intptr_t)result_words[i]) << (32 * i);
-        }
-        if (result_sign) {
-            result_int = -result_int;
-        }
-        if (result_int <= (INTPTR_MAX >> 1) && result_int >= (INTPTR_MIN >> 1)) {
-            BValue result = bsts_integer_from_int((int)result_int);
-            free(result_words);
-            return result;
-        }
-    }
-
-    // Return result as big integer
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
-    return result;
+    return bsts_integer_from_twos(max_len, result_twos);
 }
 
 // Function to perform bitwise XOR on two BValues
 BValue bsts_integer_xor(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
+    if (l_is_small & r_is_small) {
+      return bsts_integer_from_int(GET_SMALL_INT(l) ^ GET_SMALL_INT(r));
+    }
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1570,8 +1515,7 @@ BValue bsts_integer_xor(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        intptr_t l_int = GET_SMALL_INT(l);
-        memcpy(l_twos, &l_int, sizeof(intptr_t));
+        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1579,8 +1523,7 @@ BValue bsts_integer_xor(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        intptr_t r_int = GET_SMALL_INT(r);
-        memcpy(r_twos, &r_int, sizeof(intptr_t));
+        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1601,39 +1544,7 @@ BValue bsts_integer_xor(BValue l, BValue r) {
     free(r_twos);
 
     // Convert result from two's complement to sign-magnitude
-    _Bool result_sign;
-    size_t result_len = max_len;
-    uint32_t* result_words = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_words == NULL) {
-        free(result_twos);
-        return NULL;
-    }
-
-    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result_words);
-
-    free(result_twos);
-
-    // Check if result can be represented as small integer
-    if (result_len * 32 <= sizeof(intptr_t) * 8) {
-        // Attempt to pack into small integer
-        intptr_t result_int = 0;
-        for (size_t i = 0; i < result_len; i++) {
-            result_int |= ((intptr_t)result_words[i]) << (32 * i);
-        }
-        if (result_sign) {
-            result_int = -result_int;
-        }
-        if (result_int <= (INTPTR_MAX >> 1) && result_int >= (INTPTR_MIN >> 1)) {
-            BValue result = bsts_integer_from_int((int)result_int);
-            free(result_words);
-            return result;
-        }
-    }
-
-    // Return result as big integer
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
-    return result;
+    return bsts_integer_from_twos(max_len, result_twos);
 }
 
 // Function to compare two BValues
