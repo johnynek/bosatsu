@@ -684,6 +684,32 @@ BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words)
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
+BValue bsts_integer_from_int64(int64_t result) {
+  // Check if result fits in small integer
+  if ((INT32_MIN <= result) && (result <= INT32_MAX)) {
+      return bsts_integer_from_int((int32_t)result);
+  } else {
+      // Promote to big integer
+      _Bool is_positive = result >= 0;
+      uint64_t abs_result = result >= 0 ? result : -result;
+      uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
+      uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
+      if (high == 0) {
+        BSTS_Integer* result = bsts_integer_alloc(1);
+        result->sign = !is_positive;
+        result->words[0] = low;
+        return (BValue)result;
+      }
+      else {
+        BSTS_Integer* result = bsts_integer_alloc(2);
+        result->sign = !is_positive;
+        result->words[0] = low;
+        result->words[1] = high;
+        return (BValue)result;
+      }
+  }
+}
+
 BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
   if (!pos) {
     if (small_result <= 0x80000000) {
@@ -696,7 +722,6 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
       }
     }
     else {
-      // negative number < INT32_MIN
       return NULL;
     }
   }
@@ -709,7 +734,6 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
     return NULL;
   }
 }
-
 
 // Function to check equality between two BValues
 _Bool bsts_integer_equals(BValue left, BValue right) {
@@ -801,27 +825,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
     if (l_is_small && r_is_small) {
         int64_t l_int = (int64_t)GET_SMALL_INT(l);
         int64_t r_int = (int64_t)GET_SMALL_INT(r);
-        int64_t result = l_int + r_int;
-
-        // Check for overflow
-        if ((result < INT32_MIN) || (INT32_MAX < result)) {
-            // Promote to big integer
-            _Bool pos = result >= 0;
-            int64_t abs_result = pos ? result : -result;
-            uint32_t low = (uint32_t)(abs_result & 0xFFFFFFFF);
-            uint32_t high = (uint32_t)((abs_result >> 32) & 0xFFFFFFFF);
-            if (high == 0) {
-              uint32_t words[1] = { low };
-              return bsts_integer_from_words_copy(pos, 1, words);
-            }
-            else {
-              uint32_t words[2] = { low, high };
-              return bsts_integer_from_words_copy(pos, 2, words);
-            }
-        } else {
-            // Result fits in small integer
-            return bsts_integer_from_int((int32_t)result);
-        }
+        return bsts_integer_from_int64(l_int + r_int);
     } else {
         // At least one operand is a big integer
 
@@ -1250,6 +1254,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
 
+    if (l_is_small && r_is_small) {
+      return bsts_integer_from_int(GET_SMALL_INT(l) & GET_SMALL_INT(r));
+    }
     // Determine maximum length in words
     size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
     size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
@@ -1374,24 +1381,7 @@ BValue bsts_integer_times(BValue left, BValue right) {
         int32_t r_int = GET_SMALL_INT(right);
         // Multiply and check for overflow
         int64_t result = (int64_t)l_int * (int64_t)r_int;
-        // Check if result fits in small integer
-        if ((INT32_MIN <= result) && (result <= INT32_MAX)) {
-            return bsts_integer_from_int((int32_t)result);
-        } else {
-            // Promote to big integer
-            _Bool is_positive = result >= 0;
-            uint64_t abs_result = result >= 0 ? result : -result;
-            uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
-            uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
-            if (high == 0) {
-              uint32_t words[1] = { low };
-              return bsts_integer_from_words_copy(is_positive, 1, words);
-            }
-            else {
-              uint32_t words[2] = { low, high };
-              return bsts_integer_from_words_copy(is_positive, 2, words);
-            }
-        }
+        return bsts_integer_from_int64(result);
     } else {
         // At least one operand is big integer
         uint32_t left_temp[2];
