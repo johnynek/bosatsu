@@ -143,7 +143,7 @@ def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
   boundary = (1 << (uints * 64)).div(high) * high
   def next(s: State, fuel: Nat) -> (State, Int):
     recur fuel:
-        case Zero: (s, (high - 1).div(2))
+        case Zero: (s, (high - 1) >> 1)
         case Succ(n):
           (s1, i) = fn(s)
           if i.cmp_Int(boundary) matches LT:
@@ -163,7 +163,7 @@ def int_range(high: Int) -> Rand[Int]:
       # high >= 2
       # bits > 1 since high > 0
       bits = bit_count(high)
-      uint_count = bits.div(64) + 1
+      uint_count = (bits >> 6) + 1
       rand_Int = replicate_List(uint64_Rand, uint_count) \
         .sequence_Rand() \
         .map_Rand(us -> to_big_Int(us, 0))
@@ -260,7 +260,7 @@ def one_of[a](head: Rand[a], tail: List[Rand[a]]) -> Rand[a]:
                     front = from_pair(f1, f2)
                     back = loop(n, tail)
                     # with prob 1/(n + 1) choose front
-                    int_range(binNat_to_Int(items_len).div(2)) \
+                    int_range(binNat_to_Int(items_len) >> 1) \
                       .flat_map_Rand(idx -> (
                         match idx:
                           case 0: front
