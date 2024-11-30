@@ -696,15 +696,18 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
       }
     }
     else {
-      // this can't fit in a small int
+      // negative number < INT32_MIN
+      return NULL;
     }
   }
   else if (small_result <= INT32_MAX) {
     // it is a small positive
     return bsts_integer_from_int(((int32_t)small_result));
   }
-
-  return NULL;
+  else {
+    // positive number > INT32_MAX
+    return NULL;
+  }
 }
 
 
@@ -1337,36 +1340,26 @@ BValue bsts_integer_and(BValue l, BValue r) {
     // Convert result from two's complement to sign-magnitude
     _Bool result_sign;
     size_t result_len = max_len;
-    uint32_t* result_words = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_words == NULL) {
-        free(result_twos);
+    BSTS_Integer* result = bsts_integer_alloc(max_len);
+    if (result == NULL) {
         return NULL;
     }
 
-    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result_words);
-
+    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
     free(result_twos);
 
     // Check if result can be represented as small integer
-    if (result_len * 32 <= sizeof(intptr_t) * 8) {
-        // Attempt to pack into small integer
-        intptr_t result_int = 0;
-        for (size_t i = 0; i < result_len; i++) {
-            result_int |= ((intptr_t)result_words[i]) << (32 * i);
-        }
-        if (result_sign) {
-            result_int = -result_int;
-        }
-        if (result_int <= (INTPTR_MAX >> 1) && result_int >= (INTPTR_MIN >> 1)) {
-            BValue result = bsts_integer_from_int((int)result_int);
-            free(result_words);
-            return result;
-        }
+    if (result_len == 1) {
+      BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
+      if (maybe) {
+        free(result);
+        return maybe;
+      }
     }
-
     // Return result as big integer
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
+    result->sign = result_sign;
+    // this is maybe shortened
+    result->len = result_len;
     return result;
 }
 
@@ -1475,8 +1468,8 @@ BValue bsts_integer_or(BValue l, BValue r) {
     _Bool r_is_small = IS_SMALL(r);
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
