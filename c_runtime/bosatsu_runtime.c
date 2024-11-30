@@ -691,7 +691,7 @@ BValue bsts_integer_from_int64(int64_t result) {
   } else {
       // Promote to big integer
       _Bool is_positive = result >= 0;
-      uint64_t abs_result = result >= 0 ? result : -result;
+      uint64_t abs_result = is_positive ? result : -result;
       uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
       uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
       if (high == 0) {
