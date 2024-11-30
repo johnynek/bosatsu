@@ -256,10 +256,9 @@ void free_static_string(void* str) {
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = malloc(sizeof(BSTS_String));
+  // TODO we could allocate just once and make sure this is the tail of BSTS_String
   char* bytes_copy = malloc(sizeof(char) * len);
-  for(size_t i = 0; i < len; i++) {
-    bytes_copy[i] = bytes[i];
-  }
+  memcpy(bytes_copy, bytes, len);
   str->len = len;
   str->bytes = bytes_copy;
   bsts_init_rc((RefCounted*)str, free_string);
@@ -630,7 +629,7 @@ void free_integer(void* integer) {
   free(integer);
 }
 
-BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) {
+BSTS_Integer* bsts_integer_alloc(size_t size) {
     // chatgpt authored this
     BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
@@ -638,25 +637,36 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
         return NULL;
     }
 
-    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
-    // remove any leading 0 words
-    while ((size > 1) && (words[size - 1] == 0)) {
-      size--;
-    }
-    integer->len = size;
+    // TODO we could allocate just once and make sure this is the tail of BSTS_Integer
     integer->words = (uint32_t*)malloc(size * sizeof(uint32_t));
     if (integer->words == NULL) {
         // Handle allocation failure
         free(integer);
         return NULL;
     }
+    integer->len = size;
     bsts_init_rc((RefCounted*)integer, free_integer);
+    return integer; // Low bit is 0 since it's a pointer
+}
+
+BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) {
+    // chatgpt authored this
+    // remove any leading 0 words
+    while ((size > 1) && (words[size - 1] == 0)) {
+      size--;
+    }
+    BSTS_Integer* integer = bsts_integer_alloc(size);
+    if (integer == NULL) {
+        // Handle allocation failure
+        return NULL;
+    }
+    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
 BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words) {
-    // chatgpt authored this
+    // TODO: use bsts_integer_alloc
     BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
         // Handle allocation failure
@@ -674,6 +684,32 @@ BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words)
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
+BValue bsts_integer_from_int64(int64_t result) {
+  // Check if result fits in small integer
+  if ((INT32_MIN <= result) && (result <= INT32_MAX)) {
+      return bsts_integer_from_int((int32_t)result);
+  } else {
+      // Promote to big integer
+      _Bool is_positive = result >= 0;
+      uint64_t abs_result = is_positive ? result : -result;
+      uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
+      uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
+      if (high == 0) {
+        BSTS_Integer* result = bsts_integer_alloc(1);
+        result->sign = !is_positive;
+        result->words[0] = low;
+        return (BValue)result;
+      }
+      else {
+        BSTS_Integer* result = bsts_integer_alloc(2);
+        result->sign = !is_positive;
+        result->words[0] = low;
+        result->words[1] = high;
+        return (BValue)result;
+      }
+  }
+}
+
 BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
   if (!pos) {
     if (small_result <= 0x80000000) {
@@ -686,17 +722,18 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
       }
     }
     else {
-      // this can't fit in a small int
+      return NULL;
     }
   }
   else if (small_result <= INT32_MAX) {
     // it is a small positive
     return bsts_integer_from_int(((int32_t)small_result));
   }
-
-  return NULL;
+  else {
+    // positive number > INT32_MAX
+    return NULL;
+  }
 }
-
 
 // Function to check equality between two BValues
 _Bool bsts_integer_equals(BValue left, BValue right) {
@@ -788,27 +825,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
     if (l_is_small && r_is_small) {
         int64_t l_int = (int64_t)GET_SMALL_INT(l);
         int64_t r_int = (int64_t)GET_SMALL_INT(r);
-        int64_t result = l_int + r_int;
-
-        // Check for overflow
-        if ((result < INT32_MIN) || (INT32_MAX < result)) {
-            // Promote to big integer
-            _Bool pos = result >= 0;
-            int64_t abs_result = pos ? result : -result;
-            uint32_t low = (uint32_t)(abs_result & 0xFFFFFFFF);
-            uint32_t high = (uint32_t)((abs_result >> 32) & 0xFFFFFFFF);
-            if (high == 0) {
-              uint32_t words[1] = { low };
-              return bsts_integer_from_words_copy(pos, 1, words);
-            }
-            else {
-              uint32_t words[2] = { low, high };
-              return bsts_integer_from_words_copy(pos, 2, words);
-            }
-        } else {
-            // Result fits in small integer
-            return bsts_integer_from_int((int32_t)result);
-        }
+        return bsts_integer_from_int64(l_int + r_int);
     } else {
         // At least one operand is a big integer
 
@@ -1150,7 +1167,8 @@ static void release_ref_counted(RefCounted *block) {
     // Decrement the reference count atomically using atomic_fetch_sub
     if (atomic_fetch_sub_explicit(&block->ref_count, 1, memory_order_seq_cst) == 1) {
         // If reference count drops to 0, free the memory
-        block->free(block);
+        // TODO actually free
+        //block->free(block);
     }
 }
 
@@ -1236,9 +1254,12 @@ BValue bsts_integer_and(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
 
+    if (l_is_small && r_is_small) {
+      return bsts_integer_from_int(GET_SMALL_INT(l) & GET_SMALL_INT(r));
+    }
     // Determine maximum length in words
-    size_t l_len = l_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1257,9 +1278,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        intptr_t l_int = GET_SMALL_INT(l);
+        int64_t l_int = (int64_t)GET_SMALL_INT(l);
         _Bool l_sign = (l_int < 0) ? 1 : 0;
-        uintptr_t l_abs = (uintptr_t)(l_sign ? -l_int : l_int);
+        uint64_t l_abs = (u_int64_t)(l_sign ? -l_int : l_int);
         for (size_t i = 0; i < max_len && l_abs > 0; i++) {
             l_twos[i] = (uint32_t)(l_abs & 0xFFFFFFFF);
             l_abs >>= 32;
@@ -1284,9 +1305,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        intptr_t r_int = GET_SMALL_INT(r);
+        int64_t r_int = (int64_t)GET_SMALL_INT(r);
         _Bool r_sign = (r_int < 0) ? 1 : 0;
-        uintptr_t r_abs = (uintptr_t)(r_sign ? -r_int : r_int);
+        uint64_t r_abs = (uint64_t)(r_sign ? -r_int : r_int);
         for (size_t i = 0; i < max_len && r_abs > 0; i++) {
             r_twos[i] = (uint32_t)(r_abs & 0xFFFFFFFF);
             r_abs >>= 32;
@@ -1326,36 +1347,26 @@ BValue bsts_integer_and(BValue l, BValue r) {
     // Convert result from two's complement to sign-magnitude
     _Bool result_sign;
     size_t result_len = max_len;
-    uint32_t* result_words = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_words == NULL) {
-        free(result_twos);
+    BSTS_Integer* result = bsts_integer_alloc(max_len);
+    if (result == NULL) {
         return NULL;
     }
 
-    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result_words);
-
+    twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
     free(result_twos);
 
     // Check if result can be represented as small integer
-    if (result_len * 32 <= sizeof(intptr_t) * 8) {
-        // Attempt to pack into small integer
-        intptr_t result_int = 0;
-        for (size_t i = 0; i < result_len; i++) {
-            result_int |= ((intptr_t)result_words[i]) << (32 * i);
-        }
-        if (result_sign) {
-            result_int = -result_int;
-        }
-        if (result_int <= (INTPTR_MAX >> 1) && result_int >= (INTPTR_MIN >> 1)) {
-            BValue result = bsts_integer_from_int((int)result_int);
-            free(result_words);
-            return result;
-        }
+    if (result_len == 1) {
+      BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
+      if (maybe) {
+        free(result);
+        return maybe;
+      }
     }
-
     // Return result as big integer
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
+    result->sign = result_sign;
+    // this is maybe shortened
+    result->len = result_len;
     return result;
 }
 
@@ -1370,24 +1381,7 @@ BValue bsts_integer_times(BValue left, BValue right) {
         int32_t r_int = GET_SMALL_INT(right);
         // Multiply and check for overflow
         int64_t result = (int64_t)l_int * (int64_t)r_int;
-        // Check if result fits in small integer
-        if ((INT32_MIN <= result) && (result <= INT32_MAX)) {
-            return bsts_integer_from_int((int32_t)result);
-        } else {
-            // Promote to big integer
-            _Bool is_positive = result >= 0;
-            uint64_t abs_result = result >= 0 ? result : -result;
-            uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
-            uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
-            if (high == 0) {
-              uint32_t words[1] = { low };
-              return bsts_integer_from_words_copy(is_positive, 1, words);
-            }
-            else {
-              uint32_t words[2] = { low, high };
-              return bsts_integer_from_words_copy(is_positive, 2, words);
-            }
-        }
+        return bsts_integer_from_int64(result);
     } else {
         // At least one operand is big integer
         uint32_t left_temp[2];
@@ -1464,8 +1458,8 @@ BValue bsts_integer_or(BValue l, BValue r) {
     _Bool r_is_small = IS_SMALL(r);
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? sizeof(intptr_t) * 8 / 32 : GET_BIG_INT(r)->len;
+    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
+    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
