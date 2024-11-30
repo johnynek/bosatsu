@@ -34,10 +34,10 @@ def toNat(b: BinNat) -> Nat:
 def toBinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
   fns = int_loop(n, [], \n, fns ->
-    is_even = mod_Int(n, 2).eq_Int(0)
+    is_even = n.and_Int(1) matches 0
     (hfn, dec) = (n -> Even(n), n -> n.sub(1)) if is_even else (n -> Odd(n), n -> n)
     fns = [hfn, *fns]
-    n = n.div(2)
+    n = n.shift_right_Int(1)
     (dec(n), fns)
   )
   # Now apply all the transformations
@@ -372,7 +372,7 @@ test = TestSuite(
     Assertion(fib(Zero).toInt().eq_Int(1), "fib(0) == 1"),
     Assertion(fib(one).toInt().eq_Int(1), "fib(1) == 1"),
     Assertion(fib(two).toInt().eq_Int(2), "fib(2) == 2"),
-    Assertion(fib(three).toInt().eq_Int(3), "fib(3) == 3"),
+    Assertion(fib(three).toInt().eq_Int(3), "fib(3) == 3 (got ${int_to_String(fib(three).toInt())})"),
     Assertion(fib(four).toInt().eq_Int(5), "fib(4) == 5"),
     Assertion(cmp_BinNat(54.toBinNat(), 54.toBinNat()) matches EQ, "54 == 54"),
   ])

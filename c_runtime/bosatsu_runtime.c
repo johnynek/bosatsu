@@ -1888,7 +1888,12 @@ BSTS_PassFail bsts_check_test(BValue v, int indent) {
       this_fails += tests.fails;
     }
     print_indent(next_indent);
-    printf("passed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", this_passes, this_fails);
+    if (this_fails == 0) {
+      printf("passed: \033[32m%i\033[0m\n", this_passes);
+    }
+    else {
+      printf("passed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", this_passes, this_fails);
+    }
     passes += this_passes;
     fails += this_fails;
   }
@@ -1923,6 +1928,11 @@ int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
     printf("\n");
   }
 
-  printf("\npassed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", total_passes, total_fails);
+  if (total_fails == 0) {
+    printf("\npassed: \033[32m%i\033[0m\n", total_passes);
+  }
+  else {
+    printf("\npassed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", total_passes, total_fails);
+  }
   return (total_fails > 0);
 }
