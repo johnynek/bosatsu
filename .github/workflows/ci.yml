@@ -127,7 +127,7 @@ jobs:
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
-        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test --filter Bosatsu/List --filter IntTest"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test --filter Bosatsu/List --filter IntTest --filter Bosatsu/BinNat"
       - name: "compile generated c code"
         run: |
           cp c_runtime/*.h c_out
@@ -135,6 +135,7 @@ jobs:
           cp c_runtime/Makefile.test c_out/Makefile
           cd c_out
           make
+          cat output.log
     timeout-minutes: 30
 name: ci
 on:

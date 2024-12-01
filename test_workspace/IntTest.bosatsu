@@ -17,6 +17,11 @@ diff1 = 36893488147419103232 - 1
 and_test_cases = [
     # Small positive integers
     (3 & 1, 1, "3 & 1"),
+    (0 & 1, 0, "0 & 1"),
+    (1 & 1, 1, "1 & 1"),
+    (2 & 1, 0, "2 & 1"),
+    (3 & 1, 1, "3 & 1"),
+    (4 & 1, 0, "4 & 1"),
     # Small negative integers
     (-3 & 1, 1, "-3 & 1"),
     (-5 & -2, -6, "-5 & -2"),
@@ -41,7 +46,9 @@ and_test_cases = [
 ]
 
 and_tests = TestSuite("and tests",
-  and_test_cases.map_List(((got, ex, m)) -> assert_eq(got, ex, m)))
+  [ Assertion((2 & 1) matches 0, "2 & 1 matches 0"),
+    *and_test_cases.map_List(((got, ex, m)) -> assert_eq(got, ex, m))
+  ])
 
 or_test_cases = [
     # Small positive integers

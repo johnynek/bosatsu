@@ -244,7 +244,7 @@ object ClangGen {
 
       // assign any results to result and set the condition to false
       // and replace any tail calls to nm(args) with assigning args to those values
-      def toWhileBody(fnName: Code.Ident, args: NonEmptyList[Code.Param], isClosure: Boolean, cond: Code.Ident, result: Code.Ident, body: Code.ValueLike): Code.Block = {
+      def toWhileBody(fnName: Code.Ident, argTemp: NonEmptyList[(Code.Param, Code.Ident)], isClosure: Boolean, cond: Code.Ident, result: Code.Ident, body: Code.ValueLike): Code.Block = {
       
         import Code._
 
@@ -260,21 +260,24 @@ object ClangGen {
                 if (isClosure) appArgs.tail
                 else appArgs
               // we know the length of appArgs must match args or the code wouldn't have compiled
-              val assigns = args
+              // we have to first assign to the temp variables, and then assign the temp variables
+              // to the results to make sure we don't have any data dependency issues with the values;
+              val tmpAssigns = argTemp
                 .iterator
                 .zip(newArgsList.iterator)
-                .flatMap { case (Param(_, name), value) =>
+                .flatMap { case ((Param(_, name), tmp), value) =>
                   if (name != value)
                     // don't create self assignments
-                    Iterator.single(Assignment(name, value))
+                    Iterator.single((Assignment(tmp, value), Assignment(name, tmp)))
                   else
                     Iterator.empty
                 }
                 .toList
 
-              // there is always at least one new argument or the loop
-              // won't terminate
-              val assignNEL = NonEmptyList.fromListUnsafe(assigns)
+              // there must be at least one assignment
+              val assignNEL = NonEmptyList.fromListUnsafe(
+                tmpAssigns.map(_._1) ::: tmpAssigns.map(_._2)
+              )
               Some(Statements(assignNEL))
             case IfElseValue(c, t, f) =>
               // this can possible have tail calls inside the branches
@@ -1138,16 +1141,23 @@ object ClangGen {
                   cond <- newLocalName("cond")
                   res <- newLocalName("res")
                   bodyVL <- innerToValue(body)
-                  argParams <- args.traverse { b =>
-                    getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
+                  argParamsTemps <- args.traverse { b =>
+                    (getBinding(b), newLocalName("loop_temp")).mapN { (i, t) => (Code.Param(Code.TypeIdent.BValue, i), t) }
                   }
-                  whileBody = toWhileBody(fnName, argParams, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
+                  whileBody = toWhileBody(fnName, argParamsTemps, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
+                  declTmps = Code.Statements(
+                    argParamsTemps.map { case (_, tmp) =>
+                      Code.DeclareVar(Nil, Code.TypeIdent.BValue, tmp, None)
+                    }
+                  )
                   fnBody = Code.block(
+                    declTmps,
                     Code.DeclareVar(Nil, Code.TypeIdent.Bool, cond, Some(Code.TrueLit)),
                     Code.DeclareVar(Nil, Code.TypeIdent.BValue, res, None),
                     Code.While(cond, whileBody),
                     Code.Return(Some(res))
                   )
+                  argParams = argParamsTemps.map(_._1)
                   allArgs =
                     if (captures.isEmpty) argParams
                     else {
