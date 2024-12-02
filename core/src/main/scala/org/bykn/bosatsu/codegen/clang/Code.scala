@@ -509,7 +509,7 @@ object Code {
       case IntLiteral(bi) => Doc.str(bi)
       case StrLiteral(str) =>
         val result = new java.lang.StringBuilder()
-        val bytes = str.getBytes(StandardCharsets.US_ASCII)
+        val bytes = str.getBytes(StandardCharsets.UTF_8)
         bytes.foreach { c =>
           val cint = c.toInt & 0xFF
           if (cint == 92) { // this is \
@@ -522,7 +522,7 @@ object Code {
             result.append(cint.toChar)
           }
           else {
-            result.append(s"\\x${java.lang.Integer.toHexString(cint)}")
+            result.append(s"\" \"\\x${java.lang.Integer.toHexString(cint)}\" \"")
           }
         }
         quoteDoc + (Doc.text(result.toString()) + quoteDoc)

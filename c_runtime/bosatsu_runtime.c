@@ -69,7 +69,7 @@ BValue bsts_unit_value() {
 }
 
 BValue bsts_char_from_code_point(int codepoint) {
-  return (BValue)PURE_VALUE(codepoint);
+  return (BValue)TO_PURE_VALUE(codepoint);
 }
 
 int bsts_char_code_point_from_value(BValue ch) {
@@ -491,19 +491,17 @@ _Bool bsts_rc_value_is_unique(RefCounted* value) {
 BValue bsts_string_substring(BValue value, int start, int end) {
   BSTS_String* str = GET_STRING(value);
   size_t len = str->len;
-  if (len < end || end <= start) {
+  if (len < end || end < start) {
     // this is invalid
     return 0;
   }
   size_t new_len = end - start;
-  if (str->free == free_static_string) {
-    if (new_len > 0) {
-      return bsts_string_from_utf8_bytes_static(new_len, str->bytes + start);
-    }
-    else {
-      // empty string, should probably be a constant
-      return bsts_string_from_utf8_bytes_static(0, "");
-    }
+  if (new_len == 0) {
+    // empty string, should probably be a constant
+    return bsts_string_from_utf8_bytes_static(0, "");
+  }
+  else if (str->free == free_static_string) {
+    return bsts_string_from_utf8_bytes_static(new_len, str->bytes + start);
   }
   else {
     // ref-counted bytes
