@@ -182,7 +182,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_partition__String(BValue a, BValue b) {
   // Some((x, y)) with x = a[0:offset], y = a[offset + b.len():]
   BValue x = bsts_string_substring(a, 0, offset);
   BValue y = bsts_string_substring_tail(a, offset + blen);
-  res = alloc_enum2(1, x, y);
+  res = alloc_enum1(1, alloc_struct2(x, y));
 
   done:
   release_value(a);
@@ -209,7 +209,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_rpartition__String(BValue a, BValue b) {
   // Some((x, y)) with x = a[0:offset], y = a[offset + b.len():]
   BValue x = bsts_string_substring(a, 0, offset);
   BValue y = bsts_string_substring_tail(a, offset + blen);
-  res = alloc_enum2(1, x, y);
+  res = alloc_enum1(1, alloc_struct2(x, y));
 
   done:
   release_value(a);

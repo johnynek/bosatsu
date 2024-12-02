@@ -578,7 +578,7 @@ int bsts_string_rfind(BValue haystack, BValue needle, int start) {
 
 
     // The maximum valid start index is haystack_len - needle_len
-    for (size_t i = (size_t)start; i <= 0; i--) {
+    for (size_t i = (size_t)start; 0 <= i; i--) {
         if (haystack_str->bytes[i] == needle_str->bytes[0]) {
             // Potential match found, check the rest of the needle
             size_t j;

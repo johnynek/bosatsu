@@ -47,6 +47,15 @@ last_tests = TestSuite(
   ]
 )
 
+partition_tests = TestSuite("partition tests", [
+  Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
+  Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
+  Assertion("foo".partition_String("x") matches None, "foo partition_String x"),
+  Assertion("foo".rpartition_String("o") matches Some(("fo", "")), "foo rpartition_String o"),
+  Assertion("foo".rpartition_String("") matches None, "foo rpartition_String \"\""),
+  Assertion("foo".rpartition_String("x") matches None, "foo rpartition_String x"),
+])
+
 match_tests = TestSuite("match tests",
   [
     Assertion("👋👋👋" matches "👋$.{_}👋", "test matching 1"),
@@ -84,5 +93,6 @@ tests = TestSuite("Char tests",
     last_tests,
     match_tests,
     glob_match_tests,
+    partition_tests,
   ]
 )
