@@ -2,8 +2,11 @@ package org.bykn.bosatsu.codegen.clang
 
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.{PackageName, TestUtils, Identifier}
+import org.scalacheck.Prop
+import org.bykn.bosatsu.{Generators, StringUtil}
+import org.bykn.bosatsu.Generators.genValidUtf
 
-class ClangGenTest extends munit.FunSuite {
+class ClangGenTest extends munit.ScalaCheckSuite {
   def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
     TestUtils.checkMatchless("""
 x = 1    
@@ -128,4 +131,125 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
         alloc_boxed_pure_fn2(__bsts_t_lambda6));
 }""")
   }
+
+
+  def mockCodePointFn(bytes: Array[Byte], offset: Int): Int = {
+    def s(i: Int) = bytes(offset + i).toInt & 0xff
+
+    val c = s(0);
+    var code_point: Int = 0
+    val remaining = bytes.length - offset
+    if (c <= 0x7F) {
+        // 1-byte sequence (ASCII)
+        code_point = c;
+    } else if ((c & 0xE0) == 0xC0) {
+        // 2-byte sequence
+        if (remaining < 2 || (s(1) & 0xC0) != 0x80) {
+            // Invalid continuation byte
+            return -1;
+        }
+        code_point = ((c & 0x1F) << 6) | (s(1) & 0x3F);
+    } else if ((c & 0xF0) == 0xE0) {
+        // 3-byte sequence
+        if (remaining < 3 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            return -1;
+        }
+        code_point = ((c & 0x0F) << 12) | ((s(1) & 0x3F) << 6) | (s(2) & 0x3F);
+    } else if ((c & 0xF8) == 0xF0) {
+        // 4-byte sequence
+        if (remaining < 4 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80 || (s(3) & 0xC0) != 0x80) {
+            // Invalid continuation bytes
+            return -1;
+        }
+        code_point = ((c & 0x07) << 18) | ((s(1) & 0x3F) << 12) | ((s(2) & 0x3F) << 6) | (s(3) & 0x3F);
+    } else {
+        // Invalid UTF-8 leading byte
+        return -1;
+    }
+
+    code_point
+  }
+
+    def bsts_string_code_point_bytes(bytes: Array[Byte]) = {
+      // cast to an unsigned char for the math below
+      def s(o: Int) = bytes(o).toInt & 0xff
+      val c = s(0)
+      val remaining = bytes.length;
+
+      if (c <= 0x7F) {
+          // 1-byte sequence (ASCII)
+          1;
+      } else if ((c & 0xE0) == 0xC0) {
+          // 2-byte sequence
+          if (remaining < 1 || (s(1) & 0xC0) != 0x80) {
+              // Invalid continuation byte
+              sys.error("invalid")
+          }
+          else {
+            2;
+          }
+      } else if ((c & 0xF0) == 0xE0) {
+          // 3-byte sequence
+          if (remaining < 2 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80) {
+              // Invalid continuation bytes
+              sys.error("invalid")
+          }
+          else {
+            3;
+          }
+      } else if ((c & 0xF8) == 0xF0) {
+          // 4-byte sequence
+          if (remaining < 3 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80 || (s(3) & 0xC0) != 0x80) {
+              // Invalid continuation bytes
+              sys.error("invalid")
+          }
+          else {
+            4;
+          }
+      } else {
+          // Invalid UTF-8 leading byte
+          sys.error("invalid")
+      }
+  }
+
+  def utf8ByteArray(cp: Int): Array[Byte] = {
+    val sb = new java.lang.StringBuilder
+    sb.appendCodePoint(cp).toString.getBytes("UTF-8")
+  }
+  def utf8Bytes(cp: Int): Int = utf8ByteArray(cp).length
+
+  def allCodePoints(s: String): List[Int] = {
+    val bytes = s.getBytes("UTF-8")
+    def loop(o: Int): List[Int] = {
+      if (o >= bytes.length) Nil
+      else {
+        val cp = mockCodePointFn(bytes, o)
+        val inc = utf8Bytes(cp)
+        cp :: loop(o + inc)
+      }
+    }
+
+    loop(0)
+  }
+
+  def utf8Hex(s: String): String =
+    s.getBytes("UTF-8").map(byte => f"$byte%02x").mkString
+
+  property("our implementation of codepoint matches java") {
+    Prop.forAll(genValidUtf) { (str: String) =>
+      val cp1 = allCodePoints(str)
+      val expected = StringUtil.codePoints(str)
+      assertEquals(cp1, expected)
+    }
+  }
+
+  property("our codepoint size mathces java") {
+    Prop.forAll(Generators.genCodePoints) { cp =>
+      val utf8Size = utf8Bytes(cp)  
+      val implSize = bsts_string_code_point_bytes(utf8ByteArray(cp))
+      assertEquals(implSize, utf8Size)
+    }
+  }
+
 }

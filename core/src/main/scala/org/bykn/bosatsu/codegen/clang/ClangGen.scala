@@ -475,7 +475,7 @@ object ClangGen {
             pv(
               Code.Ident("bsts_string_from_utf8_bytes_static")(
                 Code.IntLiteral(bytes.length),
-                Code.StrLiteral(new String(bytes.map(_.toChar)))
+                Code.StrLiteral(s)
               )
             )
           }
