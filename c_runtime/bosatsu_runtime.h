@@ -106,6 +106,9 @@ int bsts_integer_cmp(BValue l, BValue r);
 BValue bsts_integer_negate(BValue v);
 // &Integer -> String
 BValue bsts_integer_to_string(BValue v);
+// (&Integer, &Integer) -> (Integer, Integer)
+// div_mod(l, r) == (d, m) <=> l = r * d + m
+BValue bsts_integer_div_mod(BValue l, BValue r);
 
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);

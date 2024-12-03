@@ -128,6 +128,7 @@ void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* o
       op->len = 1;
     }
     else {
+      // TODO: this branch should be unreachable, remove it
       words[0] = low;
       words[1] = high;
       op->len = 2;
@@ -1777,6 +1778,64 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         }
         return result;
     }
+}
+
+// (&Integer, &Integer) -> (Integer, Integer)
+// div_mod(l, r) == (d, m) <=> l = r * d + m
+BValue bsts_integer_div_mod(BValue l, BValue r) {
+    _Bool r_is_small = IS_SMALL(r);
+    if (r_is_small & (GET_SMALL_INT(r) == 0)) {
+      // we define division by zero as (0, l)
+      return alloc_struct2(bsts_integer_from_int(0), clone_value(l));
+    }
+    
+    _Bool l_is_small = IS_SMALL(l);
+    if (l_is_small & r_is_small) {
+      // normal integer division works
+      int32_t ls = GET_SMALL_INT(l);
+      int32_t rs = GET_SMALL_INT(r);
+      // C rounds to 0, but bosatsu and python round to -inf
+      int32_t div = ls / rs;
+      int32_t mod = ls % rs;
+      _Bool lpos = ls >= 0;
+      _Bool rpos = rs >= 0;
+      if ((mod != 0) & (lpos ^ rpos)) {
+        // need to repair, mod != 0 & at least one is negative
+        // div * r + mod == l, but we may need to shift r towards zero
+        // when we shift div = (div - 1) so mod = mod + r
+        div = div - 1;
+        mod = mod + rs;
+      }
+      return alloc_struct2(bsts_integer_from_int(div), bsts_integer_from_int(mod));
+    }
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    // Prepare left operand
+    if (IS_SMALL(l)) {
+        int32_t l_int = GET_SMALL_INT(l);
+        bsts_load_op_from_small(l_int, left_temp, &left_operand);
+    } else {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        left_operand.sign = l_big->sign;
+        left_operand.len = l_big->len;
+        left_operand.words = l_big->words;
+    }
+
+    // Prepare left operand
+    if (IS_SMALL(r)) {
+        int32_t r_int = GET_SMALL_INT(r);
+        bsts_load_op_from_small(r_int, right_temp, &right_operand);
+    } else {
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        right_operand.sign = r_big->sign;
+        right_operand.len = r_big->len;
+        right_operand.words = r_big->words;
+    }
+
+    return alloc_struct2(bsts_integer_from_int(0), clone_value(l));
 }
 
 void free_statics() {

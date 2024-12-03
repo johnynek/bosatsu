@@ -3,10 +3,23 @@ package PredefTests
 operator / = div
 operator % = mod_Int
 
+i = int_to_String
+
 test_int = TestSuite("Int tests", [
-      Assertion((4 % -3) matches -2, "(4 % -3) == -2"),
-      Assertion((-8 % -2) matches 0, "(-8 % -2) == 0"),
-      Assertion((-8 / -2) matches 4, "(-8 / -2) == 4"),
+      Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
+      Assertion((-8 % -2) matches 0, "(-8 % -2) == 0 got: ${i(-8 % -2)}"),
+      Assertion((-8 / -2) matches 4, "(-8 / -2) == 4 got: ${i(-8 / -2)}"),
+
+      Assertion((5 / -3) matches -2, "(5 / -3) == -2 got: ${i(5 / -3)}"),
+      Assertion((-5 / 3) matches -2, "(-5 / 3) == -2 got: ${i(-5 / 3)}"),
+      Assertion((5 / 3) matches 1, "(5 / 3) == 1 got ${i(5 / 3)}"),
+      Assertion((-5 / -3) matches 1, "(5 / 3) == 1 got ${i(-5 / -3)}"),
+
+      Assertion((5 % -3) matches -1, "(5 % -3) == -1 got ${i(5 % -3)}"),
+      Assertion((-5 % 3) matches 1, "(5 % -3) == 1 got ${i(-5 % 3)}"),
+      Assertion((5 % 3) matches 2, "(5 % 3) == 2 got ${i(5 % 3)}"),
+      Assertion((-5 % -3) matches -2, "(-5 % -3) == -2 got ${i(-5 % -3)}"),
+
       Assertion((-4 % -3) matches -1, "(-4 % -3) == -1"),
       Assertion((13 % 3) matches 1, "13 % 3 == 1"),
       Assertion((-113 / 16) matches -8, "-113/16 == -8"),
