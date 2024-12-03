@@ -9,7 +9,7 @@ import org.bykn.bosatsu.Generators.genValidUtf
 class ClangGenTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(100000)
+      .withMinSuccessfulTests(1000000)
       .withMaxDiscardRatio(10)
 
   def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
@@ -266,43 +266,75 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
 
     def divModPos(l: BigInt, r: BigInt): (BigInt, BigInt) = {
       // we know that l >= d * r and l < (d + 1) * r
-      def guess(d: BigInt): Int = {
-        if (d <= 0) sys.error(s"invalid guess: $d")
-        val dr = d * r
-        if ((dr + r) <= l) -1 // too small
-        else if (dr > l) 1 // too big
-        else 0 // exactly right
-      }
       // low <= d <= high
-      def search(low: BigInt, high: BigInt): BigInt = {
-        val mid = (high + low) >> 1
-        val c = guess(mid)
-        println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
-        if (c == 0) mid
-        else if (c > 0) search(low, mid)
-        else {
-          // mid could == low
-          if (mid == low) high
-          else search(mid, high)
+      def search(low0: BigInt, high0: BigInt): (BigInt, BigInt) = {
+        // we know that d fits in a 64 bit number 
+        require(low0.bitLength <= wordSize * 2)
+        require(high0.bitLength <= wordSize * 2)
+        // we know that div >= 1
+        require(low0 >= 1)
+        require(high0 >= low0)
+
+        var low = low0
+        var high = high0
+        var cont = true
+        var result: (BigInt, BigInt) = null
+        while (cont) {
+          val mid = (high + low) >> 1
+          val mod = l - mid * r
+          //println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
+          if (mod >= r) {
+            // mid is too small
+            low = mid
+          }
+          else if (mod < 0) {
+            // mid is too big
+            high = mid
+            require(high != low, s"low == high but mid ($low) is isn't correct: from search($low0, $high0)")
+          }
+          else {
+            cont = false
+            // the div result fits in 2 words
+            require(mid.bitLength <= 2*wordSize)
+            result = (mid, mod)  
+          }
         }
+
+        result
       }
 
-      // assumed maxWord * n > m > n
-      def divTop: BigInt = {
-        val nwords = r.bitCount / 32
+      // when maxWord * n > m > n
+      def divModTop(l: BigInt, r: BigInt): (BigInt, BigInt) = {
+        require(l < (r << wordSize))
+        require(r < l)
+        require(r > 1)
+        val nwords = {
+          val rlen = r.bitLength
+          val wSize = rlen/wordSize
+          if (rlen % wordSize == 0) wSize else (wSize + 1)
+        }
         // we keep the top most word of n and divide
-        val shiftCount0 = (nwords - 1) * 32
+        val shiftCount0 = (nwords - 1) * wordSize
         val shiftCount = if (shiftCount0 > 0) shiftCount0 else 0
         val m1 = l >> shiftCount
         val n1 = r >> shiftCount
-        val middle = m1 / n1
-        val c = guess(middle)
-        if (c == 0) middle
-        else if (c < 0) {
-          search(m1 / (n1 + 1), middle)
+        // at this point, we have to have a relatively small number
+        require(m1.bitLength <= 2 * wordSize, s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}")
+        require(n1.bitLength <= wordSize, s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}")
+        // this division can be done with unsigned longs
+        val divGuess = m1 / n1
+        val mod = l - divGuess * r
+        if (mod < 0) {
+          // divGuess is too big
+          search(m1 / (n1 + 1), divGuess)
+        }
+        else if (mod > r) {
+          // divGuess is too small
+          search(divGuess, (m1 + 1) / n1)
         }
         else {
-          search(middle, (m1 + 1) / n1)
+          // it's good
+          (divGuess, mod)
         }
       }
 
@@ -317,7 +349,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
         // l = d1 * r * b + (m1 * b + l0)
         val l0 = l & maskWord
         // we know that m1 * b + l0 < l
-        val nextL = (m1 << wordSize) + l0
+        val nextL = (m1 << wordSize) | l0
         if (nextL >= l) {
           sys.error(s"loop error: l = $l, r = $r, l1 = $l1, l0 = $l0, nextL = $nextL")
         }
@@ -330,10 +362,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
         val c = l.compare(r)
         if (c > 0) {
           // r < l < b * r
-          val d = divTop
-          // now that we have d, we compute m
-          val m = l - d*r
-          (d, m)
+          divModTop(l, r)
         }
         else if (c < 0) {
           // r < l
@@ -421,9 +450,20 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     law(BigInt(-2), BigInt(-3))
     law(BigInt("-15934641381326140386510"), BigInt(599767409L))
     law(BigInt("2885517232792582372714"), BigInt(-7104274460L))
+    law(BigInt("671836834585"), BigInt("7104274460"))
   }
 
   property("implementation of divMod matches predef") {
     Prop.forAll(genBigInt, genBigInt) { (l, r) => law(l, r) }
+  }
+
+  property("check upper bound property") {
+    Prop.forAll(genBigInt, genBigInt) { (l0, r0) =>
+      val l = l0.abs
+      val r = r0.abs
+      if (r > 1) {
+        assert(((l + 1) / r) <= ((l >> 1) + 1)/(r >> 1))
+      }
+    }
   }
 }
