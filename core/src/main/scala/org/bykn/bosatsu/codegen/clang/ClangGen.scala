@@ -235,6 +235,8 @@ object ClangGen {
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
 
+      def cachedIdent[A](key: A)(value: => T[Code.Ident]): T[Code.Ident]
+
       /////////////////////////////////////////
       // the below are independent of the environment implementation
       /////////////////////////////////////////
@@ -850,20 +852,30 @@ object ClangGen {
           case Some(n) => Idents.escape("_", n.asString)
         }
         if (fn.captures.isEmpty) {
-          for {
-            ident <- newTopName("lambda" + nameSuffix)
-            stmt <- fnStatement(ident, fn)
-            _ <- appendStatement(stmt)
-          } yield boxFn(ident, fn.arity);
+          cachedIdent(fn) {
+            for {
+              ident <- newTopName("lambda" + nameSuffix)
+              stmt <- fnStatement(ident, fn)
+              _ <- appendStatement(stmt)
+            } yield ident
+          }.map { ident =>
+            boxFn(ident, fn.arity);
+          }
         }
         else {
           // we create the function, then we allocate
           // values for the capture
           // alloc_closure<n>(capLen, captures, fnName)
+          val maybeCached = cachedIdent(fn) {
+            for {
+              ident <- newTopName("closure" + nameSuffix)
+              stmt <- fnStatement(ident, fn)
+              _ <- appendStatement(stmt)
+            } yield ident
+          }
+
           for {
-            ident <- newTopName("closure" + nameSuffix)
-            stmt <- fnStatement(ident, fn)
-            _ <- appendStatement(stmt)
+            ident <- maybeCached
             capName <- newLocalName("captures")
             capValues <- fn.captures.traverse(innerToValue(_))
             decl <- Code.ValueLike.declareArray(capName, Code.TypeIdent.BValue, capValues)(newLocalName)
@@ -1250,7 +1262,8 @@ object ClangGen {
             stmts: Chain[Code.Statement],
             currentTop: Option[(PackageName, Bindable)],
             binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
-            counter: Long
+            counter: Long,
+            identCache: Map[Any, Code.Ident]
           ) {
             def finalFile: Doc =
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
@@ -1268,7 +1281,7 @@ object ClangGen {
                 List(Code.Include.quote("bosatsu_runtime.h"))
 
               State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
-                None, Map.empty, 0L
+                None, Map.empty, 0L, Map.empty
               )
             }
           }
@@ -1505,6 +1518,20 @@ object ClangGen {
               appendStatement(mainFn)
             } *> StateT(s => result(s.include(Code.Include.angle("stdlib.h")), ()))
           }
+
+          def cachedIdent[A](key: A)(value: => T[Code.Ident]): T[Code.Ident] =
+            StateT { s =>
+              s.identCache.get(key) match {
+                case Some(ident) => result(s, ident)
+                case None =>
+                  for {
+                    s1Ident <- value.run(s)
+                    (s1, ident) = s1Ident
+                    s2 = s1.copy(identCache = s.identCache + (key -> ident))
+                    res <- result(s2, ident)
+                  }  yield res
+              }  
+            }
         }
       }
     }
