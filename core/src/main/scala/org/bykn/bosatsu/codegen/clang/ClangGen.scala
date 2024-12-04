@@ -235,7 +235,7 @@ object ClangGen {
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
 
-      def cachedIdent[A](key: A)(value: => T[Code.Ident]): T[Code.Ident]
+      def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident]
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -1263,7 +1263,7 @@ object ClangGen {
             currentTop: Option[(PackageName, Bindable)],
             binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
             counter: Long,
-            identCache: Map[Any, Code.Ident]
+            identCache: Map[Expr, Code.Ident]
           ) {
             def finalFile: Doc =
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
@@ -1519,7 +1519,7 @@ object ClangGen {
             } *> StateT(s => result(s.include(Code.Include.angle("stdlib.h")), ()))
           }
 
-          def cachedIdent[A](key: A)(value: => T[Code.Ident]): T[Code.Ident] =
+          def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident] =
             StateT { s =>
               s.identCache.get(key) match {
                 case Some(ident) => result(s, ident)
