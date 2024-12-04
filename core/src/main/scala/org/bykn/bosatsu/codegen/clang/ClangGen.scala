@@ -1033,12 +1033,8 @@ object ClangGen {
                     pv(boxFn(nm, arity))
                   }
                   else {
-                    // we need to allocate another wrapper
-                    pv(Code.Ident(s"alloc_closure${arity}")(
-                      Code.IntLiteral(BigInt(arity)),
-                      slotsArgName,
-                      nm
-                    ))
+                    // recover the pointer to this closure from the slots argument
+                    pv(Code.Ident("bsts_closure_from_slots")(slotsArgName))
                   }
                 case None =>
                   getBinding(arg).widen

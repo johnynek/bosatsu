@@ -85,6 +85,16 @@ size_t closure_data_size(size_t slot_len) {
 BValue* closure_data_of(Closure1Data* s) {
   return (BValue*)((uintptr_t)s + sizeof(Closure1Data));
 }
+
+// Given the slots variable return the closure fn value
+// TODO: this may interact badly with static ptr tagging trick
+// since we have lost track if the original was tagged static or not
+BValue bsts_closure_from_slots(BValue* slots) {
+  uintptr_t s = (uintptr_t)slots;
+  uintptr_t pointer_to_closure = s - sizeof(Closure1Data);
+  return (BValue)pointer_to_closure;
+}
+
 void free_closure(Closure1Data* s) {
   size_t slots = s->slot_len;
   BValue* items = closure_data_of(s);
