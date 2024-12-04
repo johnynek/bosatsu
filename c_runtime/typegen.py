@@ -84,6 +84,12 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
 }}
 
 BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {{
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }}
     BoxedPureFn{size}* rc = (BoxedPureFn{size}*)malloc(sizeof(BoxedPureFn{size}));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -94,6 +100,11 @@ BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
 }}
 
 BValue call_fn{size}(BValue fn, {arg_params}) {{
+  if (IS_PURE_VALUE(fn)) {{
+    // can pack into a pure value
+    BPureFn{size} pure = (BPureFn{size})PURE_VALUE(fn);
+    return pure({just_args});
+  }}
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn{size}* purefn = (BoxedPureFn{size}*)ptr;
   if (purefn->slot_len == 0) {{
