@@ -1188,18 +1188,12 @@ static void release_ref_counted(RefCounted *block) {
 
 // Function to convert sign-magnitude to two's complement representation
 void sign_magnitude_to_twos_complement(_Bool sign, size_t len, uint32_t* words, uint32_t* result_words, size_t result_len) {
-    if (sign == 0) {
-        // Positive number
-        memcpy(result_words, words, len * sizeof(uint32_t));
-        for (size_t i = len; i < result_len; i++) {
-            result_words[i] = 0;
-        }
-    } else {
+    memcpy(result_words, words, len * sizeof(uint32_t));
+    for (size_t i = len; i < result_len; i++) {
+        result_words[i] = 0;
+    }
+    if (sign == 1) {
         // Negative number
-        memcpy(result_words, words, len * sizeof(uint32_t));
-        for (size_t i = len; i < result_len; i++) {
-            result_words[i] = 0;
-        }
         // Invert all bits
         for (size_t i = 0; i < result_len; i++) {
             result_words[i] = ~result_words[i];
@@ -1268,7 +1262,7 @@ void bsts_interger_small_to_twos(int32_t value, uint32_t* target, size_t max_len
   if (value < 0) {
     // fill with -1 all the rest
     for (size_t i = 1; i < max_len; i++) {
-      target[i] = (uint32_t)-1;
+      target[i] = 0xFFFFFFFF;
     }
   }
 }
@@ -1309,8 +1303,9 @@ BValue bsts_integer_and(BValue l, BValue r) {
       return bsts_integer_from_int(GET_SMALL_INT(l) & GET_SMALL_INT(r));
     }
     // Determine maximum length in words
-    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
+    // we need to leave space for maybe 1 extra word if we have -MAX
+    size_t l_len = l_is_small ? 1 : (GET_BIG_INT(l)->len + 1);
+    size_t r_len = r_is_small ? 1 : (GET_BIG_INT(r)->len + 1);
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1435,8 +1430,9 @@ BValue bsts_integer_or(BValue l, BValue r) {
     }
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
+    // we need to leave space for maybe 1 extra word if we have -MAX
+    size_t l_len = l_is_small ? 1 : (GET_BIG_INT(l)->len + 1);
+    size_t r_len = r_is_small ? 1 : (GET_BIG_INT(r)->len + 1);
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1492,8 +1488,9 @@ BValue bsts_integer_xor(BValue l, BValue r) {
     }
 
     // Determine maximum length in words
-    size_t l_len = l_is_small ? 1 : GET_BIG_INT(l)->len;
-    size_t r_len = r_is_small ? 1 : GET_BIG_INT(r)->len;
+    // we need to leave space for maybe 1 extra word if we have -MAX
+    size_t l_len = l_is_small ? 1 : (GET_BIG_INT(l)->len + 1);
+    size_t r_len = r_is_small ? 1 : (GET_BIG_INT(r)->len + 1);
     size_t max_len = (l_len > r_len) ? l_len : r_len;
 
     // Ensure at least one word
@@ -1639,6 +1636,17 @@ int bsts_integer_cmp(BValue l, BValue r) {
     }
 }
 
+// &Integer -> bool
+_Bool bsts_integer_lt_zero(BValue v) {
+  if (IS_SMALL(v)) {
+    return GET_SMALL_INT(v) < 0;
+  }
+  else {
+    BSTS_Integer* vint = GET_BIG_INT(v);
+    return vint->sign;
+  }
+}
+
 // Function to shift a BValue left or right
 BValue bsts_integer_shift_left(BValue l, BValue r) {
     // Check if r is a small integer
@@ -1654,17 +1662,21 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     if (shift_amount == 0) {
         return l;
     }
+    _Bool l_is_small = IS_SMALL(l);
+    size_t l_len = l_is_small ? 1 : (GET_BIG_INT(l)->len + 1);
+    // Allocate arrays for two's complement representations
+    uint32_t* l_twos = (uint32_t*)calloc(l_len, sizeof(uint32_t));
+    // Convert left operand to two's complement
+    if (l_is_small) {
+        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, l_len);
+    } else {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, l_len);
+    }
 
     // Determine direction of shift
     _Bool shift_left = shift_amount > 0;
     intptr_t shift_abs = shift_left ? shift_amount : -shift_amount;
-
-    // Prepare the operand (l)
-    BSTS_Int_Operand operand;
-    uint32_t buffer[2];
-
-    // Convert l to BSTS_Int_Operand
-    bsts_integer_load_op(l, buffer, &operand);
 
     // Perform shifting on operand.words
     if (shift_left) {
@@ -1672,7 +1684,7 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         size_t word_shift = shift_abs / 32;
         size_t bit_shift = shift_abs % 32;
 
-        size_t new_len = operand.len + word_shift + 1; // +1 for possible carry
+        size_t new_len = l_len + word_shift + 1; // +1 for possible carry
         uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
         if (new_words == NULL) {
             return NULL;
@@ -1680,44 +1692,26 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
 
         // Shift bits
         uint64_t carry = 0;
-        for (size_t i = 0; i < operand.len; i++) {
-            uint64_t shifted = ((uint64_t)operand.words[i] << bit_shift) | carry;
+
+        for (size_t i = 0; i < l_len; i++) {
+            uint64_t shifted = ((uint64_t)l_twos[i] << bit_shift) | carry;
             new_words[i + word_shift] = (uint32_t)(shifted & 0xFFFFFFFF);
             carry = shifted >> 32;
         }
-        if (carry != 0) {
-            new_words[operand.len + word_shift] = (uint32_t)carry;
-        }
+        // make sure the top bits are negative
+        uint32_t high_bits = bsts_integer_lt_zero(l) ? ((0xFFFFFFFF >> bit_shift) << bit_shift) : 0;
+        new_words[l_len + word_shift] = ((uint32_t)carry) | high_bits;
 
-        // Remove leading zeros
-        size_t result_len = new_len;
-        while (result_len > 1 && new_words[result_len - 1] == 0) {
-            result_len--;
-        }
-
-        // Check if result fits in small integer
-        if (result_len == 1) {
-            BValue maybe = bsts_maybe_small_int(!operand.sign, new_words[0]);
-            if (maybe) {
-              free(new_words);
-              return maybe;
-            }
-        }
-        // Create new big integer
-        BValue result = bsts_integer_from_words_owned(!operand.sign, result_len, new_words);
-        if (result == NULL) {
-            free(new_words);
-            return NULL;
-        }
-        return (BValue)result;
+        free(l_twos);
+        return bsts_integer_from_twos(new_len, new_words);
     } else {
         // Right shift
         size_t word_shift = shift_abs / 32;
         size_t bit_shift = shift_abs % 32;
 
-        if (word_shift >= operand.len) {
+        if (word_shift >= l_len) {
             // All bits are shifted out
-            if (operand.sign) {
+            if (bsts_integer_lt_zero(l)) {
                 // Negative number, result is -1
                 return bsts_integer_from_int(-1);
             } else {
@@ -1726,48 +1720,24 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
             }
         }
 
-        size_t new_len = operand.len - word_shift;
+        size_t new_len = l_len - word_shift;
         uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
         if (new_words == NULL) {
             return NULL;
         }
 
-        uint32_t sign_extension = operand.sign ? 0xFFFFFFFF : 0x00000000;
+        _Bool operand_sign = bsts_integer_lt_zero(l);
+        uint32_t sign_extension = operand_sign ? 0xFFFFFFFF : 0x00000000;
 
         for (size_t i = 0; i < new_len; i++) {
-            uint64_t high = (i + word_shift + 1 < operand.len) ? operand.words[i + word_shift + 1] : sign_extension;
-            uint64_t low = operand.words[i + word_shift];
+            uint64_t high = (i + word_shift + 1 < l_len) ? l_twos[i + word_shift + 1] : sign_extension;
+            uint64_t low = l_twos[i + word_shift];
             uint64_t combined = (high << 32) | low;
             new_words[i] = (uint32_t)((combined >> bit_shift) & 0xFFFFFFFF);
         }
 
-        // Remove leading redundant words
-        size_t result_len = new_len;
-        if (operand.sign) {
-            while (result_len > 1 && new_words[result_len - 1] == 0xFFFFFFFF) {
-                result_len--;
-            }
-        } else {
-            while (result_len > 1 && new_words[result_len - 1] == 0) {
-                result_len--;
-            }
-        }
-
-        // Check if result fits in small integer
-        if (result_len == 1) {
-            BValue maybe = bsts_maybe_small_int(!operand.sign, new_words[0]);
-            if (maybe) {
-              free(new_words);
-              return maybe;
-            }
-        }
-        // Create new big integer
-        BValue result = bsts_integer_from_words_owned(!operand.sign, result_len, new_words);
-        if (result == NULL) {
-            free(new_words);
-            return NULL;
-        }
-        return result;
+        free(l_twos);
+        return bsts_integer_from_twos(new_len, new_words);
     }
 }
 
@@ -1791,17 +1761,6 @@ BValue bsts_integer_diff_prod(BSTS_Int_Operand left, uint64_t prod, BSTS_Int_Ope
     release_value(p);
     release_value(v1);
     return result;
-}
-
-// &Integer -> bool
-_Bool bsts_integer_lt_zero(BValue v) {
-  if (IS_SMALL(v)) {
-    return GET_SMALL_INT(v) < 0;
-  }
-  else {
-    BSTS_Integer* vint = GET_BIG_INT(v);
-    return vint->sign;
-  }
 }
 
 BSTS_Int_Div_Mod bsts_integer_search_div_mod(BSTS_Int_Operand left, BSTS_Int_Operand right, uint64_t low, uint64_t high) {

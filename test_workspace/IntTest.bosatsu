@@ -7,6 +7,8 @@ def operator ==(a, b): a.eq_Int(b)
 def operator &(a, b): a.and_Int(b)
 def operator |(a, b): a.or_Int(b)
 def operator ^(a, b): a.xor_Int(b)
+def operator <<(a, b): a.shift_left_Int(b)
+def operator >>(a, b): a.shift_right_Int(b)
 
 def assert_eq(got, expect, message):
   Assertion(got == expect, "${message}: got = ${int_to_String(got)}, expected = ${int_to_String(expect)}")
@@ -146,10 +148,25 @@ string_tests = TestSuite("string tests", [
   ]
 )
 
+shifts = TestSuite("shift tests", [
+  Assertion(((-23 << 1) >> 1) matches -23, "(-23 << 1) >> 1 returned ${int_to_String((-23 << 1) >> 1)}"),
+  Assertion((-23 << 1) matches -46, "(-23 << 1) returned ${int_to_String(-23 << 1)}"),
+  Assertion(((23 << 1) >> 1) matches 23, "(23 << 1) >> 1 returned ${int_to_String((23 << 1) >> 1)}"),
+  Assertion(((-8034984067920789066 << 1) >> 1) matches -8034984067920789066, "(-8034984067920789066 << 1) >> 1 returned ${int_to_String((-8034984067920789066 << 1) >> 1)}"),
+  Assertion(((16470527259447964275 << 20) >> 20) matches 16470527259447964275,
+    "(16470527259447964275 << 20) >> 20) got ${int_to_String((16470527259447964275 << 20) >> 20)}"),
+  Assertion((16470527259447964275 << 20) matches 17270599591602908587622400,
+    "(16470527259447964275 << 20) returned ${int_to_String((16470527259447964275 << 20))}"),
+  Assertion((17270599591602908587622400 >> 20) matches 16470527259447964275,
+    "17270599591602908587622400 >> 20 returned ${int_to_String(17270599591602908587622400 >> 20)}"
+  ),
+])
+
 tests = TestSuite("integer tests", [
   add_sub,
   string_tests,
   and_tests,
   or_tests,
   xor_tests,
+  shifts,
 ])

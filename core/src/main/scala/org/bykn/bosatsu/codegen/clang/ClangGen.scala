@@ -844,10 +844,14 @@ object ClangGen {
 
       // We have to lift functions to the top level and not
       // create any nesting
-      def innerFn(fn: FnExpr): T[Code.ValueLike] = 
+      def innerFn(fn: FnExpr): T[Code.ValueLike] = {
+        val nameSuffix = fn.recursiveName match {
+          case None => ""
+          case Some(n) => Idents.escape("_", n.asString)
+        }
         if (fn.captures.isEmpty) {
           for {
-            ident <- newTopName("lambda")
+            ident <- newTopName("lambda" + nameSuffix)
             stmt <- fnStatement(ident, fn)
             _ <- appendStatement(stmt)
           } yield boxFn(ident, fn.arity);
@@ -857,7 +861,7 @@ object ClangGen {
           // values for the capture
           // alloc_closure<n>(capLen, captures, fnName)
           for {
-            ident <- newTopName("closure")
+            ident <- newTopName("closure" + nameSuffix)
             stmt <- fnStatement(ident, fn)
             _ <- appendStatement(stmt)
             capName <- newLocalName("captures")
@@ -871,6 +875,7 @@ object ClangGen {
             )
           )
         }
+      }
 
       def literal(lit: Lit): T[Code.ValueLike] =
         lit match {
@@ -1022,10 +1027,20 @@ object ClangGen {
           case Local(arg) =>
             directFn(arg)
               .flatMap {
-                case Some((nm, false, arity)) =>
-                  // a closure can't be a static name
-                  pv(boxFn(nm, arity))
-                case _ =>
+                case Some((nm, isClosure, arity)) =>
+                  if (!isClosure) {
+                    // a closure can't be a static name
+                    pv(boxFn(nm, arity))
+                  }
+                  else {
+                    // we need to allocate another wrapper
+                    pv(Code.Ident(s"alloc_closure${arity}")(
+                      Code.IntLiteral(BigInt(arity)),
+                      slotsArgName,
+                      nm
+                    ))
+                  }
+                case None =>
                   getBinding(arg).widen
               }
           case ClosureSlot(idx) =>
