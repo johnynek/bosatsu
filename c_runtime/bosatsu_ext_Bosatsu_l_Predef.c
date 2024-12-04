@@ -82,9 +82,12 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b) {
-  // TODO this is non-trivial, just return something wrong
+  BValue divmod = bsts_integer_div_mod(a, b);
+  release_value(a);
   release_value(b);
-  return a;
+  BValue result = clone_value(get_struct_index(divmod, 0));
+  release_value(divmod);
+  return result;
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Int(BValue a, BValue b) {
@@ -95,7 +98,17 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(BValue a, BValue b) {
-  // TODO this is non-trivial, just return something wrong
+  BValue zero = bsts_integer_from_int(0);
+  while(!bsts_integer_equals(b, zero)) {
+    BValue tb = b;
+
+    BValue divmod = bsts_integer_div_mod(a, b);
+    release_value(a);
+    b = clone_value(get_struct_index(divmod, 1));
+    release_value(divmod);
+    a = tb;
+  }
+
   release_value(b);
   return a;
 }
@@ -147,9 +160,12 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__String(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_mod__Int(BValue a, BValue b) {
-  // TODO this is non-trivial, just return something wrong
+  BValue divmod = bsts_integer_div_mod(a, b);
+  release_value(a);
   release_value(b);
-  return a;
+  BValue result = clone_value(get_struct_index(divmod, 1));
+  release_value(divmod);
+  return result;
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a) {

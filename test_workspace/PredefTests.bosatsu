@@ -3,10 +3,39 @@ package PredefTests
 operator / = div
 operator % = mod_Int
 
+i = int_to_String
+
 test_int = TestSuite("Int tests", [
-      Assertion((4 % -3) matches -2, "(4 % -3) == -2"),
-      Assertion((-8 % -2) matches 0, "(-8 % -2) == 0"),
-      Assertion((-8 / -2) matches 4, "(-8 / -2) == 4"),
+      Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
+      Assertion((-8 % -2) matches 0, "(-8 % -2) == 0 got: ${i(-8 % -2)}"),
+      Assertion((-8 / -2) matches 4, "(-8 / -2) == 4 got: ${i(-8 / -2)}"),
+
+      Assertion((5 / -3) matches -2, "(5 / -3) == -2 got: ${i(5 / -3)}"),
+      Assertion((-5 / 3) matches -2, "(-5 / 3) == -2 got: ${i(-5 / 3)}"),
+      Assertion((5 / 3) matches 1, "(5 / 3) == 1 got ${i(5 / 3)}"),
+      Assertion((-5 / -3) matches 1, "(5 / 3) == 1 got ${i(-5 / -3)}"),
+
+      Assertion((5 % -3) matches -1, "(5 % -3) == -1 got ${i(5 % -3)}"),
+      Assertion((-5 % 3) matches 1, "(5 % -3) == 1 got ${i(-5 % 3)}"),
+      Assertion((5 % 3) matches 2, "(5 % 3) == 2 got ${i(5 % 3)}"),
+      Assertion((-5 % -3) matches -2, "(-5 % -3) == -2 got ${i(-5 % -3)}"),
+
+      # some hard ones found by scalacheck
+      Assertion((-15934641381326140386510 / 599767409) matches -26568034778506,
+        "(-15934641381326140386510 / 599767409) matches -26568034778506 got ${i(-15934641381326140386510 / 599767409)}"),
+      Assertion((-15934641381326140386510 % 599767409) matches 292124444,
+        "(-15934641381326140386510 % 599767409) matches 292124444 got ${i(-15934641381326140386510 % 599767409)}"),
+
+      Assertion((2885517232792582372714 / -7104274460) matches -406166350842,
+        "(2885517232792582372714 / -7104274460) matches -406166350842 got ${i(2885517232792582372714 / -7104274460)}"),
+      Assertion((2885517232792582372714 % -7104274460) matches -5637722606,
+        "(2885517232792582372714 % -7104274460) matches -5637722606 got ${i(2885517232792582372714 % -7104274460)}"),
+
+      Assertion((671836834585 / 7104274460) matches 94,
+        "(671836834585 / 7104274460) matches 94 got ${i(671836834585 / 7104274460)}"),
+      Assertion((671836834585 % 7104274460) matches 4035035345,
+        "(671836834585 % 7104274460) matches 4035035345 got ${i(671836834585 % 7104274460)}"),
+
       Assertion((-4 % -3) matches -1, "(-4 % -3) == -1"),
       Assertion((13 % 3) matches 1, "13 % 3 == 1"),
       Assertion((-113 / 16) matches -8, "-113/16 == -8"),

@@ -112,9 +112,10 @@ typedef struct {
     uint32_t* words;
 } BSTS_Int_Operand;
 
-BSTS_Int_Operand* bsts_int_op_from_int(BSTS_Integer* i) {
-  return (BSTS_Int_Operand*)(((uintptr_t)i) + sizeof(RefCounted));
-}
+// Helper macros and functions
+#define IS_SMALL(v) IS_PURE_VALUE(v)
+#define GET_SMALL_INT(v) (int32_t)(PURE_VALUE(v))
+#define GET_BIG_INT(v) ((BSTS_Integer*)(TO_POINTER(v)))
 
 void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* op) {
     op->sign = value < 0;
@@ -128,9 +129,22 @@ void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* o
       op->len = 1;
     }
     else {
+      // TODO: this branch should be unreachable, remove it
       words[0] = low;
       words[1] = high;
       op->len = 2;
+    }
+}
+ 
+void bsts_integer_load_op(BValue v, uint32_t* buffer, BSTS_Int_Operand* operand) {
+    // Convert l to BSTS_Int_Operand
+    if (IS_SMALL(v)) {
+        bsts_load_op_from_small(GET_SMALL_INT(v), buffer, operand);
+    } else {
+        BSTS_Integer* l_big = GET_BIG_INT(v);
+        operand->sign = l_big->sign;
+        operand->len = l_big->len;
+        operand->words = l_big->words;
     }
 }
 
@@ -612,11 +626,6 @@ void bsts_string_print(BValue v) {
   printf("%.*s", (int)len, bytes);
 }
 
-// Helper macros and functions
-#define IS_SMALL(v) IS_PURE_VALUE(v)
-#define GET_SMALL_INT(v) (int32_t)(PURE_VALUE(v))
-#define GET_BIG_INT(v) ((BSTS_Integer*)(TO_POINTER(v)))
-
 BValue bsts_integer_from_int(int32_t small_int) {
     return TO_PURE_VALUE(small_int);
 }
@@ -701,6 +710,30 @@ BValue bsts_integer_from_int64(int64_t result) {
       else {
         BSTS_Integer* result = bsts_integer_alloc(2);
         result->sign = !is_positive;
+        result->words[0] = low;
+        result->words[1] = high;
+        return (BValue)result;
+      }
+  }
+}
+
+BValue bsts_integer_from_uint64(uint64_t result) {
+  // Check if result fits in small integer
+  if (result <= INT32_MAX) {
+      return bsts_integer_from_int((int32_t)result);
+  } else {
+      // Promote to big integer
+      uint32_t low = (uint32_t)(result & 0xFFFFFFFF);
+      uint32_t high = (uint32_t)((result >> 32) & 0xFFFFFFFF);
+      if (high == 0) {
+        BSTS_Integer* result = bsts_integer_alloc(1);
+        result->sign = 0;
+        result->words[0] = low;
+        return (BValue)result;
+      }
+      else {
+        BSTS_Integer* result = bsts_integer_alloc(2);
+        result->sign = 0;
         result->words[0] = low;
         result->words[1] = high;
         return (BValue)result;
@@ -833,26 +866,9 @@ BValue bsts_integer_add(BValue l, BValue r) {
         BSTS_Int_Operand right_operand;
 
         // Prepare left operand
-        if (l_is_small) {
-            int32_t l_int = GET_SMALL_INT(l);
-            bsts_load_op_from_small(l_int, left_temp, &left_operand);
-        } else {
-            BSTS_Integer* l_big = GET_BIG_INT(l);
-            left_operand.sign = l_big->sign;
-            left_operand.len = l_big->len;
-            left_operand.words = l_big->words;
-        }
-
-        // Prepare left operand
-        if (r_is_small) {
-            int32_t r_int = GET_SMALL_INT(r);
-            bsts_load_op_from_small(r_int, right_temp, &right_operand);
-        } else {
-            BSTS_Integer* r_big = GET_BIG_INT(r);
-            right_operand.sign = r_big->sign;
-            right_operand.len = r_big->len;
-            right_operand.words = r_big->words;
-        }
+        bsts_integer_load_op(l, left_temp, &left_operand);
+        // Prepare right operand
+        bsts_integer_load_op(r, right_temp, &right_operand);
 
         BValue result = NULL;
         if (left_operand.sign == right_operand.sign) {
@@ -1365,26 +1381,9 @@ BValue bsts_integer_times(BValue left, BValue right) {
         BSTS_Int_Operand r_operand;
 
         // Prepare left operand
-        if (left_is_small) {
-            int32_t l_int = GET_SMALL_INT(left);
-            bsts_load_op_from_small(l_int, left_temp, &l_operand);
-        } else {
-            BSTS_Integer* l_big = GET_BIG_INT(left);
-            l_operand.sign = l_big->sign;
-            l_operand.len = l_big->len;
-            l_operand.words = l_big->words;
-        }
-
-        // Prepare left operand
-        if (right_is_small) {
-            int32_t r_int = GET_SMALL_INT(right);
-            bsts_load_op_from_small(r_int, right_temp, &r_operand);
-        } else {
-            BSTS_Integer* r_big = GET_BIG_INT(right);
-            r_operand.sign = r_big->sign;
-            r_operand.len = r_big->len;
-            r_operand.words = r_big->words;
-        }
+        bsts_integer_load_op(left, left_temp, &l_operand);
+        // Prepare right operand
+        bsts_integer_load_op(right, right_temp, &r_operand);
 
         // Multiply operands
         size_t result_len = l_operand.len + r_operand.len;
@@ -1665,14 +1664,7 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     uint32_t buffer[2];
 
     // Convert l to BSTS_Int_Operand
-    if (IS_SMALL(l)) {
-        bsts_load_op_from_small(GET_SMALL_INT(l), buffer, &operand);
-    } else {
-        BSTS_Integer* l_big = GET_BIG_INT(l);
-        operand.sign = l_big->sign;
-        operand.len = l_big->len;
-        operand.words = l_big->words;
-    }
+    bsts_integer_load_op(l, buffer, &operand);
 
     // Perform shifting on operand.words
     if (shift_left) {
@@ -1777,6 +1769,294 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         }
         return result;
     }
+}
+
+typedef struct {
+  BValue div;
+  BValue mod;
+} BSTS_Int_Div_Mod;
+
+// returns left - prod * right
+BValue bsts_integer_diff_prod(BSTS_Int_Operand left, uint64_t prod, BSTS_Int_Operand right) {
+    // TODO: we could this in one step and allocate one time
+    BValue li = bsts_integer_from_words_copy(1, left.len, left.words);
+    BValue ri = bsts_integer_from_words_copy(1, right.len, right.words);
+    BValue p = bsts_integer_from_uint64(prod);
+
+    BValue v1 = bsts_integer_negate(bsts_integer_times(p, ri));
+    BValue result = bsts_integer_add(li, v1);
+
+    release_value(li);
+    release_value(ri);
+    release_value(p);
+    release_value(v1);
+    return result;
+}
+
+// &Integer -> bool
+_Bool bsts_integer_lt_zero(BValue v) {
+  if (IS_SMALL(v)) {
+    return GET_SMALL_INT(v) < 0;
+  }
+  else {
+    BSTS_Integer* vint = GET_BIG_INT(v);
+    return vint->sign;
+  }
+}
+
+BSTS_Int_Div_Mod bsts_integer_search_div_mod(BSTS_Int_Operand left, BSTS_Int_Operand right, uint64_t low, uint64_t high) {
+    while (1) {
+      uint64_t mid = (high >> 1) + (low >> 1);
+      if ((high & low) & 1) {
+        // both lowest bits are 0
+        mid = mid + 1;
+      }
+      BValue mod = bsts_integer_diff_prod(left, mid, right);
+      //println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
+      if (bsts_integer_lt_zero(mod)) {
+        // mid is too big
+        release_value(mod);
+        high = mid;
+      }
+      else {
+        BSTS_Int_Operand mod_op;
+        uint32_t mod_buffer[2];
+        bsts_integer_load_op(mod, mod_buffer, &mod_op);
+        int cmp_mod_r = compare_abs(mod_op.len, mod_op.words, right.len, right.words);
+        if (cmp_mod_r >= 0) {
+          // mid is too small
+          release_value(mod);
+          low = mid;
+        }
+        else {
+          // 0 < mod < r
+          // the div result fits in 2 words
+          BValue div = bsts_integer_from_uint64(mid);
+          BSTS_Int_Div_Mod result = { div, mod };
+          return result;
+        }
+      }
+    }
+
+    // this is unreachable
+    BSTS_Int_Div_Mod result = { 0, 0 };
+    return result;
+}
+
+// (&Integer, &Integer) -> (Integer, Integer)
+// required invariants: 1 < r_op < l_op < (r_op << 32)
+BSTS_Int_Div_Mod bsts_integer_divmod_top(BSTS_Int_Operand l_op, BSTS_Int_Operand r_op) {
+    // we keep the top most word of n and divide
+    // since we know that r > 0, r_op.len > 0
+    uint64_t right_top = (uint64_t)r_op.words[r_op.len - 1];
+    uint64_t llow = (uint64_t)(l_op.words[r_op.len - 1]); 
+    uint64_t lhigh = (uint64_t)((l_op.len > r_op.len) ? l_op.words[r_op.len] : 0);
+    uint64_t left_top = (lhigh << 32) | llow;
+    // this division can be done with unsigned longs
+    uint64_t div_guess = left_top / right_top;
+    BValue mod = bsts_integer_diff_prod(l_op, div_guess, r_op);
+    if (bsts_integer_lt_zero(mod)) {
+      // divGuess is too big, we know right_top + 1 can't overflow
+      return bsts_integer_search_div_mod(l_op, r_op, left_top / (right_top + 1), div_guess);
+    }
+    else {
+      BSTS_Int_Operand mod_op;
+      uint32_t mod_buffer[2];
+      bsts_integer_load_op(mod, mod_buffer, &mod_op);
+      int cmp_mod_r = compare_abs(mod_op.len, mod_op.words, r_op.len, r_op.words);
+      if (cmp_mod_r > 0) {
+        // divGuess is too small
+        uint64_t upper;
+        if (left_top < UINT64_MAX) {
+          upper = (left_top + 1) / right_top;
+        }
+        else {
+          // left_top + 1 will overflow, so instead we do
+          // (left_top >> 1) + 1 / (right_top >> 1)
+          // we know that right_top > 1, so the denominator is never zero
+          upper = ((left_top >> 1) + 1) / (right_top >> 1);
+        }
+        return bsts_integer_search_div_mod(l_op, r_op, div_guess, upper);
+      }
+      else {
+        // it's good
+        BValue div = bsts_integer_from_uint64(div_guess);
+        BSTS_Int_Div_Mod result = { div, mod };
+        return result;
+      }
+    }
+}
+
+// (&Integer, &Integer) -> (Integer, Integer)
+BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand r_op) {
+  // this is shift right compare
+  int cmp_l1_r = compare_abs(l_op.len - 1, l_op.words + 1, r_op.len, r_op.words);
+  if (cmp_l1_r >= 0) {
+    // we can use the recursive algo:
+    BSTS_Int_Operand l1 = { l_op.len - 1, l_op.sign, l_op.words + 1 };
+    BSTS_Int_Div_Mod div_mod_1 = bsts_integer_divmod_pos(l1, r_op);
+    // we know that d1 >= 1, because l1 >= r
+    // l = l1 * b + l0
+    // l1 = d1 * r + m1
+    // l = (d1 * r + m1) * b + l0
+    // l = d1 * r * b + (m1 * b + l0)
+    // l0 is the low 32 bits of l
+    // we know that m1 * b + l0 < l
+    BValue d1 = div_mod_1.div;
+    BValue m1 = div_mod_1.mod;
+    // this must be a big integer if it isn't zero
+    BValue m1_shift = bsts_integer_shift_left(m1, bsts_integer_from_int(32));
+    release_value(m1);
+    // next_left = (m1 << 32) | l0
+    uint32_t next_left_temp[2];
+    BSTS_Int_Operand next_left_operand;
+    bsts_integer_load_op(m1_shift, next_left_temp, &next_left_operand);
+    // we own m1_shift so we can modify the words
+    next_left_operand.words[0] = l_op.words[0];
+
+    BSTS_Int_Div_Mod div_mod_next = bsts_integer_divmod_pos(next_left_operand, r_op);
+    release_value(m1_shift);
+    // we are done
+    // m1 * b + l0 == md1 * r + mm1
+    // l = d1 * r * b + md1 * r + mm1 = (d1 * b + md1) * r + mm1
+    // TODO this is next_div += (d1 << 32), and we own d1 and next_div
+    // to we could reuse the memory if we are careful
+    BValue div_shift = bsts_integer_shift_left(d1, bsts_integer_from_int(32));
+    release_value(d1);
+    BValue div = bsts_integer_add(div_shift, div_mod_next.div);
+    // we are done with div_shift and div_mod_next.div now
+    release_value(div_shift);
+    release_value(div_mod_next.div);
+    // 
+    div_mod_next.div = div;
+    // but we don't need to do this
+    // div_mod_next.mod = div_mod_next.mod;
+    return div_mod_next;
+  }
+  else {
+    int cmp_l_r = compare_abs(l_op.len, l_op.words, r_op.len, r_op.words);
+    if (cmp_l_r > 0) {
+      // l > r but l < (r << 32)
+      return bsts_integer_divmod_top(l_op, r_op);
+    }
+    else if (cmp_l_r < 0) {
+      // l < r
+      BSTS_Int_Div_Mod res = {
+        bsts_integer_from_int(0),
+        bsts_integer_from_words_copy(!l_op.sign, l_op.len, l_op.words)
+      };
+      return res;
+    }
+    else {
+      // l == n
+      BSTS_Int_Div_Mod res = { bsts_integer_from_int(1), bsts_integer_from_int(0) };
+      return res;
+    }
+  }
+}
+
+// (&Integer, &Integer) -> (Integer, Integer)
+// div_mod(l, r) == (d, m) <=> l = r * d + m
+BValue bsts_integer_div_mod(BValue l, BValue r) {
+    _Bool r_is_small = IS_SMALL(r);
+    if (r_is_small) {
+      int32_t rs = GET_SMALL_INT(r);
+      if (rs == 0) {
+        // we define division by zero as (0, l)
+        return alloc_struct2(bsts_integer_from_int(0), clone_value(l));
+      }
+      if (rs == 1) {
+        return alloc_struct2(
+          clone_value(l),
+          bsts_integer_from_int(0));
+      }
+      if (rs == -1) {
+        return alloc_struct2(
+          bsts_integer_negate(clone_value(l)),
+          bsts_integer_from_int(0));
+      }
+      if (IS_SMALL(l)) {
+        // normal integer division works
+        int32_t ls = GET_SMALL_INT(l);
+        // C rounds to 0, but bosatsu and python round to -inf
+        int32_t div = ls / rs;
+        int32_t mod = ls % rs;
+        _Bool lpos = ls >= 0;
+        _Bool rpos = rs >= 0;
+        if ((mod != 0) & (lpos ^ rpos)) {
+          // need to repair, mod != 0 & at least one is negative
+          // div * r + mod == l, but we may need to shift r towards zero
+          // when we shift div = (div - 1) so mod = mod + r
+          div = div - 1;
+          mod = mod + rs;
+        }
+        return alloc_struct2(bsts_integer_from_int(div), bsts_integer_from_int(mod));
+      }
+    }
+    // TODO: we could handle the special case of r = 2^n with bit shifting
+
+    // the general case is below
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    // Prepare left operand
+    bsts_integer_load_op(l, left_temp, &left_operand);
+    // keep positive
+    _Bool left_neg = left_operand.sign;
+    left_operand.sign = 0;
+    // Prepare right operand
+    bsts_integer_load_op(r, right_temp, &right_operand);
+    // keep positive
+    _Bool right_neg = right_operand.sign;
+    right_operand.sign = 0;
+    BSTS_Int_Div_Mod divmod = bsts_integer_divmod_pos(left_operand, right_operand);
+    // now we need to 
+    BValue div = divmod.div;
+    BValue mod = divmod.mod;
+    if (GET_SMALL_INT(mod) != 0) {
+      if (!left_neg) {
+        if (!right_neg) {
+          // l = d r + m
+        }
+        else {
+          // l = dr + m
+          // l = (-d)(-r) + m - r + r
+          // l = -(d + 1) (-r) + (m + (-r))
+          BValue div1 = bsts_integer_negate(bsts_integer_add(div, bsts_integer_from_int(1))); 
+          release_value(div);
+          div = div1;
+          BValue mod1 = bsts_integer_add(mod, r);
+          release_value(mod);
+          mod = mod1;
+        }
+      }
+      else {
+        if (!right_neg) {
+          // -l = (-d - 1) r + (r - m)
+          BValue div1 = bsts_integer_negate(bsts_integer_add(div, bsts_integer_from_int(1))); 
+          release_value(div);
+          div = div1;
+          BValue neg_mod = bsts_integer_negate(mod);
+          BValue mod1 = bsts_integer_add(r, neg_mod);
+          release_value(neg_mod);
+          mod = mod1;
+        }
+        else {
+          //  l = d * r + m
+          // -l = d (-r) + -m
+          mod = bsts_integer_negate(mod);
+        }
+      }
+    }
+    else {
+      // mod == 0
+      if (right_neg ^ left_neg) {
+        div = bsts_integer_negate(div);
+      }
+    }
+    return alloc_struct2(div, mod);
 }
 
 void free_statics() {
