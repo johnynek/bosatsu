@@ -2980,6 +2980,12 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
 }
 
 BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn1* rc = (BoxedPureFn1*)malloc(sizeof(BoxedPureFn1));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -2990,6 +2996,11 @@ BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
 }
 
 BValue call_fn1(BValue fn, BValue arg0) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn1 pure = (BPureFn1)PURE_VALUE(fn);
+    return pure(arg0);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn1* purefn = (BoxedPureFn1*)ptr;
   if (purefn->slot_len == 0) {
@@ -3022,6 +3033,12 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
 }
 
 BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn2* rc = (BoxedPureFn2*)malloc(sizeof(BoxedPureFn2));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3032,6 +3049,11 @@ BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
 }
 
 BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn2 pure = (BPureFn2)PURE_VALUE(fn);
+    return pure(arg0, arg1);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn2* purefn = (BoxedPureFn2*)ptr;
   if (purefn->slot_len == 0) {
@@ -3064,6 +3086,12 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
 }
 
 BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn3* rc = (BoxedPureFn3*)malloc(sizeof(BoxedPureFn3));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3074,6 +3102,11 @@ BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
 }
 
 BValue call_fn3(BValue fn, BValue arg0, BValue arg1, BValue arg2) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn3 pure = (BPureFn3)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn3* purefn = (BoxedPureFn3*)ptr;
   if (purefn->slot_len == 0) {
@@ -3106,6 +3139,12 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
 }
 
 BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn4* rc = (BoxedPureFn4*)malloc(sizeof(BoxedPureFn4));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3116,6 +3155,11 @@ BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
 }
 
 BValue call_fn4(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn4 pure = (BPureFn4)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn4* purefn = (BoxedPureFn4*)ptr;
   if (purefn->slot_len == 0) {
@@ -3148,6 +3192,12 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
 }
 
 BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn5* rc = (BoxedPureFn5*)malloc(sizeof(BoxedPureFn5));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3158,6 +3208,11 @@ BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
 }
 
 BValue call_fn5(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn5 pure = (BPureFn5)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn5* purefn = (BoxedPureFn5*)ptr;
   if (purefn->slot_len == 0) {
@@ -3190,6 +3245,12 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
 }
 
 BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn6* rc = (BoxedPureFn6*)malloc(sizeof(BoxedPureFn6));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3200,6 +3261,11 @@ BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
 }
 
 BValue call_fn6(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn6 pure = (BPureFn6)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn6* purefn = (BoxedPureFn6*)ptr;
   if (purefn->slot_len == 0) {
@@ -3232,6 +3298,12 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
 }
 
 BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn7* rc = (BoxedPureFn7*)malloc(sizeof(BoxedPureFn7));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3242,6 +3314,11 @@ BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
 }
 
 BValue call_fn7(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn7 pure = (BPureFn7)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn7* purefn = (BoxedPureFn7*)ptr;
   if (purefn->slot_len == 0) {
@@ -3274,6 +3351,12 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
 }
 
 BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn8* rc = (BoxedPureFn8*)malloc(sizeof(BoxedPureFn8));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3284,6 +3367,11 @@ BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
 }
 
 BValue call_fn8(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn8 pure = (BPureFn8)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn8* purefn = (BoxedPureFn8*)ptr;
   if (purefn->slot_len == 0) {
@@ -3316,6 +3404,12 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
 }
 
 BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn9* rc = (BoxedPureFn9*)malloc(sizeof(BoxedPureFn9));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3326,6 +3420,11 @@ BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
 }
 
 BValue call_fn9(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn9 pure = (BPureFn9)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn9* purefn = (BoxedPureFn9*)ptr;
   if (purefn->slot_len == 0) {
@@ -3358,6 +3457,12 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
 }
 
 BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn10* rc = (BoxedPureFn10*)malloc(sizeof(BoxedPureFn10));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3368,6 +3473,11 @@ BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
 }
 
 BValue call_fn10(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn10 pure = (BPureFn10)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn10* purefn = (BoxedPureFn10*)ptr;
   if (purefn->slot_len == 0) {
@@ -3400,6 +3510,12 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
 }
 
 BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn11* rc = (BoxedPureFn11*)malloc(sizeof(BoxedPureFn11));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3410,6 +3526,11 @@ BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
 }
 
 BValue call_fn11(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn11 pure = (BPureFn11)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn11* purefn = (BoxedPureFn11*)ptr;
   if (purefn->slot_len == 0) {
@@ -3442,6 +3563,12 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
 }
 
 BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn12* rc = (BoxedPureFn12*)malloc(sizeof(BoxedPureFn12));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3452,6 +3579,11 @@ BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
 }
 
 BValue call_fn12(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn12 pure = (BPureFn12)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn12* purefn = (BoxedPureFn12*)ptr;
   if (purefn->slot_len == 0) {
@@ -3484,6 +3616,12 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
 }
 
 BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn13* rc = (BoxedPureFn13*)malloc(sizeof(BoxedPureFn13));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3494,6 +3632,11 @@ BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
 }
 
 BValue call_fn13(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn13 pure = (BPureFn13)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn13* purefn = (BoxedPureFn13*)ptr;
   if (purefn->slot_len == 0) {
@@ -3526,6 +3669,12 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
 }
 
 BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn14* rc = (BoxedPureFn14*)malloc(sizeof(BoxedPureFn14));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3536,6 +3685,11 @@ BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
 }
 
 BValue call_fn14(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn14 pure = (BPureFn14)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn14* purefn = (BoxedPureFn14*)ptr;
   if (purefn->slot_len == 0) {
@@ -3568,6 +3722,12 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
 }
 
 BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn15* rc = (BoxedPureFn15*)malloc(sizeof(BoxedPureFn15));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3578,6 +3738,11 @@ BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
 }
 
 BValue call_fn15(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn15 pure = (BPureFn15)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn15* purefn = (BoxedPureFn15*)ptr;
   if (purefn->slot_len == 0) {
@@ -3610,6 +3775,12 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
 }
 
 BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn16* rc = (BoxedPureFn16*)malloc(sizeof(BoxedPureFn16));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3620,6 +3791,11 @@ BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
 }
 
 BValue call_fn16(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn16 pure = (BPureFn16)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn16* purefn = (BoxedPureFn16*)ptr;
   if (purefn->slot_len == 0) {
@@ -3652,6 +3828,12 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
 }
 
 BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn17* rc = (BoxedPureFn17*)malloc(sizeof(BoxedPureFn17));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3662,6 +3844,11 @@ BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
 }
 
 BValue call_fn17(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn17 pure = (BPureFn17)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn17* purefn = (BoxedPureFn17*)ptr;
   if (purefn->slot_len == 0) {
@@ -3694,6 +3881,12 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
 }
 
 BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn18* rc = (BoxedPureFn18*)malloc(sizeof(BoxedPureFn18));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3704,6 +3897,11 @@ BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
 }
 
 BValue call_fn18(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn18 pure = (BPureFn18)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn18* purefn = (BoxedPureFn18*)ptr;
   if (purefn->slot_len == 0) {
@@ -3736,6 +3934,12 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
 }
 
 BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn19* rc = (BoxedPureFn19*)malloc(sizeof(BoxedPureFn19));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3746,6 +3950,11 @@ BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
 }
 
 BValue call_fn19(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn19 pure = (BPureFn19)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn19* purefn = (BoxedPureFn19*)ptr;
   if (purefn->slot_len == 0) {
@@ -3778,6 +3987,12 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
 }
 
 BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn20* rc = (BoxedPureFn20*)malloc(sizeof(BoxedPureFn20));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3788,6 +4003,11 @@ BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
 }
 
 BValue call_fn20(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn20 pure = (BPureFn20)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn20* purefn = (BoxedPureFn20*)ptr;
   if (purefn->slot_len == 0) {
@@ -3820,6 +4040,12 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
 }
 
 BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn21* rc = (BoxedPureFn21*)malloc(sizeof(BoxedPureFn21));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3830,6 +4056,11 @@ BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
 }
 
 BValue call_fn21(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn21 pure = (BPureFn21)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn21* purefn = (BoxedPureFn21*)ptr;
   if (purefn->slot_len == 0) {
@@ -3862,6 +4093,12 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
 }
 
 BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn22* rc = (BoxedPureFn22*)malloc(sizeof(BoxedPureFn22));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3872,6 +4109,11 @@ BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
 }
 
 BValue call_fn22(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn22 pure = (BPureFn22)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn22* purefn = (BoxedPureFn22*)ptr;
   if (purefn->slot_len == 0) {
@@ -3904,6 +4146,12 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
 }
 
 BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn23* rc = (BoxedPureFn23*)malloc(sizeof(BoxedPureFn23));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3914,6 +4162,11 @@ BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
 }
 
 BValue call_fn23(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn23 pure = (BPureFn23)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn23* purefn = (BoxedPureFn23*)ptr;
   if (purefn->slot_len == 0) {
@@ -3946,6 +4199,12 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
 }
 
 BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn24* rc = (BoxedPureFn24*)malloc(sizeof(BoxedPureFn24));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3956,6 +4215,11 @@ BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
 }
 
 BValue call_fn24(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn24 pure = (BPureFn24)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn24* purefn = (BoxedPureFn24*)ptr;
   if (purefn->slot_len == 0) {
@@ -3988,6 +4252,12 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
 }
 
 BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn25* rc = (BoxedPureFn25*)malloc(sizeof(BoxedPureFn25));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -3998,6 +4268,11 @@ BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
 }
 
 BValue call_fn25(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn25 pure = (BPureFn25)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn25* purefn = (BoxedPureFn25*)ptr;
   if (purefn->slot_len == 0) {
@@ -4030,6 +4305,12 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
 }
 
 BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn26* rc = (BoxedPureFn26*)malloc(sizeof(BoxedPureFn26));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4040,6 +4321,11 @@ BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
 }
 
 BValue call_fn26(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn26 pure = (BPureFn26)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn26* purefn = (BoxedPureFn26*)ptr;
   if (purefn->slot_len == 0) {
@@ -4072,6 +4358,12 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
 }
 
 BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn27* rc = (BoxedPureFn27*)malloc(sizeof(BoxedPureFn27));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4082,6 +4374,11 @@ BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
 }
 
 BValue call_fn27(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn27 pure = (BPureFn27)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn27* purefn = (BoxedPureFn27*)ptr;
   if (purefn->slot_len == 0) {
@@ -4114,6 +4411,12 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
 }
 
 BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn28* rc = (BoxedPureFn28*)malloc(sizeof(BoxedPureFn28));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4124,6 +4427,11 @@ BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
 }
 
 BValue call_fn28(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn28 pure = (BPureFn28)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn28* purefn = (BoxedPureFn28*)ptr;
   if (purefn->slot_len == 0) {
@@ -4156,6 +4464,12 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
 }
 
 BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn29* rc = (BoxedPureFn29*)malloc(sizeof(BoxedPureFn29));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4166,6 +4480,11 @@ BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
 }
 
 BValue call_fn29(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn29 pure = (BPureFn29)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn29* purefn = (BoxedPureFn29*)ptr;
   if (purefn->slot_len == 0) {
@@ -4198,6 +4517,12 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
 }
 
 BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn30* rc = (BoxedPureFn30*)malloc(sizeof(BoxedPureFn30));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4208,6 +4533,11 @@ BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
 }
 
 BValue call_fn30(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn30 pure = (BPureFn30)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn30* purefn = (BoxedPureFn30*)ptr;
   if (purefn->slot_len == 0) {
@@ -4240,6 +4570,12 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
 }
 
 BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn31* rc = (BoxedPureFn31*)malloc(sizeof(BoxedPureFn31));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4250,6 +4586,11 @@ BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
 }
 
 BValue call_fn31(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn31 pure = (BPureFn31)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn31* purefn = (BoxedPureFn31*)ptr;
   if (purefn->slot_len == 0) {
@@ -4282,6 +4623,12 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
 }
 
 BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
+    uintptr_t fn_int = (uintptr_t)fn;
+    uintptr_t small_mask = UINTPTR_MAX >> 2;
+    if (fn_int <= small_mask) {
+      // can pack into a pure value
+      return (BValue)(TO_PURE_VALUE(fn));
+    }
     BoxedPureFn32* rc = (BoxedPureFn32*)malloc(sizeof(BoxedPureFn32));
     // this is safe to do outside atomic because no other thread can see this yet
     rc->ref_count = 1;
@@ -4292,6 +4639,11 @@ BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
 }
 
 BValue call_fn32(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30, BValue arg31) {
+  if (IS_PURE_VALUE(fn)) {
+    // can pack into a pure value
+    BPureFn32 pure = (BPureFn32)PURE_VALUE(fn);
+    return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
+  }
   BValue ptr = (BValue)TO_POINTER(fn);
   BoxedPureFn32* purefn = (BoxedPureFn32*)ptr;
   if (purefn->slot_len == 0) {
