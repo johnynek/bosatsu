@@ -49,7 +49,8 @@ shift_unshift_law = forall_Prop(
   ((i, k)) -> (
     istr = int_to_String(i)
     kstr = int_to_String(k)
-    Assertion((i << k) >> k == i, "(${istr} << ${kstr}) >> ${kstr} == ${istr}")
+    result = (i << k) >> k
+    Assertion(result == i, "(${istr} << ${kstr}) >> ${kstr} == ${istr}, got: ${int_to_String(result)}")
   ))
 
 def gtez(x): x.cmp_Int(0) matches (GT | EQ)

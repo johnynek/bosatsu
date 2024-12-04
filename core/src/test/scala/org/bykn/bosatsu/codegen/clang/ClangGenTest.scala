@@ -62,7 +62,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
   test("check foldr_List") {
     assertPredefFns("foldr_List")("""#include "bosatsu_runtime.h"
 
-BValue __bsts_t_closure0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
+BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
     if (get_variant(__bsts_b_list1) == (0)) {
         return __bstsi_slot[0];
     }
@@ -71,7 +71,7 @@ BValue __bsts_t_closure0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
         BValue __bsts_b_t0 = get_enum_index(__bsts_b_list1, 1);
         return call_fn2(__bstsi_slot[1],
             __bsts_b_h0,
-            __bsts_t_closure0(__bstsi_slot, __bsts_b_t0));
+            __bsts_t_closure__loop0(__bstsi_slot, __bsts_b_t0));
     }
 }
 
@@ -81,7 +81,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_l_captures1[2] = { __bsts_b_acc0, __bsts_b_fn0 };
     BValue __bsts_b_loop0 = alloc_closure1(2,
         __bsts_l_captures1,
-        __bsts_t_closure0);
+        __bsts_t_closure__loop0);
     return call_fn1(__bsts_b_loop0, __bsts_b_list0);
 }""")
   }
@@ -89,7 +89,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
   test("check foldLeft and reverse_concat") {
     assertPredefFns("foldLeft", "reverse_concat")("""#include "bosatsu_runtime.h"
 
-BValue __bsts_t_closure0(BValue* __bstsi_slot,
+BValue __bsts_t_closure__loop0(BValue* __bstsi_slot,
     BValue __bsts_b_lst1,
     BValue __bsts_b_item1) {
     BValue __bsts_l_loop__temp3;
@@ -121,7 +121,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldLeft(BValue __bsts_b_lst0,
     BValue __bsts_l_captures5[1] = { __bsts_b_fn0 };
     BValue __bsts_b_loop0 = alloc_closure2(1,
         __bsts_l_captures5,
-        __bsts_t_closure0);
+        __bsts_t_closure__loop0);
     return call_fn2(__bsts_b_loop0, __bsts_b_lst0, __bsts_b_item0);
 }
 

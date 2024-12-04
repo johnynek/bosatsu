@@ -113,6 +113,9 @@ BValue bsts_integer_div_mod(BValue l, BValue r);
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);
 
+// Given the slots variable return the closure fn value
+BValue bsts_closure_from_slots(BValue*);
+
 // should be called in main before accessing any BValue top level functions
 void init_statics();
 
