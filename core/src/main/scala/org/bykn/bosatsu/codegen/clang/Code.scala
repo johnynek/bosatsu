@@ -69,6 +69,19 @@ object Code {
         case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
       }
 
+    def returnsIdent: Option[Ident] =
+      this match {
+        case i: Ident => Some(i)
+        case _: Expression => None
+        case WithValue(_, v) => v.returnsIdent
+        case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
+          (t.returnsIdent, f.returnsIdent)
+            .flatMapN { case (a, b) =>
+              if (a == b) Some(a)
+              else None
+            }
+      }
+
     def discardValue: Option[Statement] =
       this match {
         case _: Expression => None

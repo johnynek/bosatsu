@@ -64,7 +64,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
 
 BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
     if (get_variant(__bsts_b_list1) == (0)) {
-        return __bstsi_slot[0];
+        return clone_value(__bstsi_slot[0]);
     }
     else {
         BValue __bsts_b_h0 = get_enum_index(__bsts_b_list1, 0);
