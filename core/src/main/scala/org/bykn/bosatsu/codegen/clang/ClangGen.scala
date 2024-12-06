@@ -23,7 +23,7 @@ object ClangGen {
 
   object Error {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
-    case class InvariantViolation(message: String, expr: Expr) extends Error
+    case class InvariantViolation(message: String) extends Error
     case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
     case class ExpectedStaticString(str: String) extends Error
   }
@@ -214,29 +214,20 @@ object ClangGen {
     object MemState {
       sealed abstract class NotCounted extends MemState
 
-      case object Static extends NotCounted
-      case object Ref extends NotCounted
-
-      case object Owned extends MemState
-
-      sealed abstract class Unify
-      object Unify {
-        case class Known(v: MemState) extends Unify
-        case object LeftRef extends Unify
-        case object RightRef extends Unify
-
-        // we can treat static like a ref or owned
-        def apply(l: MemState, r: MemState): Unify =
-          (l, r) match {
-            case (Ref, Ref) => Known(Ref)
-            case (Owned, Owned) => Known(Owned)
-            case (Static, r) => Known(r)
-            case (r, Static) => Known(r)
-            case (Ref, Owned) => LeftRef
-            case (Owned, Ref) => RightRef
-          }
+      sealed abstract class Lifetime
+      object Lifetime {
+        // lasts forever
+        case object Static extends Lifetime
+        // lasts as long as both last
+        case class Intersection(left: Lifetime, right: Lifetime) extends Lifetime
+        case class FromRoot(rootIdent: Long) extends Lifetime
+        // last as long as the current closure exists
+        case object ClosureVariable extends Lifetime
       }
+      case object Static extends NotCounted
+      case class Ref(lifetime: Lifetime) extends NotCounted
 
+      case class Owned(rootIdent: Long) extends MemState
     }
 
     trait Env {
@@ -272,14 +263,15 @@ object ClangGen {
       def scope[A](ta: T[A]): T[A]
       // sometimes we jump back out to a top scope when rendering closures and lambdas
       def topScope[A](ta: T[A]): T[A]
-      def passToFn(ident: Code.Ident): T[Unit]
-      // creates a new owned ident in this scope
-      def create(ident: Code.Ident, m: MemState): T[Unit]
-      def alias(src: Code.Ident, dst: Code.Ident): T[Unit]
+      def passToFn(rootId: Long): T[Unit]
+      // creates a new owned ident that points to root memory with the given id
+      def createOwned(ident: Code.Ident, root: Long): T[Unit]
+      def bindMemory[A](name: Code.Ident, ms: MemState, vl: Code.ValueLike)(in: T[A]): T[A]
       def memState(ident: Code.Ident): T[MemState]
+      def nextRootId: T[Long]
       // this has to make sure the current scope has an additional count so it
       // is safe to borrow
-      def borrow(ident: Code.Ident): T[Unit]
+      def borrowLifetime(lt: MemState.Lifetime): T[Unit]
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -407,33 +399,42 @@ object ClangGen {
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
           case EqualsLit(expr, lit) =>
-            innerRef(expr).flatMap { vl =>
+            innerRef(expr).flatMap { case (lt, vl) =>
               lit match {
-                case c @ Lit.Chr(_) => vl.onExpr { e => pv(equalsChar(e, c.toCodePoint)) }(newLocalName)
+                case c @ Lit.Chr(_) =>
+                  // chars are values
+                  vl.onExpr { e => pv(equalsChar(e, c.toCodePoint)) }(newLocalName)
                 case s @ Lit.Str(_) =>
                   vl.onExpr { e =>
-                    innerRef(Literal(s)).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_string_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
-                    }
+                    for {
+                      sv <- innerRef(Literal(s))
+                      (sLt, litStr) = sv
+                      ap <- Code.ValueLike.applyArgs(Code.Ident("bsts_string_equals"),
+                          NonEmptyList(e, litStr :: Nil)
+                        )(newLocalName)
+                      _ <- borrowLifetime(MemState.Lifetime.Intersection(lt, sLt))
+                    } yield ap
                   }(newLocalName)
                 case i @ Lit.Integer(_) =>
                   vl.onExpr { e =>
-                    innerRef(Literal(i)).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_integer_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
-                    }
+                    for {
+                      sv <- innerRef(Literal(i))
+                      (sLt, litInt) = sv
+                      ap <- Code.ValueLike.applyArgs(Code.Ident("bsts_integer_equals"),
+                          NonEmptyList(e, litInt :: Nil)
+                        )(newLocalName)
+                      _ <- borrowLifetime(MemState.Lifetime.Intersection(lt, sLt))
+                    } yield ap
                   }(newLocalName)
+                }
               }  
-            }
           case EqualsNat(expr, nat) =>
             val fn = nat match {
               case DataRepr.ZeroNat => Code.Ident("BSTS_NAT_IS_0")
               case DataRepr.SuccNat => Code.Ident("BSTS_NAT_GT_0")
             }
-            innerRef(expr).flatMap { vl =>
+            innerRef(expr).flatMap { case (_, vl) =>
+              // nats are always values can ignore lifetime
               vl.onExpr { expr => pv(fn(expr)) }(newLocalName)  
             }
           case And(e1, e2) =>
@@ -441,13 +442,16 @@ object ClangGen {
               .flatMapN { (a, b) => andCode(a, b) }
 
           case CheckVariant(expr, expect, _, _) =>
-            innerRef(expr).flatMap { vl =>
+            innerRef(expr).flatMap { case (elt, vl) =>
             // this is just get_variant(expr) == expect
-              vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
+              vl.onExpr { expr => borrowLifetime(elt).as(
+                (Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)): Code.ValueLike
+              ) }(newLocalName)
             }
           case SearchList(lst, init, check, leftAcc) =>
             (getAnon(lst.ident), innerRef(init))
-              .flatMapN { (lst, initV) =>
+              .flatMapN { case (lst, (vlt, initV)) =>
+                // TODO use vlt ???
                 searchList(lst, initV, boolToValue(check), leftAcc)
               }
           case MatchString(arg, parts, binds, mustMatch) =>
@@ -455,7 +459,8 @@ object ClangGen {
               // TODO: maybe this should be owned so tail could avoid copies on count == 1
               innerRef(arg),
               binds.traverse { case LocalAnonMut(m) => getAnon(m) }
-            ).flatMapN { (strVL, binds) =>
+            ).flatMapN { case ((argLt, strVL), binds) =>
+              // TODO use argLt ???
               strVL.onExpr { arg => matchString(arg, parts, binds, mustMatch) }(newLocalName)
             }
           case SetMut(LocalAnonMut(idx), expr) =>
@@ -634,7 +639,10 @@ object ClangGen {
                   if (h.capture) {
                     // b = str[offset:]
                     val b = bindArray(next)
-                    assignMut(b, StringApi.substringTail(strEx, offsetIdent), MemState.Owned).map(_ +: Code.TrueLit)
+                    for {
+                      root <- nextRootId
+                      stmt <- assignMut(b, StringApi.substringTail(strEx, offsetIdent), MemState.Owned(root))
+                    } yield (stmt +: Code.TrueLit)
                   } else pure(Code.TrueLit)
                 case LitStr(expect) :: tail2 =>
                   // here we have to make a loop
@@ -699,8 +707,10 @@ object ClangGen {
 
                           if (h.capture) {
                             val b = bindArray(next)
-                            assignMut(b, StringApi.substring(strEx, offsetIdent, candidate), MemState.Owned)
-                              .map(_ + after)
+                            for {
+                              root <- nextRootId
+                              stmt <- assignMut(b, StringApi.substring(strEx, offsetIdent, candidate), MemState.Owned(root))
+                            } yield (stmt + after)
                           }
                           else pure(after)
                         }
@@ -787,7 +797,10 @@ object ClangGen {
                       else {
                         val b = bindArray(next)
                         val capture =
-                          assignMut(b, StringApi.substring(strEx, offsetIdent, off1), MemState.Owned).map(_ +: (Code.TrueLit))
+                          for {
+                            root <- nextRootId
+                            stmt <- assignMut(b, StringApi.substring(strEx, offsetIdent, off1), MemState.Owned(root))
+                          } yield (stmt +: (Code.TrueLit))
 
                         capture.flatMap(andCode(matchStmt, _))
                       }
@@ -979,8 +992,8 @@ object ClangGen {
                 val lits = bldr.result()
                 //call:
                 // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
-                newLocalName("int").map { ident =>
-                  (MemState.Owned, Code.DeclareArray(Code.TypeIdent.UInt32, ident, Right(lits)) +:
+                (newLocalName("int"), nextRootId).mapN { (ident, root) =>
+                  (MemState.Owned(root), Code.DeclareArray(Code.TypeIdent.UInt32, ident, Right(lits)) +:
                     Code.Ident("bsts_integer_from_words_copy")(
                       if (isPos) Code.TrueLit else Code.FalseLit,
                       Code.IntLiteral(lits.length),
@@ -991,7 +1004,10 @@ object ClangGen {
 
           case Lit.Str(toStr) =>
             // TODO: we should lift all string literals to be globals or static values
-            StringApi.fromString(toStr).map((MemState.Owned, _))
+            for {
+              root <- nextRootId
+              expr <- StringApi.fromString(toStr)
+            } yield (MemState.Owned(root), expr)
         }
 
       // when we have an if/else we need to update two separate scopes to have the same
@@ -999,20 +1015,9 @@ object ClangGen {
       def mergeValues(left: T[(MemState, Code.ValueLike)], right: T[(MemState, Code.ValueLike)]): T[(MemState, Code.ValueLike, Code.ValueLike)] =
         // TODO: we have not unified counts
         (left, right)
-          .flatMapN { case ((msL, l), (msR, r)) =>
-            MemState.Unify(msL, msR) match {
-              case MemState.Unify.Known(u) => pure((u, l, r))
-              case MemState.Unify.LeftRef =>
-                // left is ref, right is owned
-                clone(l).map { ownedL =>
-                  (MemState.Owned, ownedL, r)
-                }
-              case MemState.Unify.RightRef =>
-                // right is ref, left is owned
-                clone(r).map { ownedR =>
-                  (MemState.Owned, l, ownedR)
-                }
-            }
+          .mapN { case ((msL, l), (msR, r)) =>
+            // TODO actually do something here
+            (msL, l, r)
           }
 
       def clone(v: Code.ValueLike): T[Code.ValueLike] =
@@ -1021,29 +1026,30 @@ object ClangGen {
       def innerToArg(expr: Expr): T[Code.ValueLike] =
         innerToValue(expr).flatMap {
           case (MemState.Static, v) => pv(v)
-          case (MemState.Ref, v) => clone(v)
-          case (MemState.Owned, ident: Code.Ident) =>
+          case (MemState.Ref(_), v) =>
+            // TODO: maybe we could avoid a clone here by updating counts somehow
+            clone(v)
+          case (MemState.Owned(root), v) =>
             // arguments decrement count
-            passToFn(ident).as(ident)
-          case (MemState.Owned, notIdent) =>
-            // this can be the result of a function call
-            pv(notIdent)
+            passToFn(root).as(v)
         }
       
       // when we only need a ref to this value
-      def innerRef(expr: Expr): T[Code.ValueLike] =
+      def innerRef(expr: Expr): T[(MemState.Lifetime, Code.ValueLike)] =
         // we can ignore the count, every thing can be used as a ref
         innerToValue(expr).flatMap {
-          case (MemState.Static | MemState.Ref, v) => pv(v)
-          case (MemState.Owned, ident: Code.Ident) =>
+          case (MemState.Static, v) => pure((MemState.Lifetime.Static, v))
+          case (MemState.Ref(lt), v) => pure((lt, v))
+          case (MemState.Owned(root), ident: Code.Ident) =>
             // this ident has already been consumed
-            borrow(ident).as(ident)
-          case (MemState.Owned, notIdent) =>
+            pure((MemState.Lifetime.FromRoot(root), ident))
+          case (MemState.Owned(root), notIdent) =>
             for {
               name <- newLocalName("ref")
+              // TODO: we need to point all roots to special variables that are defined at the top level
               stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, notIdent)(newLocalName)
-              _ <- create(name, MemState.Owned)
-            } yield (stmt +: name)
+              _ <- createOwned(name, root)
+            } yield (MemState.Lifetime.FromRoot(root), stmt +: name)
         }
 
 
@@ -1110,30 +1116,18 @@ object ClangGen {
           }
           case App(SuccNat, args) =>
             // SuccNat applies to Nats, which are always values, and don't need counting
-            innerRef(args.head).flatMap { arg =>
+            innerRef(args.head).flatMap { case (_, arg) =>
               Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_SUCC"), NonEmptyList.one(arg))(newLocalName)
             }
           case App(fn, args) =>
-            (innerRef(fn), args.traverse(innerToArg(_))).flatMapN { (fnVL, argsVL) =>
+            (innerRef(fn), args.traverse(innerToArg(_))).flatMapN { case ((fnLt, fnVL), argsVL) =>
               // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
               // but since these are ValueLike, we need to handle more carefully
               val fnSize = argsVL.length
               val callFn = Code.Ident(s"call_fn$fnSize")
-              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
+              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName) <* borrowLifetime(fnLt)
             }
           }
-
-      def bindMemory(name: Code.Ident, ms: MemState, vl: Code.ValueLike): T[Unit] =
-        vl.returnsIdent match {
-          case Some(a) =>
-            // TODO: ms may conflict with a...
-            alias(name, a) 
-          case None => create(name, ms)
-        }
-
-      def localAnonMutMemType(mut: LocalAnonMut, in: Expr): MemState =
-        // TODO: we could optimize by searching the expr to see if all sets are with Ref or Static
-        MemState.Owned
 
       def assignMut(target: Code.Ident, vl: Code.ValueLike, rhs: MemState): T[Code.Statement] =
         // TODO handle this correctly
@@ -1141,7 +1135,7 @@ object ClangGen {
 
       def innerToValue(expr: Expr): T[(MemState, Code.ValueLike)] =
         expr match {
-          case fn: FnExpr => innerFn(fn).map((MemState.Owned, _))
+          case fn: FnExpr => (nextRootId, innerFn(fn)).mapN((r, v) => (MemState.Owned(r), v))
           case Let(Right(arg), argV, in) =>
             // arg isn't in scope for argV
             innerToValue(argV).flatMap { case (ms, v) =>
@@ -1149,8 +1143,9 @@ object ClangGen {
                 for {
                   name <- getBinding(arg)
                   // we create the name before calling innerToValue(in) because the memory state needs to be updated
-                  _ <- bindMemory(name, ms, v)
-                  msResult <- innerToValue(in)
+                  msResult <- bindMemory(name, ms, v) {
+                    innerToValue(in)
+                  }
                   (resMs, result) = msResult
                   stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
                 } yield (resMs, stmt +: result)
@@ -1163,9 +1158,10 @@ object ClangGen {
                 bindAnon(idx) {
                   for {
                     name <- getAnon(idx)
-                    _ <- bindMemory(name, ms, v)
-                    // we create the name before calling innerToValue(in) because the memory state needs to be updated
-                    msResult <- innerToValue(in)
+                    msResult <- bindMemory(name, ms, v) {
+                      // we create the name before calling innerToValue(in) because the memory state needs to be updated
+                      innerToValue(in)
+                    }
                     (msRes, result) = msResult
                     stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
                   } yield (msRes, stmt +: result)
@@ -1173,12 +1169,12 @@ object ClangGen {
               }
           case app @ App(_, _) =>
             // we always own the result of an App
-            innerApp(app).map(res => (MemState.Owned, res))
+            (nextRootId, innerApp(app)).mapN((root, res) => (MemState.Owned(root), res))
           case Global(pack, name) =>
             directFn(pack, name)
               .flatMap {
                 case Some((ident, arity)) =>
-                  pure((MemState.Owned, boxFn(ident, arity)))
+                  nextRootId.map(r => (MemState.Owned(r), boxFn(ident, arity)))
                 case None =>
                   globalIdent(pack, name).map(nm => (MemState.Static, nm()))
               }
@@ -1188,11 +1184,11 @@ object ClangGen {
                 case Some((nm, isClosure, arity)) =>
                   if (!isClosure) {
                     // a closure can't be a static name
-                    pure((MemState.Owned, boxFn(nm, arity)))
+                    nextRootId.map(r => (MemState.Owned(r), boxFn(nm, arity)))
                   }
                   else {
                     // recover the pointer to this closure from the slots argument
-                    pure((MemState.Ref, Code.Ident("bsts_closure_from_slots")(slotsArgName)))
+                    pure((MemState.Ref(MemState.Lifetime.ClosureVariable), Code.Ident("bsts_closure_from_slots")(slotsArgName)))
                   }
                 case None =>
                   for {
@@ -1202,7 +1198,7 @@ object ClangGen {
               }
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
-            pure((MemState.Ref, slotsArgName.bracket(Code.IntLiteral(BigInt(idx)))))
+            pure((MemState.Ref(MemState.Lifetime.ClosureVariable), slotsArgName.bracket(Code.IntLiteral(BigInt(idx)))))
           case LocalAnon(i) =>
             for {
               ident <- getAnon(i)
@@ -1213,12 +1209,13 @@ object ClangGen {
               ident <- getAnon(i)
               ms <- memState(ident)
             } yield (ms, ident)
-          case LetMut(lm @ LocalAnonMut(m), span) =>
-            val ms = localAnonMutMemType(lm, span)
+          case LetMut(LocalAnonMut(m), span) =>
             bindAnon(m) {
               for {
                 ident <- getAnon(m)
-                _ <- create(ident, ms)
+                // LocalAnonMuts are always owned
+                anonRoot <- nextRootId
+                _ <- createOwned(ident, anonRoot)
                 decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
                 msRes <- innerToValue(span)
                 (ms, res) = msRes
@@ -1245,9 +1242,10 @@ object ClangGen {
           case GetEnumElement(arg, _, index, _) =>
             // call get_enum_index(v, index)
             for {
-              argV <- innerRef(arg)
+              ltArgV <- innerRef(arg)
+              (lt, argV) = ltArgV
               eV <- argV.onExpr(e => pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index))))(newLocalName)
-            } yield (MemState.Ref, eV)
+            } yield (MemState.Ref(lt), eV)
           case GetStructElement(arg, index, size) =>
             if (size == 1) {
               // this is just a new-type wrapper, ignore it
@@ -1256,11 +1254,12 @@ object ClangGen {
             else {
               // call get_struct_index(v, index)
               for {
-                argV <- innerRef(arg)
+                ltArgV <- innerRef(arg)
+                (lt, argV) = ltArgV
                 eV <- argV.onExpr { e =>
                     pv(Code.Ident("get_struct_index")(e, Code.IntLiteral(index)))
                   }(newLocalName)
-              } yield (MemState.Ref, eV)
+              } yield (MemState.Ref(lt), eV)
             }
           case makeEnum @ MakeEnum(variant, arity, _) =>
             // this is a closure over variant, we rewrite this
@@ -1277,12 +1276,10 @@ object ClangGen {
               innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
             }
           case MakeStruct(arity) =>
-            pure {
-              if (arity == 0) (MemState.Static, Code.Ident("bsts_unit_value")())
-              else {
-                val allocStructFn = s"alloc_struct$arity"
-                (MemState.Static, boxFn(Code.Ident(allocStructFn), arity))
-              }
+            if (arity == 0) pure((MemState.Static, Code.Ident("bsts_unit_value")()))
+            else {
+              val allocStructFn = s"alloc_struct$arity"
+              nextRootId.map(r => (MemState.Owned(r), boxFn(Code.Ident(allocStructFn), arity)))
             }
           case ZeroNat =>
             pure((MemState.Static, Code.Ident("BSTS_NAT_0")))
@@ -1317,7 +1314,8 @@ object ClangGen {
             val argParamsT = args.traverse { b =>
                 for {
                   i <- getBinding(b)
-                  _ <- create(i, MemState.Owned)
+                  r <- nextRootId
+                  _ <- createOwned(i, r)
                 } yield Code.Param(Code.TypeIdent.BValue, i)
               }
             topScope(bindAll(args) { argParamsT.product(body1) })
@@ -1338,13 +1336,15 @@ object ClangGen {
                 .flatMapN { (cond, res) =>
 
                   val argsT = args.traverse { b =>
-                      for {
-                        i <- getBinding(b)
-                        _ <- create(i, MemState.Owned)
-                        t <- newLocalName("loop_temp")
-                        _ <- create(t, MemState.Owned)
-                      } yield (Code.Param(Code.TypeIdent.BValue, i), t) 
-                    }
+                    for {
+                      i <- getBinding(b)
+                      iRoot <- nextRootId
+                      _ <- createOwned(i, iRoot)
+                      t <- newLocalName("loop_temp")
+                      tRoot <- nextRootId
+                      _ <- createOwned(t, tRoot)
+                    } yield (Code.Param(Code.TypeIdent.BValue, i), t) 
+                  }
 
                   val bodyArgsT = topScope {
                       bindAll(args) {
@@ -1448,18 +1448,6 @@ object ClangGen {
         def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] = implicitly
 
         new Env {
-          sealed abstract class IdentState
-          object IdentState {
-            case class AliasOf(target: Code.Ident) extends IdentState
-
-            sealed abstract class Resolved extends IdentState {
-              def toMemState: MemState
-            }
-            case class RefLike(toMemState: MemState.NotCounted) extends Resolved
-            case class Counted(count: Long) extends Resolved {
-              def toMemState: MemState = MemState.Owned
-            }
-          }
 
           case class State(
             allValues: AllValues,
@@ -1470,8 +1458,10 @@ object ClangGen {
             currentTop: Option[(PackageName, Bindable)],
             binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
             counter: Long,
+            rootCounter: Long,
             identCache: Map[Expr, Code.Ident],
-            memScope: List[Map[Code.Ident, IdentState]]
+            memScope: List[Map[Code.Ident, MemState]],
+            rootCounts: Map[Long, Long]
           ) {
             def finalFile: Doc =
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
@@ -1485,21 +1475,20 @@ object ClangGen {
             def enterScope: State =
               copy(memScope = Map.empty[Code.Ident, Nothing] :: memScope)
 
-            def exitScope: (State, Map[Code.Ident, IdentState]) =
+            def exitScope: (State, Map[Code.Ident, MemState]) =
               memScope match {
                 case Nil => (this, Map.empty)
                 case h :: tail => (copy(memScope = tail), h)
               }
 
-            def resolveIdentStateOf(i: Code.Ident): Option[IdentState.Resolved] = {
+            def resolveMemStateOf(i: Code.Ident): Option[MemState] = {
               @annotation.tailrec
-              def lookup(i: Code.Ident, scopes: List[Map[Code.Ident, IdentState]]): Option[IdentState.Resolved] =
+              def lookup(i: Code.Ident, scopes: List[Map[Code.Ident, MemState]]): Option[MemState] =
                 scopes match {
                   case Nil => None
                   case h :: tail =>
                     h.get(i) match {
-                      case Some(IdentState.AliasOf(a)) => lookup(a, scopes)
-                      case Some(rs: IdentState.Resolved) => Some(rs)
+                      case Some(ms) => Some(ms)
                       case None => lookup(i, tail)
                     }
                 }
@@ -1507,7 +1496,9 @@ object ClangGen {
               lookup(i, memScope)
             }
 
-            def decrementCount(i: Code.Ident): State = {
+            def decrementCount(root: Long): State = {
+              this
+              /*
               @annotation.tailrec
               def loop(i: Code.Ident, scopes: List[Map[Code.Ident, IdentState]], left: List[Map[Code.Ident, IdentState]]): List[Map[Code.Ident, IdentState]] =
                 scopes match {
@@ -1526,6 +1517,7 @@ object ClangGen {
 
               val m1 = loop(i, memScope, Nil)
               copy(memScope = m1)
+              */
             }
           }
 
@@ -1535,7 +1527,7 @@ object ClangGen {
                 List(Code.Include.quote("bosatsu_runtime.h"))
 
               State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
-                None, Map.empty, 0L, Map.empty, Nil
+                None, Map.empty, 0L, 0L, Map.empty, Nil, Map.empty
               )
             }
           }
@@ -1563,6 +1555,12 @@ object ClangGen {
             EitherT[Eval, Error, (State, A)](
               Eval.now(Right((s, a)))
             )
+
+          def read[A](fn: State => A): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right((s, fn(s))))))
+
+          def tryRead[A](fn: State => Either[Error, A]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _)))))
 
           def update[A](fn: State => (State, A)): T[A] =
             StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s)))))
@@ -1592,55 +1590,42 @@ object ClangGen {
               }
             } yield a
 
-          def passToFn(ident: Code.Ident): T[Unit] =
-            update { s => (s.decrementCount(ident), ()) }
+          def passToFn(root: Long): T[Unit] =
+            update { s => (s.decrementCount(root), ()) }
 
-          // creates a new ident in this scope
-          def create(ident: Code.Ident, m: MemState): T[Unit] =
+          def initMemState(ident: Code.Ident, is: MemState): T[Unit] =
             update { s =>
               s.memScope match {
                 case h :: tail =>
                   h.get(ident) match {
                     case None =>
-                      val identState = m match {
-                        case MemState.Owned => IdentState.Counted(1L)
-                        case nc: MemState.NotCounted => IdentState.RefLike(nc)
-                      }
-                      val memScope1 = h.updated(ident, identState) :: tail
+                      val memScope1 = h.updated(ident, is) :: tail
                       (s.copy(memScope = memScope1), ())
                     case Some(st) =>
-                      sys.error(s"invariant violation: existing identState=$st for $ident in scope=${s.memScope} in ${s.currentTop}")
+                      sys.error(s"invariant violation: existing identState=$st for $ident in scope=${s.memScope} in ${s.currentTop} while setting to: $is")
                   }
-                case Nil => sys.error(s"no memScope for create($ident, $m), invariant violation, should only be called inside a scope")
+                case Nil => sys.error(s"no memScope for initMemState($ident, $is), invariant violation, should only be called inside a scope")
               }
             }
 
-          def alias(src: Code.Ident, dst: Code.Ident): T[Unit] =
-            update { s =>
-              s.memScope match {
-                case h :: tail =>
-                  h.get(src) match {
-                    case None =>
-                      val memScope1 = h.updated(src, IdentState.AliasOf(dst)) :: tail
-                      (s.copy(memScope = memScope1), ())
-                    case Some(st) =>
-                      sys.error(s"invariant violation: existing identState=$st for $src in scope=${s.memScope}")
-                  }
-                case Nil => sys.error(s"no memScope for alias($src, $dst), invariant violation, should only be called inside a scope")
-              }
-            }
+          def createOwned(ident: Code.Ident, root: Long): T[Unit] =
+            initMemState(ident, MemState.Owned(root))
+
+          def bindMemory[A](name: Code.Ident, ms: MemState, vl: Code.ValueLike)(in: T[A]): T[A] =
+            initMemState(name, ms) *> in
 
           def memState(ident: Code.Ident): T[MemState] =
-            update { s =>
-              s.resolveIdentStateOf(ident) match {
-                case Some(ms) => (s, ms.toMemState)
+            tryRead { s =>
+              s.resolveMemStateOf(ident) match {
+                case Some(ms) =>
+                  Right(ms)
                 case None => 
-                  sys.error(s"no memState for memState($ident), invariant violation. current=${s.currentTop}, memScope=${s.memScope}")
+                  Left(Error.InvariantViolation(s"no memState for memState($ident), invariant violation. current=${s.currentTop}, memScope=${s.memScope}"))
               }
             }
           // this has to make sure the current scope has an additional count so it
           // is safe to borrow
-          def borrow(ident: Code.Ident): T[Unit] =
+          def borrowLifetime(lt: MemState.Lifetime): T[Unit] =
             /// ???
             monadImpl.unit
 
@@ -1694,18 +1679,18 @@ object ClangGen {
             } yield a
           }
           def getBinding(bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryRead { s =>
               s.binds.get(bn) match {
                 case Some(stack) =>
                   stack.head match {
                     case Right(idx) =>
-                      result(s, Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
+                      Right(Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
                     case Left(((ident, _, _), _)) =>
                       // TODO: suspicious to ignore isClosure and arity here
                       // probably need to conv
-                      result(s, ident)
+                      Right(ident)
                   }
-                case None => errorRes(Error.Unbound(bn, s.currentTop))
+                case None => Left(Error.Unbound(bn, s.currentTop))
               }  
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =
@@ -1754,8 +1739,27 @@ object ClangGen {
           val nextCnt: T[Long] =
             StateT { s =>
               val cnt = s.counter  
-              val s1 = s.copy(counter = cnt + 1L)
-              result(s1, cnt)
+              if (cnt < Long.MaxValue) {
+                val s1 = s.copy(counter = cnt + 1L)
+                result(s1, cnt)
+              }
+              else {
+                // should be impossible since iterating 2^63 times would take too long
+                errorRes(Error.InvariantViolation("counter overflow"))
+              }
+            }
+
+          val nextRootId: T[Long] =
+            StateT { s =>
+              val cnt = s.rootCounter  
+              if (cnt < Long.MaxValue) {
+                val s1 = s.copy(rootCounter = cnt + 1L)
+                result(s1, cnt)
+              }
+              else {
+                // should be impossible since iterating 2^63 times would take too long
+                errorRes(Error.InvariantViolation("root counter overflow"))
+              }
             }
 
           // used for temporary variables of type BValue
