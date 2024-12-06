@@ -212,8 +212,11 @@ object ClangGen {
 
     sealed abstract class MemState
     object MemState {
-      case object Static extends MemState
-      case object Ref extends MemState
+      sealed abstract class NotCounted extends MemState
+
+      case object Static extends NotCounted
+      case object Ref extends NotCounted
+
       case object Owned extends MemState
 
       sealed abstract class Unify
@@ -257,12 +260,26 @@ object ClangGen {
       def directFn(p: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]]
       def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]]
       def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
-      def scope[A](ta: T[A]): T[A]
       def currentTop: T[Option[(PackageName, Bindable)]]
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
 
       def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident]
+
+      /////////////////////////////////////////
+      // the below are memory management related functions
+      /////////////////////////////////////////
+      def scope[A](ta: T[A]): T[A]
+      // sometimes we jump back out to a top scope when rendering closures and lambdas
+      def topScope[A](ta: T[A]): T[A]
+      def passToFn(ident: Code.Ident): T[Unit]
+      // creates a new owned ident in this scope
+      def create(ident: Code.Ident, m: MemState): T[Unit]
+      def alias(src: Code.Ident, dst: Code.Ident): T[Unit]
+      def memState(ident: Code.Ident): T[MemState]
+      // this has to make sure the current scope has an additional count so it
+      // is safe to borrow
+      def borrow(ident: Code.Ident): T[Unit]
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -429,9 +446,9 @@ object ClangGen {
               vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
           case SearchList(lst, init, check, leftAcc) =>
-            (boolToValue(check), innerRef(init))
-              .flatMapN { (condV, initV) =>
-                searchList(lst, initV, condV, leftAcc)
+            (getAnon(lst.ident), innerRef(init))
+              .flatMapN { (lst, initV) =>
+                searchList(lst, initV, boolToValue(check), leftAcc)
               }
           case MatchString(arg, parts, binds, mustMatch) =>
             (
@@ -444,15 +461,10 @@ object ClangGen {
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)
-              // TODO ??? what do we do here? the mut needs to hold an owned value, but this could
-              // also be an alias to another value
               msVl <- innerToValue(expr)
               (ms, vl) = msVl
-              _ <- vl.returnsIdent match {
-                case Some(a) => alias(name, a) 
-                case None => create(name, ms)
-              }
-            } yield (name := vl) +: Code.TrueLit
+              stmt <- assignMut(name, vl, ms)
+            } yield stmt +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
         }
 
@@ -589,21 +601,28 @@ object ClangGen {
               val updateOffset =
                 offsetIdent := offsetIdent + StringApi.codePointBytes(strEx, offsetIdent)
 
-              val stmt =
+              val stmtT =
                 if (c.capture) {
                   // b = str[offset]
-                  Code
-                    .Statements(
-                      bindArray(next) := StringApi.getCharAt(strEx, offsetIdent),
-                      updateOffset
-                    ) +: Code.TrueLit
+                  val b = bindArray(next)
+
+                  // chars are values, we don't need to increment them
+                  assignMut(b, StringApi.getCharAt(strEx, offsetIdent), MemState.Static)
+                    .map { assign =>
+                      Code
+                        .Statements(
+                          assign,
+                          updateOffset
+                        ) +: Code.TrueLit
+                    }
 
                 } else {
-                  updateOffset +: Code.TrueLit
+                  pure(updateOffset +: Code.TrueLit)
                 }
               for {
                 // we don't know how many bytes this character took, so
                 // we have lost track of the total offset
+                stmt <- stmtT
                 tailRes <- loop(knownOffset = None, offsetIdent, tail, n1, mustMatch)
                 and2 <- andCode(stmt, tailRes)
                 and1 <- andCode(matches, and2)
@@ -612,12 +631,11 @@ object ClangGen {
               tail match {
                 case Nil =>
                   // we capture all the rest
-                  pv(
-                    if (h.capture) {
-                      // b = str[offset:]
-                      (bindArray(next) := StringApi.substringTail(strEx, offsetIdent)) +: Code.TrueLit
-                    } else Code.TrueLit
-                  )
+                  if (h.capture) {
+                    // b = str[offset:]
+                    val b = bindArray(next)
+                    assignMut(b, StringApi.substringTail(strEx, offsetIdent), MemState.Owned).map(_ +: Code.TrueLit)
+                  } else pure(Code.TrueLit)
                 case LitStr(expect) :: tail2 =>
                   // here we have to make a loop
                   // searching for expect, and then see if we
@@ -672,7 +690,7 @@ object ClangGen {
 
                     def onSearch(search: Code.ValueLike): T[Code.Statement] =
                       search.exprToStatement { search =>
-                        pure(Code.ifThenElse(search, {
+                        val matchCase = {
                           // we have matched
                           val after = Code.Statements(
                             result := Code.TrueLit,
@@ -680,17 +698,20 @@ object ClangGen {
                           )
 
                           if (h.capture) {
-                            val capture: Code.Statement =
-                              bindArray(next) := StringApi.substring(strEx, offsetIdent, candidate)
-
-                            capture + after
+                            val b = bindArray(next)
+                            assignMut(b, StringApi.substring(strEx, offsetIdent, candidate), MemState.Owned)
+                              .map(_ + after)
                           }
-                          else after
-                        },
-                        // we couldn't match at start, advance just after the
-                        // candidate
-                        start := candidate + Code.IntLiteral.One
-                      ))
+                          else pure(after)
+                        }
+                        matchCase.map { m =>
+                          Code.ifThenElse(search,
+                            m,
+                            // we couldn't match at start, advance just after the
+                            // candidate
+                            start := candidate + Code.IntLiteral.One
+                          )
+                        }
                     }(newLocalName)
 
                     val utf8bytes = expect.getBytes(StandardCharsets.UTF_8).length
@@ -764,10 +785,11 @@ object ClangGen {
                     fullMatch <-
                       if (!h.capture) pv(matchStmt)
                       else {
+                        val b = bindArray(next)
                         val capture =
-                          (bindArray(next) := StringApi.substring(strEx, offsetIdent, off1)) +: (Code.TrueLit)
+                          assignMut(b, StringApi.substring(strEx, offsetIdent, off1), MemState.Owned).map(_ +: (Code.TrueLit))
 
-                        andCode(matchStmt, capture)
+                        capture.flatMap(andCode(matchStmt, _))
                       }
 
                   } yield fullMatch
@@ -787,9 +809,9 @@ object ClangGen {
       }
 
       def searchList(
-          locMut: LocalAnonMut,
+          currentList: Code.Ident,
           initVL: Code.ValueLike,
-          checkVL: Code.ValueLike,
+          checkVLT: T[Code.ValueLike],
           optLeft: Option[LocalAnonMut]
       ): T[Code.ValueLike] = {
         import Code.Expression
@@ -806,8 +828,9 @@ object ClangGen {
         def tailList(expr: Expression): Expression =
           Code.Ident("get_enum_index")(expr, Code.IntLiteral(1))
 
+        // accepts Refs to build a new list
         def consList(head: Expression, tail: Expression): Expression =
-          Code.Ident("alloc_enum2")(Code.IntLiteral(1), head, tail)
+          Code.Ident("alloc_enum2")(Code.IntLiteral(1), Code.Ident("clone_value")(head), tail)
         /*
          * here is the implementation from MatchlessToValue
          *
@@ -835,11 +858,14 @@ object ClangGen {
             }
          */
         for {
-          currentList <- getAnon(locMut.ident)
-          optLeft <- optLeft.traverse(lm => getAnon(lm.ident))
+          optLeft <- optLeft.traverse { lm => getAnon(lm.ident) }
+          // holds a boolean, which isn't memory but a value
           res <- newLocalName("result")
+          // this holds a reference to list as we iterate through
           tmpList <- newLocalName("tmp_list")
           declTmpList <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, tmpList, initVL)(newLocalName)
+          // TODO: we need to check that the memstate of currentList is compatible and handled in the loop
+          checkVL <- scope(checkVLT)
           /*
           top <- currentTop
           _ = println(s"""in $top: searchList(
@@ -870,6 +896,7 @@ object ClangGen {
                         (tmpList := tailList(tmpList))
                           .maybeCombine(
                             optLeft.map { left =>
+                              // consList allocates an owned value
                               left := consList(headList(currentList), left)
                             }
                           )
@@ -967,28 +994,6 @@ object ClangGen {
             StringApi.fromString(toStr).map((MemState.Owned, _))
         }
 
-      def passToFn(ident: Code.Ident): T[Unit] =
-        //???
-        monadImpl.unit
-
-      // creates a new owned ident in this scope
-      def create(ident: Code.Ident, m: MemState): T[Unit] =
-        //???
-        monadImpl.unit
-
-      def alias(src: Code.Ident, dst: Code.Ident): T[Unit] =
-        //???
-        monadImpl.unit
-
-      def memState(ident: Code.Ident): T[MemState] =
-        //???
-        pure(MemState.Owned)
-      // this has to make sure the current scope has an additional count so it
-      // is safe to borrow
-      def borrow(ident: Code.Ident): T[Unit] =
-        /// ???
-        monadImpl.unit
-
       // when we have an if/else we need to update two separate scopes to have the same
       // static memory behavior, this may involve adding counts or releases
       def mergeValues(left: T[(MemState, Code.ValueLike)], right: T[(MemState, Code.ValueLike)]): T[(MemState, Code.ValueLike, Code.ValueLike)] =
@@ -1033,11 +1038,11 @@ object ClangGen {
           case (MemState.Owned, ident: Code.Ident) =>
             // this ident has already been consumed
             borrow(ident).as(ident)
-          case (ms @ MemState.Owned, notIdent) =>
+          case (MemState.Owned, notIdent) =>
             for {
               name <- newLocalName("ref")
               stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, notIdent)(newLocalName)
-              _ <- create(name, ms)
+              _ <- create(name, MemState.Owned)
             } yield (stmt +: name)
         }
 
@@ -1118,6 +1123,22 @@ object ClangGen {
             }
           }
 
+      def bindMemory(name: Code.Ident, ms: MemState, vl: Code.ValueLike): T[Unit] =
+        vl.returnsIdent match {
+          case Some(a) =>
+            // TODO: ms may conflict with a...
+            alias(name, a) 
+          case None => create(name, ms)
+        }
+
+      def localAnonMutMemType(mut: LocalAnonMut, in: Expr): MemState =
+        // TODO: we could optimize by searching the expr to see if all sets are with Ref or Static
+        MemState.Owned
+
+      def assignMut(target: Code.Ident, vl: Code.ValueLike, rhs: MemState): T[Code.Statement] =
+        // TODO handle this correctly
+        pure(target := vl)
+
       def innerToValue(expr: Expr): T[(MemState, Code.ValueLike)] =
         expr match {
           case fn: FnExpr => innerFn(fn).map((MemState.Owned, _))
@@ -1128,10 +1149,7 @@ object ClangGen {
                 for {
                   name <- getBinding(arg)
                   // we create the name before calling innerToValue(in) because the memory state needs to be updated
-                  _ <- v.returnsIdent match {
-                    case Some(a) => alias(name, a) 
-                    case None => create(name, ms)
-                  }
+                  _ <- bindMemory(name, ms, v)
                   msResult <- innerToValue(in)
                   (resMs, result) = msResult
                   stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
@@ -1145,7 +1163,7 @@ object ClangGen {
                 bindAnon(idx) {
                   for {
                     name <- getAnon(idx)
-                    _ <- create(name, ms)
+                    _ <- bindMemory(name, ms, v)
                     // we create the name before calling innerToValue(in) because the memory state needs to be updated
                     msResult <- innerToValue(in)
                     (msRes, result) = msResult
@@ -1195,11 +1213,12 @@ object ClangGen {
               ident <- getAnon(i)
               ms <- memState(ident)
             } yield (ms, ident)
-          case LetMut(LocalAnonMut(m), span) =>
-            // we defer creating the ident state until we set the value
+          case LetMut(lm @ LocalAnonMut(m), span) =>
+            val ms = localAnonMutMemType(lm, span)
             bindAnon(m) {
               for {
                 ident <- getAnon(m)
+                _ <- create(ident, ms)
                 decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
                 msRes <- innerToValue(span)
                 (ms, res) = msRes
@@ -1301,7 +1320,7 @@ object ClangGen {
                   _ <- create(i, MemState.Owned)
                 } yield Code.Param(Code.TypeIdent.BValue, i)
               }
-            scope(bindAll(args) { argParamsT.product(body1) })
+            topScope(bindAll(args) { argParamsT.product(body1) })
               .map { case (argParams, fnBody) =>
                 // TODO: when scopes end, we probably need to have extra clones we need to run first
                 // and releases we would need to run at the end, both of which may be empty
@@ -1318,24 +1337,28 @@ object ClangGen {
               (newLocalName("cond"), newLocalName("res"))
                 .flatMapN { (cond, res) =>
 
-                  val bodyArgsT = scope(bindAll(args) {
-                    innerToArg(body)
-                      .product(
-                        args.traverse { b =>
-                          for {
-                            i <- getBinding(b)
-                            _ <- create(i, MemState.Owned)
-                            t <- newLocalName("loop_temp")
-                          } yield (Code.Param(Code.TypeIdent.BValue, i), t) 
-                        }
-                      )
-                  })
+                  val argsT = args.traverse { b =>
+                      for {
+                        i <- getBinding(b)
+                        _ <- create(i, MemState.Owned)
+                        t <- newLocalName("loop_temp")
+                        _ <- create(t, MemState.Owned)
+                      } yield (Code.Param(Code.TypeIdent.BValue, i), t) 
+                    }
+
+                  val bodyArgsT = topScope {
+                      bindAll(args) {
+                        argsT.product(scope {
+                          innerToArg(body)
+                        })
+                      }
+                    }
 
                   for {
                     bodyArgs <- bodyArgsT
                     // the newLocalName and the body exists inside the while loop scope
                     // TODO: add any clone/releases to manage function memory
-                    (bodyVL, argParamsTemps) = bodyArgs
+                    (argParamsTemps, bodyVL) = bodyArgs
                     whileBody = toWhileBody(fnName, argParamsTemps, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
                     declTmps = Code.Statements(
                       argParamsTemps.map { case (_, tmp) =>
@@ -1375,7 +1398,7 @@ object ClangGen {
             // we materialize an Atomic value to hold the static data
             // then we generate a function to populate the value
             for {
-              msVl <- innerToValue(someValue)
+              msVl <- scope(innerToValue(someValue))
               // TODO: use MemState here
               (_ms, vl) = msVl
               value <- staticValueName(p, b)
@@ -1425,6 +1448,19 @@ object ClangGen {
         def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] = implicitly
 
         new Env {
+          sealed abstract class IdentState
+          object IdentState {
+            case class AliasOf(target: Code.Ident) extends IdentState
+
+            sealed abstract class Resolved extends IdentState {
+              def toMemState: MemState
+            }
+            case class RefLike(toMemState: MemState.NotCounted) extends Resolved
+            case class Counted(count: Long) extends Resolved {
+              def toMemState: MemState = MemState.Owned
+            }
+          }
+
           case class State(
             allValues: AllValues,
             externals: ExternalResolver,
@@ -1434,7 +1470,8 @@ object ClangGen {
             currentTop: Option[(PackageName, Bindable)],
             binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
             counter: Long,
-            identCache: Map[Expr, Code.Ident]
+            identCache: Map[Expr, Code.Ident],
+            memScope: List[Map[Code.Ident, IdentState]]
           ) {
             def finalFile: Doc =
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
@@ -1444,6 +1481,52 @@ object ClangGen {
             def include(incl: Code.Include): State =
               if (includeSet(incl)) this
               else copy(includeSet = includeSet + incl, includes = includes :+ incl)
+
+            def enterScope: State =
+              copy(memScope = Map.empty[Code.Ident, Nothing] :: memScope)
+
+            def exitScope: (State, Map[Code.Ident, IdentState]) =
+              memScope match {
+                case Nil => (this, Map.empty)
+                case h :: tail => (copy(memScope = tail), h)
+              }
+
+            def resolveIdentStateOf(i: Code.Ident): Option[IdentState.Resolved] = {
+              @annotation.tailrec
+              def lookup(i: Code.Ident, scopes: List[Map[Code.Ident, IdentState]]): Option[IdentState.Resolved] =
+                scopes match {
+                  case Nil => None
+                  case h :: tail =>
+                    h.get(i) match {
+                      case Some(IdentState.AliasOf(a)) => lookup(a, scopes)
+                      case Some(rs: IdentState.Resolved) => Some(rs)
+                      case None => lookup(i, tail)
+                    }
+                }
+
+              lookup(i, memScope)
+            }
+
+            def decrementCount(i: Code.Ident): State = {
+              @annotation.tailrec
+              def loop(i: Code.Ident, scopes: List[Map[Code.Ident, IdentState]], left: List[Map[Code.Ident, IdentState]]): List[Map[Code.Ident, IdentState]] =
+                scopes match {
+                  case Nil => left.reverse
+                  case h :: tail =>
+                    h.get(i) match {
+                      case Some(IdentState.AliasOf(a)) => loop(a, scopes, left)
+                      case Some(IdentState.Counted(c)) =>
+                        val h1 = h.updated(i, IdentState.Counted(c - 1))
+                        left reverse_::: (h1 :: tail)
+                      case Some(notCounted) =>
+                        sys.error(s"invariant violation: expected counted: $notCounted for decrementCount($i) with memScope=${memScope} in ${currentTop}")
+                      case None => loop(i, tail, h :: left)
+                    }
+                }
+
+              val m1 = loop(i, memScope, Nil)
+              copy(memScope = m1)
+            }
           }
 
           object State {
@@ -1452,7 +1535,7 @@ object ClangGen {
                 List(Code.Include.quote("bosatsu_runtime.h"))
 
               State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
-                None, Map.empty, 0L, Map.empty
+                None, Map.empty, 0L, Map.empty, Nil
               )
             }
           }
@@ -1481,24 +1564,104 @@ object ClangGen {
               Eval.now(Right((s, a)))
             )
 
+          def update[A](fn: State => (State, A)): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s)))))
+
+          def tryUpdate[A](fn: State => Either[Error, (State, A)]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s))))
+
+          // TODO track when we are entering and exiting scopes
+          def scope[A](ta: T[A]): T[A] =
+            for {
+              _ <- update(s => (s.enterScope, ()))
+              a <- ta
+              counts <- update(_.exitScope)
+            } yield a
+
+          def topScope[A](ta: T[A]): T[A] =
+            for {
+              ms0 <- update { s =>
+                val s1 = s.copy(memScope = Nil)
+                (s1.enterScope, s.memScope)
+              }
+              a <- ta
+              counts <- update { s =>
+                val (s1, counts) = s.exitScope
+                val s2 = s1.copy(memScope = ms0)
+                (s2, counts)
+              }
+            } yield a
+
+          def passToFn(ident: Code.Ident): T[Unit] =
+            update { s => (s.decrementCount(ident), ()) }
+
+          // creates a new ident in this scope
+          def create(ident: Code.Ident, m: MemState): T[Unit] =
+            update { s =>
+              s.memScope match {
+                case h :: tail =>
+                  h.get(ident) match {
+                    case None =>
+                      val identState = m match {
+                        case MemState.Owned => IdentState.Counted(1L)
+                        case nc: MemState.NotCounted => IdentState.RefLike(nc)
+                      }
+                      val memScope1 = h.updated(ident, identState) :: tail
+                      (s.copy(memScope = memScope1), ())
+                    case Some(st) =>
+                      sys.error(s"invariant violation: existing identState=$st for $ident in scope=${s.memScope} in ${s.currentTop}")
+                  }
+                case Nil => sys.error(s"no memScope for create($ident, $m), invariant violation, should only be called inside a scope")
+              }
+            }
+
+          def alias(src: Code.Ident, dst: Code.Ident): T[Unit] =
+            update { s =>
+              s.memScope match {
+                case h :: tail =>
+                  h.get(src) match {
+                    case None =>
+                      val memScope1 = h.updated(src, IdentState.AliasOf(dst)) :: tail
+                      (s.copy(memScope = memScope1), ())
+                    case Some(st) =>
+                      sys.error(s"invariant violation: existing identState=$st for $src in scope=${s.memScope}")
+                  }
+                case Nil => sys.error(s"no memScope for alias($src, $dst), invariant violation, should only be called inside a scope")
+              }
+            }
+
+          def memState(ident: Code.Ident): T[MemState] =
+            update { s =>
+              s.resolveIdentStateOf(ident) match {
+                case Some(ms) => (s, ms.toMemState)
+                case None => 
+                  sys.error(s"no memState for memState($ident), invariant violation. current=${s.currentTop}, memScope=${s.memScope}")
+              }
+            }
+          // this has to make sure the current scope has an additional count so it
+          // is safe to borrow
+          def borrow(ident: Code.Ident): T[Unit] =
+            /// ???
+            monadImpl.unit
+
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryUpdate { s =>
               s.externals(pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl = s.include(incl)
-                  result(withIncl, ident)
+                  Right((withIncl, ident))
                 case None =>
                   val key = (pn, bn)
                   s.allValues.get(key) match {
-                    case Some((_, ident)) => result(s, ident)
-                    case None => errorRes(Error.UnknownValue(pn, bn))
+                    case Some((_, ident)) => Right((s, ident))
+                    case None => Left(Error.UnknownValue(pn, bn))
                   }
               }
             }
 
           def bind[A](bn: Bindable)(in: T[A]): T[A] = {
-            val init: T[Unit] = StateT { s =>
+            val init: T[Unit] = update { s =>
               val v = s.binds.get(bn) match {
                 case None => NonEmptyList.one(Right(0))
                 case Some(items @ NonEmptyList(Right(idx), _)) =>
@@ -1506,10 +1669,11 @@ object ClangGen {
                 case Some(items @ NonEmptyList(Left((_, idx)), _)) =>
                   Right(idx + 1) :: items
               }  
-              result(s.copy(binds = s.binds.updated(bn, v)), ())
+              
+              (s.copy(binds = s.binds.updated(bn, v)), ())
             }
 
-            val uninit: T[Unit] = StateT { s =>
+            val uninit: T[Unit] = update { s =>
               s.binds.get(bn) match {
                 case Some(NonEmptyList(_, tail)) =>
                   val s1 = NonEmptyList.fromList(tail) match {
@@ -1518,7 +1682,7 @@ object ClangGen {
                     case Some(prior) =>
                       s.copy(binds = s.binds.updated(bn, prior))
                   }
-                  result(s1, ())
+                  (s1, ())
                 case None => sys.error(s"bindable $bn no longer in $s")
               }  
             }
@@ -1566,7 +1730,7 @@ object ClangGen {
               result(s.copy(binds = s.binds.updated(bn, v)), ())
             }
 
-            val uninit: T[Unit] = StateT { s =>
+            val uninit: T[Unit] = update { s =>
               s.binds.get(bn) match {
                 case Some(NonEmptyList(_, tail)) =>
                   val s1 = NonEmptyList.fromList(tail) match {
@@ -1575,7 +1739,7 @@ object ClangGen {
                     case Some(prior) =>
                       s.copy(binds = s.binds.updated(bn, prior))
                   }
-                  result(s1, ())
+                  (s1, ())
                 case None => sys.error(s"bindable $bn no longer in $s")
               }  
             }
@@ -1638,9 +1802,6 @@ object ClangGen {
               a <- ta
               _ <- StateT { (s: State) => result(s.copy(currentTop = None), ()) }
             } yield a
-
-          // TODO track when we are entering and exiting scopes
-          def scope[A](ta: T[A]): T[A] = ta
 
           val currentTop: T[Option[(PackageName, Bindable)]] =
             StateT { (s: State) => result(s, s.currentTop) }
