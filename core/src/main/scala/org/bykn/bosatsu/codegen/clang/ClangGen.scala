@@ -1157,6 +1157,7 @@ object ClangGen {
                   }
               } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
             }
+            /*
           case LoopFn(captures, nm, args, body) =>
             recursiveName(fnName, nm, isClosure = captures.nonEmpty, arity = fn.arity) {
               bindAll(args) {
@@ -1189,6 +1190,7 @@ object ClangGen {
                 } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(fnBody))
               }
             }
+            */
         }
 
       def renderTop(p: PackageName, b: Bindable, expr: Expr): T[Unit] =

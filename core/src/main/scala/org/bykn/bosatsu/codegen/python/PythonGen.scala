@@ -1715,6 +1715,7 @@ object PythonGen {
           slotName: Option[Code.Ident]
       ): Env[Statement] =
         expr match {
+          /*
           case LoopFn(captures, _, args, b) =>
             // note, name is already bound
             // args can use topFn
@@ -1736,6 +1737,7 @@ object PythonGen {
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
             } yield Code.blockFromList(binds.toList ::: loopRes :: Nil)
 
+            */
           case Lambda(captures, _, args, body) =>
             // we can ignore name because python already allows recursion
             // we can use topLevelName on makeDefs since they are already
@@ -1788,6 +1790,7 @@ object PythonGen {
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
               }
+              /*
           case LoopFn(captures, thisName, args, body) =>
             // note, thisName is already bound because LoopFn
             // is a lambda, not a def
@@ -1814,6 +1817,7 @@ object PythonGen {
             } yield Code
               .blockFromList(prefix.toList :+ loopRes)
               .withValue(nameI)
+              */
 
           case PredefExternal((fn, arity)) =>
             // make a lambda

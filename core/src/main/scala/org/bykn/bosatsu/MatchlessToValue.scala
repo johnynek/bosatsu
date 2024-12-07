@@ -429,10 +429,22 @@ object MatchlessToValue {
 
               fn
             }
-          case LoopFn(caps, thisName, args, body) =>
-            val bodyFn = loop(body)
+          case WhileExpr(cond, effect, result) =>
+            val condF = boolExpr(cond)
+            val effectF = loop(effect)
+            val resultF = loop(result)
 
-            buildLoop(caps.map(loop).toVector, thisName, args, bodyFn)
+            // conditions are (basically) never static
+            // or a previous optimization/normalization
+            // has failed
+            Dynamic { (scope: Scope) =>
+              var c = condF(scope)
+              while(c) {
+                effectF(scope)
+                c = condF(scope)
+              }
+              resultF(scope)
+            }
           case Global(p, n) =>
             val res = resolve(p, n)
 
