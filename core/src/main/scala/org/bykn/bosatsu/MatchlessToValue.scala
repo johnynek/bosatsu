@@ -6,7 +6,6 @@ import cats.evidence.Is
 import java.math.BigInteger
 import org.bykn.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
-import scala.collection.mutable.{LongMap => MLongMap}
 
 import Identifier.Bindable
 import Value._
@@ -67,15 +66,47 @@ object MatchlessToValue {
     case object Uninitialized
     val uninit: Value = ExternalValue(Uninitialized)
 
+    class DebugStr(prefix: String = "") {
+      private var message: String = ""
+      def set(msg: String): Unit = {
+        message = msg;
+      }
+
+      def append(msg: String): Unit = {
+        message = message + " :: " + msg
+      }
+
+      override def toString = prefix + message
+
+      def scope(outer: String): DebugStr = {
+        new DebugStr(prefix + "/" + outer)
+      }
+    }
+
+    class Cell {
+      private var value = uninit
+      def set(v: Value): Unit = {
+        value = v
+      }
+
+      def get(): Value = value
+    }
+
     final case class Scope(
         locals: Map[Bindable, Eval[Value]],
         anon: LongMap[Value],
-        muts: MLongMap[Value],
-        slots: Vector[Value]
+        muts: LongMap[Cell],
+        slots: Vector[Value],
+        extra: DebugStr
     ) {
 
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
+
+      def letMuts(idxs: Iterator[Long]): Scope = {
+        val mut1 = muts ++ idxs.map(l => (l, new Cell))
+        copy(muts = mut1)
+      }
 
       def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope = {
         val b = bs.iterator
@@ -87,24 +118,31 @@ object MatchlessToValue {
         copy(locals = local1)
       }
 
+      def debugString: String =
+        s"local keys: ${locals.keySet}, anon keys: ${anon.keySet}, anonMut keys: ${muts.keySet}\nextra=$extra"
+
       def updateMut(mutIdx: Long, v: Value): Unit = {
-        assert(muts.contains(mutIdx))
-        muts.put(mutIdx, v)
+        if (!muts.contains(mutIdx)) {
+          sys.error(s"updateMut($mutIdx, _) but $mutIdx is empty: $debugString")
+        }
+        muts(mutIdx).set(v)
         ()
       }
 
-      def capture(it: Vector[Value]): Scope =
-        Scope(
-          Map.empty,
-          LongMap.empty,
-          MLongMap(),
-          it
-        )
     }
 
     object Scope {
       def empty(): Scope =
-        Scope(Map.empty, LongMap.empty, MLongMap(), Vector.empty)
+        Scope(Map.empty, LongMap.empty, LongMap.empty, Vector.empty, new DebugStr)
+
+      def capture(it: Vector[Value], dbg: DebugStr = new DebugStr): Scope =
+        Scope(
+          Map.empty,
+          LongMap.empty,
+          LongMap.empty,
+          it,
+          dbg.scope("capture")
+        )
     }
 
     sealed abstract class Scoped[A] {
@@ -296,6 +334,7 @@ object MatchlessToValue {
             }
         }
 
+        /*
       def buildLoop(
           caps: Vector[Scoped[Value]],
           fnName: Bindable,
@@ -385,7 +424,7 @@ object MatchlessToValue {
             }
           }
         }
-      }
+      }*/
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
@@ -395,6 +434,9 @@ object MatchlessToValue {
             val scope1 = Scope.empty()
             val fn = FnValue { argV =>
               val scope2 = scope1.letAll(args, argV)
+              if (args.exists(_ == Identifier.Name("rands"))) {
+                //println(s"calling lambda($argV) with ${scope2.debugString}")
+              }
               resFn(scope2)
             }
             Static(fn)
@@ -402,8 +444,12 @@ object MatchlessToValue {
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
-              val scope1 = scope
-                .capture(capScoped.map(scoped => scoped(scope)))
+              val initMutKeys = scope.muts.keySet
+              val valuesInScope = capScoped.map(scoped => scoped(scope))
+              // these can't change the keyset
+              require(initMutKeys == scope.muts.keySet)
+              // now we ignore the scope after reading from it
+              val scope1 = Scope.capture(valuesInScope, scope.extra)
 
               // hopefully optimization/normalization has lifted anything
               // that doesn't depend on argV above this lambda
@@ -416,8 +462,13 @@ object MatchlessToValue {
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
-              lazy val scope1: Scope = scope
-                .capture(capScoped.map(scoped => scoped(scope)))
+              val initMutKeys = scope.muts.keySet
+              val valuesInScope = capScoped.map(scoped => scoped(scope))
+              // these can't change the keyset
+              require(initMutKeys == scope.muts.keySet)
+
+              lazy val scope1: Scope = Scope
+                .capture(valuesInScope)
                 .let(name, Eval.later(fn))
 
               // hopefully optimization/normalization has lifted anything
@@ -432,18 +483,27 @@ object MatchlessToValue {
           case WhileExpr(cond, effect, result) =>
             val condF = boolExpr(cond)
             val effectF = loop(effect)
-            val resultF = loop(result)
 
-            // conditions are (basically) never static
+            // conditions are never static
             // or a previous optimization/normalization
             // has failed
             Dynamic { (scope: Scope) =>
               var c = condF(scope)
-              while(c) {
-                effectF(scope)
-                c = condF(scope)
+              def printOnFail[A](a: => A, msg: => String): A = {
+                try a
+                catch {
+                  case t: Throwable =>
+                    println(msg)
+                    throw t
+                }
               }
-              resultF(scope)
+              while(c) {
+                //println(s"loop iteration: ${scope.debugString}")
+                printOnFail(effectF(scope), s"failed in effect:\n\n$effect\n\n${scope.debugString}")
+                c = printOnFail(condF(scope), "failed in check")
+              }
+
+              scope.muts(result.ident).get()
             }
           case Global(p, n) =>
             val res = resolve(p, n)
@@ -453,10 +513,15 @@ object MatchlessToValue {
             Dynamic((_: Scope) => res.value)
           case Local(b)         => Dynamic(_.locals(b).value)
           case LocalAnon(a)     => Dynamic(_.anon(a))
-          case LocalAnonMut(m)  => Dynamic(_.muts(m))
+          case LocalAnonMut(m)  => Dynamic { s =>
+            s.muts.get(m) match {
+              case Some(v) => v.get()
+              case None => sys.error(s"could not get: $m. ${s.debugString}")
+            }
+          }
           case ClosureSlot(idx) => Dynamic(_.slots(idx))
           case App(expr, args)  =>
-            // TODO: App(LoopFn(..
+            // TODO: App(lambda(while
             // can be optimized into a while
             // loop, but there isn't any prior optimization
             // that would do this.... maybe it should
@@ -483,23 +548,17 @@ object MatchlessToValue {
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
             }
-          case LetMut(LocalAnonMut(l), in) =>
-            loop(in) match {
-              case s @ Static(_) => s
-              case Dynamic(inF) =>
-                Dynamic { (scope: Scope) =>
-                  // we make sure there is
-                  // a value that will show up
-                  // strange in tests,
-                  // for an optimization we could
-                  // avoid this
-                  scope.muts.put(l, uninit)
-                  val res = inF(scope)
-                  // now we can remove this from mutable scope
-                  // we should be able to remove this
-                  scope.muts.remove(l)
-                  res
-                }
+          case lm @ LetMut(_, _) =>
+            val (anonMuts, in) = lm.flatten
+            val inF = loop(in)
+            Dynamic { (scope: Scope) =>
+              // we make sure there is
+              // a value that will show up
+              // strange in tests,
+              // for an optimization we could
+              // avoid this
+              val scope1 = scope.letMuts(anonMuts.iterator.map(_.ident))
+              inF(scope1)
             }
           case Literal(lit) =>
             Static(Value.fromLit(lit))
@@ -514,6 +573,18 @@ object MatchlessToValue {
             Dynamic { (scope: Scope) =>
               if (condF(scope)) thenF(scope)
               else elseF(scope)
+            }
+          case Always.SetChain(muts, expr) =>
+            val values = muts.map { case (m, e) => (m, loop(e)) }
+            val exprF = loop(expr)
+
+            Dynamic { scope =>
+              values.iterator.foreach { case (m, e) =>
+                val ev = e(scope)  
+                scope.updateMut(m.ident, ev)
+              }               
+
+              exprF(scope)
             }
           case Always(cond, expr) =>
             val condF = boolExpr(cond)

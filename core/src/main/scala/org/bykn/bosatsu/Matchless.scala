@@ -68,7 +68,18 @@ object Matchless {
       else Let(Left(arg), expr, in)
   }
 
-  case class LetMut(name: LocalAnonMut, span: Expr) extends Expr
+  case class LetMut(name: LocalAnonMut, span: Expr) extends Expr {
+    // often we have several LetMut at once, return all them
+    def flatten: (NonEmptyList[LocalAnonMut], Expr) = {
+      span match {
+        case next @ LetMut(_, _) =>
+          val (anons, expr) = next.flatten
+          (name :: anons, expr)
+        case notLetMut =>
+          (NonEmptyList.one(name), notLetMut)
+      }
+    }
+  }
   case class Literal(lit: Lit) extends CheapExpr
 
   // these result in Int values which are also used as booleans
@@ -145,6 +156,21 @@ object Matchless {
     }
   }
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
+  object Always {
+    object SetChain {
+      // a common pattern is Always(SetMut(m, e), r)
+      def unapply(expr: Expr): Option[(NonEmptyList[(LocalAnonMut, Expr)], Expr)] =
+        expr match {
+          case Always(SetMut(mut, v), res) =>
+            val pair = (mut, v)
+            unapply(res) match {
+              case None => Some((NonEmptyList.one(pair), res))
+              case Some((muts, res)) => Some((pair :: muts, res))
+            }
+          case _ => None
+        }
+    }
+  }
   def always(cond: BoolExpr, thenExpr: Expr): Expr =
     if (hasSideEffect(cond)) Always(cond, thenExpr)
     else thenExpr
@@ -328,8 +354,7 @@ object Matchless {
             case Some(mut) => mut
             case None => e
           }
-        case ClosureSlot(_) | Global(_, _) | LocalAnon(_) | LocalAnonMut(_) |
-          MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat | Literal(_) | ZeroNat => e
+        case PrevNat(n) => PrevNat(translateLocals(m, n))
         case ge: GetEnumElement =>
           ge.copy(arg = translateLocalsCheap(m, ge.arg))
         case gs: GetStructElement =>
@@ -339,8 +364,9 @@ object Matchless {
           val b1 = translateLocals(m1, b)
           Lambda(c, r, as, b1)
         case WhileExpr(c, ef, r) =>
-          // we don't need to translate the condition
-          WhileExpr(c, translateLocals(m, ef), r)
+          WhileExpr(translateLocalsBool(m, c), translateLocals(m, ef), r)
+        case ClosureSlot(_) | Global(_, _) | LocalAnon(_) | LocalAnonMut(_) |
+          MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | ZeroNat => e
       }
     def translateLocalsCheap(m: Map[Bindable, LocalAnonMut], e: CheapExpr): CheapExpr =
       translateLocals(m, e) match {
@@ -360,7 +386,7 @@ object Matchless {
         }
       // assign any results to result and set the condition to false
       // and replace any tail calls to nm(args) with assigning args to those values
-      case class ArgRecord(name: Bindable, tmp: LocalAnonMut, loopVar: LocalAnonMut)
+      case class ArgRecord(name: Bindable, tmp: LocalAnon, loopVar: LocalAnonMut)
       def toWhileBody(args: NonEmptyList[ArgRecord], cond: LocalAnonMut, result: LocalAnonMut): Expr = {
       
         val nameExpr = Local(name)
@@ -391,10 +417,10 @@ object Matchless {
                 .toList
 
               // there must be at least one assignment
-              val assigns =
-                tmpAssigns.map(_._1) ::: tmpAssigns.map(_._2)
-
-              Some(setAll(assigns, UnitExpr))
+              Some(letAnons(
+                tmpAssigns.map(_._1),
+                setAll(tmpAssigns.map(_._2), UnitExpr)
+              ))
             case If(c, tcase, fcase) =>
               // this can possible have tail calls inside the branches
               (loop(tcase), loop(fcase)) match {
@@ -431,25 +457,20 @@ object Matchless {
         }
       }
       val mut = makeAnon.map(LocalAnonMut(_))
+      val anon = makeAnon.map(LocalAnon(_))
       for {
         cond <- mut
         result <- mut
-        args1 <- args.traverse { b => (mut, mut).mapN(ArgRecord(b, _, _)) }
+        args1 <- args.traverse { b => (anon, mut).mapN(ArgRecord(b, _, _)) }
         whileLoop = toWhileBody(args1, cond, result)
-      } yield Lambda(captures, Some(name), args,
-          LetMut(cond,
-            LetMut(result,
-              letMutAll(args1.map(_.tmp).toList, {
-                val loopVars = args1.map(_.loopVar).toList
-                letMutAll(loopVars,
-                  setAll(
-                    args1.toList.map(arg => (arg.loopVar, Local(arg.name))),
-                    Always(SetMut(cond, TrueExpr),
-                    WhileExpr(isTrueExpr(cond), whileLoop, result))
-                  )
-                )
-              }
-              )
+        allMuts = cond :: result :: args1.toList.map(_.loopVar)
+        // we don't need to set the name on the lambda because this is no longer recursive
+      } yield Lambda(captures, None, args,
+          letMutAll(allMuts,
+            setAll(
+              args1.toList.map(arg => (arg.loopVar, Local(arg.name))),
+              Always(SetMut(cond, TrueExpr),
+              WhileExpr(isTrueExpr(cond), whileLoop, result))
             )
           )
         )
@@ -933,8 +954,13 @@ object Matchless {
         Let(b, e, r)
       }
 
+    def letAnons(binds: List[(LocalAnon, Expr)], in: Expr): Expr =
+      binds.foldRight(in) { case ((b, e), r) =>
+        Let(Left(b), e, r)
+      }
+
     def letMutAll(binds: List[LocalAnonMut], in: Expr): Expr =
-      binds.foldLeft(in) { case (rest, anon) =>
+      binds.foldRight(in) { case (anon, rest) =>
         // TODO: sometimes we generate code like
         // LetMut(x, Always(SetMut(x, y), f))
         // with no side effects in y or f

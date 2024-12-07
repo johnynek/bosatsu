@@ -1795,10 +1795,16 @@ object PythonGen {
           case WhileExpr(cond, effect, res) =>
             (boolExpr(cond, slotName), loop(effect, slotName), loop(res, slotName))
               .flatMapN { (cond, effect, res) =>
-                Env.onLastM(cond) { condX =>
-                  Env.onLast(effect) { effectX =>
-                    Code.WithValue(Code.While(condX, Code.always(effectX)), res)
-                  }
+                Env.newAssignableVar.map { c =>
+                  Code.block(
+                    c := cond,
+                    Code.While(c,
+                      Code.block(
+                        Code.always(effect),
+                        c := cond
+                      )
+                    )
+                  ).withValue(res)  
                 }
               }
               /*
