@@ -1713,19 +1713,17 @@ object PythonGen {
                   } yield block.withValue(defName)
               }
           case WhileExpr(cond, effect, res) =>
-            (boolExpr(cond, slotName), loop(effect, slotName), loop(res, slotName))
-              .flatMapN { (cond, effect, res) =>
-                Env.newAssignableVar.map { c =>
-                  Code.block(
-                    c := cond,
-                    Code.While(c,
-                      Code.block(
-                        Code.always(effect),
-                        c := cond
-                      )
+            (boolExpr(cond, slotName), loop(effect, slotName), loop(res, slotName), Env.newAssignableVar)
+              .mapN { (cond, effect, res, c) =>
+                Code.block(
+                  c := cond,
+                  Code.While(c,
+                    Code.block(
+                      Code.always(effect),
+                      c := cond
                     )
-                  ).withValue(res)  
-                }
+                  )
+                ).withValue(res)  
               }
           case PredefExternal((fn, arity)) =>
             // make a lambda
@@ -1838,6 +1836,19 @@ object PythonGen {
               Env.ifElse(ifs, elseV)
             }.flatten
 
+          case Always.SetChain(setmuts, result) =>
+            (
+              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+                Env.nameForAnon(mut).product(loop(v, slotName))  
+              }, loop(result, slotName)
+            ).mapN { (assigns, result) =>
+              Code.blockFromList(
+                assigns.toList.map { case (mut, v) =>
+                  mut := v  
+                }
+              )
+              .withValue(result)
+            }
           case Always(cond, expr) =>
             (boolExpr(cond, slotName).map(Code.always), loop(expr, slotName))
               .mapN(_.withValue(_))

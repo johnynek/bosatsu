@@ -350,10 +350,7 @@ object MatchlessToValue {
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
-              val initMutKeys = scope.muts.keySet
               val valuesInScope = capScoped.map(scoped => scoped(scope))
-              // these can't change the keyset
-              require(initMutKeys == scope.muts.keySet)
               // now we ignore the scope after reading from it
               val scope1 = Scope.capture(valuesInScope, scope.extra)
 
@@ -368,10 +365,7 @@ object MatchlessToValue {
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
-              val initMutKeys = scope.muts.keySet
               val valuesInScope = capScoped.map(scoped => scoped(scope))
-              // these can't change the keyset
-              require(initMutKeys == scope.muts.keySet)
 
               lazy val scope1: Scope = Scope
                 .capture(valuesInScope)
@@ -395,20 +389,10 @@ object MatchlessToValue {
             // has failed
             Dynamic { (scope: Scope) =>
               var c = condF(scope)
-              def printOnFail[A](a: => A, msg: => String): A = {
-                try a
-                catch {
-                  case t: Throwable =>
-                    println(msg)
-                    throw t
-                }
-              }
               while(c) {
-                //println(s"loop iteration: ${scope.debugString}")
-                printOnFail(effectF(scope), s"failed in effect:\n\n$effect\n\n${scope.debugString}")
-                c = printOnFail(condF(scope), "failed in check")
+                effectF(scope)
+                c = condF(scope)
               }
-
               scope.muts(result.ident).get()
             }
           case Global(p, n) =>

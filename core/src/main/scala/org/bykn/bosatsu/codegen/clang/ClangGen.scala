@@ -1007,6 +1007,17 @@ object ClangGen {
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
+          case Always.SetChain(setmuts, result) =>
+            (
+              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+                for {
+                  name <- getAnon(mut)
+                  vl <- innerToValue(v)
+                } yield (name := vl)
+              }, innerToValue(result)
+            ).mapN { (assigns, result) =>
+              Code.Statements(assigns) +: result
+            }
           case Always(cond, thenExpr) =>
             boolToValue(cond).flatMap { bv =>
               bv.discardValue match {
