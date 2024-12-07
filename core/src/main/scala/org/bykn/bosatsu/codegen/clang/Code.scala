@@ -498,7 +498,7 @@ object Code {
     // These are the highest priority, so safe to not use a parens
     def unapply(e: Expression): Option[Expression] =
       e match {
-        case noPar @ (Ident(_) | Apply(_, _) | Select(_, _) | Bracket(_, _)) => Some(noPar)
+        case noPar @ (Ident(_) | Apply(_, _) | Select(_, _) | Bracket(_, _) | IntLiteral(_)) => Some(noPar)
         case _ => None
       }
   }

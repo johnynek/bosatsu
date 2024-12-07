@@ -334,97 +334,6 @@ object MatchlessToValue {
             }
         }
 
-        /*
-      def buildLoop(
-          caps: Vector[Scoped[Value]],
-          fnName: Bindable,
-          args: NonEmptyList[Bindable],
-          body: Scoped[Value]
-      ): Scoped[Value] = {
-        val argCount = args.length
-        val argNames: Array[Bindable] = args.toList.toArray
-        if (caps.isEmpty) {
-          // We only capture ourself and we put that in below
-          val scope1 = Scope.empty()
-          val fn = FnValue { allArgs =>
-            var registers: NonEmptyList[Value] = allArgs
-
-            // the registers are set up
-            // when we recur, that is a continue on the loop,
-            // we just update the registers and return null
-            val continueFn = FnValue { continueArgs =>
-              registers = continueArgs
-              null
-            }
-
-            val scope2 = scope1.let(fnName, Eval.now(continueFn))
-
-            var res: Value = null
-
-            while (res eq null) {
-              // read the registers into the environment
-              var idx = 0
-              var reg: List[Value] = registers.toList
-              var s: Scope = scope2
-              while (idx < argCount) {
-                val b = argNames(idx)
-                val v = reg.head
-                reg = reg.tail
-                s = s.let(b, Eval.now(v))
-                idx = idx + 1
-              }
-              res = body(s)
-            }
-
-            res
-          }
-
-          Static(fn)
-        } else {
-          Dynamic { scope =>
-            // TODO this maybe isn't helpful
-            // it doesn't matter if the scope
-            // is too broad for correctness.
-            // It may make things go faster
-            // if the caps are really small
-            // or if we can GC things sooner.
-            val scope1 = scope.capture(caps.map(s => s(scope)))
-
-            FnValue { allArgs =>
-              var registers: NonEmptyList[Value] = allArgs
-
-              // the registers are set up
-              // when we recur, that is a continue on the loop,
-              // we just update the registers and return null
-              val continueFn = FnValue { continueArgs =>
-                registers = continueArgs
-                null
-              }
-
-              val scope2 = scope1.let(fnName, Eval.now(continueFn))
-
-              var res: Value = null
-
-              while (res eq null) {
-                // read the registers into the environment
-                var idx = 0
-                var reg: List[Value] = registers.toList
-                var s: Scope = scope2
-                while (idx < argCount) {
-                  val b = argNames(idx)
-                  val v = reg.head
-                  reg = reg.tail
-                  s = s.let(b, Eval.now(v))
-                  idx = idx + 1
-                }
-                res = body(s)
-              }
-
-              res
-            }
-          }
-        }
-      }*/
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
@@ -434,9 +343,6 @@ object MatchlessToValue {
             val scope1 = Scope.empty()
             val fn = FnValue { argV =>
               val scope2 = scope1.letAll(args, argV)
-              if (args.exists(_ == Identifier.Name("rands"))) {
-                //println(s"calling lambda($argV) with ${scope2.debugString}")
-              }
               resFn(scope2)
             }
             Static(fn)
