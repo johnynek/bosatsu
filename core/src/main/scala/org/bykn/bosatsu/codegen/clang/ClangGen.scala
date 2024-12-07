@@ -244,69 +244,6 @@ object ClangGen {
       // This name has to be impossible to give out for any other purpose
       val slotsArgName: Code.Ident = Code.Ident("__bstsi_slot")
 
-      // assign any results to result and set the condition to false
-      // and replace any tail calls to nm(args) with assigning args to those values
-      def toWhileBody(fnName: Code.Ident, argTemp: NonEmptyList[(Code.Param, Code.Ident)], isClosure: Boolean, cond: Code.Ident, result: Code.Ident, body: Code.ValueLike): Code.Block = {
-      
-        import Code._
-
-        def returnValue(vl: ValueLike): Statement =
-          (cond := FalseLit) +
-            (result := vl)
-
-        def loop(vl: ValueLike): Option[Statement] =
-          vl match {
-            case Apply(fn, appArgs) if fn == fnName =>
-              // this is a tail call
-              val newArgsList =
-                if (isClosure) appArgs.tail
-                else appArgs
-              // we know the length of appArgs must match args or the code wouldn't have compiled
-              // we have to first assign to the temp variables, and then assign the temp variables
-              // to the results to make sure we don't have any data dependency issues with the values;
-              val tmpAssigns = argTemp
-                .iterator
-                .zip(newArgsList.iterator)
-                .flatMap { case ((Param(_, name), tmp), value) =>
-                  if (name != value)
-                    // don't create self assignments
-                    Iterator.single((Assignment(tmp, value), Assignment(name, tmp)))
-                  else
-                    Iterator.empty
-                }
-                .toList
-
-              // there must be at least one assignment
-              val assignNEL = NonEmptyList.fromListUnsafe(
-                tmpAssigns.map(_._1) ::: tmpAssigns.map(_._2)
-              )
-              Some(Statements(assignNEL))
-            case IfElseValue(c, t, f) =>
-              // this can possible have tail calls inside the branches
-              (loop(t), loop(f)) match {
-                case (Some(t), Some(f)) =>
-                  Some(ifThenElse(c, t, f))
-                case (None, Some(f)) =>
-                  Some(ifThenElse(c, returnValue(t), f))
-                case (Some(t), None) =>
-                  Some(ifThenElse(c, t, returnValue(f)))
-                case (None, None) => None
-              }
-            case Ternary(c, t, f) => loop(IfElseValue(c, t, f))
-            case WithValue(s, vl) => loop(vl).map(s + _)
-            case Apply(_, _) | Cast(_, _) | BinExpr(_, _, _) | Bracket(_, _) | Ident(_) |
-              IntLiteral(_) | PostfixExpr(_, _) | PrefixExpr(_, _) | Select(_, _) |
-              StrLiteral(_) => None
-          }
-
-        loop(body) match {
-          case Some(stmt) => block(stmt)
-          case None =>
-            sys.error("invariant violation: could not find tail calls in:" +
-              s"toWhileBody(fnName = $fnName, body = $body)")
-        }
-      }
-
       def bindAll[A](nel: NonEmptyList[Bindable])(in: T[A]): T[A] =
         bind(nel.head) {
           NonEmptyList.fromList(nel.tail) match {
@@ -1070,6 +1007,17 @@ object ClangGen {
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
+          case Always.SetChain(setmuts, result) =>
+            (
+              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+                for {
+                  name <- getAnon(mut)
+                  vl <- innerToValue(v)
+                } yield (name := vl)
+              }, innerToValue(result)
+            ).mapN { (assigns, result) =>
+              Code.Statements(assigns) +: result
+            }
           case Always(cond, thenExpr) =>
             boolToValue(cond).flatMap { bv =>
               bv.discardValue match {
@@ -1133,6 +1081,24 @@ object ClangGen {
                 NonEmptyList.one(argVL)
               )(newLocalName)
             }
+          case WhileExpr(cond, effect, res) =>
+            (boolToValue(cond), innerToValue(effect), innerToValue(res), newLocalName("cond"))
+              .mapN { (cond, effect, res, condVar) =>
+                Code.Statements(
+                  Code.DeclareVar(Nil, Code.TypeIdent.Bool, condVar, None),
+                  condVar := cond,
+                  Code.While(condVar,
+                    Code.Block(
+                      NonEmptyList.one(
+                        condVar := cond,
+                      )
+                      .prependList(
+                        effect.discardValue.toList
+                      )
+                    )
+                  )
+                ) +: res
+              }
         }
 
       def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
@@ -1156,38 +1122,6 @@ object ClangGen {
                     Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
                   }
               } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
-            }
-          case LoopFn(captures, nm, args, body) =>
-            recursiveName(fnName, nm, isClosure = captures.nonEmpty, arity = fn.arity) {
-              bindAll(args) {
-                for {
-                  cond <- newLocalName("cond")
-                  res <- newLocalName("res")
-                  bodyVL <- innerToValue(body)
-                  argParamsTemps <- args.traverse { b =>
-                    (getBinding(b), newLocalName("loop_temp")).mapN { (i, t) => (Code.Param(Code.TypeIdent.BValue, i), t) }
-                  }
-                  whileBody = toWhileBody(fnName, argParamsTemps, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
-                  declTmps = Code.Statements(
-                    argParamsTemps.map { case (_, tmp) =>
-                      Code.DeclareVar(Nil, Code.TypeIdent.BValue, tmp, None)
-                    }
-                  )
-                  fnBody = Code.block(
-                    declTmps,
-                    Code.DeclareVar(Nil, Code.TypeIdent.Bool, cond, Some(Code.TrueLit)),
-                    Code.DeclareVar(Nil, Code.TypeIdent.BValue, res, None),
-                    Code.While(cond, whileBody),
-                    Code.Return(Some(res))
-                  )
-                  argParams = argParamsTemps.map(_._1)
-                  allArgs =
-                    if (captures.isEmpty) argParams
-                    else {
-                      Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
-                    }
-                } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(fnBody))
-              }
             }
         }
 

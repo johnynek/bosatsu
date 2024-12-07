@@ -421,61 +421,6 @@ object PythonGen {
 
       loop(initBody)
     }
-
-    // these are always recursive so we can use def to define them
-    def buildLoop(
-        selfName: Ident,
-        fnMutArgs: NonEmptyList[(Ident, Ident)],
-        body: ValueLike
-    ): Env[Statement] = {
-      /*
-       * bodyUpdate = body except App(foo, args) is replaced with
-       * reseting the inputs, and setting cont to True and having
-       * the value ()
-       *
-       * def foo(a)(b)(c):
-       *   cont = True
-       *   res = ()
-       *   while cont:
-       *     cont = False
-       *     res = bodyUpdate
-       *   return res
-       */
-      val fnArgs = fnMutArgs.map(_._1)
-      val mutArgs = fnMutArgs.map(_._2)
-
-      def assignMut(cont: Code.Ident)(args: List[Expression]): Statement = {
-        // do the replacement in one atomic go. otherwise
-        // we could mutate a variable a later expression depends on
-        // some times we generate code that does x = x, remove those cases
-        val (left, right) =
-          mutArgs.toList.zip(args).filter { case (x, y) => x != y }.unzip
-
-        Code.block(
-          cont := Const.True,
-          if (left.isEmpty) Pass
-          else if (left.lengthCompare(1) == 0) {
-            left.head := right.head
-          } else {
-            (MakeTuple(left) := MakeTuple(right))
-          }
-        )
-      }
-
-      for {
-        cont <- Env.newAssignableVar
-        ac = assignMut(cont)(fnArgs.toList)
-        res <- Env.newAssignableVar
-        ar = (res := Code.Const.Unit)
-        body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(
-          assignMut(cont)
-        )
-        setRes = res := body1
-        loop = While(cont, (cont := false) +: setRes)
-        newBody = (ac +: ar +: loop).withValue(res)
-      } yield makeDef(selfName, fnArgs, newBody)
-    }
-
   }
 
   // we escape by prefixing by three underscores, ___ and n (for name)
@@ -1708,34 +1653,13 @@ object PythonGen {
               .withValue(res)
           }
 
-      // if expr is a LoopFn or Lambda handle it
+      // if expr is a Lambda handle it
       def topFn(
           name: Code.Ident,
           expr: FnExpr,
           slotName: Option[Code.Ident]
       ): Env[Statement] =
         expr match {
-          case LoopFn(captures, _, args, b) =>
-            // note, name is already bound
-            // args can use topFn
-            val boundA = args.traverse(Env.topLevelName)
-            val subsA = args.traverse { a =>
-              for {
-                mut <- Env.newAssignableVar
-                _ <- Env.subs(a, mut)
-              } yield (a, mut)
-            }
-
-            for {
-              as <- boundA
-              subs <- subsA
-              subs1 = as.zipWith(subs) { case (b, (_, m)) => (b, m) }
-              (binds, body) <- makeSlots(captures, slotName)(loop(b, _))
-              loopRes <- Env.buildLoop(name, subs1, body)
-              // we have bound this name twice, once for the top and once for substitution
-              _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
-            } yield Code.blockFromList(binds.toList ::: loopRes :: Nil)
-
           case Lambda(captures, _, args, body) =>
             // we can ignore name because python already allows recursion
             // we can use topLevelName on makeDefs since they are already
@@ -1744,13 +1668,13 @@ object PythonGen {
               args.traverse(Env.topLevelName(_)),
               makeSlots(captures, slotName)(loop(body, _))
             )
-              .mapN { case (as, (slots, body)) =>
-                Code.blockFromList(
-                  slots.toList :::
-                    Env.makeDef(name, as, body) ::
-                    Nil
-                )
-              }
+            .mapN { case (as, (slots, body)) =>
+              Code.blockFromList(
+                slots.toList :::
+                  Env.makeDef(name, as, body) ::
+                  Nil
+              )
+            }
         }
 
       def makeSlots[A](captures: List[Expr], slotName: Option[Code.Ident])(
@@ -1788,33 +1712,19 @@ object PythonGen {
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
               }
-          case LoopFn(captures, thisName, args, body) =>
-            // note, thisName is already bound because LoopFn
-            // is a lambda, not a def
-
-            // we can use topLeft for arg names
-            val boundA = args.traverse(Env.topLevelName)
-            val subsA = args.traverse { a =>
-              for {
-                mut <- Env.newAssignableVar
-                _ <- Env.subs(a, mut)
-              } yield (a, mut)
-            }
-
-            for {
-              nameI <- Env.bind(thisName)
-              as <- boundA
-              subs <- subsA
-              (prefix, body) <- makeSlots(captures, slotName)(loop(body, _))
-              subs1 = as.zipWith(subs) { case (b, (_, m)) => (b, m) }
-              loopRes <- Env.buildLoop(nameI, subs1, body)
-              // we have bound the args twice: once as args, once as interal muts
-              _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
-              _ <- Env.unbind(thisName)
-            } yield Code
-              .blockFromList(prefix.toList :+ loopRes)
-              .withValue(nameI)
-
+          case WhileExpr(cond, effect, res) =>
+            (boolExpr(cond, slotName), loop(effect, slotName), loop(res, slotName), Env.newAssignableVar)
+              .mapN { (cond, effect, res, c) =>
+                Code.block(
+                  c := cond,
+                  Code.While(c,
+                    Code.block(
+                      Code.always(effect),
+                      c := cond
+                    )
+                  )
+                ).withValue(res)  
+              }
           case PredefExternal((fn, arity)) =>
             // make a lambda
             PredefExternal.makeLambda(arity)(fn)
@@ -1926,6 +1836,19 @@ object PythonGen {
               Env.ifElse(ifs, elseV)
             }.flatten
 
+          case Always.SetChain(setmuts, result) =>
+            (
+              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+                Env.nameForAnon(mut).product(loop(v, slotName))  
+              }, loop(result, slotName)
+            ).mapN { (assigns, result) =>
+              Code.blockFromList(
+                assigns.toList.map { case (mut, v) =>
+                  mut := v  
+                }
+              )
+              .withValue(result)
+            }
           case Always(cond, expr) =>
             (boolExpr(cond, slotName).map(Code.always), loop(expr, slotName))
               .mapN(_.withValue(_))

@@ -292,5 +292,4 @@ class PathModuleTest extends AnyFunSuite {
       case other => fail(s"unexpeced: $other")
     }
   }
-
 }
