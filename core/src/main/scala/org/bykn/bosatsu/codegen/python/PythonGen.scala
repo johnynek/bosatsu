@@ -423,6 +423,7 @@ object PythonGen {
     }
 
     // these are always recursive so we can use def to define them
+    /*
     def buildLoop(
         selfName: Ident,
         fnMutArgs: NonEmptyList[(Ident, Ident)],
@@ -475,6 +476,7 @@ object PythonGen {
         newBody = (ac +: ar +: loop).withValue(res)
       } yield makeDef(selfName, fnArgs, newBody)
     }
+    */
 
   }
 
@@ -1789,6 +1791,15 @@ object PythonGen {
                     defn = Env.makeDef(defName, args, v)
                     block = Code.blockFromList(prefix.toList ::: defn :: Nil)
                   } yield block.withValue(defName)
+              }
+          case WhileExpr(cond, effect, res) =>
+            (boolExpr(cond, slotName), loop(effect, slotName), loop(res, slotName))
+              .flatMapN { (cond, effect, res) =>
+                Env.onLastM(cond) { condX =>
+                  Env.onLast(effect) { effectX =>
+                    Code.WithValue(Code.While(condX, Code.always(effectX)), res)
+                  }
+                }
               }
               /*
           case LoopFn(captures, thisName, args, body) =>
