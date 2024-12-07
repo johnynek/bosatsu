@@ -35,7 +35,9 @@ x = 1
       )
 
       res match {
-        case Right(d) => assertEquals(d.render(80), matches)
+        case Right(d) =>
+          val got = d.render(80)
+          assertEquals(got, matches, s"\n\ngot:\n\n$got\n\n")
         case Left(e) => fail(e.toString)
       }
     }
@@ -59,12 +61,12 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
         alloc_enum0(0));
 }""")
   }
-  test("check foldr_List") {
+  test("check foldr_List".only) {
     assertPredefFns("foldr_List")("""#include "bosatsu_runtime.h"
 
 BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
     if (get_variant(__bsts_b_list1) == (0)) {
-        return __bstsi_slot[0];
+        return clone_value(__bstsi_slot[0]);
     }
     else {
         BValue __bsts_b_h0 = get_enum_index(__bsts_b_list1, 0);

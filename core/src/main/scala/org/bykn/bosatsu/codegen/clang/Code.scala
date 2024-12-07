@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.clang
 
 import cats.Monad
-import cats.data.{NonEmptyList, NonEmptyChain}
+import cats.data.{Chain, NonEmptyList, NonEmptyChain}
 import java.nio.charset.StandardCharsets
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
@@ -67,6 +67,19 @@ object Code {
         case e: Expression => e.evalToInt.isDefined
         case WithValue(_, v) => v.returnsBool
         case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
+      }
+
+    def returnsIdent: Option[Ident] =
+      this match {
+        case i: Ident => Some(i)
+        case _: Expression => None
+        case WithValue(_, v) => v.returnsIdent
+        case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
+          (t.returnsIdent, f.returnsIdent)
+            .flatMapN { case (a, b) =>
+              if (a == b) Some(a)
+              else None
+            }
       }
 
     def discardValue: Option[Statement] =
@@ -272,6 +285,16 @@ object Code {
           }
       }
     }
+
+    def beforeValue(beforeRet: List[Statement], vl: ValueLike): ValueLike =
+      if (beforeRet.isEmpty) vl
+      else vl match {
+        case expr: Expression =>
+          WithValue(Statements(NonEmptyList.fromListUnsafe(beforeRet)), expr)
+        case WithValue(stmt, v) => stmt +: beforeValue(beforeRet, v)
+        case IfElseValue(cond, thenC, elseC) =>
+          IfElseValue(cond, beforeValue(beforeRet, thenC), beforeValue(beforeRet, elseC))
+      }
   }
 
   def returnValue(vl: ValueLike): Statement =
@@ -281,6 +304,10 @@ object Code {
         case IfElseValue(cond, thenC, elseC) =>
           ifThenElse(cond, returnValue(thenC), returnValue(elseC))
     }
+
+  def returnAfterValue(beforeRet: List[Statement], vl: ValueLike): Statement =
+    returnValue(ValueLike.beforeValue(beforeRet, vl))
+
 
   sealed abstract class BinOp(repr: String) {
     val toDoc: Doc = Doc.text(repr)
@@ -403,6 +430,10 @@ object Code {
     def apply(first: Statement, rest: Statement*): Statements =
       Statements(NonEmptyChain.of(first, rest: _*))
 
+    def prepend(lhs: List[Statement], rhs: Statement): Statement =
+      if (lhs.isEmpty) rhs
+      else Statements(NonEmptyChain.fromChainAppend(Chain.fromSeq(lhs), rhs))
+      
     def combine(first: Statement, last: Statement): Statement =
       first match {
         case Statements(items) =>

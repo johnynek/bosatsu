@@ -26,6 +26,9 @@ typedef BValue (*BConstruct)();
 BValue clone_value(BValue value);
 // BValue -> ()
 void release_value(BValue value);
+// delta may be negative or positive
+void bsts_increment_value(BValue value, int delta);
+
 
 // (&BValue, int) -> &BValue
 BValue get_struct_index(BValue v, int idx);
