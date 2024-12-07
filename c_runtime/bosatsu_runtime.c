@@ -1184,6 +1184,30 @@ BValue clone_value(BValue value) {
     }
 }
 
+void bsts_increment_value(BValue value, int delta) {
+  // put this first since delta is almost always a compile time constant
+  // if it is set we can inline this
+  if (delta > 0) {
+    if (IS_POINTER(value)) {
+      RefCounted* rc = (RefCounted*)value;
+        // zero should never be here but it won't hurt to keep it around
+        atomic_fetch_add_explicit(&(rc->ref_count), delta, memory_order_seq_cst);
+      }
+  }
+  else if (delta < 0) {
+    if (IS_POINTER(value)) {
+      RefCounted* rc = (RefCounted*)value;
+      int decrement = -delta;
+      int prior = atomic_fetch_sub_explicit(&(rc->ref_count), decrement, memory_order_seq_cst);
+      if (prior == decrement) {
+        // If reference count drops to 0, free the memory
+        // TODO actually free
+        //rc->free(rc);
+      }
+    }
+  }
+}
+
 // Function to safely decrement the reference count and free memory if needed
 static void release_ref_counted(RefCounted *block) {
     if (block == NULL) return;

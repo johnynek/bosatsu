@@ -260,9 +260,10 @@ object ClangGen {
       /////////////////////////////////////////
       // the below are memory management related functions
       /////////////////////////////////////////
-      def scope[A](ta: T[A]): T[A]
+      def scope[A](ta: T[A]): T[(A, Map[Long, Int])]
       // sometimes we jump back out to a top scope when rendering closures and lambdas
-      def topScope[A](ta: T[A]): T[A]
+      // return the final root counts so we can repair them
+      def topScope[A](ta: T[A]): T[(A, Map[Long, Int])]
       def passToFn(rootId: Long): T[Unit]
       // creates a new owned ident that points to root memory with the given id
       def createOwned(ident: Code.Ident, root: Long): T[Unit]
@@ -272,6 +273,12 @@ object ClangGen {
       // this has to make sure the current scope has an additional count so it
       // is safe to borrow
       def borrowLifetime(lt: MemState.Lifetime): T[Unit]
+      // when we have an if/else we need to update two separate scopes to have the same
+      // static memory behavior, this may involve adding counts or releases
+      def mergeValues(
+        left: T[((MemState, Code.ValueLike), Map[Long, Int])],
+        right: T[((MemState, Code.ValueLike), Map[Long, Int])]): T[(MemState, Code.ValueLike, Code.ValueLike)]
+
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -751,7 +758,8 @@ object ClangGen {
                               pv(StringApi.find(strEx, es, start))  
                             }(newLocalName))
                           }
-                      (find, found) = findFound
+                      // TODO: maybe don't ignore root counts?
+                      ((find, found), _rootCounts) = findFound
                     } yield (Code
                       .Statements(
                         Code.DeclareVar(Nil, Code.TypeIdent.Int, start, Some(offsetIdent)),
@@ -878,7 +886,7 @@ object ClangGen {
           tmpList <- newLocalName("tmp_list")
           declTmpList <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, tmpList, initVL)(newLocalName)
           // TODO: we need to check that the memstate of currentList is compatible and handled in the loop
-          checkVL <- scope(checkVLT)
+          (checkVL, _rootCounts) <- scope(checkVLT)
           /*
           top <- currentTop
           _ = println(s"""in $top: searchList(
@@ -1010,25 +1018,21 @@ object ClangGen {
             } yield (MemState.Owned(root), expr)
         }
 
-      // when we have an if/else we need to update two separate scopes to have the same
-      // static memory behavior, this may involve adding counts or releases
-      def mergeValues(left: T[(MemState, Code.ValueLike)], right: T[(MemState, Code.ValueLike)]): T[(MemState, Code.ValueLike, Code.ValueLike)] =
-        // TODO: we have not unified counts
-        (left, right)
-          .mapN { case ((msL, l), (msR, r)) =>
-            // TODO actually do something here
-            (msL, l, r)
-          }
-
       def clone(v: Code.ValueLike): T[Code.ValueLike] =
         v.onExpr { res => pv(Code.Ident("clone_value")(res)) }(newLocalName)
+
+      def decrementRef(ident: Code.Ident, cnt: Int): Code.Statement =
+        Code.Ident("bsts_increment_value")(ident, Code.IntLiteral(-cnt)).stmt
 
       def innerToArg(expr: Expr): T[Code.ValueLike] =
         innerToValue(expr).flatMap {
           case (MemState.Static, v) => pv(v)
-          case (MemState.Ref(_), v) =>
-            // TODO: maybe we could avoid a clone here by updating counts somehow
-            clone(v)
+          case (MemState.Ref(lt), v) =>
+            // we require that that count > 0, so the object is still alive
+            // and we increment a count that is not accounted for in the count (we could
+            // statically change the target value for this root, but for now we just call
+            // clone).
+            clone(v) <* borrowLifetime(lt)
           case (MemState.Owned(root), v) =>
             // arguments decrement count
             passToFn(root).as(v)
@@ -1130,12 +1134,26 @@ object ClangGen {
           }
 
       def assignMut(target: Code.Ident, vl: Code.ValueLike, rhs: MemState): T[Code.Statement] =
-        // TODO handle this correctly
+        // TODO
         pure(target := vl)
+
+      def assignRootFromAlloc(vl: Code.ValueLike): T[(MemState, Code.ValueLike)] =
+        for {
+          r <- nextRootId
+          vl1 <- assignRootFromAlloc(r, vl)
+        } yield (MemState.Owned(r), vl1)
+
+      def assignRootFromAlloc(r: Long, vl: Code.ValueLike): T[Code.ValueLike] = {
+        val rootId = rootIdName(r)
+        val decl = rootId := vl
+        createOwned(rootId, r).as(decl +: rootId)
+      }
+
+      val bosatsuUnitValue: Code.Expression = Code.Ident("bsts_unit_value")()
 
       def innerToValue(expr: Expr): T[(MemState, Code.ValueLike)] =
         expr match {
-          case fn: FnExpr => (nextRootId, innerFn(fn)).mapN((r, v) => (MemState.Owned(r), v))
+          case fn: FnExpr => innerFn(fn).flatMap(assignRootFromAlloc(_))
           case Let(Right(arg), argV, in) =>
             // arg isn't in scope for argV
             innerToValue(argV).flatMap { case (ms, v) =>
@@ -1169,12 +1187,12 @@ object ClangGen {
               }
           case app @ App(_, _) =>
             // we always own the result of an App
-            (nextRootId, innerApp(app)).mapN((root, res) => (MemState.Owned(root), res))
+            innerApp(app).flatMap(assignRootFromAlloc(_))
           case Global(pack, name) =>
             directFn(pack, name)
               .flatMap {
                 case Some((ident, arity)) =>
-                  nextRootId.map(r => (MemState.Owned(r), boxFn(ident, arity)))
+                  assignRootFromAlloc(boxFn(ident, arity))
                 case None =>
                   globalIdent(pack, name).map(nm => (MemState.Static, nm()))
               }
@@ -1184,7 +1202,7 @@ object ClangGen {
                 case Some((nm, isClosure, arity)) =>
                   if (!isClosure) {
                     // a closure can't be a static name
-                    nextRootId.map(r => (MemState.Owned(r), boxFn(nm, arity)))
+                    assignRootFromAlloc(boxFn(nm, arity))
                   }
                   else {
                     // recover the pointer to this closure from the slots argument
@@ -1276,10 +1294,12 @@ object ClangGen {
               innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
             }
           case MakeStruct(arity) =>
-            if (arity == 0) pure((MemState.Static, Code.Ident("bsts_unit_value")()))
+            if (arity == 0) pure((MemState.Static, bosatsuUnitValue))
             else {
               val allocStructFn = s"alloc_struct$arity"
-              nextRootId.map(r => (MemState.Owned(r), boxFn(Code.Ident(allocStructFn), arity)))
+              assignRootFromAlloc(
+                boxFn(Code.Ident(allocStructFn), arity)
+              )
             }
           case ZeroNat =>
             pure((MemState.Static, Code.Ident("BSTS_NAT_0")))
@@ -1302,33 +1322,61 @@ object ClangGen {
             } yield (MemState.Static, prev)
         }
 
+      def rootIdName(rootId: Long): Code.Ident =
+        Code.Ident(s"__bsts_r_${rootId}")
+
+      def rootIdInitCount(rootId: Long): Code.Ident =
+        Code.Ident(s"__bsts_ri_${rootId}")
+
       def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
          fn match {
           case Lambda(captures, name, args, expr) =>
-            val body = innerToArg(expr).map(Code.returnValue(_))
+            val body = innerToArg(expr)
             val body1 = name match {
               case None => body
               case Some(rec) => recursiveName(fnName, rec, isClosure = captures.nonEmpty, arity = fn.arity)(body)
             }
 
-            val argParamsT = args.traverse { b =>
+            val argParamsTRoot = args.traverse { b =>
                 for {
                   i <- getBinding(b)
                   r <- nextRootId
                   _ <- createOwned(i, r)
-                } yield Code.Param(Code.TypeIdent.BValue, i)
+                } yield (Code.Param(Code.TypeIdent.BValue, i), r)
               }
-            topScope(bindAll(args) { argParamsT.product(body1) })
-              .map { case (argParams, fnBody) =>
-                // TODO: when scopes end, we probably need to have extra clones we need to run first
-                // and releases we would need to run at the end, both of which may be empty
+            topScope(bindAll(args) { argParamsTRoot.product(body1) })
+              .map { case ((argParamsRoot, fnBodyVL), finalCounts) =>
+                val rootCntList = finalCounts.toList.sorted
+                val rootDecls = rootCntList.flatMap { case (root, c) =>
+                  val init = if (c < 0) -c else 0
+                  Code.DeclareVar(Nil, Code.TypeIdent.BValue, rootIdName(root), Some(bosatsuUnitValue)) ::
+                  Code.DeclareVar(Nil, Code.TypeIdent.Int, rootIdInitCount(root), Some(Code.IntLiteral(init))) ::
+                  Nil
+                }
+                val extraReleases = rootCntList.flatMap { case (root, c) =>
+                  if (c > 0) (decrementRef(rootIdName(root), c) :: Nil)
+                  else Nil
+                }
+
+                val argParams = argParamsRoot.map(_._1)
+                val argAssigns = argParamsRoot.map { case (param, r) =>
+                  rootIdName(r) := param.name  
+                }
                 val allArgs =
                   if (captures.isEmpty) argParams
                   else {
                     Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
                   }
               
-                Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
+                val fullBody = Code.Statements.prepend(
+                  rootDecls,
+                  Code.Statements.prepend(
+                    argAssigns.toList,
+                    Code.returnAfterValue(extraReleases, fnBodyVL)
+                  )
+                )
+                
+                Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fullBody)))
               }
           case LoopFn(captures, nm, args, body) =>
             recursiveName(fnName, nm, isClosure = captures.nonEmpty, arity = fn.arity) {
@@ -1348,17 +1396,15 @@ object ClangGen {
 
                   val bodyArgsT = topScope {
                       bindAll(args) {
-                        argsT.product(scope {
-                          innerToArg(body)
-                        })
+                        argsT.product(innerToArg(body))
                       }
                     }
 
                   for {
-                    bodyArgs <- bodyArgsT
+                    bodyArgsCounts <- bodyArgsT
                     // the newLocalName and the body exists inside the while loop scope
                     // TODO: add any clone/releases to manage function memory
-                    (argParamsTemps, bodyVL) = bodyArgs
+                    ((argParamsTemps, bodyVL), finalCounts) = bodyArgsCounts
                     whileBody = toWhileBody(fnName, argParamsTemps, isClosure = captures.nonEmpty, cond = cond, result = res, body = bodyVL)
                     declTmps = Code.Statements(
                       argParamsTemps.map { case (_, tmp) =>
@@ -1398,9 +1444,9 @@ object ClangGen {
             // we materialize an Atomic value to hold the static data
             // then we generate a function to populate the value
             for {
-              msVl <- scope(innerToValue(someValue))
-              // TODO: use MemState here
-              (_ms, vl) = msVl
+              vlRootCnt <- topScope(innerToValue(someValue))
+              // TODO: use _rootCnt here to repair final root counts and memstate to see if we have ownership
+              ((_memState, vl), _rootCnt) = vlRootCnt
               value <- staticValueName(p, b)
               consFn <- constructorFn(p, b)
               readFn <- globalIdent(p, b)
@@ -1461,7 +1507,7 @@ object ClangGen {
             rootCounter: Long,
             identCache: Map[Expr, Code.Ident],
             memScope: List[Map[Code.Ident, MemState]],
-            rootCounts: Map[Long, Long]
+            rootCounts: Map[Long, Int]
           ) {
             def finalFile: Doc =
               Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
@@ -1496,29 +1542,18 @@ object ClangGen {
               lookup(i, memScope)
             }
 
-            def decrementCount(root: Long): State = {
-              this
-              /*
-              @annotation.tailrec
-              def loop(i: Code.Ident, scopes: List[Map[Code.Ident, IdentState]], left: List[Map[Code.Ident, IdentState]]): List[Map[Code.Ident, IdentState]] =
-                scopes match {
-                  case Nil => left.reverse
-                  case h :: tail =>
-                    h.get(i) match {
-                      case Some(IdentState.AliasOf(a)) => loop(a, scopes, left)
-                      case Some(IdentState.Counted(c)) =>
-                        val h1 = h.updated(i, IdentState.Counted(c - 1))
-                        left reverse_::: (h1 :: tail)
-                      case Some(notCounted) =>
-                        sys.error(s"invariant violation: expected counted: $notCounted for decrementCount($i) with memScope=${memScope} in ${currentTop}")
-                      case None => loop(i, tail, h :: left)
-                    }
-                }
-
-              val m1 = loop(i, memScope, Nil)
-              copy(memScope = m1)
-              */
-            }
+            def decrementCount(root: Long): Either[Error, State] =
+              // we have to ensure the count is at least one
+              rootCounts.get(root) match {
+                case Some(i) =>
+                  Right {
+                    // we need to decrement again so when it is initialized at runtime this value will be at least 1 
+                    val rc1 = rootCounts.updated(root, i - 1)
+                    copy(rootCounts = rc1)
+                  }
+                case None =>
+                  Left(Error.InvariantViolation(s"root id $root does not exist in ${rootCounts} in ${currentTop} with memScope ${memScope}"))
+              }  
           }
 
           object State {
@@ -1568,48 +1603,64 @@ object ClangGen {
           def tryUpdate[A](fn: State => Either[Error, (State, A)]): T[A] =
             StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s))))
 
-          // TODO track when we are entering and exiting scopes
-          def scope[A](ta: T[A]): T[A] =
+          def scope[A](ta: T[A]): T[(A, Map[Long, Int])] =
             for {
               _ <- update(s => (s.enterScope, ()))
               a <- ta
-              counts <- update(_.exitScope)
-            } yield a
+              counts <- update { s =>
+                val s1 = s.exitScope._1
+                (s1, s.rootCounts)
+              }
+            } yield (a, counts)
 
-          def topScope[A](ta: T[A]): T[A] =
+          // This denotes that we are working on a net top-level scope
+          // which can't alias memory from another scope
+          def topScope[A](ta: T[A]): T[(A, Map[Long, Int])] =
             for {
               ms0 <- update { s =>
-                val s1 = s.copy(memScope = Nil)
-                (s1.enterScope, s.memScope)
+                val saved = (s.memScope, s.rootCounter, s.rootCounts)
+                val s1 = s.copy(memScope = Nil, rootCounter = 0L, rootCounts = Map.empty)
+                (s1.enterScope, saved)
               }
               a <- ta
-              counts <- update { s =>
-                val (s1, counts) = s.exitScope
-                val s2 = s1.copy(memScope = ms0)
-                (s2, counts)
+              finalRootCounts <- read(_.rootCounts)
+              _ <- update { s =>
+                (s.copy(memScope = ms0._1, rootCounter = ms0._2, rootCounts = ms0._3), ())
               }
-            } yield a
+            } yield (a, finalRootCounts)
 
           def passToFn(root: Long): T[Unit] =
-            update { s => (s.decrementCount(root), ()) }
+            tryUpdate { s => s.decrementCount(root).map((_, ())) }
 
           def initMemState(ident: Code.Ident, is: MemState): T[Unit] =
-            update { s =>
+            tryUpdate { s =>
               s.memScope match {
                 case h :: tail =>
                   h.get(ident) match {
                     case None =>
                       val memScope1 = h.updated(ident, is) :: tail
-                      (s.copy(memScope = memScope1), ())
+                      Right((s.copy(memScope = memScope1), ()))
                     case Some(st) =>
-                      sys.error(s"invariant violation: existing identState=$st for $ident in scope=${s.memScope} in ${s.currentTop} while setting to: $is")
+                      Left(Error.InvariantViolation(s"invariant violation: existing identState=$st for $ident in scope=${s.memScope} in ${s.currentTop} while setting to: $is"))
                   }
-                case Nil => sys.error(s"no memScope for initMemState($ident, $is), invariant violation, should only be called inside a scope")
+                case Nil =>
+                  Left(Error.InvariantViolation(s"no memScope for initMemState($ident, $is), invariant violation, should only be called inside a scope"))
               }
             }
 
           def createOwned(ident: Code.Ident, root: Long): T[Unit] =
-            initMemState(ident, MemState.Owned(root))
+            initMemState(ident, MemState.Owned(root)) *>
+              tryUpdate { s =>
+                s.rootCounts.get(root) match {
+                  case None =>
+                    // every created value starts with a count of 1
+                    val rc1 = s.rootCounts.updated(root, 1)
+                    val s1 = s.copy(rootCounts = rc1)
+                    Right((s1, ()))
+                  case Some(cnt) =>
+                    Left(Error.InvariantViolation(s"createOwned($ident, $root) but the root already has count: $cnt"))
+                }
+              }
 
           def bindMemory[A](name: Code.Ident, ms: MemState, vl: Code.ValueLike)(in: T[A]): T[A] =
             initMemState(name, ms) *> in
@@ -1625,9 +1676,33 @@ object ClangGen {
             }
           // this has to make sure the current scope has an additional count so it
           // is safe to borrow
-          def borrowLifetime(lt: MemState.Lifetime): T[Unit] =
-            /// ???
-            monadImpl.unit
+          def borrowLifetime(lt: MemState.Lifetime): T[Unit] = {
+            import MemState.Lifetime._
+
+            lt match {
+              case Static | ClosureVariable => monadImpl.unit
+              case Intersection(left, right) => borrowLifetime(left) *> borrowLifetime(right)
+              case FromRoot(root) =>
+                // we have to ensure the count is at least one
+                tryUpdate { s =>
+                  s.rootCounts.get(root) match {
+                    case Some(i) =>
+                      Right(if (i > 0) {
+                        // the value is still alive
+                        (s, ())
+                      }
+                      else {
+                        // we need to decrement again so when it is initialized at runtime this value will be at least 1 
+                        val rc1 = s.rootCounts.updated(root, i - 1)
+                        val s1 = s.copy(rootCounts = rc1)
+                        (s1, ())
+                      })
+                    case None =>
+                      Left(Error.InvariantViolation(s"root id $root does not exist in ${s.rootCounts} in ${s.currentTop} with memScope ${s.memScope}"))
+                  }  
+                }
+            }
+          }
 
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
             tryUpdate { s =>
@@ -1697,6 +1772,79 @@ object ClangGen {
             // in the future we see the scope of the binding which matters for GC, but here
             // we don't care
             in
+
+          def mergeValues(
+            left: T[((MemState, Code.ValueLike), Map[Long, Int])],
+            right: T[((MemState, Code.ValueLike), Map[Long, Int])]): T[(MemState, Code.ValueLike, Code.ValueLike)] =
+            // TODO: we have not unified counts
+            (left, right)
+              .flatMapN { case (((msL, l), lcnt), ((msR, r), rcnt)) =>
+                // we only decrement counts statically, so we can only lower them when they don't match
+                // which we need to do by inserting a dynamic call to decrement
+                val allRoots = (lcnt.keySet | rcnt.keySet).toList.sorted
+                val (resultRoots, leftAdj, rightAdj) = allRoots.foldLeft(
+                    (Map.empty[Long, Int], List.empty[Code.Statement], List.empty[Code.Statement])
+                  ) { case ((res, leftAdj, rightAdj), root) =>
+                    (lcnt.get(root), rcnt.get(root)) match {
+                      case (Some(l), Some(r)) =>
+                        if (l == r) {
+                          // these counts are the same
+                          (res.updated(root, l), leftAdj, rightAdj)
+                        }
+                        else {
+                          val diff = l - r
+                          if (diff < 0) {
+                            // we need to decrease l to match r, (l = r + diff) and diff < 0
+                            val l1 = decrementRef(rootIdName(root), -diff) :: leftAdj
+                            (res.updated(root, r), l1, rightAdj)
+                          }
+                          else {
+                            // diff > 0
+                            // we need to decrease r to match l, (r = l - diff) and diff > 0
+                            val r1 = decrementRef(rootIdName(root), diff) :: rightAdj
+                            (res.updated(root, r), leftAdj, r1)
+                          }
+                        }
+                      case (None, Some(r)) =>
+                        // the root was not created at all on the left branch
+                        (res.updated(root, r), leftAdj, rightAdj)
+                      case (Some(l), None) =>
+                        // the root was not created at all on the right branch
+                        (res.updated(root, l), leftAdj, rightAdj)
+                      case (None, None) =>
+                        sys.error("unreachable due to iterating keys")
+                    }
+                  }
+
+                update(s => (s.copy(rootCounts = resultRoots), ())) *> {
+                  val l1 = Code.ValueLike.beforeValue(leftAdj, l)
+                  val r1 = Code.ValueLike.beforeValue(rightAdj, r)
+                  
+                  (msL, msR) match {
+                    case _ if msL == msR =>
+                      pure((msL, l1, r1))
+                    case (MemState.Static, _) =>
+                      pure((msR, l1, r1))
+                    case (_, MemState.Static) =>
+                      pure((msL, l1, r1))
+                    case (MemState.Ref(lLife), MemState.Ref(rLife)) =>
+                      val m1 = MemState.Ref(MemState.Lifetime.Intersection(lLife, rLife))
+                      pure((m1, l1, r1))
+                    case (_, _) =>
+                      // In the rest of the cases, as least one side is
+                      // owned and they aren't the same, so instead we clone both sides and
+                      // assign to the new variable
+                      for {
+                        r <- nextRootId
+                        rootId = rootIdName(r)
+                        _ <- createOwned(rootId, r)
+                        cl1 <- clone(l1)
+                        cr1 <- clone(r1)
+                      } yield (MemState.Owned(r), (rootId := cl1) +: rootId, (rootId := cr1) +: rootId)
+                  }
+                }
+              }
+
 
           def getAnon(idx: Long): T[Code.Ident] =
             pure(Code.Ident(Idents.escape("__bsts_a_", idx.toString)))
