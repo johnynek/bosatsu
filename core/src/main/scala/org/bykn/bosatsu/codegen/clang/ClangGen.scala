@@ -295,6 +295,32 @@ object ClangGen {
             )
           }
 
+        def handleLet(name: Either[LocalAnon, Bindable], argV: Expr, in: T[Code.ValueLike]): T[Code.ValueLike] =
+          name match {
+            case Right(arg) =>
+              // arg isn't in scope for argV
+              innerToValue(argV).flatMap { v =>
+                bind(arg) {
+                  for {
+                    name <- getBinding(arg)
+                    result <- in
+                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
+                  } yield stmt +: result
+                }
+              }
+            case Left(LocalAnon(idx)) =>
+              // LocalAnon(idx) isn't in scope for argV
+              innerToValue(argV)
+                .flatMap { v =>
+                  bindAnon(idx) {
+                    for {
+                      name <- getAnon(idx)
+                      result <- in
+                      stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
+                    } yield stmt +: result
+                  }
+                }
+          }
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
@@ -337,11 +363,6 @@ object ClangGen {
             // this is just get_variant(expr) == expect
               vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
-          case SearchList(lst, init, check, leftAcc) =>
-            (boolToValue(check), innerToValue(init))
-              .flatMapN { (condV, initV) =>
-                searchList(lst, initV, condV, leftAcc)
-              }
           case MatchString(arg, parts, binds, mustMatch) =>
             (
               innerToValue(arg),
@@ -355,6 +376,16 @@ object ClangGen {
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
+          case LetBool(name, argV, in) =>
+            handleLet(name, argV, boolToValue(in))
+          case LetMutBool(LocalAnonMut(m), span) =>
+            bindAnon(m) {
+              for {
+                ident <- getAnon(m)
+                decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
+                res <- boolToValue(span)
+              } yield decl +: res
+            }
         }
 
       object StringApi {
@@ -941,29 +972,8 @@ object ClangGen {
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
           case fn: FnExpr => innerFn(fn)
-          case Let(Right(arg), argV, in) =>
-            // arg isn't in scope for argV
-            innerToValue(argV).flatMap { v =>
-              bind(arg) {
-                for {
-                  name <- getBinding(arg)
-                  result <- innerToValue(in)
-                  stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
-                } yield stmt +: result
-              }
-            }
-          case Let(Left(LocalAnon(idx)), argV, in) =>
-            // LocalAnon(idx) isn't in scope for argV
-            innerToValue(argV)
-              .flatMap { v =>
-                bindAnon(idx) {
-                  for {
-                    name <- getAnon(idx)
-                    result <- innerToValue(in)
-                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
-                  } yield stmt +: result
-                }
-              }
+          case Let(name, argV, in) =>
+            handleLet(name, argV, innerToValue(in))
           case app @ App(_, _) => innerApp(app)
           case Global(pack, name) =>
             directFn(pack, name)

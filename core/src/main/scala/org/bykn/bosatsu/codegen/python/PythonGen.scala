@@ -1221,13 +1221,11 @@ object PythonGen {
             ).flatMapN { (strVL, binds) =>
               Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }
-          case SearchList(locMut, init, check, optLeft) =>
-            // check to see if we can find a non-empty
-            // list that matches check
-            (loop(init, slotName), boolExpr(check, slotName)).flatMapN {
-              (initVL, checkVL) =>
-                searchList(locMut, initVL, checkVL, optLeft)
-            }
+          case LetBool(n, v, in) =>
+            doLet(n, v, boolExpr(in, slotName), slotName)
+          case LetMutBool(_, in) =>
+            // in python we just ignore this
+            boolExpr(in, slotName)
         }
 
       def matchString(
@@ -1690,6 +1688,23 @@ object PythonGen {
           } yield (Some(slots := tup), resVal)
         }
 
+        def doLet(name: Either[LocalAnon, Bindable], value: Expr, inF: Env[ValueLike], slotName: Option[Code.Ident]): Env[ValueLike] =
+          name match {
+            case Right(b) =>
+              // value b is in scope after ve
+              for {
+                ve <- loop(value, slotName)
+                bi <- Env.bind(b)
+                ine <- inF
+                _ <- Env.unbind(b)
+              } yield ((bi := ve).withValue(ine))
+            case Left(LocalAnon(l)) =>
+              // anonymous names never shadow
+              (Env.nameForAnon(l), loop(value, slotName))
+                .flatMapN { (bi, vE) =>
+                  inF.map((bi := vE).withValue(_))
+                }
+          }
       def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
           case Lambda(captures, recName, args, res) =>
@@ -1801,25 +1816,7 @@ object PythonGen {
             }
           case Let(localOrBind, notFn, in) =>
             // we know that notFn is not FnExpr here
-            val inF = loop(in, slotName)
-
-            localOrBind match {
-              case Right(b) =>
-                // value b is in scope after ve
-                for {
-                  ve <- loop(notFn, slotName)
-                  bi <- Env.bind(b)
-                  ine <- inF
-                  _ <- Env.unbind(b)
-                } yield ((bi := ve).withValue(ine))
-              case Left(LocalAnon(l)) =>
-                // anonymous names never shadow
-                (Env.nameForAnon(l), loop(notFn, slotName))
-                  .flatMapN { (bi, vE) =>
-                    inF.map((bi := vE).withValue(_))
-                  }
-            }
-
+            doLet(localOrBind, notFn, loop(in, slotName), slotName)
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to

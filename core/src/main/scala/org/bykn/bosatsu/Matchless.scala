@@ -106,17 +106,6 @@ object Matchless {
       size: Int,
       famArities: List[Int]
   ) extends BoolExpr
-  // handle list matching, this is a while loop, that is evaluting
-  // lst is initialized to init, leftAcc is initialized to empty
-  // tail until it is true while mutating lst => lst.tail
-  // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
-  // which could have nested searches of its own
-  case class SearchList(
-      lst: LocalAnonMut,
-      init: CheapExpr,
-      check: BoolExpr,
-      leftAcc: Option[LocalAnonMut]
-  ) extends BoolExpr
   // set the mutable variable to the given expr and return true
   // string matching is complex done at a lower level
   case class MatchString(
@@ -128,6 +117,17 @@ object Matchless {
   // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
+  case class LetBool(
+    arg: Either[LocalAnon, Bindable],
+      expr: Expr,
+      in: BoolExpr
+  ) extends BoolExpr
+
+  case class LetMutBool(name: LocalAnonMut, span: BoolExpr) extends BoolExpr
+  object LetMutBool {
+    def apply(lst: List[LocalAnonMut], span: BoolExpr): BoolExpr =
+      lst.foldRight(span)(LetMutBool(_, _))
+  }
 
   def hasSideEffect(bx: BoolExpr): Boolean =
     bx match {
@@ -137,8 +137,31 @@ object Matchless {
         false
       case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)          => hasSideEffect(b1) || hasSideEffect(b2)
-      case SearchList(_, _, b, l) =>
-        l.nonEmpty || hasSideEffect(b)
+      case LetBool(_, x, b) =>
+        hasSideEffect(b) || hasSideEffect(x)
+      case LetMutBool(_, b) => hasSideEffect(b)
+    }
+
+  def hasSideEffect(bx: Expr): Boolean =
+    bx match {
+      case _: CheapExpr => false
+      case Always(b, x) => hasSideEffect(b) || hasSideEffect(x)
+      case App(f, as) =>
+        (f :: as).exists(hasSideEffect(_))
+      case If(c, t, f) =>
+        hasSideEffect(c) || hasSideEffect(t) || hasSideEffect(f)
+      case Let(_, x, b) =>
+        hasSideEffect(b) || hasSideEffect(x)
+      case LetMut(_, in) => hasSideEffect(in)
+      case PrevNat(n) => hasSideEffect(n)
+      case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat | Lambda(_, _, _, _) =>
+        // making a lambda or const is a pure function
+        false
+      case WhileExpr(_, _, _) =>
+        // not all while loops have side effects technically, but we assume yes
+        // for now. We could have a list of all the known control mutables here
+        // but it seems hard
+        true
     }
 
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr {
@@ -191,13 +214,30 @@ object Matchless {
       extends ConsExpr
 
   private val boolFamArities = 0 :: 0 :: Nil
+  private val listFamArities = 0 :: 2 :: Nil
   val FalseExpr: Expr = MakeEnum(0, 0, boolFamArities)
   val TrueExpr: Expr = MakeEnum(1, 0, boolFamArities)
   val UnitExpr: Expr = MakeStruct(0)
 
   def isTrueExpr(e: CheapExpr): BoolExpr =
     CheckVariant(e, 1, 0, boolFamArities)
-    
+
+  object ListExpr {
+    val Nil: Expr = MakeEnum(0, 0, listFamArities)
+    private val consFn = MakeEnum(1, 2, listFamArities)
+
+    def cons(h: Expr, t: Expr): Expr =
+      App(consFn, NonEmptyList(h, t :: List.empty))
+
+    def notNil(e: CheapExpr): BoolExpr =
+      CheckVariant(e, 1, 2, listFamArities)
+
+    def head(arg: CheapExpr): CheapExpr =
+      GetEnumElement(arg, 1, 0, 2)
+
+    def tail(arg: CheapExpr): CheapExpr =
+      GetEnumElement(arg, 1, 1, 2)
+  }
   case class MakeStruct(arity: Int) extends ConsExpr
   case object ZeroNat extends ConsExpr {
     def arity = 0
@@ -325,11 +365,14 @@ object Matchless {
           CheckVariant(translateLocalsCheap(m, expr), expect, sz, fam)
         case ms: MatchString =>
           ms.copy(arg = translateLocalsCheap(m, ms.arg))
-        case sl: SearchList =>
-          sl.copy(
-            init = translateLocalsCheap(m, sl.init),
-            check = translateLocalsBool(m, sl.check)
-          )
+        case LetBool(b, a, in) =>
+          val m1 = b match {
+            case Right(b) => m - b
+            case _ => m
+          }
+          LetBool(b, translateLocals(m, a), translateLocalsBool(m1, in))
+        case LetMutBool(b, in) =>
+          LetMutBool(b, translateLocalsBool(m, in))
       }
 
     def translateLocals(m: Map[Bindable, LocalAnonMut], e: Expr): Expr =
@@ -380,10 +423,6 @@ object Matchless {
       args: NonEmptyList[Bindable],
       body: Expr): F[Expr] = {
 
-      def setAll(ls: List[(LocalAnonMut, Expr)], ret: Expr): Expr =
-        ls.foldRight(ret) { case ((l, e), r) =>
-          Always(SetMut(l, e), r)
-        }
       // assign any results to result and set the condition to false
       // and replace any tail calls to nm(args) with assigning args to those values
       case class ArgRecord(name: Bindable, tmp: LocalAnon, loopVar: LocalAnonMut)
@@ -631,6 +670,82 @@ object Matchless {
           }
       }
 
+  // handle list matching, this is a while loop, that is evaluting
+  // lst is initialized to init, leftAcc is initialized to empty
+  // tail until it is true while mutating lst => lst.tail
+  // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
+  // which could have nested searches of its own
+    def searchList(
+        lst: LocalAnonMut,
+        init: CheapExpr,
+        check: BoolExpr,
+        leftAcc: Option[LocalAnonMut]
+    ): F[BoolExpr] = {
+      (
+        makeAnon.map(LocalAnonMut(_)),
+        makeAnon.map(LocalAnon(_)),
+        makeAnon.map(LocalAnonMut(_))
+      )
+      .mapN { (resMut, letBind, currentList) =>
+        val initSets =
+          (resMut, FalseExpr) ::
+          (currentList, init) ::
+          (leftAcc.toList.map { left =>
+            (left, ListExpr.Nil)
+          })
+
+        val whileCheck = ListExpr.notNil(currentList)
+        val effect: Expr = {
+          setAll((lst, currentList) :: Nil,
+            If(check, {
+              setAll(
+                (currentList, ListExpr.Nil) ::
+                (resMut, TrueExpr) ::
+                Nil,
+                UnitExpr
+              )
+            }, {
+              setAll(
+                (currentList, ListExpr.tail(currentList)) ::
+                leftAcc.toList.map { left =>
+                  (left, ListExpr.cons(ListExpr.head(currentList), left))
+                },
+                UnitExpr
+              )
+            }))
+        }
+        val searchLoop = setAll(initSets, WhileExpr(whileCheck, effect, resMut))
+
+        LetMutBool(resMut :: currentList :: Nil,
+          LetBool(Left(letBind), searchLoop, isTrueExpr(resMut)))
+      }
+        /*
+            Dynamic { (scope: Scope) =>
+              var res = false
+              var currentList = initF(scope)
+              var leftList = VList.VNil
+              scope.updateMut(left, leftList)
+              while (currentList ne null) {
+                currentList match {
+                  case nonempty @ VList.Cons(head, tail) =>
+                    scope.updateMut(mutV, nonempty)
+                    res = checkF(scope)
+                    if (res) { currentList = null }
+                    else {
+                      currentList = tail
+                      leftList = VList.Cons(head, leftList)
+                      scope.updateMut(left, leftList)
+                    }
+                  case _ =>
+                    currentList = null
+                  // we don't match empty lists
+                }
+              }
+              res
+            }
+              */
+    }
+
     // return the check expression for the check we need to do, and the list of bindings
     // if must match is true, we know that the pattern must match, so we can potentially remove some checks
     def doesMatch(
@@ -708,8 +823,8 @@ object Matchless {
                   val anonList = LocalAnonMut(tmpList)
 
                   doesMatch(anonList, Pattern.ListPat(right.toList), false)
-                    .map { cases =>
-                      cases.map {
+                    .flatMap { cases =>
+                      cases.traverse {
                         case (_, TrueConst, _) =>
                           // $COVERAGE-OFF$
 
@@ -737,11 +852,8 @@ object Matchless {
                                 (letTail, None, binds)
                             }
 
-                          (
-                            resLet,
-                            SearchList(anonList, arg, expr, leftOpt),
-                            resBind
-                          )
+                          searchList(anonList, arg, expr, leftOpt)
+                            .map { s => (resLet, s, resBind) }
                       }
                     }
                 }
@@ -967,6 +1079,11 @@ object Matchless {
         // this would be better written as
         // Let(x, y, f)
         LetMut(anon, rest)
+      }
+
+    def setAll(ls: List[(LocalAnonMut, Expr)], ret: Expr): Expr =
+      ls.foldRight(ret) { case ((l, e), r) =>
+        Always(SetMut(l, e), r)
       }
 
     def matchExpr(
