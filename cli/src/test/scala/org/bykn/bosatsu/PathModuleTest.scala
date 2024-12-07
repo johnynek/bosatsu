@@ -22,7 +22,6 @@ class PathModuleTest extends AnyFunSuite {
       Gen.listOf(str).map(parts => Paths.get(parts.mkString("/")))
     }
 
-    /*
   test("test some hand written examples") {
     def pn(roots: List[String], file: String): Option[PackageName] =
       PathModule.pathPackage(roots.map(Paths.get(_)), Paths.get(file))
@@ -101,7 +100,6 @@ class PathModuleTest extends AnyFunSuite {
       if (noPrefix) assert(pack == None)
     }
   }
-    */
 
   def run(args: String*): PathModule.Output =
     PathModule.run(args.toList) match {
@@ -136,7 +134,6 @@ class PathModuleTest extends AnyFunSuite {
     }
   }
 
-  /*
   test("test search run of a file") {
     val out = run(
       "test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu"
@@ -295,6 +292,4 @@ class PathModuleTest extends AnyFunSuite {
       case other => fail(s"unexpeced: $other")
     }
   }
-
-  */
 }
