@@ -374,55 +374,7 @@ object PythonGen {
     ): Code.Def =
       Code.Def(defName, arg.toList, toReturn(v))
 
-    def replaceTailCallWithAssign(name: Ident, argSize: Int, body: ValueLike)(
-        onArgs: List[Expression] => Statement
-    ): Env[ValueLike] = {
-      val initBody = body
-      def loop(body: ValueLike): Env[ValueLike] =
-        body match {
-          case a @ Apply(fn0, args0) =>
-            if (fn0 == name) {
-              if (args0.length == argSize) {
-                val all = onArgs(args0)
-                // set all the values and return the empty tuple
-                Env.pure(all.withValue(Code.Const.Unit))
-              } else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"expected a tailcall for $name in $initBody, but found: $a"
-                )
-                // $COVERAGE-ON$
-              }
-            } else {
-              Env.pure(a)
-            }
-          case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
-          case IfElse(ifCases, elseCase) =>
-            // only the result types are in tail position, we don't need to recurse on conds
-            val ifs = ifCases.traverse { case (cond, res) =>
-              loop(res).map((cond, _))
-            }
-            (ifs, loop(elseCase))
-              .mapN(ifElse(_, _))
-              .flatten
-          case Ternary(ifTrue, cond, ifFalse) =>
-            // both results are in the tail position
-            (loop(ifTrue), loop(ifFalse)).mapN { (t, f) =>
-              ifElse1(cond, t, f)
-            }.flatten
-          case WithValue(stmt, v) =>
-            loop(v).map(stmt.withValue(_))
-          // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) |
-              MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) |
-              PyBool(_) | PyString(_) | PyInt(_) | Not(_) =>
-            Env.pure(body)
-        }
-
-      loop(initBody)
-    }
   }
-
   // we escape by prefixing by three underscores, ___ and n (for name)
   // we use other ___x escapes for different name spaces, e.g. tmps, and anons
   // then we escape _ by __ and any character outside the allowed
