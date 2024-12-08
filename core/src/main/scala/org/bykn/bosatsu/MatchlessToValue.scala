@@ -107,6 +107,8 @@ object MatchlessToValue {
         val mut1 = muts ++ idxs.map(l => (l, new Cell))
         copy(muts = mut1)
       }
+      def letMut(idx: Long): Scope =
+        copy(muts = muts.updated(idx, new Cell))
 
       def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope = {
         val b = bs.iterator
@@ -239,6 +241,28 @@ object MatchlessToValue {
               scope.updateMut(mut, exprF(scope))
               true
             }
+          case LetBool(localOrBind, value, in) =>
+            val valueF = loop(value)
+            val inF = boolExpr(in)
+
+            localOrBind match {
+              case Right(b) =>
+                inF.withScope { (scope: Scope) =>
+                  val vv = Eval.now(valueF(scope))
+                  scope.let(b, vv)
+                }
+              case Left(LocalAnon(l)) =>
+                inF.withScope { (scope: Scope) =>
+                  val vv = valueF(scope)
+                  scope.copy(anon = scope.anon.updated(l, vv))
+                }
+            }
+          case LetMutBool(LocalAnonMut(ident), in) =>
+            val inF = boolExpr(in)
+            Dynamic { (scope: Scope) =>
+              val scope1 = scope.letMut(ident)
+              inF(scope1)
+            }
           case MatchString(str, pat, binds, _) =>
             // do this before we evaluate the string
             binds match {
@@ -270,67 +294,6 @@ object MatchlessToValue {
                     true
                   } else false
                 }
-            }
-
-          case SearchList(LocalAnonMut(mutV), init, check, None) =>
-            val initF = loop(init)
-            val checkF = boolExpr(check)
-
-            // TODO we could optimize
-            // cases where checkF is Static(false) or Static(true)
-            // but that is probably so rare I don't know if it will
-            // help
-            // e.g. [*_, _] should have been normalized
-            // into [_, *_] which wouldn't trigger
-            // this branch
-            Dynamic { (scope: Scope) =>
-              var currentList = initF(scope)
-              var res = false
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty @ VList.Cons(_, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else { currentList = tail }
-                  case _ =>
-                    currentList = null
-                  // we don't match empty lists
-                }
-              }
-              res
-            }
-          case SearchList(
-                LocalAnonMut(mutV),
-                init,
-                check,
-                Some(LocalAnonMut(left))
-              ) =>
-            val initF = loop(init)
-            val checkF = boolExpr(check)
-
-            // this is always dynamic
-            Dynamic { (scope: Scope) =>
-              var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty @ VList.Cons(head, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
-                    }
-                  case _ =>
-                    currentList = null
-                  // we don't match empty lists
-                }
-              }
-              res
             }
         }
 

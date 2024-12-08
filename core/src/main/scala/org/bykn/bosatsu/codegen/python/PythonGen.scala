@@ -374,55 +374,7 @@ object PythonGen {
     ): Code.Def =
       Code.Def(defName, arg.toList, toReturn(v))
 
-    def replaceTailCallWithAssign(name: Ident, argSize: Int, body: ValueLike)(
-        onArgs: List[Expression] => Statement
-    ): Env[ValueLike] = {
-      val initBody = body
-      def loop(body: ValueLike): Env[ValueLike] =
-        body match {
-          case a @ Apply(fn0, args0) =>
-            if (fn0 == name) {
-              if (args0.length == argSize) {
-                val all = onArgs(args0)
-                // set all the values and return the empty tuple
-                Env.pure(all.withValue(Code.Const.Unit))
-              } else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"expected a tailcall for $name in $initBody, but found: $a"
-                )
-                // $COVERAGE-ON$
-              }
-            } else {
-              Env.pure(a)
-            }
-          case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
-          case IfElse(ifCases, elseCase) =>
-            // only the result types are in tail position, we don't need to recurse on conds
-            val ifs = ifCases.traverse { case (cond, res) =>
-              loop(res).map((cond, _))
-            }
-            (ifs, loop(elseCase))
-              .mapN(ifElse(_, _))
-              .flatten
-          case Ternary(ifTrue, cond, ifFalse) =>
-            // both results are in the tail position
-            (loop(ifTrue), loop(ifFalse)).mapN { (t, f) =>
-              ifElse1(cond, t, f)
-            }.flatten
-          case WithValue(stmt, v) =>
-            loop(v).map(stmt.withValue(_))
-          // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) |
-              MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) |
-              PyBool(_) | PyString(_) | PyInt(_) | Not(_) =>
-            Env.pure(body)
-        }
-
-      loop(initBody)
-    }
   }
-
   // we escape by prefixing by three underscores, ___ and n (for name)
   // we use other ___x escapes for different name spaces, e.g. tmps, and anons
   // then we escape _ by __ and any character outside the allowed
@@ -1221,13 +1173,11 @@ object PythonGen {
             ).flatMapN { (strVL, binds) =>
               Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }
-          case SearchList(locMut, init, check, optLeft) =>
-            // check to see if we can find a non-empty
-            // list that matches check
-            (loop(init, slotName), boolExpr(check, slotName)).flatMapN {
-              (initVL, checkVL) =>
-                searchList(locMut, initVL, checkVL, optLeft)
-            }
+          case LetBool(n, v, in) =>
+            doLet(n, v, boolExpr(in, slotName), slotName)
+          case LetMutBool(_, in) =>
+            // in python we just ignore this
+            boolExpr(in, slotName)
         }
 
       def matchString(
@@ -1587,72 +1537,6 @@ object PythonGen {
         } yield (offsetIdent := 0).withValue(res)
       }
 
-      def searchList(
-          locMut: LocalAnonMut,
-          initVL: ValueLike,
-          checkVL: ValueLike,
-          optLeft: Option[LocalAnonMut]
-      ): Env[ValueLike] =
-        /*
-         * here is the implementation from MatchlessToValue
-         *
-            Dynamic { (scope: Scope) =>
-              var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty@VList.Cons(head, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
-                    }
-                  case _ =>
-                    currentList = null
-                    // we don't match empty lists
-                }
-              }
-              res
-            }
-         */
-        (
-          Env.nameForAnon(locMut.ident),
-          optLeft.traverse(lm => Env.nameForAnon(lm.ident)),
-          Env.newAssignableVar,
-          Env.newAssignableVar
-        )
-          .mapN { (currentList, optLeft, res, tmpList) =>
-            Code
-              .block(
-                res := Code.Const.False,
-                tmpList := initVL,
-                optLeft.fold(Code.pass)(_ := emptyList),
-                // we don't match empty lists, so if currentList reaches Empty we are done
-                Code.While(
-                  isNonEmpty(tmpList),
-                  Code.block(
-                    currentList := tmpList,
-                    res := checkVL,
-                    Code.ifElseS(
-                      res,
-                      tmpList := emptyList,
-                      Code.block(
-                        tmpList := tailList(tmpList),
-                        optLeft.fold(Code.pass) { left =>
-                          left := consList(headList(currentList), left)
-                        }
-                      )
-                    )
-                  )
-                )
-              )
-              .withValue(res)
-          }
-
       // if expr is a Lambda handle it
       def topFn(
           name: Code.Ident,
@@ -1690,6 +1574,23 @@ object PythonGen {
           } yield (Some(slots := tup), resVal)
         }
 
+        def doLet(name: Either[LocalAnon, Bindable], value: Expr, inF: Env[ValueLike], slotName: Option[Code.Ident]): Env[ValueLike] =
+          name match {
+            case Right(b) =>
+              // value b is in scope after ve
+              for {
+                ve <- loop(value, slotName)
+                bi <- Env.bind(b)
+                ine <- inF
+                _ <- Env.unbind(b)
+              } yield ((bi := ve).withValue(ine))
+            case Left(LocalAnon(l)) =>
+              // anonymous names never shadow
+              (Env.nameForAnon(l), loop(value, slotName))
+                .flatMapN { (bi, vE) =>
+                  inF.map((bi := vE).withValue(_))
+                }
+          }
       def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
           case Lambda(captures, recName, args, res) =>
@@ -1801,25 +1702,7 @@ object PythonGen {
             }
           case Let(localOrBind, notFn, in) =>
             // we know that notFn is not FnExpr here
-            val inF = loop(in, slotName)
-
-            localOrBind match {
-              case Right(b) =>
-                // value b is in scope after ve
-                for {
-                  ve <- loop(notFn, slotName)
-                  bi <- Env.bind(b)
-                  ine <- inF
-                  _ <- Env.unbind(b)
-                } yield ((bi := ve).withValue(ine))
-              case Left(LocalAnon(l)) =>
-                // anonymous names never shadow
-                (Env.nameForAnon(l), loop(notFn, slotName))
-                  .flatMapN { (bi, vE) =>
-                    inF.map((bi := vE).withValue(_))
-                  }
-            }
-
+            doLet(localOrBind, notFn, loop(in, slotName), slotName)
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to
