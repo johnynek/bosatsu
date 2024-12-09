@@ -10,7 +10,7 @@ ifeq ($(OS), Darwin)
     CFLAGS += -I$(BOEHM_GC)/include
     LIBS += "$(BOEHM_GC)/lib/libgc.a"
 else ifeq ($(OS), Linux)
-    LIBS += -lm
+    LIBS += -lgc
 endif
 
 all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o
