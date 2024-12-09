@@ -351,70 +351,69 @@ object Matchless {
       def inLet(b: Bindable): LambdaState = copy(name = Some(b))
     }
 
-    def translateLocalsBool(m: Map[Bindable, LocalAnonMut], e: BoolExpr): BoolExpr =
+    def substituteLocalsBool(m: Map[Bindable, CheapExpr], e: BoolExpr): BoolExpr =
       e match {
-        case SetMut(mut, e) => SetMut(mut, translateLocals(m, e))
+        case SetMut(mut, e) => SetMut(mut, substituteLocals(m, e))
         case And(b1, b2) =>
-          And(translateLocalsBool(m, b1), translateLocalsBool(m, b2))
+          And(substituteLocalsBool(m, b1), substituteLocalsBool(m, b2))
         case EqualsLit(x, l) =>
-          EqualsLit(translateLocalsCheap(m, x), l)
+          EqualsLit(substituteLocalsCheap(m, x), l)
         case EqualsNat(x, n) =>
-          EqualsNat(translateLocalsCheap(m, x), n)
+          EqualsNat(substituteLocalsCheap(m, x), n)
         case TrueConst => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
-          CheckVariant(translateLocalsCheap(m, expr), expect, sz, fam)
+          CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
         case ms: MatchString =>
-          ms.copy(arg = translateLocalsCheap(m, ms.arg))
+          ms.copy(arg = substituteLocalsCheap(m, ms.arg))
         case LetBool(b, a, in) =>
           val m1 = b match {
             case Right(b) => m - b
             case _ => m
           }
-          LetBool(b, translateLocals(m, a), translateLocalsBool(m1, in))
+          LetBool(b, substituteLocals(m, a), substituteLocalsBool(m1, in))
         case LetMutBool(b, in) =>
-          LetMutBool(b, translateLocalsBool(m, in))
+          LetMutBool(b, substituteLocalsBool(m, in))
       }
 
-    def translateLocals(m: Map[Bindable, LocalAnonMut], e: Expr): Expr =
+    def substituteLocals(m: Map[Bindable, CheapExpr], e: Expr): Expr =
       e match {
         case App(fn, appArgs) =>
-          App(translateLocals(m, fn), appArgs.map(translateLocals(m, _)))
+          App(substituteLocals(m, fn), appArgs.map(substituteLocals(m, _)))
         case If(c, tcase, fcase) =>
-          If(translateLocalsBool(m, c), translateLocals(m, tcase), translateLocals(m, fcase))
+          If(substituteLocalsBool(m, c), substituteLocals(m, tcase), substituteLocals(m, fcase))
         case Always(c, e) =>
-          Always(translateLocalsBool(m, c), translateLocals(m, e))
+          Always(substituteLocalsBool(m, c), substituteLocals(m, e))
         case LetMut(mut, e) =>
-          LetMut(mut, translateLocals(m, e))
+          LetMut(mut, substituteLocals(m, e))
         case Let(n, v, in) =>
           val m1 = n match {
             case Right(b) => m - b
             case _ => m
           }
-          Let(n, translateLocals(m, v), translateLocals(m1, in))
-        // the rest cannot have a call in tail position
+          Let(n, substituteLocals(m, v), substituteLocals(m1, in))
         case Local(n) =>
           m.get(n) match {
             case Some(mut) => mut
             case None => e
           }
-        case PrevNat(n) => PrevNat(translateLocals(m, n))
+        case PrevNat(n) => PrevNat(substituteLocals(m, n))
         case ge: GetEnumElement =>
-          ge.copy(arg = translateLocalsCheap(m, ge.arg))
+          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
         case gs: GetStructElement =>
-          gs.copy(arg = translateLocalsCheap(m, gs.arg))
+          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
         case Lambda(c, r, as, b) =>
           val m1 = m -- as.toList
-          val b1 = translateLocals(m1, b)
+          val b1 = substituteLocals(m1, b)
           Lambda(c, r, as, b1)
         case WhileExpr(c, ef, r) =>
-          WhileExpr(translateLocalsBool(m, c), translateLocals(m, ef), r)
+          WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
         case ClosureSlot(_) | Global(_, _) | LocalAnon(_) | LocalAnonMut(_) |
           MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | ZeroNat => e
       }
-    def translateLocalsCheap(m: Map[Bindable, LocalAnonMut], e: CheapExpr): CheapExpr =
-      translateLocals(m, e) match {
+    def substituteLocalsCheap(m: Map[Bindable, CheapExpr], e: CheapExpr): CheapExpr =
+      substituteLocals(m, e) match {
         case ch: CheapExpr => ch
-        case notCheap => sys.error(s"invariant violation: translation didn't maintain cheap: $e => $notCheap")
+        case notCheap => sys.error(s"invariant violation: substitution didn't maintain cheap: $e => $notCheap")
       }
 
     def loopFn(
@@ -484,7 +483,7 @@ object Matchless {
               MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat | WhileExpr(_, _, _) | ZeroNat => None
           }
 
-        val bodyTrans = translateLocals(
+        val bodyTrans = substituteLocals(
           args.toList.map(a => (a.name, a.loopVar)).toMap,
           body)
 
