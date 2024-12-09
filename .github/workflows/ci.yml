@@ -123,6 +123,7 @@ jobs:
           cd c_runtime
           rm -f test_exe
           make && git diff --quiet || { git diff; false; }
+          make boehm_example_linux
           ./test_exe && cd ..
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
