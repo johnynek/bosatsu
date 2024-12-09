@@ -25,5 +25,8 @@ bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
 
 MAC_HOMEBREW_PATH = /opt/homebrew/Cellar/bdw-gc/8.2.8
 
-boehm_example: boehm_example.c
-	gcc -I$(MAC_HOMEBREW_PATH)/include boehm_example.c $(MAC_HOMEBREW_PATH)/lib/libgc.a -o boehm_example
+boehm_example_mac: boehm_example.c
+	gcc -I$(MAC_HOMEBREW_PATH)/include boehm_example.c $(MAC_HOMEBREW_PATH)/lib/libgc.a -o boehm_example_mac
+
+boehm_example_linux: boehm_example.c
+	gcc boehm_example.c -lgc -o boehm_example_linux
