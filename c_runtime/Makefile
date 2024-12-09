@@ -22,11 +22,11 @@ bosatsu_decls_generated.h: typegen.py
 	python3 typegen.py headers > bosatsu_decls_generated.h
 
 bosatsu_runtime.o: bosatsu_runtime.h bosatsu_runtime.c bosatsu_decls_generated.h bosatsu_generated.h
-	gcc -c -Wall -Werror bosatsu_runtime.c
+	gcc -c $(CFLAGS) -Wall -Werror bosatsu_runtime.c
 
 # this will eventually have test code for the runtime and predef
 test_exe: test.c bosatsu_runtime.o
-	gcc -O3 -Wall -o test_exe test.c bosatsu_runtime.o
+	gcc -O3 $(CFLAGS) -Wall -o test_exe test.c bosatsu_runtime.o $(LIBS)
 
 test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }

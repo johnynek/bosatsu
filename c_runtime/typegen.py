@@ -19,17 +19,10 @@ def fn_decls(size):
   return "\n".join([alloc_c, from_fn, call_fn])
 
 def struct_impl(size):
-  template = """DEFINE_RC_STRUCT(Struct{size},{arg_decls});
+  template = """DEFINE_BSTS_OBJ(Struct{size},{arg_decls});
 
-void free_struct{size}(Struct{size}* s) {{
-    {releases}
-    free(s);
-}}
 BValue alloc_struct{size}({arg_params}) {{
-    Struct{size}* rc = malloc(sizeof(Struct{size}));
-    // this is safe to do outside atomic because no other thread can see this yet
-    rc->ref_count = 1;
-    rc->free = (FreeFn)free_struct{size};
+    Struct{size}* rc = GC_malloc(sizeof(Struct{size}));
     {assigns}
     return (BValue)rc;
 }}"""
@@ -40,17 +33,10 @@ BValue alloc_struct{size}({arg_params}) {{
   return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, releases = releases, assigns = assigns)
 
 def enum_impl(size):
-  template = """DEFINE_RC_ENUM(Enum{size},{arg_decls});
+  template = """DEFINE_BSTS_ENUM(Enum{size},{arg_decls});
 
-void free_enum{size}(Enum{size}* s) {{
-    {releases}
-    free(s);
-}}
 BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
-    Enum{size}* rc = malloc(sizeof(Enum{size}));
-    // this is safe to do outside atomic because no other thread can see this yet
-    rc->ref_count = 1;
-    rc->free = (FreeFn)free_enum{size};
+    Enum{size}* rc = GC_malloc(sizeof(Enum{size}));
     rc->tag = tag;
     {assigns}
     return (BValue)rc;
@@ -62,18 +48,15 @@ BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
   return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, releases = releases, assigns = assigns)
 
 def function_impl(size):
-  define_c = "" if size == 1 else "DEFINE_RC_STRUCT(Closure{size}Data, BClosure{size} fn; size_t slot_len;);\n".format(size = size)
-  define_p = "DEFINE_RC_STRUCT(BoxedPureFn{size}, BPureFn{size} fn; size_t slot_len;);".format(size = size)
+  define_c = "" if size == 1 else "DEFINE_BSTS_OBJ(Closure{size}Data, BClosure{size} fn; size_t slot_len;);\n".format(size = size)
+  define_p = "DEFINE_BSTS_OBJ(BoxedPureFn{size}, BPureFn{size} fn; size_t slot_len;);".format(size = size)
 
   define = define_c + define_p
   template = """
 {define}
 
 BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
-    Closure{size}Data* rc = malloc(closure_data_size(size));
-    // this is safe to do outside atomic because no other thread can see this yet
-    rc->ref_count = 1;
-    rc->free = (FreeFn)free_closure;
+    Closure{size}Data* rc = GC_malloc(closure_data_size(size));
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of({cast_to_1}rc);
@@ -90,10 +73,7 @@ BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
       // can pack into a pure value
       return (BValue)(TO_PURE_VALUE(fn));
     }}
-    BoxedPureFn{size}* rc = (BoxedPureFn{size}*)malloc(sizeof(BoxedPureFn{size}));
-    // this is safe to do outside atomic because no other thread can see this yet
-    rc->ref_count = 1;
-    rc->free = free;
+    BoxedPureFn{size}* rc = (BoxedPureFn{size}*)GC_malloc(sizeof(BoxedPureFn{size}));
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
