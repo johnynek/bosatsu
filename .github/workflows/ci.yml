@@ -118,12 +118,15 @@ jobs:
           - '8'
     steps:
       - uses: "actions/checkout@v2.1.0"
+      - name: "install boehm"
+        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev"
       - name: "test runtime code"
         run: |
           cd c_runtime
           rm -f test_exe
           make && git diff --quiet || { git diff; false; }
-          ./test_exe && cd ..
+          make boehm_example
+          ./test_exe && ./boehm_example && cd ..
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
