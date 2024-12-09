@@ -60,9 +60,7 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of({cast_to_1}rc);
-    for (size_t i = 0; i < size; i++) {{
-      closure_data[i] = data[i];
-    }}
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }}
 

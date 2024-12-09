@@ -52,7 +52,7 @@ or gced big integers
     }; \
     typedef struct name name
 
-#define DEFINE_BSTS_ENUM(name, fields) DEFINE_BSTS_OBJ(name, ENUM_TAG tag; fields)
+#define DEFINE_BSTS_ENUM(name, fields) DEFINE_BSTS_OBJ(name, ENUM_TAG tag; int32_t pad; fields)
 
 DEFINE_BSTS_OBJ(BSTS_OBJ,);
 
@@ -87,11 +87,11 @@ BValue bsts_closure_from_slots(BValue* slots) {
   return (BValue)pointer_to_closure;
 }
 
-#include "bosatsu_generated.h"
-
 // ENUM0 can always be encoded into a BValue, but we define it to
 // be able to get sizeof() to skip the header
 DEFINE_BSTS_ENUM(Enum0,);
+
+#include "bosatsu_generated.h"
 
 DEFINE_BSTS_OBJ(External, void* external;);
 DEFINE_BSTS_OBJ(BSTS_String, size_t len; char* bytes;);
@@ -156,7 +156,7 @@ static _Atomic Stack statics;
 // then we | STATIC_VALUE_TAG to avoid bothering with ref-counting during operation
 static void push(BSTS_OBJ* static_value) {
   // TODO what if this malloc fails
-  Node* node = GC_malloc(sizeof(Node));
+  Node* node = GC_malloc_uncollectable(sizeof(Node));
   node->value = static_value;
 
   Stack current;
@@ -621,24 +621,6 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
-BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words) {
-    // TODO: use bsts_integer_alloc
-    BSTS_Integer* integer = (BSTS_Integer*)GC_malloc(sizeof(BSTS_Integer));
-    if (integer == NULL) {
-        // Handle allocation failure
-        return NULL;
-    }
-
-    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
-    // remove any leading 0 words
-    while ((size > 1) && (words[size - 1] == 0)) {
-      size--;
-    }
-    integer->len = size;
-    integer->words = words;
-    return (BValue)integer; // Low bit is 0 since it's a pointer
-}
-
 BValue bsts_integer_from_int64(int64_t result) {
   // Check if result fits in small integer
   if ((INT32_MIN <= result) && (result <= INT32_MAX)) {
@@ -855,10 +837,12 @@ BValue bsts_integer_add(BValue l, BValue r) {
                   free(result_words);
                 }
                 else {
-                  result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                  result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                  free(result_words);
                 }
             } else {
-                result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                free(result_words);
             }
         } else {
             // Subtraction
@@ -916,10 +900,12 @@ BValue bsts_integer_add(BValue l, BValue r) {
                       free(result_words);
                     }
                     else {
-                      result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                      result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                      free(result_words);
                     }
                 } else {
-                    result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                    result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                    free(result_words);
                 }
             }
         }
@@ -965,7 +951,7 @@ BValue bsts_integer_negate(BValue v) {
     }
 }
 
-// Helper function to divide big integer by 10
+// Helper f;unction to divide big integer by 10
 uint32_t bigint_divide_by_10(uint32_t* words, size_t len, uint32_t* quotient_words, size_t* quotient_len_ptr) {
     uint64_t remainder = 0;
     for (size_t i = len; i > 0; i--) {
@@ -1198,7 +1184,6 @@ BValue bsts_integer_from_twos(size_t max_len, u_int32_t* result_twos) {
         // Attempt to pack into small integer
         BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
         if (maybe) {
-          free(result);
           return maybe;
         }
     }
@@ -1329,7 +1314,8 @@ BValue bsts_integer_times(BValue left, BValue right) {
             }
         }
         // if we make it here we have to fit into big
-        BValue result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+        BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+        free(result_words);
         return result;
     }
 }
@@ -1917,7 +1903,6 @@ void free_statics() {
   do {
     rc = pop();
     if (rc == NULL) return;
-    GC_free(rc);
   } while(1);
 }
 

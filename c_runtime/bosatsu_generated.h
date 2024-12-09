@@ -1537,9 +1537,7 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of(rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1584,9 +1582,7 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1631,9 +1627,7 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1678,9 +1672,7 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1725,9 +1717,7 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1772,9 +1762,7 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1819,9 +1807,7 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1866,9 +1852,7 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1913,9 +1897,7 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -1960,9 +1942,7 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2007,9 +1987,7 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2054,9 +2032,7 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2101,9 +2077,7 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2148,9 +2122,7 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2195,9 +2167,7 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2242,9 +2212,7 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2289,9 +2257,7 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2336,9 +2302,7 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2383,9 +2347,7 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2430,9 +2392,7 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2477,9 +2437,7 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2524,9 +2482,7 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2571,9 +2527,7 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2618,9 +2572,7 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2665,9 +2617,7 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2712,9 +2662,7 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2759,9 +2707,7 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2806,9 +2752,7 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2853,9 +2797,7 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2900,9 +2842,7 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2947,9 +2887,7 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
@@ -2994,9 +2932,7 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    for (size_t i = 0; i < size; i++) {
-      closure_data[i] = data[i];
-    }
+    memcpy(closure_data, data, sizeof(BValue*) * size);
     return (BValue)rc;
 }
 
