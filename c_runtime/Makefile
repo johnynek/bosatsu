@@ -1,3 +1,18 @@
+OS := $(shell uname)
+
+# Platform-specific settings
+ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
+    LATEST_VERSION := $(shell ls -v /opt/homebrew/Cellar/bdw-gc | tail -n 1)
+    BOEHM_GC := /opt/homebrew/Cellar/bdw-gc/$(LATEST_VERSION)
+endif
+
+ifeq ($(OS), Darwin)
+    CFLAGS += -I$(BOEHM_GC)/include
+    LIBS += "$(BOEHM_GC)/lib/libgc.a"
+else ifeq ($(OS), Linux)
+    LIBS += -lm
+endif
+
 all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o
 
 bosatsu_generated.h: typegen.py
@@ -23,10 +38,5 @@ bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
 	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Prog.c
 
-MAC_HOMEBREW_PATH = /opt/homebrew/Cellar/bdw-gc/8.2.8
-
-boehm_example_mac: boehm_example.c
-	gcc -I$(MAC_HOMEBREW_PATH)/include boehm_example.c $(MAC_HOMEBREW_PATH)/lib/libgc.a -o boehm_example_mac
-
-boehm_example_linux: boehm_example.c
-	gcc boehm_example.c -lgc -o boehm_example_linux
+boehm_example: boehm_example.c
+	gcc $(CFLAGS) boehm_example.c $(LIBS) -o boehm_example
