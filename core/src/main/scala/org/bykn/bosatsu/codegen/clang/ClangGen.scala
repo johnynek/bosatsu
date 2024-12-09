@@ -295,6 +295,32 @@ object ClangGen {
             )
           }
 
+        def handleLet(name: Either[LocalAnon, Bindable], argV: Expr, in: T[Code.ValueLike]): T[Code.ValueLike] =
+          name match {
+            case Right(arg) =>
+              // arg isn't in scope for argV
+              innerToValue(argV).flatMap { v =>
+                bind(arg) {
+                  for {
+                    name <- getBinding(arg)
+                    result <- in
+                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
+                  } yield stmt +: result
+                }
+              }
+            case Left(LocalAnon(idx)) =>
+              // LocalAnon(idx) isn't in scope for argV
+              innerToValue(argV)
+                .flatMap { v =>
+                  bindAnon(idx) {
+                    for {
+                      name <- getAnon(idx)
+                      result <- in
+                      stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
+                    } yield stmt +: result
+                  }
+                }
+          }
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
@@ -337,11 +363,6 @@ object ClangGen {
             // this is just get_variant(expr) == expect
               vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
-          case SearchList(lst, init, check, leftAcc) =>
-            (boolToValue(check), innerToValue(init))
-              .flatMapN { (condV, initV) =>
-                searchList(lst, initV, condV, leftAcc)
-              }
           case MatchString(arg, parts, binds, mustMatch) =>
             (
               innerToValue(arg),
@@ -355,6 +376,16 @@ object ClangGen {
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
           case TrueConst => pv(Code.TrueLit)
+          case LetBool(name, argV, in) =>
+            handleLet(name, argV, boolToValue(in))
+          case LetMutBool(LocalAnonMut(m), span) =>
+            bindAnon(m) {
+              for {
+                ident <- getAnon(m)
+                decl = Code.DeclareVar(Nil, Code.TypeIdent.BValue, ident, None)
+                res <- boolToValue(span)
+              } yield decl +: res
+            }
         }
 
       object StringApi {
@@ -684,100 +715,6 @@ object ClangGen {
           } yield Code.declareInt(offsetIdent, Some(0)) +: res
       }
 
-      def searchList(
-          locMut: LocalAnonMut,
-          initVL: Code.ValueLike,
-          checkVL: Code.ValueLike,
-          optLeft: Option[LocalAnonMut]
-      ): T[Code.ValueLike] = {
-        import Code.Expression
-
-        val emptyList: Expression =
-          Code.Ident("alloc_enum0")(Code.IntLiteral(0))
-
-        def isNonEmptyList(expr: Expression): Expression =
-          Code.Ident("get_variant")(expr) =:= Code.IntLiteral(1)
-
-        def headList(expr: Expression): Expression =
-          Code.Ident("get_enum_index")(expr, Code.IntLiteral(0))
-
-        def tailList(expr: Expression): Expression =
-          Code.Ident("get_enum_index")(expr, Code.IntLiteral(1))
-
-        def consList(head: Expression, tail: Expression): Expression =
-          Code.Ident("alloc_enum2")(Code.IntLiteral(1), head, tail)
-        /*
-         * here is the implementation from MatchlessToValue
-         *
-            Dynamic { (scope: Scope) =>
-              var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty@VList.Cons(head, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
-                    }
-                  case _ =>
-                    currentList = null
-                    // we don't match empty lists
-                }
-              }
-              res
-            }
-         */
-        for {
-          currentList <- getAnon(locMut.ident)
-          optLeft <- optLeft.traverse(lm => getAnon(lm.ident))
-          res <- newLocalName("result")
-          tmpList <- newLocalName("tmp_list")
-          declTmpList <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, tmpList, initVL)(newLocalName)
-          /*
-          top <- currentTop
-          _ = println(s"""in $top: searchList(
-          $locMut: LocalAnonMut,
-          $initVL: Code.ValueLike,
-          $checkVL: Code.ValueLike,
-          $optLeft: Option[LocalAnonMut]
-          )""")
-          */
-        } yield
-            (Code
-              .Statements(
-                Code.DeclareVar(Nil, Code.TypeIdent.Bool, res, Some(Code.FalseLit)),
-                declTmpList
-              )
-              .maybeCombine(
-                optLeft.map(_ := emptyList),
-              ) +
-                // we don't match empty lists, so if currentList reaches Empty we are done
-                Code.While(
-                  isNonEmptyList(tmpList),
-                  Code.block(
-                    currentList := tmpList,
-                    res := checkVL,
-                    Code.ifThenElse(res,
-                      { tmpList := emptyList },
-                      {
-                        (tmpList := tailList(tmpList))
-                          .maybeCombine(
-                            optLeft.map { left =>
-                              left := consList(headList(currentList), left)
-                            }
-                          )
-                      }
-                    )
-                  )
-                )
-              ) :+ res
-      }
-
       def boxFn(ident: Code.Ident, arity: Int): Code.Expression =
         Code.Ident(s"alloc_boxed_pure_fn$arity")(ident)
 
@@ -941,29 +878,8 @@ object ClangGen {
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
           case fn: FnExpr => innerFn(fn)
-          case Let(Right(arg), argV, in) =>
-            // arg isn't in scope for argV
-            innerToValue(argV).flatMap { v =>
-              bind(arg) {
-                for {
-                  name <- getBinding(arg)
-                  result <- innerToValue(in)
-                  stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
-                } yield stmt +: result
-              }
-            }
-          case Let(Left(LocalAnon(idx)), argV, in) =>
-            // LocalAnon(idx) isn't in scope for argV
-            innerToValue(argV)
-              .flatMap { v =>
-                bindAnon(idx) {
-                  for {
-                    name <- getAnon(idx)
-                    result <- innerToValue(in)
-                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
-                  } yield stmt +: result
-                }
-              }
+          case Let(name, argV, in) =>
+            handleLet(name, argV, innerToValue(in))
           case app @ App(_, _) => innerApp(app)
           case Global(pack, name) =>
             directFn(pack, name)
