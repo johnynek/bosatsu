@@ -5,7 +5,7 @@
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
 # ReadEnv() => (5, )
-# RemapEnv(f, p) => (6, f, p)
+# RemapEnv(p, f) => (6, p, f)
 
 import sys
 
@@ -28,24 +28,12 @@ def py_to_bosatsu_list(pylist):
     result = (1, pylist[l - idx - 1], result)
   return result
 
-_args = None
-def do_get_args():
-  global _args
-  if _args is None:
-    _args = py_to_bosatsu_list(sys.argv[1:])
-
-  return _args
-
-get_args = effect(do_get_args)
-
-def step_fix(p):
-  arg = p[1]
-  fixfn = p[2]
+def step_fix(arg, fixfn):
   # this is just apply_fix(a, fixfn)
   fixed = lambda a: (4, a, fixfn)
   return fixfn(fixed)(arg)
 
-# p: Prog[Unit, String, Int]
+# p: Prog[List[String], String, Int]
 def run(arg):
   # the stack ADT:
   done = (0,)
@@ -53,7 +41,7 @@ def run(arg):
   def recstep(fn, stack): return (2, fn, stack)
   def restore(env, stack): return (3, env, stack)
 
-  env = ()
+  env = py_to_bosatsu_list(sys.argv[1:])
   stack = done
   while True:
     prog_tag = arg[0]
@@ -108,7 +96,7 @@ def run(arg):
       arg = arg[1]
     elif prog_tag == 4:
       # apply_fix
-      arg = step_fix(arg)
+      arg = step_fix(arg[1], arg[2])
     elif prog_tag == 5:
       # read_env
       arg = pure(env)

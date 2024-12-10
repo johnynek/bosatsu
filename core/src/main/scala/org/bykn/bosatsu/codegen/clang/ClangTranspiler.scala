@@ -5,7 +5,8 @@ import cats.data.{Const, NonEmptyList, Validated}
 import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
 import org.bykn.bosatsu.codegen.Transpiler
-import org.bykn.bosatsu.{Identifier, MatchlessFromTypedExpr, Package, PackageName, PackageMap, Par, TypedExpr}
+import org.bykn.bosatsu.{Identifier, MatchlessFromTypedExpr, Package, PackageName, PackageMap, Par, TypedExpr, TypeName}
+import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 
@@ -72,16 +73,23 @@ case object ClangTranspiler extends Transpiler {
             }
         )
   }
+  case class GenExternalsMode(generate: Boolean)
+  object GenExternalsMode {
+    val opts: Opts[GenExternalsMode] =
+        Opts.flag("gen_ext_headers", "generate externals header files")
+          .as(GenExternalsMode(true))
+          .orElse(Opts(GenExternalsMode(false)))
+  }
 
-  case class Arguments(mode: Mode, emit: EmitMode)
+  case class Arguments(mode: Mode, emit: EmitMode, generateExternals: GenExternalsMode)
   type Args[P] = Const[Arguments, P]
 
   def traverseArgs: Traverse[Args] = implicitly
 
   def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]] =
     Opts.subcommand("c", "generate c code") {
-      (Mode.opts, EmitMode.opts).mapN { (m, e) =>
-        Transpiler.optioned(this)(Const[Arguments, P](Arguments(m, e)))
+      (Mode.opts, EmitMode.opts, GenExternalsMode.opts).mapN { (m, e, g) =>
+        Transpiler.optioned(this)(Const[Arguments, P](Arguments(m, e, g)))
       }
     }
 
@@ -111,9 +119,23 @@ case object ClangTranspiler extends Transpiler {
   def externalsFor(pm: PackageMap.Typed[Any]): ClangGen.ExternalResolver =
     ClangGen.ExternalResolver.stdExternals(pm)
 
-  def validMain[A](te: TypedExpr[A]): Either[String, Unit] =
-    // TODO: need to check this
-    Right(())
+  /**
+   * given the type (and possible the value)
+   * we return a C function name that takes this value and the
+   * C args and returns an exit code which the main function
+   * can return:
+   *
+   * int run_main(BValue main_value, int argc, char** args)
+   */
+  def validMain[A](te: TypedExpr[A]): Either[String, Code.Ident] = {
+    val ProgMain = Type.Const.Defined(PackageName.parts("Bosatsu", "Prog"), TypeName("Main"))
+    te.getType match {
+      case Type.TyConst(ProgMain) =>
+        Right(Code.Ident("bsts_Bosatsu_Prog_run_main"))
+      case notMain =>
+        Left(s"unknown type for main: ${Type.fullyResolvedDocument.document(notMain).render(80)}")
+    }
+  }
 
   def renderAll(
       pm: PackageMap.Typed[Any],
@@ -130,7 +152,7 @@ case object ClangTranspiler extends Transpiler {
             pm.toMap.get(p).flatMap(Package.mainValue(_)) match {
               case Some((b, _, t)) =>
                 validMain(t) match {
-                  case Right(_) =>
+                  case Right(mainRun) =>
                     val pm1 = args.getConst.emit(pm, Set((p, b)))
                     val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
                     val sortedEnv = cats.Functor[Vector]
@@ -140,8 +162,7 @@ case object ClangTranspiler extends Transpiler {
                     ClangGen.renderMain(
                       sortedEnv = sortedEnv,
                       externals = ext,
-                      // TODO: this is currently ignored
-                      value = (p, b))
+                      value = (p, b, mainRun))
                   case Left(invalid) =>
                     return Failure(InvalidMainValue(p, invalid))
                 }
@@ -172,11 +193,15 @@ case object ClangTranspiler extends Transpiler {
             // TODO: this name needs to be an option
             val outputName = NonEmptyList("output.c", Nil)
 
-            val externalHeaders = ext.generateExternalsStub
-              .iterator.map { case (n, d) =>
-                NonEmptyList.one(n) -> d  
+            val externalHeaders =
+              if (args.getConst.generateExternals.generate) {
+                ext.generateExternalsStub
+                .iterator.map { case (n, d) =>
+                  NonEmptyList.one(n) -> d  
+                }
+                .toList
               }
-              .toList
+              else Nil
 
             // TODO: always outputing the headers may not be right, maybe an option
             Success((outputName -> doc) :: externalHeaders)

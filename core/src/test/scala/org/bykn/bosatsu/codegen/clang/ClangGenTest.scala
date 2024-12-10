@@ -31,7 +31,7 @@ x = 1
           NonEmptyList.one(PackageName.PredefName -> matchlessMap(PackageName.PredefName)),
         ),
         externals = ClangGen.ExternalResolver.FromJvmExternals,
-        value = (PackageName.PredefName, Identifier.Name(fns.last))
+        value = (PackageName.PredefName, Identifier.Name(fns.last), Code.Ident("run_main"))
       )
 
       res match {
@@ -48,6 +48,8 @@ x = 1
 
   test("check build_List") {
     assertPredefFns("build_List")("""#include "bosatsu_runtime.h"
+#include <stdlib.h>
+#include "gc.h"
 
 BValue __bsts_t_lambda0(BValue __bsts_b_a0, BValue __bsts_b_b0) {
     return alloc_enum2(1, __bsts_b_a0, __bsts_b_b0);
@@ -57,10 +59,21 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
     return call_fn2(__bsts_b_fn0,
         alloc_boxed_pure_fn2(__bsts_t_lambda0),
         alloc_enum0(0));
+}
+
+int main(int argc, char** argv) {
+    GC_init();
+    init_statics();
+    atexit(free_statics);
+    BValue main_value = ___bsts_g_Bosatsu_l_Predef_l_build__List();
+    return run_main(main_value, argc, argv);
 }""")
+
   }
   test("check foldr_List") {
     assertPredefFns("foldr_List")("""#include "bosatsu_runtime.h"
+#include <stdlib.h>
+#include "gc.h"
 
 BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
     if (get_variant(__bsts_b_list1) == 0) {
@@ -83,11 +96,21 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
         __bsts_l_captures1,
         __bsts_t_closure__loop0);
     return call_fn1(__bsts_b_loop0, __bsts_b_list0);
+}
+
+int main(int argc, char** argv) {
+    GC_init();
+    init_statics();
+    atexit(free_statics);
+    BValue main_value = ___bsts_g_Bosatsu_l_Predef_l_foldr__List();
+    return run_main(main_value, argc, argv);
 }""")
   }
 
   test("check foldLeft and reverse_concat") {
     assertPredefFns("foldLeft", "reverse_concat")("""#include "bosatsu_runtime.h"
+#include <stdlib.h>
+#include "gc.h"
 
 BValue __bsts_t_closure0(BValue* __bstsi_slot,
     BValue __bsts_b_lst1,
@@ -140,6 +163,14 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     return ___bsts_g_Bosatsu_l_Predef_l_foldLeft(__bsts_b_front0,
         __bsts_b_back0,
         alloc_boxed_pure_fn2(__bsts_t_lambda3));
+}
+
+int main(int argc, char** argv) {
+    GC_init();
+    init_statics();
+    atexit(free_statics);
+    BValue main_value = ___bsts_g_Bosatsu_l_Predef_l_reverse__concat();
+    return run_main(main_value, argc, argv);
 }""")
   }
 
