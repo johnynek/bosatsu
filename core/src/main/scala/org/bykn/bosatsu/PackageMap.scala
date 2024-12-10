@@ -126,7 +126,10 @@ object PackageMap {
     def dependency(a: Ident): Iterable[Ident] =
       p.toMap.get(a._1) match {
         case Some(pack) =>
-          pack.lets.flatMap { case (_, _, te) => te.globals }
+          pack.lets.flatMap {
+            case (n, _, te) if a._2 === n => te.globals
+            case _ => Nil
+          }
         case None => Nil
       }
 
