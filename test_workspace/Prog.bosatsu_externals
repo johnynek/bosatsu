@@ -8,6 +8,5 @@
     read_env: ProgExt.read_env,
     remap_env: ProgExt.remap_env,
     println: ProgExt.println,
-    get_args: ProgExt.get_args,
   }
 }

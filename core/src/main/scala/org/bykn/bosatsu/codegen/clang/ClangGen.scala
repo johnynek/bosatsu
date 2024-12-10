@@ -155,15 +155,17 @@ object ClangGen {
       }
   }
 
+  // the Code.Ident should be a function with signature:
+  // int run_main(BValue main_value, int argc, char** args)
   def renderMain(
       sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
       externals: ExternalResolver,
-      value: (PackageName, Bindable)
+      value: (PackageName, Bindable, Code.Ident)
   ): Either[Error, Doc] = {
     val env = Impl.Env.impl
     import env.monadImpl
 
-    val res = renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2)
+    val res = renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2, value._3)
 
     val allValues: Impl.AllValues =
       sortedEnv
@@ -1101,7 +1103,7 @@ object ClangGen {
           ))
         } yield ()
 
-      def renderMain(p: PackageName, b: Bindable): T[Unit]
+      def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit]
       def renderTests(values: List[(PackageName, Bindable)]): T[Unit]
     }
 
@@ -1332,12 +1334,41 @@ object ClangGen {
           def constructorFn(p: PackageName, b: Bindable): T[Code.Ident] =
             monadImpl.pure(Code.Ident(Idents.escape("___bsts_c_", fullName(p, b))))
 
-          // this is the name of a function when it is directly invokable
-          def renderMain(p: PackageName, b: Bindable): T[Unit] =
-            // TODO ???
-            monadImpl.unit
+          // the Code.Ident should be a function with signature:
+          // int run_main(BValue main_value, int argc, char** args)
+          def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit] =
+            /*
+            int main(int argc, char** argv) {
+              GC_init();
+              init_statics();
+              atexit(free_statics);
+              BValue main_value = (main_value)();
+              int code = run_main(main_value, argc, argv);
+              return code;
+            }
+            */     
+            globalIdent(p, b).flatMap { mainCons =>
 
-          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] = {
+              val mainValue = Code.Ident("main_value")
+              val mainBody = Code.Statements(
+                Code.Ident("GC_init")().stmt,
+                Code.Ident("init_statics")().stmt,
+                Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                Code.DeclareVar(Nil, Code.TypeIdent.BValue, mainValue, Some(mainCons())),
+                Code.Return(Some(
+                  mainRun(mainValue, Code.Ident("argc"), Code.Ident("argv"))
+                ))
+              )
+
+              val mainFn = Code.declareMain(mainBody)
+              appendStatement(mainFn)
+            } *> StateT { s => result(
+                s.include(Code.Include.angle("stdlib.h"))
+                  .include(Code.Include.quote("gc.h")), ()
+              )
+            }
+
+          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
             values.traverse { case (p, b) =>
               (StringApi.staticString(p.asString), globalIdent(p, b)).tupled
             }
@@ -1380,7 +1411,6 @@ object ClangGen {
                     .include(Code.Include.quote("gc.h")), ()
                 )
             }
-          }
 
           def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident] =
             StateT { s =>

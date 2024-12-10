@@ -266,6 +266,10 @@ BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
   return (BValue)str;
 }
 
+BValue bsts_string_from_utf8_bytes_static_null_term(char* bytes) {
+  return bsts_string_from_utf8_bytes_static(strlen(bytes), bytes);
+}
+
 int bsts_string_code_point_to_utf8(int code_point, char* output) {
     // Validate the code point
     if (code_point < 0 || code_point > 0x10FFFF ||
@@ -588,6 +592,19 @@ void bsts_string_print(BValue v) {
 
 BValue bsts_integer_from_int(int32_t small_int) {
     return TO_PURE_VALUE(small_int);
+}
+
+int32_t bsts_integer_to_int32(BValue bint) {
+  if (IS_SMALL(bint)) {
+    return GET_SMALL_INT(bint);
+  }
+  else {
+    BSTS_Integer* bi = GET_BIG_INT(bint);
+    int64_t bottom = (int64_t)(bi->words[bi->len - 1]);
+    int64_t signed_bottom = (bi->sign) ? -bottom : bottom;
+    
+    return (int32_t)(signed_bottom);
+  }
 }
 
 BSTS_Integer* bsts_integer_alloc(size_t size) {

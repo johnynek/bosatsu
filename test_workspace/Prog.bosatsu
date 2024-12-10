@@ -1,8 +1,8 @@
 package Bosatsu/Prog
 
 export (unit, pure, raise_error, read_env, recover, remap_env,
-  println, get_args, await, recursive, declare_main, map, map_err,
-  with_env, Prog)
+  println, await, recursive, map, map_err,
+  with_env, Prog, Main)
 
 external struct Prog[env: -*, err: +*, res: +*]
 
@@ -27,8 +27,10 @@ external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err
 def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
   remap_env(p, _ -> env)
 
+def ignore_env[a, e, r](p: Prog[Unit, e, r]) -> Prog[a, e, r]:
+  p.remap_env(_ -> ())
+
 external def println(str: String) -> Prog[Unit, forall e. e, Unit]
-external get_args: Prog[Unit, forall e. e, List[String]]
 
 def await(p): fn -> p.flat_map(fn)
 
@@ -37,10 +39,7 @@ def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a ->
 
 unit: Prog[(), forall e. e, ()] = pure(())
 
-# this is just here so you can assert you have a valid "main" type
-# for you final value
-def declare_main(p: Prog[(), String, Int]) -> Prog[(), String, Int]:
-  p
+struct Main(prog: Prog[List[String], forall e. e, Int])
 
 count_down = recursive(loop -> (
     def compute(i):
@@ -53,14 +52,15 @@ count_down = recursive(loop -> (
     compute
   ))
 
-to_run = declare_main(
-  (
-    _ <- count_down(10).await()
-    args <- get_args.await()
-    arg_str = args.foldLeft("", (s, item) -> match s:
-      case "": item
-      case _: "${s}, ${item}")
-    _ <- println("args = ${arg_str}").await()
-    pure(0)
+to_run = Main(
+  read_env.flat_map(args ->
+    (
+      _ <- count_down(10).await()
+      arg_str = args.foldLeft("", (s, item) -> match s:
+        case "": item
+        case _: "${s}, ${item}")
+      _ <- println("args = ${arg_str}").await()
+      pure(0)
+    ).ignore_env()
   )
 )

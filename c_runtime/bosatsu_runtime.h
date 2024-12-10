@@ -41,6 +41,7 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 // This is dangerous, it should not be mutated after returned 
 BValue bsts_string_mut(size_t len);
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
+BValue bsts_string_from_utf8_bytes_static_null_term(char* bytes);
 /*
  * write the codepoint into bytes, which must be >= 4 in length
  * and return the number of bytes written
@@ -85,6 +86,7 @@ BValue bsts_char_from_code_point(int codepoint);
 int bsts_char_code_point_from_value(BValue ch);
 
 BValue bsts_integer_from_int(int32_t small_int);
+int32_t bsts_integer_to_int32(BValue bint);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer

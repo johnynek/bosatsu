@@ -11,4 +11,10 @@ object TypeName {
 
   implicit val typeNameOrdering: Ordering[TypeName] =
     Ordering.by((tn: TypeName) => tn.ident)
+
+  def apply(str: String): TypeName =
+    Identifier.consParser.parseAll(str) match {
+      case Right(c) => TypeName(c)
+      case Left(e) => sys.error(s"invalid TypeName: $e")
+    }
 }
