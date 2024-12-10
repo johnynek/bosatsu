@@ -1,6 +1,7 @@
 #include "bosatsu_runtime.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include "gc.h"
 
 void assert(_Bool cond, char* message) {
   if (!cond) {
@@ -13,7 +14,6 @@ void test_runtime_enum_struct() {
   BValue s1 = alloc_struct2(alloc_enum0(0), alloc_enum0(1));
   assert(get_variant(get_struct_index(s1, 0)) == 0, "index0 == alloc_enum0");
   assert(get_variant(get_struct_index(s1, 1)) == 1, "index0 == alloc_enum0(1)");
-  release_value(s1);
 }
 
 void test_integer() {
@@ -25,8 +25,6 @@ void test_integer() {
       bsts_string_println(s1);
       exit(1);
     }
-    release_value(s1);
-    release_value(expects1);
   }
 
   {
@@ -37,8 +35,6 @@ void test_integer() {
       bsts_string_println(s1);
       exit(1);
     }
-    release_value(s1);
-    release_value(expects1);
   }
 
   {
@@ -50,8 +46,6 @@ void test_integer() {
       bsts_string_println(s1);
       exit(1);
     }
-    release_value(s1);
-    release_value(expects1);
   }
 
   {
@@ -88,11 +82,6 @@ void test_runtime_strings() {
   assert(bsts_string_equals(v1tail, v2tail), "v1tail == v2tail");
   assert(bsts_string_equals(v1tail, tail_expected), "v1tail == expected");
 
-  release_value(v1tail);
-  release_value(v2tail);
-  release_value(tail_expected);
-  release_value(v3);
-
   {
     BValue hello_world1 = bsts_string_from_utf8_bytes_static(11, "hello world");
     BValue hello1 = bsts_string_from_utf8_bytes_static(5, "world");
@@ -102,14 +91,13 @@ void test_runtime_strings() {
     assert(find2 == 6, "find2");
     int find3 = bsts_string_find(hello_world1, hello1, 7);
     assert(find3 == -1, "find3");
-    release_value(hello_world1);
-    release_value(hello1);
   }
 
 }
 
 int main(int argc, char** argv) {
 
+  GC_init();
   test_runtime_enum_struct();
   test_runtime_strings();
   test_integer();

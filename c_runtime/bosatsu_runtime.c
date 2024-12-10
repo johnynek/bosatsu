@@ -5,19 +5,18 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#include "gc.h"
 
 /*
 There are a few kinds of values:
 
 1. pure values: small ints, characters, small strings that can fit into 63 bits.
-2. pointers to referenced counted values
-3. pointers to static values stack allocated at startup
+2. pointers to gc'ed values
 
 to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
 boundaries:
   a. ends with 01: pure value
-  b. ends with 11: static pointer (allocated once and deleteds at the end of the world)
-  c. ends with 00: refcount pointer.
+  b. ends with 00: gc pointer.
 
 when it comes to functions there are two types, PureFn and closures. We have to box
   pointers to them, but when we know we have a global PureFn we can directly call it.
@@ -34,35 +33,27 @@ a length and char* holding the utf-8 bytes. We could also potentially optimize
 short strings by packing them literally into 63 bits with a length.
 
 Integer values are either pure values (signed values packed into 63 bits),
-or ref-counted big integers
-
-We need to know which case we are in because in generic context we need to know
-how to clone values.
+or gced big integers
 */
 #define TAG_MASK 0x3
 #define PURE_VALUE_TAG 0x1
-#define STATIC_VALUE_TAG 0x3
 #define POINTER_TAG 0x0
 
 // Utility macros to check the tag of a value
 #define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == PURE_VALUE_TAG)
 #define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
 #define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
-#define IS_STATIC_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == STATIC_VALUE_TAG)
 #define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
-#define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
 
-#define DEFINE_RC_STRUCT(name, fields) \
+#define DEFINE_BSTS_OBJ(name, fields) \
     struct name { \
-      atomic_int ref_count; \
-      FreeFn free; \
       fields \
     }; \
     typedef struct name name
 
-#define DEFINE_RC_ENUM(name, fields) DEFINE_RC_STRUCT(name, ENUM_TAG tag; fields)
+#define DEFINE_BSTS_ENUM(name, fields) DEFINE_BSTS_OBJ(name, ENUM_TAG tag; int32_t pad; fields)
 
-DEFINE_RC_STRUCT(RefCounted,);
+DEFINE_BSTS_OBJ(BSTS_OBJ,);
 
 BValue bsts_unit_value() {
   return (BValue)PURE_VALUE_TAG;
@@ -77,7 +68,7 @@ int bsts_char_code_point_from_value(BValue ch) {
 }
 
 // Closures:
-DEFINE_RC_STRUCT(Closure1Data, BClosure1 fn; size_t slot_len;);
+DEFINE_BSTS_OBJ(Closure1Data, BClosure1 fn; size_t slot_len;);
 
 size_t closure_data_size(size_t slot_len) {
   return sizeof(Closure1Data) + slot_len * sizeof(BValue);
@@ -95,26 +86,15 @@ BValue bsts_closure_from_slots(BValue* slots) {
   return (BValue)pointer_to_closure;
 }
 
-void free_closure(Closure1Data* s) {
-  size_t slots = s->slot_len;
-  BValue* items = closure_data_of(s);
-  while (slots > 0) {
-    release_value(items);
-    items = items + 1;
-    slots = slots - 1;
-  }
-  free(s);
-}
+// ENUM0 can always be encoded into a BValue, but we define it to
+// be able to get sizeof() to skip the header
+DEFINE_BSTS_ENUM(Enum0,);
 
 #include "bosatsu_generated.h"
 
-// ENUM0 can always be encoded into a BValue, but we define it to
-// be able to get sizeof() to skip the header
-DEFINE_RC_ENUM(Enum0,);
-
-DEFINE_RC_STRUCT(External, void* external; FreeFn ex_free;);
-DEFINE_RC_STRUCT(BSTS_String, size_t len; char* bytes;);
-DEFINE_RC_STRUCT(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
+DEFINE_BSTS_OBJ(External, void* external;);
+DEFINE_BSTS_OBJ(BSTS_String, size_t len; char* bytes;);
+DEFINE_BSTS_OBJ(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
 
 typedef struct {
     size_t len;
@@ -125,7 +105,7 @@ typedef struct {
 // Helper macros and functions
 #define IS_SMALL(v) IS_PURE_VALUE(v)
 #define GET_SMALL_INT(v) (int32_t)(PURE_VALUE(v))
-#define GET_BIG_INT(v) ((BSTS_Integer*)(TO_POINTER(v)))
+#define GET_BIG_INT(v) ((BSTS_Integer*)(v))
 
 void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* op) {
     op->sign = value < 0;
@@ -161,7 +141,7 @@ void bsts_integer_load_op(BValue v, uint32_t* buffer, BSTS_Int_Operand* operand)
 // A general structure for a reference counted memory block
 // it is always allocated with len BValue array immediately after
 typedef struct _Node {
-  RefCounted* value;
+  BSTS_OBJ* value;
   struct _Node* next;
 } Node;
 
@@ -173,9 +153,9 @@ static _Atomic Stack statics;
 
 // for now, we only push refcounted values on here while they are still valid
 // then we | STATIC_VALUE_TAG to avoid bothering with ref-counting during operation
-static void push(RefCounted* static_value) {
+static void push(BSTS_OBJ* static_value) {
   // TODO what if this malloc fails
-  Node* node = malloc(sizeof(Node));
+  Node* node = GC_malloc_uncollectable(sizeof(Node));
   node->value = static_value;
 
   Stack current;
@@ -194,7 +174,7 @@ void free_on_close(BValue v) {
 }
 
 // Returns NULl when there is nothing to pop
-static RefCounted* pop() {
+static BSTS_OBJ* pop() {
   Stack next;
   Stack current;
   do {
@@ -204,8 +184,8 @@ static RefCounted* pop() {
     }
     next.head = current.head->next; //set the head to the next node
   } while(!atomic_compare_exchange_weak(&statics, &current, next));
-  RefCounted* rc = current.head->value;
-  free(current.head);
+  BSTS_OBJ* rc = current.head->value;
+  GC_free(current.head);
   return rc;
 }
 
@@ -216,8 +196,8 @@ void init_statics() {
 }
 
 BValue get_struct_index(BValue v, int idx) {
-  uintptr_t rc = TO_POINTER(v);
-  BValue* ptr = (BValue*)(rc + sizeof(RefCounted) + idx * sizeof(BValue));
+  uintptr_t rc = (uintptr_t)(v);
+  BValue* ptr = (BValue*)(rc + sizeof(BSTS_OBJ) + idx * sizeof(BValue));
   return *ptr;
 }
 
@@ -226,13 +206,17 @@ ENUM_TAG get_variant(BValue v) {
     return (ENUM_TAG)PURE_VALUE(v);
   }
   else {
-    Enum0* real_v = (Enum0*)TO_POINTER(v);
+    Enum0* real_v = (Enum0*)(v);
     return real_v->tag;
   }
 }
 
+ENUM_TAG get_variant_value(BValue v) {
+  return (ENUM_TAG)PURE_VALUE(v);
+}
+
 BValue get_enum_index(BValue v, int idx) {
-  uintptr_t rc = TO_POINTER(v);
+  uintptr_t rc = (uintptr_t)(v);
   BValue* ptr = (BValue*)(rc + sizeof(Enum0) + idx * sizeof(BValue));
   return *ptr;
 }
@@ -242,69 +226,43 @@ BValue alloc_enum0(ENUM_TAG tag) {
 }
 
 // Externals:
-void free_external(External* ex) {
-  ex->ex_free(ex->external);
-  free(ex);
-}
-
-void bsts_init_rc(RefCounted* rc, FreeFn free) {
-    // this is safe to do because before initialization there can't be race on allocated values
-    rc->ref_count = 1;
-    rc->free = free;
+void free_external(void* ex, void* data) {
+  FreeFn ex_free = (FreeFn)data;
+  ex_free(ex);
 }
 
 BValue alloc_external(void* data, FreeFn free) {
-    External* rc = malloc(sizeof(External));
-    bsts_init_rc((RefCounted*)rc, free);
-    rc->external = data;
-    rc->ex_free = free;
-    return (BValue)rc;
+    External* ext = GC_malloc(sizeof(External));
+    ext->external = data;
+    GC_register_finalizer(ext, free_external, free, NULL, NULL);
+    return (BValue)ext;
 }
 
 void* get_external(BValue v) {
   // Externals can be static also, top level external values
-  External* rc = (External*)TO_POINTER(v);
-  return rc->external;
+  External* ext = (External*)(v);
+  return ext->external;
 }
 
-void free_string(void* str) {
-  BSTS_String* casted = (BSTS_String*)str;
-  free(casted->bytes);
-  free(str);
-}
-
-void free_static_string(void* str) {
-  free(str);
+BValue bsts_string_mut(size_t len) {
+  BSTS_String* str = GC_malloc(sizeof(BSTS_String));
+  str->len = len;
+  str->bytes = GC_malloc_atomic(sizeof(char) * len);
+  return (BValue)str;
 }
 
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
-  BSTS_String* str = malloc(sizeof(BSTS_String));
-  // TODO we could allocate just once and make sure this is the tail of BSTS_String
-  char* bytes_copy = malloc(sizeof(char) * len);
-  memcpy(bytes_copy, bytes, len);
-  str->len = len;
-  str->bytes = bytes_copy;
-  bsts_init_rc((RefCounted*)str, free_string);
-
+  BSTS_String* str = (BSTS_String*)bsts_string_mut(len);
+  memcpy(str->bytes, bytes, len);
   return (BValue)str;
 }
 
-BValue bsts_string_from_utf8_bytes_owned(size_t len, char* bytes) {
-  BSTS_String* str = malloc(sizeof(BSTS_String));
-  str->len = len;
-  str->bytes = bytes;
-  bsts_init_rc((RefCounted*)str, free_string);
-
-  return (BValue)str;
-}
 
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
-  BSTS_String* str = malloc(sizeof(BSTS_String));
+  BSTS_String* str = GC_malloc_atomic(sizeof(BSTS_String));
   str->len = len;
   str->bytes = bytes;
-  bsts_init_rc((RefCounted*)str, free_static_string);
-
   return (BValue)str;
 }
 
@@ -344,7 +302,7 @@ int bsts_string_code_point_to_utf8(int code_point, char* output) {
     return -1;
 }
 
-#define GET_STRING(v) (BSTS_String*)(TO_POINTER(v))
+#define GET_STRING(v) (BSTS_String*)(v)
 
 _Bool bsts_string_equals(BValue left, BValue right) {
   if (left == right) {
@@ -507,10 +465,6 @@ BValue bsts_string_char_at(BValue value, int offset) {
     return bsts_char_from_code_point(code_point);
 }
 
-_Bool bsts_rc_value_is_unique(RefCounted* value) {
-  return atomic_load(&(value->ref_count)) == 1;
-}
-
 // (&string, int, int) -> string
 BValue bsts_string_substring(BValue value, int start, int end) {
   BSTS_String* str = GET_STRING(value);
@@ -524,11 +478,7 @@ BValue bsts_string_substring(BValue value, int start, int end) {
     // empty string, should probably be a constant
     return bsts_string_from_utf8_bytes_static(0, "");
   }
-  else if (str->free == free_static_string) {
-    return bsts_string_from_utf8_bytes_static(new_len, str->bytes + start);
-  }
   else {
-    // ref-counted bytes
     // TODO: we could keep track of an offset into the string to optimize
     // this case when refcount == 1, which may matter for tail recursion
     // taking substrings....
@@ -640,29 +590,21 @@ BValue bsts_integer_from_int(int32_t small_int) {
     return TO_PURE_VALUE(small_int);
 }
 
-void free_integer(void* integer) {
-  BSTS_Integer* bint = GET_BIG_INT(integer);
-  free(bint->words);
-  free(integer);
-}
-
 BSTS_Integer* bsts_integer_alloc(size_t size) {
     // chatgpt authored this
-    BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
+    BSTS_Integer* integer = (BSTS_Integer*)GC_malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
         // Handle allocation failure
         return NULL;
     }
 
     // TODO we could allocate just once and make sure this is the tail of BSTS_Integer
-    integer->words = (uint32_t*)malloc(size * sizeof(uint32_t));
+    integer->words = (uint32_t*)GC_malloc_atomic(size * sizeof(uint32_t));
     if (integer->words == NULL) {
         // Handle allocation failure
-        free(integer);
         return NULL;
     }
     integer->len = size;
-    bsts_init_rc((RefCounted*)integer, free_integer);
     return integer; // Low bit is 0 since it's a pointer
 }
 
@@ -679,25 +621,6 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     }
     integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
-    return (BValue)integer; // Low bit is 0 since it's a pointer
-}
-
-BValue bsts_integer_from_words_owned(_Bool is_pos, size_t size, uint32_t* words) {
-    // TODO: use bsts_integer_alloc
-    BSTS_Integer* integer = (BSTS_Integer*)malloc(sizeof(BSTS_Integer));
-    if (integer == NULL) {
-        // Handle allocation failure
-        return NULL;
-    }
-
-    integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
-    // remove any leading 0 words
-    while ((size > 1) && (words[size - 1] == 0)) {
-      size--;
-    }
-    integer->len = size;
-    integer->words = words;
-    bsts_init_rc((RefCounted*)integer, free_integer);
     return (BValue)integer; // Low bit is 0 since it's a pointer
 }
 
@@ -917,10 +840,12 @@ BValue bsts_integer_add(BValue l, BValue r) {
                   free(result_words);
                 }
                 else {
-                  result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                  result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                  free(result_words);
                 }
             } else {
-                result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                free(result_words);
             }
         } else {
             // Subtraction
@@ -978,10 +903,12 @@ BValue bsts_integer_add(BValue l, BValue r) {
                       free(result_words);
                     }
                     else {
-                      result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                      result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                      free(result_words);
                     }
                 } else {
-                    result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+                    result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+                    free(result_words);
                 }
             }
         }
@@ -1015,12 +942,6 @@ BValue bsts_integer_negate(BValue v) {
             // Zero remains zero when negated
             return bsts_integer_from_int(0);
         }
-        if (bsts_rc_value_is_unique((RefCounted*)integer)) {
-          // we can reuse the data
-          _Bool sign = integer->sign;
-          integer->sign = !sign;
-          return v;
-        }
         // Create a new big integer with flipped sign
 
         // recall the sign is (-1)^sign, so to negate, pos = sign
@@ -1029,12 +950,11 @@ BValue bsts_integer_negate(BValue v) {
         if (result == NULL) {
             return NULL;
         }
-        release_value(v);
         return result;
     }
 }
 
-// Helper function to divide big integer by 10
+// Helper f;unction to divide big integer by 10
 uint32_t bigint_divide_by_10(uint32_t* words, size_t len, uint32_t* quotient_words, size_t* quotient_len_ptr) {
     uint64_t remainder = 0;
     for (size_t i = len; i > 0; i--) {
@@ -1147,8 +1067,8 @@ BValue bsts_integer_to_string(BValue v) {
         }
 
         // Now, reverse the digits to get the correct order
-        char* data = (char*)malloc(digit_count);
-        if (data == NULL) {
+        BSTS_String* res = (BSTS_String*)bsts_string_mut(digit_count);
+        if (res == NULL) {
             // Memory allocation error
             free(digits);
             free(words_copy);
@@ -1157,42 +1077,14 @@ BValue bsts_integer_to_string(BValue v) {
 
         // reverse the data
         for (size_t i = 0; i < digit_count; i++) {
-            data[i] = digits[digit_count - i - 1];
+            res->bytes[i] = digits[digit_count - i - 1];
         }
 
         // Free temporary allocations
         free(digits);
         free(words_copy);
 
-        return bsts_string_from_utf8_bytes_owned(digit_count, data);
-    }
-}
-
-// Function to determine the type of the given value pointer and clone if necessary
-BValue clone_value(BValue value) {
-    if (IS_POINTER(value)) {
-        // It's a pointer to a reference counted value
-        RefCounted* original = (RefCounted *)value;
-        // Increase reference count atomically using atomic_fetch_add
-        atomic_fetch_add_explicit(&original->ref_count, 1, memory_order_seq_cst);
-        return value;
-    } else {
-        // must be a pure or static value
-        // else if (IS_PURE_VALUE(value) || IS_STATIC_VALUE(value)) {
-        // Pure values and static values are immutable, return them directly
-        return value;
-    }
-}
-
-// Function to safely decrement the reference count and free memory if needed
-static void release_ref_counted(RefCounted *block) {
-    if (block == NULL) return;
-
-    // Decrement the reference count atomically using atomic_fetch_sub
-    if (atomic_fetch_sub_explicit(&block->ref_count, 1, memory_order_seq_cst) == 1) {
-        // If reference count drops to 0, free the memory
-        // TODO actually free
-        //block->free(block);
+        return res;
     }
 }
 
@@ -1295,7 +1187,6 @@ BValue bsts_integer_from_twos(size_t max_len, u_int32_t* result_twos) {
         // Attempt to pack into small integer
         BValue maybe = bsts_maybe_small_int(!result_sign, result->words[0]);
         if (maybe) {
-          free(result);
           return maybe;
         }
     }
@@ -1426,7 +1317,8 @@ BValue bsts_integer_times(BValue left, BValue right) {
             }
         }
         // if we make it here we have to fit into big
-        BValue result = bsts_integer_from_words_owned(!result_sign, result_len, result_words);
+        BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+        free(result_words);
         return result;
     }
 }
@@ -1765,11 +1657,6 @@ BValue bsts_integer_diff_prod(BSTS_Int_Operand left, uint64_t prod, BSTS_Int_Ope
 
     BValue v1 = bsts_integer_negate(bsts_integer_times(p, ri));
     BValue result = bsts_integer_add(li, v1);
-
-    release_value(li);
-    release_value(ri);
-    release_value(p);
-    release_value(v1);
     return result;
 }
 
@@ -1784,7 +1671,6 @@ BSTS_Int_Div_Mod bsts_integer_search_div_mod(BSTS_Int_Operand left, BSTS_Int_Ope
       //println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
       if (bsts_integer_lt_zero(mod)) {
         // mid is too big
-        release_value(mod);
         high = mid;
       }
       else {
@@ -1794,7 +1680,6 @@ BSTS_Int_Div_Mod bsts_integer_search_div_mod(BSTS_Int_Operand left, BSTS_Int_Ope
         int cmp_mod_r = compare_abs(mod_op.len, mod_op.words, right.len, right.words);
         if (cmp_mod_r >= 0) {
           // mid is too small
-          release_value(mod);
           low = mid;
         }
         else {
@@ -1875,7 +1760,6 @@ BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand
     BValue m1 = div_mod_1.mod;
     // this must be a big integer if it isn't zero
     BValue m1_shift = bsts_integer_shift_left(m1, bsts_integer_from_int(32));
-    release_value(m1);
     // next_left = (m1 << 32) | l0
     uint32_t next_left_temp[2];
     BSTS_Int_Operand next_left_operand;
@@ -1884,19 +1768,14 @@ BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand
     next_left_operand.words[0] = l_op.words[0];
 
     BSTS_Int_Div_Mod div_mod_next = bsts_integer_divmod_pos(next_left_operand, r_op);
-    release_value(m1_shift);
     // we are done
     // m1 * b + l0 == md1 * r + mm1
     // l = d1 * r * b + md1 * r + mm1 = (d1 * b + md1) * r + mm1
     // TODO this is next_div += (d1 << 32), and we own d1 and next_div
     // to we could reuse the memory if we are careful
     BValue div_shift = bsts_integer_shift_left(d1, bsts_integer_from_int(32));
-    release_value(d1);
     BValue div = bsts_integer_add(div_shift, div_mod_next.div);
     // we are done with div_shift and div_mod_next.div now
-    release_value(div_shift);
-    release_value(div_mod_next.div);
-    // 
     div_mod_next.div = div;
     // but we don't need to do this
     // div_mod_next.mod = div_mod_next.mod;
@@ -1932,16 +1811,14 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
       int32_t rs = GET_SMALL_INT(r);
       if (rs == 0) {
         // we define division by zero as (0, l)
-        return alloc_struct2(bsts_integer_from_int(0), clone_value(l));
+        return alloc_struct2(bsts_integer_from_int(0), l);
       }
       if (rs == 1) {
-        return alloc_struct2(
-          clone_value(l),
-          bsts_integer_from_int(0));
+        return alloc_struct2(l, bsts_integer_from_int(0));
       }
       if (rs == -1) {
         return alloc_struct2(
-          bsts_integer_negate(clone_value(l)),
+          bsts_integer_negate(l),
           bsts_integer_from_int(0));
       }
       if (IS_SMALL(l)) {
@@ -1994,10 +1871,8 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
           // l = (-d)(-r) + m - r + r
           // l = -(d + 1) (-r) + (m + (-r))
           BValue div1 = bsts_integer_negate(bsts_integer_add(div, bsts_integer_from_int(1))); 
-          release_value(div);
           div = div1;
           BValue mod1 = bsts_integer_add(mod, r);
-          release_value(mod);
           mod = mod1;
         }
       }
@@ -2005,11 +1880,9 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
         if (!right_neg) {
           // -l = (-d - 1) r + (r - m)
           BValue div1 = bsts_integer_negate(bsts_integer_add(div, bsts_integer_from_int(1))); 
-          release_value(div);
           div = div1;
           BValue neg_mod = bsts_integer_negate(mod);
           BValue mod1 = bsts_integer_add(r, neg_mod);
-          release_value(neg_mod);
           mod = mod1;
         }
         else {
@@ -2029,42 +1902,25 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
 }
 
 void free_statics() {
-  RefCounted* rc;
+  BSTS_OBJ* rc;
   do {
     rc = pop();
     if (rc == NULL) return;
-    release_ref_counted(rc);
   } while(1);
-}
-
-void release_value(BValue value) {
-    if (IS_POINTER(value)) {
-        // It's a pointer to a reference counted value
-        return release_ref_counted((RefCounted *)value);
-    }
-}
-
-BValue make_static(BValue v) {
-  if (IS_POINTER(v)) {
-    return (BValue)(((uintptr_t)v) | STATIC_VALUE_TAG);
-  }
-  return v;
 }
 
 BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
     BValue result = atomic_load(target);
     if (result == NULL) {
         result = cons();
-        BValue static_version = make_static(result);
         BValue expected = NULL;
         do {
-            if (atomic_compare_exchange_weak(target, &expected, static_version)) {
+            if (atomic_compare_exchange_weak(target, &expected, result)) {
                 free_on_close(result);
                 break;
             } else {
                 expected = atomic_load(target);
                 if (expected != NULL) {
-                    release_value(result);
                     result = expected;
                     break;
                 }

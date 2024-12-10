@@ -358,10 +358,10 @@ object ClangGen {
             (boolToValue(e1), boolToValue(e2))
               .flatMapN { (a, b) => andCode(a, b) }
 
-          case CheckVariant(expr, expect, _, _) =>
+          case CheckVariant(expr, expect, _, famArities) =>
             innerToValue(expr).flatMap { vl =>
-            // this is just get_variant(expr) == expect
-              vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
+              val fn = if (famArities.forall(_ == 0)) "get_variant_value" else  "get_variant"
+              vl.onExpr { expr => pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
           case MatchString(arg, parts, binds, mustMatch) =>
             (
@@ -1338,6 +1338,7 @@ object ClangGen {
             .flatMap { packVals =>
               /*
               int main(int argc, char** argv) {
+                GC_init();
                 init_statics();
                 atexit(free_statics);
 
@@ -1356,6 +1357,7 @@ object ClangGen {
                 results.bracket(Code.IntLiteral(idx)) := runFn(n, tv)
               }
               val header = Code.Statements(
+                Code.Ident("GC_init")().stmt,
                 Code.Ident("init_statics")().stmt,
                 Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
                 Code.DeclareArray(Code.TypeIdent.Named("BSTS_Test_Result"), results, Left(testCount))
@@ -1366,7 +1368,12 @@ object ClangGen {
                 Code.returnValue(summaryFn(Code.IntLiteral(testCount), results)))
 
               appendStatement(mainFn)
-            } *> StateT(s => result(s.include(Code.Include.angle("stdlib.h")), ()))
+            } *> StateT {
+              s => result(
+                  s.include(Code.Include.angle("stdlib.h"))
+                    .include(Code.Include.quote("gc.h")), ()
+                )
+            }
           }
 
           def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident] =

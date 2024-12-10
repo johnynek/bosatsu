@@ -21,17 +21,16 @@ typedef void (*FreeFn)(void*);
 // A function which constructs a BValue
 typedef BValue (*BConstruct)();
 
-// Function to determine the type of the given value pointer and clone if necessary
-// &BValue -> BValue
-BValue clone_value(BValue value);
-// BValue -> ()
-void release_value(BValue value);
+// delta may be negative or positive
+void bsts_increment_value(BValue value, int delta);
 
 // (&BValue, int) -> &BValue
 BValue get_struct_index(BValue v, int idx);
 
 // &BValue -> Tag
 ENUM_TAG get_variant(BValue v);
+// This is only safe if all enums have zero args
+ENUM_TAG get_variant_value(BValue v);
 // (&BValue, int) -> &BValue
 BValue get_enum_index(BValue v, int idx);
 
@@ -39,7 +38,8 @@ BValue get_enum_index(BValue v, int idx);
 BValue alloc_enum0(ENUM_TAG tag);
 
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
-BValue bsts_string_from_utf8_bytes_owned(size_t len, char* bytes);
+// This is dangerous, it should not be mutated after returned 
+BValue bsts_string_mut(size_t len);
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
 /*
  * write the codepoint into bytes, which must be >= 4 in length
@@ -124,7 +124,6 @@ void free_statics();
 
 // This should only be called immediately on allocated values
 // on top level allocations that are made
-BValue make_static(BValue v);
 void free_on_close(BValue v);
 
 BValue read_or_build(_Atomic BValue* v, BConstruct cons);
@@ -139,29 +138,5 @@ typedef struct BSTS_Test_Result {
 // and print to stdout
 BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value);
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results);
-
-#define CONSTRUCT(target, cons) (\
-{\
-    BValue result = atomic_load(target);\
-    if (result == NULL) {\
-        result = (cons)();\
-        BValue static_version = make_static(result);\
-        BValue expected = NULL;\
-        do {\
-            if (atomic_compare_exchange_weak(target, &expected, static_version)) {\
-                free_on_close(result);\
-                break;\
-            } else {\
-                expected = atomic_load(target);\
-                if (expected != NULL) {\
-                    release_value(result);\
-                    result = expected;\
-                    break;\
-                }\
-            }\
-        } while (1);\
-    }\
-    result;\
-})
 
 #endif

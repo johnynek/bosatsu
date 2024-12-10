@@ -100,7 +100,7 @@ BValue __bsts_t_closure0(BValue* __bstsi_slot,
     __bsts_a_5 = __bsts_b_item1;
     __bsts_a_0 = alloc_enum0(1);
     _Bool __bsts_l_cond1;
-    __bsts_l_cond1 = get_variant(__bsts_a_0) == 1;
+    __bsts_l_cond1 = get_variant_value(__bsts_a_0) == 1;
     while (__bsts_l_cond1) {
         if (get_variant(__bsts_a_3) == 0) {
             __bsts_a_0 = alloc_enum0(0);
@@ -116,7 +116,7 @@ BValue __bsts_t_closure0(BValue* __bstsi_slot,
             __bsts_a_3 = __bsts_a_2;
             __bsts_a_5 = __bsts_a_4;
         }
-        __bsts_l_cond1 = get_variant(__bsts_a_0) == 1;
+        __bsts_l_cond1 = get_variant_value(__bsts_a_0) == 1;
     }
     return __bsts_a_1;
 }

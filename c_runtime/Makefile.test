@@ -1,10 +1,25 @@
+OS := $(shell uname)
+
+# Platform-specific settings
+ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
+    LATEST_VERSION := $(shell ls -v /opt/homebrew/Cellar/bdw-gc | tail -n 1)
+    BOEHM_GC := /opt/homebrew/Cellar/bdw-gc/$(LATEST_VERSION)
+endif
+
+ifeq ($(OS), Darwin)
+    CFLAGS += -I$(BOEHM_GC)/include
+    LIBS += "$(BOEHM_GC)/lib/libgc.a"
+else ifeq ($(OS), Linux)
+    LIBS += -lgc
+endif
+
 FLAGS = -flto -O3
 //FLAGS = -g
 
 all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o
 
 bosatsu_runtime.o: bosatsu_runtime.h bosatsu_runtime.c bosatsu_decls_generated.h bosatsu_generated.h
-	gcc $(FLAGS) -c -Wall -Werror bosatsu_runtime.c
+	gcc $(FLAGS) $(CFLAGS) -c -Wall -Werror bosatsu_runtime.c
 
 bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 	gcc $(FLAGS) -Wall -Werror -c bosatsu_ext_Bosatsu_l_Predef.c
@@ -13,7 +28,7 @@ bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
 	gcc $(FLAGS) -Wall -Werror -c bosatsu_ext_Bosatsu_l_Prog.c
 
 test_exe: output.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Predef.o
-	gcc $(FLAGS) -o test_exe output.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Predef.o
+	gcc $(FLAGS) $(CFLAGS) -o test_exe output.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Predef.o $(LIBS)
 
 test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }
