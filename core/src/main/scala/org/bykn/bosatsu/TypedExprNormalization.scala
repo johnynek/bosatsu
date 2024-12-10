@@ -405,11 +405,14 @@ object TypedExprNormalization {
                 val cnt = in1.freeVarsDup.count(_ === arg)
                 if (cnt > 0) {
                   // the arg is needed
+                  val isSimp = Impl.isSimple(ex1, lambdaSimple = true)
                   val shouldInline = (!rec.isRecursive) && {
-                    (cnt == 1) || Impl.isSimple(ex1, lambdaSimple = true)
+                    (cnt == 1) || isSimp
                   }
+                  // we don't want to inline a value that is itself a function call
+                  // inside of lambdas
                   val inlined =
-                    if (shouldInline) substitute(arg, ex1, in1) else None
+                    if (shouldInline) substitute(arg, ex1, in1, enterLambda = isSimp) else None
                   inlined match {
                     case Some(il) =>
                       normalize1(namerec, il, scope, typeEnv)

@@ -1144,7 +1144,8 @@ object TypedExpr {
   def substitute[A](
       ident: Bindable,
       ex: TypedExpr[A],
-      in: TypedExpr[A]
+      in: TypedExpr[A],
+      enterLambda: Boolean = true
   ): Option[TypedExpr[A]] = {
     // if we hit a shadow, we don't need to substitute down
     // that branch
@@ -1164,7 +1165,8 @@ object TypedExpr {
         case Annotation(t, tpe) =>
           loop(t).map(Annotation(_, tpe))
         case AnnotatedLambda(args, res, tag) =>
-          if (args.exists { case (n, _) => masks(n) }) None
+          if (!enterLambda) None
+          else if (args.exists { case (n, _) => masks(n) }) None
           else if (args.exists { case (n, _) => shadows(n) }) Some(in)
           else loop(res).map(AnnotatedLambda(args, _, tag))
         case App(fn, args, tpe, tag) =>
