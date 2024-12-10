@@ -251,9 +251,15 @@ object Code {
       cond match {
         case expr: Code.Expression =>
           Monad[F].pure {
-            (thenC, elseC) match {
-              case (thenX: Expression, elseX: Expression) => Ternary(expr, thenX, elseX)
-              case _ => IfElseValue(expr, thenC, elseC)
+            expr.evalToInt match {
+              case Some(IntLiteral(i)) =>
+                if (i == 0) elseC
+                else thenC
+              case None =>
+                (thenC, elseC) match {
+                  case (thenX: Expression, elseX: Expression) => Ternary(expr, thenX, elseX)
+                  case _ => IfElseValue(expr, thenC, elseC)
+                }
             }
           }
         case Code.WithValue(stmt, v) =>
@@ -447,12 +453,18 @@ object Code {
     }
 
   def ifThenElse(cond: Expression, thenCond: Statement, elseCond: Statement): Statement = {
-    val first = cond -> block(thenCond)
-    elseCond match {
-      case IfElse(ifs, elseCond) =>
-        IfElse(first :: ifs, elseCond)
-      case notIfElse =>
-        IfElse(NonEmptyList.one(first), Some(block(notIfElse)))
+    cond.evalToInt match {
+      case Some(IntLiteral(i)) =>
+        if (i == 0) elseCond
+        else thenCond
+      case None =>
+        val first = cond -> block(thenCond)
+        elseCond match {
+          case IfElse(ifs, elseCond) =>
+            IfElse(first :: ifs, elseCond)
+          case notIfElse =>
+            IfElse(NonEmptyList.one(first), Some(block(notIfElse)))
+        }
     }
   }
   private val equalsDoc = Doc.text(" = ")
