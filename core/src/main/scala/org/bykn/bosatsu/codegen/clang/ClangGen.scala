@@ -269,11 +269,17 @@ object ClangGen {
                 // that said, the compiler will definitely handle this too
                 pv(Code.evalAnd(le, re))
               case _ =>
-                // we can only run the statements in r if le is true,
-                // since boolean expressions are where the side effects are.
-                //
-                // and(x, y) == if x: y else: False
-                pv(Code.IfElseValue(le, r, Code.FalseLit))
+                pv(le.evalToInt match {
+                  case None =>
+                    // we can only run the statements in r if le is true,
+                    // since boolean expressions are where the side effects are.
+                    //
+                    // and(x, y) == if x: y else: False
+                    Code.IfElseValue(le, r, Code.FalseLit)
+                  case Some(Code.IntLiteral(i)) =>
+                    if (i == 0) Code.FalseLit
+                    else r
+                })
             }
           case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
           case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
