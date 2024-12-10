@@ -28,7 +28,7 @@ class ClangGenTest extends munit.FunSuite {
     val res = ClangGen.renderMain(
       sortedEnv = sortedEnv,
       externals = ClangGen.ExternalResolver.FromJvmExternals,
-      value = (PackageName.PredefName, Identifier.Name("ignored"))
+      value = (PackageName.PredefName, Identifier.Name("range"), Code.Ident("run_main"))
     )
 
     res match {
@@ -45,7 +45,7 @@ class ClangGenTest extends munit.FunSuite {
       To inspect the code, change the hash, and it will print the code out
      */
     testFilesCompilesToHash("test_workspace/Ackermann.bosatsu")(
-      "b31036461ebf3f7474f73e6661e0812f"
+      "fbc7ea8d5b01c1f0eac1c80652f16534"
     )
   }
 }
