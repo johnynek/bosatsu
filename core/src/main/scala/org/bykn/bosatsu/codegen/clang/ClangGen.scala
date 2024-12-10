@@ -358,10 +358,10 @@ object ClangGen {
             (boolToValue(e1), boolToValue(e2))
               .flatMapN { (a, b) => andCode(a, b) }
 
-          case CheckVariant(expr, expect, _, _) =>
+          case CheckVariant(expr, expect, _, famArities) =>
             innerToValue(expr).flatMap { vl =>
-            // this is just get_variant(expr) == expect
-              vl.onExpr { expr => pv(Code.Ident("get_variant")(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
+              val fn = if (famArities.forall(_ == 0)) "get_variant_value" else  "get_variant"
+              vl.onExpr { expr => pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
             }
           case MatchString(arg, parts, binds, mustMatch) =>
             (

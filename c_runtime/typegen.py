@@ -83,7 +83,7 @@ BValue call_fn{size}(BValue fn, {arg_params}) {{
     BPureFn{size} pure = (BPureFn{size})PURE_VALUE(fn);
     return pure({just_args});
   }}
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn{size}* purefn = (BoxedPureFn{size}*)ptr;
   if (purefn->slot_len == 0) {{
     return purefn->fn({just_args});

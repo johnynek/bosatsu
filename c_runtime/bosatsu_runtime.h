@@ -29,6 +29,8 @@ BValue get_struct_index(BValue v, int idx);
 
 // &BValue -> Tag
 ENUM_TAG get_variant(BValue v);
+// This is only safe if all enums have zero args
+ENUM_TAG get_variant_value(BValue v);
 // (&BValue, int) -> &BValue
 BValue get_enum_index(BValue v, int idx);
 

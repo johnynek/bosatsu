@@ -1560,7 +1560,7 @@ BValue call_fn1(BValue fn, BValue arg0) {
     BPureFn1 pure = (BPureFn1)PURE_VALUE(fn);
     return pure(arg0);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn1* purefn = (BoxedPureFn1*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0);
@@ -1605,7 +1605,7 @@ BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
     BPureFn2 pure = (BPureFn2)PURE_VALUE(fn);
     return pure(arg0, arg1);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn2* purefn = (BoxedPureFn2*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1);
@@ -1650,7 +1650,7 @@ BValue call_fn3(BValue fn, BValue arg0, BValue arg1, BValue arg2) {
     BPureFn3 pure = (BPureFn3)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn3* purefn = (BoxedPureFn3*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2);
@@ -1695,7 +1695,7 @@ BValue call_fn4(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3) {
     BPureFn4 pure = (BPureFn4)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn4* purefn = (BoxedPureFn4*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3);
@@ -1740,7 +1740,7 @@ BValue call_fn5(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BPureFn5 pure = (BPureFn5)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn5* purefn = (BoxedPureFn5*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4);
@@ -1785,7 +1785,7 @@ BValue call_fn6(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BPureFn6 pure = (BPureFn6)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn6* purefn = (BoxedPureFn6*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5);
@@ -1830,7 +1830,7 @@ BValue call_fn7(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BPureFn7 pure = (BPureFn7)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn7* purefn = (BoxedPureFn7*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
@@ -1875,7 +1875,7 @@ BValue call_fn8(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BPureFn8 pure = (BPureFn8)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn8* purefn = (BoxedPureFn8*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
@@ -1920,7 +1920,7 @@ BValue call_fn9(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, B
     BPureFn9 pure = (BPureFn9)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn9* purefn = (BoxedPureFn9*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
@@ -1965,7 +1965,7 @@ BValue call_fn10(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn10 pure = (BPureFn10)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn10* purefn = (BoxedPureFn10*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
@@ -2010,7 +2010,7 @@ BValue call_fn11(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn11 pure = (BPureFn11)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn11* purefn = (BoxedPureFn11*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
@@ -2055,7 +2055,7 @@ BValue call_fn12(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn12 pure = (BPureFn12)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn12* purefn = (BoxedPureFn12*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
@@ -2100,7 +2100,7 @@ BValue call_fn13(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn13 pure = (BPureFn13)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn13* purefn = (BoxedPureFn13*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
@@ -2145,7 +2145,7 @@ BValue call_fn14(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn14 pure = (BPureFn14)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn14* purefn = (BoxedPureFn14*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
@@ -2190,7 +2190,7 @@ BValue call_fn15(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn15 pure = (BPureFn15)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn15* purefn = (BoxedPureFn15*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
@@ -2235,7 +2235,7 @@ BValue call_fn16(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn16 pure = (BPureFn16)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn16* purefn = (BoxedPureFn16*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
@@ -2280,7 +2280,7 @@ BValue call_fn17(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn17 pure = (BPureFn17)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn17* purefn = (BoxedPureFn17*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
@@ -2325,7 +2325,7 @@ BValue call_fn18(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn18 pure = (BPureFn18)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn18* purefn = (BoxedPureFn18*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
@@ -2370,7 +2370,7 @@ BValue call_fn19(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn19 pure = (BPureFn19)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn19* purefn = (BoxedPureFn19*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
@@ -2415,7 +2415,7 @@ BValue call_fn20(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn20 pure = (BPureFn20)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn20* purefn = (BoxedPureFn20*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
@@ -2460,7 +2460,7 @@ BValue call_fn21(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn21 pure = (BPureFn21)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn21* purefn = (BoxedPureFn21*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
@@ -2505,7 +2505,7 @@ BValue call_fn22(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn22 pure = (BPureFn22)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn22* purefn = (BoxedPureFn22*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
@@ -2550,7 +2550,7 @@ BValue call_fn23(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn23 pure = (BPureFn23)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn23* purefn = (BoxedPureFn23*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
@@ -2595,7 +2595,7 @@ BValue call_fn24(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn24 pure = (BPureFn24)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn24* purefn = (BoxedPureFn24*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
@@ -2640,7 +2640,7 @@ BValue call_fn25(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn25 pure = (BPureFn25)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn25* purefn = (BoxedPureFn25*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
@@ -2685,7 +2685,7 @@ BValue call_fn26(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn26 pure = (BPureFn26)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn26* purefn = (BoxedPureFn26*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
@@ -2730,7 +2730,7 @@ BValue call_fn27(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn27 pure = (BPureFn27)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn27* purefn = (BoxedPureFn27*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
@@ -2775,7 +2775,7 @@ BValue call_fn28(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn28 pure = (BPureFn28)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn28* purefn = (BoxedPureFn28*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
@@ -2820,7 +2820,7 @@ BValue call_fn29(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn29 pure = (BPureFn29)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn29* purefn = (BoxedPureFn29*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
@@ -2865,7 +2865,7 @@ BValue call_fn30(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn30 pure = (BPureFn30)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn30* purefn = (BoxedPureFn30*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
@@ -2910,7 +2910,7 @@ BValue call_fn31(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn31 pure = (BPureFn31)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn31* purefn = (BoxedPureFn31*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
@@ -2955,7 +2955,7 @@ BValue call_fn32(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, 
     BPureFn32 pure = (BPureFn32)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }
-  BValue ptr = (BValue)TO_POINTER(fn);
+  BValue ptr = (BValue)(fn);
   BoxedPureFn32* purefn = (BoxedPureFn32*)ptr;
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);

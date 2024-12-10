@@ -44,7 +44,6 @@ or gced big integers
 #define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
 #define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
 #define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
-#define TO_POINTER(ptr) ((uintptr_t)(ptr) & ~TAG_MASK)
 
 #define DEFINE_BSTS_OBJ(name, fields) \
     struct name { \
@@ -106,7 +105,7 @@ typedef struct {
 // Helper macros and functions
 #define IS_SMALL(v) IS_PURE_VALUE(v)
 #define GET_SMALL_INT(v) (int32_t)(PURE_VALUE(v))
-#define GET_BIG_INT(v) ((BSTS_Integer*)(TO_POINTER(v)))
+#define GET_BIG_INT(v) ((BSTS_Integer*)(v))
 
 void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* op) {
     op->sign = value < 0;
@@ -197,7 +196,7 @@ void init_statics() {
 }
 
 BValue get_struct_index(BValue v, int idx) {
-  uintptr_t rc = TO_POINTER(v);
+  uintptr_t rc = (uintptr_t)(v);
   BValue* ptr = (BValue*)(rc + sizeof(BSTS_OBJ) + idx * sizeof(BValue));
   return *ptr;
 }
@@ -207,13 +206,17 @@ ENUM_TAG get_variant(BValue v) {
     return (ENUM_TAG)PURE_VALUE(v);
   }
   else {
-    Enum0* real_v = (Enum0*)TO_POINTER(v);
+    Enum0* real_v = (Enum0*)(v);
     return real_v->tag;
   }
 }
 
+ENUM_TAG get_variant_value(BValue v) {
+  return (ENUM_TAG)PURE_VALUE(v);
+}
+
 BValue get_enum_index(BValue v, int idx) {
-  uintptr_t rc = TO_POINTER(v);
+  uintptr_t rc = (uintptr_t)(v);
   BValue* ptr = (BValue*)(rc + sizeof(Enum0) + idx * sizeof(BValue));
   return *ptr;
 }
@@ -237,7 +240,7 @@ BValue alloc_external(void* data, FreeFn free) {
 
 void* get_external(BValue v) {
   // Externals can be static also, top level external values
-  External* ext = (External*)TO_POINTER(v);
+  External* ext = (External*)(v);
   return ext->external;
 }
 
@@ -299,7 +302,7 @@ int bsts_string_code_point_to_utf8(int code_point, char* output) {
     return -1;
 }
 
-#define GET_STRING(v) (BSTS_String*)(TO_POINTER(v))
+#define GET_STRING(v) (BSTS_String*)(v)
 
 _Bool bsts_string_equals(BValue left, BValue right) {
   if (left == right) {
