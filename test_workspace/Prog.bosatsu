@@ -1,8 +1,8 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, read_env, recover, remap_env,
+export (unit, pure, raise_error, read_env, ignore_env, recover, remap_env,
   println, await, recursive, map, map_err,
-  with_env, Prog, Main)
+  with_env, Prog, Main())
 
 external struct Prog[env: -*, err: +*, res: +*]
 

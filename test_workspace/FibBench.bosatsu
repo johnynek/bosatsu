@@ -1,0 +1,36 @@
+package Bosatsu/FibBench
+
+from Bosatsu/Prog import Prog, Main, println, read_env, await, ignore_env, pure
+from Bosatsu/Nat import Nat, to_Nat, Zero as NZero, Succ as NSucc
+
+def fib_Nat(n: Nat) -> Int:
+  recur n:
+    case NZero | NSucc(NZero): 1
+    case NSucc(NSucc(p1) as prev):
+      fp = fib_Nat(prev)
+      fp1 = fib_Nat(p1)
+      add(fp, fp1)
+
+def fib(i: Int) -> Int: fib_Nat(to_Nat(i))
+
+def print_fib(str: String):
+  match string_to_Int(str):
+    case Some(i): println("fib(${str}) = ${int_to_String(fib(i))}")
+    case None: println("could not parse ${str}")
+
+def list_len(lst, acc):
+  recur lst:
+    case []: acc
+    case [_, *tail]: list_len(tail, add(acc, 1))
+
+def main(args: List[String]):
+  match args:
+    case [_, n]: print_fib(n)
+    case _: println("expected exactly one arg, got: ${int_to_String(list_len(args, 0))}")
+
+main = Main((
+  args <- read_env.await()
+  _ <- main(args).ignore_env().await()
+  pure(0)
+))
+  
