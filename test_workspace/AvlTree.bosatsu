@@ -239,7 +239,7 @@ def log2(i):
         rr = n.div(2)
         (rr, cnt.add(1)))
 
-def all_n(n): range(n).foldLeft(Empty, add_i)
+def all_n(n): range(n).foldl_List(Empty, add_i)
 
 height_tests =(
     # h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33

@@ -384,10 +384,10 @@ package Foo
 three = [1, 2]
 
 def sum(ls):
-  ls.foldLeft(0, add)
+  ls.foldl_List(0, add)
 
 sum0 = sum(three)
-sum1 = three.foldLeft(0, (x, y) -> add(x, y))
+sum1 = three.foldl_List(0, (x, y) -> add(x, y))
 
 same = sum0.eq_Int(sum1)
 """),
@@ -401,8 +401,8 @@ package Foo
 
 three = [1, 2]
 
-sum0 = three.foldLeft(0, add)
-sum1 = three.foldLeft(0, \x, y -> add(x, y))
+sum0 = three.foldl_List(0, add)
+sum1 = three.foldl_List(0, \x, y -> add(x, y))
 
 same = sum0.eq_Int(sum1)
 """),
@@ -474,7 +474,7 @@ def same_items(items, eq):
     (a, b) = p
     eq(a, b)
 
-  items.foldLeft(True, (res, t) -> and(res, test(t)))
+  items.foldl_List(True, (res, t) -> and(res, test(t)))
 
 def eq_list(a, b, fn):
   same_items(zip(a, b), fn)
@@ -981,7 +981,7 @@ package A
 
 big_list = range(3_000)
 
-main = big_list.foldLeft(0, add)
+main = big_list.foldl_List(0, add)
 """),
       "A",
       VInt((0 until 3000).sum)
@@ -1070,7 +1070,7 @@ main = len([1, 2, 3], 0)
       List("""
 package A
 
-main = [x for x in range(4)].foldLeft(0, add)
+main = [x for x in range(4)].foldl_List(0, add)
 """),
       "A",
       VInt(6)
@@ -1079,7 +1079,7 @@ main = [x for x in range(4)].foldLeft(0, add)
       List("""
 package A
 
-main = [*[x] for x in range(4)].foldLeft(0, add)
+main = [*[x] for x in range(4)].foldl_List(0, add)
 """),
       "A",
       VInt(6)
@@ -1091,7 +1091,7 @@ package A
 
 doub = [(x, x) for x in range(4)]
 
-main = [x.times(y) for (x, y) in doub].foldLeft(0, add)
+main = [x.times(y) for (x, y) in doub].foldl_List(0, add)
 """),
       "A",
       VInt(1 + 4 + 9)
@@ -1100,7 +1100,7 @@ main = [x.times(y) for (x, y) in doub].foldLeft(0, add)
       List("""
 package A
 
-main = [x for x in range(4) if x.eq_Int(2)].foldLeft(0, add)
+main = [x for x in range(4) if x.eq_Int(2)].foldl_List(0, add)
 """),
       "A",
       VInt(2)
@@ -1110,7 +1110,7 @@ main = [x for x in range(4) if x.eq_Int(2)].foldLeft(0, add)
       List("""
 package A
 
-main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldLeft(0, add)
+main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldl_List(0, add)
 """),
       "A",
       VInt(4)
@@ -2774,7 +2774,7 @@ main = Foo(1, "2")
       """
         |package Err
         |
-        |from Bosatsu/Predef import foldLeft
+        |from Bosatsu/Predef import foldl_List
         |
         |main = 1
         |""".stripMargin
@@ -2948,8 +2948,8 @@ package QueueTest
 struct Queue[a](front: List[a], back: List[a])
 
 def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: (b, a) -> b) -> b:
-  front = f.foldLeft(binit, fold_fn)
-  b.reverse().foldLeft(front, fold_fn)
+  front = f.foldl_List(binit, fold_fn)
+  b.reverse().foldl_List(front, fold_fn)
 
 test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
 """),
@@ -3334,7 +3334,7 @@ package Foo
 export comp, ignore
 
 def f(fn: forall a. List[a] -> List[a]) -> Int:
-  fn([1]).foldLeft(0, (x, _) -> x.add(1))
+  fn([1]).foldl_List(0, (x, _) -> x.add(1))
 
 def g(b: Bool) -> (forall a. List[a] -> List[a]):
   match b:
@@ -3347,10 +3347,10 @@ def id(a): a
 def single(a): [a]    
 
 def foo1(fn) -> Int:
-  fn.foldLeft(0, (x, _) -> x.add(1))
+  fn.foldl_List(0, (x, _) -> x.add(1))
 
 def foo2(fn: List[forall a. a -> a]) -> Int:
-  fn.foldLeft(0, (x, _) -> x.add(1))
+  fn.foldl_List(0, (x, _) -> x.add(1))
 
 count0 = foo1(single(id))
 count = foo2(single(id))
@@ -4044,7 +4044,7 @@ main = foo
       List("""
 package P
 
-from Bosatsu/Predef import foldLeft
+from Bosatsu/Predef import foldl_List
 
 main = Assertion(True, "")
 """),
@@ -4056,7 +4056,7 @@ main = Assertion(True, "")
       List("""
 package P
 
-from Bosatsu/Predef import foldLeft as fl
+from Bosatsu/Predef import foldl_List as fl
 
 res = [].fl(True, (_, _) -> False)
 
@@ -4069,7 +4069,7 @@ main = Assertion(res, "")
 package P
 
 from Bosatsu/Predef import concat as fl
-from Bosatsu/Predef import foldLeft as fl
+from Bosatsu/Predef import foldl_List as fl
 
 res = [].fl(True, (_, _) -> False)
 
@@ -4077,7 +4077,7 @@ main = Assertion(res, "")
     """)) { case kie @ PackageError.DuplicatedImport(_, _) =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(
-        message == "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldLeft as fl\n"
+        message == "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldl_List as fl\n"
       )
       ()
     }

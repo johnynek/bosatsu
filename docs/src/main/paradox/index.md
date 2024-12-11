@@ -33,10 +33,10 @@ def operator ||(x, y):
 def keep(i):
   (i % 3 == 0) || (i % 5 == 0)
 
-def sum(as): as.foldLeft(0, add)
+def sum(as): as.foldl_List(0, add)
 
-# here is the pytthon version:
-# >>> sum(i for i in xrange(1000) if keep_fn(i))
+# here is the python version:
+# >>> sum(i for i in xrange(1000) if keep(i))
 # 233168
 #
 # bosatsu version here

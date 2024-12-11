@@ -49,7 +49,7 @@ def merge_deps(left: Dict[String, Dict[String, Artifact]], right: Dict[String, D
   merge_inner = \l, r -> merge_Dict(l, r, merge_artifact)
   merge_Dict(left, right, merge_inner)
 
-def merge_dep_List(deps): deps.foldLeft({}, merge_deps)
+def merge_dep_List(deps): deps.foldl_List({}, merge_deps)
 
 standard_scala_replacements = {
   'org.scala-lang': {

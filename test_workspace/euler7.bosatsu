@@ -37,7 +37,7 @@ def none_divide(primes, x):
 def ith_prime(total):
   max_size = range(total.times(total))
   # we could do int_loop or int_loop up, this was a bit simpler
-  (ps, _) = max_size.foldLeft(([], 0), \prime_cnt, i ->
+  (ps, _) = max_size.foldl_List(([], 0), \prime_cnt, i ->
     #2 is the first prime
     candidate = i.add(2)
     (primes, cnt) = prime_cnt

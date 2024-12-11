@@ -641,12 +641,12 @@ final class SourceConverter(
           case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
             /*
              * { x: y for p in z} ==
-             * z.foldLeft(empty_Dict(stringOrder), \dict, p ->
+             * z.foldl_List(empty_Dict(stringOrder), \dict, p ->
              *   dict.add_key(x, y)
              *   )
              *
              * { x: y for p in z if w } =
-             * z.foldLeft(empty_Dict(stringOrder), \dict, p ->
+             * z.foldl_List(empty_Dict(stringOrder), \dict, p ->
              *   if w: dict.add_key(x, y)
              *   else: dict
              *   )
@@ -655,7 +655,7 @@ final class SourceConverter(
             val newBound = binding.names
             val pn = PackageName.PredefName
             val opExpr: Expr[Declaration] =
-              Expr.Global(pn, Identifier.Name("foldLeft"), l)
+              Expr.Global(pn, Identifier.Name("foldl_List"), l)
             val dictSymbol = unusedNames(decl.allNames).next()
             val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
             val added = (withBound(k, newBound), withBound(v, newBound)).mapN(

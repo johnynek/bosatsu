@@ -15,7 +15,7 @@ def for_all(xs: List[a], fn: a -> Bool) -> Bool:
       else: False
 
 def sum(as: List[Int]) -> Int:
-  as.foldLeft(0, add)
+  as.foldl_List(0, add)
 
 def exists(xs: List[a], fn: a -> Bool) -> Bool:
     recur xs:
