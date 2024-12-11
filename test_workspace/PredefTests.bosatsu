@@ -5,6 +5,11 @@ operator % = mod_Int
 
 i = int_to_String
 
+def oi(opt):
+  match opt:
+    case None: "None"
+    case Some(v): "Some(${i(v)})"
+
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
       Assertion((-8 % -2) matches 0, "(-8 % -2) == 0 got: ${i(-8 % -2)}"),
@@ -60,6 +65,27 @@ test_int = TestSuite("Int tests", [
       Assertion(int_to_String(0) matches "0", "0 str"),
       Assertion(int_to_String(123) matches "123", "123 str"),
       Assertion(int_to_String(-123) matches "-123", "-123 str"),
+
+      Assertion(string_to_Int("123") matches Some(123), "123 string_to_Int"),
+      Assertion(string_to_Int("-123") matches Some(-123), "-123 string_to_Int"),
+      Assertion(string_to_Int("-123x") matches None, "-123x string_to_Int"),
+      Assertion(string_to_Int("-${int_to_String(123)}") matches Some(-123), "-123 string_to_Int"),
+
+      Assertion(string_to_Int("9223372036854775807") matches Some(9223372036854775807),
+        "Long.Max ${oi(string_to_Int("9223372036854775807"))} != ${oi(Some(9223372036854775807))}string_to_Int"),
+      Assertion(string_to_Int("9223372036854775808") matches Some(9223372036854775808),
+        "Long.Max + 1: ${oi(string_to_Int("9223372036854775808"))} string_to_Int"),
+
+      Assertion(string_to_Int("2147483647") matches Some(2147483647), "Int.Max string_to_Int"),
+      Assertion(string_to_Int("2147483648") matches Some(2147483648),
+        "Int.Max + 1 string_to_Int: ${oi(string_to_Int("2147483648"))} != ${oi(Some(2147483648))}"),
+
+      Assertion(string_to_Int("-9223372036854775808") matches Some(-9223372036854775808), "Long.Min string_to_Int"),
+      Assertion(string_to_Int("-9223372036854775809") matches Some(-9223372036854775809), "Long.Min - 1 string_to_Int"),
+
+      Assertion(string_to_Int("-2147483648") matches Some(-2147483648), "Int.Min string_to_Int"),
+      Assertion(string_to_Int("-2147483649") matches Some(-2147483649), "Int.Min - 1 string_to_Int"),
+      Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
 
 test_string = TestSuite("String tests", [

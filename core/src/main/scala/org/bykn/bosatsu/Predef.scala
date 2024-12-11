@@ -51,6 +51,11 @@ object Predef {
         "int_to_String",
         FfiCall.Fn1(PredefImpl.int_to_String(_))
       )
+      .add(
+        packageName,
+        "string_to_Int",
+        FfiCall.Fn1(PredefImpl.string_to_Int(_))
+      )
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(
         packageName,
@@ -225,6 +230,14 @@ object PredefImpl {
 
   final def int_to_String(intValue: Value): Value =
     Value.Str(i(intValue).toString)
+
+  final def string_to_Int(strValue: Value): Value = {
+    val Value.Str(str) = strValue 
+    try Value.VOption.some(VInt(new BigInteger(str)))
+    catch {
+      case _: NumberFormatException => Value.VOption.none
+    }
+  }
 
   def trace(prefix: Value, v: Value): Value = {
     val Value.Str(prestr) = prefix

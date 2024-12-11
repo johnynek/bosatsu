@@ -62,6 +62,7 @@ export (
   get_key,
   int_loop,
   int_to_String,
+  string_to_Int,
   items,
   map_List,
   mod_Int,
@@ -249,6 +250,7 @@ external def partition_String(arg: String, sep: String) -> Option[(String, Strin
 external def rpartition_String(arg: String, sep: String) -> Option[(String, String)]
 
 external def int_to_String(i: Int) -> String
+external def string_to_Int(s: String) -> Option[Int]
 
 external def trace(prefix: String, item: a) -> a
 

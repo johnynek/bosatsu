@@ -941,6 +941,28 @@ object PythonGen {
             )
           ),
           (
+            Identifier.unsafeBindable("string_to_Int"),
+            (
+              { input =>
+                Env.onLast(input.head) { s =>
+                  // int(s) if (s[0] == '-' and s[1:].isdigit()) or s.isdigit() else None
+                  val isdigit = Code.Ident("isdigit")
+                  val isValid = Code.Op(
+                    (s.get(0) =:= Code.PyString("-")).evalAnd(
+                        Code.SelectRange(s, Some(Code.Const.One), None).dot(isdigit)()
+                    ),
+                    Code.Const.Or,
+                    s.dot(isdigit)())
+
+                  Code.Ternary(Code.MakeTuple(Code.Const.One :: Code.Ident("int")(s) :: Nil),
+                    isValid,
+                    Code.MakeTuple(Code.Const.Zero :: Nil))
+                }
+              },
+              1
+            )
+          ),
+          (
             Identifier.unsafeBindable("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
