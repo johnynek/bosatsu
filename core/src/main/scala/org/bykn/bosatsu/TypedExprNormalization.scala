@@ -119,6 +119,16 @@ object TypedExprNormalization {
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
 
+  private def appLambda[A](f1: AnnotatedLambda[A], args: NonEmptyList[TypedExpr[A]], tpe: Type, tag: A): TypedExpr[A] = {
+    val AnnotatedLambda(lamArgs, expr, _) = f1
+    // (y -> z)(x) = let y = x in z
+    val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
+      (n, setType(arg, ltpe))
+    }
+    val expr2 = setType(expr, tpe)
+    TypedExpr.letAllNonRec(lets, expr2, tag)
+  }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A, V](
@@ -331,13 +341,8 @@ object TypedExprNormalization {
           // TODO: what if f1: Generic(_, AnnotatedLambda(_, _, _))
           // we should still be able ton convert this to a let by
           // instantiating to the right args
-          case AnnotatedLambda(lamArgs, expr, _) =>
-            // (y -> z)(x) = let y = x in z
-            val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
-              (n, setType(arg, ltpe))
-            }
-            val expr2 = setType(expr, tpe)
-            val l = TypedExpr.letAllNonRec(lets, expr2, tag)
+          case lam @ AnnotatedLambda(_, _, _) =>
+            val l = appLambda[A](lam, a1, tpe, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.forall(_.notFree(arg1)) =>
             // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
@@ -351,6 +356,9 @@ object TypedExprNormalization {
             if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
             else Some(App(f1, a1, tpe, tag))
         }
+      case Let(arg, ex, Local(arg1, _, _), RecursionKind.NonRecursive, _) if arg1 === arg =>
+        // (let x y x) == y
+        normalize1(namerec, ex, scope, typeEnv)
       case Let(arg, ex, in, rec, tag) =>
         // note, Infer has already checked
         // to make sure rec is accurate
