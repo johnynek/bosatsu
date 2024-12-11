@@ -1895,7 +1895,7 @@ main = fn
         te.message(
           Map.empty,
           Colorize.None
-        ) == "in file: <unknown source>, package A\ninvalid recursion on fn\nRegion(63,79)\n"
+        ) == "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,79)\n"
       )
       ()
     }
