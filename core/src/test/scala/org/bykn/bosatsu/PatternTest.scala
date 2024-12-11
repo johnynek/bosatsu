@@ -152,4 +152,16 @@ class PatternTest extends AnyFunSuite {
       }
     }
   }
+
+  test("substitute identity is identity") {
+    forAll(patGen, Gen.listOf(Generators.bindIdentGen)) { (p, list) =>
+      assert(p.substitute(list.map(b => (b, b)).toMap) == p)
+    }
+  }
+
+  test("substitute names homomorphism") {
+    forAll(patGen, Gen.mapOf(Gen.zip(Generators.bindIdentGen, Generators.bindIdentGen))) { (p, map) =>
+      assert(p.substitute(map).names == p.names.map(n => map.getOrElse(n, n)))
+    }
+  }
 }
