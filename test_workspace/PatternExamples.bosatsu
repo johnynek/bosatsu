@@ -6,7 +6,7 @@ bar = "this is bar"
 combine = "foo: ${foo} bar: ${bar}"
 
 def operator ==(a, b):
-  string_Order_fn(a, b) matches EQ
+  cmp_String(a, b) matches EQ
 
 def operator &&(a, b):
     if a: b

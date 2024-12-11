@@ -49,7 +49,7 @@ package Foo
 foo = "hello"
 
 def eq_String(a, b):
-  match string_Order_fn(a, b):
+  match cmp_String(a, b):
     case EQ: True
     case _: False
 
@@ -1413,9 +1413,7 @@ package A
 pairs = [("hello", 42), ("hello1", 24)]
 
 def is_hello(s):
-  match s.string_Order_fn("hello"):
-    case EQ: True
-    case _: False
+  s.cmp_String("hello") matches EQ
 
 e = { k: v for (k, v) in pairs if is_hello(k) }
 lst = e.items()
@@ -2145,7 +2143,7 @@ def equal_RowEntry(re1, re2):
   match (re1, re2):
     case (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
     case (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
-    case (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
+    case (REString(RecordValue(x1)), REString(RecordValue(x2))): cmp_String.equals(x1, x2)
     case _: False
 
 equal_rows = (a, b) -> equal_List(equal_RowEntry, a, b)

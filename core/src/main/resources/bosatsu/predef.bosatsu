@@ -81,7 +81,7 @@ export (
   reverse,
   reverse_concat,
   sub,
-  string_Order_fn,
+  cmp_String,
   string_Order,
   times,
   trace,
@@ -236,8 +236,8 @@ external struct String
 external struct Char
 
 external def char_to_String(c: Char) -> String
-external def string_Order_fn(str0: String, str1: String) -> Comparison
-string_Order = Order(string_Order_fn)
+external def cmp_String(str0: String, str1: String) -> Comparison
+string_Order = Order(cmp_String)
 external def concat_String(items: List[String]) -> String
 
 # if this returns Some((a, b)) then arg == concat_String([a, sep, b])

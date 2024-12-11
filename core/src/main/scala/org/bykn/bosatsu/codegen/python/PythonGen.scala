@@ -1042,7 +1042,7 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.unsafeBindable("string_Order_fn"), (cmpFn, 2))
+          (Identifier.unsafeBindable("cmp_String"), (cmpFn, 2))
         )
 
       def bosatsuListToPython(

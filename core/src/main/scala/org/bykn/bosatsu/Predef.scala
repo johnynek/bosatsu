@@ -59,8 +59,8 @@ object Predef {
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(
         packageName,
-        "string_Order_fn",
-        FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _))
+        "cmp_String",
+        FfiCall.Fn2(PredefImpl.cmp_String(_, _))
       )
       .add(
         packageName,
@@ -245,7 +245,7 @@ object PredefImpl {
     v
   }
 
-  def string_Order_Fn(a: Value, b: Value): Value =
+  def cmp_String(a: Value, b: Value): Value =
     (a, b) match {
       case (Value.Str(sa), Value.Str(sb)) =>
         Value.Comparison.fromInt(sa.compareTo(sb))

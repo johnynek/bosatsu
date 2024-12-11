@@ -195,7 +195,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_shift__right__Int(BValue a, BValue b) {
   return bsts_integer_shift_left(a, negb);
 }
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_string__Order__fn(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__String(BValue a, BValue b) {
   int result = bsts_string_cmp(a, b);
   // -1, 0, 1, but we map to 0, 1, 2 which are the adt tags for LT, EQ, GT
   return alloc_enum0(result + 1);
