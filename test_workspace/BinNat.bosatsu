@@ -41,7 +41,7 @@ def toBinNat(n: Int) -> BinNat:
     (dec(n), fns)
   )
   # Now apply all the transformations
-  fns.foldLeft(Zero, (n, fn) -> fn(n))
+  fns.foldl_List(Zero, (n, fn) -> fn(n))
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:

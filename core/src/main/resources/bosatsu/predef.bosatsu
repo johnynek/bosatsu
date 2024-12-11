@@ -56,7 +56,7 @@ export (
   empty_Dict,
   eq_Int,
   flat_map_List,
-  foldLeft,
+  foldl_List,
   foldr_List,
   gcd_Int,
   get_key,
@@ -145,7 +145,7 @@ def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
 # we can rewrite: foldr_List(build_List(g), f, x) => g(f, x)
 # see "A Shortcut to Deforestation" by Gill et. al.
 
-def foldLeft(lst: List[a], item: b, fn: (b, a) -> b) -> b:
+def foldl_List(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
     recur lst:
@@ -154,7 +154,7 @@ def foldLeft(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   loop(lst, item)
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
-  foldLeft(front, back, (tail, h) -> [h, *tail])
+  foldl_List(front, back, (tail, h) -> [h, *tail])
 
 def reverse(as: List[a]) -> List[a]:
   reverse_concat(as, [])
@@ -165,10 +165,10 @@ def concat(front: List[a], back: List[a]) -> List[a]:
     case _: reverse_concat(reverse(front), back)
 
 def map_List(lst: List[a], fn: a -> b) -> List[b]:
-  lst.foldLeft([], (t, a) -> [fn(a), *t]).reverse()
+  lst.foldl_List([], (t, a) -> [fn(a), *t]).reverse()
 
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
-  lst.foldLeft([], (t, a) -> fn(a).reverse_concat(t)).reverse()
+  lst.foldl_List([], (t, a) -> fn(a).reverse_concat(t)).reverse()
 
 def replicate_List[a](item: a, cnt: Int) -> List[a]:
   int_loop(cnt, EmptyList, (i, acc) -> (i.sub(1), NonEmptyList(item, acc)))

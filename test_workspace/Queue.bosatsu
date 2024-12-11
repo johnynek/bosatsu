@@ -46,8 +46,8 @@ def pop(queue: Queue[a]) -> Queue[a]:
     None: empty
 
 def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: (b, a) -> b) -> b:
-  front = f.foldLeft(init, fold_fn)
-  b.reverse().foldLeft(front, fold_fn)
+  front = f.foldl_List(init, fold_fn)
+  b.reverse().foldl_List(front, fold_fn)
 
 def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
   Queue(b, f)
