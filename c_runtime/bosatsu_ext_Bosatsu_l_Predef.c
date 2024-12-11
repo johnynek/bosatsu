@@ -201,6 +201,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_string__Order__fn(BValue a, BValue b) {
   return alloc_enum0(result + 1);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a) {
+  return bsts_string_to_integer(a);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b) {
   return ___bsts_g_Bosatsu_l_Predef_l_add(a, bsts_integer_negate(b));
 }

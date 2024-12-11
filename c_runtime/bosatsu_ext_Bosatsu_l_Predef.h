@@ -36,6 +36,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_shift__right__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_string__Order__fn(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b);

@@ -1105,6 +1105,50 @@ BValue bsts_integer_to_string(BValue v) {
     }
 }
 
+// String -> Option[Integer]
+BValue bsts_string_to_integer(BValue v) {
+  size_t slen = bsts_string_utf8_len(v);
+  char* bytes = bsts_string_utf8_bytes(v);
+  if (slen == 0) return alloc_enum0(0);
+
+  size_t pos = 0;
+  _Bool sign = 0;
+  if (bytes[pos] == '-') {
+    sign = 1;
+    pos++;
+    if (slen == 1) return alloc_enum0(0);
+  }
+  // at least 1 character
+
+  int64_t acc = 0;
+  BValue bacc = 0;
+  while(pos < slen) {
+    int32_t digit = (int32_t)(bytes[pos] - '0');
+    if ((digit < 0) || (9 < digit)) return alloc_enum0(0);
+    if (pos >= 10) {
+      if (pos == 10) {
+        // we could be overflowing an int32_t at this point
+        bacc = bsts_integer_from_int64(((int64_t)acc) * 10L);
+      }
+      else {
+        bacc = bsts_integer_times(bacc, bsts_integer_from_int(10));
+      }
+      bacc = bsts_integer_add(bacc, bsts_integer_from_int(digit)); 
+    }
+    else {
+      acc = acc * 10 + digit;
+    }
+    pos++;
+  }
+  if (slen < 11) {
+    // acc should hold the number
+    return alloc_enum1(1, bsts_integer_from_int64(sign ? -acc : acc));
+  }
+  else {
+    return alloc_enum1(1, sign ? bsts_integer_negate(bacc) : bacc);
+  }
+}
+
 // Function to convert sign-magnitude to two's complement representation
 void sign_magnitude_to_twos_complement(_Bool sign, size_t len, uint32_t* words, uint32_t* result_words, size_t result_len) {
     memcpy(result_words, words, len * sizeof(uint32_t));

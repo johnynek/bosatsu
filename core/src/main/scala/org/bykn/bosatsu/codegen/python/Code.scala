@@ -969,6 +969,7 @@ object Code {
         case Const.Plus  => (that == Const.Plus) || (that == Const.Minus)
         case Const.Minus => false
         case Const.And   => that == Const.And
+        case Const.Or   => that == Const.Or
         case Const.Times =>
           // (a * b) * c == a * (b * c)
           // (a * b) + c != a * (b + c)
@@ -1008,6 +1009,7 @@ object Code {
     case object BitwiseShiftLeft extends IntOp("<<")
     case object BitwiseShiftRight extends IntOp(">>")
     case object And extends Operator("and")
+    case object Or extends Operator("or")
     case object Eq extends Operator("==")
     case object Neq extends Operator("!=")
     case object Gt extends Operator(">")

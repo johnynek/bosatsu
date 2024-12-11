@@ -108,6 +108,8 @@ int bsts_integer_cmp(BValue l, BValue r);
 BValue bsts_integer_negate(BValue v);
 // &Integer -> String
 BValue bsts_integer_to_string(BValue v);
+// String -> Option[Integer]
+BValue bsts_string_to_integer(BValue v);
 // (&Integer, &Integer) -> (Integer, Integer)
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r);
