@@ -31,7 +31,13 @@ object DefRecursionCheck {
   case class InvalidRecursion(name: Bindable, illegalPosition: Region)
       extends RecursionError {
     def region = illegalPosition
-    def message = s"invalid recursion on ${name.sourceCodeRepr}"
+    def message = s"invalid recursion on ${name.sourceCodeRepr}. Consider replacing `match` with `recur`."
+  }
+
+  case class NotEnoughRecurArgs(name: Bindable, illegalPosition: Region)
+      extends RecursionError {
+    def region = illegalPosition
+    def message = s"not enough args to ${name.sourceCodeRepr} to check recursion safety."
   }
   case class IllegalShadow(fnname: Bindable, decl: Declaration)
       extends RecursionError {
@@ -430,7 +436,7 @@ object DefRecursionCheck {
                 groups.get(group.toLong).flatMap(_.get(idx.toLong)) match {
                   case None =>
                     // not enough args to check recursion
-                    failSt(InvalidRecursion(nm, region))
+                    failSt(NotEnoughRecurArgs(nm, region))
                   case Some(arg) =>
                     toSt(allowedRecursion(irb.defname, branch, names, arg)) *>
                       setSt(irb.incRecCount) // we have recurred again
