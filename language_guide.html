@@ -134,8 +134,8 @@ message2 = &quot;this has &#39;single quotes&#39;&quot;
 </code></pre>
 <p>Just as we can build up lists literally, we can also use match to tear them down which we discuss more later:</p>
 <pre><code>top_animal = match new_favorites:
-  [most_fav, *rest]: most_fav
-  []: &quot;no favorites, :(&quot;
+  case [most_fav, *rest]: most_fav
+  case []: &quot;no favorites, :(&quot;
 </code></pre>
 <h2><a href="#variables" name="variables" class="anchor"><span class="anchor-link"></span></a>Variables</h2>
 <p>All bindings start with a lowercase character and do not contain whitespace.</p>
@@ -153,43 +153,43 @@ message2 = &quot;this has &#39;single quotes&#39;&quot;
 <p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later.</p>
 <p>Here are some examples:</p>
 <pre><code>result0 = match &quot;foo&quot;:
-  &quot;baz&quot;:
+  case &quot;baz&quot;:
     &quot;we matched baz&quot;
-  &quot;foo&quot;:
+  case &quot;foo&quot;:
     &quot;we matched foo&quot;
-  _:
+  case _:
     &quot;hmmm, didn&#39;t match&quot;
 
 result1 = match &quot;foo&quot;:
-  &quot;f${rest}&quot;:
+  case &quot;f${rest}&quot;:
     &quot;we start with f followed by ${rest}&quot;
-  _:
+  case _:
     &quot;hmmm, didn&#39;t match&quot;
 
 result2 = match [&quot;foo&quot;, &quot;bar&quot;]:
-  [&quot;f${rest}&quot;, &quot;baz&quot;]:
+  case [&quot;f${rest}&quot;, &quot;baz&quot;]:
     &quot;this won&#39;t match&quot;
-  [&quot;f${rest}&quot;, *_]:
+  case [&quot;f${rest}&quot;, *_]:
     &quot;we start with f followed by ${rest}&quot;
-  _:
+  case _:
     &quot;hmmm, didn&#39;t match&quot;
 
 result3 = match [False, True, True]:
-  [*_, True, *_]: &quot;at least one is true&quot;
-  _: &quot;all items are false, or the list is empty&quot;
+  case [*_, True, *_]: &quot;at least one is true&quot;
+  case _: &quot;all items are false, or the list is empty&quot;
 
 result4 = match [False, True, True]:
-  [*_, True, *tail]:
+  case [*_, True, *tail]:
     match tail:
-      []: &quot;True with tail empty&quot;
-      [True]: &quot;True with tail == [True] (this branch matches)&quot;
-      _: &quot;True with something else&quot;
-  _: &quot;all items are false, or the list is empty&quot;
+      case []: &quot;True with tail empty&quot;
+      case [True]: &quot;True with tail == [True] (this branch matches)&quot;
+      case _: &quot;True with something else&quot;
+  case _: &quot;all items are false, or the list is empty&quot;
 </code></pre>
 <p>A common shorthand for checking if something matches is:</p>
 <pre><code>long = match [&quot;foo&quot;, &quot;bar&quot;]:
-  [&quot;foo&quot;, *_]: True
-  _: False
+  case [&quot;foo&quot;, *_]: True
+  case _: False
 
 short = [&quot;foo&quot;, &quot;bar&quot;] matches [&quot;foo&quot;, *_]
 </code></pre>
@@ -203,13 +203,12 @@ short = [&quot;foo&quot;, &quot;bar&quot;] matches [&quot;foo&quot;, *_]
   add_Int(add_Int(x, y), 3)
 </code></pre>
 <p>using the <code>add_Int</code> function from the <code>Bosatsu/Predef</code>. Bosatsu also has anonymous function syntax similar to Haskell. The above is almost exactly the same as:</p>
-<pre><code>add_with_three = \x, y -&gt; add_Int(add_Int(x, y), 3)
+<pre><code>add_with_three = (x, y) -&gt; add_Int(add_Int(x, y), 3)
 </code></pre>
 <p>or even</p>
 <pre><code>add_with_three = x -&gt; y -&gt; add_Int(add_Int(x, y), 3)
 </code></pre>
-<p>Think of <code>\</code> ans an ASCII version of <code>λ</code>.</p>
-<p>All of these functions have type <code>Int -&gt; Int -&gt; Int</code>, which is to say, given two integers (the two on the left) we can produce a new integer (always! Remember Bosatsu is total, no exceptions!).</p>
+<p>The first of these functions has type <code>(Int, Int) -&gt; Int</code>, which is to say, given two integers (the two on the left) we can produce a new integer (always! Remember Bosatsu is total, no exceptions!). The second has type <code>Int -&gt; Int -&gt; Int</code>, or with parentheses: <code>Int -&gt; (Int -&gt; Int)</code>, which means given an <code>Int</code> we return a function from <code>Int -&gt; Int</code>.</p>
 <h3><a href="#scope-difference-for-defs" name="scope-difference-for-defs" class="anchor"><span class="anchor-link"></span></a>Scope difference for defs</h3>
 <p>Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded loops there are strict rules on accessing defs inside themselves. If you don&rsquo;t intend to write a recursive def, then you can never reuse or access the defs name anywhere inside the body. Specifically, shadowing the def name is not allowed. To write a recursive def see the section on recursive functions below.</p>
 <h3><a href="#method-syntax" name="method-syntax" class="anchor"><span class="anchor-link"></span></a>Method syntax</h3>
@@ -219,15 +218,15 @@ form2 = x.add(y)
 </code></pre>
 <p>The above to forms are equivalent. <code>foo.bar</code> means pass <code>foo</code> as the first argument to <code>bar</code>. Since all functions are functions of a single argument:</p>
 <pre><code>inc10 = add(10)
-inc10_again = 10.add
+inc10_again = 10.add()
 </code></pre>
 <p>both of these two values <code>inc10</code> and <code>inc10_again</code> have the type <code>Int -&gt; Int</code> and do the same thing: they add <code>10</code> to an integer.</p>
 <h3><a href="#recursive-functions" name="recursive-functions" class="anchor"><span class="anchor-link"></span></a>Recursive functions</h3>
 <p>We have very limited support for recursion so that we may prove that all recursive functions terminate. Here is an example:</p>
 <pre><code>def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]: len(tail).add(1)
+    case []: 0
+    case [_, *tail]: len(tail).add(1)
 </code></pre>
 <p>In the above, we see the <code>recur</code> syntax. This is a normal match with two restrictions: 1. it can only be on a literal parameter of the nearest enclosing def, 2. a function may have at most one recur in a body, which is not enclosed by a inner def. Inside the branches of such a recur, recursion on the enclosing def is permitted if it meets certain constraints which prevent unbounded loops:</p>
 <p>In at least one branch of the recur match there must be a recursive call that must take a substructure of the argument the recur is matching on. In the above example, tail is a substructure of lst, and is used in the same parameter as list appeared in.</p>
@@ -236,8 +235,8 @@ inc10_again = 10.add
 <pre><code>def len(lst):
   def loop(acc, lst):
     recur lst:
-      []: acc
-      [_, *tail]: loop(acc.add(1), tail)
+      case []: acc
+      case [_, *tail]: loop(acc.add(1), tail)
 
   loop(0, lst)
 </code></pre>
@@ -274,19 +273,19 @@ my_file_rec = File { name, modified_time: 1540951025, size, hash }
 </code></pre>
 <p>There are no methods in bosatsu, only functions. We cannot define methods on <code>struct</code>s or <code>enum</code>s. The only thing we can do with a struct or enum is match it:</p>
 <pre><code>nm = match my_file:
-  File(name, _, _, _): name
+  case File(name, _, _, _): name
 
 # same as the above but ignoring trailing fields
 nm = match my_file:
-  File(name, ...): name
+  case File(name, ...): name
 
 # same as the above but using records
 nm = match my_file:
-  File { name: n, ... }: n
+  case File { name: n, ... }: n
 
 # same, but omit the colon to bind the field name
 nm = match my_file:
-  File { name, ... }: name
+  case File { name, ... }: name
 </code></pre>
 <p>All matches in Bosatsu are total: one of the branches must match. We support destructuring style syntax when matches are total:</p>
 <pre><code>File(nm, ...) = my_file
@@ -333,7 +332,7 @@ struct Tuple[a, b](fst: b, snd: a)
 (a, b, c) = x
 # or we can use match syntax if that is more appropriate
 match x:
-  (x, y, z): do_something(x, y, z)
+  case (x, y, z): do_something(x, y, z)
 </code></pre>
 <h3><a href="#enums" name="enums" class="anchor"><span class="anchor-link"></span></a>Enums</h3>
 <p>While <code>struct</code> represents a named tuple or product type, an <code>enum</code> represents a named sum type. This is something similar to <code>union</code> in C, <code>sealed trait</code> subclasses in Scala, or its namesake <code>enum</code> from Rust. Perhaps the most famous example is below:</p>
@@ -353,16 +352,16 @@ match x:
 <pre><code>enum Either: Left(a), Right(b)
 
 match x:
-  Left(Left(Left(_)) | Right(_)): 0
-  Left(Left(Right(_))): 1
-  Right(_): 2
+  case Left(Left(Left(_)) | Right(_)): 0
+  case Left(Left(Right(_))): 1
+  case Right(_): 2
 
 match y:
-  Left(Left(x)) | Right(x):
+  case Left(Left(x)) | Right(x):
     # here we require that the bindings in the left and right sides of
     # the union are the same and that they have the same type
     Some(x)
-  Left(Right(_)): None
+  case Left(Right(_)): None
 
 # if we can write a match in a single arm, we can write it as a binding:
 Left(x) | Right(x) = y
@@ -388,8 +387,8 @@ from Animals/Favorites import mammals
 export most_fav
 
 most_fav = match mammals:
-  [head, *tail]: head
-  []: &quot;who knows?&quot;
+  case [head, *tail]: head
+  case []: &quot;who knows?&quot;
 
 </code></pre>
 <p>We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use <code>Type()</code> where as <code>Type</code> exports only the type to be visible.</p>
@@ -408,8 +407,8 @@ def someO(a): OSome(a)
 
 def foldO(oo, if_none, if_some):
   match oo:
-    ONone: if_none
-    oSome(a): if_some(a)
+    case ONone: if_none
+    case oSome(a): if_some(a)
 
 </code></pre>
 <p>Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and fold function to tear it down, but we can&rsquo;t explicitly pattern match on the types.</p>
@@ -417,7 +416,7 @@ def foldO(oo, if_none, if_some):
 <h2><a href="#external-functions-and-values" name="external-functions-and-values" class="anchor"><span class="anchor-link"></span></a>External functions and values</h2>
 <p>There is syntax for declaring external values and functions. This is obviously dangerous since it gives the user a chance to violate totality. Use with caution.</p>
 <p>An example function we cannot implement in bosatsu is:</p>
-<pre><code>def int_loop(int_v: Int, state: a, fn: Int -&gt; a -&gt; (Int, a)) -&gt; a:
+<pre><code>def int_loop(int_v: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
   if cmp_Int(int_v, 0) matches GT:
     (next_i, next_state) = fn(int_v, state)
     if cmp_Int(next_i, int_v) matches LT:
@@ -430,7 +429,7 @@ def foldO(oo, if_none, if_some):
 </code></pre>
 <p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of inputs in the same position. This gives a simple proof that the loop will terminate.</p>
 <p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is indeed total.</p>
-<pre><code>external def int_loop(intValue: Int, state: a, fn: Int -&gt; a -&gt; Tuple2[Int, a]) -&gt; a
+<pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; Tuple2[Int, a]) -&gt; a
 </code></pre>
 <p>External values and types work exactly like internally defined types from any other point of view.</p>
 <div class="source-github">
