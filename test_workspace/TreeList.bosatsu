@@ -79,7 +79,7 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   item
 
 def from_List(list: List[a]) -> TreeList[a]:
-  list.reverse().foldLeft(empty, \lst, h -> cons(h, lst))
+  list.reverse().foldl_List(empty, \lst, h -> cons(h, lst))
 
 def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   def loop(trees, init):

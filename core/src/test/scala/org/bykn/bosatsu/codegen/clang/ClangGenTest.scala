@@ -107,8 +107,8 @@ int main(int argc, char** argv) {
 }""")
   }
 
-  test("check foldLeft and reverse_concat") {
-    assertPredefFns("foldLeft", "reverse_concat")("""#include "bosatsu_runtime.h"
+  test("check foldl_List and reverse_concat") {
+    assertPredefFns("foldl_List", "reverse_concat")("""#include "bosatsu_runtime.h"
 #include <stdlib.h>
 #include "gc.h"
 
@@ -144,7 +144,7 @@ BValue __bsts_t_closure0(BValue* __bstsi_slot,
     return __bsts_a_1;
 }
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_foldLeft(BValue __bsts_b_lst0,
+BValue ___bsts_g_Bosatsu_l_Predef_l_foldl__List(BValue __bsts_b_lst0,
     BValue __bsts_b_item0,
     BValue __bsts_b_fn0) {
     BValue __bsts_l_captures2[1] = { __bsts_b_fn0 };
@@ -160,7 +160,7 @@ BValue __bsts_t_lambda3(BValue __bsts_b_tail0, BValue __bsts_b_h0) {
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     BValue __bsts_b_back0) {
-    return ___bsts_g_Bosatsu_l_Predef_l_foldLeft(__bsts_b_front0,
+    return ___bsts_g_Bosatsu_l_Predef_l_foldl__List(__bsts_b_front0,
         __bsts_b_back0,
         alloc_boxed_pure_fn2(__bsts_t_lambda3));
 }
