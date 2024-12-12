@@ -220,6 +220,7 @@ object TypedExpr {
       tag: T
   ) extends TypedExpr[T] {
 
+    // This makes sure the args don't shadow any of the items in freeSet
     def unshadow(freeSet: Set[Bindable]): AnnotatedLambda[T] = {
       val clashIdent =
         if (freeSet.isEmpty) Set.empty[Bindable]

@@ -120,8 +120,10 @@ object TypedExprNormalization {
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
 
   private def appLambda[A](f1: AnnotatedLambda[A], args: NonEmptyList[TypedExpr[A]], tpe: Type, tag: A): TypedExpr[A] = {
-    val AnnotatedLambda(lamArgs, expr, _) = f1
-    // (y -> z)(x) = let y = x in z
+    val freesInArgs = TypedExpr.freeVarsSet(args.toList)
+    val AnnotatedLambda(lamArgs, expr, _) = f1.unshadow(freesInArgs)
+    // Now that we certainly don't shadow we can convert this:
+    // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
     val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
       (n, setType(arg, ltpe))
     }
@@ -237,18 +239,21 @@ object TypedExprNormalization {
               // or remove inlining from here unless it can hever hurt and put inlining at a
               // different phase.
               val fn1 = AnnotatedLambda(args1, body, ftag)
-              val e2 = App(fn1, aargs, resT, atag)
-              if (e1 != e2) {
+              //val e2 = App(fn1, aargs, resT, atag)
+              val applied = appLambda[A](fn1, aargs, resT, atag)
+              //val e3 = normalize1(None, applied, bodyScope, typeEnv).get
+              //if (e1 != e2) {
                 // in this case we have inlined, vs there already being
                 // a literal lambda being applied
                 // by normalizing this, it will become a let binding
-                val e3 = normalize1(None, e2, bodyScope, typeEnv).get
+                //val e3 = normalize1(None, e2, bodyScope, typeEnv).get
 
-                if (e3.size <= expr.size) {
+                //if (e3.size <= expr.size) {
+                if (true) {
                   // we haven't made the code larger
                   normalize1(
                     namerec,
-                    AnnotatedLambda(lamArgs, e3, tag),
+                    AnnotatedLambda(lamArgs, applied, tag),
                     scope,
                     typeEnv
                   )
@@ -257,10 +262,12 @@ object TypedExprNormalization {
                   if ((e1 eq expr) && (lamArgs === lamArgs0)) None
                   else Some(AnnotatedLambda(lamArgs, e1, tag))
                 }
+                /*
               } else {
                 if ((e1 eq expr) && (lamArgs === lamArgs0)) None
                 else Some(AnnotatedLambda(lamArgs, e1, tag))
               }
+              */
             case Let(arg1, ex, in, rec, tag1)
                 if doesntUseArgs(ex) && doesntShadow(arg1) =>
               // x ->
@@ -336,19 +343,24 @@ object TypedExprNormalization {
         lazy val a1 = ListUtil.mapConserveNel(args) { a =>
           normalize1(None, a, scope, typeEnv).get
         }
+        val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
 
         f1 match {
           // TODO: what if f1: Generic(_, AnnotatedLambda(_, _, _))
           // we should still be able ton convert this to a let by
           // instantiating to the right args
+          case ws.ResolveToLambda(Nil, args1, body, ftag) =>
+            val lam = AnnotatedLambda(args1, body, ftag)
+            val l = appLambda[A](lam, args, tpe, tag)
+            normalize1(namerec, l, scope, typeEnv)
           case lam @ AnnotatedLambda(_, _, _) =>
-            val l = appLambda[A](lam, a1, tpe, tag)
+            val l = appLambda[A](lam, args, tpe, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.forall(_.notFree(arg1)) =>
             // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
             normalize1(
               namerec,
-              Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1),
+              Let(arg1, ex, App(in, args, tpe, tag), rec, tag1),
               scope,
               typeEnv
             )
@@ -356,9 +368,6 @@ object TypedExprNormalization {
             if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
             else Some(App(f1, a1, tpe, tag))
         }
-      case Let(arg, ex, Local(arg1, _, _), RecursionKind.NonRecursive, _) if arg1 === arg =>
-        // (let x y x) == y
-        normalize1(namerec, ex, scope, typeEnv)
       case Let(arg, ex, in, rec, tag) =>
         // note, Infer has already checked
         // to make sure rec is accurate
@@ -548,6 +557,9 @@ object TypedExprNormalization {
         }
 
       object ResolveToLambda {
+        // this is a parameter that we can tune to change inlining
+        val MaxSize = 10 
+
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
         def unapply(te: TypedExpr[A]): Option[
@@ -585,7 +597,8 @@ object TypedExprNormalization {
               Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
-                case (RecursionKind.NonRecursive, te, scope1) =>
+                // 
+                case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -607,7 +620,7 @@ object TypedExprNormalization {
               }
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
-                case (RecursionKind.NonRecursive, te, scope1) =>
+                case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
