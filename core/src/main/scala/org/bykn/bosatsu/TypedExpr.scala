@@ -62,52 +62,54 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   def repr: Doc = {
     def rept(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
+    def block(d: Doc): Doc = d.nested(4).grouped
+
     def loop(te: TypedExpr[T]): Doc =
       te match {
         case g @ Generic(_, expr) =>
-          (Doc.text("(generic") + Doc.lineOrSpace + rept(
+          block(Doc.text("(generic") + Doc.line + rept(
             g.quantType
-          ) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
+          ) + Doc.line + loop(expr) + Doc.char(')'))
         case Annotation(expr, tpe) =>
-          (Doc.text("(ann") + Doc.lineOrSpace + rept(
+          block(Doc.text("(ann") + Doc.line + rept(
             tpe
-          ) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
+          ) + Doc.line + loop(expr) + Doc.char(')'))
         case AnnotatedLambda(args, res, _) =>
-          (Doc.text("(lambda") + Doc.lineOrSpace + (
-            Doc.char('[') + Doc.intercalate(
-              Doc.lineOrSpace,
+          block(Doc.text("(lambda") + Doc.line + (
+            Doc.char('[') + block(Doc.intercalate(
+              Doc.line,
               args.toList.map { case (arg, tpe) =>
-                Doc.text(arg.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe)
+                Doc.text(arg.sourceCodeRepr) + Doc.line + rept(tpe)
               }
-            ) + Doc.char(']')
-          ) + Doc.lineOrSpace + loop(res) + Doc.char(')')).nested(4)
+            )) + Doc.char(']')
+          ) + Doc.line + loop(res) + Doc.char(')'))
         case Local(v, tpe, _) =>
-          (Doc.text("(var") + Doc.lineOrSpace + Doc.text(
+          block(Doc.text("(var") + Doc.line + Doc.text(
             v.sourceCodeRepr
-          ) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
+          ) + Doc.line + rept(tpe) + Doc.char(')'))
         case Global(p, v, tpe, _) =>
           val pstr = Doc.text(p.asString + "::" + v.sourceCodeRepr)
-          (Doc.text("(var") + Doc.lineOrSpace + pstr + Doc.lineOrSpace + rept(
+          block(Doc.text("(var") + Doc.line + pstr + Doc.line + rept(
             tpe
-          ) + Doc.char(')')).nested(4)
+          ) + Doc.char(')'))
         case App(fn, args, tpe, _) =>
-          val argsDoc = Doc.intercalate(Doc.lineOrSpace, args.toList.map(loop))
-          (Doc.text("(ap") + Doc.lineOrSpace + loop(
+          val argsDoc = block(Doc.intercalate(Doc.line, args.toList.map(loop)))
+          block(Doc.text("(ap") + Doc.line + loop(
             fn
-          ) + Doc.lineOrSpace + argsDoc + Doc.lineOrSpace + rept(tpe) + Doc
-            .char(')')).nested(4)
+          ) + Doc.line + argsDoc + Doc.line + rept(tpe) + Doc
+            .char(')'))
         case Let(n, b, in, rec, _) =>
           val nm =
             if (rec.isRecursive) Doc.text("(letrec") else Doc.text("(let")
-          (nm + Doc.lineOrSpace + Doc.text(
+          block(nm + Doc.line + Doc.text(
             n.sourceCodeRepr
-          ) + Doc.lineOrSpace + loop(b) + Doc.lineOrSpace + loop(in) + Doc.char(
+          ) + Doc.line + loop(b) + Doc.line + loop(in) + Doc.char(
             ')'
-          )).nested(4)
+          ))
         case Literal(v, tpe, _) =>
-          (Doc.text("(lit") + Doc.lineOrSpace + Doc.text(
+          block(Doc.text("(lit") + Doc.line + Doc.text(
             v.repr
-          ) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
+          ) + Doc.line + rept(tpe) + Doc.char(')'))
         case Match(arg, branches, _) =>
           implicit val docType: Document[Type] =
             Document.instance(tpe => rept(tpe))
@@ -116,17 +118,16 @@ sealed abstract class TypedExpr[+T] { self: Product =>
             cpat.document(p)
 
           val bstr = branches.toList.map { case (p, t) =>
-            (Doc.char('[') + pat(p) + Doc.comma + Doc.lineOrSpace + loop(
-              t
-            ).grouped + Doc.char(']')).nested(4)
+            block(Doc.char('[') + pat(p) + Doc.comma + Doc.line + loop(t) + Doc.char(']'))
           }
-          (Doc.text("(match") + Doc.lineOrSpace + loop(arg) + (Doc.hardLine +
-            Doc.intercalate(Doc.hardLine, bstr)).nested(4) + Doc.char(')'))
-            .nested(4)
+          block(Doc.text("(match") + Doc.line + loop(arg) + block(Doc.hardLine +
+            Doc.intercalate(Doc.hardLine, bstr)) + Doc.char(')'))
       }
 
     loop(this)
   }
+
+  def reprString: String = repr.render(80)
 
   /** All the free variables in this expression in order encountered and with
     * duplicates (to see how often they appear)
@@ -194,7 +195,7 @@ object TypedExpr {
   type Rho[A] =
     TypedExpr[A] // an expression with a Rho type (no top level forall)
 
-  sealed abstract class Name[A] extends TypedExpr[A] with Product
+  sealed abstract class Name[+A] extends TypedExpr[A] with Product
 
   /** This says that the resulting term is generic on a given param
     *
@@ -213,12 +214,71 @@ object TypedExpr {
       extends TypedExpr[T] {
     def tag: T = term.tag
   }
-  case class AnnotatedLambda[T](
+  case class AnnotatedLambda[+T](
       args: NonEmptyList[(Bindable, Type)],
       expr: TypedExpr[T],
       tag: T
-  ) extends TypedExpr[T]
-  case class Local[T](name: Bindable, tpe: Type, tag: T) extends Name[T]
+  ) extends TypedExpr[T] {
+
+    // This makes sure the args don't shadow any of the items in freeSet
+    def unshadow(freeSet: Set[Bindable]): AnnotatedLambda[T] = {
+      val clashIdent =
+        if (freeSet.isEmpty) Set.empty[Bindable]
+        else args.iterator.flatMap {
+          case (n, _) if freeSet(n) => n :: Nil
+          case _ => Nil
+        }.toSet
+
+      if (clashIdent.isEmpty) this
+      else {
+        // we have to allocate new variables
+        type I = Bindable
+        def inc(n: I, idx: Int): I =
+          n match {
+            case Identifier.Name(n) => Identifier.Name(n + idx.toString)
+            case _ => Identifier.Name("a" + idx.toString)
+          }
+
+        def alloc(head: (I, Type), tail: List[(I, Type)], avoid: Set[I]): NonEmptyList[(I, Type)] = {
+          val (ident, tpe) = head
+          val ident1 =
+            if (clashIdent(ident)) {
+              // the following iterator is infinite and distinct, and the avoid
+              // set is finite, so the get here must terminate in at most avoid.size
+              // steps
+              Iterator.from(0)
+                .map { i => inc(ident, i) }
+                .collectFirst { case n if !avoid(n) => n }
+                .get
+
+          }
+          else ident
+
+          tail match {
+            case Nil =>  NonEmptyList.one((ident1, tpe))
+            case h :: t =>
+              (ident1, tpe) :: alloc(h, t, avoid + ident1)
+          }
+        }
+
+        val avoids = freeSet | freeVarsSet(expr :: Nil)
+        val newArgs = alloc(args.head, args.tail, avoids)
+        val resSub = args.iterator.map(_._1)
+          .zip(newArgs.iterator.map { case (n1, _) => 
+
+            { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }  
+          })
+          .toMap
+
+        // calling .get is safe when enterLambda = true
+        val expr1 = substituteAll(resSub, expr, enterLambda = true).get
+
+        AnnotatedLambda(newArgs, expr1, tag)
+      }
+    }
+  }
+
+  case class Local[+T](name: Bindable, tpe: Type, tag: T) extends Name[T]
   case class Global[T](pack: PackageName, name: Identifier, tpe: Type, tag: T)
       extends Name[T]
   case class App[T](
@@ -233,7 +293,72 @@ object TypedExpr {
       in: TypedExpr[T],
       recursive: RecursionKind,
       tag: T
-  ) extends TypedExpr[T]
+  ) extends TypedExpr[T] {
+    def unshadowResult(freeSet: Set[Bindable]): Let[T] = {
+      val clashIdent =
+        if (freeSet(arg)) Set(arg)
+        else Set.empty
+
+      if (clashIdent.isEmpty) this
+      else {
+        // we have to allocate new let
+        val avoids = freeSet | freeVarsSet(in :: expr :: Nil)
+        type I = Bindable
+        def inc(n: I, idx: Int): I =
+          n match {
+            case Identifier.Name(n) => Identifier.Name(n + idx.toString)
+            case _ => Identifier.Name("a" + idx.toString)
+          }
+
+        val arg1 = Iterator.from(0)
+              .map { i => inc(arg, i) }
+              .collectFirst { case n if !avoids(n) => n }
+              .get
+
+        val resSub = Map(arg ->
+            { (loc: Local[T]) => Local(arg1, loc.tpe, loc.tag) }  
+          )
+
+        // calling .get is safe when enterLambda = true
+        val in1 = substituteAll(resSub, in, enterLambda = true).get
+
+        copy(arg = arg1, in = in1)
+      }
+    }
+
+    def unshadowBoth(freeSet: Set[Bindable]): Let[T] =  {
+      val clashIdent =
+        if (freeSet(arg)) Set(arg)
+        else Set.empty
+
+      if (clashIdent.isEmpty) this
+      else {
+        // we have to allocate new let
+        val avoids = freeSet | freeVarsSet(in :: expr :: Nil)
+        type I = Bindable
+        def inc(n: I, idx: Int): I =
+          n match {
+            case Identifier.Name(n) => Identifier.Name(n + idx.toString)
+            case _ => Identifier.Name("a" + idx.toString)
+          }
+
+        val arg1 = Iterator.from(0)
+              .map { i => inc(arg, i) }
+              .collectFirst { case n if !avoids(n) => n }
+              .get
+
+        val resSub = Map(arg ->
+            { (loc: Local[T]) => Local(arg1, loc.tpe, loc.tag) }  
+          )
+
+        // calling .get is safe when enterLambda = true
+        val expr1 = substituteAll(resSub, expr, enterLambda = true).get
+        val in1 = substituteAll(resSub, in, enterLambda = true).get
+
+        copy(arg = arg1, expr = expr1, in = in1)
+      }
+    }
+  }
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](
@@ -637,16 +762,13 @@ object TypedExpr {
            * which has a type forall a. Int which is the same
            * as Int
            */
-          type Branch =
-            (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
-
           val allMatchMetas: F[SortedSet[Type.Meta]] =
             getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) =>
               allPatternTypes(p)
             }.toList)
 
           val env1 = env + te.getType
-          def handleBranch(br: Branch): F[Branch] = {
+          def handleBranch(br: Branch[A]): F[Branch[A]] = {
             val (p, expr) = br
             val branchEnv = env1 ++ Pattern
               .envOf(p, Map.empty)(ident => (None, ident))
@@ -1146,54 +1268,207 @@ object TypedExpr {
       ex: TypedExpr[A],
       in: TypedExpr[A],
       enterLambda: Boolean = true
+  ): Option[TypedExpr[A]] =
+    substituteAll(Map(ident -> { (_: Local[A]) => ex }), in, enterLambda)
+
+  // Invariant, if enterLambda == true, we always return Some
+  def substituteAll[A](
+      table: Map[Bindable, Local[A] => TypedExpr[A]],
+      in: TypedExpr[A],
+      enterLambda: Boolean = true
   ): Option[TypedExpr[A]] = {
-    // if we hit a shadow, we don't need to substitute down
-    // that branch
-    @inline def shadows(i: Bindable): Boolean = i === ident
-
-    // free variables in ex are being rebound,
-    // this causes us to return None
-    lazy val masks: Bindable => Boolean =
-      freeVarsSet(ex :: Nil)
-
-    def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
+    def loop(table: Map[Bindable, Local[A] => TypedExpr[A]], in: TypedExpr[A]): Option[TypedExpr[A]] =
       in match {
-        case Local(i, _, _) if i === ident                          => Some(ex)
-        case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) => Some(in)
-        case Generic(a, expr) =>
-          loop(expr).map(Generic(a, _))
-        case Annotation(t, tpe) =>
-          loop(t).map(Annotation(_, tpe))
-        case AnnotatedLambda(args, res, tag) =>
-          if (!enterLambda) None
-          else if (args.exists { case (n, _) => masks(n) }) None
-          else if (args.exists { case (n, _) => shadows(n) }) Some(in)
-          else loop(res).map(AnnotatedLambda(args, _, tag))
-        case App(fn, args, tpe, tag) =>
-          (loop(fn), args.traverse(loop(_))).mapN(App(_, _, tpe, tag))
-        case let @ Let(arg, argE, in, rec, tag) =>
-          if (masks(arg)) None
-          else if (shadows(arg)) {
-            // recursive shadow blocks both argE and in
-            if (rec.isRecursive) Some(let)
-            else loop(argE).map(Let(arg, _, in, rec, tag))
-          } else {
-            (loop(argE), loop(in)).mapN(Let(arg, _, _, rec, tag))
+        case local @ Local(i, _, _) =>
+          table.get(i) match {
+            case Some(te) => Some(te(local))
+            case None => Some(in)
           }
+        case Global(_, _, _, _) | Literal(_, _, _) => Some(in)
+        case Generic(a, expr) =>
+          loop(table, expr).map(Generic(a, _))
+        case Annotation(t, tpe) =>
+          loop(table, t).map(Annotation(_, tpe))
+        case lam @ AnnotatedLambda(args, res, tag) =>
+          if (!enterLambda) None
+          else {
+            // this is the same algorithm as python/Code.Expression.substitute
+            //
+            // the args here can shadow, so we have to remove any
+            // items from subMap that have the same Ident
+            val argsSet = args.iterator.map(_._1).toSet
+            val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
+            // if subFrees is empty, unshadow is a no-op.
+            // but that is efficiently handled by unshadow
+            val subFrees = nonShadowed.iterator
+              .map { case (n, v) =>
+                // TODO this isn't great but we just need to get the free vars from the function
+                // this assumes the replacement free variables is constant over the type
+                // which it should be otherwise we can make ill-typed TypedExpr
+                val dummyTpe = res.getType
+                freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
+              }
+              .foldLeft(nonShadowed.keySet)(_ | _)
+
+            val AnnotatedLambda(args1, res1, tag1) = lam.unshadow(subFrees)
+            // now we know that none of args1 shadow anything in subFrees
+            // so we can just directly substitute nonShadowed on res1
+            // put another way: unshadow make substitute "commute" with lambda.
+            val subRes = substituteAll(nonShadowed, res1, enterLambda = true).get
+            Some(AnnotatedLambda(args1, subRes , tag1))
+          }
+        case App(fn, args, tpe, tag) =>
+          (loop(table, fn), args.traverse(loop(table, _))).mapN(App(_, _, tpe, tag))
+        case let @ Let(arg, _, _, _, _) =>
+            if (let.recursive.isRecursive) {
+              // arg is in scope for argE and in
+              // the args here can shadow, so we have to remove any
+              // items from subMap that have the same Ident
+              val nonShadowed = table - arg
+              // if subFrees is empty, unshadow is a no-op.
+              // but that is efficiently handled by unshadow
+              val subFrees = nonShadowed.iterator
+                .map { case (n, v) =>
+                  // TODO this isn't great but we just need to get the free vars from the function
+                  // this assumes the replacement free variables is constant over the type
+                  // which it should be otherwise we can make ill-typed TypedExpr
+                  val dummyTpe = in.getType
+                  freeVarsSet(v(Local(n, tpe = dummyTpe, let.tag)) :: Nil)
+                }
+                .foldLeft(nonShadowed.keySet)(_ | _)
+
+              val Let(arg1, argE1, in1, rec1, tag1) = let.unshadowBoth(subFrees)
+              // now we know that none of args1 shadow anything in subFrees
+              // so we can just directly substitute nonShadowed on res1
+              // put another way: unshadow make substitute "commute" with lambda.
+              (substituteAll(nonShadowed, argE1, enterLambda), substituteAll(nonShadowed, in1, enterLambda))
+                .mapN(Let(arg1, _, _, rec1, tag1))
+            }
+            else {
+              // the scopes are different the binding and the result
+              // the args here can shadow, so we have to remove any
+              // items from subMap that have the same Ident
+              val argsSet = Set(arg)
+              val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
+              // if subFrees is empty, unshadow is a no-op.
+              // but that is efficiently handled by unshadow
+              val subFrees = nonShadowed.iterator
+                .map { case (n, v) =>
+                  // TODO this isn't great but we just need to get the free vars from the function
+                  // this assumes the replacement free variables is constant over the type
+                  // which it should be otherwise we can make ill-typed TypedExpr
+                  val dummyTpe = in.getType
+                  freeVarsSet(v(Local(n, tpe = dummyTpe, let.tag)) :: Nil)
+                }
+                .foldLeft(nonShadowed.keySet)(_ | _)
+
+              val Let(arg1, argE1, in1, rec1, tag1) = let.unshadowResult(subFrees)
+              // now we know that none of args1 shadow anything in subFrees
+              // so we can just directly substitute nonShadowed on res1
+              // put another way: unshadow make substitute "commute" with lambda.
+              (loop(table, argE1), loop(nonShadowed, in1))
+                .mapN(Let(arg1, _, _, rec1, tag1))
+            }
         case Match(arg, branches, tag) =>
           // Maintain the order we encounter things:
-          val arg1 = loop(arg)
+          val arg1 = loop(table, arg)
           val b1 = branches.traverse { case in @ (p, b) =>
             // these are not free variables in this branch
             val ns = p.names
-            if (ns.exists(masks)) None
-            else if (ns.exists(shadows)) Some(in)
-            else loop(b).map((p, _))
+            
+            val (table1, (p1, b1)) = 
+              if (ns.isEmpty) (table, in)
+              else {
+                // the args here can shadow, so we have to remove any
+                // items from subMap that have the same Ident
+                val argsSet = ns.toSet
+                val nonShadowed =
+                  if (argsSet.isEmpty) table
+                  else table.filterNot { case (i, _) => argsSet(i) }
+
+                // if subFrees is empty, unshadow is a no-op.
+                // but that is efficiently handled by unshadow
+                val subFrees = nonShadowed.iterator
+                  .map { case (n, v) =>
+                    // TODO this isn't great but we just need to get the free vars from the function
+                    // this assumes the replacement free variables is constant over the type
+                    // which it should be otherwise we can make ill-typed TypedExpr
+                    val dummyTpe = b.getType
+                    freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
+                  }
+                  .foldLeft(nonShadowed.keySet)(_ | _)
+
+                (nonShadowed, unshadowBranch[A](subFrees, in))
+              }
+            // now we know that none of args1 shadow anything in subFrees
+            // so we can just directly substitute nonShadowed on res1
+            // put another way: unshadow make substitute "commute" with lambda.
+            loop(table1, b1).map((p1, _))
           }
           (arg1, b1).mapN(Match(_, _, tag))
       }
 
-    loop(in)
+    loop(table, in)
+  }
+
+  private def unshadowBranch[A](freeSet: Set[Bindable], branch: Branch[A]): Branch[A] = {
+    // we only get in here when p has some names
+    val (p, b) = branch
+    val args = NonEmptyList.fromList(p.names) match {
+      case None => return branch
+      case Some(argsNel) => argsNel
+    }
+
+    val clashIdent =
+      if (freeSet.isEmpty) Set.empty[Bindable]
+      else args.iterator.filter(freeSet).toSet
+
+    if (clashIdent.isEmpty) branch
+    else {
+      // we have to allocate new variables
+      type I = Bindable
+      def inc(n: I, idx: Int): I =
+        n match {
+          case Identifier.Name(n) => Identifier.Name(n + idx.toString)
+          case _ => Identifier.Name("a" + idx.toString)
+        }
+
+      def alloc(ident: I, tail: List[I], avoid: Set[I]): NonEmptyList[I] = {
+        val ident1 =
+          if (clashIdent(ident)) {
+            // the following iterator is infinite and distinct, and the avoid
+            // set is finite, so the get here must terminate in at most avoid.size
+            // steps
+            Iterator.from(0)
+              .map { i => inc(ident, i) }
+              .collectFirst { case n if !avoid(n) => n }
+              .get
+
+        }
+        else ident
+
+        tail match {
+          case Nil =>  NonEmptyList.one(ident1)
+          case h :: t =>
+            ident1 :: alloc(h, t, avoid + ident1)
+        }
+      }
+
+      val avoids = freeSet | freeVarsSet(b :: Nil)
+      val newArgs = alloc(args.head, args.tail, avoids)
+      val resSub = args.iterator
+        .zip(newArgs.iterator.map { n1 => 
+
+          { (loc: Local[A]) => Local(n1, loc.tpe, loc.tag) }  
+        })
+        .toMap
+
+      // calling .get is safe when enterLambda = true
+      val b1 = substituteAll(resSub, b, enterLambda = true).get
+      val p1 = p.substitute(args.iterator.zip(newArgs.iterator).toMap)
+
+      (p1, b1)
+    }
   }
 
   def substituteTypeVar[A](
@@ -1465,6 +1740,9 @@ object TypedExpr {
             }
         }
     }
+
+  type Branch[A] =
+    (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
 
   def quantVars[A](
       forallList: List[(Type.Var.Bound, Kind)],

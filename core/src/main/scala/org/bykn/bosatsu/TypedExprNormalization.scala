@@ -119,6 +119,18 @@ object TypedExprNormalization {
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
 
+  private def appLambda[A](f1: AnnotatedLambda[A], args: NonEmptyList[TypedExpr[A]], tpe: Type, tag: A): TypedExpr[A] = {
+    val freesInArgs = TypedExpr.freeVarsSet(args.toList)
+    val AnnotatedLambda(lamArgs, expr, _) = f1.unshadow(freesInArgs)
+    // Now that we certainly don't shadow we can convert this:
+    // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
+    val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
+      (n, setType(arg, ltpe))
+    }
+    val expr2 = setType(expr, tpe)
+    TypedExpr.letAllNonRec(lets, expr2, tag)
+  }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A, V](
@@ -208,58 +220,24 @@ object TypedExprNormalization {
                 case _                              => false
               }
 
-          val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
           e1 match {
             case App(fn, aargs, _, _)
                 if matchesArgs(aargs) && doesntUseArgs(fn) =>
               // x -> f(x) == f (eta conversion)
-              normalize1(None, setType(fn, te.getType), scope, typeEnv)
-            case App(
-                  ws.ResolveToLambda(Nil, args1, body, ftag),
-                  aargs,
-                  resT,
-                  atag
-                ) if namerec.isEmpty =>
-              // args -> (args1 -> e1)(...)
-              // this is inlining, which we do only when nested directly inside another lambda
-              // TODO: this is possibly very expensive to always apply. It can really increase
-              // code size. We probably need better hueristics for when to inline,
-              // or remove inlining from here unless it can hever hurt and put inlining at a
-              // different phase.
-              val fn1 = AnnotatedLambda(args1, body, ftag)
-              val e2 = App(fn1, aargs, resT, atag)
-              if (e1 != e2) {
-                // in this case we have inlined, vs there already being
-                // a literal lambda being applied
-                // by normalizing this, it will become a let binding
-                val e3 = normalize1(None, e2, bodyScope, typeEnv).get
-
-                if (e3.size <= expr.size) {
-                  // we haven't made the code larger
-                  normalize1(
-                    namerec,
-                    AnnotatedLambda(lamArgs, e3, tag),
-                    scope,
-                    typeEnv
-                  )
-                } else {
-                  // inlining will make the code larger that it was originally
-                  if ((e1 eq expr) && (lamArgs === lamArgs0)) None
-                  else Some(AnnotatedLambda(lamArgs, e1, tag))
-                }
-              } else {
-                if ((e1 eq expr) && (lamArgs === lamArgs0)) None
-                else Some(AnnotatedLambda(lamArgs, e1, tag))
-              }
+              // note, e1 is already normalized, so fn is normalized
+              Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
-                if doesntUseArgs(ex) && doesntShadow(arg1) =>
+                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(ex) && doesntShadow(arg1)=>
               // x ->
               //   y = z
               //   f(y)
               // same as:
               // y = z
               // x -> f(y)
-              // avoid recomputing y
+              // avoid recomputing y if y is not simple. Note, we consider a lambda simple
+              // since when compiling we can lift lambdas out anyway, so they are at most 1 allocation
+              // but possibly 0.
+              //
               // TODO: we could reorder Lets if we have several in a row
               normalize1(
                 None,
@@ -269,8 +247,10 @@ object TypedExprNormalization {
               )
             case m @ Match(arg1, branches, tag1) if lamArgs.forall {
                   case (arg, _) => arg1.notFree(arg)
-                } =>
-              // same as above: if match does not depend on lambda arg, lift it out
+                } && ((branches.length > 1) || !Impl.isSimple(arg1, lambdaSimple = true)) =>
+              // x -> match z: w
+              // convert to match z: x -> w
+              // but don't bother if the arg is simple or there is only 1 branch + simple arg
               val b1 = branches.traverse { case (p, b) =>
                 if (
                   !lamArgs.exists { case (arg, _) => p.names.contains(arg) }
@@ -326,24 +306,24 @@ object TypedExprNormalization {
         lazy val a1 = ListUtil.mapConserveNel(args) { a =>
           normalize1(None, a, scope, typeEnv).get
         }
+        val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
 
         f1 match {
           // TODO: what if f1: Generic(_, AnnotatedLambda(_, _, _))
           // we should still be able ton convert this to a let by
           // instantiating to the right args
-          case AnnotatedLambda(lamArgs, expr, _) =>
-            // (y -> z)(x) = let y = x in z
-            val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
-              (n, setType(arg, ltpe))
-            }
-            val expr2 = setType(expr, tpe)
-            val l = TypedExpr.letAllNonRec(lets, expr2, tag)
+          case ws.ResolveToLambda(Nil, args1, body, ftag) =>
+            val lam = AnnotatedLambda(args1, body, ftag)
+            val l = appLambda[A](lam, args, tpe, tag)
+            normalize1(namerec, l, scope, typeEnv)
+          case lam @ AnnotatedLambda(_, _, _) =>
+            val l = appLambda[A](lam, args, tpe, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.forall(_.notFree(arg1)) =>
             // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
             normalize1(
               namerec,
-              Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1),
+              Let(arg1, ex, App(in, args, tpe, tag), rec, tag1),
               scope,
               typeEnv
             )
@@ -540,6 +520,9 @@ object TypedExprNormalization {
         }
 
       object ResolveToLambda {
+        // this is a parameter that we can tune to change inlining Global Lambdas
+        val MaxSize = 10 
+
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
         def unapply(te: TypedExpr[A]): Option[
@@ -577,7 +560,9 @@ object TypedExprNormalization {
               Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
-                case (RecursionKind.NonRecursive, te, scope1) =>
+                // only inline global lambdas if they are somewhat small, otherwise we will
+                // tend to transitively inline everything into one big function and blow the stack
+                case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -599,6 +584,7 @@ object TypedExprNormalization {
               }
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
+                // Local lambdas tend to be small, so inline them always if we can
                 case (RecursionKind.NonRecursive, te, scope1) =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
@@ -624,17 +610,30 @@ object TypedExprNormalization {
       }
     }
 
+    final def isSimpleNotTail[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
+      isSimple(ex, lambdaSimple)
+
     @annotation.tailrec
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
+        case App(_, _, _, _) => false
         case Annotation(t, _)         => isSimple(t, lambdaSimple)
         case Generic(_, t)            => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _) =>
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
-        case _ => false
+        case Let(_, ex, in, _, _) =>
+          isSimpleNotTail(ex, lambdaSimple) && isSimple(in, lambdaSimple)
+        case Match(arg, branches, _) =>
+          branches.tail.isEmpty && isSimpleNotTail(arg, lambdaSimple) && {
+            // match f: case p: r
+            // is the same as
+            // let p = f in r
+            val (_, rest) = branches.head
+            isSimple(rest, lambdaSimple)
+          }
       }
 
     sealed abstract class EvalResult[A]

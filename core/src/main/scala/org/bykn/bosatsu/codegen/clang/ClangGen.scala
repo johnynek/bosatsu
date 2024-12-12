@@ -233,6 +233,7 @@ object ClangGen {
       def directFn(p: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]]
       def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]]
       def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
+      def inFnStatement[A](in: T[A]): T[A]
       def currentTop: T[Option[(PackageName, Bindable)]]
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
@@ -1026,7 +1027,7 @@ object ClangGen {
         }
 
       def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
-         fn match {
+        inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
@@ -1047,7 +1048,7 @@ object ClangGen {
                   }
               } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
             }
-        }
+        })
 
       def renderTop(p: PackageName, b: Bindable, expr: Expr): T[Unit] =
         inTop(p, b) { expr match {
@@ -1112,6 +1113,31 @@ object ClangGen {
         def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] = implicitly
 
         new Env {
+          sealed abstract class BindingKind {
+            def ident: Code.Ident
+          }
+          object BindingKind {
+            case class Normal(bn: Bindable, idx: Int) extends BindingKind {
+              val ident = Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString))
+            }
+            case class Recursive(ident: Code.Ident, isClosure: Boolean, arity: Int, idx: Int) extends BindingKind
+          }
+          case class BindState(count: Int, stack: List[BindingKind]) {
+            def pop: BindState =
+              // by invariant this tail should never fail
+              copy(stack = stack.tail)
+
+            def nextBind(bn: Bindable): BindState =
+              copy(count = count + 1, BindingKind.Normal(bn, count) :: stack)
+
+            def nextRecursive(fnName: Code.Ident, isClosure: Boolean, arity: Int): BindState =
+              copy(count = count + 1, BindingKind.Recursive(fnName, isClosure, arity, count) :: stack)
+          }
+
+          object BindState {
+            val empty: BindState = BindState(0, Nil)
+          }
+
           case class State(
             allValues: AllValues,
             externals: ExternalResolver,
@@ -1119,7 +1145,7 @@ object ClangGen {
             includes: Chain[Code.Include],
             stmts: Chain[Code.Statement],
             currentTop: Option[(PackageName, Bindable)],
-            binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
+            binds: Map[Bindable, BindState],
             counter: Long,
             identCache: Map[Expr, Code.Ident]
           ) {
@@ -1168,46 +1194,50 @@ object ClangGen {
               Eval.now(Right((s, a)))
             )
 
+          def update[A](fn: State => (State, A)): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s)))))
+
+          def tryUpdate[A](fn: State => Either[Error, (State, A)]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s))))
+
+          def read[A](fn: State => A): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right((s, fn(s))))))
+
+          def tryRead[A](fn: State => Either[Error, A]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _)))))
+
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryUpdate { s =>
               s.externals(pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl = s.include(incl)
-                  result(withIncl, ident)
+                  Right((withIncl, ident))
                 case None =>
                   val key = (pn, bn)
                   s.allValues.get(key) match {
-                    case Some((_, ident)) => result(s, ident)
-                    case None => errorRes(Error.UnknownValue(pn, bn))
+                    case Some((_, ident)) => Right((s, ident))
+                    case None => Left(Error.UnknownValue(pn, bn))
                   }
               }
             }
 
           def bind[A](bn: Bindable)(in: T[A]): T[A] = {
-            val init: T[Unit] = StateT { s =>
-              val v = s.binds.get(bn) match {
-                case None => NonEmptyList.one(Right(0))
-                case Some(items @ NonEmptyList(Right(idx), _)) =>
-                  Right(idx + 1) :: items
-                case Some(items @ NonEmptyList(Left((_, idx)), _)) =>
-                  Right(idx + 1) :: items
+            val init: T[Unit] = update { s =>
+              val bs0 = s.binds.get(bn) match {
+                case None => BindState.empty
+                case Some(bs) => bs
               }  
-              result(s.copy(binds = s.binds.updated(bn, v)), ())
+              val bs1 = bs0.nextBind(bn)
+              (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
-            val uninit: T[Unit] = StateT { s =>
-              s.binds.get(bn) match {
-                case Some(NonEmptyList(_, tail)) =>
-                  val s1 = NonEmptyList.fromList(tail) match {
-                    case None =>
-                      s.copy(binds = s.binds - bn)
-                    case Some(prior) =>
-                      s.copy(binds = s.binds.updated(bn, prior))
-                  }
-                  result(s1, ())
+            val uninit: T[Unit] = update { s =>
+              val bs1 = s.binds.get(bn) match {
+                case Some(bs) => bs.pop
                 case None => sys.error(s"bindable $bn no longer in $s")
               }  
+              (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
             for {
@@ -1217,18 +1247,10 @@ object ClangGen {
             } yield a
           }
           def getBinding(bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryRead { s =>
               s.binds.get(bn) match {
-                case Some(stack) =>
-                  stack.head match {
-                    case Right(idx) =>
-                      result(s, Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
-                    case Left(((ident, _, _), _)) =>
-                      // TODO: suspicious to ignore isClosure and arity here
-                      // probably need to conv
-                      result(s, ident)
-                  }
-                case None => errorRes(Error.Unbound(bn, s.currentTop))
+                case Some(bs) => Right(bs.stack.head.ident)
+                case None => Left(Error.Unbound(bn, s.currentTop))
               }  
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =
@@ -1241,30 +1263,21 @@ object ClangGen {
 
           // a recursive function needs to remap the Bindable to the top-level mangling
           def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean, arity: Int)(in: T[A]): T[A] = {
-            val init: T[Unit] = StateT { s =>
-              val entry = (fnName, isClosure, arity)
-              val v = s.binds.get(bn) match {
-                case None => NonEmptyList.one(Left((entry, -1)))
-                case Some(items @ NonEmptyList(Right(idx), _)) =>
-                  Left((entry, idx)) :: items
-                case Some(items @ NonEmptyList(Left((_, idx)), _)) =>
-                  Left((entry, idx)) :: items
-              }  
-              result(s.copy(binds = s.binds.updated(bn, v)), ())
+            val init: T[Unit] = update { s =>
+              val bs0 = s.binds.get(bn) match {
+                case Some(bs) => bs
+                case None => BindState.empty
+              }
+              val bs1 = bs0.nextRecursive(fnName, isClosure, arity)
+              (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
-            val uninit: T[Unit] = StateT { s =>
-              s.binds.get(bn) match {
-                case Some(NonEmptyList(_, tail)) =>
-                  val s1 = NonEmptyList.fromList(tail) match {
-                    case None =>
-                      s.copy(binds = s.binds - bn)
-                    case Some(prior) =>
-                      s.copy(binds = s.binds.updated(bn, prior))
-                  }
-                  result(s1, ())
+            val uninit: T[Unit] = update { s =>
+              val bs1 = s.binds.get(bn) match {
+                case Some(bs) => bs.pop
                 case None => sys.error(s"bindable $bn no longer in $s")
               }  
+              (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
             for {
@@ -1310,20 +1323,28 @@ object ClangGen {
             }
 
           def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]] =
-            StateT { s =>
+            read { s =>
               s.binds.get(b) match {
-                case Some(NonEmptyList(Left((c, _)), _)) =>
-                  result(s, Some(c))
+                case Some(BindState(_, BindingKind.Recursive(n, c, a, _) :: _)) =>
+                  Some((n, c, a))
                 case _ =>
-                  result(s, None)
+                  None
               } 
             }
 
+          def inFnStatement[A](ta: T[A]): T[A] = {
+            for {
+              bindState <- update { (s: State) => (s.copy(binds = Map.empty), s.binds) }
+              a <- ta
+              _ <- update { (s: State) => (s.copy(binds = bindState), ()) }
+            } yield a
+          }
+
           def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
             for {
-              _ <- StateT { (s: State) => result(s.copy(currentTop = Some((p, bn))), ())}
+              bindState <- update { (s: State) => (s.copy(binds = Map.empty, currentTop = Some((p, bn))), s.binds)}
               a <- ta
-              _ <- StateT { (s: State) => result(s.copy(currentTop = None), ()) }
+              _ <- update { (s: State) => (s.copy(currentTop = None, binds = bindState), ()) }
             } yield a
 
           val currentTop: T[Option[(PackageName, Bindable)]] =

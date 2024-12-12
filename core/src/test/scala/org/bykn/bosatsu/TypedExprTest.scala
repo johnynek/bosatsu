@@ -416,8 +416,8 @@ foo = _ -> 1
       // substitution in let with a masking
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
       assert(
-        TypedExpr.substitute(Identifier.Name("x"), varTE("y", intTpe), let1) ==
-          None
+        TypedExpr.substitute(Identifier.Name("x"), varTE("y", intTpe), let1).map(_.reprString) ==
+          Some("(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))")
       )
     }
 
@@ -516,37 +516,46 @@ foo = _ -> 1
       )
     )
 
-  test("we can't inline using a shadow: let x = y in let y = z in x(y, y)") {
-    // we can't inline a shadow
+  test("we can inline using a shadow: let x = y in let y = z(43) in x(y)(y)") {
+    // we can inline a shadow by unshadowing y to be y1
     // x = y
     // y = z(43)
     // x(y, y)
-    assert(TypedExprNormalization.normalize(normalLet) == None)
+    val normed = TypedExprNormalization.normalize(normalLet)
+    assert(normed.map(_.repr.render(80)) == Some("""(let
+    y0
+    (ap
+        (var z Bosatsu/Predef::Int)
+        (lit 43 Bosatsu/Predef::Int)
+        Bosatsu/Predef::Int)
+    (ap
+        (ap
+            (var y Bosatsu/Predef::Int)
+            (var y0 Bosatsu/Predef::Int)
+            Bosatsu/Predef::Int)
+        (var y0 Bosatsu/Predef::Int)
+        Bosatsu/Predef::Int))"""))
   }
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
     assert(
       TypedExprNormalization.normalize(
         app(normalLet, varTE("w", intTpe), intTpe)
-      ) ==
+      ).map(_.reprString) ==
         Some(
-          let(
-            "x",
-            varTE("y", intTpe),
             let(
-              "y",
+              "y0",
               app(varTE("z", intTpe), int(43), intTpe),
               app(
                 app(
-                  app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
-                  varTE("y", intTpe),
+                  app(varTE("y", intTpe), varTE("y0", intTpe), intTpe),
+                  varTE("y0", intTpe),
                   intTpe
                 ),
                 varTE("w", intTpe),
                 intTpe
               )
-            )
-          )
+          ).reprString
         )
     )
 
@@ -859,18 +868,18 @@ enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
   def go(y, z):
-    def loop(z):
-      recur z:
+    def loop(z1):
+      recur z1:
         case E: y
         case NE(_, t): loop(t)
 
     loop(z)
 
-  fn1 = z0 -> go(1, z0)
+  fn1 = z -> go(1, z)
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assert(te1.void == te2.void, s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}")
       }
     }
   }

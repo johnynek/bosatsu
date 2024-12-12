@@ -75,13 +75,13 @@ int main(int argc, char** argv) {
 #include <stdlib.h>
 #include "gc.h"
 
-BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list1) {
-    if (get_variant(__bsts_b_list1) == 0) {
+BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list0) {
+    if (get_variant(__bsts_b_list0) == 0) {
         return __bstsi_slot[0];
     }
     else {
-        BValue __bsts_b_h0 = get_enum_index(__bsts_b_list1, 0);
-        BValue __bsts_b_t0 = get_enum_index(__bsts_b_list1, 1);
+        BValue __bsts_b_h0 = get_enum_index(__bsts_b_list0, 0);
+        BValue __bsts_b_t0 = get_enum_index(__bsts_b_list0, 1);
         return call_fn2(__bstsi_slot[1],
             __bsts_b_h0,
             __bsts_t_closure__loop0(__bstsi_slot, __bsts_b_t0));
@@ -113,14 +113,14 @@ int main(int argc, char** argv) {
 #include "gc.h"
 
 BValue __bsts_t_closure0(BValue* __bstsi_slot,
-    BValue __bsts_b_lst1,
-    BValue __bsts_b_item1) {
+    BValue __bsts_b_lst0,
+    BValue __bsts_b_item0) {
     BValue __bsts_a_0;
     BValue __bsts_a_1;
     BValue __bsts_a_3;
     BValue __bsts_a_5;
-    __bsts_a_3 = __bsts_b_lst1;
-    __bsts_a_5 = __bsts_b_item1;
+    __bsts_a_3 = __bsts_b_lst0;
+    __bsts_a_5 = __bsts_b_item0;
     __bsts_a_0 = alloc_enum0(1);
     _Bool __bsts_l_cond1;
     __bsts_l_cond1 = get_variant_value(__bsts_a_0) == 1;
