@@ -1026,7 +1026,7 @@ object ClangGen {
         }
 
       def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
-         fn match {
+        fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
@@ -1119,6 +1119,7 @@ object ClangGen {
             includes: Chain[Code.Include],
             stmts: Chain[Code.Statement],
             currentTop: Option[(PackageName, Bindable)],
+            bindCount: Int,
             binds: Map[Bindable, NonEmptyList[Either[((Code.Ident, Boolean, Int), Int), Int]]],
             counter: Long,
             identCache: Map[Expr, Code.Ident]
@@ -1139,7 +1140,7 @@ object ClangGen {
                 List(Code.Include.quote("bosatsu_runtime.h"))
 
               State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
-                None, Map.empty, 0L, Map.empty
+                None, 0, Map.empty, 0L, Map.empty
               )
             }
           }
@@ -1168,35 +1169,43 @@ object ClangGen {
               Eval.now(Right((s, a)))
             )
 
+          def update[A](fn: State => (State, A)): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s)))))
+
+          def tryUpdate[A](fn: State => Either[Error, (State, A)]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s))))
+
+          def tryRead[A](fn: State => Either[Error, A]): T[A] =
+            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _)))))
+
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryUpdate { s =>
               s.externals(pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl = s.include(incl)
-                  result(withIncl, ident)
+                  Right((withIncl, ident))
                 case None =>
                   val key = (pn, bn)
                   s.allValues.get(key) match {
-                    case Some((_, ident)) => result(s, ident)
-                    case None => errorRes(Error.UnknownValue(pn, bn))
+                    case Some((_, ident)) => Right((s, ident))
+                    case None => Left(Error.UnknownValue(pn, bn))
                   }
               }
             }
 
           def bind[A](bn: Bindable)(in: T[A]): T[A] = {
-            val init: T[Unit] = StateT { s =>
+            val init: T[Unit] = update { s =>
+              val cnt = s.bindCount
               val v = s.binds.get(bn) match {
-                case None => NonEmptyList.one(Right(0))
-                case Some(items @ NonEmptyList(Right(idx), _)) =>
-                  Right(idx + 1) :: items
-                case Some(items @ NonEmptyList(Left((_, idx)), _)) =>
-                  Right(idx + 1) :: items
+                case None => NonEmptyList.one(Right(cnt))
+                case Some(items) =>
+                  Right(cnt) :: items
               }  
-              result(s.copy(binds = s.binds.updated(bn, v)), ())
+              (s.copy(bindCount = cnt + 1, binds = s.binds.updated(bn, v)), ())
             }
 
-            val uninit: T[Unit] = StateT { s =>
+            val uninit: T[Unit] = update { s =>
               s.binds.get(bn) match {
                 case Some(NonEmptyList(_, tail)) =>
                   val s1 = NonEmptyList.fromList(tail) match {
@@ -1205,7 +1214,7 @@ object ClangGen {
                     case Some(prior) =>
                       s.copy(binds = s.binds.updated(bn, prior))
                   }
-                  result(s1, ())
+                  (s1, ())
                 case None => sys.error(s"bindable $bn no longer in $s")
               }  
             }
@@ -1217,18 +1226,18 @@ object ClangGen {
             } yield a
           }
           def getBinding(bn: Bindable): T[Code.Ident] =
-            StateT { s =>
+            tryRead { s =>
               s.binds.get(bn) match {
                 case Some(stack) =>
                   stack.head match {
                     case Right(idx) =>
-                      result(s, Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
+                      Right(Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString)))
                     case Left(((ident, _, _), _)) =>
                       // TODO: suspicious to ignore isClosure and arity here
                       // probably need to conv
-                      result(s, ident)
+                      Right(ident)
                   }
-                case None => errorRes(Error.Unbound(bn, s.currentTop))
+                case None => Left(Error.Unbound(bn, s.currentTop))
               }  
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =
@@ -1321,9 +1330,9 @@ object ClangGen {
 
           def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
             for {
-              _ <- StateT { (s: State) => result(s.copy(currentTop = Some((p, bn))), ())}
+              initBindCount <- update { (s: State) => (s.copy(bindCount = 0, currentTop = Some((p, bn))), s.bindCount)}
               a <- ta
-              _ <- StateT { (s: State) => result(s.copy(currentTop = None), ()) }
+              _ <- update { (s: State) => (s.copy(currentTop = None, bindCount = initBindCount), ()) }
             } yield a
 
           val currentTop: T[Option[(PackageName, Bindable)]] =

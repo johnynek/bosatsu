@@ -10,7 +10,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class PatternTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    PropertyCheckConfiguration(minSuccessful = 5000)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
@@ -150,6 +150,37 @@ class PatternTest extends AnyFunSuite {
           }
         case _ => ()
       }
+    }
+  }
+
+  test("substitute identity is identity") {
+    forAll(patGen, Gen.listOf(Generators.bindIdentGen)) { (p, list) =>
+      assert(p.substitute(list.map(b => (b, b)).toMap) == p)
+    }
+  }
+
+  test("substitute names homomorphism") {
+    import Identifier._
+
+    def law[A, B](p: Pattern[A, B], map: Map[Bindable, Bindable]) = {
+      val subsP = p.substitute(map)
+      assert(subsP.names.distinct == p.names.map(n => map.getOrElse(n, n)).distinct, s"got $subsP")
+    }
+
+    def b(s: String) = Identifier.Name(s)
+
+    {
+      import Pattern._
+      import StrPart._
+      import Lit.Str
+
+      val p = Union(Var(Name("a")), NonEmptyList(StrPat(NonEmptyList(NamedStr(Name("k")), List(LitStr("wrk"), WildChar))), List(Named(Name("hqZ9aeuAood"), WildCard), Literal(Str("q5VgEdksu")), WildCard)))
+
+      law(p, Map(b("k") -> b("a")))
+    }
+
+    forAll(patGen, Gen.mapOf(Gen.zip(Generators.bindIdentGen, Generators.bindIdentGen))) { (p, map) =>
+      law(p, map)
     }
   }
 }
