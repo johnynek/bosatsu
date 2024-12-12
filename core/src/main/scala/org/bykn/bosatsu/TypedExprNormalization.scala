@@ -220,54 +220,12 @@ object TypedExprNormalization {
                 case _                              => false
               }
 
-          val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
           e1 match {
             case App(fn, aargs, _, _)
                 if matchesArgs(aargs) && doesntUseArgs(fn) =>
               // x -> f(x) == f (eta conversion)
-              normalize1(None, setType(fn, te.getType), scope, typeEnv)
-            case App(
-                  ws.ResolveToLambda(Nil, args1, body, ftag),
-                  aargs,
-                  resT,
-                  atag
-                ) if namerec.isEmpty =>
-              // args -> (args1 -> e1)(...)
-              // this is inlining, which we do only when nested directly inside another lambda
-              // TODO: this is possibly very expensive to always apply. It can really increase
-              // code size. We probably need better hueristics for when to inline,
-              // or remove inlining from here unless it can hever hurt and put inlining at a
-              // different phase.
-              val fn1 = AnnotatedLambda(args1, body, ftag)
-              //val e2 = App(fn1, aargs, resT, atag)
-              val applied = appLambda[A](fn1, aargs, resT, atag)
-              //val e3 = normalize1(None, applied, bodyScope, typeEnv).get
-              //if (e1 != e2) {
-                // in this case we have inlined, vs there already being
-                // a literal lambda being applied
-                // by normalizing this, it will become a let binding
-                //val e3 = normalize1(None, e2, bodyScope, typeEnv).get
-
-                //if (e3.size <= expr.size) {
-                if (true) {
-                  // we haven't made the code larger
-                  normalize1(
-                    namerec,
-                    AnnotatedLambda(lamArgs, applied, tag),
-                    scope,
-                    typeEnv
-                  )
-                } else {
-                  // inlining will make the code larger that it was originally
-                  if ((e1 eq expr) && (lamArgs === lamArgs0)) None
-                  else Some(AnnotatedLambda(lamArgs, e1, tag))
-                }
-                /*
-              } else {
-                if ((e1 eq expr) && (lamArgs === lamArgs0)) None
-                else Some(AnnotatedLambda(lamArgs, e1, tag))
-              }
-              */
+              // note, e1 is already normalized, so fn is normalized
+              Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
                 if doesntUseArgs(ex) && doesntShadow(arg1) =>
               // x ->
@@ -557,7 +515,7 @@ object TypedExprNormalization {
         }
 
       object ResolveToLambda {
-        // this is a parameter that we can tune to change inlining
+        // this is a parameter that we can tune to change inlining Global Lambdas
         val MaxSize = 10 
 
         // TODO: don't we need to worry about the type environment for locals? They
@@ -597,7 +555,8 @@ object TypedExprNormalization {
               Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
-                // 
+                // only inline global lambdas if they are somewhat small, otherwise we will
+                // tend to transitively inline everything into one big function and blow the stack
                 case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
@@ -620,7 +579,8 @@ object TypedExprNormalization {
               }
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
-                case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
+                // Local lambdas tend to be small, so inline them always if we can
+                case (RecursionKind.NonRecursive, te, scope1) =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>

@@ -868,8 +868,8 @@ enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
   def go(y, z):
-    def loop(z):
-      recur z:
+    def loop(z1):
+      recur z1:
         case E: y
         case NE(_, t): loop(t)
 
@@ -879,7 +879,7 @@ x = (
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assert(te1.void == te2.void, s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}")
       }
     }
   }
