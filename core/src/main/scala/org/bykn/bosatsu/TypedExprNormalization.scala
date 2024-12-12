@@ -227,14 +227,17 @@ object TypedExprNormalization {
               // note, e1 is already normalized, so fn is normalized
               Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
-                if doesntUseArgs(ex) && doesntShadow(arg1) =>
+                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(ex) && doesntShadow(arg1)=>
               // x ->
               //   y = z
               //   f(y)
               // same as:
               // y = z
               // x -> f(y)
-              // avoid recomputing y
+              // avoid recomputing y if y is not simple. Note, we consider a lambda simple
+              // since when compiling we can lift lambdas out anyway, so they are at most 1 allocation
+              // but possibly 0.
+              //
               // TODO: we could reorder Lets if we have several in a row
               normalize1(
                 None,
@@ -244,8 +247,10 @@ object TypedExprNormalization {
               )
             case m @ Match(arg1, branches, tag1) if lamArgs.forall {
                   case (arg, _) => arg1.notFree(arg)
-                } =>
-              // same as above: if match does not depend on lambda arg, lift it out
+                } && (!Impl.isSimple(arg1, lambdaSimple = true) || branches.length > 1) =>
+              // x -> match z: w
+              // convert to match z: x -> w
+              // but don't bother if the arg is simple or there is only 1 branch + simple arg
               val b1 = branches.traverse { case (p, b) =>
                 if (
                   !lamArgs.exists { case (arg, _) => p.names.contains(arg) }
@@ -605,6 +610,9 @@ object TypedExprNormalization {
       }
     }
 
+    final def isSimpleNotTail[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
+      isSimple(ex, lambdaSimple)
+
     @annotation.tailrec
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
@@ -615,7 +623,17 @@ object TypedExprNormalization {
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
-        case _ => false
+        case App(_, _, _, _) => false
+        case Let(_, ex, in, _, _) =>
+          isSimpleNotTail(ex, lambdaSimple) && isSimple(in, lambdaSimple)
+        case Match(arg, branches, _) =>
+          isSimpleNotTail(arg, lambdaSimple) && branches.tail.isEmpty && {
+            // match f: case p: r
+            // is the same as
+            // let p = f in r
+            val (_, rest) = branches.head
+            isSimple(rest, lambdaSimple)
+          }
       }
 
     sealed abstract class EvalResult[A]
