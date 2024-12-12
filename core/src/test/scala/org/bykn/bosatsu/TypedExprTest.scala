@@ -875,7 +875,7 @@ x = (
 
     loop(z)
 
-  fn1 = z0 -> go(1, z0)
+  fn1 = z -> go(1, z)
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>

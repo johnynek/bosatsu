@@ -247,7 +247,7 @@ object TypedExprNormalization {
               )
             case m @ Match(arg1, branches, tag1) if lamArgs.forall {
                   case (arg, _) => arg1.notFree(arg)
-                } && (!Impl.isSimple(arg1, lambdaSimple = true) || branches.length > 1) =>
+                } && ((branches.length > 1) || !Impl.isSimple(arg1, lambdaSimple = true)) =>
               // x -> match z: w
               // convert to match z: x -> w
               // but don't bother if the arg is simple or there is only 1 branch + simple arg
@@ -617,17 +617,17 @@ object TypedExprNormalization {
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
+        case App(_, _, _, _) => false
         case Annotation(t, _)         => isSimple(t, lambdaSimple)
         case Generic(_, t)            => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _) =>
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
-        case App(_, _, _, _) => false
         case Let(_, ex, in, _, _) =>
           isSimpleNotTail(ex, lambdaSimple) && isSimple(in, lambdaSimple)
         case Match(arg, branches, _) =>
-          isSimpleNotTail(arg, lambdaSimple) && branches.tail.isEmpty && {
+          branches.tail.isEmpty && isSimpleNotTail(arg, lambdaSimple) && {
             // match f: case p: r
             // is the same as
             // let p = f in r
