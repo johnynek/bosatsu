@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
-import cats.{Eval, MonadError, Traverse}
+import cats.{Eval, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
@@ -20,59 +20,16 @@ import cats.implicits._
   * is to allow it to be testable and usable in scalajs where we don't have
   * file-IO
   */
-abstract class MainModule[IO[_]](implicit
-    val moduleIOMonad: MonadError[IO, Throwable]
-) {
-  type Path
+abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
+  type F[A] = IO[A]
 
-  implicit def pathArg: Argument[Path]
+  import platformIO._
 
-  def readPath(p: Path): IO[String]
-
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]]
-
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]]
-
-  /** given an ordered list of prefered roots, if a packFile starts with one of
-    * these roots, return a PackageName based on the rest
-    */
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
-
-  /** Modules optionally have the capability to combine paths into a tree
-    */
-  def resolvePath: Option[(Path, PackageName) => IO[Option[Path]]]
-
-  /** some modules have paths that form directory trees
-    *
-    * if the given path is a directory, return Some and all the first children.
-    */
-  def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]]
-
-  def hasExtension(str: String): Path => Boolean
-
-  // we can do side effects in here
-  def delay[A](a: => A): IO[A]
+  def withEC[A](fn: Par.EC => IO[A]): IO[A]
 
   //////////////////////////////
   // Below here are concrete and should not use override
   //////////////////////////////
-
-  final def withEC[A](fn: Par.EC => IO[A]): IO[A] =
-    delay(Par.newService())
-      .flatMap { es =>
-        fn(Par.ecFromService(es))
-          .flatMap { a =>
-            delay {
-              Par.shutdownService(es)
-              a
-            }
-          }
-          .recoverWith { case e =>
-            delay {
-              Par.shutdownService(es)
-            }.flatMap(_ => moduleIOMonad.raiseError[A](e))
-          }
-      }
 
   final def run(args: List[String]): Either[Help, IO[Output]] =
     MainCommand.command
@@ -206,10 +163,10 @@ abstract class MainModule[IO[_]](implicit
   }
 
   object MainCommand {
-    def parseInputs[F[_]: Traverse](
-        paths: F[Path],
+    def parseInputs[G[_]: Traverse](
+        paths: G[Path],
         packRes: PackageResolver
-    ): IO[ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]]] =
+    ): IO[ValidatedNel[ParseError, G[((Path, LocationMap), Package.Parsed)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
@@ -223,10 +180,10 @@ abstract class MainModule[IO[_]](implicit
         }
         .map(_.sequence)
 
-    def parseHeaders[F[_]: Traverse](
-        paths: F[Path],
+    def parseHeaders[G[_]: Traverse](
+        paths: G[Path],
         packRes: PackageResolver
-    ): IO[ValidatedNel[ParseError, F[(Path, Package.Header)]]] =
+    ): IO[ValidatedNel[ParseError, G[(Path, Package.Header)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
@@ -1000,10 +957,10 @@ abstract class MainModule[IO[_]](implicit
               )
             }
 
-            def process[F[_]: Traverse](
+            def process[G[_]: Traverse](
                 io: IO[String],
-                extract: Json => IO[F[Json]],
-                inject: F[Json] => Json
+                extract: Json => IO[G[Json]],
+                inject: G[Json] => Json
             ): IO[Output.JsonOutput] =
               v2j.valueFnToJsonFn(res.tpe) match {
                 case Left(unsup) => unsupported(unsup)

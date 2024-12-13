@@ -14,6 +14,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import cats.effect.unsafe.implicits.global
 
 class PathModuleTest extends AnyFunSuite {
+  import PathModule.platformIO.pathPackage
 
   implicit val arbPath: Arbitrary[Path] =
     Arbitrary {
@@ -24,7 +25,7 @@ class PathModuleTest extends AnyFunSuite {
 
   test("test some hand written examples") {
     def pn(roots: List[String], file: String): Option[PackageName] =
-      PathModule.pathPackage(roots.map(Paths.get(_)), Paths.get(file))
+      pathPackage(roots.map(Paths.get(_)), Paths.get(file))
 
     assert(
       pn(List("/root0", "/root1"), "/root0/Bar.bosatsu") == Some(
@@ -56,13 +57,13 @@ class PathModuleTest extends AnyFunSuite {
 
   test("no roots means no Package") {
     forAll { (p: Path) =>
-      assert(PathModule.pathPackage(Nil, p) == None)
+      assert(pathPackage(Nil, p) == None)
     }
   }
 
   test("empty path is not okay for a package") {
     forAll { (roots: List[Path]) =>
-      assert(PathModule.pathPackage(roots, Paths.get("")) == None)
+      assert(pathPackage(roots, Paths.get("")) == None)
     }
   }
 
@@ -74,7 +75,7 @@ class PathModuleTest extends AnyFunSuite {
           PackageName.parse(
             rest.asScala.map(_.toString.toLowerCase.capitalize).mkString("/")
           )
-        assert(PathModule.pathPackage(root :: otherRoots, path) == pack)
+        assert(pathPackage(root :: otherRoots, path) == pack)
       }
 
     forAll(law(_, _, _))
@@ -91,7 +92,7 @@ class PathModuleTest extends AnyFunSuite {
   test("if none of the roots are prefixes we have none") {
     forAll { (r0: Path, roots0: List[Path], file: Path) =>
       val roots = (r0 :: roots0).filterNot(_.toString == "")
-      val pack = PathModule.pathPackage(roots, file)
+      val pack = pathPackage(roots, file)
 
       val noPrefix = !roots.exists { r =>
         file.asScala.toList.startsWith(r.asScala.toList)

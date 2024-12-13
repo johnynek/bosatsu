@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.effect.IO
-import com.monovore.decline.Argument
+import cats.effect.{IO, Resource}
 import org.typelevel.paiges.{Doc, Document}
 
 import java.nio.file.{Path => JPath}
@@ -12,66 +11,18 @@ import cats.effect.ExitCode
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 
-object PathModule extends MainModule[IO] {
+object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
   type Path = JPath
 
-  override def pathArg: Argument[Path] =
-    Argument.readPath
-
-  def readPath(path: Path): IO[String] =
-    IO.blocking(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
-
-  val resolvePath: Some[(Path, PackageName) => IO[Option[Path]]] =
-    Some(
-      { (root: Path, pack: PackageName) =>
-        val dir = pack.parts.init.foldLeft(root)(_.resolve(_))
-        val filePath = dir.resolve(pack.parts.last + ".bosatsu")
-        IO.blocking {
-          // this is a side-effect since file is mutable
-          // and talks to the file system
-          val file = filePath.toFile
-          if (file.exists()) Some(filePath)
-          else None
-        }
-      }
-    )
-
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
-    ProtoConverter.readPackages(paths)
-
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-    ProtoConverter.readInterfaces(paths)
-
-  def writeInterfaces(
-      interfaces: List[Package.Interface],
-      path: Path
-  ): IO[Unit] =
-    ProtoConverter.writeInterfaces(interfaces, path)
-
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
-    ProtoConverter.writePackages(packages, path)
-
-  def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
-    (path: Path) =>
-      IO.blocking {
-        val f = path.toFile
-
-        if (f.isDirectory()) {
-          Some(IO.blocking {
-            f.listFiles.iterator.map(_.toPath).toList
-          })
-        } else None
-      }
-  }
-
-  def hasExtension(str: String): Path => Boolean = { (path: Path) =>
-    path.toString.endsWith(str)
-  }
-
-  def print(str: => String): IO[Unit] =
+  def print(str: String): IO[Unit] =
     IO.println(str)
 
-  def delay[A](a: => A): IO[A] = IO(a)
+  val parResource: Resource[IO, Par.EC] =
+    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+      .map(Par.ecFromService(_))
+
+  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+    parResource.use(fn)
 
   def report(io: IO[Output]): IO[ExitCode] =
     io.attempt.flatMap {
@@ -79,7 +30,7 @@ object PathModule extends MainModule[IO] {
       case Left(err)  => reportException(err).as(ExitCode.Error)
     }
 
-  private def writeOut(doc: Doc, out: Option[Path]): IO[Unit] =
+  private def writeOut(doc: Doc, out: Option[JPath]): IO[Unit] =
     out match {
       case None =>
         IO.blocking {
@@ -93,6 +44,15 @@ object PathModule extends MainModule[IO] {
       case Some(p) =>
         CodeGenWrite.writeDoc(p, doc)
     }
+
+  def writeInterfaces(
+      interfaces: List[Package.Interface],
+      path: JPath
+  ): IO[Unit] =
+    ProtoConverter.writeInterfaces(interfaces, path)
+
+  def writePackages[A](packages: List[Package.Typed[A]], path: JPath): IO[Unit] =
+    ProtoConverter.writePackages(packages, path)
 
   def reportOutput(out: Output): IO[ExitCode] =
     out match {
@@ -120,7 +80,7 @@ object PathModule extends MainModule[IO] {
           .as(ExitCode.Success)
 
       case Output.TranspileOut(outs, base) =>
-        def path(p: List[String]): Path =
+        def path(p: List[String]): JPath =
           p.foldLeft(base)(_.resolve(_))
 
         outs.toList
@@ -295,35 +255,4 @@ object PathModule extends MainModule[IO] {
           IO.blocking(ex.printStackTrace(System.err))
     }
 
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
-    import scala.jdk.CollectionConverters._
-
-    def getP(p: Path): Option[PackageName] = {
-      val subPath = p
-        .relativize(packFile)
-        .asScala
-        .map { part =>
-          part.toString.toLowerCase.capitalize
-        }
-        .mkString("/")
-
-      val dropExtension = """(.*)\.[^.]*$""".r
-      val toParse = subPath match {
-        case dropExtension(prefix) => prefix
-        case _                     => subPath
-      }
-      PackageName.parse(toParse)
-    }
-
-    @annotation.tailrec
-    def loop(roots: List[Path]): Option[PackageName] =
-      roots match {
-        case Nil                              => None
-        case h :: _ if packFile.startsWith(h) => getP(h)
-        case _ :: t                           => loop(t)
-      }
-
-    if (packFile.toString.isEmpty) None
-    else loop(roots)
-  }
 }
