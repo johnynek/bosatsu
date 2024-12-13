@@ -1,8 +1,8 @@
 package org.bykn.bosatsu
 
-import cats.{Functor, Order, Parallel}
+import cats.{Functor, Order, Parallel, Applicative}
 import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
-import cats.implicits._
+import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
@@ -69,6 +69,9 @@ object Package {
   type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
   type Resolved =
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+  type ResolvedPackage =
+    Package[Resolved, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+
   type TypedProgram[T] = (
         Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
         ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
@@ -586,6 +589,32 @@ object Package {
           )
       }
     }
+  }
+
+  implicit class ResolvedMedthods(private val resolved: Resolved) extends AnyVal {
+      def importName[F[_], A](
+        fromPackage: PackageName,
+        item: ImportedName[Unit]
+      )(recurse: ResolvedPackage => F[Typed[A]])(implicit F: Applicative[F]): F[Either[PackageError, (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])]] =
+        Package.unfix(resolved) match {
+          case Right(p) =>
+            /*
+              * Here we have a source we need to fully resolve
+              */
+            recurse(p)
+              .map { packF =>
+                val packInterface = Package.interfaceOf(packF)
+                packF.getImport(fromPackage, item)
+                  .map((packInterface, _))
+              }
+          case Left(iface) =>
+            /*
+              * this import is already an interface, we can stop here
+              */
+            // this is very fast and does not need to be done in a thread
+            F.pure(iface.getImportIface(fromPackage, item)
+                .map((iface, _)))
+        }
   }
 
   def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =

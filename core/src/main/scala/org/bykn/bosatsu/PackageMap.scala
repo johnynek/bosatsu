@@ -424,44 +424,20 @@ object PackageMap {
            * type can have the same name as a constructor. After this step, each
            * distinct object has its own entry in the list
            */
-          type IName = NonEmptyList[Referant[Kind.Arg]]
-
-          def resFromEither[A, B](either: Either[A, B]): IorT[F, NonEmptyList[A], B] =
-            IorT.fromEither(either.left.map(NonEmptyList.one(_)))
-
-          def stepImport(
-              fixpack: Package.Resolved,
-              item: ImportedName[Unit]
-          ): FutVal[(Package.Interface, ImportedName[IName])] =
-            Package.unfix(fixpack) match {
-              case Right(p) =>
-                /*
-                 * Here we have a source we need to fully resolve
-                 */
-                IorT(recurse(p))
-                  .flatMap { case (_, packF) =>
-                    val packInterface = Package.interfaceOf(packF)
-                    val either = packF.getImport(nm, item)
-                      .map((packInterface, _))
-
-                    resFromEither(either)
-                  }
-              case Left(iface) =>
-                /*
-                 * this import is already an interface, we can stop here
-                 */
-                // this is very fast and does not need to be done in a thread
-                val e =
-                  iface.getImportIface(nm, item)
-                    .map((iface, _))
-
-                resFromEither(e)
-            }
 
           val inferImports: FutVal[
             ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
-          ] =
-            resolvedImports.parTraverse(stepImport(_, _))
+          ] = {
+            // here we just need the interface, not the TypeEnv
+            val rec1 = recurse.andThen { res => IorT(res).map(_._2) }
+
+            resolvedImports.parTraverse { (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
+              fixpack.importName(nm, item)(rec1(_))
+                .flatMap { either =>
+                  IorT.fromEither(either.left.map(NonEmptyList.one(_)))
+                }
+            }
+          }
 
           val inferBody =
             inferImports
