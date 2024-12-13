@@ -157,7 +157,7 @@ object TestUtils {
       case (idx, _) => "--input" :: idx.toString :: Nil
     }
 
-  private val module = new MemoryMain[Either[Throwable, *], Int]({ idx =>
+  private val module = MemoryMain[Either[Throwable, *], Int]({ idx =>
     if (idx == Int.MaxValue) Nil
     else List(s"Package$idx")
   })
