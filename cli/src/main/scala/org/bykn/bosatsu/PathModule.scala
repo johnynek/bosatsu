@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import org.typelevel.paiges.{Doc, Document}
 
 import java.nio.file.{Path => JPath}
@@ -14,21 +14,15 @@ import cats.syntax.all._
 object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
   type Path = JPath
 
-  def print(str: => String): IO[Unit] =
+  def print(str: String): IO[Unit] =
     IO.println(str)
 
+  val parResource: Resource[IO, Par.EC] =
+    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+      .map(Par.ecFromService(_))
+
   def withEC[A](fn: Par.EC => IO[A]): IO[A] =
-    IO.delay(Par.newService())
-      .flatMap { es =>
-        fn(Par.ecFromService(es))
-          .flatMap { a =>
-            IO(Par.shutdownService(es)).as(a)
-          }
-          .recoverWith { case e =>
-            IO(Par.shutdownService(es)) *>
-              IO.raiseError(e)
-          }
-      }
+    parResource.use(fn)
 
   def report(io: IO[Output]): IO[ExitCode] =
     io.attempt.flatMap {
