@@ -49,6 +49,11 @@ final case class Package[A, B, C, +D](
       newImports: List[Import[A1, B1]]
   ): Package[A1, B1, C, D] =
     Package(name, newImports, exports, program)
+
+  def getExport[T](i: ImportedName[T]): Option[NonEmptyList[ExportedName[C]]] = {
+    val iname = i.originalName
+    NonEmptyList.fromList(exports.filter(_.name == iname))
+  }
 }
 
 object Package {
@@ -534,6 +539,54 @@ object Package {
       val (prog, importMap) = pack.program
       val prog1 = prog.copy(lets = prog.lets.filter { case (b, _, _) => fn(b) })
       pack.copy(program = (prog1, importMap))
+    }
+
+    def getImport[B](
+        inside: PackageName,
+        i: ImportedName[B]
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+      pack.getExport(i) match {
+        case Some(exps) =>
+          val bs = exps.map(_.tag)
+          Right(i.map(_ => bs))
+        case None =>
+          val exMap = pack.exports.groupByNel(_.name)
+          Left(
+            PackageError.UnknownImportName(
+              inside,
+              pack.name,
+              pack.program._1.lets.iterator.map { case (n, _, _) =>
+                (n: Identifier, ())
+              }.toMap,
+              i,
+              exMap.iterator.flatMap(_._2.toList).toList
+            )
+          )
+        }
+      }
+  }
+
+  implicit class IfaceMethods(private val iface: Interface) extends AnyVal {
+    def getImportIface[A](
+        inside: PackageName,
+        i: ImportedName[A]
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+      iface.getExport(i) match {
+        case Some(exps) =>
+          val bs = exps.map(_.tag)
+          Right(i.map(_ => bs))
+        case None =>
+          val exMap = iface.exports.groupByNel(_.name)
+          Left(
+            PackageError.UnknownImportFromInterface(
+              inside,
+              iface.name,
+              iface.exports.map(_.name),
+              i,
+              exMap.iterator.flatMap(_._2.toList).toList
+            )
+          )
+      }
     }
   }
 
