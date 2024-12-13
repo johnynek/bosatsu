@@ -550,7 +550,6 @@ object Package {
           val bs = exps.map(_.tag)
           Right(i.map(_ => bs))
         case None =>
-          val exMap = pack.exports.groupByNel(_.name)
           Left(
             PackageError.UnknownImportName(
               inside,
@@ -559,7 +558,7 @@ object Package {
                 (n: Identifier, ())
               }.toMap,
               i,
-              exMap.iterator.flatMap(_._2.toList).toList
+              pack.exports
             )
           )
         }
@@ -576,14 +575,13 @@ object Package {
           val bs = exps.map(_.tag)
           Right(i.map(_ => bs))
         case None =>
-          val exMap = iface.exports.groupByNel(_.name)
           Left(
             PackageError.UnknownImportFromInterface(
               inside,
               iface.name,
               iface.exports.map(_.name),
               i,
-              exMap.iterator.flatMap(_._2.toList).toList
+              iface.exports
             )
           )
       }
