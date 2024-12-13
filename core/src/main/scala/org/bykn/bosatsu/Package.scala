@@ -591,7 +591,7 @@ object Package {
     }
   }
 
-  implicit class ResolvedMedthods(private val resolved: Resolved) extends AnyVal {
+  implicit class ResolvedMethods(private val resolved: Resolved) extends AnyVal {
       def importName[F[_], A](
         fromPackage: PackageName,
         item: ImportedName[Unit]
