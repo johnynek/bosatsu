@@ -8,8 +8,7 @@ import org.scalajs.dom.window.localStorage
 import Action.Cmd
 
 object Store {
-  val memoryMain =
-    new MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
+  val memoryMain = MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
 
   type HandlerFn = memoryMain.Output => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =
