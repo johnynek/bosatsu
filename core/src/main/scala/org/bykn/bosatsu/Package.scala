@@ -592,29 +592,35 @@ object Package {
   }
 
   implicit class ResolvedMethods(private val resolved: Resolved) extends AnyVal {
-      def importName[F[_], A](
-        fromPackage: PackageName,
-        item: ImportedName[Unit]
-      )(recurse: ResolvedPackage => F[Typed[A]])(implicit F: Applicative[F]): F[Either[PackageError, (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])]] =
-        Package.unfix(resolved) match {
-          case Right(p) =>
-            /*
-              * Here we have a source we need to fully resolve
-              */
-            recurse(p)
-              .map { packF =>
-                val packInterface = Package.interfaceOf(packF)
-                packF.getImport(fromPackage, item)
-                  .map((packInterface, _))
-              }
-          case Left(iface) =>
-            /*
-              * this import is already an interface, we can stop here
-              */
-            // this is very fast and does not need to be done in a thread
-            F.pure(iface.getImportIface(fromPackage, item)
-                .map((iface, _)))
-        }
+    def name: PackageName =
+      FixType.unfix(resolved) match {
+        case Left(iface) => iface.name
+        case Right(pack) => pack.name
+      }
+
+    def importName[F[_], A](
+      fromPackage: PackageName,
+      item: ImportedName[Unit]
+    )(recurse: ResolvedPackage => F[Typed[A]])(implicit F: Applicative[F]): F[Either[PackageError, (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])]] =
+      Package.unfix(resolved) match {
+        case Right(p) =>
+          /*
+            * Here we have a source we need to fully resolve
+            */
+          recurse(p)
+            .map { packF =>
+              val packInterface = Package.interfaceOf(packF)
+              packF.getImport(fromPackage, item)
+                .map((packInterface, _))
+            }
+        case Left(iface) =>
+          /*
+            * this import is already an interface, we can stop here
+            */
+          // this is very fast and does not need to be done in a thread
+          F.pure(iface.getImportIface(fromPackage, item)
+              .map((iface, _)))
+      }
   }
 
   def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =
