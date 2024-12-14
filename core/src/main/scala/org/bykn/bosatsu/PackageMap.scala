@@ -145,8 +145,8 @@ object PackageMap {
 
   type Inferred = Typed[Declaration]
 
-  /** This builds a DAG of actual packages where names have been replaced by the
-    * fully resolved packages
+  /** This builds a DAG of actual packages where on Import the PackageName have been replaced by the
+    * Either a Package.Interface (which gives exports only) or this same recursive structure.
     */
   def resolvePackages[A, B, C](
       map: PackageMap[PackageName, A, B, C],
@@ -328,7 +328,7 @@ object PackageMap {
 
     // we know all the package names are unique here
     def foldMap(
-        m: Map[PackageName, (A, Package.Parsed)]
+        m: SortedMap[PackageName, (A, Package.Parsed)]
     ): (List[PackageError], PackageMap.ParsedImp) = {
       val initPm = PackageMap
         .empty[
@@ -338,7 +338,8 @@ object PackageMap {
           (List[Statement], ImportMap[PackageName, Unit])
         ]
 
-      m.iterator.foldLeft((List.empty[PackageError], initPm)) {
+      // since the map is sorted, this order is deteriministic
+      m.foldLeft((List.empty[PackageError], initPm)) {
         case ((errs, pm), (_, (_, pack))) =>
           val (lerrs, pp) = toProg(pack)
           (lerrs.toList ::: errs, pm + pp)
@@ -350,14 +351,14 @@ object PackageMap {
     // combine the import errors now:
     val check: Ior[NonEmptyList[PackageError], Unit] =
       errs match {
-        case Nil =>
-          Ior.right(())
+        case Nil => Ior.right(())
         case h :: tail =>
           Ior.left(NonEmptyList(h, tail))
       }
     // keep all the errors
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
       NonEmptyMap.fromMap(nonUnique) match {
+        case None => Ior.right(())
         case Some(nenu) =>
           val paths = nenu.map { case ((a, _), rest) =>
             (a.show, rest.map(_._1.show))
@@ -367,8 +368,6 @@ object PackageMap {
               PackageError.DuplicatedPackageError(paths)
             )
           )
-        case None =>
-          Ior.right(())
       }
 
     (nuEr, check, res.toIor).parMapN((_, _, r) => r)
@@ -418,54 +417,6 @@ object PackageMap {
               (nameToRes(p), i)
             }
 
-          def getImport[A, B](
-              packF: Package.Inferred,
-              exMap: Map[Identifier, NonEmptyList[ExportedName[A]]],
-              i: ImportedName[B]
-          ): Ior[NonEmptyList[PackageError], ImportedName[NonEmptyList[A]]] =
-            exMap.get(i.originalName) match {
-              case None =>
-                Ior.left(
-                  NonEmptyList.one(
-                    PackageError.UnknownImportName(
-                      nm,
-                      packF.name,
-                      packF.program._1.lets.iterator.map { case (n, _, _) =>
-                        (n: Identifier, ())
-                      }.toMap,
-                      i,
-                      exMap.iterator.flatMap(_._2.toList).toList
-                    )
-                  )
-                )
-              case Some(exps) =>
-                val bs = exps.map(_.tag)
-                Ior.right(i.map(_ => bs))
-            }
-
-          def getImportIface[A, B](
-              packF: Package.Interface,
-              exMap: Map[Identifier, NonEmptyList[ExportedName[A]]],
-              i: ImportedName[B]
-          ): Ior[NonEmptyList[PackageError], ImportedName[NonEmptyList[A]]] =
-            exMap.get(i.originalName) match {
-              case None =>
-                Ior.left(
-                  NonEmptyList.one(
-                    PackageError.UnknownImportFromInterface(
-                      nm,
-                      packF.name,
-                      packF.exports.map(_.name),
-                      i,
-                      exMap.iterator.flatMap(_._2.toList).toList
-                    )
-                  )
-                )
-              case Some(exps) =>
-                val bs = exps.map(_.tag)
-                Ior.right(i.map(_ => bs))
-            }
-
           /*
            * This resolves imports from PackageNames into fully typed Packages
            *
@@ -473,41 +424,20 @@ object PackageMap {
            * type can have the same name as a constructor. After this step, each
            * distinct object has its own entry in the list
            */
-          type IName = NonEmptyList[Referant[Kind.Arg]]
-
-          def stepImport(
-              fixpack: Package.Resolved,
-              item: ImportedName[Unit]
-          ): FutVal[(Package.Interface, ImportedName[IName])] =
-            Package.unfix(fixpack) match {
-              case Right(p) =>
-                /*
-                 * Here we have a source we need to fully resolve
-                 */
-                IorT(recurse(p))
-                  .flatMap { case (_, packF) =>
-                    val packInterface = Package.interfaceOf(packF)
-                    val exMap = packF.exports.groupByNel(_.name)
-                    val ior = getImport(packF, exMap, item)
-                      .map((packInterface, _))
-                    IorT.fromIor(ior)
-                  }
-              case Left(iface) =>
-                /*
-                 * this import is already an interface, we can stop here
-                 */
-                val exMap = iface.exports.groupByNel(_.name)
-                // this is very fast and does not need to be done in a thread
-                val ior =
-                  getImportIface(iface, exMap, item)
-                    .map((iface, _))
-                IorT.fromIor(ior)
-            }
 
           val inferImports: FutVal[
             ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
-          ] =
-            resolvedImports.parTraverse(stepImport(_, _))
+          ] = {
+            // here we just need the interface, not the TypeEnv
+            val rec1 = recurse.andThen { res => IorT(res).map(_._2) }
+
+            resolvedImports.parTraverse { (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
+              fixpack.importName(nm, item)(rec1(_))
+                .flatMap { either =>
+                  IorT.fromEither(either.left.map(NonEmptyList.one(_)))
+                }
+            }
+          }
 
           val inferBody =
             inferImports

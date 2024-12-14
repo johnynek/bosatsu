@@ -1,8 +1,8 @@
 package org.bykn.bosatsu
 
-import cats.{Functor, Order, Parallel}
+import cats.{Functor, Order, Parallel, Applicative}
 import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
-import cats.implicits._
+import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
@@ -49,6 +49,11 @@ final case class Package[A, B, C, +D](
       newImports: List[Import[A1, B1]]
   ): Package[A1, B1, C, D] =
     Package(name, newImports, exports, program)
+
+  def getExport[T](i: ImportedName[T]): Option[NonEmptyList[ExportedName[C]]] = {
+    val iname = i.originalName
+    NonEmptyList.fromList(exports.filter(_.name == iname))
+  }
 }
 
 object Package {
@@ -64,6 +69,9 @@ object Package {
   type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
   type Resolved =
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+  type ResolvedPackage =
+    Package[Resolved, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+
   type TypedProgram[T] = (
         Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
         ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
@@ -535,6 +543,78 @@ object Package {
       val prog1 = prog.copy(lets = prog.lets.filter { case (b, _, _) => fn(b) })
       pack.copy(program = (prog1, importMap))
     }
+
+    def getImport[B](
+        inside: PackageName,
+        i: ImportedName[B]
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+      pack.getExport(i) match {
+        case Some(exps) =>
+          val bs = exps.map(_.tag)
+          Right(i.map(_ => bs))
+        case None =>
+          Left(
+            PackageError.UnknownImportName(
+              inside,
+              pack.name,
+              pack.program._1.lets.iterator.map { case (n, _, _) =>
+                (n: Identifier, ())
+              }.toMap,
+              i,
+              pack.exports
+            )
+          )
+        }
+      }
+  }
+
+  implicit class IfaceMethods(private val iface: Interface) extends AnyVal {
+    def getImportIface[A](
+        inside: PackageName,
+        i: ImportedName[A]
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+      iface.getExport(i) match {
+        case Some(exps) =>
+          val bs = exps.map(_.tag)
+          Right(i.map(_ => bs))
+        case None =>
+          Left(
+            PackageError.UnknownImportFromInterface(
+              inside,
+              iface.name,
+              iface.exports.map(_.name),
+              i,
+              iface.exports
+            )
+          )
+      }
+    }
+  }
+
+  implicit class ResolvedMethods(private val resolved: Resolved) extends AnyVal {
+      def importName[F[_], A](
+        fromPackage: PackageName,
+        item: ImportedName[Unit]
+      )(recurse: ResolvedPackage => F[Typed[A]])(implicit F: Applicative[F]): F[Either[PackageError, (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])]] =
+        Package.unfix(resolved) match {
+          case Right(p) =>
+            /*
+              * Here we have a source we need to fully resolve
+              */
+            recurse(p)
+              .map { packF =>
+                val packInterface = Package.interfaceOf(packF)
+                packF.getImport(fromPackage, item)
+                  .map((packInterface, _))
+              }
+          case Left(iface) =>
+            /*
+              * this import is already an interface, we can stop here
+              */
+            // this is very fast and does not need to be done in a thread
+            F.pure(iface.getImportIface(fromPackage, item)
+                .map((iface, _)))
+        }
   }
 
   def orderByName[A, B, C, D]: Order[Package[A, B, C, D]] =
