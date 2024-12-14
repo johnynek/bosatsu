@@ -123,15 +123,18 @@ object PackageMap {
   def treeShake[A](p: Typed[A], roots: Set[(PackageName, Identifier)]): Typed[A] = {
     type Ident = (PackageName, Identifier)
 
-    def dependency(a: Ident): Iterable[Ident] =
-      p.toMap.get(a._1) match {
-        case Some(pack) =>
-          pack.lets.flatMap {
-            case (n, _, te) if a._2 === n => te.globals
-            case _ => Nil
+    def dependency(a: Ident): Iterable[Ident] = {
+      val (pn, ident) = a
+      ident match {
+        case b: Identifier.Bindable =>
+          p.toMap.get(pn) match {
+            case Some(pack) =>
+              pack.program._1.getLet(b).toList.flatMap(_._2.globals)
+            case None => Nil
           }
-        case None => Nil
+        case _ => Nil
       }
+    }
 
     val keep = Dag.transitiveSet(roots.toList.sorted)(dependency)
 
@@ -402,12 +405,7 @@ object PackageMap {
         case (Package(nm, imports, exports, (stmt, imps)), recurse) =>
           val nameToRes = imports.iterator.map { i =>
             val resolved: Package.Resolved = i.pack
-            val name = FixType.unfix(resolved) match {
-              case Left(iface) => iface.name
-              case Right(pack) => pack.name
-            }
-
-            (name, resolved)
+            (resolved.name, resolved)
           }.toMap
 
           def resolvedImports: ImportMap[Package.Resolved, Unit] =
@@ -454,25 +452,10 @@ object PackageMap {
               }
 
           inferBody.flatMap {
-            case (ilist, imap, (fte, program @ Program(types, lets, _, _))) =>
-              val ior = ExportedName
-                .buildExports(nm, exports, types, lets) match {
-                case Validated.Valid(exports) =>
-                  // We have a result, which we can continue to check
-                  val pack = Package(nm, ilist, exports, (program, imap))
-                  // We have to check the "customs" before any normalization
-                  // or optimization
-                  PackageCustoms(pack) match {
-                    case Validated.Valid(p1) => Ior.right((fte, p1))
-                    case Validated.Invalid(errs) =>
-                      val res = (fte, pack)
-                      Ior.both(errs.toNonEmptyList, res)
-                  }
-                case Validated.Invalid(badPackages) =>
-                  Ior.left(badPackages.map { n =>
-                    PackageError.UnknownExport(n, nm, lets): PackageError
-                  })
-              }
+            case (ilist, imap, (fte, program)) =>
+              val ior =
+                PackageCustoms.assemble(nm, ilist, imap, exports, program)
+                  .map((fte, _))
               IorT.fromIor(ior)
           }.value
       }

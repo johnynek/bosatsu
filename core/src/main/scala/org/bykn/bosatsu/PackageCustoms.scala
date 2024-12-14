@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{
   Chain,
+  Ior,
   NonEmptyList,
   NonEmptySet,
   NonEmptyChain,
@@ -28,6 +29,37 @@ object PackageCustoms {
     checkValuesHaveExportedTypes(pack.name, pack.exports) *>
       noUselessBinds(pack) *>
       allImportsAreUsed(pack)
+
+  /**
+   * Build the exports and check the customs, and then return the Typed package
+   */
+  def assemble(
+    nm: PackageName,
+    ilist: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
+    imap: ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]],
+    exports: List[ExportedName[Unit]],
+    program: Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
+  ): Ior[NonEmptyList[PackageError], Package.Typed[Declaration]] = {
+
+    val Program(types, lets, _, _) = program
+    ExportedName
+      .buildExports(nm, exports, types, lets) match {
+      case Validated.Valid(exports) =>
+        // We have a result, which we can continue to check
+        val pack = Package(nm, ilist, exports, (program, imap))
+        // We have to check the "customs" before any normalization
+        // or optimization
+        PackageCustoms(pack) match {
+          case Validated.Valid(p1) => Ior.right(p1)
+          case Validated.Invalid(errs) =>
+            Ior.both(errs.toNonEmptyList, pack)
+        }
+      case Validated.Invalid(unknowns) =>
+        Ior.left(unknowns.map { n =>
+          PackageError.UnknownExport(n, nm, lets): PackageError
+        })
+    }
+  }
 
   private def removeUnused[A](
       vals: Option[NonEmptySet[(PackageName, Identifier)]],
