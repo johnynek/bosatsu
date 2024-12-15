@@ -3,7 +3,9 @@ package org.bykn.bosatsu
 import cats.Order
 import cats.implicits._
 
-case class TypeName(ident: Identifier.Constructor)
+case class TypeName(ident: Identifier.Constructor) {
+  def asString: String = ident.asString
+}
 
 object TypeName {
   implicit val typeNameOrder: Order[TypeName] =
