@@ -1450,7 +1450,7 @@ object ProtoConverter {
   def read[A <: GeneratedMessage](
       path: Path
   )(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
-    IO {
+    IO.blocking {
       val f = path.toFile
       val ios = new BufferedInputStream(new FileInputStream(f))
       try gmc.parseFrom(ios)
@@ -1460,7 +1460,7 @@ object ProtoConverter {
     }
 
   def write(a: GeneratedMessage, path: Path): IO[Unit] =
-    IO {
+    IO.blocking {
       val f = path.toFile
       val os = new BufferedOutputStream(new FileOutputStream(f))
       try a.writeTo(os)
