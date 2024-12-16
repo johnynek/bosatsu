@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 package jsapi
 
 import org.typelevel.paiges.Doc
-
+import org.bykn.bosatsu.tool.Output
 import scala.scalajs.js
 
 import js.|
@@ -40,7 +40,7 @@ object JsApi {
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
-      case Right(module.Output.EvaluationResult(_, tpe, resDoc)) =>
+      case Right(Output.EvaluationResult(_, tpe, resDoc)) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
         val doc =
           resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
@@ -93,7 +93,7 @@ object JsApi {
     ) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
-      case Right(module.Output.JsonOutput(json, _)) =>
+      case Right(Output.JsonOutput(json, _)) =>
         new EvalSuccess(jsonToAny(json))
       case Right(other) =>
         new Error(s"internal error. got unexpected result: $other")

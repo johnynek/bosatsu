@@ -1,12 +1,13 @@
-package org.bykn.bosatsu
+package org.bykn.bosatsu.tool
 
 import cats.{Monoid, Monad}
 
-import cats.implicits._
+import cats.syntax.all._
 
 sealed abstract class PathGen[IO[_], Path] {
   def read(implicit m: Monad[IO]): IO[List[Path]]
 }
+
 object PathGen {
   final case class Direct[IO[_], Path](path: Path) extends PathGen[IO, Path] {
     def read(implicit m: Monad[IO]): IO[List[Path]] =

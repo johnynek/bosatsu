@@ -1,12 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
-import cats.{Eval, Traverse}
+import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
+import org.bykn.bosatsu.tool.{FileKind, GraphOutput, Output}
 
 import codegen.Transpiler
 
@@ -31,67 +32,11 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   // Below here are concrete and should not use override
   //////////////////////////////
 
-  final def run(args: List[String]): Either[Help, IO[Output]] =
+  final def run(args: List[String]): Either[Help, IO[Output[Path]]] =
     MainCommand.command
       .parse(args.toList)
       .map(_.run.widen)
 
-  sealed abstract class FileKind(val name: String)
-  object FileKind {
-    case object Source extends FileKind("source")
-    case object Iface extends FileKind("interface")
-    case object Pack extends FileKind("package")
-  }
-
-  sealed abstract class GraphOutput
-  object GraphOutput {
-    case object Dot extends GraphOutput
-    case object Json extends GraphOutput
-
-    val jsonOrDot: Opts[GraphOutput] =
-      Opts
-        .option[String]("graph_format", "format of graph, either json or dot")
-        .mapValidated {
-          case "json" => Validated.valid(Json)
-          case "dot"  => Validated.valid(Dot)
-          case other =>
-            Validated.invalidNel(s"\"$other\" invalid, expected json or dot")
-        }
-        .withDefault(Json)
-  }
-
-  sealed abstract class Output
-  object Output {
-    case class TestOutput(
-        tests: List[(PackageName, Option[Eval[Test]])],
-        colorize: Colorize
-    ) extends Output
-    case class EvaluationResult(
-        value: Eval[Value],
-        tpe: rankn.Type,
-        doc: Eval[Doc]
-    ) extends Output
-    case class JsonOutput(json: Json, output: Option[Path]) extends Output
-    case class CompileOut(
-        packList: List[Package.Typed[Any]],
-        ifout: Option[Path],
-        output: Option[Path]
-    ) extends Output
-    case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path)
-        extends Output
-
-    case class ShowOutput(
-        packages: List[Package.Typed[Any]],
-        ifaces: List[Package.Interface],
-        output: Option[Path]
-    ) extends Output
-
-    case class DepsOutput(
-        depinfo: List[(Path, PackageName, FileKind, List[PackageName])],
-        output: Option[Path],
-        style: GraphOutput
-    ) extends Output
-  }
 
   sealed abstract class MainException extends Exception {
     def command: MainCommand
@@ -158,7 +103,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     }
 
   sealed abstract class MainCommand(val name: String) {
-    type Result <: Output
+    type Result <: Output[Path]
     def run: IO[Result]
   }
 
@@ -584,8 +529,8 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case class Traverse(in: JsonInput) extends JsonMode
     }
 
-    type PathGen = org.bykn.bosatsu.PathGen[IO, Path]
-    val PathGen = org.bykn.bosatsu.PathGen
+    type PathGen = org.bykn.bosatsu.tool.PathGen[IO, Path]
+    val PathGen = org.bykn.bosatsu.tool.PathGen
 
     sealed abstract class Inputs
     object Inputs {
@@ -820,7 +765,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         outDir: Path
     ) extends MainCommand("transpile") {
 
-      type Result = Output.TranspileOut
+      type Result = Output.TranspileOut[Path]
 
       def run =
         withEC { implicit ec =>
@@ -901,7 +846,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         errColor: Colorize
     ) extends MainCommand("json") {
 
-      type Result = Output.JsonOutput
+      type Result = Output.JsonOutput[Path]
 
       private def showError[A](prefix: String, str: String, idx: Int): IO[A] = {
         val errMsg0 = str.substring(idx + 1)
@@ -961,7 +906,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 io: IO[String],
                 extract: Json => IO[G[Json]],
                 inject: G[Json] => Json
-            ): IO[Output.JsonOutput] =
+            ): IO[Output.JsonOutput[Path]] =
               v2j.valueFnToJsonFn(res.tpe) match {
                 case Left(unsup) => unsupported(unsup)
                 case Right((arity, fnGen)) =>
@@ -1048,7 +993,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         errColor: Colorize
     ) extends MainCommand("check") {
 
-      type Result = Output.CompileOut
+      type Result = Output.CompileOut[Path]
 
       def run =
         withEC { implicit ec =>
@@ -1112,7 +1057,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         errColor: Colorize
     ) extends MainCommand("show") {
 
-      type Result = Output.ShowOutput
+      type Result = Output.ShowOutput[Path]
 
       def run = withEC { implicit ec =>
         for {
@@ -1129,7 +1074,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         style: GraphOutput
     ) extends MainCommand("deps") {
 
-      type Result = Output.DepsOutput
+      type Result = Output.DepsOutput[Path]
 
       def srcDeps(
           paths: List[Path]

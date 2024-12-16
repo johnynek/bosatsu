@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Ior, Validated, NonEmptyList}
 import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
+import org.bykn.bosatsu.tool.Output
 import org.scalatest.{Assertion, Assertions}
 
 import Assertions.{succeed, fail}
@@ -168,7 +169,7 @@ object TestUtils {
     module.runWith(files)(
       "eval" :: "--main" :: mainPackS :: makeInputArgs(files)
     ) match {
-      case Right(module.Output.EvaluationResult(got, _, gotDoc)) =>
+      case Right(Output.EvaluationResult(got, _, gotDoc)) =>
         val gv = got.value
         assert(
           gv == expected,
@@ -196,7 +197,7 @@ object TestUtils {
         files
       )
     ) match {
-      case Right(module.Output.JsonOutput(got, _)) =>
+      case Right(Output.JsonOutput(got, _)) =>
         assert(got == expected, s"$got != $expected")
       case Right(other) =>
         fail(s"got an unexpected success: $other")
@@ -215,7 +216,7 @@ object TestUtils {
     module.runWith(files)(
       "test" :: "--test_package" :: mainPackS :: makeInputArgs(files)
     ) match {
-      case Right(module.Output.TestOutput(results, _)) =>
+      case Right(Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
             assert(

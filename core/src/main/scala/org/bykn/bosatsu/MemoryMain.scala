@@ -4,6 +4,7 @@ import cats.MonadError
 import cats.data.Kleisli
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
+import org.bykn.bosatsu.tool.Output
 
 import cats.syntax.all._
 
@@ -30,10 +31,10 @@ class MemoryMain[G[_], K: Ordering](
       files: Iterable[(K, String)],
       packages: Iterable[(K, List[Package.Typed[Unit]])] = Nil,
       interfaces: Iterable[(K, List[Package.Interface])] = Nil
-  )(cmd: List[String]): G[Output] =
+  )(cmd: List[String]): G[Output[K]] =
     run(cmd) match {
       case Left(msg) =>
-        moduleIOMonad.raiseError[Output](
+        moduleIOMonad.raiseError[Output[K]](
           new Exception(s"got the help message for: $cmd: $msg")
         )
         .run(SortedMap.empty[K, MemoryMain.FileContent])

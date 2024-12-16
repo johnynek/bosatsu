@@ -2,6 +2,7 @@ package org.bykn.bosatsu.jsui
 
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.{MemoryMain, Package, Test, rankn}
+import org.bykn.bosatsu.tool.Output
 import org.typelevel.paiges.{Doc, Document}
 import org.scalajs.dom.window.localStorage
 
@@ -10,7 +11,7 @@ import Action.Cmd
 object Store {
   val memoryMain = MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
 
-  type HandlerFn = memoryMain.Output => String
+  type HandlerFn = Output[String] => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =
     cmd match {
       case Cmd.Eval =>
@@ -27,7 +28,7 @@ object Store {
         )
 
         val handler: HandlerFn = {
-          case memoryMain.Output.EvaluationResult(_, tpe, resDoc) =>
+          case Output.EvaluationResult(_, tpe, resDoc) =>
             val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
             val doc =
               resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
@@ -49,7 +50,7 @@ object Store {
           "html"
         )
         val handler: HandlerFn = {
-          case memoryMain.Output.TestOutput(resMap, color) =>
+          case Output.TestOutput(resMap, color) =>
             val evaluatedTests = resMap.map { case (p, opt) =>
               (p, opt.map(_.value))
             }
@@ -70,7 +71,7 @@ object Store {
           "html"
         )
         val handler: HandlerFn = {
-          case memoryMain.Output.ShowOutput(packs, ifaces, _) =>
+          case Output.ShowOutput(packs, ifaces, _) =>
             val pdocs = packs.map { pack =>
               Document[Package.Typed[Any]].document(pack)
             }

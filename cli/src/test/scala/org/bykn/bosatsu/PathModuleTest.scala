@@ -1,14 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.effect.IO
 import cats.data.NonEmptyList
+import cats.effect.IO
 import java.nio.file.{Path, Paths}
+import org.bykn.bosatsu.tool.Output
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
-import org.scalatest.funsuite.AnyFunSuite
 
 // allow us to unsafeRunSync
 import cats.effect.unsafe.implicits.global
@@ -102,7 +102,7 @@ class PathModuleTest extends AnyFunSuite {
     }
   }
 
-  def run(args: String*): PathModule.Output =
+  def run(args: String*): Output[Path] =
     PathModule.run(args.toList) match {
       case Left(h) => fail(s"got help: $h on command: ${args.toList}")
       case Right(io) =>
@@ -126,7 +126,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case PathModule.Output.TestOutput(results, _) =>
+      case Output.TestOutput(results, _) =>
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Queue" => t.value
         }
@@ -142,7 +142,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case PathModule.Output.TestOutput(results, _) =>
+      case Output.TestOutput(results, _) =>
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Bar" => t.value
         }
@@ -160,7 +160,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case PathModule.Output.TranspileOut(_, _) =>
+      case Output.TranspileOut(_, _) =>
         assert(true)
       case other => fail(s"expected transpile output: $other")
     }
@@ -174,7 +174,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case PathModule.Output.JsonOutput(j @ Json.JObject(_), _) =>
+      case Output.JsonOutput(j @ Json.JObject(_), _) =>
         assert(
           j.toMap == Map(
             "value" -> Json.JBool(true),
@@ -193,7 +193,7 @@ class PathModuleTest extends AnyFunSuite {
         .toList :+ "[2, 4]"
 
     run(cmd: _*) match {
-      case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
+      case Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -205,7 +205,7 @@ class PathModuleTest extends AnyFunSuite {
         .toList :+ "[[2, 4], [3, 5]]"
 
     run(cmd: _*) match {
-      case PathModule.Output.JsonOutput(
+      case Output.JsonOutput(
             Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))),
             _
           ) =>
@@ -271,7 +271,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case PathModule.Output.TestOutput(res, _) =>
+      case Output.TestOutput(res, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
         assert(noTests == Nil)
         val failures = res.collect {
@@ -288,7 +288,7 @@ class PathModuleTest extends AnyFunSuite {
         .split("\\s+")
         .toSeq: _*
     ) match {
-      case PathModule.Output.JsonOutput(Json.JString("this is Foo"), _) =>
+      case Output.JsonOutput(Json.JString("this is Foo"), _) =>
         succeed
       case other => fail(s"unexpeced: $other")
     }
