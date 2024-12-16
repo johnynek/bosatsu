@@ -1,12 +1,11 @@
 package org.bykn.bosatsu
 
-import cats.effect.{IO, Resource}
-import org.typelevel.paiges.{Doc, Document}
-
-import java.nio.file.{Path => JPath}
-
 import cats.data.NonEmptyList
 import cats.effect.ExitCode
+import cats.effect.{IO, Resource}
+import java.nio.file.{Path => JPath}
+import org.typelevel.paiges.{Doc, Document}
+import org.bykn.bosatsu.tool.{FileKind, GraphOutput, Output}
 
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
@@ -24,7 +23,7 @@ object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
   def withEC[A](fn: Par.EC => IO[A]): IO[A] =
     parResource.use(fn)
 
-  def report(io: IO[Output]): IO[ExitCode] =
+  def report(io: IO[Output[JPath]]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)
       case Left(err)  => reportException(err).as(ExitCode.Error)
@@ -54,7 +53,7 @@ object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
   def writePackages[A](packages: List[Package.Typed[A]], path: JPath): IO[Unit] =
     ProtoConverter.writePackages(packages, path)
 
-  def reportOutput(out: Output): IO[ExitCode] =
+  def reportOutput(out: Output[JPath]): IO[ExitCode] =
     out match {
       case Output.TestOutput(resMap, color) =>
         val hasMissing = resMap.exists(_._2.isEmpty)
