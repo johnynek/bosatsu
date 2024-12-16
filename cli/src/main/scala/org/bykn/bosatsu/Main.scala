@@ -8,7 +8,7 @@ object Main extends IOApp {
       case Right(getOutput) =>
         PathModule.report(getOutput)
       case Left(help) =>
-        IO {
+        IO.blocking {
           System.err.println(help.toString)
           ExitCode.Error
         }

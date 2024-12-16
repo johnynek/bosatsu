@@ -55,7 +55,7 @@ class TestProtoType extends AnyFunSuite with ParTest {
   }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
-    val tempRes = Resource.make(IO {
+    val tempRes = Resource.make(IO.blocking {
       val f = File.createTempFile("proto_test", ".proto")
       f.toPath
     }) { path =>
