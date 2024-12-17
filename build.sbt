@@ -142,12 +142,10 @@ lazy val cli = (project in file("cli"))
         catsEffect.value,
         jawnParser.value % Test,
         jawnAst.value % Test,
-        jython.value % Test
+        jython.value % Test,
+        munit.value % Test,
+        munitScalaCheck.value % Test,
       ),
-    Compile / PB.targets := Seq(
-      scalapb.gen() -> (Compile / sourceManaged).value
-    ),
-    PB.protocVersion := "3.19.1",
     nativeImageOptions ++= {
       val common =
         List("--no-fallback", "--verbose", "--initialize-at-build-time")
@@ -157,7 +155,24 @@ lazy val cli = (project in file("cli"))
     },
     nativeImageVersion := "22.3.0"
   )
-  .dependsOn(coreJVM % "compile->compile;test->test")
+  .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
+
+lazy val proto = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("proto"))
+  .settings(
+    Compile / PB.targets := Seq(
+      scalapb.gen() -> (Compile / sourceManaged).value
+    ),
+    // The trick is in this line:
+    Compile / PB.protoSources := Seq((ThisBuild / baseDirectory).value / "proto/src/main/protobuf"),
+    libraryDependencies ++= Seq(
+      "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
+    ),
+    PB.protocVersion := "3.19.1",
+    commonSettings,
+  )
+
+lazy val protoJs  = proto.js
+lazy val protoJVM = proto.jvm
 
 lazy val core =
   (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
@@ -177,6 +192,8 @@ lazy val core =
         scalaTestPlusScalacheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
+        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
+
         // needed for acyclic which we run periodically, not all the time
         "com.lihaoyi" % "acyclic_2.13.12" % "0.3.15" % "provided"
       )
@@ -184,8 +201,8 @@ lazy val core =
     ,
     autoCompilerPlugins := true,
     addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.15"),
-    scalacOptions += "-P:acyclic:force"
-  ).dependsOn(base)
+    scalacOptions += "-P:acyclic:force",
+  ).dependsOn(base, proto)
     .jsSettings(commonJsSettings)
 
 lazy val coreJVM = core.jvm

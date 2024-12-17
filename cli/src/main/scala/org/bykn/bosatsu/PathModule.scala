@@ -48,10 +48,10 @@ object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
       interfaces: List[Package.Interface],
       path: JPath
   ): IO[Unit] =
-    ProtoConverter.writeInterfaces(interfaces, path)
+    IOPlatformIO.writeInterfaces(interfaces, path)
 
   def writePackages[A](packages: List[Package.Typed[A]], path: JPath): IO[Unit] =
-    ProtoConverter.writePackages(packages, path)
+    IOPlatformIO.writePackages(packages, path)
 
   def reportOutput(out: Output[JPath]): IO[ExitCode] =
     out match {

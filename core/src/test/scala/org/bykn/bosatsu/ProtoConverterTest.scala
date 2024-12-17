@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
-import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
@@ -12,17 +11,12 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
-import java.io.File
-import java.nio.file.Path
-
 import Identifier.Constructor
 import org.scalatest.funsuite.AnyFunSuite
 
-class TestProtoType extends AnyFunSuite with ParTest {
+class ProtoConverterTest extends AnyFunSuite with ParTest {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 100)
-  // PropertyCheckConfiguration(minSuccessful = 5)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 100 else 10)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
@@ -52,22 +46,6 @@ class TestProtoType extends AnyFunSuite with ParTest {
       s"${a.toString.drop(diffIdx - context / 2).take(context)} != ${orig.toString.drop(diffIdx - context / 2).take(context)}"
     )
     // assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
-  }
-
-  def testWithTempFile(fn: Path => IO[Unit]): Unit = {
-    val tempRes = Resource.make(IO.blocking {
-      val f = File.createTempFile("proto_test", ".proto")
-      f.toPath
-    }) { path =>
-      IO.blocking {
-        val _ = path.toFile.delete
-        ()
-      }
-    }
-
-    // allow us to unsafeRunSync
-    import cats.effect.unsafe.implicits.global
-    tempRes.use(fn).unsafeRunSync()
   }
 
   def tabLaw[A: Eq, B](
@@ -174,19 +152,6 @@ class TestProtoType extends AnyFunSuite with ParTest {
     }
   }
 
-  test("we can roundtrip interfaces through file") {
-    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) {
-      ifaces =>
-        testWithTempFile { path =>
-          for {
-            _ <- ProtoConverter.writeInterfaces(ifaces, path)
-            ifaces1 <- ProtoConverter.readInterfaces(path :: Nil)
-            _ = assert(sortedEq.eqv(ifaces, ifaces1))
-          } yield ()
-        }
-    }
-  }
-
   test("test some hand written packages") {
     def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
       p.traverse(ProtoConverter.packageToProto)
@@ -231,17 +196,4 @@ bar = 1
     }
   }
 
-  test("we can roundtrip packages through proto on disk") {
-    forAll(Generators.genPackage(Gen.const(()), 3)) { packMap =>
-      val packList = packMap.toList.sortBy(_._1).map(_._2)
-      testWithTempFile { path =>
-        for {
-          _ <- ProtoConverter.writePackages(packList, path)
-          packList1 <- ProtoConverter.readPackages(path :: Nil)
-          psort = packList1.sortBy(_.name)
-          _ = assert(psort == packList)
-        } yield ()
-      }
-    }
-  }
 }

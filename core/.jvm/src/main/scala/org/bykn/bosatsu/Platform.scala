@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 object Platform {
   @inline
-  final val isScalaJs: Boolean = false
+  final val isScalaJs = false
   @inline
-  final val isScalaJvm: Boolean = true
+  final val isScalaJvm = true
 }
