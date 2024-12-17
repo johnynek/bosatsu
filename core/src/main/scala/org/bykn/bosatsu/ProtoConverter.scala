@@ -3,20 +3,12 @@ package org.bykn.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.{Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT, StateT}
-import cats.effect.IO
+//import cats.effect.IO
 import org.bykn.bosatsu.graph.Memoize
-import java.nio.file.Path
-import java.io.{
-  FileInputStream,
-  FileOutputStream,
-  BufferedInputStream,
-  BufferedOutputStream
-}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
-import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import Identifier.{Bindable, Constructor}
 
@@ -1446,65 +1438,6 @@ object ProtoConverter {
   def interfacesFromProto(ps: proto.Interfaces): Try[List[Package.Interface]] =
     // packagesFromProto can handle just interfaces as well
     packagesFromProto(ps.interfaces, Nil).map(_._1)
-
-  def read[A <: GeneratedMessage](
-      path: Path
-  )(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
-    IO.blocking {
-      val f = path.toFile
-      val ios = new BufferedInputStream(new FileInputStream(f))
-      try gmc.parseFrom(ios)
-      finally {
-        ios.close
-      }
-    }
-
-  def write(a: GeneratedMessage, path: Path): IO[Unit] =
-    IO.blocking {
-      val f = path.toFile
-      val os = new BufferedOutputStream(new FileOutputStream(f))
-      try a.writeTo(os)
-      finally {
-        os.close
-      }
-    }
-
-  def readInterfacesAndPackages(
-      ifacePaths: List[Path],
-      packagePaths: List[Path]
-  ): IO[(List[Package.Interface], List[Package.Typed[Unit]])] =
-    (
-      ifacePaths.traverse(read[proto.Interfaces](_)),
-      packagePaths.traverse(read[proto.Packages](_))
-    ).tupled
-      .flatMap { case (ifs, packs) =>
-        IO.fromTry(
-          packagesFromProto(
-            ifs.flatMap(_.interfaces),
-            packs.flatMap(_.packages)
-          )
-        )
-      }
-
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-    readInterfacesAndPackages(paths, Nil).map(_._1)
-
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
-    readInterfacesAndPackages(Nil, paths).map(_._2)
-
-  def writeInterfaces(
-      interfaces: List[Package.Interface],
-      path: Path
-  ): IO[Unit] =
-    IO.fromTry(interfacesToProto(interfaces))
-      .flatMap(write(_, path))
-
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
-    IO.fromTry {
-      packages
-        .traverse(packageToProto(_))
-        .map(proto.Packages(_))
-    }.flatMap(write(_, path))
 
   def importedNameToProto(
       allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
