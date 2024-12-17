@@ -2,10 +2,12 @@ package org.bykn.bosatsu
 
 import cats.MonadError
 import com.monovore.decline.Argument
+import org.typelevel.paiges.Doc
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
   implicit def pathArg: Argument[Path]
+  implicit def pathOrdering: Ordering[Path]
 
   def readPath(p: Path): F[String]
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
@@ -28,4 +30,26 @@ trait PlatformIO[F[_], Path] {
   def unfoldDir: Option[Path => F[Option[F[List[Path]]]]]
 
   def hasExtension(str: String): Path => Boolean
+
+  def writeDoc(p: Path, d: Doc): F[Unit]
+  def writeStdout(doc: Doc): F[Unit]
+
+  final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
+    out match {
+      case None => writeStdout(doc)
+      case Some(p) => writeDoc(p, doc)
+    }
+
+
+  def resolve(base: Path, p: List[String]): Path
+
+  // this is println actually
+  def print(str: String): F[Unit]
+
+  def writeInterfaces(
+      interfaces: List[Package.Interface],
+      path: Path
+  ): F[Unit]
+
+  def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
 }

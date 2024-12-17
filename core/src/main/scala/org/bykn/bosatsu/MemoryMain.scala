@@ -5,10 +5,11 @@ import cats.data.Kleisli
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 import org.bykn.bosatsu.tool.Output
+import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
 
-class MemoryMain[G[_], K: Ordering](
+class MemoryMain[G[_], K](
   platform: PlatformIO[Kleisli[G, MemoryMain.State[K], *], K]) extends
   MainModule[Kleisli[G, MemoryMain.State[K], *], K](platform) {
 
@@ -70,6 +71,7 @@ object MemoryMain {
 
   def memoryPlatformIO[G[_], K](split: K => List[String])(implicit
     pathArg0: Argument[K],
+    pathOrd: Ordering[K],
     innerMonad: MonadError[G, Throwable]): PlatformIO[Kleisli[G, State[K], *], K] = {
 
       val catsDefaultME = implicitly[MonadError[Kleisli[G, State[K], *], Throwable]]
@@ -78,6 +80,7 @@ object MemoryMain {
         type F[A] = Kleisli[G, State[K], A]
         type Path = K
         def moduleIOMonad: MonadError[F, Throwable] = catsDefaultME
+        def pathOrdering = pathOrd
         def pathArg: Argument[K] = pathArg0
 
         def readPath(p: Path): F[String] =
@@ -149,6 +152,24 @@ object MemoryMain {
 
           roots.collectFirstSome(getP)
         }
+
+        def writeDoc(p: K, d: Doc): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"writeDoc($p, $d) is unimplemented on a read only platform"))
+
+        def writeInterfaces(ifaces: List[Package.Interface], path: K): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"writeInterfaces($ifaces, $path) is unimplemented on a read only platform"))
+
+        def writePackages[A](packs: List[Package.Typed[A]], path: K): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"writePackages($packs, $path) is unimplemented on a read only platform"))
+
+        def writeStdout(doc: Doc): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"writeStdout($doc) is unimplemented on a read only platform"))
+
+        def print(str: String): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"print($str) is unimplemented on a read only platform"))
+
+        // TODO: this is broken
+        def resolve(base: K, parts: List[String]): K = base
       }
     }
 }
