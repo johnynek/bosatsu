@@ -9,7 +9,7 @@ import org.scalajs.dom.window.localStorage
 import Action.Cmd
 
 object Store {
-  val memoryMain = MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
+  private val splitFn: String => List[String] = { s => s.split("/", -1).toList }
 
   type HandlerFn = Output[String] => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =
@@ -92,21 +92,28 @@ object Store {
     println(s"starting $cmd: $start")
     val (args, handler) = cmdHandler(cmd)
 
-    val res = memoryMain.runWith(
-      files = Map("root/WebDemo" -> str)
-    )(args) match {
-      case Right(good) => handler(good)
-      case Left(err) =>
-        memoryMain.mainExceptionToString(err) match {
-          case Some(e) => e
-          case None    => s"unknown error: $err"
-        }
+    val state = MemoryMain.stateFrom(Map("root/WebDemo" -> str))
+    val memoryMain = MemoryMain(state)(splitFn)
+    val res = memoryMain.run(args) match {
+      case Right(io) =>
+        io.attempt.map {
+          case Right(good) => handler(good)
+          case Left(err) =>
+            memoryMain.mainExceptionToString(err) match {
+              case Some(e) => e
+              case None    => s"unknown error: $err"
+            }
+          }
+      case Left(help) =>
+        s"should never get help: $help"
+        Right(good) => handler(good)
     }
 
     val end = System.currentTimeMillis()
     println(s"finished $cmd in ${end - start}ms")
     res
   }
+  .flatten
 
   def stateSetter(st: State): IO[Unit] =
     IO.blocking {

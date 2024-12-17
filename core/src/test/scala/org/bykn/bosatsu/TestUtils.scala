@@ -11,6 +11,8 @@ import IorMethods.IorExtension
 
 import cats.syntax.all._
 
+import cats.effect.unsafe.implicits.global
+
 object TestUtils {
 
   def parsedTypeEnvOf(
@@ -158,17 +160,25 @@ object TestUtils {
       case (idx, _) => "--input" :: idx.toString :: Nil
     }
 
-  private val module = MemoryMain[Either[Throwable, *], Int]({ idx =>
+  private val splitFn: Int => List[String] = { idx =>
     if (idx == Int.MaxValue) Nil
     else List(s"Package$idx")
-  })
+  }
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
     val files = packages.zipWithIndex.map(_.swap)
 
-    module.runWith(files)(
+    val state = MemoryMain.stateFrom(files)
+    val module = MemoryMain(state)(splitFn)
+
+    val e = module.run(
       "eval" :: "--main" :: mainPackS :: makeInputArgs(files)
     ) match {
+      case Right(io) => io
+      case Left(help) => sys.error(s"got help: $help")
+    }
+
+    e.attempt.unsafeRunSync() match {
       case Right(Output.EvaluationResult(got, _, gotDoc)) =>
         val gv = got.value
         assert(
@@ -192,11 +202,11 @@ object TestUtils {
   ) = {
     val files = packages.zipWithIndex.map(_.swap)
 
-    module.runWith(files)(
+    MemoryMain.runWith(files)(splitFn)(
       "json" :: "write" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(
         files
       )
-    ) match {
+    ).attempt.unsafeRunSync() match {
       case Right(Output.JsonOutput(got, _)) =>
         assert(got == expected, s"$got != $expected")
       case Right(other) =>
@@ -213,9 +223,17 @@ object TestUtils {
   ) = {
     val files = packages.zipWithIndex.map(_.swap)
 
-    module.runWith(files)(
+    val state = MemoryMain.stateFrom(files)
+    val module = MemoryMain(state)(splitFn)
+
+    val e = module.run(
       "test" :: "--test_package" :: mainPackS :: makeInputArgs(files)
     ) match {
+      case Right(io) => io
+      case Left(help) => sys.error(s"got help: $help")
+    }
+    
+    e.attempt.unsafeRunSync() match {
       case Right(Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>

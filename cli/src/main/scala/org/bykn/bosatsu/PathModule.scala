@@ -16,13 +16,6 @@ object PathModule extends MainModule[IO, JPath](IOPlatformIO) { self =>
   def print(str: String): IO[Unit] =
     IO.println(str)
 
-  val parResource: Resource[IO, Par.EC] =
-    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
-      .map(Par.ecFromService(_))
-
-  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
-    parResource.use(fn)
-
   def report(io: IO[Output[JPath]]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)

@@ -169,6 +169,7 @@ lazy val core =
     libraryDependencies ++=
       Seq(
         cats.value,
+        catsEffect.value,
         catsParse.value,
         decline.value,
         paiges.value,

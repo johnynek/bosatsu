@@ -1,7 +1,8 @@
 package org.bykn.bosatsu
 
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
-import cats.Traverse
+import cats.{Monad, Traverse}
+import cats.effect.{IO, Resource}
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
@@ -21,16 +22,18 @@ import cats.implicits._
   * is to allow it to be testable and usable in scalajs where we don't have
   * file-IO
   */
-abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
+class MainModule[Path](val platformIO: PlatformIO[Path]) {
   type F[A] = IO[A]
 
   import platformIO._
 
-  def withEC[A](fn: Par.EC => IO[A]): IO[A]
+  private val parResource: Resource[IO, Par.EC] =
+    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+      .map(Par.ecFromService(_))
 
-  //////////////////////////////
-  // Below here are concrete and should not use override
-  //////////////////////////////
+  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+    parResource.use(fn)
+
 
   final def run(args: List[String]): Either[Help, IO[Output[Path]]] =
     MainCommand.command
@@ -182,7 +185,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       val maybeReadPack: IO[Option[(Path, String)]] =
         if (done(search)) {
-          moduleIOMonad.pure(Option.empty[(Path, String)])
+          IO.pure(Option.empty[(Path, String)])
         } else {
           packRes
             .pathFor(search)
@@ -212,7 +215,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       optParsed.flatMap {
         flatTrav(_) {
           case None =>
-            moduleIOMonad.pure(
+            IO.pure(
               Validated.valid(
                 (Chain.empty[((Path, LocationMap), Package.Parsed)], newDone)
               ): ParseTransResult
@@ -321,11 +324,11 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             }
 
           if (useInternalPredef) {
-            moduleIOMonad.pure(
+            IO.pure(
               (PackageMap.fromIterable(PackageMap.predefCompiled :: Nil), Nil)
             )
           } else {
-            moduleIOMonad.pure((PackageMap.empty, Nil))
+            IO.pure((PackageMap.empty, Nil))
           }
         case Some(nel) => typeCheck(cmd, nel, ifs, errColor, packRes)
       }
@@ -341,7 +344,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
       parseAllInputs(inputs.toList, ifs.map(_.name).toSet, packRes)
         .flatMap { ins =>
-          moduleIOMonad.fromTry {
+          IO.fromTry {
             // Now we have completed all IO, here we do all the checks we need for correctness
             toTry(cmd, ins, errColor)
               .flatMap { packs =>
@@ -417,7 +420,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         def getMain(
             ps: List[(Path, PackageName)]
         ): IO[(PackageName, Option[Bindable])] =
-          moduleIOMonad.pure((mainPackage, value))
+          IO.pure((mainPackage, value))
       }
       case class FromFile(mainFile: Path) extends MainIdentifier {
         def path: Option[Path] = Some(mainFile)
@@ -425,9 +428,9 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             ps: List[(Path, PackageName)]
         ): IO[(PackageName, Option[Bindable])] =
           ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
-            case Some(p) => moduleIOMonad.pure((p, None))
+            case Some(p) => IO.pure((p, None))
             case None =>
-              moduleIOMonad.raiseError(
+              IO.raiseError(
                 new Exception(
                   s"could not find file $mainFile in parsed sources"
                 )
@@ -471,7 +474,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     object PackageResolver {
       case object ExplicitOnly extends PackageResolver {
         def pathFor(name: PackageName): IO[Option[Path]] =
-          moduleIOMonad.pure(Option.empty[Path])
+          IO.pure(Option.empty[Path])
         def packageNameFor(path: Path): Option[PackageName] = None
       }
 
@@ -481,12 +484,12 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ) extends PackageResolver {
         def pathFor(name: PackageName): IO[Option[Path]] =
           optResolvePath match {
-            case None => moduleIOMonad.pure(Option.empty[Path])
+            case None => IO.pure(Option.empty[Path])
             case Some(resolvePath) =>
               def step(p: List[Path]): IO[Either[List[Path], Option[Path]]] =
                 p match {
                   case Nil =>
-                    moduleIOMonad.pure(Right[List[Path], Option[Path]](None))
+                    IO.pure(Right[List[Path], Option[Path]](None))
                   case phead :: ptail =>
                     resolvePath(phead, name).map {
                       case None => Left[List[Path], Option[Path]](ptail)
@@ -495,7 +498,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                     }
                 }
 
-              moduleIOMonad.tailRecM(roots.toList)(step)
+              Monad[IO].tailRecM(roots.toList)(step)
           }
 
         def packageNameFor(path: Path): Option[PackageName] =
@@ -515,7 +518,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     object JsonInput {
       case class FromString(asString: String) extends JsonInput {
-        def read = moduleIOMonad.pure(asString)
+        def read = IO.pure(asString)
       }
       case class FromPath(path: Path) extends JsonInput {
         def read = readPath(path)
@@ -544,9 +547,9 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         private def inNel(cmd: MainCommand): IO[NonEmptyList[Path]] =
           srcs.read.flatMap { ins =>
             NonEmptyList.fromList(ins) match {
-              case Some(nel) => moduleIOMonad.pure(nel)
+              case Some(nel) => IO.pure(nel)
               case None =>
-                moduleIOMonad.raiseError(MainException.NoInputs(cmd))
+                IO.raiseError(MainException.NoInputs(cmd))
             }
           }
 
@@ -583,7 +586,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           )
             .flatMapN {
               case (Nil, ifaces, packs) =>
-                moduleIOMonad.pure((ifaces, packs))
+                IO.pure((ifaces, packs))
               case (h :: t, ifaces, packs) =>
                 val packIfs = packs.map(Package.interfaceOf(_))
                 for {
@@ -642,7 +645,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             ins1 = MainIdentifier.addAnyAbsent(mis, ins)
             pn <-
               if (ds.isEmpty && ins1.isEmpty)
-                moduleIOMonad.raiseError(MainException.NoInputs(cmd))
+                IO.raiseError(MainException.NoInputs(cmd))
               else
                 buildPackMap(
                   cmd,
@@ -774,7 +777,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             (packs, names) = pn
             optString <- generator.traverse(readPath)
             dataTry = optString.transpiler.renderAll(packs, optString.args)
-            data <- moduleIOMonad.fromTry(dataTry)
+            data <- IO.fromTry(dataTry)
           } yield Output.TranspileOut(data, outDir)
         }
     }
@@ -803,7 +806,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
                 res match {
                   case None =>
-                    moduleIOMonad.raiseError(
+                    IO.raiseError(
                       new Exception("found no main expression")
                     )
                   case Some((eval, tpe)) =>
@@ -821,12 +824,12 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                         }
                       }
 
-                    moduleIOMonad.pure(
+                    IO.pure(
                       (ev, Output.EvaluationResult(eval, tpe, edoc))
                     )
                 }
               } else {
-                moduleIOMonad.raiseError(
+                IO.raiseError(
                   new Exception(
                     s"package ${mainPackageName.asString} not found"
                   )
@@ -855,7 +858,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
           else errMsg0
 
-        moduleIOMonad.raiseError(
+        IO.raiseError(
           new Exception(s"$prefix at ${idx + 1}: $errMsg")
         )
       }
@@ -863,7 +866,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       private def ioJson(io: IO[String]): IO[Json] =
         io.flatMap { jsonString =>
           Json.parserFile.parseAll(jsonString) match {
-            case Right(j) => moduleIOMonad.pure(j)
+            case Right(j) => IO.pure(j)
             case Left(err) =>
               val idx = err.failedAtOffset
               showError("could not parse a JSON record", jsonString, idx)
@@ -897,7 +900,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               ) + Doc.space + Doc.text("isn't supported")
               val tpeStr = msg.render(80)
 
-              moduleIOMonad.raiseError(
+              IO.raiseError(
                 new Exception(s"cannot convert type to Json: $tpeStr")
               )
             }
@@ -920,16 +923,16 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                                 if items.length == arity =>
                               fn(ary) match {
                                 case Left(dataError) =>
-                                  moduleIOMonad.raiseError[Json](
+                                  IO.raiseError[Json](
                                     new Exception(
                                       s"invalid input json: $dataError"
                                     )
                                   )
                                 case Right(json) =>
-                                  moduleIOMonad.pure(json)
+                                  IO.pure(json)
                               }
                             case otherJson =>
-                              moduleIOMonad.raiseError[Json](
+                              IO.raiseError[Json](
                                 new Exception(
                                   s"required a json array of size $arity, found:\n\n${otherJson.render}"
                                 )
@@ -941,7 +944,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                         }
                     case Left(valueError) =>
                       // shouldn't happen since value should be well typed
-                      moduleIOMonad.raiseError(
+                      IO.raiseError(
                         new Exception(s"unexpected value error: $valueError")
                       )
                   }
@@ -954,27 +957,27 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                   case Right(fn) =>
                     fn(res.value.value) match {
                       case Left(valueError) =>
-                        moduleIOMonad.raiseError(
+                        IO.raiseError(
                           new Exception(s"unexpected value error: $valueError")
                         )
                       case Right(j) =>
-                        moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
+                        IO.pure(Output.JsonOutput(j, outputOpt))
                     }
                 }
 
               case JsonMode.Apply(in) =>
                 process[cats.Id](
                   in.read,
-                  json => moduleIOMonad.pure(json),
+                  json => IO.pure(json),
                   json => json
                 )
               case JsonMode.Traverse(in) =>
                 process[Vector](
                   in.read,
                   {
-                    case Json.JArray(items) => moduleIOMonad.pure(items)
+                    case Json.JArray(items) => IO.pure(items)
                     case other =>
-                      moduleIOMonad.raiseError(
+                      IO.raiseError(
                         new Exception(
                           s"require an array or arrays for traverse, found: ${other.getClass}"
                         )
@@ -1081,7 +1084,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
         for {
           maybeParsed <- parseHeaders(paths, inputs.packageResolver)
-          parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
+          parsed <- IO.fromTry(toTry(this, maybeParsed, errColor))
         } yield parsed.map { case (path, (pn, imps, _)) =>
           (path, pn, FileKind.Source, norm(imps.map(_.pack)))
         }
