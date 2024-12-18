@@ -9,9 +9,11 @@ import java.io.{
   FileInputStream,
   FileOutputStream,
   BufferedInputStream,
-  BufferedOutputStream
+  BufferedOutputStream,
+  PrintWriter
 }
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
+import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
 
@@ -19,8 +21,13 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
 
+  def pathOrdering = Ordering.ordered[JPath]
+
   override def pathArg: Argument[Path] =
     Argument.readPath
+
+  def resolve(base: JPath, p: List[String]): JPath =
+    p.foldLeft(base)(_.resolve(_))
 
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
@@ -150,4 +157,28 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     if (packFile.toString.isEmpty) None
     else loop(roots)
   }
+
+  def writeDoc(p: Path, d: Doc): IO[Unit] =
+    IO.blocking {
+      Option(p.getParent).foreach(_.toFile.mkdirs)
+      val pw = new PrintWriter(p.toFile, "UTF-8")
+      try d.renderStream(100).foreach(pw.print(_))
+      finally {
+        pw.close
+      }
+    }
+
+  def print(str: String): IO[Unit] =
+    IO.println(str)
+
+  def writeStdout(doc: Doc): IO[Unit] =
+    IO.blocking {
+      doc
+        .renderStreamTrim(80)
+        .iterator
+        .foreach(System.out.print)
+
+      System.out.println("")
+    }
+
 }
