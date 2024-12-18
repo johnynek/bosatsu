@@ -534,7 +534,7 @@ else:
           else {
             (t.simplify, f.simplify) match {
               case (Code.Const.False | Code.Const.Zero, Code.Const.One | Code.Const.True) =>
-                val not = Code.Not(whoKnows)
+                val not = Code.Not(whoKnows).simplify
                 assert(tern == not)
               case (ts, fs) =>
                 assert(tern == Code.Ternary(ts, whoKnows, fs))
