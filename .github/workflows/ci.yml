@@ -108,6 +108,27 @@ jobs:
           - '2.13.15'
         java:
           - '8'
+  testWithNode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v2"
+      - name: "graalvm setup"
+        uses: "olafurpg/setup-scala@v13"
+        with:
+          java-version: "${{matrix.java}}"
+      - name: "build node"
+        run: |
+          sbt "++${{matrix.scala}}; cliJSJS/fullOptJS"
+      - name: "run bosatsu tests"
+        run: |
+          ./bosatsu_node test --input_dir test_workspace/ --package_root test_workspace/
+    strategy:
+      matrix:
+        scala:
+          - '2.13.15'
+        java:
+          - '8'
   testC:
     runs-on: ubuntu-latest
     strategy:

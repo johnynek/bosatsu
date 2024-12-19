@@ -186,6 +186,8 @@ lazy val core =
         cats.value,
         catsParse.value,
         decline.value,
+        fs2core.value,
+        fs2io.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
@@ -207,6 +209,23 @@ lazy val core =
 
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js
+
+lazy val cliJS = 
+  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
+    .settings(
+      commonSettings,
+      commonJsSettings,
+      name := "bosatsu-clijs",
+      assembly / test := {},
+      mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
+    )
+    .jsSettings(
+      scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
+      scalaJSLinkerConfig ~= { _.withSourceMap(false).withOptimizer(true) },
+      mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
+      scalaJSUseMainModuleInitializer := true,
+    )
+    .dependsOn(base, core)
 
 lazy val jsapi =
   (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsapi"))
