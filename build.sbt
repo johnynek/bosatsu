@@ -186,6 +186,8 @@ lazy val core =
         cats.value,
         catsParse.value,
         decline.value,
+        fs2core.value,
+        fs2io.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,

@@ -103,11 +103,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       .flatMap(write(_, path))
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
-    IO.fromTry {
-      packages
-        .traverse(ProtoConverter.packageToProto(_))
-        .map(proto.Packages(_))
-    }.flatMap(write(_, path))
+    IO.fromTry(ProtoConverter.packagesToProto(packages))
+      .flatMap(write(_, path))
 
   def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
     (path: Path) =>
@@ -126,37 +123,14 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     path.toString.endsWith(str)
   }
 
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
-    import scala.jdk.CollectionConverters._
-
-    def getP(p: Path): Option[PackageName] = {
-      val subPath = p
-        .relativize(packFile)
-        .asScala
-        .map { part =>
-          part.toString.toLowerCase.capitalize
-        }
-        .mkString("/")
-
-      val dropExtension = """(.*)\.[^.]*$""".r
-      val toParse = subPath match {
-        case dropExtension(prefix) => prefix
-        case _                     => subPath
+  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] =
+    PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
+      if (pf.startsWith(root)) Some {
+        import scala.jdk.CollectionConverters._
+        root.relativize(pf).asScala.map(_.toString)
       }
-      PackageName.parse(toParse)
+      else None
     }
-
-    @annotation.tailrec
-    def loop(roots: List[Path]): Option[PackageName] =
-      roots match {
-        case Nil                              => None
-        case h :: _ if packFile.startsWith(h) => getP(h)
-        case _ :: t                           => loop(t)
-      }
-
-    if (packFile.toString.isEmpty) None
-    else loop(roots)
-  }
 
   def writeDoc(p: Path, d: Doc): IO[Unit] =
     IO.blocking {

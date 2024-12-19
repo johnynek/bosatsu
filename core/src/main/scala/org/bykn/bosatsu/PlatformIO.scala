@@ -4,6 +4,8 @@ import cats.MonadError
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
+import cats.syntax.all._
+
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
   implicit def pathArg: Argument[Path]
@@ -52,4 +54,29 @@ trait PlatformIO[F[_], Path] {
   ): F[Unit]
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
+}
+
+object PlatformIO {
+  def pathPackage[Path](roots: List[Path], packFile: Path)(relativeParts: (Path, Path) => Option[Iterable[String]]): Option[PackageName] = {
+    def getP(p: Path): Option[PackageName] =
+      relativeParts(p, packFile).flatMap { parts =>
+        val subPath = parts
+          .iterator
+          .map { part =>
+            part.toLowerCase.capitalize
+          }
+          .mkString("/")
+
+        val dropExtension = """(.*)\.[^.]*$""".r
+        val toParse = subPath match {
+          case dropExtension(prefix) => prefix
+          case _                     => subPath
+        }
+        PackageName.parse(toParse)
+      }
+
+    if (packFile.toString.isEmpty) None
+    else roots.collectFirstSome(getP)
+  }
+
 }
