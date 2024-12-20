@@ -1516,6 +1516,16 @@ object ProtoConverter {
     runTab(tab).map { case (ss, fn) => fn(ss) }
   }
 
+  def packagesToProto[F[_]: Foldable, A](
+      ps: F[Package.Typed[A]]
+  ): Try[proto.Packages] =
+    // sort so we are deterministic
+    ps.toList.sortBy(_.name)
+      .traverse(packageToProto(_))
+      .map { packs =>
+        proto.Packages(packs)
+      }
+
   private val anonBind: Success[Bindable] =
     Success(Identifier.Name("$anon"))
 
