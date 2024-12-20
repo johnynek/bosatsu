@@ -186,8 +186,6 @@ lazy val core =
         cats.value,
         catsParse.value,
         decline.value,
-        fs2core.value,
-        fs2io.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
@@ -218,6 +216,7 @@ lazy val cliJS =
       name := "bosatsu-clijs",
       assembly / test := {},
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
+      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value),
     )
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
