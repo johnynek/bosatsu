@@ -4,11 +4,11 @@ import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output, PackageResolver}
+import org.bykn.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
@@ -47,13 +47,13 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     case class NoInputs(command: MainCommand) extends MainException
     case class ParseErrors(
         command: MainCommand,
-        errors: NonEmptyList[MainCommand.ParseError],
+        errors: NonEmptyList[PathParseError[Path]],
         color: Colorize
     ) extends MainException {
 
       def messages: List[String] =
         errors.toList.flatMap {
-          case MainCommand.ParseError.ParseFailure(pf, path) =>
+          case PathParseError.ParseFailure(pf, path) =>
             // we should never be partial here
             val (r, c) = pf.locations.toLineCol(pf.position).get
             val ctx = pf.showContext(color)
@@ -61,7 +61,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               s"failed to parse $path:${r + 1}:${c + 1}",
               ctx.render(80)
             )
-          case MainCommand.ParseError.FileError(path, err) =>
+          case PathParseError.FileError(path, err) =>
             err match {
               case e
                   if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
@@ -110,197 +110,10 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   }
 
   object MainCommand {
-    def parseInputs[G[_]: Traverse](
-        paths: G[Path],
-        packRes: PackageResolver[IO, Path]
-    ): IO[ValidatedNel[ParseError, G[((Path, LocationMap), Package.Parsed)]]] =
-      // we use IO(traverse) so we can accumulate all the errors in parallel easily
-      // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
-      // and use the composed applicative... too much work for the same result
-      paths
-        .traverse { path =>
-          val defaultPack = packRes.packageNameFor(path)(platformIO)
-          parseFile(Package.parser(defaultPack), path)
-            .map(_.map { case (lm, parsed) =>
-              ((path, lm), parsed)
-            })
-        }
-        .map(_.sequence)
-
-    def parseHeaders[G[_]: Traverse](
-        paths: G[Path],
-        packRes: PackageResolver[IO, Path]
-    ): IO[ValidatedNel[ParseError, G[(Path, Package.Header)]]] =
-      // we use IO(traverse) so we can accumulate all the errors in parallel easily
-      // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
-      // and use the composed applicative... too much work for the same result
-      paths
-        .traverse { path =>
-          val defaultPack = packRes.packageNameFor(path)(platformIO)
-          readUtf8(path).map { str =>
-            parseStart(Package.headerParser(defaultPack), path, str)
-              .map { case (_, pp) => (path, pp) }
-          }
-        }
-        .map(_.sequence)
-
-    private def flatTrav[A, B, C](va: Validated[A, B])(
-        fn: B => IO[Validated[A, C]]
-    ): IO[Validated[A, C]] =
-      va.traverse(fn).map(_.andThen(identity _))
-
-    /** This parses all the given paths and returns them first, and if the
-      * PackageResolver supports it, we look for any missing dependencies that
-      * are not already included
-      */
-    def parseAllInputs(
-        paths: List[Path],
-        included: Set[PackageName],
-        packRes: PackageResolver[IO, Path]
-    ): IO[
-      ValidatedNel[ParseError, List[((Path, LocationMap), Package.Parsed)]]
-    ] =
-      parseInputs(paths, packRes)
-        .flatMap {
-          flatTrav(_) { parsed =>
-            val done = included ++ parsed.toList.map(_._2.name)
-            val allImports = parsed.toList.flatMap(_._2.imports.map(_.pack))
-            val missing: List[PackageName] = allImports.filterNot(done)
-            parseTransitivePacks(missing, packRes, done)
-              .map(_.map { case (searched, _) => parsed ::: searched.toList })
-          }
-        }
-
     type ParseTransResult = ValidatedNel[
-      ParseError,
+      PathParseError[Path],
       (Chain[((Path, LocationMap), Package.Parsed)], Set[PackageName])
     ]
-
-    private def parseTransitive(
-        search: PackageName,
-        packRes: PackageResolver[IO, Path],
-        done: Set[PackageName]
-    ): IO[ParseTransResult] = {
-
-      val maybeReadPack: IO[Option[(Path, String)]] =
-        if (done(search)) {
-          moduleIOMonad.pure(Option.empty[(Path, String)])
-        } else {
-          packRes
-            .pathFor(search)(platformIO)
-            .flatMap(_.traverse { path =>
-              readUtf8(path).map((path, _))
-            })
-        }
-
-      val optParsed: IO[
-        ValidatedNel[ParseError, Option[((Path, LocationMap), Package.Parsed)]]
-      ] =
-        maybeReadPack.map { opt =>
-          opt.traverse { case (path, str) =>
-            val defaultPack = packRes.packageNameFor(path)(platformIO)
-            parseString(Package.parser(defaultPack), path, str)
-              .map { case (lm, parsed) =>
-                ((path, lm), parsed)
-              }
-          }
-        }
-
-      def imports(p: Package.Parsed): List[PackageName] =
-        p.imports.map(_.pack)
-
-      val newDone = done + search
-
-      optParsed.flatMap {
-        flatTrav(_) {
-          case None =>
-            moduleIOMonad.pure(
-              Validated.valid(
-                (Chain.empty[((Path, LocationMap), Package.Parsed)], newDone)
-              ): ParseTransResult
-            )
-          case Some(item @ (_, pack)) =>
-            val imps = imports(pack).filterNot(done)
-            parseTransitivePacks(imps, packRes, newDone)
-              .map(_.map { case (newPacks, newDone) =>
-                (item +: newPacks, newDone)
-              })
-        }
-      }
-    }
-
-    private def parseTransitivePacks(
-        search: List[PackageName],
-        packRes: PackageResolver[IO, Path],
-        done: Set[PackageName]
-    ): IO[ParseTransResult] =
-      search.foldM(Validated.valid((Chain.empty, done)): ParseTransResult) {
-        (prev, impPack) =>
-          flatTrav(prev) { case (acc, prevDone) =>
-            parseTransitive(impPack, packRes, prevDone)
-              .map(_.map { case (newPacks, newDone) =>
-                (acc ++ newPacks, newDone)
-              })
-          }
-      }
-
-    sealed trait ParseError
-    object ParseError {
-      case class ParseFailure(error: Parser.Error.ParseFailure, path: Path)
-          extends ParseError
-      case class FileError(readPath: Path, error: Throwable) extends ParseError
-    }
-
-    def parseString[A](
-        p: P0[A],
-        path: Path,
-        str: String
-    ): ValidatedNel[ParseError, (LocationMap, A)] =
-      Parser.parse(p, str).leftMap { nel =>
-        nel.map { case pf @ Parser.Error.ParseFailure(_, _, _) =>
-          ParseError.ParseFailure(pf, path)
-        }
-      }
-
-    def parseStart[A](
-        p0: P0[A],
-        path: Path,
-        str: String
-    ): ValidatedNel[ParseError, (LocationMap, A)] = {
-      val lm = LocationMap(str)
-      p0.parse(str) match {
-        case Right((_, a)) =>
-          Validated.valid((lm, a))
-        case Left(err) =>
-          val idx = err.failedAtOffset
-          Validated.invalidNel(
-            ParseError.ParseFailure(
-              Parser.Error.ParseFailure(idx, lm, err.expected),
-              path
-            )
-          )
-      }
-    }
-
-    def parseFile[A](
-        p: P0[A],
-        path: Path
-    ): IO[ValidatedNel[ParseError, (LocationMap, A)]] =
-      parseFileOrError(p, path)
-        .map {
-          case Right(v) => v
-          case Left(err) =>
-            Validated.invalidNel(ParseError.FileError(path, err))
-        }
-
-    /** If we cannot read the file, return the throwable, else parse
-      */
-    def parseFileOrError[A](
-        p: P0[A],
-        path: Path
-    ): IO[Either[Throwable, ValidatedNel[ParseError, (LocationMap, A)]]] =
-      readUtf8(path).attempt
-        .map(_.map(parseString(p, path, _)))
 
     /** like typecheck, but a no-op for empty lists
       */
@@ -341,7 +154,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     )(implicit
         ec: Par.EC
     ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-      parseAllInputs(inputs.toList, ifs.map(_.name).toSet, packRes)
+      packRes.parseAllInputs(inputs.toList, ifs.map(_.name).toSet)(platformIO)
         .flatMap { ins =>
           moduleIOMonad.fromTry {
             // Now we have completed all IO, here we do all the checks we need for correctness
@@ -1000,7 +813,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           paths: List[Path]
       ): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
         for {
-          maybeParsed <- parseHeaders(paths, inputs.packageResolver)
+          maybeParsed <- inputs.packageResolver.parseHeaders(paths)(platformIO)
           parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
         } yield parsed.map { case (path, (pn, imps, _)) =>
           (path, pn, FileKind.Source, norm(imps.map(_.pack)))
@@ -1048,7 +861,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     def toTry[A](
         cmd: MainCommand,
-        v: ValidatedNel[ParseError, A],
+        v: ValidatedNel[PathParseError[Path], A],
         color: Colorize
     ): Try[A] =
       v match {
