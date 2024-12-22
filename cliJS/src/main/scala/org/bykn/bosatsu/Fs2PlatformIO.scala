@@ -87,24 +87,6 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   def resolve(p: Path, c: String): Path = p.resolve(c)
 
-  /** Modules optionally have the capability to combine paths into a tree
-    */
-  val resolvePath: Option[(Path, PackageName) => IO[Option[Path]]] = Some {
-    (root: Path, pack: PackageName) => {
-      val dir = pack.parts.init.foldLeft(root)(_.resolve(_))
-      val filePath = dir.resolve(pack.parts.last + ".bosatsu")
-      FilesIO.exists(filePath, true)
-        .map {
-          case true => Some(filePath)
-          case false => None
-        }
-    }
-  }
-
-  /** some modules have paths that form directory trees
-    *
-    * if the given path is a directory, return Some and all the first children.
-    */
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
     FilesIO.isDirectory(path, followLinks = true)
       .map {
