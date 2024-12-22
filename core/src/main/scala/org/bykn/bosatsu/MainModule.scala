@@ -8,7 +8,7 @@ import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output}
+import org.bykn.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output, PackageResolver}
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
@@ -112,14 +112,14 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   object MainCommand {
     def parseInputs[G[_]: Traverse](
         paths: G[Path],
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     ): IO[ValidatedNel[ParseError, G[((Path, LocationMap), Package.Parsed)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
       paths
         .traverse { path =>
-          val defaultPack = packRes.packageNameFor(path)
+          val defaultPack = packRes.packageNameFor(path)(platformIO)
           parseFile(Package.parser(defaultPack), path)
             .map(_.map { case (lm, parsed) =>
               ((path, lm), parsed)
@@ -129,14 +129,14 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     def parseHeaders[G[_]: Traverse](
         paths: G[Path],
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     ): IO[ValidatedNel[ParseError, G[(Path, Package.Header)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
       paths
         .traverse { path =>
-          val defaultPack = packRes.packageNameFor(path)
+          val defaultPack = packRes.packageNameFor(path)(platformIO)
           readUtf8(path).map { str =>
             parseStart(Package.headerParser(defaultPack), path, str)
               .map { case (_, pp) => (path, pp) }
@@ -156,7 +156,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     def parseAllInputs(
         paths: List[Path],
         included: Set[PackageName],
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     ): IO[
       ValidatedNel[ParseError, List[((Path, LocationMap), Package.Parsed)]]
     ] =
@@ -178,7 +178,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     private def parseTransitive(
         search: PackageName,
-        packRes: PackageResolver,
+        packRes: PackageResolver[IO, Path],
         done: Set[PackageName]
     ): IO[ParseTransResult] = {
 
@@ -187,7 +187,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           moduleIOMonad.pure(Option.empty[(Path, String)])
         } else {
           packRes
-            .pathFor(search)
+            .pathFor(search)(platformIO)
             .flatMap(_.traverse { path =>
               readUtf8(path).map((path, _))
             })
@@ -198,7 +198,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ] =
         maybeReadPack.map { opt =>
           opt.traverse { case (path, str) =>
-            val defaultPack = packRes.packageNameFor(path)
+            val defaultPack = packRes.packageNameFor(path)(platformIO)
             parseString(Package.parser(defaultPack), path, str)
               .map { case (lm, parsed) =>
                 ((path, lm), parsed)
@@ -231,7 +231,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     private def parseTransitivePacks(
         search: List[PackageName],
-        packRes: PackageResolver,
+        packRes: PackageResolver[IO, Path],
         done: Set[PackageName]
     ): IO[ParseTransResult] =
       search.foldM(Validated.valid((Chain.empty, done)): ParseTransResult) {
@@ -309,7 +309,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         inputs: List[Path],
         ifs: List[Package.Interface],
         errColor: Colorize,
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     )(implicit
         ec: Par.EC
     ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
@@ -337,7 +337,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         inputs: NonEmptyList[Path],
         ifs: List[Package.Interface],
         errColor: Colorize,
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     )(implicit
         ec: Par.EC
     ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
@@ -386,7 +386,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         srcs: List[Path],
         deps: List[Path],
         errColor: Colorize,
-        packRes: PackageResolver
+        packRes: PackageResolver[IO, Path]
     )(implicit
         ec: Par.EC
     ): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
@@ -463,48 +463,6 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
     }
 
-    /** This is a class that names packages based on path and finds packages
-      * based on imports
-      */
-    sealed abstract class PackageResolver {
-      def pathFor(name: PackageName): IO[Option[Path]]
-      def packageNameFor(path: Path): Option[PackageName]
-    }
-    object PackageResolver {
-      case object ExplicitOnly extends PackageResolver {
-        def pathFor(name: PackageName): IO[Option[Path]] =
-          moduleIOMonad.pure(Option.empty[Path])
-        def packageNameFor(path: Path): Option[PackageName] = None
-      }
-
-      case class LocalRoots(
-          roots: NonEmptyList[Path],
-          optResolvePath: Option[(Path, PackageName) => IO[Option[Path]]]
-      ) extends PackageResolver {
-        def pathFor(name: PackageName): IO[Option[Path]] =
-          optResolvePath match {
-            case None => moduleIOMonad.pure(Option.empty[Path])
-            case Some(resolvePath) =>
-              def step(p: List[Path]): IO[Either[List[Path], Option[Path]]] =
-                p match {
-                  case Nil =>
-                    moduleIOMonad.pure(Right[List[Path], Option[Path]](None))
-                  case phead :: ptail =>
-                    resolvePath(phead, name).map {
-                      case None => Left[List[Path], Option[Path]](ptail)
-                      case some @ Some(_) =>
-                        Right[List[Path], Option[Path]](some)
-                    }
-                }
-
-              moduleIOMonad.tailRecM(roots.toList)(step)
-          }
-
-        def packageNameFor(path: Path): Option[PackageName] =
-          pathPackage(roots.toList, path)
-      }
-    }
-
     val transOpt: Opts[Transpiler.Optioned[Path]] =
       cats.Alternative[Opts].combineAllK(
         codegen.python.PythonTranspiler.opts(pathArg) ::
@@ -540,7 +498,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       class Compile(
           srcs: PathGen,
           ifaces: PathGen,
-          packageResolver: PackageResolver
+          packageResolver: PackageResolver[IO, Path]
       ) extends Inputs {
 
         private def inNel(cmd: MainCommand): IO[NonEmptyList[Path]] =
@@ -573,7 +531,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           srcs: PathGen,
           ifaces: PathGen,
           includes: PathGen,
-          packageResolver: PackageResolver
+          packageResolver: PackageResolver[IO, Path]
       ) extends Inputs {
         def loadAndCompile(cmd: MainCommand, errColor: Colorize)(implicit
             ec: Par.EC
@@ -607,7 +565,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           srcs: PathGen,
           ifaces: PathGen,
           includes: PathGen,
-          val packageResolver: PackageResolver
+          val packageResolver: PackageResolver[IO, Path]
       ) extends Inputs {
 
         def srcList: IO[List[Path]] = srcs.read
@@ -628,7 +586,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       class Runtime(
           srcs: PathGen,
           includes: PathGen,
-          packageResolver: PackageResolver
+          packageResolver: PackageResolver[IO, Path]
       ) extends Inputs {
 
         def packMap(
@@ -702,41 +660,9 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         help = "compiled packages to include files",
         ".bosatsu_package"
       )
-      private val packRoot =
-        Opts.options[Path](
-          "package_root",
-          help = "for implicit package names, consider these paths as roots"
-        )
-      private val packSearch =
-        Opts
-          .flag(
-            "search",
-            help =
-              "if set, we search the package_roots for imports not explicitly given"
-          )
-          .orFalse
-          .map {
-            case true  => Some((p, pn) => resolveFile(p, pn))
-            case false => None
-          }
 
-      private val packRes: Opts[PackageResolver] =
-        (packRoot
-          .product(packSearch))
-          .orNone
-          .map {
-            case None => PackageResolver.ExplicitOnly
-            case Some((paths, search)) =>
-              PackageResolver.LocalRoots(paths, search)
-          }
-
-      // type-checking and writing protos should be explicit. search option isn't supported
-      private val noSearchRes: Opts[PackageResolver] =
-        packRoot.orNone
-          .map {
-            case None        => PackageResolver.ExplicitOnly
-            case Some(paths) => PackageResolver.LocalRoots(paths, None)
-          }
+      private val packRes = PackageResolver.opts(platformIO)
+      private val noSearchRes = PackageResolver.noSearchOpts(platformIO)
 
       val compileOpts: Opts[Inputs.Compile] =
         (srcs, ifaces, noSearchRes).mapN(new Compile(_, _, _))
