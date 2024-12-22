@@ -29,7 +29,7 @@ trait PlatformIO[F[_], Path] {
 
   def resolve(p: Path, child: String): Path
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
-    val dir = pack.parts.init.foldLeft(root)(resolve(_, _))
+    val dir = resolve(root, pack.parts.init)
     val filePath = resolve(dir, pack.parts.last + ".bosatsu")
     fsDataType(filePath).map {
       case Some(PlatformIO.FSDataType.File) => Some(filePath)
@@ -58,8 +58,7 @@ trait PlatformIO[F[_], Path] {
   def resolve(base: Path, p: List[String]): Path =
     p.foldLeft(base)(resolve(_, _))
 
-  // this is println actually
-  def print(str: String): F[Unit]
+  def println(str: String): F[Unit]
 
   def writeInterfaces(
       interfaces: List[Package.Interface],

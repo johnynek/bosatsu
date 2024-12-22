@@ -125,8 +125,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .compile
       .drain
 
-  // this is println actually
-  def print(str: String): IO[Unit] =
+  def println(str: String): IO[Unit] =
     IO.println(str)
 
   def writeInterfaces(

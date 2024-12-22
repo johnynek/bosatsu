@@ -134,7 +134,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
-  def print(str: String): IO[Unit] =
+  def println(str: String): IO[Unit] =
     IO.println(str)
 
   def writeStdout(doc: Doc): IO[Unit] =

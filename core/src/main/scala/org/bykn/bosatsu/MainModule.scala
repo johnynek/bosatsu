@@ -1326,12 +1326,12 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         val testReport = Test.outputFor(evalTest, color)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
-        print(testReport.doc.render(80)).as(code)
+        println(testReport.doc.render(80)).as(code)
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
         val doc =
           resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
-        print(doc.render(100)).as(ExitCode.Success)
+        println(doc.render(100)).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)

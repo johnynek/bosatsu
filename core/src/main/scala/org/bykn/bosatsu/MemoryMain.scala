@@ -274,7 +274,7 @@ object MemoryMain {
         def writeStdout(doc: Doc): F[Unit] =
           catsDefaultME.raiseError(new Exception(s"writeStdout($doc) is unimplemented on a read only platform"))
 
-        def print(str: String): F[Unit] =
+        def println(str: String): F[Unit] =
           catsDefaultME.raiseError(new Exception(s"print($str) is unimplemented on a read only platform"))
 
         override def resolve(base: Path, parts: List[String]): Path =
