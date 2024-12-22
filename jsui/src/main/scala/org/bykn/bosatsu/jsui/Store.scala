@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.jsui
 
+import cats.data.Chain
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.{MemoryMain, Package, Test, rankn}
 import org.bykn.bosatsu.tool.Output
@@ -9,9 +10,9 @@ import org.scalajs.dom.window.localStorage
 import Action.Cmd
 
 object Store {
-  val memoryMain = MemoryMain[Either[Throwable, *], String](_.split("/", -1).toList)
+  val memoryMain = MemoryMain[Either[Throwable, *]]
 
-  type HandlerFn = Output[String] => String
+  type HandlerFn = Output[Chain[String]] => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =
     cmd match {
       case Cmd.Eval =>
@@ -93,7 +94,7 @@ object Store {
     val (args, handler) = cmdHandler(cmd)
 
     val res = memoryMain.runWith(
-      files = Map("root/WebDemo" -> str)
+      files = Map(Chain("root", "WebDemo") -> str)
     )(args) match {
       case Right(good) => handler(good)
       case Left(err) =>
