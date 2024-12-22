@@ -14,18 +14,19 @@ class MemoryMain[G[_]](
   platform: PlatformIO[Kleisli[G, MemoryMain.State, *], Chain[String]]) extends
   MainModule[Kleisli[G, MemoryMain.State, *], Chain[String]](platform) {
 
-  import platformIO._
-
   def withEC[A](fn: Par.EC => F[A]): F[A] =
-    moduleIOMonad.flatMap(moduleIOMonad.unit) { _ =>
+    Kleisli { state =>
+      // this is safe to use the side-effects
+      // of Par here because they are local to this method
+      // and can't escape or be deferred
       val es = Par.newService()
-      moduleIOMonad.map(fn(Par.ecFromService(es))) { a =>
-        Par.shutdownService(es)
-        a
+      try {
+        val ec = Par.ecFromService(es)
+        val fa = fn(ec)
+        fa.run(state)
       }
-      .recoverWith { case e =>
+      finally {
         Par.shutdownService(es)
-        moduleIOMonad.raiseError[A](e)
       }
     }
 
@@ -35,43 +36,15 @@ class MemoryMain[G[_]](
       interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
   )(cmd: List[String])(implicit G: MonadError[G, Throwable]): G[Output[Chain[String]]] =
     run(cmd) match {
+      case Right(io) =>
+        for {
+          state <- MemoryMain.State.from(files, packages, interfaces)
+          res <- io.run(state)
+        } yield res
       case Left(msg) =>
         G.raiseError[Output[Chain[String]]](
           new Exception(s"got the help message for: $cmd: $msg")
         )
-      case Right(io) =>
-        for {
-          state0 <-
-            files.toList.foldM(MemoryMain.State.empty) {
-              case (st, (k, str)) =>
-                st.withFile(k, MemoryMain.FileContent.Str(str)) match {
-                  case Some(s1) => G.pure(s1)
-                  case None =>
-                    G.raiseError[MemoryMain.State](
-                      new Exception(s"couldn't add file: $k to state = $st")
-                    )
-                }
-            }
-          state1 <- packages.toList.foldM(state0) { case (st, (k, packs)) =>
-            st.withFile(k, MemoryMain.FileContent.Packages(packs)) match {
-              case Some(s1) => G.pure(s1)
-              case None =>
-                G.raiseError[MemoryMain.State](
-                  new Exception(s"couldn't add file: $k to state = $st")
-                )
-            }
-          }
-          state2 <- interfaces.toList.foldM(state1) { case (st, (k, ifs)) =>
-            st.withFile(k, MemoryMain.FileContent.Interfaces(ifs)) match {
-              case Some(s1) => G.pure(s1)
-              case None =>
-                G.raiseError[MemoryMain.State](
-                  new Exception(s"couldn't add file: $k to state = $st")
-                )
-            }
-          }
-          res <- io.run(state2)
-        } yield res
     }
 }
 
@@ -146,6 +119,42 @@ object MemoryMain {
 
   object State {
     val empty: State = State(SortedMap.empty)
+    def from[G[_]](
+        files: Iterable[(Chain[String], String)],
+        packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
+        interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
+    )(implicit G: MonadError[G, Throwable]): G[State] =
+      for {
+        state0 <-
+          files.toList.foldM(MemoryMain.State.empty) {
+            case (st, (k, str)) =>
+              st.withFile(k, MemoryMain.FileContent.Str(str)) match {
+                case Some(s1) => G.pure(s1)
+                case None =>
+                  G.raiseError[MemoryMain.State](
+                    new Exception(s"couldn't add file: $k to state = $st")
+                  )
+              }
+          }
+        state1 <- packages.toList.foldM(state0) { case (st, (k, packs)) =>
+          st.withFile(k, MemoryMain.FileContent.Packages(packs)) match {
+            case Some(s1) => G.pure(s1)
+            case None =>
+              G.raiseError[MemoryMain.State](
+                new Exception(s"couldn't add file: $k to state = $st")
+              )
+          }
+        }
+        state2 <- interfaces.toList.foldM(state1) { case (st, (k, ifs)) =>
+          st.withFile(k, MemoryMain.FileContent.Interfaces(ifs)) match {
+            case Some(s1) => G.pure(s1)
+            case None =>
+              G.raiseError[MemoryMain.State](
+                new Exception(s"couldn't add file: $k to state = $st")
+              )
+          }
+        }
+      } yield state2
   }
 
   def apply[G[_]](implicit innerMonad: MonadError[G, Throwable]): MemoryMain[G] =
