@@ -14,22 +14,6 @@ class MemoryMain[G[_]](
   platform: PlatformIO[Kleisli[G, MemoryMain.State, *], Chain[String]]) extends
   MainModule[Kleisli[G, MemoryMain.State, *], Chain[String]](platform) {
 
-  def withEC[A](fn: Par.EC => F[A]): F[A] =
-    Kleisli { state =>
-      // this is safe to use the side-effects
-      // of Par here because they are local to this method
-      // and can't escape or be deferred
-      val es = Par.newService()
-      try {
-        val ec = Par.ecFromService(es)
-        val fa = fn(ec)
-        fa.run(state)
-      }
-      finally {
-        Par.shutdownService(es)
-      }
-    }
-
   def runWith(
       files: Iterable[(Chain[String], String)],
       packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
@@ -178,6 +162,22 @@ object MemoryMain {
               else Validated.valid(Chain.fromSeq(string.split("/", -1).toIndexedSeq))
           }
 
+      def withEC[A](fn: Par.EC => F[A]): F[A] =
+        Kleisli { state =>
+          // this is safe to use the side-effects
+          // of Par here because they are local to this method
+          // and can't escape or be deferred
+          val es = Par.newService()
+          try {
+            val ec = Par.ecFromService(es)
+            val fa = fn(ec)
+            fa.run(state)
+          }
+          finally {
+            Par.shutdownService(es)
+          }
+        }
+
         def readUtf8(p: Path): F[String] =
           Kleisli
             .ask[G, State]
@@ -284,7 +284,10 @@ object MemoryMain {
           catsDefaultME.raiseError(new Exception(s"writeStdout($doc) is unimplemented on a read only platform"))
 
         def println(str: String): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"print($str) is unimplemented on a read only platform"))
+          catsDefaultME.raiseError(new Exception(s"println($str) is unimplemented on a read only platform"))
+
+        def errorln(str: String): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"errorln($str) is unimplemented on a read only platform"))
 
         override def resolve(base: Path, parts: List[String]): Path =
           base ++ Chain.fromSeq(parts)

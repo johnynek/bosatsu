@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import com.monovore.decline.Argument
 import java.nio.file.{Path => JPath}
 import java.io.{
@@ -28,6 +28,13 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
+
+  private val parResource: Resource[IO, Par.EC] =
+    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+      .map(Par.ecFromService(_))
+
+  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+    parResource.use(fn)
 
   def readUtf8(path: Path): IO[String] =
     IO.blocking(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
@@ -136,6 +143,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def println(str: String): IO[Unit] =
     IO.println(str)
+
+  def errorln(str: String): IO[Unit] =
+    IO.consoleForIO.errorln(str)
 
   def writeStdout(doc: Doc): IO[Unit] =
     IO.blocking {
