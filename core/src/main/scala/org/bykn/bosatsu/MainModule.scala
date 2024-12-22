@@ -137,7 +137,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       paths
         .traverse { path =>
           val defaultPack = packRes.packageNameFor(path)
-          readPath(path).map { str =>
+          readUtf8(path).map { str =>
             parseStart(Package.headerParser(defaultPack), path, str)
               .map { case (_, pp) => (path, pp) }
           }
@@ -189,7 +189,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           packRes
             .pathFor(search)
             .flatMap(_.traverse { path =>
-              readPath(path).map((path, _))
+              readUtf8(path).map((path, _))
             })
         }
 
@@ -299,7 +299,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         p: P0[A],
         path: Path
     ): IO[Either[Throwable, ValidatedNel[ParseError, (LocationMap, A)]]] =
-      readPath(path).attempt
+      readUtf8(path).attempt
         .map(_.map(parseString(p, path, _)))
 
     /** like typecheck, but a no-op for empty lists
@@ -520,7 +520,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         def read = moduleIOMonad.pure(asString)
       }
       case class FromPath(path: Path) extends JsonInput {
-        def read = readPath(path)
+        def read = readUtf8(path)
       }
     }
 
@@ -666,35 +666,31 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           .orEmpty
           .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen))
 
-        unfoldDir match {
-          case None => direct
-          case Some(unfold) =>
-            val select = hasExtension(ext)
-            val child1 = Opts
-              .options[Path](arg + "_dir", help = s"all $help in directory")
-              .orEmpty
-              .map { paths =>
-                paths.foldMap(
-                  PathGen
-                    .ChildrenOfDir[IO, Path](_, select, false, unfold): PathGen
-                )
-              }
-            val childMany = Opts
-              .options[Path](
-                arg + "_all_subdir",
-                help = s"all $help recursively in all directories"
-              )
-              .orEmpty
-              .map { paths =>
-                paths.foldMap(
-                  PathGen
-                    .ChildrenOfDir[IO, Path](_, select, true, unfold): PathGen
-                )
-              }
+        val select = hasExtension(ext)
+        val child1 = Opts
+          .options[Path](arg + "_dir", help = s"all $help in directory")
+          .orEmpty
+          .map { paths =>
+            paths.foldMap(
+              PathGen
+                .ChildrenOfDir[IO, Path](_, select, false, unfoldDir(_)): PathGen
+            )
+          }
+        val childMany = Opts
+          .options[Path](
+            arg + "_all_subdir",
+            help = s"all $help recursively in all directories"
+          )
+          .orEmpty
+          .map { paths =>
+            paths.foldMap(
+              PathGen
+                .ChildrenOfDir[IO, Path](_, select, true, unfoldDir(_)): PathGen
+            )
+          }
 
-            (direct, child1, childMany).mapN { (a, b, c) =>
-              (a :: b :: c :: Nil).combineAll
-            }
+        (direct, child1, childMany).mapN { (a, b, c) =>
+          (a :: b :: c :: Nil).combineAll
         }
       }
       private val srcs =
@@ -712,21 +708,17 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           help = "for implicit package names, consider these paths as roots"
         )
       private val packSearch =
-        resolvePath match {
-          case None => Opts(None)
-          case some @ Some(_) =>
-            Opts
-              .flag(
-                "search",
-                help =
-                  "if set, we search the package_roots for imports not explicitly given"
-              )
-              .orFalse
-              .map {
-                case true  => some
-                case false => None
-              }
-        }
+        Opts
+          .flag(
+            "search",
+            help =
+              "if set, we search the package_roots for imports not explicitly given"
+          )
+          .orFalse
+          .map {
+            case true  => Some((p, pn) => resolveFile(p, pn))
+            case false => None
+          }
 
       private val packRes: Opts[PackageResolver] =
         (packRoot
@@ -774,7 +766,7 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            optString <- generator.traverse(readPath)
+            optString <- generator.traverse(readUtf8)
             dataTry = optString.transpiler.renderAll(packs, optString.args)
             data <- moduleIOMonad.fromTry(dataTry)
           } yield Output.TranspileOut(data, outDir)

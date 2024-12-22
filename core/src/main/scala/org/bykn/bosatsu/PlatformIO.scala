@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.MonadError
+import cats.data.ValidatedNel
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
@@ -11,9 +12,12 @@ trait PlatformIO[F[_], Path] {
   implicit def pathArg: Argument[Path]
   implicit def pathOrdering: Ordering[Path]
 
-  def readPath(p: Path): F[String]
-  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
 
+  final def path(str: String): ValidatedNel[String, Path] =
+    pathArg.read(str)
+
+  def readUtf8(p: Path): F[String]
+  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
@@ -21,15 +25,23 @@ trait PlatformIO[F[_], Path] {
     */
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
 
-  /** Modules optionally have the capability to combine paths into a tree
-    */
-  def resolvePath: Option[(Path, PackageName) => F[Option[Path]]]
+  def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
+
+  def resolve(p: Path, child: String): Path
+  def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
+    val dir = pack.parts.init.foldLeft(root)(resolve(_, _))
+    val filePath = resolve(dir, pack.parts.last + ".bosatsu")
+    fsDataType(filePath).map {
+      case Some(PlatformIO.FSDataType.File) => Some(filePath)
+      case _ => None
+    }
+  }
 
   /** some modules have paths that form directory trees
     *
     * if the given path is a directory, return Some and all the first children.
     */
-  def unfoldDir: Option[Path => F[Option[F[List[Path]]]]]
+  def unfoldDir(path: Path): F[Option[F[List[Path]]]]
 
   def hasExtension(str: String): Path => Boolean
 
@@ -43,7 +55,8 @@ trait PlatformIO[F[_], Path] {
     }
 
 
-  def resolve(base: Path, p: List[String]): Path
+  def resolve(base: Path, p: List[String]): Path =
+    p.foldLeft(base)(resolve(_, _))
 
   // this is println actually
   def print(str: String): F[Unit]
@@ -79,4 +92,9 @@ object PlatformIO {
     else roots.collectFirstSome(getP)
   }
 
+  sealed abstract class FSDataType
+  object FSDataType {
+    case object Dir extends FSDataType
+    case object File extends FSDataType
+  }
 }
