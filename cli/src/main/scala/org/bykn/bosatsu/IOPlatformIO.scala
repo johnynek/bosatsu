@@ -137,6 +137,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def println(str: String): IO[Unit] =
     IO.println(str)
 
+  def errorln(str: String): IO[Unit] =
+    IO.consoleForIO.errorln(str)
+
   def writeStdout(doc: Doc): IO[Unit] =
     IO.blocking {
       doc

@@ -128,6 +128,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def println(str: String): IO[Unit] =
     IO.println(str)
 
+  def errorln(str: String): IO[Unit] =
+    IO.consoleForIO.errorln(str)
+
   def writeInterfaces(
       interfaces: List[Package.Interface],
       path: Path

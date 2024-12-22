@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
+import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
@@ -39,6 +39,8 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       .parse(args.toList)
       .map(_.run.widen)
 
+  final def runAndReport(args: List[String]): Either[Help, IO[ExitCode]] =
+    run(args).map(report)
 
   sealed abstract class MainException extends Exception {
     def command: MainCommand
@@ -110,11 +112,6 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   }
 
   object MainCommand {
-    type ParseTransResult = ValidatedNel[
-      PathParseError[Path],
-      (Chain[((Path, LocationMap), Package.Parsed)], Set[PackageName])
-    ]
-
     /** like typecheck, but a no-op for empty lists
       */
     def typeCheck0(
@@ -427,52 +424,15 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           } yield pn
       }
 
-      private def pathGen(
-          arg: String,
-          help: String,
-          ext: String
-      ): Opts[PathGen] = {
-        val direct = Opts
-          .options[Path](arg, help = help)
-          .orEmpty
-          .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen))
-
-        val select = hasExtension(ext)
-        val child1 = Opts
-          .options[Path](arg + "_dir", help = s"all $help in directory")
-          .orEmpty
-          .map { paths =>
-            paths.foldMap(
-              PathGen
-                .ChildrenOfDir[IO, Path](_, select, false, unfoldDir(_)): PathGen
-            )
-          }
-        val childMany = Opts
-          .options[Path](
-            arg + "_all_subdir",
-            help = s"all $help recursively in all directories"
-          )
-          .orEmpty
-          .map { paths =>
-            paths.foldMap(
-              PathGen
-                .ChildrenOfDir[IO, Path](_, select, true, unfoldDir(_)): PathGen
-            )
-          }
-
-        (direct, child1, childMany).mapN { (a, b, c) =>
-          (a :: b :: c :: Nil).combineAll
-        }
-      }
       private val srcs =
-        pathGen("input", help = "input source files", ".bosatsu")
+        PathGen.opts("input", help = "input source files", ".bosatsu")(platformIO)
       private val ifaces =
-        pathGen("interface", help = "interface files", ".bosatsig")
-      private val includes = pathGen(
+        PathGen.opts("interface", help = "interface files", ".bosatsig")(platformIO)
+      private val includes = PathGen.opts(
         "include",
         help = "compiled packages to include files",
         ".bosatsu_package"
-      )
+      )(platformIO)
 
       private val packRes = PackageResolver.opts(platformIO)
       private val noSearchRes = PackageResolver.noSearchOpts(platformIO)
@@ -1236,5 +1196,27 @@ abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
             writeOut(fullDoc, output).as(ExitCode.Success)
         }
+    }
+
+  private def stackTraceToString(t: Throwable): String = {
+    val stringWriter = new java.io.StringWriter()
+    val printWriter = new java.io.PrintWriter(stringWriter)
+    t.printStackTrace(printWriter)
+    stringWriter.toString
+  }
+
+  def reportException(ex: Throwable): IO[Unit] =
+    mainExceptionToString(ex) match {
+      case Some(msg) =>
+        platformIO.errorln(msg)
+      case None =>
+        platformIO.errorln("unknown error:\n") *>
+          platformIO.errorln(stackTraceToString(ex))
+    }
+
+  def report(io: IO[Output[Path]]): IO[ExitCode] =
+    io.attempt.flatMap {
+      case Right(out) => reportOutput(out)
+      case Left(err)  => reportException(err).as(ExitCode.Error)
     }
 }

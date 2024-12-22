@@ -59,6 +59,7 @@ trait PlatformIO[F[_], Path] {
     p.foldLeft(base)(resolve(_, _))
 
   def println(str: String): F[Unit]
+  def errorln(str: String): F[Unit]
 
   def writeInterfaces(
       interfaces: List[Package.Interface],

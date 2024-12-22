@@ -284,7 +284,10 @@ object MemoryMain {
           catsDefaultME.raiseError(new Exception(s"writeStdout($doc) is unimplemented on a read only platform"))
 
         def println(str: String): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"print($str) is unimplemented on a read only platform"))
+          catsDefaultME.raiseError(new Exception(s"println($str) is unimplemented on a read only platform"))
+
+        def errorln(str: String): F[Unit] =
+          catsDefaultME.raiseError(new Exception(s"errorln($str) is unimplemented on a read only platform"))
 
         override def resolve(base: Path, parts: List[String]): Path =
           base ++ Chain.fromSeq(parts)

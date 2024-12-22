@@ -3,6 +3,8 @@ package org.bykn.bosatsu.tool
 import cats.{Monoid, Monad}
 
 import cats.syntax.all._
+import com.monovore.decline.Opts
+import org.bykn.bosatsu.PlatformIO
 
 sealed abstract class PathGen[IO[_], Path] {
   def read(implicit m: Monad[IO]): IO[List[Path]]
@@ -61,4 +63,45 @@ object PathGen {
           case (a, b)                     => Combine(a :: b :: Nil)
         }
     }
+
+    
+  def opts[IO[_], Path](
+    arg: String,
+    help: String,
+    ext: String
+  )(platformIO: PlatformIO[IO, Path]): Opts[PathGen[IO, Path]] = {
+    import platformIO.pathArg
+
+    val direct = Opts
+      .options[Path](arg, help = help)
+      .orEmpty
+      .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen[IO, Path]))
+
+    val select = platformIO.hasExtension(ext)
+    val child1 = Opts
+      .options[Path](arg + "_dir", help = s"all $help in directory")
+      .orEmpty
+      .map { paths =>
+        paths.foldMap(
+          PathGen
+            .ChildrenOfDir[IO, Path](_, select, false, platformIO.unfoldDir(_)): PathGen[IO, Path]
+        )
+      }
+    val childMany = Opts
+      .options[Path](
+        arg + "_all_subdir",
+        help = s"all $help recursively in all directories"
+      )
+      .orEmpty
+      .map { paths =>
+        paths.foldMap(
+          PathGen
+            .ChildrenOfDir[IO, Path](_, select, true, platformIO.unfoldDir(_)): PathGen[IO, Path]
+        )
+      }
+
+    (direct, child1, childMany).mapN { (a, b, c) =>
+      (a :: b :: c :: Nil).combineAll
+    }
+  }
 }
