@@ -23,12 +23,10 @@ import cats.syntax.all._
   * is to allow it to be testable and usable in scalajs where we don't have
   * file-IO
   */
-abstract class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
+class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   type F[A] = IO[A]
 
   import platformIO._
-
-  def withEC[A](fn: Par.EC => IO[A]): IO[A]
 
   //////////////////////////////
   // Below here are concrete and should not use override

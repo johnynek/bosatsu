@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.data.Validated
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import fs2.io.file.{Files, Path}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
@@ -31,6 +31,13 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   val pathOrdering: Ordering[Path] = Path.instances.toOrdering
 
   private val FilesIO = Files.forIO
+
+  private val parResource: Resource[IO, Par.EC] =
+    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+      .map(Par.ecFromService(_))
+
+  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+    parResource.use(fn)
 
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
