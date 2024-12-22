@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{Ior, Validated, NonEmptyList}
+import cats.data.{Chain, Ior, Validated, NonEmptyList}
 import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
 import org.bykn.bosatsu.tool.Output
@@ -153,18 +153,17 @@ object TestUtils {
   }
 
 
-  def makeInputArgs(files: List[(Int, Any)]): List[String] =
-    ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap {
-      case (idx, _) => "--input" :: idx.toString :: Nil
+  def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
+    ("--package_root" :: "" :: Nil) ::: files.flatMap {
+      case (idx, _) => "--input" :: idx.iterator.mkString("/") :: Nil
     }
 
-  private val module = MemoryMain[Either[Throwable, *], Int]({ idx =>
-    if (idx == Int.MaxValue) Nil
-    else List(s"Package$idx")
-  })
+  private val module = MemoryMain[Either[Throwable, *]]
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
-    val files = packages.zipWithIndex.map(_.swap)
+    val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
+      Chain.one(s"Package$idx") -> content 
+    }
 
     module.runWith(files)(
       "eval" :: "--main" :: mainPackS :: makeInputArgs(files)
@@ -190,7 +189,9 @@ object TestUtils {
       mainPackS: String,
       expected: Json
   ) = {
-    val files = packages.zipWithIndex.map(_.swap)
+    val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
+      Chain.one(s"Package$idx") -> content 
+    }
 
     module.runWith(files)(
       "json" :: "write" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(
@@ -211,7 +212,9 @@ object TestUtils {
       mainPackS: String,
       assertionCount: Int
   ) = {
-    val files = packages.zipWithIndex.map(_.swap)
+    val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
+      Chain.one(s"Package$idx") -> content 
+    }
 
     module.runWith(files)(
       "test" :: "--test_package" :: mainPackS :: makeInputArgs(files)

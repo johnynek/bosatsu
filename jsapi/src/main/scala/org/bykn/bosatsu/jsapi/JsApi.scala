@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 package jsapi
 
+import cats.data.Chain
 import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.tool.Output
 import scala.scalajs.js
@@ -16,10 +17,13 @@ object JsApi {
   private def splitPath(p: String): List[String] =
     p.split("/", -1).toList.map(_.toLowerCase.capitalize)
 
-  private val module = MemoryMain[Either[Throwable, *], String](splitPath)
+  def normalize(s: String): String =
+    splitPath(s).mkString("/")
+
+  private val module = MemoryMain[Either[Throwable, *]]
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
-    keys.iterator.flatMap(key => "--input" :: key :: Nil).toList
+    keys.iterator.flatMap(key => "--input" :: normalize(key) :: Nil).toList
 
   class Error(val error_message: String) extends js.Object
 
@@ -37,7 +41,13 @@ object JsApi {
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
-    module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
+
+    val filePaths = files.iterator.map { case (k, data) =>
+      Chain.fromSeq(splitPath(k)) -> data
+    }
+    .toMap
+
+    module.runWith(filePaths)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
       case Right(Output.EvaluationResult(_, tpe, resDoc)) =>
@@ -86,7 +96,13 @@ object JsApi {
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
-    module.runWith(files)(
+
+    val filePaths = files.iterator.map { case (k, data) =>
+      Chain.fromSeq(splitPath(k)) -> data
+    }
+    .toMap
+
+    module.runWith(filePaths)(
       "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(
         files.keys
       )

@@ -32,8 +32,20 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   private val FilesIO = Files.forIO
 
-  def readPath(p: Path): IO[String] =
+  def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
+
+  def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
+    FilesIO.exists(p, followLinks = true)
+      .flatMap {
+        case false => IO.pure(None)
+        case true =>
+          FilesIO.isDirectory(p, followLinks = true)
+            .map {
+              case true => Some(PlatformIO.FSDataType.Dir)
+              case false => Some(PlatformIO.FSDataType.File)
+            }
+      }
 
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     paths.parTraverse { path =>
@@ -66,6 +78,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       else None
     }
 
+  def resolve(p: Path, c: String): Path = p.resolve(c)
+
   /** Modules optionally have the capability to combine paths into a tree
     */
   val resolvePath: Option[(Path, PackageName) => IO[Option[Path]]] = Some {
@@ -84,18 +98,15 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     *
     * if the given path is a directory, return Some and all the first children.
     */
-  def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
-    (path: Path) => {
-      FilesIO.isDirectory(path, followLinks = true)
-        .map {
-          case true => Some {
-            // create a list of children
-            FilesIO.list(path).compile.toList
-          }
-          case false => None
+  def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
+    FilesIO.isDirectory(path, followLinks = true)
+      .map {
+        case true => Some {
+          // create a list of children
+          FilesIO.list(path).compile.toList
         }
-    }
-  }
+        case false => None
+      }
 
   def hasExtension(str: String): Path => Boolean =
     { (path: Path) => path.extName == str }
@@ -114,11 +125,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .compile
       .drain
 
-  def resolve(base: Path, p: List[String]): Path =
-    p.foldLeft(base)(_.resolve(_))
-
-  // this is println actually
-  def print(str: String): IO[Unit] =
+  def println(str: String): IO[Unit] =
     IO.println(str)
 
   def writeInterfaces(

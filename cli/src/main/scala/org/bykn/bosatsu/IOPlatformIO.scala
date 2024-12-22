@@ -26,29 +26,23 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   override def pathArg: Argument[Path] =
     Argument.readPath
 
-  def resolve(base: JPath, p: List[String]): JPath =
-    p.foldLeft(base)(_.resolve(_))
-
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
 
-  def readPath(path: Path): IO[String] =
+  def readUtf8(path: Path): IO[String] =
     IO.blocking(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
 
-  val resolvePath: Some[(Path, PackageName) => IO[Option[Path]]] =
-    Some(
-      { (root: Path, pack: PackageName) =>
-        val dir = pack.parts.init.foldLeft(root)(_.resolve(_))
-        val filePath = dir.resolve(pack.parts.last + ".bosatsu")
-        IO.blocking {
-          // this is a side-effect since file is mutable
-          // and talks to the file system
-          val file = filePath.toFile
-          if (file.exists()) Some(filePath)
-          else None
-        }
+  def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
+    IO.blocking {
+      val f = p.toFile()
+      if (f.exists()) Some {
+        if (f.isDirectory()) PlatformIO.FSDataType.Dir
+        else PlatformIO.FSDataType.File
       }
-    )
+      else None
+    }
+
+  def resolve(p: Path, c: String): Path = p.resolve(c)
 
   def read[A <: GeneratedMessage](
       path: Path
@@ -106,18 +100,16 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 
-  def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
-    (path: Path) =>
-      IO.blocking {
-        val f = path.toFile
+  def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
+    IO.blocking {
+      val f = path.toFile
 
-        if (f.isDirectory()) {
-          Some(IO.blocking {
-            f.listFiles.iterator.map(_.toPath).toList
-          })
-        } else None
-      }
-  }
+      if (f.isDirectory()) {
+        Some(IO.blocking {
+          f.listFiles.iterator.map(_.toPath).toList
+        })
+      } else None
+    }
 
   def hasExtension(str: String): Path => Boolean = { (path: Path) =>
     path.toString.endsWith(str)
@@ -142,7 +134,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
-  def print(str: String): IO[Unit] =
+  def println(str: String): IO[Unit] =
     IO.println(str)
 
   def writeStdout(doc: Doc): IO[Unit] =
