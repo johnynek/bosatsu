@@ -1,7 +1,8 @@
 .PHONY: install
 
 OS := $(shell uname)
-VERSION := $(shell ../bosatsuj version -g)
+ROOTDIR := $(shell git rev-parse --show-toplevel)
+VERSION := $(shell $(ROOTDIR)/bosatsuj version -g)
 
 # Platform-specific settings
 ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
@@ -47,5 +48,5 @@ bosatsu_platform.a: bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o 
 boehm_example: boehm_example.c
 	gcc $(CFLAGS) boehm_example.c $(LIBS) -o boehm_example
 
-install: bosatsu_platform.a bosatsu_decls_generated.h bosatsu_generated.h bosatsu_ext_Bosatsu_l_Predef.h bosatsu_ext_Bosatsu_l_Prog.h
-	python3 install.py --include bosatsu_decls_generated.h --include bosatsu_generated.h --include bosatsu_ext_Bosatsu_l_Predef.h --include bosatsu_ext_Bosatsu_l_Prog.h --lib bosatsu_platform.a --version $(VERSION)
+install: bosatsu_platform.a bosatsu_decls_generated.h bosatsu_generated.h bosatsu_ext_Bosatsu_l_Predef.h bosatsu_ext_Bosatsu_l_Prog.h bosatsu_runtime.h
+	python3 install.py --include bosatsu_decls_generated.h --include bosatsu_generated.h --include bosatsu_ext_Bosatsu_l_Predef.h --include bosatsu_ext_Bosatsu_l_Prog.h --include bosatsu_runtime.h --lib bosatsu_platform.a --version $(VERSION)

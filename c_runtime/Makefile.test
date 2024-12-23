@@ -1,6 +1,7 @@
 OS := $(shell uname)
 
-BOSATSU_DIR = /Users/oscar/code/bosatsu/.bosatsuc/$(shell ../bosatsuj version -g)
+ROOTDIR := $(shell git rev-parse --show-toplevel)
+BOSATSU_DIR = $(ROOTDIR)/.bosatsuc/$(shell ../bosatsuj version -g)
 
 # Check if LIB_DIR exists
 ifeq ($(shell [ -d $(BOSATSU_DIR)/lib ] && echo yes),)
