@@ -817,16 +817,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
-    case class Version(useGit: Option[String], output: Option[Path]) extends MainCommand("version") {
-      type Result = Output.Basic[Path]
-      def run = {
-        val vStr = useGit match {
-          case Some(v) => v
-          case None => BuildInfo.version
-        }
-
-        moduleIOMonad.pure(Output.Basic(Doc.text(vStr), output))
-      }
+    case class FromOutput[Out <: Output[Path]](commandName: String, run: IO[Out]) extends MainCommand(commandName) {
+      type Result = Out
     }
 
     def toTry[A](
@@ -1019,8 +1011,15 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
           Opts.subcommand("version", "print to stdout the version of the tool")(
             (gitOpt, Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o").orNone)
-            .mapN((g, o) => Version(useGit = g, output = o))
-          )
+            .mapN { (useGit, outPath) =>
+              val vStr = useGit match {
+                case Some(v) => v
+                case None => BuildInfo.version
+              }
+
+            val out = moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
+            FromOutput("version", out)
+          })
         }
     }
 
