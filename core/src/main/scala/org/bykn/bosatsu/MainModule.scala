@@ -817,18 +817,16 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
-    case class Version(useGit: Boolean, output: Option[Path]) extends MainCommand("version") {
+    case class Version(useGit: Option[String], output: Option[Path]) extends MainCommand("version") {
       type Result = Output.Basic[Path]
-      def run =
-        if (useGit) {
-          BuildInfo.gitHeadCommit match {
-            case Some(v) => moduleIOMonad.pure(Output.Basic(Doc.text(v), output))
-            case None => moduleIOMonad.raiseError(new Exception(s"gitHeadCommit is not set it build."))
-          }
+      def run = {
+        val vStr = useGit match {
+          case Some(v) => v
+          case None => BuildInfo.version
         }
-        else {
-          moduleIOMonad.pure(Output.Basic(Doc.text(BuildInfo.version), output))
-        }
+
+        moduleIOMonad.pure(Output.Basic(Doc.text(vStr), output))
+      }
     }
 
     def toTry[A](
@@ -1007,12 +1005,20 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           )
         )
         .orElse {
+          val gitOpt =
+            BuildInfo.gitHeadCommit match {
+              case Some(gitVer) =>
+                // We can see at build time if the git version is set, if it isn't set
+                // don't create the option (in practice this will almost never happen)
+                Opts.flag("git", help = s"use the git-sha ($gitVer) the compiler was built at.", "g")
+                  .orFalse
+                  .map(if (_) Some(gitVer) else None)
+              case None =>
+                Opts(None)
+            }
+
           Opts.subcommand("version", "print to stdout the version of the tool")(
-            (Opts.flag("git", help = "use the git-sha the compiler was built at.", "g")
-              .orFalse,
-              Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o")
-                .orNone
-            )
+            (gitOpt, Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o").orNone)
             .mapN((g, o) => Version(useGit = g, output = o))
           )
         }
