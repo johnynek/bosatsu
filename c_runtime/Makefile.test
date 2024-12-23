@@ -2,6 +2,11 @@ OS := $(shell uname)
 
 BOSATSU_DIR = /Users/oscar/code/bosatsu/.bosatsuc/$(shell ../bosatsuj version -g)
 
+# Check if LIB_DIR exists
+ifeq ($(shell [ -d $(BOSATSU_DIR)/lib ] && echo yes),)
+$(error The library directory "$(BOSATSU_DIR)/lib" does not exist. Please run make install in the c_runtime directory.)
+endif
+
 # Platform-specific settings
 ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
     LATEST_VERSION := $(shell ls -v /opt/homebrew/Cellar/bdw-gc | tail -n 1)
