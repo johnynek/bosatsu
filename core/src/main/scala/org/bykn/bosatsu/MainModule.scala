@@ -817,6 +817,20 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
+    case class Version(useGit: Boolean, output: Option[Path]) extends MainCommand("version") {
+      type Result = Output.Basic[Path]
+      def run =
+        if (useGit) {
+          BuildInfo.gitHeadCommit match {
+            case Some(v) => moduleIOMonad.pure(Output.Basic(Doc.text(v), output))
+            case None => moduleIOMonad.raiseError(new Exception(s"gitHeadCommit is not set it build."))
+          }
+        }
+        else {
+          moduleIOMonad.pure(Output.Basic(Doc.text(BuildInfo.version), output))
+        }
+    }
+
     def toTry[A](
         cmd: MainCommand,
         v: ValidatedNel[PathParseError[Path], A],
@@ -992,6 +1006,16 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               .mapN(Deps(_, _, _, _))
           )
         )
+        .orElse {
+          Opts.subcommand("version", "print to stdout the version of the tool")(
+            (Opts.flag("git", help = "use the git-sha the compiler was built at.", "g")
+              .orFalse,
+              Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o")
+                .orNone
+            )
+            .mapN((g, o) => Version(useGit = g, output = o))
+          )
+        }
     }
 
     def command: Command[MainCommand] = {
@@ -1194,6 +1218,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
             writeOut(fullDoc, output).as(ExitCode.Success)
         }
+
+      case Output.Basic(doc, out) =>
+        writeOut(doc, out).as(ExitCode.Success)
     }
 
   private def stackTraceToString(t: Throwable): String = {

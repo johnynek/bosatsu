@@ -1,4 +1,7 @@
+.PHONY: install
+
 OS := $(shell uname)
+VERSION := $(shell ../bosatsuj version -g)
 
 # Platform-specific settings
 ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
@@ -38,5 +41,11 @@ bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
 	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Prog.c
 
+bosatsu_platform.a: bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_runtime.o
+	ar rcs bosatsu_platform.a bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_runtime.o
+
 boehm_example: boehm_example.c
 	gcc $(CFLAGS) boehm_example.c $(LIBS) -o boehm_example
+
+install: bosatsu_platform.a bosatsu_decls_generated.h bosatsu_generated.h bosatsu_ext_Bosatsu_l_Predef.h bosatsu_ext_Bosatsu_l_Prog.h
+	python3 install.py --include bosatsu_decls_generated.h --include bosatsu_generated.h --include bosatsu_ext_Bosatsu_l_Predef.h --include bosatsu_ext_Bosatsu_l_Prog.h --lib bosatsu_platform.a --version $(VERSION)
