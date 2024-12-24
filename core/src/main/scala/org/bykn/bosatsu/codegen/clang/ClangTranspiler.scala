@@ -119,7 +119,10 @@ case object ClangTranspiler extends Transpiler {
         _ <- platformIO.fsDataType(confPath).flatMap {
           case Some(PlatformIO.FSDataType.File) => moduleIOMonad.unit
           case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
-            moduleIOMonad.raiseError[Unit](new Exception(s"expected a CcConf json file at ${platformIO.pathToString(confPath)} but found: $res.\n\nPerhaps you need to `make install` the c_runtime"))
+            moduleIOMonad.raiseError[Unit](
+              new Exception(s"expected a CcConf json file at ${platformIO.pathToString(confPath)} but found: $res.\n\n" +
+                "Perhaps you need to `make install` the c_runtime")
+            )
         }
         ccConf <- parseCCFile(confPath)
       } yield ccConf
