@@ -817,6 +817,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
+    case class FromOutput[Out <: Output[Path]](commandName: String, run: IO[Out]) extends MainCommand(commandName) {
+      type Result = Out
+    }
+
     def toTry[A](
         cmd: MainCommand,
         v: ValidatedNel[PathParseError[Path], A],
@@ -992,6 +996,31 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               .mapN(Deps(_, _, _, _))
           )
         )
+        .orElse {
+          val gitOpt =
+            BuildInfo.gitHeadCommit match {
+              case Some(gitVer) =>
+                // We can see at build time if the git version is set, if it isn't set
+                // don't create the option (in practice this will almost never happen)
+                Opts.flag("git", help = s"use the git-sha ($gitVer) the compiler was built at.", "g")
+                  .orFalse
+                  .map(if (_) Some(gitVer) else None)
+              case None =>
+                Opts(None)
+            }
+
+          Opts.subcommand("version", "print to stdout the version of the tool")(
+            (gitOpt, Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o").orNone)
+            .mapN { (useGit, outPath) =>
+              val vStr = useGit match {
+                case Some(v) => v
+                case None => BuildInfo.version
+              }
+
+            val out = moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
+            FromOutput("version", out)
+          })
+        }
     }
 
     def command: Command[MainCommand] = {
@@ -1194,6 +1223,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
             writeOut(fullDoc, output).as(ExitCode.Success)
         }
+
+      case Output.Basic(doc, out) =>
+        writeOut(doc, out).as(ExitCode.Success)
     }
 
   private def stackTraceToString(t: Throwable): String = {

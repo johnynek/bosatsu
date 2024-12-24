@@ -41,4 +41,6 @@ object Output {
       output: Option[Path],
       style: GraphOutput
   ) extends Output[Path]
+
+  case class Basic[Path](toDoc: Doc, output: Option[Path]) extends Output[Path]
 }

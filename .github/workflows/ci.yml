@@ -139,6 +139,8 @@ jobs:
           - '8'
     steps:
       - uses: "actions/checkout@v2.1.0"
+      - name: "build assembly"
+        run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "install boehm"
         run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev"
       - name: "test runtime code"
@@ -147,9 +149,8 @@ jobs:
           rm -f test_exe
           make && git diff --quiet || { git diff; false; }
           make boehm_example
+          make install
           ./test_exe && ./boehm_example && cd ..
-      - name: "build assembly"
-        run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "generate c code"
         run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --outdir c_out c --test"
       - name: "compile generated c code"
@@ -158,8 +159,8 @@ jobs:
           cp c_runtime/*.c c_out
           cp c_runtime/Makefile.test c_out/Makefile
           cd c_out
-          make
-          cat output.log
+          make test_out
+          cat test_out
     timeout-minutes: 30
 name: ci
 on:

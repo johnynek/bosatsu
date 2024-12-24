@@ -48,6 +48,7 @@ project/project/*
 jsui/bosatsu_ui.js
 
 c_runtime/*.o
+c_runtime/*.a
 c_runtime/test_exe
 c_runtime/test_out
 c_runtime/boehm_example
