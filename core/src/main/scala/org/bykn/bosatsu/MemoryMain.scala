@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.MonadError
-import cats.data.{Chain, Kleisli, Validated}
+import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 import org.bykn.bosatsu.tool.Output
@@ -11,8 +11,8 @@ import cats.syntax.all._
 import cats.data.ValidatedNel
 
 class MemoryMain[G[_]](
-  platform: PlatformIO[Kleisli[G, MemoryMain.State, *], Chain[String]]) extends
-  MainModule[Kleisli[G, MemoryMain.State, *], Chain[String]](platform) {
+  platform: PlatformIO[StateT[G, MemoryMain.State, *], Chain[String]]) extends
+  MainModule[StateT[G, MemoryMain.State, *], Chain[String]](platform) {
 
   def runWith(
       files: Iterable[(Chain[String], String)],
@@ -24,7 +24,7 @@ class MemoryMain[G[_]](
         for {
           state <- MemoryMain.State.from(files, packages, interfaces)
           res <- io.run(state)
-        } yield res
+        } yield res._2
       case Left(msg) =>
         G.raiseError[Output[Chain[String]]](
           new Exception(s"got the help message for: $cmd: $msg")
@@ -40,7 +40,7 @@ object MemoryMain {
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
   }
 
-  case class State(children: SortedMap[String, Either[State, FileContent]]) {
+  case class State(children: SortedMap[String, Either[State, FileContent]], stdOut: Doc, stdErr: Doc) {
     def get(path: Chain[String]): Option[Either[State, FileContent]] =
       path.uncons match {
         case None => Some(Left(this))
@@ -102,7 +102,8 @@ object MemoryMain {
   }
 
   object State {
-    val empty: State = State(SortedMap.empty)
+    val empty: State = State(SortedMap.empty, Doc.empty, Doc.empty)
+
     def from[G[_]](
         files: Iterable[(Chain[String], String)],
         packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
@@ -145,12 +146,12 @@ object MemoryMain {
     new MemoryMain(memoryPlatformIO[G])
 
   def memoryPlatformIO[G[_]](implicit
-    innerMonad: MonadError[G, Throwable]): PlatformIO[Kleisli[G, State, *], Chain[String]] = {
+    innerMonad: MonadError[G, Throwable]): PlatformIO[StateT[G, State, *], Chain[String]] = {
 
-      val catsDefaultME = implicitly[MonadError[Kleisli[G, State, *], Throwable]]
+      val catsDefaultME = implicitly[MonadError[StateT[G, State, *], Throwable]]
 
-      new PlatformIO[Kleisli[G, State, *], Chain[String]] {
-        type F[A] = Kleisli[G, State, A]
+      new PlatformIO[StateT[G, State, *], Chain[String]] {
+        type F[A] = StateT[G, State, A]
         type Path = Chain[String]
         def moduleIOMonad: MonadError[F, Throwable] = catsDefaultME
         def pathOrdering = Chain.catsDataOrderForChain[String].toOrdering
@@ -163,10 +164,12 @@ object MemoryMain {
           }
 
       def withEC[A](fn: Par.EC => F[A]): F[A] =
-        Kleisli { state =>
+        StateT { state =>
           // this is safe to use the side-effects
           // of Par here because they are local to this method
-          // and can't escape or be deferred
+          // and can't escape or be deferred as long as F is not
+          // lazy. If F is lazy, such as Eval, this will not work
+          // because we need ec to be active while F is evaluated
           val es = Par.newService()
           try {
             val ec = Par.ecFromService(es)
@@ -179,8 +182,8 @@ object MemoryMain {
         }
 
         def readUtf8(p: Path): F[String] =
-          Kleisli
-            .ask[G, State]
+          StateT
+            .get[G, State]
             .flatMap { files =>
               files.get(p) match {
                 case Some(Right(MemoryMain.FileContent.Str(res))) => moduleIOMonad.pure(res)
@@ -191,9 +194,9 @@ object MemoryMain {
               }
             }
 
-        def fsDataType(p: Path): Kleisli[G,State,Option[PlatformIO.FSDataType]] =
-          Kleisli
-            .ask[G, State]
+        def fsDataType(p: Path): StateT[G,State,Option[PlatformIO.FSDataType]] =
+          StateT
+            .get[G, State]
             .map { files =>
               files.get(p) match {
                 case Some(Right(_)) => Some(PlatformIO.FSDataType.File)
@@ -206,8 +209,8 @@ object MemoryMain {
           p :+ child
 
         def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]] =
-          Kleisli
-            .ask[G, MemoryMain.State]
+          StateT
+            .get[G, MemoryMain.State]
             .flatMap { files =>
               paths
                 .traverse { path =>
@@ -224,8 +227,8 @@ object MemoryMain {
             }
 
         def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
-          Kleisli
-            .ask[G, MemoryMain.State]
+          StateT
+            .get[G, MemoryMain.State]
             .flatMap { files =>
               paths
                 .traverse { path =>
@@ -242,8 +245,8 @@ object MemoryMain {
             }
 
         def unfoldDir(path: Path): F[Option[F[List[Path]]]] =
-          Kleisli
-            .ask[G, MemoryMain.State]
+          StateT
+            .get[G, MemoryMain.State]
             .map { files =>
               files.get(path).flatMap {
                 case Left(state) =>
@@ -271,23 +274,38 @@ object MemoryMain {
           roots.collectFirstSome(getP)
         }
 
+        def writeFC(p: Path, fc: FileContent): F[Unit] =
+          StateT.modifyF { state =>
+            state.withFile(p, fc) match {
+              case Some(newState) => innerMonad.pure(newState)
+              case None => 
+                innerMonad.raiseError(
+                  new Exception(s"couldn't write to $p because it is already a directory.")
+                )
+            }
+          }
+
         def writeDoc(p: Path, d: Doc): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"writeDoc($p, $d) is unimplemented on a read only platform"))
+          writeFC(p, FileContent.Str(d.renderTrim(100)))
 
         def writeInterfaces(ifaces: List[Package.Interface], path: Path): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"writeInterfaces($ifaces, $path) is unimplemented on a read only platform"))
+          writeFC(path, FileContent.Interfaces(ifaces))
 
         def writePackages[A](packs: List[Package.Typed[A]], path: Path): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"writePackages($packs, $path) is unimplemented on a read only platform"))
+          writeFC(path, FileContent.Packages(packs.map(_.void)))
 
         def writeStdout(doc: Doc): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"writeStdout($doc) is unimplemented on a read only platform"))
+          StateT.modify { state =>
+            state.copy(stdOut = state.stdOut + (doc + Doc.hardLine))
+          }
 
         def println(str: String): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"println($str) is unimplemented on a read only platform"))
+          writeStdout(Doc.text(str))
 
         def errorln(str: String): F[Unit] =
-          catsDefaultME.raiseError(new Exception(s"errorln($str) is unimplemented on a read only platform"))
+          StateT.modify { state =>
+            state.copy(stdErr = state.stdErr + (Doc.text(str) + Doc.hardLine))
+          }
 
         override def resolve(base: Path, parts: List[String]): Path =
           base ++ Chain.fromSeq(parts)
