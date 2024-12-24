@@ -251,13 +251,6 @@ case object ClangTranspiler extends Transpiler {
           case Left(err) => moduleIOMonad.raiseError(GenError(err))
           case Right(doc) =>
             val outputName = resolve(outDir, args.output.cOut)
-            val compileResult = args.output.exeOut match {
-              case None => moduleIOMonad.unit
-              case Some((exe, fcc)) =>
-                fcc.flatMap { ccConf =>
-                  ccConf.compile(outputName, resolve(outDir, exe))(args.platformIO)  
-                }
-            }
             val externalHeaders =
               if (args.generateExternals.generate) {
                 ext.generateExternalsStub
@@ -268,7 +261,18 @@ case object ClangTranspiler extends Transpiler {
               }
               else Nil
 
-            compileResult.as((outputName -> doc) :: externalHeaders)
+            args.output.exeOut match {
+              case None => moduleIOMonad.pure(
+                (outputName -> doc) :: externalHeaders
+              )
+              case Some((exe, fcc)) =>
+                for {
+                  ccConf <- fcc
+                  // we have to write the c code before we can compile
+                  _ <- args.platformIO.writeDoc(outputName, doc)
+                  _ <- ccConf.compile(outputName, resolve(outDir, exe))(args.platformIO)  
+                } yield externalHeaders
+            }
         }
     }
   }
