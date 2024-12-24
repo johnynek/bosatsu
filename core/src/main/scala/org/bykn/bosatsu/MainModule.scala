@@ -271,10 +271,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
     }
 
-    val transOpt: Opts[Transpiler.Optioned[Path]] =
+    val transOpt: Opts[Transpiler.Optioned[F, Path]] =
       cats.Alternative[Opts].combineAllK(
-        codegen.python.PythonTranspiler.opts(pathArg) ::
-        codegen.clang.ClangTranspiler.opts(pathArg) ::
+        codegen.python.PythonTranspiler.opts(platformIO) ::
+        codegen.clang.ClangTranspiler.opts(platformIO) ::
         Nil)
 
     sealed abstract class JsonInput {
@@ -452,7 +452,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     case class TranspileCommand(
         inputs: Inputs.Runtime,
         errColor: Colorize,
-        generator: Transpiler.Optioned[Path],
+        generator: Transpiler.Optioned[F, Path],
         outDir: Path
     ) extends MainCommand("transpile") {
 
@@ -463,10 +463,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            optString <- generator.traverse(readUtf8)
-            dataTry = optString.transpiler.renderAll(packs, optString.args)
-            data <- moduleIOMonad.fromTry(dataTry)
-          } yield Output.TranspileOut(data, outDir)
+            data <- generator.transpiler.renderAll(outDir, packs, generator.args)
+          } yield Output.TranspileOut(data)
         }
     }
 
@@ -1062,10 +1060,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
 
-      case Output.TranspileOut(outs, base) =>
+      case Output.TranspileOut(outs) =>
         outs.toList
           .map { case (p, d) =>
-            (p, platformIO.writeDoc(platformIO.resolve(base, p.toList), d))
+            (p, platformIO.writeDoc(p, d))
           }
           .sortBy(_._1)
           .traverse_ { case (_, w) => w }

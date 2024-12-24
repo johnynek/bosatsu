@@ -1,11 +1,10 @@
 package org.bykn.bosatsu.codegen.clang
 
-import cats.Traverse
-import cats.data.{Const, NonEmptyList, Validated}
+import cats.data.{NonEmptyList, Validated}
 import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
 import org.bykn.bosatsu.codegen.Transpiler
-import org.bykn.bosatsu.{Identifier, MatchlessFromTypedExpr, Package, PackageName, PackageMap, Par, TypedExpr, TypeName}
+import org.bykn.bosatsu.{BuildInfo, Identifier, Json, MatchlessFromTypedExpr, Package, PackageName, PackageMap, Par, PlatformIO, TypedExpr, TypeName}
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
@@ -81,15 +80,70 @@ case object ClangTranspiler extends Transpiler {
           .orElse(Opts(GenExternalsMode(false)))
   }
 
-  case class Arguments(mode: Mode, emit: EmitMode, generateExternals: GenExternalsMode)
-  type Args[P] = Const[Arguments, P]
+  case class Output[F[_], P](cOut: P, exeOut: Option[(P, F[CcConf])])
+  object Output {
+    def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Output[F, P]] = {
+      import platformIO.{moduleIOMonad, pathArg}
 
-  def traverseArgs: Traverse[Args] = implicitly
+      val cOpt = Opts.option[P]("output", "o", "name of output c code file.")
+        .orElse {
+          Opts("output.c")
+            .mapValidated(platformIO.path(_))
+        }
 
-  def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]] =
+      def parseCCFile(confPath: P): F[CcConf] =
+        for {
+          jsonStr <- platformIO.readUtf8(confPath) 
+          json <- Json.parserFile.parseAll(jsonStr) match {
+            case Right(j) => moduleIOMonad.pure(j)
+            case Left(e) =>  moduleIOMonad.raiseError(new Exception(s"couldn't parse json at: ${platformIO.pathToString(confPath)}\n$e"))
+          }
+          ccConf <- CcConf.parse(json) match {
+            case Right(cc) => moduleIOMonad.pure(cc)
+            case Left((str, j)) =>
+              moduleIOMonad.raiseError(new Exception(s"when parsing ${platformIO.pathToString(confPath)} got error: $str at json: $j"))
+          }
+        } yield ccConf
+      
+      val defaultCcConf = for {
+        rootOpt <- platformIO.gitTopLevel
+        root <- rootOpt match {
+          case Some(p) => moduleIOMonad.pure(p)
+          case None => moduleIOMonad.raiseError(new Exception("could not find .git directory to locate default cc_conf"))
+        }
+        gitSha <- BuildInfo.gitHeadCommit match {
+          case Some(g) => moduleIOMonad.pure(g)
+          case None => moduleIOMonad.raiseError(new Exception("compiler was built without a git-sha"))
+        }
+        confPath = platformIO.resolve(root, ".bosatsuc" :: gitSha :: "cc_conf.json" :: Nil)
+        _ <- platformIO.fsDataType(confPath).flatMap {
+          case Some(PlatformIO.FSDataType.File) => moduleIOMonad.unit
+          case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
+            moduleIOMonad.raiseError[Unit](new Exception(s"expected a CcConf json file at ${platformIO.pathToString(confPath)} but found: $res.\n\nPerhaps you need to `make install` the c_runtime"))
+        }
+        ccConf <- parseCCFile(confPath)
+      } yield ccConf
+
+      val exeOpt =
+        (Opts.option[P]("exe_out", help = "if set, compile the c code to an executable", short = "e"),
+          Opts.option[P]("cc_conf", help = "path to cc_conf.json file which configures c compilation on this platform")
+            .orNone
+            .map {
+              case Some(p) => parseCCFile(p)
+              case None => defaultCcConf
+            }).tupled
+
+      (cOpt, exeOpt.orNone).mapN(Output(_, _))
+    }
+  }
+
+  case class Arguments[F[_], P](mode: Mode, emit: EmitMode, generateExternals: GenExternalsMode, output: Output[F, P], platformIO: PlatformIO[F, P])
+  type Args[F[_], P] = Arguments[F, P]
+
+  def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Transpiler.Optioned[F, P]] =
     Opts.subcommand("c", "generate c code") {
-      (Mode.opts, EmitMode.opts, GenExternalsMode.opts).mapN { (m, e, g) =>
-        Transpiler.optioned(this)(Const[Arguments, P](Arguments(m, e, g)))
+      (Mode.opts, EmitMode.opts, GenExternalsMode.opts, Output.opts[F, P](platformIO)).mapN { (m, e, g, out) =>
+        Transpiler.optioned(this)(Arguments(m, e, g, out, platformIO))
       }
     }
 
@@ -137,23 +191,26 @@ case object ClangTranspiler extends Transpiler {
     }
   }
 
-  def renderAll(
+  def renderAll[F[_], P](
+      outDir: P,
       pm: PackageMap.Typed[Any],
-      args: Args[String]
-  )(implicit ec: Par.EC): Try[List[(NonEmptyList[String], Doc)]] = {
+      args: Args[F, P]
+  )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
+    import args.platformIO._
+
     // we have to render the code in sorted order
     val sorted = pm.topoSort
     NonEmptyList.fromList(sorted.loopNodes) match {
-      case Some(loop) => Failure(CircularPackagesFound(loop))
+      case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
       case None =>
         val ext = externalsFor(pm)
-        val doc = args.getConst.mode match {
+        val doc = args.mode match {
           case Mode.Main(p) =>
             pm.toMap.get(p).flatMap(Package.mainValue(_)) match {
               case Some((b, _, t)) =>
                 validMain(t) match {
                   case Right(mainRun) =>
-                    val pm1 = args.getConst.emit(pm, Set((p, b)))
+                    val pm1 = args.emit(pm, Set((p, b)))
                     val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
                     val sortedEnv = cats.Functor[Vector]
                         .compose[NonEmptyList]
@@ -164,17 +221,17 @@ case object ClangTranspiler extends Transpiler {
                       externals = ext,
                       value = (p, b, mainRun))
                   case Left(invalid) =>
-                    return Failure(InvalidMainValue(p, invalid))
+                    return moduleIOMonad.raiseError(InvalidMainValue(p, invalid))
                 }
               case None =>
-                return Failure(InvalidMainValue(p, "empty package"))
+                return moduleIOMonad.raiseError(InvalidMainValue(p, "empty package"))
             }
           case test @ Mode.Test(_, re) =>
             test.values(pm) match {
               case Nil =>
-                return Failure(NoTestsFound(pm.toMap.keySet.toList.sorted, re))
+                return moduleIOMonad.raiseError(NoTestsFound(pm.toMap.keySet.toList.sorted, re))
               case nonEmpty =>
-                val pm1 = args.getConst.emit(pm, nonEmpty.toSet)
+                val pm1 = args.emit(pm, nonEmpty.toSet)
                 val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
                 val sortedEnv = cats.Functor[Vector]
                     .compose[NonEmptyList]
@@ -188,23 +245,27 @@ case object ClangTranspiler extends Transpiler {
         }
 
         doc match {
-          case Left(err) => Failure(GenError(err))
+          case Left(err) => moduleIOMonad.raiseError(GenError(err))
           case Right(doc) =>
-            // TODO: this name needs to be an option
-            val outputName = NonEmptyList("output.c", Nil)
-
+            val outputName = resolve(outDir, args.output.cOut)
+            val compileResult = args.output.exeOut match {
+              case None => moduleIOMonad.unit
+              case Some((exe, fcc)) =>
+                fcc.flatMap { ccConf =>
+                  ccConf.compile(outputName, resolve(outDir, exe))(args.platformIO)  
+                }
+            }
             val externalHeaders =
-              if (args.getConst.generateExternals.generate) {
+              if (args.generateExternals.generate) {
                 ext.generateExternalsStub
                 .iterator.map { case (n, d) =>
-                  NonEmptyList.one(n) -> d  
+                  resolve(outDir, n) -> d  
                 }
                 .toList
               }
               else Nil
 
-            // TODO: always outputing the headers may not be right, maybe an option
-            Success((outputName -> doc) :: externalHeaders)
+            compileResult.as((outputName -> doc) :: externalHeaders)
         }
     }
   }

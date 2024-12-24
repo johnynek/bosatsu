@@ -6,6 +6,8 @@ import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
+import cats.data.Validated.Invalid
+import cats.data.Validated.Valid
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
@@ -16,6 +18,9 @@ trait PlatformIO[F[_], Path] {
 
   final def path(str: String): ValidatedNel[String, Path] =
     pathArg.read(str)
+
+  // this must return a parseable String
+  def pathToString(path: Path): String
 
   def readUtf8(p: Path): F[String]
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
@@ -29,6 +34,7 @@ trait PlatformIO[F[_], Path] {
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
 
   def resolve(p: Path, child: String): Path
+  def resolve(p: Path, child: Path): Path
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)
     val filePath = resolve(dir, pack.parts.last + ".bosatsu")
@@ -48,6 +54,26 @@ trait PlatformIO[F[_], Path] {
 
   def writeDoc(p: Path, d: Doc): F[Unit]
   def writeStdout(doc: Doc): F[Unit]
+
+  def system(command: String, args: List[String]): F[Unit]
+
+  def gitTopLevel: F[Option[Path]] = {
+    def searchStep(current: Path): F[Either[Path, Option[Path]]] =
+      fsDataType(current).flatMap {
+        case Some(PlatformIO.FSDataType.Dir) => 
+          fsDataType(resolve(current, ".git"))
+            .map {
+              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
+              case _ => Left(resolve(current, ".."))
+            }
+        case _ => moduleIOMonad.pure(Right(None))
+      }
+
+    path(".") match {
+      case Valid(a) => moduleIOMonad.tailRecM(a)(searchStep)
+      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"could not find current directory: $e"))
+    }
+  }
 
   final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
     out match {

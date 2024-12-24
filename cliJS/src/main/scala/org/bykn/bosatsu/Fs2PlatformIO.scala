@@ -28,6 +28,23 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       def defaultMetavar: String = "path"
     }
 
+  def pathToString(p: Path): String = p.toString
+  def system(cmd: String, args: List[String]): IO[Unit] = {
+    import fs2.io.process.ProcessBuilder
+    ProcessBuilder(cmd, args)
+      .withCurrentWorkingDirectory
+      .spawn[IO]
+      .use { process =>
+        for {
+          _ <- fs2.Stream.empty.through(process.stdin).compile.drain
+          _ <- fs2.text.utf8.decode(process.stderr).evalMapChunk(IO.consoleForIO.error).compile.drain
+          _ <- fs2.text.utf8.decode(process.stdout).evalMapChunk(IO.consoleForIO.print).compile.drain
+          result <- process.exitValue
+          _ <- if (result == 0) IO.pure(0) else IO.raiseError(new Exception(s"$cmd ${args.mkString(" ")} returned $result"))
+        } yield ()
+      }
+  }
+
   val pathOrdering: Ordering[Path] = Path.instances.toOrdering
 
   private val FilesIO = Files.forIO
@@ -86,6 +103,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     }
 
   def resolve(p: Path, c: String): Path = p.resolve(c)
+  def resolve(p: Path, c: Path): Path = p.resolve(c)
 
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
     FilesIO.isDirectory(path, followLinks = true)
