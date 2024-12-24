@@ -530,6 +530,13 @@ object Package {
     def types: TypeEnv[Kind.Arg] =
       pack.program._1.types
 
+    def void: Typed[Unit] = {
+      val prog0 = pack.program._1
+      val lets1 = prog0.lets.map { case (b, r, t) => (b, r, t.void) }
+      val program1 = (prog0.copy(lets = lets1), pack.program._2)
+      pack.copy(program = program1)
+    }
+
     def externalDefs: List[Identifier.Bindable] =
       pack.program._1.externalDefs
 
