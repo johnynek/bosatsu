@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.tool
 
 import cats.Eval
-import cats.data.NonEmptyList
 import org.bykn.bosatsu.{Json, Package, PackageName, Test, Value, rankn}
 import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.LocationMap.Colorize
@@ -27,8 +26,7 @@ object Output {
       output: Option[Path]
   ) extends Output[Path]
 
-  case class TranspileOut[Path](outs: List[(NonEmptyList[String], Doc)], base: Path)
-      extends Output[Path]
+  case class TranspileOut[Path](outs: List[(Path, Doc)]) extends Output[Path]
 
   case class ShowOutput[Path](
       packages: List[Package.Typed[Any]],

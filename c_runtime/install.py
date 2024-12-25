@@ -1,6 +1,8 @@
+import json
 import os
-import sys
 import shutil
+import subprocess
+import sys
 from argparse import ArgumentParser
 
 def find_git_directory(start_path):
@@ -10,6 +12,53 @@ def find_git_directory(start_path):
             return current_path
         current_path = os.path.dirname(current_path)
     raise FileNotFoundError("No .git directory found in current or parent directories.")
+
+def write_cc_conf(rootdir):
+      # Detect operating system
+      uname = subprocess.check_output(["uname"], text=True).strip()
+      if uname == "Darwin":
+          os_type = "macos"
+      elif uname == "Linux":
+          os_type = "linux"
+      else:
+          os_type = "unknown"
+
+      # Determine Bosatsu directory
+      bosatsu_dir = os.path.join(rootdir, ".bosatsuc", subprocess.check_output(["../bosatsuj", "version", "-g"], text=True).strip())
+
+      # Initialize flags, IFLAGS, and LIBS
+      flags = ["-flto", "-O3"]  # Adjust flags as needed
+      iflags = [f"-I{os.path.join(bosatsu_dir, 'include')}"]
+      libs = [f"{os.path.join(bosatsu_dir, 'lib', 'bosatsu_platform.a')}"]
+
+      # Add platform-specific settings
+      if os_type == "macos":
+          bdw_gc_dir = "/opt/homebrew/Cellar/bdw-gc"
+          if os.path.isdir(bdw_gc_dir):
+              # todo: better version sorting
+              latest_version = sorted(os.listdir(bdw_gc_dir))[-1]
+              boehm_gc = os.path.join(bdw_gc_dir, latest_version)
+              iflags.append(f"-I{os.path.join(boehm_gc, 'include')}")
+              libs.append(f"{os.path.join(boehm_gc, 'lib', 'libgc.a')}")
+      elif os_type == "linux":
+          libs.append("-lgc")
+
+      # Find GCC path
+      cc_path = subprocess.check_output(["which", "gcc"], text=True).strip()
+
+      # Create the JSON configuration
+      config = {
+          "cc_path": cc_path,
+          "flags": flags,
+          "iflags": iflags,
+          "libs": libs,
+          "os": os_type
+      }
+
+      # Write the configuration to the specified file
+      path = os.path.join(bosatsu_dir, "cc_conf.json")
+      with open(path, "w") as f:
+          json.dump(config, f, indent=4)
 
 def main():
     parser = ArgumentParser(description="Create a directory structure and copy files.")
@@ -41,6 +90,7 @@ def main():
     os.makedirs(include_dir)
     os.makedirs(lib_dir)
 
+    write_cc_conf(git_root)
     # Copy the include files
     for include_file in args.include:
         if not os.path.isfile(include_file):

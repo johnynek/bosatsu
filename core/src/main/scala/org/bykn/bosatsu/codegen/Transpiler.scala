@@ -1,45 +1,33 @@
 package org.bykn.bosatsu.codegen
 
-import cats.{Applicative, Traverse}
-import cats.data.NonEmptyList
-import com.monovore.decline.{Argument, Opts}
-import org.bykn.bosatsu.{PackageMap, Par}
+import com.monovore.decline.Opts
+import org.bykn.bosatsu.{PackageMap, Par, PlatformIO}
 import org.typelevel.paiges.Doc
-import scala.util.Try
-
-import cats.syntax.all._
 
 trait Transpiler {
-  type Args[P]
-  def traverseArgs: Traverse[Args]
+  type Args[F[_], P]
 
   // this gives the argument for reading files into strings
   // this is a bit limited, but good enough for now
-  def opts[P](pathArg: Argument[P]): Opts[Transpiler.Optioned[P]]
+  def opts[F[_], P](plat: PlatformIO[F, P]): Opts[Transpiler.Optioned[F, P]]
 
-  def renderAll(
+  // return paths to be resolved against the base output path
+  def renderAll[F[_], P](
+      outDir: P,
       pm: PackageMap.Typed[Any],
-      args: Args[String]
-  )(implicit ec: Par.EC): Try[List[(NonEmptyList[String], Doc)]]
+      args: Args[F, P]
+  )(implicit ec: Par.EC): F[List[(P, Doc)]]
 }
 
 object Transpiler {
-  def optioned[P](t: Transpiler)(argsP: t.Args[P]): Optioned[P] =
-    new Optioned[P] {
+  def optioned[F[_], P](t: Transpiler)(argsP: t.Args[F, P]): Optioned[F, P] =
+    new Optioned[F, P] {
       val transpiler: t.type = t
       val args = argsP
     }
 
-  sealed abstract class Optioned[P] { self =>
+  sealed abstract class Optioned[F[_], P] { self =>
     val transpiler: Transpiler
-    def args: transpiler.Args[P]
-    def traverse[F[_]: Applicative](fn: P => F[String]): F[Optioned[String]] =
-      self.transpiler.traverseArgs.traverse(self.args)(fn)
-        .map { argsString =>
-          new Optioned[String] {
-            val transpiler: self.transpiler.type = self.transpiler
-            val args = argsString
-          }
-        }
+    def args: transpiler.Args[F, P]
   }
 }

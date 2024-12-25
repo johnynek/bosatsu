@@ -160,7 +160,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     )
     out match {
-      case Output.TranspileOut(_, _) =>
+      case Output.TranspileOut(_) =>
         assert(true)
       case other => fail(s"expected transpile output: $other")
     }

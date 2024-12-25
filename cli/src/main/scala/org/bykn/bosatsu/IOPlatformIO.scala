@@ -26,6 +26,29 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   override def pathArg: Argument[Path] =
     Argument.readPath
 
+  def pathToString(p: Path): String = p.toString
+
+  def system(cmd: String, args: List[String]): IO[Unit] = IO.blocking {
+    val processBuilder = new java.lang.ProcessBuilder()
+    val command = new java.util.ArrayList[String]()
+    (cmd :: args).foreach(command.add(_))
+
+    processBuilder.command(command)
+
+    // Redirect output and error streams
+    processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+    processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
+
+    // Start the process
+    val process = processBuilder.start()
+
+    // Wait for the process to complete and check the exit value
+    val exitCode = process.waitFor()
+    if (exitCode != 0) {
+      throw new RuntimeException(s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode")
+    }
+  }
+
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
 
@@ -50,6 +73,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     }
 
   def resolve(p: Path, c: String): Path = p.resolve(c)
+  def resolve(p: Path, c: Path): Path = p.resolve(c)
 
   def read[A <: GeneratedMessage](
       path: Path

@@ -162,6 +162,9 @@ object MemoryMain {
               if (string == "") Validated.valid(Chain.empty)
               else Validated.valid(Chain.fromSeq(string.split("/", -1).toIndexedSeq))
           }
+        def pathToString(path: Chain[String]): String = path.mkString_("/")
+        def system(command: String, args: List[String]) = 
+          moduleIOMonad.raiseError(new Exception(s"system not supported in memory mode: system($command, $args)"))
 
       def withEC[A](fn: Par.EC => F[A]): F[A] =
         StateT { state =>
@@ -207,6 +210,8 @@ object MemoryMain {
 
         def resolve(p: Chain[String], child: String): Chain[String] =
           p :+ child
+
+        def resolve(p: Chain[String], child: Chain[String]): Chain[String] = p ++ child
 
         def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]] =
           StateT
