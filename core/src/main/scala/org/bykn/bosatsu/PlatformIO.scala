@@ -1,7 +1,8 @@
 package org.bykn.bosatsu
 
-import cats.MonadError
+import cats.{MonadError, Show}
 import cats.data.ValidatedNel
+import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
@@ -21,8 +22,30 @@ trait PlatformIO[F[_], Path] {
 
   // this must return a parseable String
   def pathToString(path: Path): String
+  implicit val showPath: Show[Path] =
+    new Show[Path] {
+      def show(p: Path) = pathToString(p)
+    }
 
   def readUtf8(p: Path): F[String]
+  def parseUtf8[A](path: Path, p0: P0[A]): F[A] =
+    readUtf8(path)
+      .flatMap { str =>
+        p0.parseAll(str) match {
+          case Right(a) => moduleIOMonad.pure(a)
+          case Left(e) =>
+            moduleIOMonad.raiseError(
+              new Exception(show"could not parse ${path}.\n\n${e}")
+            )
+        }
+      }
+
+  def getOrError[A](oa: Option[A], msg: => String): F[A] =
+    oa match {
+      case Some(a) => moduleIOMonad.pure(a)
+      case None => moduleIOMonad.raiseError(new Exception(msg))
+    }
+
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
 
@@ -35,6 +58,7 @@ trait PlatformIO[F[_], Path] {
 
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
+
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)
     val filePath = resolve(dir, pack.parts.last + ".bosatsu")

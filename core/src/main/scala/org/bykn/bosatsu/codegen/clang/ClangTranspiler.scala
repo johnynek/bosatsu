@@ -83,7 +83,7 @@ case object ClangTranspiler extends Transpiler {
   case class Output[F[_], P](cOut: P, exeOut: Option[(P, F[CcConf])])
   object Output {
     def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Output[F, P]] = {
-      import platformIO.{moduleIOMonad, pathArg}
+      import platformIO.{moduleIOMonad, pathArg, showPath}
 
       val cOpt = Opts.option[P]("output", "o", "name of output c code file.")
         .orElse {
@@ -93,34 +93,26 @@ case object ClangTranspiler extends Transpiler {
 
       def parseCCFile(confPath: P): F[CcConf] =
         for {
-          jsonStr <- platformIO.readUtf8(confPath) 
-          json <- Json.parserFile.parseAll(jsonStr) match {
-            case Right(j) => moduleIOMonad.pure(j)
-            case Left(e) =>  moduleIOMonad.raiseError(new Exception(s"couldn't parse json at: ${platformIO.pathToString(confPath)}\n$e"))
-          }
+          json <- platformIO.parseUtf8(confPath, Json.parserFile)
           ccConf <- CcConf.parse(json) match {
             case Right(cc) => moduleIOMonad.pure(cc)
             case Left((str, j)) =>
-              moduleIOMonad.raiseError(new Exception(s"when parsing ${platformIO.pathToString(confPath)} got error: $str at json: $j"))
+              moduleIOMonad.raiseError(new Exception(show"when parsing $confPath got error: $str at json: ${j.render}"))
           }
         } yield ccConf
       
       val defaultCcConf = for {
         rootOpt <- platformIO.gitTopLevel
-        root <- rootOpt match {
-          case Some(p) => moduleIOMonad.pure(p)
-          case None => moduleIOMonad.raiseError(new Exception("could not find .git directory to locate default cc_conf"))
-        }
-        gitSha <- BuildInfo.gitHeadCommit match {
-          case Some(g) => moduleIOMonad.pure(g)
-          case None => moduleIOMonad.raiseError(new Exception("compiler was built without a git-sha"))
-        }
+        root <- platformIO.getOrError(rootOpt, "could not find .git directory to locate default cc_conf")
+        gitSha <- platformIO.getOrError(
+          BuildInfo.gitHeadCommit,
+          s"compiler version ${BuildInfo.version} was built without a git-sha")
         confPath = platformIO.resolve(root, ".bosatsuc" :: gitSha :: "cc_conf.json" :: Nil)
         _ <- platformIO.fsDataType(confPath).flatMap {
           case Some(PlatformIO.FSDataType.File) => moduleIOMonad.unit
           case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
             moduleIOMonad.raiseError[Unit](
-              new Exception(s"expected a CcConf json file at ${platformIO.pathToString(confPath)} but found: $res.\n\n" +
+              new Exception(show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
                 "Perhaps you need to `make install` the c_runtime")
             )
         }
