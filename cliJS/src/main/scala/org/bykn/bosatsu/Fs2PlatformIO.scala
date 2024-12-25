@@ -35,12 +35,16 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .withCurrentWorkingDirectory
       .spawn[IO]
       .use { process =>
+        val drainAll = (
+            fs2.Stream.empty.through(process.stdin).compile.drain,
+            fs2.text.utf8.decode(process.stderr).evalMapChunk(IO.consoleForIO.error).compile.drain,
+            fs2.text.utf8.decode(process.stdout).evalMapChunk(IO.consoleForIO.print).compile.drain
+          ).parTupled
+
         for {
-          _ <- fs2.Stream.empty.through(process.stdin).compile.drain
-          _ <- fs2.text.utf8.decode(process.stderr).evalMapChunk(IO.consoleForIO.error).compile.drain
-          _ <- fs2.text.utf8.decode(process.stdout).evalMapChunk(IO.consoleForIO.print).compile.drain
+          _ <- drainAll
           result <- process.exitValue
-          _ <- if (result == 0) IO.unit else IO.raiseError(new Exception(s"$cmd ${args.mkString(" ")} returned $result"))
+          _ <- IO.raiseError(new Exception(s"$cmd ${args.mkString(" ")} returned $result")).whenA(result != 0)
         } yield ()
       }
   }
