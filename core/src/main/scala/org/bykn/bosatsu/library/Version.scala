@@ -45,11 +45,33 @@ case class Version(
 
   def nextMajor: Version =
     copy(major = major + 1, minor = 0, patch = 0, preRelease = None, build = None)
+
+  /**
+    * If the pre-release is set, increment so we have the next valid pre-release
+    * if it is not set, you should set with something like: copy(preRelease = Some(PreRelease("pre")))
+    * or "rc", or "alpha", etc..
+    */
+  def nextPreRelease: Option[Version] =
+    preRelease.map { pr =>
+      copy(preRelease = Some(pr.next))
+    }
 }
 
 object Version {
   case class Build(asString: String)
-  case class PreRelease(asString: String)
+  case class PreRelease(asString: String) {
+    def next: PreRelease = {
+      val ary = PreRelease.splitPreRelease(this)
+      PreRelease.parseNumeric(ary(ary.length - 1)) match {
+        case Some(n) =>
+          ary(ary.length - 1) = (n + 1).toString
+          PreRelease(ary.mkString("."))
+        case None =>
+          // there is no trailing number, just append 0
+          PreRelease(asString + ".0")
+      }
+    }
+  }
 
   // Actually the spec doesn't limit the version numbers, but it says you shouldn't use
   // really long version strings (e.g. < 255 almost certainly). Since Long can hold all 

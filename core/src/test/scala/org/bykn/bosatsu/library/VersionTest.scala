@@ -281,4 +281,42 @@ class VersionTest extends munit.ScalaCheckSuite {
       }
     }
   }
+
+  property("next prelease works") {
+    lazy val somePr: Gen[Version.PreRelease] =
+      preReleaseGen.flatMap {
+        case None => somePr
+        case Some(pr) => Gen.const(pr)
+      }
+
+    assertEquals(
+      Version.unsafe("1.0.0-pre.0").nextPreRelease,
+      Some(Version.unsafe("1.0.0-pre.1"))
+    )
+
+    assertEquals(
+      Version.unsafe("1.0.0-rc.1").nextPreRelease,
+      Some(Version.unsafe("1.0.0-rc.2"))
+    )
+
+    Prop.forAll(versionGen, somePr) { (v, pr) =>
+      val pr0 = v.preRelease match {
+        case None => pr
+        case Some(pr) => pr
+      }
+      val v1 = v.copy(preRelease = Some(pr0))
+
+      val v2 = v.copy(preRelease = Some(pr0.next))
+      assert(v1 < v2)
+      if (v.preRelease.isEmpty) {
+        // prereleases come before final releases
+        assert(v1 < v)
+      }
+
+      v.nextPreRelease match {
+        case None => assert(v.preRelease.isEmpty)
+        case Some(v1) => assert(v < v1)
+      }
+    }
+  }
 }
