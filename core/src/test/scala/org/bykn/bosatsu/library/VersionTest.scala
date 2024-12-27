@@ -8,7 +8,7 @@ import cats.syntax.all._
 object VersionGenerator {
 
   // Helper Generator: Non-negative Int
-  private val nonNegativeIntGen: Gen[Int] = Gen.choose(0, Int.MaxValue)
+  private val nonNegativeIntGen: Gen[Long] = Gen.choose(0L, Long.MaxValue)
 
   // Helper Generator: Non-numeric Identifier (must contain at least one non-digit)
   private val nonNumericIdentifierGen: Gen[String] = for {
@@ -36,19 +36,19 @@ object VersionGenerator {
   )
 
   // Pre-release Generator: Optional
-  private val preReleaseGen: Gen[Option[String]] = Gen.option {
+  val preReleaseGen: Gen[Option[Version.PreRelease]] = Gen.option {
     for {
       identifiers <- Gen.nonEmptyListOf(identifierGen)
       preRelease = identifiers.mkString(".")
-    } yield preRelease
+    } yield Version.PreRelease(preRelease)
   }
 
   // Build Metadata Generator: Optional
-  private val buildMetadataGen: Gen[Option[String]] = Gen.option {
+  val buildMetadataGen: Gen[Option[Version.Build]] = Gen.option {
     for {
       identifiers <- Gen.nonEmptyListOf(identifierGen)
       build = identifiers.mkString(".")
-    } yield build
+    } yield Version.Build(build)
   }
 
   // Complete Version Generator
@@ -63,7 +63,7 @@ object VersionGenerator {
 
 class VersionTest extends munit.ScalaCheckSuite {
 
-  import VersionGenerator.versionGen
+  import VersionGenerator.{preReleaseGen, buildMetadataGen, versionGen}
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
@@ -95,7 +95,7 @@ class VersionTest extends munit.ScalaCheckSuite {
     rt("1.0.0-alpha+001")
     rt("1.0.0+20130313144700")
     rt("1.0.0-beta+exp.sha.5114f85")
-    assertEquals(rt("1.0.0+21AF26D3----117B344092BD").build, Some("21AF26D3----117B344092BD")) 
+    assertEquals(rt("1.0.0+21AF26D3----117B344092BD").build, Some(Version.Build("21AF26D3----117B344092BD"))) 
   }
 
   property("we can always round trip") {
@@ -118,6 +118,18 @@ class VersionTest extends munit.ScalaCheckSuite {
     }
   }
 
+
+  def genShuffle[A](items: List[A]): Gen[List[A]] = {
+    val len = items.length
+    if (len < 2) Gen.const(items)
+    else {
+      Gen.listOfN(len, Gen.double)
+        .map { doubles =>
+          items.zip(doubles).sortBy(_._2).map(_._1) 
+        }
+    }
+  }
+
   test("test an example from the spec on ordering") {
     // from the spec:
     // 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta < 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0.
@@ -132,7 +144,9 @@ class VersionTest extends munit.ScalaCheckSuite {
       "1.0.0"
     )
 
-    assertEquals(expectedSortedStrings.map(rt(_)).sorted.map(_.toString), expectedSortedStrings)
+    Prop.forAll(genShuffle(expectedSortedStrings)) { shuffled =>
+      assertEquals(shuffled.map(rt(_)).sorted.map(_.toString), expectedSortedStrings)
+    } 
   }
 
   test("1.0.0-alpha < 1.0.0") {
@@ -141,7 +155,16 @@ class VersionTest extends munit.ScalaCheckSuite {
 
   test("easy orderings") {
     val expectedSortedStrings = List("1.0.0", "2.0.0", "2.1.0", "2.1.1")
+
     assertEquals(expectedSortedStrings.map(rt(_)).sorted.map(_.toString), expectedSortedStrings)
+
+    val genPosInt = Gen.choose(0, Int.MaxValue)
+    Prop.forAll(Gen.listOf(Gen.zip(genPosInt, genPosInt, genPosInt))) { vs =>
+      val sorted = vs.sorted
+      assertEquals(vs.map { case (ma, mi, p) => Version(ma, mi, p)}.sorted,
+        sorted.map { case (ma, mi, p) => Version(ma, mi, p)}
+      )
+    }
   }
 
   test("build numbers are compared") {
@@ -158,6 +181,104 @@ class VersionTest extends munit.ScalaCheckSuite {
       assert(Ordering[Version].lt(v, v.nextPatch))  
       assert(Ordering[Version].lt(v.nextPatch, v.nextMinor))  
       assert(Ordering[Version].lt(v.nextMinor, v.nextMajor))  
+    }
+  }
+
+  property("clearBuild has no build defined") {
+    Prop.forAll(versionGen) { v =>
+      assert(v.clearBuild.build.isEmpty)  
+    }
+  }
+
+  property("clearPreRelease has no preRelease defined") {
+    Prop.forAll(versionGen) { v =>
+      assert(v.clearPreRelease.preRelease.isEmpty)  
+    }
+  }
+
+  property("version compat partial ordering only compares when major matches") {
+    Prop.forAll(versionGen, versionGen) { (a, b) =>
+      if (a.major != b.major) assertEquals(Version.versionCompatiblePartialOrdering.tryCompare(a, b), None)  
+      else {
+        assertEquals(Version.versionCompatiblePartialOrdering.tryCompare(a, b), 
+          Some(Version.versionOrder.compare(a, b)))
+      }
+    }
+  }
+
+  property("all valid versions ifValid") {
+    Prop.forAll(versionGen) { v =>
+      Version.ifValid(v.major, v.minor, v.patch, v.preRelease, v.build) match {
+        case Some(v1) => assertEquals(v1, v)
+        case None => fail(show"expected to be able to validate $v")
+      }  
+    }
+  }
+
+  property("a negative version number isn't valid") {
+    Prop.forAll(versionGen) { v =>
+      assertEquals(
+        Version.ifValid(-v.major, v.minor, v.patch, v.preRelease, v.build),
+        None)
+      assertEquals(
+        Version.ifValid(v.major, -v.minor, v.patch, v.preRelease, v.build),
+        None)
+      assertEquals(
+        Version.ifValid(v.major, v.minor, -v.patch, v.preRelease, v.build),
+        None)
+    }
+  }
+
+  property("version ifValid if prerelease is valid") {
+    Prop.forAll(versionGen,
+      Gen.oneOf(preReleaseGen, Gen.option(Gen.asciiStr.map(Version.PreRelease(_))))) { (v, p) =>
+      assertEquals(
+        Version.ifValid(v.major, v.minor, v.patch, p, v.build).isDefined,
+        p.fold(true)(p => Version.PreRelease.parser.parseAll(p.asString).isRight))
+    }
+  }
+
+  property("version isValid if build is valid") {
+    Prop.forAll(versionGen,
+      Gen.oneOf(buildMetadataGen, Gen.option(Gen.asciiStr.map(Version.Build(_))))) { (v, b) =>
+      assertEquals(
+        Version.ifValid(v.major, v.minor, v.patch, v.preRelease, b).isDefined,
+        b.fold(true)(b => Version.Build.parser.parseAll(b.asString).isRight))
+    }
+  }
+
+  test("00 is a valid Build but not a prerelease, which has to be numeric") {
+    assert(Version.Build.parser.parseAll("00").isRight)
+    assert(Version.PreRelease.parser.parseAll("00").isLeft)
+  }
+
+  property("show == render") {
+    Prop.forAll(versionGen) { v =>
+      assertEquals(show"$v", v.render)  
+    }
+  }
+
+  property("we match the given regular expressions") {
+    val re = java.util.regex.Pattern.compile("""^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$""")
+    val genStr = Gen.oneOf(
+      versionGen.map(_.render),
+      Gen.listOf(Gen.asciiStr).map(_.mkString(".")),
+      Gen.asciiPrintableStr
+    )
+
+    Prop.forAll(genStr) { s =>
+      val m = re.matcher(s)
+      Version.parser.parseAll(s) match {
+        case Right(v) =>
+          assert(m.matches())
+          assertEquals(m.group(1), v.major.toString)
+          assertEquals(m.group(2), v.minor.toString)
+          assertEquals(m.group(3), v.patch.toString)
+          assertEquals(m.group(4), v.preRelease.fold(null: String)(_.asString))
+          assertEquals(m.group(5), v.build.fold(null: String)(_.asString))
+        case Left(_) =>
+          assert(!m.matches())
+      }
     }
   }
 }
