@@ -21,6 +21,15 @@ case class Version(
 
     s"${major}.${minor}.${patch}$pre$bld"
   }
+
+  def nextPatch: Version =
+    copy(patch = patch + 1, preRelease = None, build = None)
+
+  def nextMinor: Version =
+    copy(minor = minor + 1, patch = 0, preRelease = None, build = None)
+
+  def nextMajor: Version =
+    copy(major = major + 1, minor = 0, patch = 0, preRelease = None, build = None)
 }
 
 object Version {
@@ -83,6 +92,32 @@ object Version {
     a.length.compareTo(b.length)
   }
   implicit val versionOrder: Order[Version] = new Order[Version] {
+    val preRelOrd: Order[String] = new Order[String] {
+      def compare(pre1: String, pre2: String): Int = {
+        val pre1Ids = splitPreRelease(pre1)
+        val pre2Ids = splitPreRelease(pre2)
+        comparePreRelease(pre1Ids, pre2Ids)
+      }
+    }
+
+    val optPre: Order[Option[String]] =
+      new Order[Option[String]] {
+        def compare(x: Option[String], y: Option[String]): Int =
+          x match {
+            case None =>
+              y match {
+                case None => 0
+                case Some(_) => 1
+              }
+            case Some(xvalue) =>
+              y match {
+                case None => -1
+                case Some(yvalue) =>
+                  preRelOrd.compare(xvalue, yvalue)
+              }
+          }
+      }
+
     override def compare(v1: Version, v2: Version): Int = {
       // 1. Compare major versions
       val majorCompare = v1.major.compareTo(v2.major)
@@ -97,26 +132,10 @@ object Version {
       if (patchCompare != 0) return patchCompare
 
       // 4. Compare pre-release versions
-      (v1.preRelease, v2.preRelease) match {
-        case (None, None) =>
-          // Both have no pre-release; compare build
-          // (this violates the spec, but we want equality only when exactly the same)
-          Ordering[Option[String]].compare(v1.build, v2.build)
-        case (Some(_), None) =>
-          // A version with pre-release has lower precedence
-          -1
-        case (None, Some(_)) =>
-          1
-        case (Some(pre1), Some(pre2)) =>
-          val pre1Ids = splitPreRelease(pre1)
-          val pre2Ids = splitPreRelease(pre2)
-          val pr = comparePreRelease(pre1Ids, pre2Ids)
-          if (pr != 0) pr
-          else {
-            // (this violates the spec, but we want equality only when exactly the same)
-            Ordering[Option[String]].compare(v1.build, v2.build)
-          }
-      }
+      val preCompare = optPre.compare(v1.preRelease, v2.preRelease)
+      if (preCompare != 0) return preCompare
+      // (this violates the spec, but we want equality only when exactly the same)
+      optPre.compare(v1.build, v2.build)
     }
   }
 

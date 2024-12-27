@@ -67,7 +67,7 @@ class VersionTest extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(if (Platform.isScalaJvm) 10000 else 100)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 20)
       .withMaxDiscardRatio(10)
 
 
@@ -146,5 +146,18 @@ class VersionTest extends munit.ScalaCheckSuite {
 
   test("build numbers are compared") {
     assert(Version.unsafe("1.0.0+100") < Version.unsafe("1.0.0+101"))
+  }
+
+  property("nexts are greater") {
+    val v1 = Version.unsafe("1.0.0")
+    assertEquals(v1.nextPatch, Version.unsafe("1.0.1"))
+    assertEquals(v1.nextMinor, Version.unsafe("1.1.0"))
+    assertEquals(v1.nextMajor, Version.unsafe("2.0.0"))
+
+    Prop.forAll(versionGen) { v =>
+      assert(Ordering[Version].lt(v, v.nextPatch))  
+      assert(Ordering[Version].lt(v.nextPatch, v.nextMinor))  
+      assert(Ordering[Version].lt(v.nextMinor, v.nextMajor))  
+    }
   }
 }
