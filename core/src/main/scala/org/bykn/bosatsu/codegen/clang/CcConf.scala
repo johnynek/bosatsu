@@ -26,23 +26,19 @@ case class CcConf(
 object CcConf {
 
   implicit val ccConfJsonReader: Json.Reader[CcConf] =
-    new Json.Reader[CcConf] {
+    new Json.Reader.Obj[CcConf] {
       def describe = "CcConf"
-      def read(path: Json.Path, json: Json): Either[(String, Json, Json.Path), CcConf] =
-        json match {
-          case obj: Json.JObject =>
-            val from = Json.Reader.FromObj(path, obj)
-            import from.field
-            for {
-              ccPath <- field[String]("cc_path")
-              flags <- field[List[String]]("flags")
-              iFlags <- field[List[String]]("iflags")
-              libs <- field[List[String]]("libs")
-              os <- field[String]("os")
-            } yield CcConf(ccPath, flags, iFlags, libs, os)
-          case _ => Left((s"expected $describe", json, path))
-        }
+      def readObj(from: Json.Reader.FromObj): Either[(String, Json, Json.Path), CcConf] = {
+        import from.field
+        for {
+          ccPath <- field[String]("cc_path")
+          flags <- field[List[String]]("flags")
+          iFlags <- field[List[String]]("iflags")
+          libs <- field[List[String]]("libs")
+          os <- field[String]("os")
+        } yield CcConf(ccPath, flags, iFlags, libs, os)
       }
+    }
 
   def parse(j: Json): Either[(String, Json, Json.Path), CcConf] =
     ccConfJsonReader.read(Json.Path.Root, j)

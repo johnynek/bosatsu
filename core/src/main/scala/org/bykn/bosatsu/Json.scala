@@ -103,6 +103,12 @@ object Json {
     val toMap: Map[String, Json] = items.toMap
     val keys: List[String] = items.map(_._1).distinct
 
+    def getOrNull(key: String): Json =
+      toMap.get(key) match {
+        case Some(value) => value
+        case None => JNull
+      }
+
     def toDoc =
       if (items.isEmpty) emptyDict
       else {
@@ -264,14 +270,29 @@ object Json {
 
     case class FromObj(path: Path, j: JObject) {
       def field[A: Reader](key: String): Either[(String, Json, Path), A] = {
-        val jv = j.toMap.get(key) match {
-          case Some(jv) => jv
-          case None => JNull
-        }
-
+        val jv = j.getOrNull(key)
         val p1 = path.key(key)
         Reader[A].read(p1, jv)
       }
+
+      def optional[A: Reader](key: String): Either[(String, Json, Path), Option[A]] = {
+        j.getOrNull(key) match {
+          case JNull => Right(None)
+          case notNull =>
+            val p1 = path.key(key)
+            Reader[A].read(p1, notNull).map(Some(_))
+        }
+      }
+    }
+
+    trait Obj[A] extends Reader[A] {
+      def readObj(from: FromObj): Either[(String, Json, Path), A]
+
+      final def read(path: Path, j: Json): Either[(String, Json, Path), A] =
+        j match {
+          case jobj: JObject => readObj(FromObj(path, jobj))
+          case _ => Left((s"expected obj with $describe", j, path))
+        }
     }
 
     implicit val stringReader: Reader[String] =
@@ -283,6 +304,7 @@ object Json {
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
+
     implicit def listReader[A: Reader]: Reader[List[A]] =
       new Reader[List[A]] {
         val describe = s"List[${Reader[A].describe}]"
@@ -293,6 +315,21 @@ object Json {
                 Reader[A].read(path.index(idx), a)
               }
               .map(_.toList)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit def fromParser[A](desc: String, p0: P0[A]): Reader[A] =
+      new Reader[A] {
+        def describe: String = desc
+        def read(path: Path, j: Json): Either[(String, Json, Path), A] =
+          j match {
+            case JString(str) =>
+              p0.parseAll(str) match {
+                case Right(value) => Right(value)
+                case Left(value) =>
+                  Left((show"string parser error: $value", j, path))
+              }
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
