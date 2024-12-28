@@ -24,40 +24,22 @@ case class CcConf(
 }
 
 object CcConf {
-  def parse(j: Json): Either[(String, Json), CcConf] = {
-    import Json._
 
-    def parseStringField(jObj: JObject, fieldName: String): Either[(String, Json), String] = {
-      jObj.toMap.get(fieldName) match {
-        case Some(JString(value)) => Right(value)
-        case Some(other)          => Left((s"Field '$fieldName' must be a string", other))
-        case None                 => Left((s"Missing field: '$fieldName'", j))
-      }
-    }
-
-    def parseStringArrayField(jObj: JObject, fieldName: String): Either[(String, Json), List[String]] = {
-      jObj.toMap.get(fieldName) match {
-        case Some(JArray(elements)) =>
-          elements.foldRight[Either[(String, Json), List[String]]](Right(Nil)) {
-            case (JString(value), Right(acc)) => Right(value :: acc)
-            case (other, _)                   => Left((s"Elements of '$fieldName' must be strings", other))
-          }
-        case Some(other) => Left((s"Field '$fieldName' must be an array of strings", other))
-        case None        => Left((s"Missing field: '$fieldName'", j))
-      }
-    }
-
-    j match {
-      case obj: JObject =>
+  implicit val ccConfJsonReader: Json.Reader[CcConf] =
+    new Json.Reader.Obj[CcConf] {
+      def describe = "CcConf"
+      def readObj(from: Json.Reader.FromObj): Either[(String, Json, Json.Path), CcConf] = {
+        import from.field
         for {
-          ccPath <- parseStringField(obj, "cc_path")
-          flags <- parseStringArrayField(obj, "flags")
-          iFlags <- parseStringArrayField(obj, "iflags")
-          libs <- parseStringArrayField(obj, "libs")
-          os <- parseStringField(obj, "os")
+          ccPath <- field[String]("cc_path")
+          flags <- field[List[String]]("flags")
+          iFlags <- field[List[String]]("iflags")
+          libs <- field[List[String]]("libs")
+          os <- field[String]("os")
         } yield CcConf(ccPath, flags, iFlags, libs, os)
-
-      case _ => Left(("Expected a JSON object", j))
+      }
     }
-  }
+
+  def parse(j: Json): Either[(String, Json, Json.Path), CcConf] =
+    ccConfJsonReader.read(Json.Path.Root, j)
 }

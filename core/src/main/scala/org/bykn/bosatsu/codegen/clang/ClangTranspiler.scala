@@ -96,8 +96,8 @@ case object ClangTranspiler extends Transpiler {
           json <- platformIO.parseUtf8(confPath, Json.parserFile)
           ccConf <- CcConf.parse(json) match {
             case Right(cc) => moduleIOMonad.pure(cc)
-            case Left((str, j)) =>
-              moduleIOMonad.raiseError(new Exception(show"when parsing $confPath got error: $str at json: ${j.render}"))
+            case Left((str, j, path)) =>
+              moduleIOMonad.raiseError(new Exception(show"when parsing $confPath got error: $str at $path to json: $j"))
           }
         } yield ccConf
       

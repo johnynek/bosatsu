@@ -6,6 +6,7 @@ import cats.parse.Rfc5234.{digit, alpha}
 import cats.syntax.all._
 import cats.{Order, PartialOrder, Show}
 import scala.math.PartialOrdering
+import _root_.bosatsu.{TypedAst => proto}
 
 case class Version(
   major: Long,
@@ -14,6 +15,14 @@ case class Version(
   preRelease: Option[Version.PreRelease],
   build: Option[Version.Build]
 ) {
+  def toProto: proto.Version = 
+    proto.Version(
+      major = major,
+      minor = minor,
+      patch = patch,
+      preRelease = preRelease.fold("")(_.asString),
+      build = build.fold("")(_.asString))
+
   override def toString(): String = render
 
   lazy val render: String = {
