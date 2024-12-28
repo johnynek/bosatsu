@@ -262,14 +262,16 @@ object Json {
   object Reader {
     def apply[A](implicit r: Reader[A]): Reader[A] = r
 
-    def readField[A: Reader](path: Path, j: JObject, key: String): Either[(String, Json, Path), A] = {
-      val jv = j.toMap.get(key) match {
-        case Some(jv) => jv
-        case None => JNull
-      }
+    case class FromObj(path: Path, j: JObject) {
+      def field[A: Reader](key: String): Either[(String, Json, Path), A] = {
+        val jv = j.toMap.get(key) match {
+          case Some(jv) => jv
+          case None => JNull
+        }
 
-      val p1 = path.key(key)
-      Reader[A].read(p1, jv)
+        val p1 = path.key(key)
+        Reader[A].read(p1, jv)
+      }
     }
 
     implicit val stringReader: Reader[String] =

@@ -31,12 +31,14 @@ object CcConf {
       def read(path: Json.Path, json: Json): Either[(String, Json, Json.Path), CcConf] =
         json match {
           case obj: Json.JObject =>
+            val from = Json.Reader.FromObj(path, obj)
+            import from.field
             for {
-              ccPath <- Json.Reader.readField[String](path, obj, "cc_path")
-              flags <- Json.Reader.readField[List[String]](path, obj, "flags")
-              iFlags <- Json.Reader.readField[List[String]](path, obj, "iflags")
-              libs <- Json.Reader.readField[List[String]](path, obj, "libs")
-              os <- Json.Reader.readField[String](path, obj, "os")
+              ccPath <- field[String]("cc_path")
+              flags <- field[List[String]]("flags")
+              iFlags <- field[List[String]]("iflags")
+              libs <- field[List[String]]("libs")
+              os <- field[String]("os")
             } yield CcConf(ccPath, flags, iFlags, libs, os)
           case _ => Left((s"expected $describe", json, path))
         }
