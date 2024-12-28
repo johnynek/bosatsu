@@ -84,4 +84,16 @@ object GenJson {
         }
       }
     })
+
+  lazy val genPath: Gen[Json.Path] =
+    Gen.oneOf(Gen.const(Json.Path.Root),
+      for {
+        idx <- Gen.choose(0, Int.MaxValue)
+        of <- genPath
+      } yield Json.Path.Index(of, idx),
+      for {
+        key <- Gen.asciiPrintableStr
+        of <- genPath
+      } yield Json.Path.Key(of, key)
+    )
 }

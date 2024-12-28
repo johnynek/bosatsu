@@ -2,8 +2,10 @@ package org.bykn.bosatsu
 
 import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
-import cats.parse.{Parser0 => P0, Parser => P}
-import cats.Eq
+import cats.parse.{Parser0 => P0, Parser => P, Numbers}
+import cats.{Eq, Show}
+
+import cats.syntax.all._
 
 /** A simple JSON ast for output
   */
@@ -202,4 +204,95 @@ object Json {
   val parserFile: P[Json] =
     whitespaces0.with1 *> (parser ~ whitespaces0 ~ P.end).map(_._1._1)
 
+  implicit val showJson: Show[Json] =
+    new Show[Json] {
+      def show(j: Json) = j.render
+    }
+
+  sealed abstract class Path {
+    def index(idx: Int): Path = Path.Index(this, idx)
+    def key(key: String): Path = Path.Key(this, key)
+  }
+  object Path {
+    case object Root extends Path
+    case class Index(of: Path, idx: Int) extends Path
+    case class Key(of: Path, key: String) extends Path
+
+    implicit val showPath: Show[Path] =
+      new Show[Path] {
+        def show(p: Path): String = {
+          @annotation.tailrec
+          def loop(p: Path, rhs: List[String]): String =
+            p match {
+              case Root => rhs.mkString("/", "", "")
+              case Index(of, idx) =>
+                loop(of, s"[$idx]" :: rhs)
+              case Key(of, key) =>
+                loop(of, s".\"${StringUtil.escape('"', key)}\"" :: rhs)
+            }
+
+          loop(p, Nil)
+        }
+      }
+    
+    val parser: P[Path] = {
+      val pIdx = P.char('[') *> Numbers.bigInt.flatMap { bi =>
+          if (bi.isValidInt) P.pure(bi.toInt)
+          else P.failWith(s"$bi cannot fit in Int")
+        }  <* P.char(']')
+
+      val pKey = P.char('.') *> StringUtil.escapedString('"')
+
+      val part: P[Either[String, Int]] = pIdx.eitherOr(pKey)
+
+      P.char('/') *> part.rep0.map { list =>
+        list.foldLeft(Root: Path) {
+          case (p, Right(idx)) => Index(p, idx)
+          case (p, Left(key)) => Key(p, key)
+        } 
+      }
+    }
+  }
+
+  trait Reader[+A] {
+    def describe: String
+    def read(path: Path, j: Json): Either[(String, Json, Path), A]
+  }
+
+  object Reader {
+    def apply[A](implicit r: Reader[A]): Reader[A] = r
+
+    def readField[A: Reader](path: Path, j: JObject, key: String): Either[(String, Json, Path), A] = {
+      val jv = j.toMap.get(key) match {
+        case Some(jv) => jv
+        case None => JNull
+      }
+
+      val p1 = path.key(key)
+      Reader[A].read(p1, jv)
+    }
+
+    implicit val stringReader: Reader[String] =
+      new Reader[String] {
+        val describe = "String"
+        def read(path: Path, j: Json): Either[(String, Json, Path), String] =
+          j match {
+            case JString(str) => Right(str)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+    implicit def listReader[A: Reader]: Reader[List[A]] =
+      new Reader[List[A]] {
+        val describe = s"List[${Reader[A].describe}]"
+        def read(path: Path, j: Json): Either[(String, Json, Path), List[A]] =
+          j match {
+            case JArray(items) =>
+              items.traverseWithIndexM { (a, idx) =>
+                Reader[A].read(path.index(idx), a)
+              }
+              .map(_.toList)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+  }
 }

@@ -283,4 +283,11 @@ enum MyNat: Z, S(prev: MyNat)
     illTypedJson("MyPair[MyUnit, MyUnit]", "0")
     illTypedJson("List[Unit]", "[null, 1]")
   }
+
+  test("we can parse all paths") {
+    forAll(genPath) { p =>
+      val str = Json.Path.showPath.show(p)
+      assert(Json.Path.parser.parseAll(str) == Right(p), s"parsing: $str")
+    }
+  }
 }
