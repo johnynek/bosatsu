@@ -330,9 +330,9 @@ message Packages {
 
 // Message representing a Version using Semantic Versioning
 message Version {
-  int32 major = 1;
-  int32 minor = 2;
-  int32 patch = 3;
+  int64 major = 1;
+  int64 minor = 2;
+  int64 patch = 3;
   string pre_release = 4;
   string build = 5;
 }
@@ -340,10 +340,8 @@ message Version {
 // Message representing a Descriptor for versioning and identification
 message LibDescriptor {
   Version version = 1;          // Semantic versioning information
-  int32 depth = 2;              // Depth in the dependency graph
-  string vcs_indent = 3;        // Version control system identifier (e.g., git:commit:aae)
-  repeated string hashes = 4;   // List of relevant hashes for verification
-  repeated string uris = 5;     // URIs where the dependency can be obtained
+  repeated string hashes = 2;   // List of relevant hashes for verification
+  repeated string uris = 3;     // URIs where the dependency can be obtained
 }
 
 // Message representing the history of versions for a Library or Dependency
@@ -351,6 +349,8 @@ message LibHistory {
   LibDescriptor previous_patch = 1;  // Descriptor for the previous patch version, if any
   LibDescriptor previous_minor = 2;  // Descriptor for the previous minor version, if any
   LibDescriptor previous_major = 3;  // Descriptor for the previous major version, if any
+  LibDescriptor previous_prerelease = 4; // Descriptor for the previous prerelease if any
+  repeated LibDescriptor others = 5; // Some links to other previous versions to improve navigation speed
 }
 
 // Message representing a Dependency on another Library
@@ -362,21 +362,24 @@ message LibDependency {
 // Message representing a Library
 message Library {
   string name = 1;
-  LibDescriptor descriptor = 2; // Contains versioning and identification info
+  int32 depth = 2;              // Depth in the dependency graph
+  string vcs_indent = 3;        // Version control system identifier (e.g., git:commit:aae)
+  string repo_uri = 4;          // canonical repo for the this library at this version
+  LibDescriptor descriptor = 5; // Contains versioning and identification info
 
   // Exported interfaces that other libraries can use
-  repeated Interface exported_ifaces = 3;
+  repeated Interface exported_ifaces = 6;
 
   // Internal packages within the library
-  repeated Package internal_packages = 4;
+  repeated Package internal_packages = 7;
 
   // Public dependencies that are exposed to consumers of this library
-  repeated LibDependency public_dependencies = 5;
+  repeated LibDependency public_dependencies = 8;
 
   // Private dependencies used internally by the library
-  repeated LibDependency private_dependencies = 6;
+  repeated LibDependency private_dependencies = 9;
 
   // Historical versions of the library
-  LibHistory history = 7;
+  LibHistory history = 10;
 }
 
