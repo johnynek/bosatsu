@@ -20,6 +20,12 @@ trait PlatformIO[F[_], Path] {
   final def path(str: String): ValidatedNel[String, Path] =
     pathArg.read(str)
 
+  def pathF(str: String): F[Path] =
+    path(str) match {
+      case Valid(a) => moduleIOMonad.pure(a)
+      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
+    }
+
   // this must return a parseable String
   def pathToString(path: Path): String
   implicit val showPath: Show[Path] =
@@ -58,6 +64,7 @@ trait PlatformIO[F[_], Path] {
 
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
+  def relativize(prefix: Path, deeper: Path): Option[Path]
 
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)

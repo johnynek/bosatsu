@@ -216,6 +216,18 @@ object Version {
   def apply(major: Int, minor: Int, patch: Int, preRelease: Option[PreRelease], build: Option[Build]): Version =
     Version(major.toLong, minor.toLong, patch.toLong, preRelease, build)
 
+  def fromProto(pv: proto.Version): Version =
+    Version(major = pv.major, minor = pv.minor, patch = pv.patch,
+      preRelease = Option(pv.preRelease).flatMap {
+        case "" => None
+        case pr => Some(PreRelease(pr))
+      },
+      build = Option(pv.build).flatMap {
+        case "" => None
+        case b => Some(Build(b))
+      }
+    )
+
   def ifValid(major: Long, minor: Long, patch: Long, preRelease: Option[PreRelease], build: Option[Build]): Option[Version] =
     if ((major >= 0) && (minor >= 0) && (patch >= 0)) {
       (preRelease, build) match {

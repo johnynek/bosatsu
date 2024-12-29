@@ -100,14 +100,15 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     */
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] =
     PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-      if (pf.startsWith(root)) Some {
-        root.relativize(pf).names.map(_.toString)
-      }
-      else None
+      relativize(root, pf).map(_.names.map(_.toString))
     }
 
   def resolve(p: Path, c: String): Path = p.resolve(c)
   def resolve(p: Path, c: Path): Path = p.resolve(c)
+  def relativize(root: Path, pf: Path): Option[Path] =
+    if (root == Path(".") && !pf.isAbsolute) Some(pf)
+    else if (pf.startsWith(root)) Some(root.relativize(pf))
+    else None
 
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
     FilesIO.isDirectory(path, followLinks = true)

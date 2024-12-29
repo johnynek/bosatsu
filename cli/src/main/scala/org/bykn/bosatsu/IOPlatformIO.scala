@@ -4,7 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.effect.{IO, Resource}
 import com.monovore.decline.Argument
-import java.nio.file.{Path => JPath}
+import java.nio.file.{Paths, Path => JPath}
 import java.io.{
   FileInputStream,
   FileOutputStream,
@@ -74,6 +74,12 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def resolve(p: Path, c: String): Path = p.resolve(c)
   def resolve(p: Path, c: Path): Path = p.resolve(c)
+  def relativize(root: Path, pf: Path): Option[Path] =
+    if (root == Paths.get(".") && !pf.isAbsolute) Some(pf)
+    else if (pf.startsWith(root)) Some {
+      root.relativize(pf)
+    }
+    else None
 
   def read[A <: GeneratedMessage](
       path: Path

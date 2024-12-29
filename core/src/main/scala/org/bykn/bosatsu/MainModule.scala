@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{Validated, ValidatedNel, NonEmptyList}
+import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
@@ -1019,6 +1019,12 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             FromOutput("version", out)
           })
         }
+        .orElse {
+          Opts.subcommand("lib", "tools for working with bosatsu libraries")(
+            library.Command.opts(platformIO)
+              .map(FromOutput("lib", _))
+          )
+        }
     }
 
     def command: Command[MainCommand] = {
@@ -1224,6 +1230,19 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       case Output.Basic(doc, out) =>
         writeOut(doc, out).as(ExitCode.Success)
+
+      case Output.Many(items) =>
+        def loop(items: Chain[Output[Path]]): IO[ExitCode] =
+          items.uncons match {
+            case None => moduleIOMonad.pure(ExitCode.Success)
+            case Some((h, t)) =>
+              reportOutput(h).flatMap {
+                case ExitCode.Success => loop(t)
+                case notSuccess => moduleIOMonad.pure(notSuccess)
+              }
+          }
+
+        loop(items)
     }
 
   private def stackTraceToString(t: Throwable): String = {

@@ -212,6 +212,14 @@ object MemoryMain {
           p :+ child
 
         def resolve(p: Chain[String], child: Chain[String]): Chain[String] = p ++ child
+        def relativize(prefix: Path, deeper: Path): Option[Path] = {
+          val agreeLen = prefix.iterator.zip(deeper.iterator)
+            .takeWhile { case (a, b) => a == b }
+            .length
+
+          if (agreeLen == prefix.length) Some(Chain.fromIterableOnce(deeper.iterator.drop(agreeLen)))
+          else None
+        }
 
         def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]] =
           StateT
