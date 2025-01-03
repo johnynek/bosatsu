@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.library
 
 import org.bykn.bosatsu.Json
-import org.bykn.bosatsu.Json.Reader
+import org.bykn.bosatsu.Json.{Reader, Writer}
 
 import _root_.bosatsu.{TypedAst => proto}
 
@@ -23,6 +23,19 @@ object ProtoJsonReaders {
           uris <- from.field[List[String]]("uris")
         } yield proto.LibDescriptor(version = Some(versionProto), hashes, uris)
       }
+    }
+
+  implicit val descriptorWriter: Writer[proto.LibDescriptor] =
+    Writer.from[proto.LibDescriptor] { ld =>
+      Json.JObject(
+        (ld.version match {
+          case Some(v) => ("version" -> Json.JString(Version.fromProto(v).render)) :: Nil
+          case None => Nil
+        }) :::
+        ("hashes" -> Writer.write(ld.hashes.toList)) ::
+        ("uris" -> Writer.write(ld.uris.toList)) ::
+        Nil
+      )  
     }
   
   implicit val historyReader: Reader[proto.LibHistory] =
@@ -60,5 +73,14 @@ object ProtoJsonReaders {
           case _ =>
             Left(("expected obj with values of type LibDescriptor", j, path))
         }
+    }
+
+  implicit val listOfDepsWriter: Json.Writer[List[proto.LibDependency]] =
+    Json.Writer { list =>
+      Json.JObject(list.flatMap { dep =>
+        dep.desc.map { d =>
+          dep.name -> Json.Writer.write(d)
+        }
+      }) 
     }
 }

@@ -1019,6 +1019,12 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             FromOutput("version", out)
           })
         }
+        .orElse {
+          Opts.subcommand("lib", "tools for working with bosatsu libraries")(
+            library.Command.opts(platformIO)
+              .map(FromOutput("lib", _))
+          )
+        }
     }
 
     def command: Command[MainCommand] = {
@@ -1224,6 +1230,12 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       case Output.Basic(doc, out) =>
         writeOut(doc, out).as(ExitCode.Success)
+
+      case Output.Many(items) =>
+        items.foldM[IO, ExitCode](ExitCode.Success) {
+          case (ExitCode.Success, item) => reportOutput(item)
+          case (err, _) => moduleIOMonad.pure(err)
+        }
     }
 
   private def stackTraceToString(t: Throwable): String = {

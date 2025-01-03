@@ -334,4 +334,25 @@ object Json {
           }
       }
   }
+
+  trait Writer[A] {
+    def write(value: A): Json
+  }
+
+  object Writer {
+    def apply[A](implicit w: Writer[A]): Writer[A] = w
+
+    def write[A](a: A)(implicit w: Writer[A]): Json = w.write(a)
+
+    def from[A](fn: A => Json): Writer[A] =
+      new Writer[A] {
+        def write(value: A) = fn(value)
+      }
+
+    implicit val stringWriter: Writer[String] =
+      from(JString(_))
+
+    implicit def listWriter[A: Writer]: Writer[List[A]] =
+      from { list => JArray(list.map(write(_)).toVector) }
+  }
 }
