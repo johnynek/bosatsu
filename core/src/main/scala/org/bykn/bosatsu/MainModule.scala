@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
+import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
@@ -1232,17 +1232,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         writeOut(doc, out).as(ExitCode.Success)
 
       case Output.Many(items) =>
-        def loop(items: Chain[Output[Path]]): IO[ExitCode] =
-          items.uncons match {
-            case None => moduleIOMonad.pure(ExitCode.Success)
-            case Some((h, t)) =>
-              reportOutput(h).flatMap {
-                case ExitCode.Success => loop(t)
-                case notSuccess => moduleIOMonad.pure(notSuccess)
-              }
-          }
-
-        loop(items)
+        items.foldM[IO, ExitCode](ExitCode.Success) {
+          case (ExitCode.Success, item) => reportOutput(item)
+          case (err, _) => moduleIOMonad.pure(err)
+        }
     }
 
   private def stackTraceToString(t: Throwable): String = {
