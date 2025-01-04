@@ -5,8 +5,12 @@ import cats.parse.Parser
 import cats.parse.Rfc5234.{digit, alpha}
 import cats.syntax.all._
 import cats.{Order, PartialOrder, Show}
+import com.monovore.decline.Argument
 import scala.math.PartialOrdering
 import _root_.bosatsu.{TypedAst => proto}
+
+import org.bykn.bosatsu.Json
+import org.bykn.bosatsu.Json.JString
 
 case class Version(
   major: Long,
@@ -319,4 +323,26 @@ object Version {
     new Show[Version] {
       def show(t: Version): String = t.render
     }
+
+  implicit val versionWriter: Json.Writer[Version] =
+    Json.Writer[Version] { v => Json.JString(v.render) }
+
+  implicit val versionReader: Json.Reader[Version] =
+    new Json.Reader[Version] {
+      def describe: String = "Version"
+      def read(path: Json.Path, j: Json): Either[(String, Json, Json.Path),Version] =
+        j match {
+          case JString(str) =>
+            parser.parseAll(str) match {
+              case right @ Right(_) => right.leftCast
+              case Left(value) =>
+                Left((show"couldn't parse semver: $value", j, path))
+            }
+          case notStr =>
+            Left(("expected string", notStr, path))
+        }
+    }
+
+  implicit val versionArg: Argument[Version] =
+    org.bykn.bosatsu.Parser.argFromParser(Version.parser, "semver", "Version", "Expects a val semver string.")
 }

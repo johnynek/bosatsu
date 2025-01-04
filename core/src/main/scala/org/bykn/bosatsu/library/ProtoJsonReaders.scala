@@ -56,6 +56,20 @@ object ProtoJsonReaders {
           others = othersOpt.toList.flatten)
     }
 
+  implicit val historyWriter: Writer[proto.LibHistory] =
+    Writer { (hist: proto.LibHistory) =>
+      import Writer.write
+
+      Json.JObject(
+        (hist.previousMajor.toList.map(d => "previous_major" -> write(d))) :::
+        (hist.previousMinor.toList.map(d => "previous_minor" -> write(d))) :::
+        (hist.previousPatch.toList.map(d => "previous_patch" -> write(d))) :::
+        (hist.previousPrerelease.toList.map(d => "previous_prerelease" -> write(d))) :::
+        (if (hist.others.isEmpty) Nil else ("others" -> write(hist.others.toList) :: Nil)) :::
+        Nil
+      )
+    }
+
   implicit val listOfDepsReader: Reader[List[proto.LibDependency]] =
     new Reader[List[proto.LibDependency]] {
       def describe: String = "List[LibDependency]"
