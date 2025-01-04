@@ -260,9 +260,21 @@ object Json {
     }
   }
 
-  trait Reader[+A] {
+  trait Reader[+A] { self =>
     def describe: String
     def read(path: Path, j: Json): Either[(String, Json, Path), A]
+
+    final def mapEither[B](desc: String)(fn: A => Either[String, B]): Reader[B] =
+      new Reader[B] {
+        def describe: String = desc
+        def read(path: Path, j: Json): Either[(String, Json, Path), B] = 
+          self.read(path, j).flatMap { a =>
+            fn(a) match {
+              case r @ Right(_) => r.leftCast
+              case Left(value) => Left((value, j, path))
+            }  
+          }
+      }
   }
 
   object Reader {
@@ -335,8 +347,12 @@ object Json {
       }
   }
 
-  trait Writer[A] {
+  trait Writer[A] { self =>
     def write(value: A): Json
+    final def contramap[B](fn: B => A): Writer[B] =
+      new Writer[B] {
+        def write(value: B): Json = self.write(fn(value))
+      }
   }
 
   object Writer {

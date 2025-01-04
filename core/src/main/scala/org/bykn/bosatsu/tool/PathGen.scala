@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.tool
 
 import cats.{Monoid, Monad}
-
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import org.bykn.bosatsu.PlatformIO
@@ -64,7 +63,15 @@ object PathGen {
         }
     }
 
+  def path[IO[_], P](path: P): PathGen[IO, P] =
+    Direct(path)
+
+  def directChildren[IO[_], P](dir: P, extension: String)(platformIO: PlatformIO[IO, P]): PathGen[IO, P] =
+    ChildrenOfDir[IO, P](dir, platformIO.hasExtension(extension), false, platformIO.unfoldDir(_))
     
+  def recursiveChildren[IO[_], P](dir: P, extension: String)(platformIO: PlatformIO[IO, P]): PathGen[IO, P] =
+    ChildrenOfDir[IO, P](dir, platformIO.hasExtension(extension), true, platformIO.unfoldDir(_))
+
   def opts[IO[_], Path](
     arg: String,
     help: String,
@@ -77,28 +84,18 @@ object PathGen {
       .orEmpty
       .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen[IO, Path]))
 
-    val select = platformIO.hasExtension(ext)
     val child1 = Opts
       .options[Path](arg + "_dir", help = s"all $help in directory")
       .orEmpty
-      .map { paths =>
-        paths.foldMap(
-          PathGen
-            .ChildrenOfDir[IO, Path](_, select, false, platformIO.unfoldDir(_)): PathGen[IO, Path]
-        )
-      }
+      .map { paths => paths.foldMap(directChildren(_, ext)(platformIO)) }
+
     val childMany = Opts
       .options[Path](
         arg + "_all_subdir",
         help = s"all $help recursively in all directories"
       )
       .orEmpty
-      .map { paths =>
-        paths.foldMap(
-          PathGen
-            .ChildrenOfDir[IO, Path](_, select, true, platformIO.unfoldDir(_)): PathGen[IO, Path]
-        )
-      }
+      .map { paths => paths.foldMap(recursiveChildren(_, ext)(platformIO)) }
 
     (direct, child1, childMany).mapN { (a, b, c) =>
       (a :: b :: c :: Nil).combineAll

@@ -38,43 +38,45 @@ object Command {
           moduleIOMonad.raiseError[Libraries](new Exception(show"expected $path to be a file, not directory."))
       }  
 
-    MonoidK[Opts]
-      .combineAllK(
-        Opts.subcommand("init", "initialize a config") {
-          (Opts.option[String]("name", "name of the library"),
-            Opts.option[String]("repo_uri", "uri for the version control of this library"),
-            Opts.option[P]("src_root", "path to the src root for the bosatsu packages in this library")
-          ).mapN { (name, repoUri, rootDir) =>
-            val conf = LibConfig.init(name, repoUri)  
-            val confJson = Json.Writer.write(conf)
-            val confPath = platformIO.resolve(rootDir, s"${name}_conf.json")
-            val writeJson = Output.JsonOutput(confJson, Some(confPath))
+    val initCommand = 
+      Opts.subcommand("init", "initialize a config") {
+        (Opts.option[String]("name", "name of the library"),
+          Opts.option[String]("repo_uri", "uri for the version control of this library"),
+          Opts.option[P]("src_root", "path to the src root for the bosatsu packages in this library"),
+          Opts.option[Version]("version", "the initial version to use")
+        ).mapN { (name, repoUri, rootDir, ver) =>
+          val conf = LibConfig.init(name, repoUri, ver)  
+          val confJson = Json.Writer.write(conf)
+          val confPath = platformIO.resolve(rootDir, s"${name}_conf.json")
+          val writeJson = Output.JsonOutput(confJson, Some(confPath))
 
-            libsPath
-              .flatMap { case (gitRoot, path) =>
-                for {
-                  lib0 <- readLibs(path)
-                  relDir <- platformIO.relativize(gitRoot, rootDir) match {
-                    case Some(value) => moduleIOMonad.pure(value)
-                    case None =>
-                      moduleIOMonad.raiseError(new Exception(show"$rootDir is not a subdir of $gitRoot"))
-                  }
-                  lib1 = lib0.updated(name, show"$relDir")
-                  out1 = Output.JsonOutput(Json.Writer.write(lib1), Some(path))
-                } yield Output.many(out1, writeJson)
-              }
-          }
-        } ::
-        Opts.subcommand("list", "print all the known libraries") {
-          Opts(libsPath
-            .flatMap { case (_, path) =>
+          libsPath
+            .flatMap { case (gitRoot, path) =>
               for {
                 lib0 <- readLibs(path)
-                json = Json.Writer.write(lib0)
-              } yield (Output.JsonOutput(json, None): Output[P])
-            })
-        } ::
-        Nil
-      )
+                relDir <- platformIO.relativize(gitRoot, rootDir) match {
+                  case Some(value) => moduleIOMonad.pure(value)
+                  case None =>
+                    moduleIOMonad.raiseError(new Exception(show"$rootDir is not a subdir of $gitRoot"))
+                }
+                lib1 = lib0.updated(name, show"$relDir")
+                out1 = Output.JsonOutput(Json.Writer.write(lib1), Some(path))
+              } yield Output.many(out1, writeJson)
+            }
+        }
+      }
+
+    val listCommand =
+      Opts.subcommand("list", "print all the known libraries") {
+        Opts(libsPath
+          .flatMap { case (_, path) =>
+            for {
+              lib0 <- readLibs(path)
+              json = Json.Writer.write(lib0)
+            } yield (Output.JsonOutput(json, None): Output[P])
+          })
+      }
+
+    MonoidK[Opts].combineAllK(initCommand :: listCommand :: Nil)
   }
 }
