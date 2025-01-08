@@ -1,12 +1,13 @@
 package org.bykn.bosatsu.library
 
-import org.bykn.bosatsu.{Json, PackageName}
+import org.bykn.bosatsu.{Json, Package, PackageName}
 import java.util.regex.Pattern
 import _root_.bosatsu.{TypedAst => proto}
 import java.util.regex.PatternSyntaxException
+import scala.util.Try
 
 case class LibConfig(
-  name: String,
+  name: Name,
   repoUri: String,
   nextVersion: Version,
   exportedPackages: List[LibConfig.PackageFilter],
@@ -14,7 +15,9 @@ case class LibConfig(
   publicDeps: List[proto.LibDependency],
   privateDeps: List[proto.LibDependency],
   history: proto.LibHistory
-)
+) {
+  def assemble(packs: List[Package.Typed[Unit]]): Try[proto.Library] = ???
+}
 
 object LibConfig {
   import ProtoJsonReaders._
@@ -51,7 +54,7 @@ object LibConfig {
       Json.Writer[String].contramap[PackageFilter](_.asString)
   }
 
-  def init(name: String, repoUri: String, ver: Version): LibConfig =
+  def init(name: Name, repoUri: String, ver: Version): LibConfig =
     LibConfig(name = name, repoUri = repoUri, nextVersion = ver, Nil, Nil, Nil, Nil, proto.LibHistory(None, None, None, None, Nil))
 
   implicit class LibHistoryMethods(private val history: proto.LibHistory) extends AnyVal {
@@ -85,7 +88,7 @@ object LibConfig {
       def describe: String = "LibConfig"
       def readObj(from: Json.Reader.FromObj): Either[(String, Json, Json.Path), LibConfig] =
         for {
-          name <- from.field[String]("name")
+          name <- from.field[Name]("name")
           repoUri <- from.field[String]("repo_uri")
           nextVersion <- from.field[Version]("next_version")
           exportedPackages <- from.field[List[PackageFilter]]("exported_packages")

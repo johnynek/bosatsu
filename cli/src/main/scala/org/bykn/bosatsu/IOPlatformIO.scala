@@ -110,8 +110,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     (
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
-    ).tupled
-      .flatMap { case (ifs, packs) =>
+    ).flatMapN { (ifs, packs) =>
         IO.fromTry(
           ProtoConverter.packagesFromProto(
             ifs.flatMap(_.interfaces),
