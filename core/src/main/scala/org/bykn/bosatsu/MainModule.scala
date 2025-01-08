@@ -8,7 +8,7 @@ import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
+import org.bykn.bosatsu.tool.{CliException, ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
@@ -40,11 +40,22 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   final def runAndReport(args: List[String]): Either[Help, IO[ExitCode]] =
     run(args).map(report)
 
-  sealed abstract class MainException extends Exception {
+  sealed abstract class MainException extends Exception with CliException {
     def command: MainCommand
+    def messageString: String
   }
   object MainException {
-    case class NoInputs(command: MainCommand) extends MainException
+    case class NoInputs(command: MainCommand) extends MainException {
+      def messageString: String = {
+        val name = command.name
+        s"no inputs given to $name"
+      }
+
+      def exitCode: ExitCode = ExitCode.Error
+      def errDoc = Doc.text(messageString)
+      def stdOutDoc: Doc = Doc.empty
+    }
+
     case class ParseErrors(
         command: MainCommand,
         errors: NonEmptyList[PathParseError[Path]],
@@ -75,6 +86,11 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 )
             }
         }
+
+      def messageString: String = messages.mkString("\n")
+      def errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+      def stdOutDoc: Doc = Doc.empty
+      def exitCode: ExitCode = ExitCode.Error
     }
     case class PackageErrors(
         command: MainCommand,
@@ -85,23 +101,18 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       def messages: List[String] =
         errors.toList.distinct
           .map(_.message(sourceMap, color))
+
+      def messageString: String = messages.mkString("\n")
+      def errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+      def stdOutDoc: Doc = Doc.empty
+      def exitCode: ExitCode = ExitCode.Error
     }
   }
 
   def mainExceptionToString(ex: Throwable): Option[String] =
     ex match {
-      case me: MainException =>
-        me match {
-          case MainException.NoInputs(cmd) =>
-            val name = cmd.name
-            Some(s"no inputs given to $name")
-          case pe @ MainException.ParseErrors(_, _, _) =>
-            Some(pe.messages.mkString("\n"))
-          case pe @ MainException.PackageErrors(_, _, _, _) =>
-            Some(pe.messages.mkString("\n"))
-        }
-      case _ =>
-        None
+      case me: MainException => Some(me.messageString)
+      case _ => None
     }
 
   sealed abstract class MainCommand(val name: String) {
@@ -1245,18 +1256,18 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     stringWriter.toString
   }
 
-  def reportException(ex: Throwable): IO[Unit] =
-    mainExceptionToString(ex) match {
-      case Some(msg) =>
-        platformIO.errorln(msg)
-      case None =>
+  def reportException(ex: Throwable): IO[ExitCode] =
+    ex match {
+      case ce: CliException => ce.report(platformIO)
+      case _ =>
         platformIO.errorln("unknown error:\n") *>
           platformIO.errorln(stackTraceToString(ex))
+            .as(ExitCode.Error)
     }
 
   def report(io: IO[Output[Path]]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)
-      case Left(err)  => reportException(err).as(ExitCode.Error)
+      case Left(err)  => reportException(err)
     }
 }

@@ -137,6 +137,12 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .compile
       .drain
 
+  def writeError(doc: Doc): IO[Unit] =
+    docStream(doc)
+      .evalMapChunk(part => IO.consoleForIO.error(part))
+      .compile
+      .drain
+
   def println(str: String): IO[Unit] =
     IO.println(str)
 

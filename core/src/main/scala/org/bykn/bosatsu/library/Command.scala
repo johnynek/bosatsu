@@ -2,7 +2,7 @@ package org.bykn.bosatsu.library
 
 import cats.MonoidK
 import org.bykn.bosatsu.{Json, PlatformIO}
-import org.bykn.bosatsu.tool.Output
+import org.bykn.bosatsu.tool.{CliException, Output}
 import com.monovore.decline.Opts
 import cats.syntax.all._
 
@@ -30,12 +30,12 @@ object Command {
                 case Right(lib) => moduleIOMonad.pure(lib)
                 case Left((msg, j, p)) =>
                   moduleIOMonad.raiseError[Libraries](
-                    new Exception(show"$msg: from json = $j at $p")
+                    CliException.Basic(show"$msg: from json = $j at $p")
                   )
               }
             }
         case Some(PlatformIO.FSDataType.Dir) =>
-          moduleIOMonad.raiseError[Libraries](new Exception(show"expected $path to be a file, not directory."))
+          moduleIOMonad.raiseError[Libraries](CliException.Basic(show"expected $path to be a file, not directory."))
       }  
 
     val initCommand = 
@@ -57,7 +57,7 @@ object Command {
                 relDir <- platformIO.relativize(gitRoot, rootDir) match {
                   case Some(value) => moduleIOMonad.pure(value)
                   case None =>
-                    moduleIOMonad.raiseError(new Exception(show"$rootDir is not a subdir of $gitRoot"))
+                    moduleIOMonad.raiseError(CliException.Basic(show"$rootDir is not a subdir of $gitRoot"))
                 }
                 lib1 = lib0.updated(name, show"$relDir")
                 out1 = Output.JsonOutput(Json.Writer.write(lib1), Some(path))

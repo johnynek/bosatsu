@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Order
+import cats.{Order, Show}
 import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser => P}
@@ -50,4 +50,7 @@ object PackageName {
       "package name",
       "Must be capitalized strings separated by /"
     )
+
+  implicit val showPackageName: Show[PackageName] =
+    Show(_.asString)
 }

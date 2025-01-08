@@ -312,13 +312,16 @@ object MemoryMain {
             state.copy(stdOut = state.stdOut + (doc + Doc.hardLine))
           }
 
+        def writeError(doc: Doc): F[Unit] =
+          StateT.modify { state =>
+            state.copy(stdErr = state.stdErr + (doc + Doc.hardLine))
+          }
+
         def println(str: String): F[Unit] =
           writeStdout(Doc.text(str))
 
         def errorln(str: String): F[Unit] =
-          StateT.modify { state =>
-            state.copy(stdErr = state.stdErr + (Doc.text(str) + Doc.hardLine))
-          }
+          writeError(Doc.text(str))
 
         override def resolve(base: Path, parts: List[String]): Path =
           base ++ Chain.fromSeq(parts)
