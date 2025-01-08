@@ -5,6 +5,7 @@ import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
 import org.bykn.bosatsu.codegen.Transpiler
 import org.bykn.bosatsu.{BuildInfo, Identifier, Json, MatchlessFromTypedExpr, Package, PackageName, PackageMap, Par, PlatformIO, TypedExpr, TypeName}
+import org.bykn.bosatsu.tool.{CliException, ExitCode}
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
@@ -97,7 +98,7 @@ case object ClangTranspiler extends Transpiler {
           ccConf <- CcConf.parse(json) match {
             case Right(cc) => moduleIOMonad.pure(cc)
             case Left((str, j, path)) =>
-              moduleIOMonad.raiseError(new Exception(show"when parsing $confPath got error: $str at $path to json: $j"))
+              moduleIOMonad.raiseError(CliException.Basic(show"when parsing $confPath got error: $str at $path to json: $j"))
           }
         } yield ccConf
       
@@ -112,7 +113,7 @@ case object ClangTranspiler extends Transpiler {
           case Some(PlatformIO.FSDataType.File) => moduleIOMonad.unit
           case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
             moduleIOMonad.raiseError[Unit](
-              new Exception(show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
+              CliException.Basic(show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
                 "Perhaps you need to `make install` the c_runtime")
             )
         }
@@ -142,28 +143,40 @@ case object ClangTranspiler extends Transpiler {
       }
     }
 
-  case class GenError(error: ClangGen.Error) extends Exception(s"clang gen error: ${error.display.render(80)}")
+  case class GenError(error: ClangGen.Error) extends Exception(s"clang gen error: ${error.display.render(80)}") with CliException {
+    def errDoc: Doc = error.display
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
 
   private def spacePackList(ps: Iterable[PackageName]): Doc =
     (Doc.line + Doc.intercalate(Doc.comma + Doc.line, ps.map(p => Doc.text(p.asString))))
       .nested(4)
       .grouped
 
-  case class CircularPackagesFound(loop: NonEmptyList[PackageName])
-    extends Exception(
-      (Doc.text("circular dependencies found in packages:") + spacePackList(loop.toList)).render(80)
-    )
+  case class CircularPackagesFound(loop: NonEmptyList[PackageName]) extends Exception("circular deps in packages") with CliException {
+    def errDoc: Doc = 
+      (Doc.text("circular dependencies found in packages:") + spacePackList(loop.toList))
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
 
-  case class InvalidMainValue(pack: PackageName, message: String) extends
-    Exception(s"invalid main ${pack.asString}: $message.")
+  case class InvalidMainValue(pack: PackageName, message: String) extends Exception(s"invalid main ${pack.asString}: $message.") with CliException {
+    def errDoc = Doc.text(getMessage())
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
 
-  case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String]) extends
-    Exception(
-      (Doc.text("no tests found in:") + spacePackList(packs) + Doc.hardLine +
+  case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String]) extends Exception(show"no tests found in $packs with regex $regex") with CliException {
+      def errDoc: Doc = 
+        (Doc.text("no tests found in:") + spacePackList(packs) + Doc.hardLine +
         Doc.text("using regexes:") +
         (Doc.line + Doc.intercalate(Doc.line, regex.toList.map(Doc.text(_))).nested(4)).grouped
-      ).render(80)
-    )
+      )
+
+      def stdOutDoc: Doc = Doc.empty
+      def exitCode: ExitCode = ExitCode.Error
+  }
 
   def externalsFor(pm: PackageMap.Typed[Any]): ClangGen.ExternalResolver =
     ClangGen.ExternalResolver.stdExternals(pm)

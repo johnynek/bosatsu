@@ -187,4 +187,14 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       System.out.println("")
     }
 
+  def writeError(doc: Doc): IO[Unit] =
+    IO.blocking {
+      doc
+        .renderStreamTrim(80)
+        .iterator
+        .foreach(System.err.print)
+
+      System.out.println("")
+    }
+
 }
