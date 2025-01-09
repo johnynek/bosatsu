@@ -10,6 +10,7 @@ import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
 
 import cats.syntax.all._
+import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def moduleIOMonad: MonadError[IO, Throwable] =
@@ -75,11 +76,18 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
             }
       }
 
+  private def read[A <: GeneratedMessage](path: Path)(implicit A: GeneratedMessageCompanion[A]): IO[A] =
+    FilesIO
+      .readAll(path)
+      .compile.to(Array)
+      .flatMap { bytes =>
+        IO(A.parseFrom(bytes))  
+      }
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     paths.parTraverse { path =>
       for {
-        bytes <- FilesIO.readAll(path).compile.to(Array)
-        ppack <- IO(proto.Packages.parseFrom(bytes))
+        ppack <- read[proto.Packages](path)
         packs <- IO.fromTry(ProtoConverter.packagesFromProto(Nil, ppack.packages))
       } yield packs._2
     }
@@ -88,20 +96,13 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     paths.parTraverse { path =>
       for {
-        bytes <- FilesIO.readAll(path).compile.to(Array)
-        pifaces <- IO(proto.Interfaces.parseFrom(bytes))
+        pifaces <- read[proto.Interfaces](path)
         ifaces <- IO.fromTry(ProtoConverter.packagesFromProto(pifaces.interfaces, Nil))
       } yield ifaces._1
     }
     .map(_.flatten)
 
-  def readLibrary(path: Path): IO[proto.Library] =
-    FilesIO
-      .readAll(path)
-      .compile.to(Array)
-      .flatMap { bytes =>
-        IO(proto.Library.parseFrom(bytes))  
-      }
+  def readLibrary(path: Path): IO[proto.Library] = read[proto.Library](path)
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
@@ -139,17 +140,17 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     pipe(docStream(d)).compile.drain
   }
 
-  def writeStdout(doc: Doc): IO[Unit] =
+  private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =
     docStream(doc)
-      .evalMapChunk(part => IO.print(part))
+      .evalMapChunk(fn)
       .compile
       .drain
 
+  def writeStdout(doc: Doc): IO[Unit] =
+    onParts(doc)(part => IO.print(part))
+
   def writeError(doc: Doc): IO[Unit] =
-    docStream(doc)
-      .evalMapChunk(part => IO.consoleForIO.error(part))
-      .compile
-      .drain
+    onParts(doc)(part => IO.consoleForIO.error(part))
 
   def println(str: String): IO[Unit] =
     IO.println(str)
@@ -157,27 +158,22 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def errorln(str: String): IO[Unit] =
     IO.consoleForIO.errorln(str)
 
+  private def write[A <: GeneratedMessage](a: A, path: Path): IO[Unit] =
+    FilesIO.writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(a.toByteArray)))
+      .compile
+      .drain
+
   def writeInterfaces(
       interfaces: List[Package.Interface],
       path: Path
   ): IO[Unit] =
-    for {
-      protoIfaces <- IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
-      bytes = protoIfaces.toByteArray
-      pipe = FilesIO.writeAll(path)
-      _ <- pipe(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain
-    } yield ()
+    IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
+      .flatMap(write(_, path))
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
-    for {
-      protoPacks <- IO.fromTry(ProtoConverter.packagesToProto(packages))
-      bytes = protoPacks.toByteArray
-      pipe = FilesIO.writeAll(path)
-      _ <- pipe(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain
-    } yield ()
+    IO.fromTry(ProtoConverter.packagesToProto(packages))
+      .flatMap(write(_, path))
 
   def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
-    FilesIO.writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(lib.toByteArray)))
-      .compile
-      .drain
+    write(lib, path)
 }
