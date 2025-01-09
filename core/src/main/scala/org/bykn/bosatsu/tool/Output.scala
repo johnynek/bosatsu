@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.tool
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.Eval
 import cats.data.Chain
 import org.bykn.bosatsu.{Json, Package, PackageName, Test, Value, rankn}
@@ -42,6 +43,7 @@ object Output {
   ) extends Output[Path]
 
   case class Basic[Path](toDoc: Doc, output: Option[Path]) extends Output[Path]
+  case class Library[Path](lib: proto.Library, output: Path) extends Output[Path]
 
   case class Many[Path](outputs: Chain[Output[Path]]) extends Output[Path]
 

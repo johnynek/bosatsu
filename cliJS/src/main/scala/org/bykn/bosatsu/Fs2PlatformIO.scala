@@ -95,6 +95,14 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     }
     .map(_.flatten)
 
+  def readLibrary(path: Path): IO[proto.Library] =
+    FilesIO
+      .readAll(path)
+      .compile.to(Array)
+      .flatMap { bytes =>
+        IO(proto.Library.parseFrom(bytes))  
+      }
+
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
     */
@@ -127,7 +135,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     fs2.Stream.fromIterator[IO](doc.renderStream(100).iterator, chunkSize = 128)
 
   def writeDoc(p: Path, d: Doc): IO[Unit] = {
-    val pipe = Files.forIO.writeUtf8(p)
+    val pipe = FilesIO.writeUtf8(p)
     pipe(docStream(d)).compile.drain
   }
 
@@ -156,7 +164,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     for {
       protoIfaces <- IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
       bytes = protoIfaces.toByteArray
-      pipe = Files.forIO.writeAll(path)
+      pipe = FilesIO.writeAll(path)
       _ <- pipe(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain
     } yield ()
 
@@ -164,7 +172,12 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     for {
       protoPacks <- IO.fromTry(ProtoConverter.packagesToProto(packages))
       bytes = protoPacks.toByteArray
-      pipe = Files.forIO.writeAll(path)
+      pipe = FilesIO.writeAll(path)
       _ <- pipe(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain
     } yield ()
+
+  def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
+    FilesIO.writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(lib.toByteArray)))
+      .compile
+      .drain
 }

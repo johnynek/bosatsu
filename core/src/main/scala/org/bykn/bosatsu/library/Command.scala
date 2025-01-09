@@ -1,7 +1,5 @@
 package org.bykn.bosatsu.library
 
-import _root_.bosatsu.{TypedAst => proto}
-
 import cats.MonoidK
 import org.bykn.bosatsu.{Json, PlatformIO}
 import org.bykn.bosatsu.tool.{CliException, Output}
@@ -141,16 +139,22 @@ object Command {
       Opts.subcommand("assemble", "construct a .bosatsu_lib from the configuration and .bosatsu_package files") {
         (rootAndName,
         Opts.options[P]("packages", help = "all the packages to include in this library.", "p").orEmpty,
+        Opts.options[P]("dep", help = "dependency library", short = "d").orEmpty,
         Opts.option[P]("output", help = "path to write the libary to, or default name_{version}.bosatsu_lib", "o").orNone
         )
-          .mapN { (fpnp, packs, optOut) =>
+          .mapN { (fpnp, packs, deps, optOut) =>
             for {
               pnp <- fpnp
               (gitRoot, name, confPath) = pnp
               conf <- readLibConf(name, confPath)
+              outPath <- optOut match {
+                case Some(p) => moduleIOMonad.pure(p)
+                case None => platformIO.pathF(show"${name}_${conf.nextVersion}.bosatsu_lib")
+              }
               packages <- platformIO.readPackages(packs)
-              lib <- moduleIOMonad.fromTry(conf.assemble(packages))
-            } yield (null: Output[P])
+              depLibs <- deps.traverse(platformIO.readLibrary(_))
+              lib <- moduleIOMonad.fromTry(conf.assemble(packages, depLibs))
+            } yield (Output.Library(lib, outPath): Output[P])
           }
       }
 

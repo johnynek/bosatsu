@@ -16,7 +16,7 @@ case class LibConfig(
   privateDeps: List[proto.LibDependency],
   history: proto.LibHistory
 ) {
-  def assemble(packs: List[Package.Typed[Unit]]): Try[proto.Library] = ???
+  def assemble(packs: List[Package.Typed[Unit]], deps: List[proto.Library]): Try[proto.Library] = ???
 }
 
 object LibConfig {
