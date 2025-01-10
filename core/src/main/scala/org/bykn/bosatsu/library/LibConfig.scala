@@ -5,9 +5,9 @@ import cats.data.{NonEmptyChain, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
-import org.bykn.bosatsu.{Json, Package, PackageName}
+import org.bykn.bosatsu.{Json, Package, PackageName, ProtoConverter}
 import org.bykn.bosatsu.tool.CliException
-import org.typelevel.paiges.Doc
+import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 
 case class LibConfig(
@@ -21,30 +21,93 @@ case class LibConfig(
   history: proto.LibHistory
 ) {
   /**
+    * validate then unvalidatedAssemble
+    */
+  def assemble(
+    vcsIdent: String, 
+    previous: Option[proto.Library],
+    packs: List[Package.Typed[Unit]],
+    deps: List[proto.Library]): ValidatedNec[LibConfig.Error, proto.Library] = {
+      val validated = validate(previous, packs, deps)
+      val depth = previous match {
+        case None => 0
+        case Some(prevLib) => prevLib.depth + 1
+      }
+
+      val valProto = unvalidatedAssemble(depth, vcsIdent, packs) match {
+        case Right(value) => Validated.valid(value)
+        case Left(err) => Validated.invalidNec(LibConfig.Error.ProtoError(err))
+      }
+
+      validated *> valProto
+    }
+
+
+  /**
     * This checks the following properties and if they are set, builds the library
     * 1. all the included packs are set in allPackages
     * 2. the maximum version in history < nextVersion
-    * 3. the version is semver compatible with previous
-    * 4. the only packages that appear on exportedPackages apis are in exportedPackages or publicDeps
-    * 5. all public deps appear somewhere on an API
-    * 6. all private deps are used somewhere
-    * 7. hashes of dependencies match
+    * 3. history is consistent with previous
+    * 4. the version is semver compatible with previous
+    * 5. the only packages that appear on exportedPackages apis are in exportedPackages or publicDeps
+    * 6. all public deps appear somewhere on an API
+    * 7. all private deps are used somewhere
+    * 8. hashes of dependencies match
+    * 9. there are no duplicate named dependencies
     */
-  def assemble(
+  def validate(
     previous: Option[proto.Library],
     packs: List[Package.Typed[Unit]],
-    deps: List[proto.Library]): ValidatedNec[LibConfig.Error, proto.Library] = ???
+    deps: List[proto.Library]): ValidatedNec[LibConfig.Error, Unit] = ???
+
+  // just build the library without any validations
+  def unvalidatedAssemble(depth: Int, vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
+    import LibConfig.LibHistoryMethods
+
+    val sortPack = packs.sortBy(_.name)
+    val ifs = sortPack.traverseFilter { pack =>
+        if (exportedPackages.exists(_.accepts(pack.name))) {
+          val iface = pack.toIface
+          ProtoConverter.interfaceToProto(iface).toEither.map(Some(_))
+        }
+        else Right(None)
+      }
+
+    val protoPacksE = sortPack.traverse(ProtoConverter.packageToProto(_).toEither)
+
+    (ifs, protoPacksE).mapN { (ifaces, protoPacks) =>
+      proto.Library(
+        name = name.name,
+        depth = depth,
+        vcsIndent = vcsIdent,
+        repoUri = repoUri,
+        descriptor = Some(proto.LibDescriptor(version = Some(nextVersion.toProto))),
+        exportedIfaces = ifaces,
+        internalPackages = protoPacks,
+        publicDependencies = publicDeps.sortBy(_.name),
+        privateDependencies = privateDeps.sortBy(_.name),
+        history = if (history.isEmpty) None else Some(history)
+      )
+    }
+  }
 }
 
 object LibConfig {
   sealed abstract class Error
   object Error {
-    def errorsToDoc(nec: NonEmptyChain[Error]): Doc = ???
+    case class ProtoError(error: Throwable) extends Error
+
+    def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
+      Doc.intercalate(Doc.hardLine + Doc.hardLine,
+        nec.toChain.toList.mapWithIndex((e, idx) => Doc.text(s"${idx + 1}. ") + docError.document(e).nested(4)))
+
+    implicit val docError: Document[Error] =
+      Document.instance {
+        case ProtoError(e) => Doc.text(s"error encoding to proto: ${e.getMessage}")
+      }
 
     implicit val showError: cats.Show[Error] =
-      cats.Show[Error] {
-        case _ => ???
-      }
+      cats.Show[Error](e => docError.document(e).render(80))
 
     def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
       vnec match {

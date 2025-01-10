@@ -155,7 +155,8 @@ object Command {
               prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
               packages <- platformIO.readPackages(packs)
               depLibs <- deps.traverse(platformIO.readLibrary(_))
-              maybeNewLib = conf.assemble(prevLib, packages, depLibs)
+              // TODO: we need to read the git-commit and assert that it is clean
+              maybeNewLib = conf.assemble(vcsIdent = "", prevLib, packages, depLibs)
               lib <- moduleIOMonad.fromTry(LibConfig.Error.toTry(maybeNewLib))
             } yield (Output.Library(lib, outPath): Output[P])
           }

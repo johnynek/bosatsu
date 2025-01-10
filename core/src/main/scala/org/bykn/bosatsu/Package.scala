@@ -573,6 +573,8 @@ object Package {
           )
         }
       }
+
+    def toIface: Interface = interfaceOf(pack)
   }
 
   implicit class IfaceMethods(private val iface: Interface) extends AnyVal {
