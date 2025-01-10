@@ -140,9 +140,10 @@ object Command {
         (rootAndName,
         Opts.options[P]("packages", help = "all the packages to include in this library.", "p").orEmpty,
         Opts.options[P]("dep", help = "dependency library", short = "d").orEmpty,
-        Opts.option[P]("output", help = "path to write the libary to, or default name_{version}.bosatsu_lib", "o").orNone
+        Opts.option[P]("output", help = "path to write the library to, or default name_{version}.bosatsu_lib", "o").orNone,
+        Opts.option[P]("previous_lib", help = "if this is not the first version of the library this is the previous version.").orNone
         )
-          .mapN { (fpnp, packs, deps, optOut) =>
+          .mapN { (fpnp, packs, deps, optOut, prevLibPath) =>
             for {
               pnp <- fpnp
               (gitRoot, name, confPath) = pnp
@@ -151,9 +152,11 @@ object Command {
                 case Some(p) => moduleIOMonad.pure(p)
                 case None => platformIO.pathF(show"${name}_${conf.nextVersion}.bosatsu_lib")
               }
+              prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
               packages <- platformIO.readPackages(packs)
               depLibs <- deps.traverse(platformIO.readLibrary(_))
-              lib <- moduleIOMonad.fromTry(conf.assemble(packages, depLibs))
+              maybeNewLib = conf.assemble(prevLib, packages, depLibs)
+              lib <- moduleIOMonad.fromTry(LibConfig.Error.toTry(maybeNewLib))
             } yield (Output.Library(lib, outPath): Output[P])
           }
       }

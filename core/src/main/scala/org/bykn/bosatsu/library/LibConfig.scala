@@ -1,10 +1,14 @@
 package org.bykn.bosatsu.library
 
-import org.bykn.bosatsu.{Json, Package, PackageName}
-import java.util.regex.Pattern
 import _root_.bosatsu.{TypedAst => proto}
+import cats.data.{NonEmptyChain, Validated, ValidatedNec}
+import cats.syntax.all._
+import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
-import scala.util.Try
+import org.bykn.bosatsu.{Json, Package, PackageName}
+import org.bykn.bosatsu.tool.CliException
+import org.typelevel.paiges.Doc
+import scala.util.{Failure, Success, Try}
 
 case class LibConfig(
   name: Name,
@@ -16,10 +20,41 @@ case class LibConfig(
   privateDeps: List[proto.LibDependency],
   history: proto.LibHistory
 ) {
-  def assemble(packs: List[Package.Typed[Unit]], deps: List[proto.Library]): Try[proto.Library] = ???
+  /**
+    * This checks the following properties and if they are set, builds the library
+    * 1. all the included packs are set in allPackages
+    * 2. the maximum version in history < nextVersion
+    * 3. the version is semver compatible with previous
+    * 4. the only packages that appear on exportedPackages apis are in exportedPackages or publicDeps
+    * 5. all public deps appear somewhere on an API
+    * 6. all private deps are used somewhere
+    * 7. hashes of dependencies match
+    */
+  def assemble(
+    previous: Option[proto.Library],
+    packs: List[Package.Typed[Unit]],
+    deps: List[proto.Library]): ValidatedNec[LibConfig.Error, proto.Library] = ???
 }
 
 object LibConfig {
+  sealed abstract class Error
+  object Error {
+    def errorsToDoc(nec: NonEmptyChain[Error]): Doc = ???
+
+    implicit val showError: cats.Show[Error] =
+      cats.Show[Error] {
+        case _ => ???
+      }
+
+    def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
+      vnec match {
+        case Validated.Valid(a) => Success(a)
+        case Validated.Invalid(errs) =>
+          val stderr = errorsToDoc(errs)
+          Failure(CliException(show"library errors: ${errs}", err = stderr))
+      }
+  }
+
   import ProtoJsonReaders._
 
   sealed abstract class PackageFilter {
