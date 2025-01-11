@@ -19,6 +19,33 @@ case class Version(
   preRelease: Option[Version.PreRelease],
   build: Option[Version.Build]
 ) {
+
+  // This expresses the valid next versions from a given version
+  def justBefore(next: Version): Boolean =
+    if (major == next.major) {
+      if (minor == next.minor) {
+        if (patch == next.patch) {
+          // we are bumping pre-release
+          nextPreRelease.exists { v1 =>
+            // the next has to be <= to we have
+            Ordering[Version].lteq(v1, next)
+          }
+        }
+        else {
+          (patch + 1L) == next.patch
+        }
+      }
+      else {
+        ((minor + 1L) == next.minor) &&
+        (next.patch == 0L)
+      }
+    }
+    else {
+      ((major + 1L) == next.major) &&
+        (next.minor == 0L) &&
+        (next.patch == 0L)
+    }
+
   def toProto: proto.Version = 
     proto.Version(
       major = major,
