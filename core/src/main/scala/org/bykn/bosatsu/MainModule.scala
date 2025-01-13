@@ -1242,6 +1242,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case Output.Basic(doc, out) =>
         writeOut(doc, out).as(ExitCode.Success)
 
+      case Output.Library(lib, path) =>
+        writeLibrary(lib, path).as(ExitCode.Success)
       case Output.Many(items) =>
         items.foldM[IO, ExitCode](ExitCode.Success) {
           case (ExitCode.Success, item) => reportOutput(item)

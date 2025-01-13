@@ -110,8 +110,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     (
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
-    ).tupled
-      .flatMap { case (ifs, packs) =>
+    ).flatMapN { (ifs, packs) =>
         IO.fromTry(
           ProtoConverter.packagesFromProto(
             ifs.flatMap(_.interfaces),
@@ -126,6 +125,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
+  def readLibrary(path: Path): IO[proto.Library] = read[proto.Library](path)
+
   def writeInterfaces(
       interfaces: List[Package.Interface],
       path: Path
@@ -136,6 +137,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
+
+  def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
+    write(lib, path)
 
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
     IO.blocking {

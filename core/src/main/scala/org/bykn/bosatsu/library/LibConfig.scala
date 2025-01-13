@@ -1,22 +1,198 @@
 package org.bykn.bosatsu.library
 
-import org.bykn.bosatsu.{Json, PackageName}
-import java.util.regex.Pattern
 import _root_.bosatsu.{TypedAst => proto}
+import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
+import cats.syntax.all._
+import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
+import org.bykn.bosatsu.{Json, Package, PackageName, ProtoConverter}
+import org.bykn.bosatsu.tool.CliException
+import org.typelevel.paiges.{Doc, Document}
+import scala.util.{Failure, Success, Try}
+
+import LibConfig.{Error, LibMethods, LibHistoryMethods}
 
 case class LibConfig(
-  name: String,
+  name: Name,
   repoUri: String,
   nextVersion: Version,
   exportedPackages: List[LibConfig.PackageFilter],
   allPackages: List[LibConfig.PackageFilter],
   publicDeps: List[proto.LibDependency],
   privateDeps: List[proto.LibDependency],
-  history: proto.LibHistory
-)
+) {
+  
+  /**
+    * validate then unvalidatedAssemble
+    */
+  def assemble(
+    vcsIdent: String, 
+    previous: Option[proto.Library],
+    packs: List[Package.Typed[Unit]],
+    deps: List[proto.Library]): ValidatedNec[Error, proto.Library] = {
+      val validated = validate(previous, packs, deps)
+
+      val valProto = unvalidatedAssemble(previous, vcsIdent, packs) match {
+        case Right(value) => Validated.valid(value)
+        case Left(err) => Validated.invalidNec(Error.ProtoError(err): Error)
+      }
+
+      validated *> valProto
+    }
+
+
+  /**
+    * This checks the following properties and if they are set, builds the library
+    * 1. all the included packs are set in allPackages
+    * 2. the maximum version in history < nextVersion
+    * 3. the version is semver compatible with previous
+    * 4. the only packages that appear on exportedPackages apis are in exportedPackages or publicDeps
+    * 5. all public deps appear somewhere on an API
+    * 6. all private deps are used somewhere
+    * 7. hashes of dependencies match
+    * 8. there are no duplicate named dependencies
+    */
+  def validate(
+    previous: Option[proto.Library],
+    packs: List[Package.Typed[Unit]],
+    deps: List[proto.Library]): ValidatedNec[Error, Unit] = {
+
+      def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
+
+      val prop1 =
+        packs.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
+          case Nil => Validated.unit
+          case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
+        }
+
+      val prop2 = previous.traverse_ { p =>
+        val prevLt = p.version match {
+          case Some(prevV) =>
+            if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit 
+            else inv(Error.VersionNotIncreasing("previous library", prevV, nextVersion))
+          case None =>
+            inv(Error.InvalidPreviousLib("missing version", p))
+        }
+        
+        val histLt = p.history match {
+          case Some(history) =>
+            history.allVersions.traverse_ { prevV =>
+              if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit 
+              else inv(Error.VersionNotIncreasing("history version", prevV, nextVersion))
+            }
+          case None => Validated.unit
+        }
+
+        prevLt *> histLt
+      }
+
+      val prop3 = previous match {
+        case Some(prevLib) =>
+          prevLib.version match {
+            case Some(prevVersion) =>
+              if (prevVersion.justBefore(nextVersion)) Validated.unit
+              else {
+                Validated.invalidNec(Error.VersionNotAdjacent(prevVersion, nextVersion))
+              }
+            case None =>
+              Validated.invalidNec(Error.InvalidPreviousLib("missing version", prevLib))
+          }
+        case None =>
+          // Then the version can be anything
+          Validated.unit
+      }
+
+      prop1 *> prop2 *> prop3
+    }
+
+  // just build the library without any validations
+  def unvalidatedAssemble(previous: Option[proto.Library], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
+    val depth = previous match {
+      case None => 0
+      case Some(prevLib) => prevLib.depth + 1
+    }
+
+    val prevHistory: proto.LibHistory = previous.flatMap(_.history) match {
+      case None => proto.LibHistory()
+      case Some(hist) => hist
+    }
+    val thisHistory = previous.flatMap(_.version) match {
+      case Some(v) => prevHistory.nextHistory(v)
+      case None => prevHistory
+    }
+
+    val sortPack = packs.sortBy(_.name)
+    val ifs = sortPack.traverseFilter { pack =>
+        if (exportedPackages.exists(_.accepts(pack.name))) {
+          val iface = pack.toIface
+          ProtoConverter.interfaceToProto(iface).toEither.map(Some(_))
+        }
+        else Right(None)
+      }
+
+    val protoPacksE = sortPack.traverse(ProtoConverter.packageToProto(_).toEither)
+
+    (ifs, protoPacksE).mapN { (ifaces, protoPacks) =>
+      proto.Library(
+        name = name.name,
+        depth = depth,
+        vcsIndent = vcsIdent,
+        repoUri = repoUri,
+        descriptor = Some(proto.LibDescriptor(version = Some(nextVersion.toProto))),
+        exportedIfaces = ifaces,
+        internalPackages = protoPacks,
+        publicDependencies = publicDeps.sortBy(_.name),
+        privateDependencies = privateDeps.sortBy(_.name),
+        history = Some(thisHistory)
+      )
+    }
+  }
+}
 
 object LibConfig {
+  sealed abstract class Error
+  object Error {
+    case class ExtraPackages(nel: NonEmptyList[Package.Typed[Unit]]) extends Error
+    case class ProtoError(error: Throwable) extends Error
+    case class VersionNotIncreasing(note: String, previous: Version, current: Version) extends Error
+    case class VersionNotAdjacent(previous: Version, current: Version) extends Error
+    case class HistoryMistmatch(note: String, previous: Option[proto.LibHistory], current: proto.LibHistory) extends Error
+    case class InvalidPreviousLib(note: String, previous: proto.Library) extends Error
+
+    def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
+      Doc.intercalate(Doc.hardLine + Doc.hardLine,
+        nec.toChain.toList.mapWithIndex((e, idx) => Doc.text(s"${idx + 1}. ") + docError.document(e).nested(4)))
+
+    implicit val docError: Document[Error] =
+      Document.instance {
+        case ExtraPackages(nel) =>
+          Doc.text("unexpected extra packages: ") +
+            Doc.intercalate(Doc.comma + Doc.line, nel.toList.map(p => Doc.text(show"${p.name}")))
+              .grouped.nested(4)
+        case VersionNotIncreasing(note, previous, current) =>
+          Doc.text(show"version not increasing $note:") + (Doc.line +
+            Doc.text(show"$previous is not less than $current")).grouped.nested(4)
+        case VersionNotAdjacent(previous, current) =>
+          Doc.text(show"previous version not adjacent:") + (Doc.line +
+            Doc.text(show"$previous") + Doc.line + Doc.text("is not adjacent to") + Doc.line + Doc.text(show"$current")).grouped.nested(4)
+        case HistoryMistmatch(note, previous, current) => ???
+        case InvalidPreviousLib(note, _) => 
+          Doc.text(s"invalid previous library: $note")
+        case ProtoError(e) => Doc.text(s"error encoding to proto: ${e.getMessage}")
+      }
+
+    implicit val showError: cats.Show[Error] =
+      cats.Show[Error](e => docError.document(e).render(80))
+
+    def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
+      vnec match {
+        case Validated.Valid(a) => Success(a)
+        case Validated.Invalid(errs) =>
+          val stderr = errorsToDoc(errs)
+          Failure(CliException(show"library errors: ${errs}", err = stderr))
+      }
+  }
+
   import ProtoJsonReaders._
 
   sealed abstract class PackageFilter {
@@ -51,8 +227,8 @@ object LibConfig {
       Json.Writer[String].contramap[PackageFilter](_.asString)
   }
 
-  def init(name: String, repoUri: String, ver: Version): LibConfig =
-    LibConfig(name = name, repoUri = repoUri, nextVersion = ver, Nil, Nil, Nil, Nil, proto.LibHistory(None, None, None, None, Nil))
+  def init(name: Name, repoUri: String, ver: Version): LibConfig =
+    LibConfig(name = name, repoUri = repoUri, nextVersion = ver, Nil, Nil, Nil, Nil)
 
   implicit class LibHistoryMethods(private val history: proto.LibHistory) extends AnyVal {
     def isEmpty: Boolean =
@@ -61,6 +237,22 @@ object LibConfig {
       history.previousPatch.isEmpty &&
       history.previousPrerelease.isEmpty &&
       history.others.isEmpty
+
+    def allDescriptors: List[proto.LibDescriptor] =
+      history.previousPrerelease.toList :::
+        history.previousPatch.toList :::
+        history.previousMinor.toList :::
+        history.previousMajor.toList :::
+        history.others.toList
+
+    def allVersions: List[Version] =
+      allDescriptors.flatMap(_.version).map(Version.fromProto(_)) 
+
+    def nextHistory(prevVersion: Version): proto.LibHistory = ???
+  }
+
+  implicit class LibMethods(private val lib: proto.Library) extends AnyVal {
+    def version: Option[Version] = lib.descriptor.flatMap(_.version).map(Version.fromProto(_))
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
@@ -76,7 +268,6 @@ object LibConfig {
         ("all_packages" -> write(allPackages)) ::
         (if (publicDeps.isEmpty) Nil else ("public_deps" -> write(publicDeps)) :: Nil) :::
         (if (privateDeps.isEmpty) Nil else ("private_deps" -> write(privateDeps)) :: Nil) :::
-        (if (history.isEmpty) Nil else ("history" -> write(history)) :: Nil) :::
         Nil
       )  
     }
@@ -85,14 +276,13 @@ object LibConfig {
       def describe: String = "LibConfig"
       def readObj(from: Json.Reader.FromObj): Either[(String, Json, Json.Path), LibConfig] =
         for {
-          name <- from.field[String]("name")
+          name <- from.field[Name]("name")
           repoUri <- from.field[String]("repo_uri")
           nextVersion <- from.field[Version]("next_version")
           exportedPackages <- from.field[List[PackageFilter]]("exported_packages")
           allPackages <- from.field[List[PackageFilter]]("all_packages")
           publicDeps <- from.optional[List[proto.LibDependency]]("public_deps")
           privateDeps <- from.optional[List[proto.LibDependency]]("private_deps")
-          history <- from.optional[proto.LibHistory]("history")
         } yield LibConfig(
           name = name,
           repoUri = repoUri,
@@ -101,7 +291,6 @@ object LibConfig {
           allPackages = allPackages,
           publicDeps = publicDeps.toList.flatten,
           privateDeps = privateDeps.toList.flatten,
-          history = history.getOrElse(proto.LibHistory())
         )
     }
 }
