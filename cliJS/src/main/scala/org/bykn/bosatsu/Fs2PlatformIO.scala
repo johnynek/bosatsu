@@ -22,29 +22,42 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
           case Success(value) =>
             Validated.valid(value)
           case Failure(exception) =>
-            Validated.invalidNel(s"could not parse $string as path: ${exception.getMessage()}") 
+            Validated.invalidNel(
+              s"could not parse $string as path: ${exception.getMessage()}"
+            )
         }
-      
+
       def defaultMetavar: String = "path"
     }
 
   def pathToString(p: Path): String = p.toString
   def system(cmd: String, args: List[String]): IO[Unit] = {
     import fs2.io.process.ProcessBuilder
-    ProcessBuilder(cmd, args)
-      .withCurrentWorkingDirectory
+    ProcessBuilder(cmd, args).withCurrentWorkingDirectory
       .spawn[IO]
       .use { process =>
         val drainAll = (
-            fs2.Stream.empty.through(process.stdin).compile.drain,
-            fs2.text.utf8.decode(process.stderr).evalMapChunk(IO.consoleForIO.error).compile.drain,
-            fs2.text.utf8.decode(process.stdout).evalMapChunk(IO.consoleForIO.print).compile.drain
-          ).parTupled
+          fs2.Stream.empty.through(process.stdin).compile.drain,
+          fs2.text.utf8
+            .decode(process.stderr)
+            .evalMapChunk(IO.consoleForIO.error)
+            .compile
+            .drain,
+          fs2.text.utf8
+            .decode(process.stdout)
+            .evalMapChunk(IO.consoleForIO.print)
+            .compile
+            .drain
+        ).parTupled
 
         for {
           _ <- drainAll
           result <- process.exitValue
-          _ <- IO.raiseError(new Exception(s"$cmd ${args.mkString(" ")} returned $result")).whenA(result != 0)
+          _ <- IO
+            .raiseError(
+              new Exception(s"$cmd ${args.mkString(" ")} returned $result")
+            )
+            .whenA(result != 0)
         } yield ()
       }
   }
@@ -54,7 +67,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   private val FilesIO = Files.forIO
 
   private val parResource: Resource[IO, Par.EC] =
-    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+    Resource
+      .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
 
   def withEC[A](fn: Par.EC => IO[A]): IO[A] =
@@ -64,36 +78,44 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     FilesIO.readUtf8(p).compile.string
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
-    FilesIO.exists(p, followLinks = true)
+    FilesIO
+      .exists(p, followLinks = true)
       .flatMap {
         case false => IO.pure(None)
         case true =>
-          FilesIO.isDirectory(p, followLinks = true)
+          FilesIO
+            .isDirectory(p, followLinks = true)
             .map {
-              case true => Some(PlatformIO.FSDataType.Dir)
+              case true  => Some(PlatformIO.FSDataType.Dir)
               case false => Some(PlatformIO.FSDataType.File)
             }
       }
 
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
-    paths.parTraverse { path =>
-      for {
-        bytes <- FilesIO.readAll(path).compile.to(Array)
-        ppack <- IO(proto.Packages.parseFrom(bytes))
-        packs <- IO.fromTry(ProtoConverter.packagesFromProto(Nil, ppack.packages))
-      } yield packs._2
-    }
-    .map(_.flatten)
+    paths
+      .parTraverse { path =>
+        for {
+          bytes <- FilesIO.readAll(path).compile.to(Array)
+          ppack <- IO(proto.Packages.parseFrom(bytes))
+          packs <- IO.fromTry(
+            ProtoConverter.packagesFromProto(Nil, ppack.packages)
+          )
+        } yield packs._2
+      }
+      .map(_.flatten)
 
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-    paths.parTraverse { path =>
-      for {
-        bytes <- FilesIO.readAll(path).compile.to(Array)
-        pifaces <- IO(proto.Interfaces.parseFrom(bytes))
-        ifaces <- IO.fromTry(ProtoConverter.packagesFromProto(pifaces.interfaces, Nil))
-      } yield ifaces._1
-    }
-    .map(_.flatten)
+    paths
+      .parTraverse { path =>
+        for {
+          bytes <- FilesIO.readAll(path).compile.to(Array)
+          pifaces <- IO(proto.Interfaces.parseFrom(bytes))
+          ifaces <- IO.fromTry(
+            ProtoConverter.packagesFromProto(pifaces.interfaces, Nil)
+          )
+        } yield ifaces._1
+      }
+      .map(_.flatten)
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
@@ -111,17 +133,20 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     else None
 
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
-    FilesIO.isDirectory(path, followLinks = true)
+    FilesIO
+      .isDirectory(path, followLinks = true)
       .map {
-        case true => Some {
-          // create a list of children
-          FilesIO.list(path).compile.toList
-        }
+        case true =>
+          Some {
+            // create a list of children
+            FilesIO.list(path).compile.toList
+          }
         case false => None
       }
 
-  def hasExtension(str: String): Path => Boolean =
-    { (path: Path) => path.extName == str }
+  def hasExtension(str: String): Path => Boolean = { (path: Path) =>
+    path.extName == str
+  }
 
   private def docStream(doc: Doc): fs2.Stream[IO, String] =
     fs2.Stream.fromIterator[IO](doc.renderStream(100).iterator, chunkSize = 128)

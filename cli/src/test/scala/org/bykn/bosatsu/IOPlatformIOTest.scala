@@ -16,7 +16,6 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
         l.sortBy(_.name.asString) == r
     }
 
-
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
     val tempRes = Resource.make(IO.blocking {
       val f = File.createTempFile("proto_test", ".proto")

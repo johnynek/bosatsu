@@ -12,31 +12,36 @@ class ClangGenTest extends munit.ScalaCheckSuite {
       .withMinSuccessfulTests(1000000)
       .withMaxDiscardRatio(10)
 
-  def assertPredefFns(fns: String*)(matches: String)(implicit loc: munit.Location) =
+  def assertPredefFns(
+      fns: String*
+  )(matches: String)(implicit loc: munit.Location) =
     TestUtils.checkMatchless("""
 x = 1    
 """) { matchlessMap0 =>
-  
       val fnSet = fns.toSet
-      val matchlessMap = matchlessMap0
-        .flatMap {
-          case (k, vs) if k == PackageName.PredefName =>
-            (k -> vs.filter(tup => fnSet(tup._1.asString))) :: Nil
-          case _ => Nil
-        }
-        .toMap
+      val matchlessMap = matchlessMap0.flatMap {
+        case (k, vs) if k == PackageName.PredefName =>
+          (k -> vs.filter(tup => fnSet(tup._1.asString))) :: Nil
+        case _ => Nil
+      }.toMap
 
       val res = ClangGen.renderMain(
         sortedEnv = Vector(
-          NonEmptyList.one(PackageName.PredefName -> matchlessMap(PackageName.PredefName)),
+          NonEmptyList.one(
+            PackageName.PredefName -> matchlessMap(PackageName.PredefName)
+          )
         ),
         externals = ClangGen.ExternalResolver.FromJvmExternals,
-        value = (PackageName.PredefName, Identifier.Name(fns.last), Code.Ident("run_main"))
+        value = (
+          PackageName.PredefName,
+          Identifier.Name(fns.last),
+          Code.Ident("run_main")
+        )
       )
 
       res match {
         case Right(d) => assertEquals(d.render(80), matches)
-        case Left(e) => fail(e.toString)
+        case Left(e)  => fail(e.toString)
       }
     }
 
@@ -108,7 +113,8 @@ int main(int argc, char** argv) {
   }
 
   test("check foldl_List and reverse_concat") {
-    assertPredefFns("foldl_List", "reverse_concat")("""#include "bosatsu_runtime.h"
+    assertPredefFns("foldl_List", "reverse_concat")(
+      """#include "bosatsu_runtime.h"
 #include <stdlib.h>
 #include "gc.h"
 
@@ -171,9 +177,9 @@ int main(int argc, char** argv) {
     atexit(free_statics);
     BValue main_value = ___bsts_g_Bosatsu_l_Predef_l_reverse__concat();
     return run_main(main_value, argc, argv);
-}""")
+}"""
+    )
   }
-
 
   def mockCodePointFn(bytes: Array[Byte], offset: Int): Int = {
     def s(i: Int) = bytes(offset + i).toInt & 0xff
@@ -181,78 +187,86 @@ int main(int argc, char** argv) {
     val c = s(0);
     var code_point: Int = 0
     val remaining = bytes.length - offset
-    if (c <= 0x7F) {
-        // 1-byte sequence (ASCII)
-        code_point = c;
-    } else if ((c & 0xE0) == 0xC0) {
-        // 2-byte sequence
-        if (remaining < 2 || (s(1) & 0xC0) != 0x80) {
-            // Invalid continuation byte
-            return -1;
-        }
-        code_point = ((c & 0x1F) << 6) | (s(1) & 0x3F);
-    } else if ((c & 0xF0) == 0xE0) {
-        // 3-byte sequence
-        if (remaining < 3 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80) {
-            // Invalid continuation bytes
-            return -1;
-        }
-        code_point = ((c & 0x0F) << 12) | ((s(1) & 0x3F) << 6) | (s(2) & 0x3F);
-    } else if ((c & 0xF8) == 0xF0) {
-        // 4-byte sequence
-        if (remaining < 4 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80 || (s(3) & 0xC0) != 0x80) {
-            // Invalid continuation bytes
-            return -1;
-        }
-        code_point = ((c & 0x07) << 18) | ((s(1) & 0x3F) << 12) | ((s(2) & 0x3F) << 6) | (s(3) & 0x3F);
-    } else {
-        // Invalid UTF-8 leading byte
+    if (c <= 0x7f) {
+      // 1-byte sequence (ASCII)
+      code_point = c;
+    } else if ((c & 0xe0) == 0xc0) {
+      // 2-byte sequence
+      if (remaining < 2 || (s(1) & 0xc0) != 0x80) {
+        // Invalid continuation byte
         return -1;
+      }
+      code_point = ((c & 0x1f) << 6) | (s(1) & 0x3f);
+    } else if ((c & 0xf0) == 0xe0) {
+      // 3-byte sequence
+      if (remaining < 3 || (s(1) & 0xc0) != 0x80 || (s(2) & 0xc0) != 0x80) {
+        // Invalid continuation bytes
+        return -1;
+      }
+      code_point = ((c & 0x0f) << 12) | ((s(1) & 0x3f) << 6) | (s(2) & 0x3f);
+    } else if ((c & 0xf8) == 0xf0) {
+      // 4-byte sequence
+      if (
+        remaining < 4 || (s(1) & 0xc0) != 0x80 || (s(2) & 0xc0) != 0x80 || (s(
+          3
+        ) & 0xc0) != 0x80
+      ) {
+        // Invalid continuation bytes
+        return -1;
+      }
+      code_point =
+        ((c & 0x07) << 18) | ((s(1) & 0x3f) << 12) | ((s(2) & 0x3f) << 6) | (s(
+          3
+        ) & 0x3f);
+    } else {
+      // Invalid UTF-8 leading byte
+      return -1;
     }
 
     code_point
   }
 
-    def bsts_string_code_point_bytes(bytes: Array[Byte]) = {
-      // cast to an unsigned char for the math below
-      def s(o: Int) = bytes(o).toInt & 0xff
-      val c = s(0)
-      val remaining = bytes.length;
+  def bsts_string_code_point_bytes(bytes: Array[Byte]) = {
+    // cast to an unsigned char for the math below
+    def s(o: Int) = bytes(o).toInt & 0xff
+    val c = s(0)
+    val remaining = bytes.length;
 
-      if (c <= 0x7F) {
-          // 1-byte sequence (ASCII)
-          1;
-      } else if ((c & 0xE0) == 0xC0) {
-          // 2-byte sequence
-          if (remaining < 1 || (s(1) & 0xC0) != 0x80) {
-              // Invalid continuation byte
-              sys.error("invalid")
-          }
-          else {
-            2;
-          }
-      } else if ((c & 0xF0) == 0xE0) {
-          // 3-byte sequence
-          if (remaining < 2 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80) {
-              // Invalid continuation bytes
-              sys.error("invalid")
-          }
-          else {
-            3;
-          }
-      } else if ((c & 0xF8) == 0xF0) {
-          // 4-byte sequence
-          if (remaining < 3 || (s(1) & 0xC0) != 0x80 || (s(2) & 0xC0) != 0x80 || (s(3) & 0xC0) != 0x80) {
-              // Invalid continuation bytes
-              sys.error("invalid")
-          }
-          else {
-            4;
-          }
+    if (c <= 0x7f) {
+      // 1-byte sequence (ASCII)
+      1;
+    } else if ((c & 0xe0) == 0xc0) {
+      // 2-byte sequence
+      if (remaining < 1 || (s(1) & 0xc0) != 0x80) {
+        // Invalid continuation byte
+        sys.error("invalid")
       } else {
-          // Invalid UTF-8 leading byte
-          sys.error("invalid")
+        2;
       }
+    } else if ((c & 0xf0) == 0xe0) {
+      // 3-byte sequence
+      if (remaining < 2 || (s(1) & 0xc0) != 0x80 || (s(2) & 0xc0) != 0x80) {
+        // Invalid continuation bytes
+        sys.error("invalid")
+      } else {
+        3;
+      }
+    } else if ((c & 0xf8) == 0xf0) {
+      // 4-byte sequence
+      if (
+        remaining < 3 || (s(1) & 0xc0) != 0x80 || (s(2) & 0xc0) != 0x80 || (s(
+          3
+        ) & 0xc0) != 0x80
+      ) {
+        // Invalid continuation bytes
+        sys.error("invalid")
+      } else {
+        4;
+      }
+    } else {
+      // Invalid UTF-8 leading byte
+      sys.error("invalid")
+    }
   }
 
   def utf8ByteArray(cp: Int): Array[Byte] = {
@@ -263,14 +277,13 @@ int main(int argc, char** argv) {
 
   def allCodePoints(s: String): List[Int] = {
     val bytes = s.getBytes("UTF-8")
-    def loop(o: Int): List[Int] = {
+    def loop(o: Int): List[Int] =
       if (o >= bytes.length) Nil
       else {
         val cp = mockCodePointFn(bytes, o)
         val inc = utf8Bytes(cp)
         cp :: loop(o + inc)
       }
-    }
 
     loop(0)
   }
@@ -288,12 +301,11 @@ int main(int argc, char** argv) {
 
   property("our codepoint size mathces java") {
     Prop.forAll(Generators.genCodePoints) { cp =>
-      val utf8Size = utf8Bytes(cp)  
+      val utf8Size = utf8Bytes(cp)
       val implSize = bsts_string_code_point_bytes(utf8ByteArray(cp))
       assertEquals(implSize, utf8Size)
     }
   }
-
 
   val wordSize = 32
   val maxWord: BigInt = BigInt(1) << wordSize
@@ -305,7 +317,7 @@ int main(int argc, char** argv) {
       // we know that l >= d * r and l < (d + 1) * r
       // low <= d <= high
       def search(low0: BigInt, high0: BigInt): (BigInt, BigInt) = {
-        // we know that d fits in a 64 bit number 
+        // we know that d fits in a 64 bit number
         require(low0.bitLength <= wordSize * 2)
         require(high0.bitLength <= wordSize * 2)
         // we know that div >= 1
@@ -319,21 +331,22 @@ int main(int argc, char** argv) {
         while (cont) {
           val mid = (high + low) >> 1
           val mod = l - mid * r
-          //println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
+          // println(s"with l = $l, r = $r search($low, $high) gives mid = $mid, c = $c")
           if (mod >= r) {
             // mid is too small
             low = mid
-          }
-          else if (mod < 0) {
+          } else if (mod < 0) {
             // mid is too big
             high = mid
-            require(high != low, s"low == high but mid ($low) is isn't correct: from search($low0, $high0)")
-          }
-          else {
+            require(
+              high != low,
+              s"low == high but mid ($low) is isn't correct: from search($low0, $high0)"
+            )
+          } else {
             cont = false
             // the div result fits in 2 words
-            require(mid.bitLength <= 2*wordSize)
-            result = (mid, mod)  
+            require(mid.bitLength <= 2 * wordSize)
+            result = (mid, mod)
           }
         }
 
@@ -347,7 +360,7 @@ int main(int argc, char** argv) {
         require(r > 1)
         val nwords = {
           val rlen = r.bitLength
-          val wSize = rlen/wordSize
+          val wSize = rlen / wordSize
           if (rlen % wordSize == 0) wSize else (wSize + 1)
         }
         // we keep the top most word of n and divide
@@ -356,20 +369,24 @@ int main(int argc, char** argv) {
         val m1 = l >> shiftCount
         val n1 = r >> shiftCount
         // at this point, we have to have a relatively small number
-        require(m1.bitLength <= 2 * wordSize, s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}")
-        require(n1.bitLength <= wordSize, s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}")
+        require(
+          m1.bitLength <= 2 * wordSize,
+          s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}"
+        )
+        require(
+          n1.bitLength <= wordSize,
+          s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}"
+        )
         // this division can be done with unsigned longs
         val divGuess = m1 / n1
         val mod = l - divGuess * r
         if (mod < 0) {
           // divGuess is too big
           search(m1 / (n1 + 1), divGuess)
-        }
-        else if (mod > r) {
+        } else if (mod > r) {
           // divGuess is too small
           search(divGuess, (m1 + 1) / n1)
-        }
-        else {
+        } else {
           // it's good
           (divGuess, mod)
         }
@@ -388,24 +405,23 @@ int main(int argc, char** argv) {
         // we know that m1 * b + l0 < l
         val nextL = (m1 << wordSize) | l0
         if (nextL >= l) {
-          sys.error(s"loop error: l = $l, r = $r, l1 = $l1, l0 = $l0, nextL = $nextL")
+          sys.error(
+            s"loop error: l = $l, r = $r, l1 = $l1, l0 = $l0, nextL = $nextL"
+          )
         }
         val (md1, mm1) = divModPos(nextL, r)
         // m1 * b + l0 == md1 * r + mm1
         // l = d1 * r * b + md1 * r + mm1 = (d1 * b + md1) * r + mm1
         ((d1 << wordSize) + md1, mm1)
-      }
-      else {
+      } else {
         val c = l.compare(r)
         if (c > 0) {
           // r < l < b * r
           divModTop(l, r)
-        }
-        else if (c < 0) {
+        } else if (c < 0) {
           // r < l
           (BigInt(0), l)
-        }
-        else {
+        } else {
           // l == n
           (BigInt(1), BigInt(0))
         }
@@ -414,40 +430,34 @@ int main(int argc, char** argv) {
 
     if (r == BigInt(0)) {
       (BigInt(0), l)
-    }
-    else if (r.abs == BigInt(1)) {
+    } else if (r.abs == BigInt(1)) {
       (l * r.sign, BigInt(0))
-    }
-    else {
+    } else {
       val (div, mod) = divModPos(l.abs, r.abs)
-      //println(s"divModPos(${l.abs}, ${r.abs}) = ($div, $mod)")
+      // println(s"divModPos(${l.abs}, ${r.abs}) = ($div, $mod)")
       if (mod != BigInt(0)) {
         if (l > 0) {
           if (r > 0) {
             // l = d r + m
             (div, mod)
-          }
-          else {
+          } else {
             // l = dr + m
             // l = (-d)(-r) + m - r + r
             // l = -(d + 1) (-r) + (m + (-r))
             (-(div + 1), mod + r)
           }
-        }
-        else {
+        } else {
           if (r > 0) {
             // -l = (-d - 1) r + (r - m)
             (-(div + 1), r - mod)
-          }
-          else {
+          } else {
             //  l = d * r + m
             // -l = d (-r) + -m
             (div, -mod)
           }
         }
-      }
-      else {
-        (div * l.sign * r.sign, BigInt(0)) 
+      } else {
+        (div * l.sign * r.sign, BigInt(0))
       }
     }
   }
@@ -459,11 +469,11 @@ int main(int argc, char** argv) {
       l <- Gen.choose(0L, 1L << exp)
     } yield BigInt(l) * sign
 
-    Gen.oneOf(longBig, Gen.zip(longBig, longBig).map { case (a, b) => a * b})
+    Gen.oneOf(longBig, Gen.zip(longBig, longBig).map { case (a, b) => a * b })
   }
 
   def law(l: BigInt, r: BigInt)(implicit loc: munit.Location) = {
-    val (d, m) = divMod(l, r)  
+    val (d, m) = divMod(l, r)
 
     val d1 = PredefImpl.divBigInteger(l.underlying, r.underlying)
     val m1 = PredefImpl.modBigInteger(l.underlying, r.underlying)
@@ -491,7 +501,7 @@ int main(int argc, char** argv) {
   }
 
   property("implementation of divMod matches predef") {
-    Prop.forAll(genBigInt, genBigInt) { (l, r) => law(l, r) }
+    Prop.forAll(genBigInt, genBigInt)((l, r) => law(l, r))
   }
 
   property("check upper bound property") {
@@ -499,7 +509,7 @@ int main(int argc, char** argv) {
       val l = l0.abs
       val r = r0.abs
       if (r > 1) {
-        assert(((l + 1) / r) <= ((l >> 1) + 1)/(r >> 1))
+        assert(((l + 1) / r) <= ((l >> 1) + 1) / (r >> 1))
       }
     }
   }

@@ -317,9 +317,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 case None =>
                   val prodSetOps = getProd(prod.size)
 
-                  Left({ union =>
+                  Left(union =>
                     prodSetOps.missingBranches(prod :: Nil, union).isEmpty
-                  })
+                  )
               }
             }
           )(new Relatable[List[Pattern[Cons, Type]]] {
@@ -370,12 +370,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case Named(_, pat)      => deunion(Some(pat))
             case Annotation(pat, _) => deunion(Some(pat))
             case WildCard | Var(_) =>
-              Left({ (a, b) =>
+              Left((a, b) =>
                 // unify union returns no top level unions
                 // so isTop is cheap
                 if (unifyUnion(a.toList ::: b.toList).exists(isTop)) Rel.Same
                 else Rel.Super
-              })
+              )
             case pos @ PositionalStruct(name, params) =>
               structToList(name, params) match {
                 case Some(lp) => deunion(Some(lp))
@@ -441,14 +441,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   case _ => Nil
                 }
 
-              Left(
-                { (b, c) =>
-                  val rhs = optPatternToList(b) ::: optPatternToList(c)
-                  if (listPatternSetOps.missingBranches(lp :: Nil, rhs).isEmpty)
-                    Rel.Same
-                  else Rel.Super
-                }
-              )
+              Left { (b, c) =>
+                val rhs = optPatternToList(b) ::: optPatternToList(c)
+                if (listPatternSetOps.missingBranches(lp :: Nil, rhs).isEmpty)
+                  Rel.Same
+                else Rel.Super
+              }
             case sp @ StrPat(_) =>
               def optPatternToStr(
                   p: Option[Pattern[Cons, Type]]
@@ -465,14 +463,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   case _ => Nil
                 }
 
-              Left(
-                { (b, c) =>
-                  val rhs = optPatternToStr(b) ::: optPatternToStr(c)
-                  if (strPatternSetOps.missingBranches(sp :: Nil, rhs).isEmpty)
-                    Rel.Same
-                  else Rel.Super
-                }
-              )
+              Left { (b, c) =>
+                val rhs = optPatternToStr(b) ::: optPatternToStr(c)
+                if (strPatternSetOps.missingBranches(sp :: Nil, rhs).isEmpty)
+                  Rel.Same
+                else Rel.Super
+              }
           }
 
       }

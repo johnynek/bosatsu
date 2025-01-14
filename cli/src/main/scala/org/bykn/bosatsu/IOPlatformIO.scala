@@ -45,7 +45,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     // Wait for the process to complete and check the exit value
     val exitCode = process.waitFor()
     if (exitCode != 0) {
-      throw new RuntimeException(s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode")
+      throw new RuntimeException(
+        s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode"
+      )
     }
   }
 
@@ -53,7 +55,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     cats.effect.IO.asyncForIO
 
   private val parResource: Resource[IO, Par.EC] =
-    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+    Resource
+      .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
 
   def withEC[A](fn: Par.EC => IO[A]): IO[A] =

@@ -5,18 +5,29 @@ import cats.implicits.catsKernelOrderingForOrder
 import com.monovore.decline.{Argument, Opts}
 import org.bykn.bosatsu.CollectionUtils.listToUnique
 import org.bykn.bosatsu.codegen.Transpiler
-import org.bykn.bosatsu.{PackageMap, Par, Parser, PlatformIO, MatchlessFromTypedExpr}
+import org.bykn.bosatsu.{
+  PackageMap,
+  Par,
+  Parser,
+  PlatformIO,
+  MatchlessFromTypedExpr
+}
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
 import cats.syntax.all._
 
 case object PythonTranspiler extends Transpiler {
-  case class Arguments[F[_], P](externals: List[P], evaluators: List[P], platformIO: PlatformIO[F, P]) {
+  case class Arguments[F[_], P](
+      externals: List[P],
+      evaluators: List[P],
+      platformIO: PlatformIO[F, P]
+  ) {
     def read: F[(List[String], List[String])] = {
       import platformIO._
 
-      externals.traverse(readUtf8)
+      externals
+        .traverse(readUtf8)
         .product(
           evaluators.traverse(readUtf8)
         )
@@ -27,25 +38,28 @@ case object PythonTranspiler extends Transpiler {
 
   // this gives the argument for reading files into strings
   // this is a bit limited, but good enough for now
-  def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Transpiler.Optioned[F, P]] =
+  def opts[F[_], P](
+      platformIO: PlatformIO[F, P]
+  ): Opts[Transpiler.Optioned[F, P]] =
     Opts.subcommand("python", "generate python code") {
       implicit val impPathArg: Argument[P] = platformIO.pathArg
-        (Opts
+      (
+        Opts
           .options[P](
             "externals",
             help =
               "external descriptors the transpiler uses to rewrite external defs"
           )
           .orEmpty,
-          Opts
-            .options[P](
-              "evaluators",
-              help = "evaluators which run values of certain types"
-            )
-            .orEmpty
-        )
+        Opts
+          .options[P](
+            "evaluators",
+            help = "evaluators which run values of certain types"
+          )
+          .orEmpty
+      )
         .mapN(Arguments(_, _, platformIO))
-        .map { arg => Transpiler.optioned(this)(arg) }
+        .map(arg => Transpiler.optioned(this)(arg))
     }
 
   def renderAll[F[_], P](
@@ -110,7 +124,7 @@ case object PythonTranspiler extends Transpiler {
 
           def toPath(ns: NonEmptyList[String]): P =
             resolve(outDir, ns.toList)
-            
+
           val docs = PythonGen
             .renderAll(cmp, extMap, tests, evalMap)
             .iterator

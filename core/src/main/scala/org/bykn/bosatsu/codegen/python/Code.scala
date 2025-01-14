@@ -20,12 +20,12 @@ object Code {
   sealed trait ValueLike {
     def returnsBool: Boolean =
       this match {
-        case PyBool(_) => true
-        case _: Expression => false
+        case PyBool(_)       => true
+        case _: Expression   => false
         case WithValue(_, v) => v.returnsBool
         case IfElse(ifs, elseCond) =>
           elseCond.returnsBool && ifs.forall { case (_, v) => v.returnsBool }
-      } 
+      }
   }
 
   sealed abstract class Expression extends ValueLike with Code {
@@ -162,8 +162,9 @@ object Code {
         else falseDoc
       case Not(n) =>
         val nd = n match {
-          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | Apply(_, _) | DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
-            exprToDoc(n) 
+          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | Apply(_, _) |
+              DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
+            exprToDoc(n)
           case p => par(exprToDoc(p))
         }
         Doc.text("not ") + nd
@@ -214,7 +215,7 @@ object Code {
       case DotSelect(left, right) =>
         val ld = left match {
           case PyInt(_) | Op(_, _, _) => par(exprToDoc(left))
-          case _        => exprToDoc(left)
+          case _                      => exprToDoc(left)
         }
         ld + Doc.char('.') + exprToDoc(right)
     }
@@ -294,10 +295,10 @@ object Code {
   case class Not(arg: Expression) extends Expression {
     def simplify: Expression =
       arg.simplify match {
-        case Not(a) => a
-        case PyBool(b) => PyBool(true ^ b)
+        case Not(a)     => a
+        case PyBool(b)  => PyBool(true ^ b)
         case Const.Zero => Const.True
-        case Const.One => Const.False
+        case Const.One  => Const.False
         case Op(left, Const.Eq, right) =>
           Op(left, Const.Neq, right)
         case Op(left, Const.Neq, right) =>
@@ -463,7 +464,7 @@ object Code {
           fromBoolean(a == b)
         case Op(a, Const.And, b) =>
           a.simplify match {
-            case Const.True  => b.simplify
+            case Const.True                      => b.simplify
             case as @ (Const.False | Const.Zero) => as
             case a1 =>
               b.simplify match {
@@ -538,11 +539,13 @@ object Code {
     def simplify: Expression =
       SelectRange(arg, start.map(_.simplify), end.map(_.simplify))
 
-    def countOf(i: Ident) = arg.countOf(i) + start.fold(0)(_.countOf(i)) + end.fold(0)(_.countOf(i))
+    def countOf(i: Ident) =
+      arg.countOf(i) + start.fold(0)(_.countOf(i)) + end.fold(0)(_.countOf(i))
   }
   case class Ternary(ifTrue: Expression, cond: Expression, ifFalse: Expression)
       extends Expression {
-    def countOf(i: Ident) = ifTrue.countOf(i) + cond.countOf(i) + ifFalse.countOf(i)
+    def countOf(i: Ident) =
+      ifTrue.countOf(i) + cond.countOf(i) + ifFalse.countOf(i)
     def simplify: Expression =
       cond.simplify match {
         case PyBool(b) =>
@@ -662,17 +665,17 @@ object Code {
   object ValueLike {
     def ifThenElse(c: Expression, t: ValueLike, e: ValueLike): ValueLike =
       c match {
-        case PyBool(b) => if (b) t else e
+        case PyBool(b)  => if (b) t else e
         case Const.Zero => e
-        case Const.One => t
-        case _=>
+        case Const.One  => t
+        case _          =>
           // we can't evaluate now
           e match {
             case IfElse(econds, eelse) => IfElse((c, t) :: econds, eelse)
             case ex: Expression =>
               t match {
                 case tx: Expression => Ternary(tx, c, ex).simplify
-                case _ => IfElse(NonEmptyList.one((c, t)), ex)
+                case _              => IfElse(NonEmptyList.one((c, t)), ex)
               }
             case notIf => IfElse(NonEmptyList.one((c, t)), notIf)
           }
@@ -720,8 +723,8 @@ object Code {
         lst: List[(Expression, Statement)]
     ): (List[(Expression, Statement)], Statement) =
       lst match {
-        case Nil                          => (Nil, Pass)
-        case (Code.Const.True, last) :: _ => (Nil, last)
+        case Nil                           => (Nil, Pass)
+        case (Code.Const.True, last) :: _  => (Nil, last)
         case (Code.Const.False, _) :: tail => untilTrue(tail)
         case head :: tail =>
           val (rest, e) = untilTrue(tail)
@@ -799,8 +802,8 @@ object Code {
         def simplifyStack(expr: Expression, stmts: List[Statement]): Statement =
           stmts match {
             case Assign(ident: Ident, ex0) :: tail
-              if ex0.isInstanceOf[Ident] || expr.countOf(ident) == 1 => 
-                simplifyStack(substitute(Map(ident -> ex0), expr), tail)
+                if ex0.isInstanceOf[Ident] || expr.countOf(ident) == 1 =>
+              simplifyStack(substitute(Map(ident -> ex0), expr), tail)
             case Block(items) :: tail =>
               simplifyStack(expr, items.toList reverse_::: tail)
             case _ =>
@@ -808,7 +811,7 @@ object Code {
           }
         stmts.toList.reverse match {
           case Return(expr) :: tail => simplifyStack(expr, tail)
-          case _ => stmt
+          case _                    => stmt
         }
       case _ => stmt
     }
@@ -816,7 +819,7 @@ object Code {
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
       case PyInt(_) | PyString(_) | PyBool(_) => in
-      case Not(n) => Not(substitute(subMap, n))
+      case Not(n)                             => Not(substitute(subMap, n))
       case i @ Ident(_) =>
         subMap.get(i) match {
           case Some(value) => value
@@ -870,7 +873,7 @@ object Code {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
         case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
-        case Not(e) => loop(e, bound)
+        case Not(e)                             => loop(e, bound)
         case i @ Ident(n) =>
           if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
@@ -911,14 +914,16 @@ object Code {
         case IfElse(conds, elseCond) =>
           // we do simplify inside the if/else because simplify doesn't
           // look inside those
-          blockFromList((prefix :+ ifStatement(
-            conds.map { case (c, v) =>
-              (c, toReturn(v))
-            },
-            Some(toReturn(elseCond))
-          )).toList)
+          blockFromList(
+            (prefix :+ ifStatement(
+              conds.map { case (c, v) =>
+                (c, toReturn(v))
+              },
+              Some(toReturn(elseCond))
+            )).toList
+          )
       }
-      
+
     simplifyReturn(nosimplify(Chain.empty, v))
   }
 
@@ -969,7 +974,7 @@ object Code {
         case Const.Plus  => (that == Const.Plus) || (that == Const.Minus)
         case Const.Minus => false
         case Const.And   => that == Const.And
-        case Const.Or   => that == Const.Or
+        case Const.Or    => that == Const.Or
         case Const.Times =>
           // (a * b) * c == a * (b * c)
           // (a * b) + c != a * (b + c)

@@ -472,14 +472,14 @@ enum Either: Left(l), Right(r)
         )
 
     val regressions: List[(Pat, Pat)] =
-      List({
+      List {
         val struct = Pattern.PositionalStruct(
           (PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")),
           Nil
         )
         val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
         (struct, lst)
-      })
+      }
 
     regressions.foreach { case (a, b) => law(a, b) }
   }

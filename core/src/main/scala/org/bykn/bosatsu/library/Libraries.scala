@@ -22,14 +22,17 @@ object Libraries {
     new Reader.Obj[Libraries] {
       def describe = "Libraries"
       def readObj(from: Reader.FromObj) =
-        from.j.keys.traverse { name =>
-          from.field[String](name).map((name, _))
-        }
-        .map(items => Libraries(items.to(SortedMap)))
+        from.j.keys
+          .traverse { name =>
+            from.field[String](name).map((name, _))
+          }
+          .map(items => Libraries(items.to(SortedMap)))
     }
 
   implicit val librariesWriter: Writer[Libraries] =
     Writer.from[Libraries] { lib =>
-      Json.JObject(lib.toMap.iterator.map { case (k, v) => (k, Json.JString(v)) }.toList)  
+      Json.JObject(lib.toMap.iterator.map { case (k, v) =>
+        (k, Json.JString(v))
+      }.toList)
     }
 }

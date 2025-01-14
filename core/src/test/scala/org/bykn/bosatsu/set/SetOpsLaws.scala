@@ -419,13 +419,13 @@ class UnitSetOpsTest extends SetOpsLaws[Unit] {
 case class Predicate[A](toFn: A => Boolean) { self =>
   def apply(a: A): Boolean = toFn(a)
   def &&(that: Predicate[A]): Predicate[A] =
-    Predicate({ a => self(a) && that(a) })
+    Predicate(a => self(a) && that(a))
   def ||(that: Predicate[A]): Predicate[A] =
-    Predicate({ a => self(a) || that(a) })
+    Predicate(a => self(a) || that(a))
   def -(that: Predicate[A]): Predicate[A] =
-    Predicate({ a => self(a) && !that(a) })
+    Predicate(a => self(a) && !that(a))
   def unary_! : Predicate[A] =
-    Predicate({ a => !self(a) })
+    Predicate(a => !self(a))
 
   def product[B](that: Predicate[B]): Predicate[(A, B)] =
     Predicate { case (a, b) => self(a) && that(b) }
@@ -513,9 +513,9 @@ class SetOpsTests extends munit.ScalaCheckSuite {
 
     forAll(genMat, Gen.listOfN(5, genMat)) { (v0, prods) =>
       val ord = Ordering.by[Vector[Vector[Double]], Double](norm)
-      val res = SetOps.greedySearch(5, v0, prods)({ (v, ps) =>
+      val res = SetOps.greedySearch(5, v0, prods)((v, ps) =>
         ps.foldLeft(v)(mult(_, _))
-      })(ord)
+      )(ord)
       val normRes = norm(res)
       val naive = norm(prods.foldLeft(v0)(mult(_, _)))
       assert(normRes <= naive)

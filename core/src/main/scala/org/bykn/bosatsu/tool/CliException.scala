@@ -14,12 +14,14 @@ trait CliException { self: Exception =>
     import platform.moduleIOMonad
 
     platform.writeStdout(stdOutDoc) *>
-    platform.writeError(errDoc).as(exitCode)
+      platform.writeError(errDoc).as(exitCode)
   }
 }
 
 object CliException {
-  case class Basic(summary: String, exitCode: ExitCode = ExitCode.Error) extends Exception(summary) with CliException {
+  case class Basic(summary: String, exitCode: ExitCode = ExitCode.Error)
+      extends Exception(summary)
+      with CliException {
     def stdOutDoc: Doc = Doc.empty
     lazy val errDoc: Doc = Doc.text(summary)
   }
