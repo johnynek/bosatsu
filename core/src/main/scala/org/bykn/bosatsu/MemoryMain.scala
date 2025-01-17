@@ -40,7 +40,7 @@ object MemoryMain {
     case class Str(str: String) extends FileContent
     case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
-    case class Lib(lib: proto.Library) extends FileContent
+    case class Lib(lib: Hashed[Algo.Sha256, proto.Library]) extends FileContent
   }
 
   case class State(children: SortedMap[String, Either[State, FileContent]], stdOut: Doc, stdErr: Doc) {
@@ -324,8 +324,11 @@ object MemoryMain {
         def writePackages[A](packs: List[Package.Typed[A]], path: Path): F[Unit] =
           writeFC(path, FileContent.Packages(packs.map(_.void)))
 
-        def writeLibrary(lib: proto.Library, path: Path): F[Unit] =
-          writeFC(path, FileContent.Lib(lib))
+        def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
+          val hash = Algo.hashBytes(lib.toByteArray)
+          val hashed = Hashed(hash, lib)
+          writeFC(path, FileContent.Lib(hashed))
+        }
 
         def writeStdout(doc: Doc): F[Unit] =
           StateT.modify { state =>

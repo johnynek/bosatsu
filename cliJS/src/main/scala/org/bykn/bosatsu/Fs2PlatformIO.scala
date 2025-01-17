@@ -7,6 +7,7 @@ import cats.effect.{IO, Resource}
 import fs2.io.file.{Files, Path}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 import scala.util.{Failure, Success, Try}
 
 import cats.syntax.all._
@@ -84,6 +85,19 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
         IO(A.parseFrom(bytes))  
       }
 
+  def readHashed[A <: GeneratedMessage, H](
+    path: Path
+  )(implicit gmc: GeneratedMessageCompanion[A], algo: Algo[H]): IO[Hashed[H, A]] =
+    FilesIO
+      .readAll(path)
+      .compile.to(Array)
+      .flatMap { bytes =>
+        IO {
+          val a = gmc.parseFrom(bytes)
+          Hashed(Algo.hashBytes[H](bytes), a)
+        }
+      }
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     paths.parTraverse { path =>
       for {
@@ -102,7 +116,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     }
     .map(_.flatten)
 
-  def readLibrary(path: Path): IO[proto.Library] = read[proto.Library](path)
+  def readLibrary(path: Path): IO[Hashed[Algo.Sha256, proto.Library]] =
+    readHashed[proto.Library, Algo.Sha256](path)
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest

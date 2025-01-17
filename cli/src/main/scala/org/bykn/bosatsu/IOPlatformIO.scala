@@ -4,7 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.effect.{IO, Resource}
 import com.monovore.decline.Argument
-import java.nio.file.{Paths, Path => JPath}
+import java.nio.file.{Paths, Path => JPath, Files}
 import java.io.{
   FileInputStream,
   FileOutputStream,
@@ -14,6 +14,7 @@ import java.io.{
 }
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 
 import cats.syntax.all._
 
@@ -60,7 +61,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     parResource.use(fn)
 
   def readUtf8(path: Path): IO[String] =
-    IO.blocking(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
+    IO.blocking(new String(Files.readAllBytes(path), "utf-8"))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
@@ -91,6 +92,15 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       finally {
         ios.close
       }
+    }
+
+  def readHashed[A <: GeneratedMessage, H](
+    path: Path
+  )(implicit gmc: GeneratedMessageCompanion[A], algo: Algo[H]): IO[Hashed[H, A]] =
+    IO.blocking {
+      val bytes = Files.readAllBytes(path)
+      val a = gmc.parseFrom(bytes)
+      Hashed(Algo.hashBytes[H](bytes), a)
     }
 
   def write(a: GeneratedMessage, path: Path): IO[Unit] =
@@ -125,7 +135,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
-  def readLibrary(path: Path): IO[proto.Library] = read[proto.Library](path)
+  def readLibrary(path: Path): IO[Hashed[Algo.Sha256, proto.Library]] =
+    readHashed[proto.Library, Algo.Sha256](path)
 
   def writeInterfaces(
       interfaces: List[Package.Interface],

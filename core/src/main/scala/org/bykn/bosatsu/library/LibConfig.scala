@@ -115,7 +115,7 @@ case class LibConfig(
 
     val thisHistory = previous match {
       case None => proto.LibHistory()
-      case Some(Hashed(hashValue, p)) =>
+      case Some(Hashed(_, p)) =>
         val prevHistory = p.history.getOrElse(proto.LibHistory())
         val desc = p.descriptor match {
           case Some(desc) => desc
