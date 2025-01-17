@@ -204,15 +204,13 @@ lazy val core =
     scalacOptions += "-P:acyclic:force",
   )
   .dependsOn(base, proto)
-  .enablePlugins(ScalaJSPlugin)
-  .enablePlugins(ScalaJSBundlerPlugin)
   .jsSettings(
     commonJsSettings,
     Compile / npmDependencies += "js-sha256" -> "0.11.0"
   )
 
 lazy val coreJVM = core.jvm
-lazy val coreJS = core.js
+lazy val coreJS = core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
 
 lazy val cliJS = 
   (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
