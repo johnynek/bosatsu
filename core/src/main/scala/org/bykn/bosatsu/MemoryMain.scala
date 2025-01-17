@@ -6,6 +6,7 @@ import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 import org.bykn.bosatsu.tool.Output
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
@@ -259,7 +260,7 @@ object MemoryMain {
                 .map(_.flatten)
             }
 
-        def readLibrary(path: Path): F[proto.Library] =
+        def readLibrary(path: Path): F[Hashed[Algo.Sha256, proto.Library]] =
           StateT
             .get[G, MemoryMain.State]
             .flatMap { files =>
@@ -267,7 +268,7 @@ object MemoryMain {
                 case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
                   moduleIOMonad.pure(lib)
                 case other =>
-                  moduleIOMonad.raiseError[proto.Library](
+                  moduleIOMonad.raiseError[Hashed[Algo.Sha256, proto.Library]](
                     new Exception(s"expect Library content, found: $other")
                   )
               }

@@ -11,6 +11,7 @@ import org.typelevel.paiges.Doc
 import cats.syntax.all._
 import cats.data.Validated.Invalid
 import cats.data.Validated.Valid
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
@@ -56,7 +57,7 @@ trait PlatformIO[F[_], Path] {
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
-  def readLibrary(path: Path): F[proto.Library]
+  def readLibrary(path: Path): F[Hashed[Algo.Sha256, proto.Library]]
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest

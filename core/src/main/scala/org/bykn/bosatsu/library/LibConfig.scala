@@ -7,6 +7,7 @@ import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import org.bykn.bosatsu.{Json, Package, PackageName, ProtoConverter}
 import org.bykn.bosatsu.tool.CliException
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 
@@ -27,9 +28,9 @@ case class LibConfig(
     */
   def assemble(
     vcsIdent: String, 
-    previous: Option[proto.Library],
+    previous: Option[Hashed[Algo.Sha256, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[proto.Library]): ValidatedNec[Error, proto.Library] = {
+    deps: List[Hashed[Algo.Sha256, proto.Library]]): ValidatedNec[Error, proto.Library] = {
       val validated = validate(previous, packs, deps)
 
       val valProto = unvalidatedAssemble(previous, vcsIdent, packs) match {
@@ -53,9 +54,9 @@ case class LibConfig(
     * 8. there are no duplicate named dependencies
     */
   def validate(
-    previous: Option[proto.Library],
+    previous: Option[Hashed[Algo.Sha256, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[proto.Library]): ValidatedNec[Error, Unit] = {
+    deps: List[Hashed[Algo.Sha256, proto.Library]]): ValidatedNec[Error, Unit] = {
 
       def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
 
@@ -65,7 +66,7 @@ case class LibConfig(
           case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
         }
 
-      val prop2 = previous.traverse_ { p =>
+      val prop2 = previous.traverse_ { case Hashed(_, p) =>
         val prevLt = p.version match {
           case Some(prevV) =>
             if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit 
@@ -87,7 +88,7 @@ case class LibConfig(
       }
 
       val prop3 = previous match {
-        case Some(prevLib) =>
+        case Some(Hashed(_, prevLib)) =>
           prevLib.version match {
             case Some(prevVersion) =>
               if (prevVersion.justBefore(nextVersion)) Validated.unit
@@ -106,19 +107,23 @@ case class LibConfig(
     }
 
   // just build the library without any validations
-  def unvalidatedAssemble(previous: Option[proto.Library], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
+  def unvalidatedAssemble(previous: Option[Hashed[Algo.Sha256, proto.Library]], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
     val depth = previous match {
       case None => 0
-      case Some(prevLib) => prevLib.depth + 1
+      case Some(Hashed(_, prevLib)) => prevLib.depth + 1
     }
 
-    val prevHistory: proto.LibHistory = previous.flatMap(_.history) match {
+    val thisHistory = previous match {
       case None => proto.LibHistory()
-      case Some(hist) => hist
-    }
-    val thisHistory = previous.flatMap(_.version) match {
-      case Some(v) => prevHistory.nextHistory(v)
-      case None => prevHistory
+      case Some(Hashed(hashValue, p)) =>
+        val prevHistory = p.history.getOrElse(proto.LibHistory())
+        val desc = p.descriptor match {
+          case Some(desc) => desc
+          case None =>
+            // this should never happen after validation
+            return Left(new Exception(s"invalid previous missing descriptor: $p"))
+        }
+        prevHistory.nextHistory(desc)
     }
 
     val sortPack = packs.sortBy(_.name)
@@ -156,7 +161,6 @@ object LibConfig {
     case class ProtoError(error: Throwable) extends Error
     case class VersionNotIncreasing(note: String, previous: Version, current: Version) extends Error
     case class VersionNotAdjacent(previous: Version, current: Version) extends Error
-    case class HistoryMistmatch(note: String, previous: Option[proto.LibHistory], current: proto.LibHistory) extends Error
     case class InvalidPreviousLib(note: String, previous: proto.Library) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
@@ -175,7 +179,6 @@ object LibConfig {
         case VersionNotAdjacent(previous, current) =>
           Doc.text(show"previous version not adjacent:") + (Doc.line +
             Doc.text(show"$previous") + Doc.line + Doc.text("is not adjacent to") + Doc.line + Doc.text(show"$current")).grouped.nested(4)
-        case HistoryMistmatch(note, previous, current) => ???
         case InvalidPreviousLib(note, _) => 
           Doc.text(s"invalid previous library: $note")
         case ProtoError(e) => Doc.text(s"error encoding to proto: ${e.getMessage}")
@@ -248,7 +251,7 @@ object LibConfig {
     def allVersions: List[Version] =
       allDescriptors.flatMap(_.version).map(Version.fromProto(_)) 
 
-    def nextHistory(prevVersion: Version): proto.LibHistory = ???
+    def nextHistory(prevDesc: proto.LibDescriptor): proto.LibHistory = ???
   }
 
   implicit class LibMethods(private val lib: proto.Library) extends AnyVal {
