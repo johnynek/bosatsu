@@ -5,7 +5,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "run JVM tests"
@@ -26,7 +26,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "python setup"
@@ -54,7 +54,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "run coreJS tests"
@@ -74,7 +74,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "run tests with coverage"
@@ -92,7 +92,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "build native image"
@@ -114,7 +114,7 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "${{matrix.java}}"
       - name: "build node"
@@ -139,6 +139,10 @@ jobs:
           - '8'
     steps:
       - uses: "actions/checkout@v2.1.0"
+      - name: "java setup"
+        uses: "olafurpg/setup-scala@v14"
+        with:
+          java-version: "${{matrix.java}}"
       - name: "build assembly"
         run: "sbt \"++${{matrix.scala}}; cli/assembly\""
       - name: "install boehm"

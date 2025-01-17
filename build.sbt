@@ -202,11 +202,15 @@ lazy val core =
     autoCompilerPlugins := true,
     addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.15"),
     scalacOptions += "-P:acyclic:force",
-  ).dependsOn(base, proto)
-    .jsSettings(commonJsSettings)
+  )
+  .dependsOn(base, proto)
+  .jsSettings(
+    commonJsSettings,
+    Compile / npmDependencies += "js-sha256" -> "0.11.0"
+  )
 
 lazy val coreJVM = core.jvm
-lazy val coreJS = core.js
+lazy val coreJS = core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
 
 lazy val cliJS = 
   (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
