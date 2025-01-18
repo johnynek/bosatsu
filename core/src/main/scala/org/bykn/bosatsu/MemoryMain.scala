@@ -40,7 +40,7 @@ object MemoryMain {
     case class Str(str: String) extends FileContent
     case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
-    case class Lib(lib: Hashed[Algo.Sha256, proto.Library]) extends FileContent
+    case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
   }
 
   case class State(children: SortedMap[String, Either[State, FileContent]], stdOut: Doc, stdErr: Doc) {
@@ -260,7 +260,7 @@ object MemoryMain {
                 .map(_.flatten)
             }
 
-        def readLibrary(path: Path): F[Hashed[Algo.Sha256, proto.Library]] =
+        def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]] =
           StateT
             .get[G, MemoryMain.State]
             .flatMap { files =>
@@ -268,7 +268,7 @@ object MemoryMain {
                 case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
                   moduleIOMonad.pure(lib)
                 case other =>
-                  moduleIOMonad.raiseError[Hashed[Algo.Sha256, proto.Library]](
+                  moduleIOMonad.raiseError[Hashed[Algo.Blake3, proto.Library]](
                     new Exception(s"expect Library content, found: $other")
                   )
               }

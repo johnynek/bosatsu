@@ -28,9 +28,9 @@ case class LibConfig(
     */
   def assemble(
     vcsIdent: String, 
-    previous: Option[Hashed[Algo.Sha256, proto.Library]],
+    previous: Option[Hashed[Algo.Blake3, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[Hashed[Algo.Sha256, proto.Library]]): ValidatedNec[Error, proto.Library] = {
+    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, proto.Library] = {
       val validated = validate(previous, packs, deps)
 
       val valProto = unvalidatedAssemble(previous, vcsIdent, packs) match {
@@ -54,9 +54,9 @@ case class LibConfig(
     * 8. there are no duplicate named dependencies
     */
   def validate(
-    previous: Option[Hashed[Algo.Sha256, proto.Library]],
+    previous: Option[Hashed[Algo.Blake3, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[Hashed[Algo.Sha256, proto.Library]]): ValidatedNec[Error, Unit] = {
+    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, Unit] = {
 
       def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
 
@@ -156,7 +156,7 @@ case class LibConfig(
     }
 
   // just build the library without any validations
-  def unvalidatedAssemble(previous: Option[Hashed[Algo.Sha256, proto.Library]], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
+  def unvalidatedAssemble(previous: Option[Hashed[Algo.Blake3, proto.Library]], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
     val depth = previous match {
       case None => 0
       case Some(Hashed(_, prevLib)) => prevLib.depth + 1
@@ -223,7 +223,7 @@ object LibConfig {
     case class InvalidPreviousLib(note: String, previous: proto.Library) extends Error
     case class DuplicateDep(note: String, name: String, desc: proto.LibDescriptor) extends Error
     case class MissingDep(note: String, dep: proto.LibDependency) extends Error
-    case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Sha256], found: proto.Library) extends Error
+    case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Blake3], found: proto.Library) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,

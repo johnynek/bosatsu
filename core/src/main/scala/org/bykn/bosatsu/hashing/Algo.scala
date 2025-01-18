@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.hashing
 
 import cats.parse.Parser
+import pt.kcry.blake3.{Blake3 => B3}
 
 sealed abstract class Algo[A] {
   def name: String
@@ -15,15 +16,17 @@ case class HashValue[A](hex: String) {
 }
 
 object Algo {
-  trait Sha256
-  object Sha256 extends Sha256
+  trait Blake3
+  object Blake3 extends Blake3
   
-  implicit val sha256Algo: Algo[Sha256] =
-    new Algo[Sha256] {
-      def name: String = "sha256"
+  implicit val blake3Algo: Algo[Blake3] =
+    new Algo[Blake3] {
+      def name: String = "blake3"
       def hexLen: Int = 64
-      def hashBytes(bytes: Array[Byte]): HashValue[Sha256] =
-        HashValue(Sha256Hash.sha256HashHex(bytes))
+      def hashBytes(bytes: Array[Byte]): HashValue[Blake3] =
+        HashValue(
+          B3.newHasher().update(bytes).doneHex(64)
+        )
     }
 
   sealed abstract class WithAlgo[F[_]] {
@@ -65,5 +68,5 @@ object Algo {
     }
 
   val parseIdent: Parser[WithAlgo[HashValue]] =
-    parseHashValue(sha256Algo)
+    parseHashValue(blake3Algo)
 }

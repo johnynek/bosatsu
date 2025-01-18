@@ -183,6 +183,7 @@ lazy val core =
     assembly / test := {},
     libraryDependencies ++=
       Seq(
+        blake3.value,
         cats.value,
         catsParse.value,
         decline.value,
@@ -206,7 +207,6 @@ lazy val core =
   .dependsOn(base, proto)
   .jsSettings(
     commonJsSettings,
-    Compile / npmDependencies += "js-sha256" -> "0.11.0"
   )
 
 lazy val coreJVM = core.jvm

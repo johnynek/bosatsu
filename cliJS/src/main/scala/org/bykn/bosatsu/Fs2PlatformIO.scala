@@ -116,8 +116,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     }
     .map(_.flatten)
 
-  def readLibrary(path: Path): IO[Hashed[Algo.Sha256, proto.Library]] =
-    readHashed[proto.Library, Algo.Sha256](path)
+  def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
+    readHashed[proto.Library, Algo.Blake3](path)
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest

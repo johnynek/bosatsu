@@ -135,8 +135,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
-  def readLibrary(path: Path): IO[Hashed[Algo.Sha256, proto.Library]] =
-    readHashed[proto.Library, Algo.Sha256](path)
+  def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
+    readHashed[proto.Library, Algo.Blake3](path)
 
   def writeInterfaces(
       interfaces: List[Package.Interface],
