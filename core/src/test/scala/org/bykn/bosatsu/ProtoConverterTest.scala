@@ -16,7 +16,9 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class ProtoConverterTest extends AnyFunSuite with ParTest {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 100 else 10)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 100 else 10
+    )
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)

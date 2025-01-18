@@ -5,22 +5,24 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import org.bykn.bosatsu.{LocationMap, Package, PackageName, PlatformIO}
 
-/** This is a class that names packages based on path and finds packages
-  * based on imports
+/** This is a class that names packages based on path and finds packages based
+  * on imports
   */
 sealed abstract class PackageResolver[IO[_], Path] {
   def pathFor(name: PackageName)(io: PlatformIO[IO, Path]): IO[Option[Path]]
   def packageNameFor(path: Path)(io: PlatformIO[IO, Path]): Option[PackageName]
 
   /** This parses all the given paths and returns them first, and if the
-    * PackageResolver supports it, we look for any missing dependencies that
-    * are not already included
+    * PackageResolver supports it, we look for any missing dependencies that are
+    * not already included
     */
   final def parseAllInputs(
       paths: List[Path],
       included: Set[PackageName]
   )(platformIO: PlatformIO[IO, Path]): IO[
-    ValidatedNel[PathParseError[Path], List[((Path, LocationMap), Package.Parsed)]]
+    ValidatedNel[PathParseError[Path], List[
+      ((Path, LocationMap), Package.Parsed)
+    ]]
   ] = {
     import platformIO.moduleIOMonad
 
@@ -30,15 +32,18 @@ sealed abstract class PackageResolver[IO[_], Path] {
     ]
 
     def parseInputs(
-        paths: List[Path],
-    ): IO[ValidatedNel[PathParseError[Path], List[((Path, LocationMap), Package.Parsed)]]] =
+        paths: List[Path]
+    ): IO[ValidatedNel[PathParseError[Path], List[
+      ((Path, LocationMap), Package.Parsed)
+    ]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
       paths
         .traverse { path =>
           val defaultPack = packageNameFor(path)(platformIO)
-          PathParseError.parseFile(Package.parser(defaultPack), path, platformIO)
+          PathParseError
+            .parseFile(Package.parser(defaultPack), path, platformIO)
             .map(_.map { case (lm, parsed) =>
               ((path, lm), parsed)
             })
@@ -66,12 +71,15 @@ sealed abstract class PackageResolver[IO[_], Path] {
         }
 
       val optParsed: IO[
-        ValidatedNel[PathParseError[Path], Option[((Path, LocationMap), Package.Parsed)]]
+        ValidatedNel[PathParseError[Path], Option[
+          ((Path, LocationMap), Package.Parsed)
+        ]]
       ] =
         maybeReadPack.map { opt =>
           opt.traverse { case (path, str) =>
             val defaultPack = packageNameFor(path)(platformIO)
-            PathParseError.parseString(Package.parser(defaultPack), path, str)
+            PathParseError
+              .parseString(Package.parser(defaultPack), path, str)
               .map { case (lm, parsed) =>
                 ((path, lm), parsed)
               }
@@ -129,29 +137,33 @@ sealed abstract class PackageResolver[IO[_], Path] {
 
   def parseHeaders(
       paths: List[Path]
-  )(platformIO: PlatformIO[IO, Path]): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
+  )(
+      platformIO: PlatformIO[IO, Path]
+  ): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
     import platformIO.moduleIOMonad
     // we use IO(traverse) so we can accumulate all the errors in parallel easily
     // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
     // and use the composed applicative... too much work for the same result
     paths
       .traverse { path =>
-
         val defaultPack = packageNameFor(path)(platformIO)
         platformIO.readUtf8(path).map { str =>
-          PathParseError.parseString(Package.headerParser(defaultPack), path, str)
+          PathParseError
+            .parseString(Package.headerParser(defaultPack), path, str)
             .map { case (_, pp) => (path, pp) }
         }
       }
       .map(_.sequence)
-    }
+  }
 }
 
 object PackageResolver {
   case class ExplicitOnly[IO[_], Path]() extends PackageResolver[IO, Path] {
     def pathFor(name: PackageName)(io: PlatformIO[IO, Path]): IO[Option[Path]] =
       io.moduleIOMonad.pure(Option.empty[Path])
-    def packageNameFor(path: Path)(io: PlatformIO[IO, Path]): Option[PackageName] = None
+    def packageNameFor(path: Path)(
+        io: PlatformIO[IO, Path]
+    ): Option[PackageName] = None
   }
 
   case class LocalRoots[IO[_], Path](
@@ -179,11 +191,15 @@ object PackageResolver {
           moduleIOMonad.tailRecM(roots.toList)(step)
       }
 
-    def packageNameFor(path: Path)(io: PlatformIO[IO, Path]): Option[PackageName] =
+    def packageNameFor(path: Path)(
+        io: PlatformIO[IO, Path]
+    ): Option[PackageName] =
       io.pathPackage(roots.toList, path)
   }
 
-  private def packRoot[IO[_], Path](platformIO: PlatformIO[IO, Path]): Opts[NonEmptyList[Path]] = {
+  private def packRoot[IO[_], Path](
+      platformIO: PlatformIO[IO, Path]
+  ): Opts[NonEmptyList[Path]] = {
     import platformIO.pathArg
     Opts.options[Path](
       "package_root",
@@ -192,7 +208,7 @@ object PackageResolver {
   }
 
   private def packSearch[IO[_], Path](
-    platformIO: PlatformIO[IO, Path]
+      platformIO: PlatformIO[IO, Path]
   ): Opts[Option[(Path, PackageName) => IO[Option[Path]]]] =
     Opts
       .flag(
@@ -206,7 +222,9 @@ object PackageResolver {
         case false => None
       }
 
-  def opts[IO[_], Path](platformIO: PlatformIO[IO, Path]): Opts[PackageResolver[IO, Path]] =
+  def opts[IO[_], Path](
+      platformIO: PlatformIO[IO, Path]
+  ): Opts[PackageResolver[IO, Path]] =
     (packRoot(platformIO)
       .product(packSearch(platformIO)))
       .orNone
@@ -217,9 +235,10 @@ object PackageResolver {
       }
 
   // type-checking and writing protos should be explicit. search option isn't supported
-  def noSearchOpts[IO[_], Path](platformIO: PlatformIO[IO, Path]): Opts[PackageResolver[IO, Path]] =
-    packRoot(platformIO)
-      .orNone
+  def noSearchOpts[IO[_], Path](
+      platformIO: PlatformIO[IO, Path]
+  ): Opts[PackageResolver[IO, Path]] =
+    packRoot(platformIO).orNone
       .map {
         case None        => PackageResolver.ExplicitOnly()
         case Some(paths) => PackageResolver.LocalRoots(paths, None)

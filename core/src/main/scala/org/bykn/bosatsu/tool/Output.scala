@@ -19,7 +19,8 @@ object Output {
       doc: Eval[Doc]
   ) extends Output[Nothing]
 
-  case class JsonOutput[Path](json: Json, output: Option[Path]) extends Output[Path]
+  case class JsonOutput[Path](json: Json, output: Option[Path])
+      extends Output[Path]
 
   case class CompileOut[Path](
       packList: List[Package.Typed[Any]],

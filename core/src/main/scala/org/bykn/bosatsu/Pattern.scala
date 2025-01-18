@@ -94,13 +94,13 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard | Pattern.Literal(_) => this
       case Pattern.Var(b) =>
         table.get(b) match {
-          case None => this
+          case None     => this
           case Some(b1) => Pattern.Var(b1)
         }
       case Pattern.Named(n, p) =>
         val p1 = p.substitute(table)
         val n2 = table.get(n) match {
-          case None => n
+          case None     => n
           case Some(n1) => n1
         }
         if ((p1 eq p) && (n2 eq n)) this
@@ -350,12 +350,12 @@ object Pattern {
         case WildStr | LitStr(_) | WildChar => this
         case NamedStr(n) =>
           table.get(n) match {
-            case None => this
+            case None     => this
             case Some(n1) => NamedStr(n1)
           }
         case NamedChar(n) =>
           table.get(n) match {
-            case None => this
+            case None     => this
             case Some(n1) => NamedChar(n1)
           }
       }
@@ -402,13 +402,14 @@ object Pattern {
       def map[B](fn: A => B): ListPart[B] = Item(fn(pat))
     }
 
-    implicit class ListPartPat[N, T](val self: ListPart[Pattern[N, T]]) extends AnyVal {
+    implicit class ListPartPat[N, T](val self: ListPart[Pattern[N, T]])
+        extends AnyVal {
       def substitute(table: Map[Bindable, Bindable]): ListPart[Pattern[N, T]] =
         self match {
           case WildList => WildList
           case NamedList(n) =>
             table.get(n) match {
-              case None => self
+              case None     => self
               case Some(n1) => NamedList(n1)
             }
           case Item(p) =>
@@ -528,18 +529,17 @@ object Pattern {
       }
     }
 
-    /**
-     * Convert this to simpler pattern, if possible (such
-     * as Literal, Wild, Var)
-     */
+    /** Convert this to simpler pattern, if possible (such as Literal, Wild,
+      * Var)
+      */
     def simplify: Option[Pattern[Nothing, Nothing]] =
       parts match {
-        case NonEmptyList(StrPart.WildStr, Nil) => Some(Pattern.WildCard)
+        case NonEmptyList(StrPart.WildStr, Nil)     => Some(Pattern.WildCard)
         case NonEmptyList(StrPart.NamedStr(n), Nil) => Some(Pattern.Var(n))
         case _ =>
           val allStrings = parts.traverse {
             case StrPart.LitStr(s) => Some(s)
-            case _ => None
+            case _                 => None
           }
 
           allStrings.map { strs =>
@@ -560,24 +560,22 @@ object Pattern {
     def matches(str: String): Boolean =
       isTotal || matcher(str).isDefined
 
-    /**
-     * Convert to a regular expression matching this pattern, which
-     * uses reluctant modifiers
-     */
+    /** Convert to a regular expression matching this pattern, which uses
+      * reluctant modifiers
+      */
     def toRegex: RegexPattern = {
-      def mapPart(p: StrPart): String = 
+      def mapPart(p: StrPart): String =
         p match {
-          case StrPart.NamedStr(_) => "(.*?)"
-          case StrPart.WildStr  => ".*?"
+          case StrPart.NamedStr(_)  => "(.*?)"
+          case StrPart.WildStr      => ".*?"
           case StrPart.NamedChar(_) => "(.)"
-          case StrPart.WildChar => "."
-          case StrPart.LitStr(s) =>
+          case StrPart.WildChar     => "."
+          case StrPart.LitStr(s)    =>
             // we need to escape any characters that may be in regex
             RegexPattern.quote(s)
         }
       RegexPattern.compile(
-        parts
-          .iterator
+        parts.iterator
           .map(mapPart(_))
           .mkString,
         RegexPattern.DOTALL
@@ -1202,12 +1200,11 @@ object Pattern {
   private val maybePartial
       : P0[(Constructor, StructKind.Style) => StructKind.NamedKind] = {
     val partial = (maybeSpace.soft ~ P.string("...")).as(
-      { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) }
+      (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s)
     )
 
-    val notPartial = P.pure(
-      { (n: Constructor, s: StructKind.Style) => StructKind.Named(n, s) }
-    )
+    val notPartial =
+      P.pure((n: Constructor, s: StructKind.Style) => StructKind.Named(n, s))
 
     partial.orElse(notPartial)
   }

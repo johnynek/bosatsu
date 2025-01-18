@@ -8,7 +8,7 @@ sealed abstract class Algo[A] {
 object Algo {
   trait Sha256
   object Sha256 extends Sha256
-  
+
   implicit val sha256Algo: Algo[Sha256] =
     new Algo[Sha256] {
       def name: String = "sha256"
@@ -16,6 +16,8 @@ object Algo {
         HashValue(Sha256Hash.sha256HashHex(bytes))
     }
 
-  def hashBytesHex[A](bytes: Array[Byte])(implicit algo: Algo[A]): HashValue[A] =
+  def hashBytesHex[A](bytes: Array[Byte])(implicit
+      algo: Algo[A]
+  ): HashValue[A] =
     algo.hashBytesHex(bytes)
 }

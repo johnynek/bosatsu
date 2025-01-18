@@ -117,7 +117,7 @@ object Infer {
           // TODO remove this
           variances.get(d).orElse(Type.builtInKinds.get(d)) match {
             case Some(ks) => Right(ks)
-            case None     => Left({ region => Error.UnknownDefined(d, region) })
+            case None     => Left(region => Error.UnknownDefined(d, region))
           }
         }
       )
@@ -475,18 +475,18 @@ object Infer {
       * B(x)) where A(x) and B(x) represent the union branches of the type C
       *
       * Here, we only float quantification above completely covariant paths,
-      * which includes function results returning functions, etc.
-      * I don't really know why this works, but it is skolemizing in a smaller set of
-      * cases compared to *any* covariant path (including contra * contra), yet still
+      * which includes function results returning functions, etc. I don't really
+      * know why this works, but it is skolemizing in a smaller set of cases
+      * compared to *any* covariant path (including contra * contra), yet still
       * keeping functions in weak-prenex form (which isn't type checked, but is
       * asserted in the inference and typechecking process).
       *
-      * So, I guess one argument is we want to skolemize the least we can to make
-      * inference work, especially with function return types, and this is sufficient
-      * to do it. It also passes all the current tests.
+      * So, I guess one argument is we want to skolemize the least we can to
+      * make inference work, especially with function return types, and this is
+      * sufficient to do it. It also passes all the current tests.
       *
-      * The paper we base the type inference on doesn't have a type system as complex
-      * as bosatsu, so we have to generalize it.
+      * The paper we base the type inference on doesn't have a type system as
+      * complex as bosatsu, so we have to generalize it.
       */
     private def skolemize(
         t: Type,
@@ -1509,79 +1509,78 @@ object Infer {
         args: NonEmptyList[Expr[A]],
         tag: A
     ): Infer[Option[TypedExpr[A]]] =
-      (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN {
-        (infFn, infArgs) =>
-          infFn.flatMap { fnTe =>
-            fnTe.getType match {
-              case Type.Fun.SimpleUniversal(us, argsT, resT)
-                  if argsT.length == args.length =>
-                infArgs.sequence
-                  .flatMap { argsTE =>
-                    val argTypes = argsTE.map(_.getType)
-                    // we can lift any quantification of the args
-                    // outside of the function application
-                    // We have to lift *before* substitution
-                    val noshadows =
-                      Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
-                        us.iterator.map(_._1)
-                    val (optQ, liftArgs) =
-                      TypedExpr.liftQuantification(argsTE, noshadows)
+      (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN { (infFn, infArgs) =>
+        infFn.flatMap { fnTe =>
+          fnTe.getType match {
+            case Type.Fun.SimpleUniversal(us, argsT, resT)
+                if argsT.length == args.length =>
+              infArgs.sequence
+                .flatMap { argsTE =>
+                  val argTypes = argsTE.map(_.getType)
+                  // we can lift any quantification of the args
+                  // outside of the function application
+                  // We have to lift *before* substitution
+                  val noshadows =
+                    Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
+                      us.iterator.map(_._1)
+                  val (optQ, liftArgs) =
+                    TypedExpr.liftQuantification(argsTE, noshadows)
 
-                    val liftArgTypes = liftArgs.map(_.getType)
-                    Type.instantiate(
-                      us.toList.toMap,
-                      Type.Tuple(argsT.toList),
-                      Type.Tuple(liftArgTypes.toList),
-                      optQ.fold(Map.empty[Type.Var.Bound, Kind])(
-                        _.vars.toList.toMap
-                      )
-                    ) match {
-                      case None =>
-                        /*
+                  val liftArgTypes = liftArgs.map(_.getType)
+                  Type.instantiate(
+                    us.toList.toMap,
+                    Type.Tuple(argsT.toList),
+                    Type.Tuple(liftArgTypes.toList),
+                    optQ.fold(Map.empty[Type.Var.Bound, Kind])(
+                      _.vars.toList.toMap
+                    )
+                  ) match {
+                    case None =>
+                      /*
                           println(s"can't instantiate: ${
                             Type.fullyResolvedDocument.document(fnTe.getType).render(80)
                           } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
-                         */
-                        pureNone
-                      case Some((frees, inst)) =>
-                        if (frees.nonEmpty) {
-                          // TODO maybe we could handle this, but not yet
-                          // seems like if the free vars are set to the same
-                          // variable, then we can just lift it into the
-                          // quantification
-                          /*
+                       */
+                      pureNone
+                    case Some((frees, inst)) =>
+                      if (frees.nonEmpty) {
+                        // TODO maybe we could handle this, but not yet
+                        // seems like if the free vars are set to the same
+                        // variable, then we can just lift it into the
+                        // quantification
+                        /*
                             println(s"remaining frees in ${
                               Type.fullyResolvedDocument.document(fnTe.getType).render(80)
                             } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
-                           */
-                          pureNone
-                        } else {
-                          val subMap =
-                            inst.view.mapValues(_._2).toMap[Type.Var, Type]
-                          val fnType0 = Type.Fun(liftArgTypes, resT)
-                          val fnType1 = Type.substituteVar(fnType0, subMap)
-                          val resType = Type.substituteVar(resT, subMap)
+                         */
+                        pureNone
+                      } else {
+                        val subMap =
+                          inst.view.mapValues(_._2).toMap[Type.Var, Type]
+                        val fnType0 = Type.Fun(liftArgTypes, resT)
+                        val fnType1 = Type.substituteVar(fnType0, subMap)
+                        val resType = Type.substituteVar(resT, subMap)
 
-                          val resTe = TypedExpr.App(
-                            TypedExpr.Annotation(fnTe, fnType1),
-                            liftArgs,
-                            resType,
-                            tag
-                          )
+                        val resTe = TypedExpr.App(
+                          TypedExpr.Annotation(fnTe, fnType1),
+                          liftArgs,
+                          resType,
+                          tag
+                        )
 
-                          val maybeQuant = optQ match {
-                            case Some(q) => TypedExpr.Generic(q, resTe)
-                            case None    => resTe
-                          }
-
-                          pure(Some(maybeQuant))
+                        val maybeQuant = optQ match {
+                          case Some(q) => TypedExpr.Generic(q, resTe)
+                          case None    => resTe
                         }
-                    }
+
+                        pure(Some(maybeQuant))
+                      }
                   }
-              case _ =>
-                pureNone
-            }
+                }
+            case _ =>
+              pureNone
           }
+        }
       }.flatSequence
 
     def applyRhoExpect[A: HasRegion](
@@ -2669,7 +2668,7 @@ object Infer {
       }
 
     val groups: List[G] =
-      ListUtil.greedyGroup(ls)({ item => NonEmptyChain.one(item) }) {
+      ListUtil.greedyGroup(ls)(item => NonEmptyChain.one(item)) {
         case (bs, item @ (_, _, expr)) =>
           val dependsOnGroup =
             expr.globals.iterator.exists { case Expr.Global(p, n1, _) =>

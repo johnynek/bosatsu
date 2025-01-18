@@ -164,7 +164,10 @@ class PatternTest extends AnyFunSuite {
 
     def law[A, B](p: Pattern[A, B], map: Map[Bindable, Bindable]) = {
       val subsP = p.substitute(map)
-      assert(subsP.names.distinct == p.names.map(n => map.getOrElse(n, n)).distinct, s"got $subsP")
+      assert(
+        subsP.names.distinct == p.names.map(n => map.getOrElse(n, n)).distinct,
+        s"got $subsP"
+      )
     }
 
     def b(s: String) = Identifier.Name(s)
@@ -174,12 +177,27 @@ class PatternTest extends AnyFunSuite {
       import StrPart._
       import Lit.Str
 
-      val p = Union(Var(Name("a")), NonEmptyList(StrPat(NonEmptyList(NamedStr(Name("k")), List(LitStr("wrk"), WildChar))), List(Named(Name("hqZ9aeuAood"), WildCard), Literal(Str("q5VgEdksu")), WildCard)))
+      val p = Union(
+        Var(Name("a")),
+        NonEmptyList(
+          StrPat(
+            NonEmptyList(NamedStr(Name("k")), List(LitStr("wrk"), WildChar))
+          ),
+          List(
+            Named(Name("hqZ9aeuAood"), WildCard),
+            Literal(Str("q5VgEdksu")),
+            WildCard
+          )
+        )
+      )
 
       law(p, Map(b("k") -> b("a")))
     }
 
-    forAll(patGen, Gen.mapOf(Gen.zip(Generators.bindIdentGen, Generators.bindIdentGen))) { (p, map) =>
+    forAll(
+      patGen,
+      Gen.mapOf(Gen.zip(Generators.bindIdentGen, Generators.bindIdentGen))
+    ) { (p, map) =>
       law(p, map)
     }
   }

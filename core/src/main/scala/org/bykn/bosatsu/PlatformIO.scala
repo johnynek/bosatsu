@@ -23,7 +23,8 @@ trait PlatformIO[F[_], Path] {
   def pathF(str: String): F[Path] =
     path(str) match {
       case Valid(a) => moduleIOMonad.pure(a)
-      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
+      case Invalid(e) =>
+        moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
     }
 
   // this must return a parseable String
@@ -49,7 +50,7 @@ trait PlatformIO[F[_], Path] {
   def getOrError[A](oa: Option[A], msg: => String): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
-      case None => moduleIOMonad.raiseError(new Exception(msg))
+      case None    => moduleIOMonad.raiseError(new Exception(msg))
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
@@ -71,7 +72,7 @@ trait PlatformIO[F[_], Path] {
     val filePath = resolve(dir, pack.parts.last + ".bosatsu")
     fsDataType(filePath).map {
       case Some(PlatformIO.FSDataType.File) => Some(filePath)
-      case _ => None
+      case _                                => None
     }
   }
 
@@ -92,7 +93,7 @@ trait PlatformIO[F[_], Path] {
   def gitTopLevel: F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) => 
+        case Some(PlatformIO.FSDataType.Dir) =>
           fsDataType(resolve(current, ".git"))
             .map {
               case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
@@ -103,16 +104,18 @@ trait PlatformIO[F[_], Path] {
 
     path(".") match {
       case Valid(a) => moduleIOMonad.tailRecM(a)(searchStep)
-      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"could not find current directory: $e"))
+      case Invalid(e) =>
+        moduleIOMonad.raiseError(
+          new Exception(s"could not find current directory: $e")
+        )
     }
   }
 
   final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
     out match {
-      case None => writeStdout(doc)
+      case None    => writeStdout(doc)
       case Some(p) => writeDoc(p, doc)
     }
-
 
   def resolve(base: Path, p: List[String]): Path =
     p.foldLeft(base)(resolve(_, _))
@@ -129,11 +132,12 @@ trait PlatformIO[F[_], Path] {
 }
 
 object PlatformIO {
-  def pathPackage[Path](roots: List[Path], packFile: Path)(relativeParts: (Path, Path) => Option[Iterable[String]]): Option[PackageName] = {
+  def pathPackage[Path](roots: List[Path], packFile: Path)(
+      relativeParts: (Path, Path) => Option[Iterable[String]]
+  ): Option[PackageName] = {
     def getP(p: Path): Option[PackageName] =
       relativeParts(p, packFile).flatMap { parts =>
-        val subPath = parts
-          .iterator
+        val subPath = parts.iterator
           .map { part =>
             part.toLowerCase.capitalize
           }

@@ -6,7 +6,14 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.rankn.{DataRepr, Type}
-import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName, PackageMap}
+import org.bykn.bosatsu.{
+  Identifier,
+  Lit,
+  Matchless,
+  Predef,
+  PackageName,
+  PackageMap
+}
 import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
@@ -24,13 +31,17 @@ object ClangGen {
   object Error {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
     case class InvariantViolation(message: String, expr: Expr) extends Error
-    case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)]) extends Error
+    case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)])
+        extends Error
     case class ExpectedStaticString(str: String) extends Error
   }
 
   trait ExternalResolver {
     def names: SortedMap[PackageName, SortedSet[Bindable]]
-    def apply(p: PackageName, b: Bindable): Option[(Code.Include, Code.Ident, Int)]
+    def apply(
+        p: PackageName,
+        b: Bindable
+    ): Option[(Code.Include, Code.Ident, Int)]
 
     final def generateExternalsStub: SortedMap[String, Doc] = {
       val includes = Code.Include.quote("bosatsu_runtime.h") :: Nil
@@ -43,27 +54,26 @@ object ClangGen {
       }
 
       val line2 = Doc.hardLine + Doc.hardLine
-      val includeRuntime = Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc))
+      val includeRuntime =
+        Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc))
 
-      SortedMap.empty[String, Doc] ++ names
-        .iterator
+      SortedMap.empty[String, Doc] ++ names.iterator
         .flatMap { case (p, binds) =>
 
-          val fns = binds.iterator.flatMap { n =>
-            apply(p, n)
-          }
-          .map { case (i, n, arity) =>
-            i.filename -> Code.toDoc(toStmt(n, arity))
-          }
-          .toList
-          .groupByNel(_._1)
-
+          val fns = binds.iterator
+            .flatMap { n =>
+              apply(p, n)
+            }
+            .map { case (i, n, arity) =>
+              i.filename -> Code.toDoc(toStmt(n, arity))
+            }
+            .toList
+            .groupByNel(_._1)
 
           fns.iterator.map { case (incl, nelInner) =>
-            incl -> (
-              includeRuntime +
-                line2 +
-                Doc.intercalate(line2, nelInner.toList.map(_._2)))
+            incl -> (includeRuntime +
+              line2 +
+              Doc.intercalate(line2, nelInner.toList.map(_._2)))
           }
         }
     }
@@ -79,33 +89,33 @@ object ClangGen {
       def tpeArity(t: Type): Int =
         t match {
           case Type.Fun.MaybeQuant(_, args, _) => args.length
-          case _ => 0
+          case _                               => 0
         }
 
       val allExt = pm.allExternals
-      val extMap = allExt
-        .iterator
-        .map { case (p, vs) =>
-          val fileName = ExternalResolver.stdExtFileName(p)
+      val extMap = allExt.iterator.map { case (p, vs) =>
+        val fileName = ExternalResolver.stdExtFileName(p)
 
-          val fns = vs.iterator.map { case (n, tpe) =>
-            val cIdent = generatedName(p, n)
-            n -> (cIdent, tpeArity(tpe))
-          }
-          .toMap
+        val fns = vs.iterator.map { case (n, tpe) =>
+          val cIdent = generatedName(p, n)
+          n -> (cIdent, tpeArity(tpe))
+        }.toMap
 
-          p -> (Code.Include.quote(fileName), fns)
-        }
-        .toMap
+        p -> (Code.Include.quote(fileName), fns)
+      }.toMap
 
       new ExternalResolver {
         lazy val names: SortedMap[PackageName, SortedSet[Bindable]] =
-          allExt.iterator.map { case (p, vs) =>
-            p -> vs.iterator.map { case (b, _) => b }.to(SortedSet)
-          }
-          .to(SortedMap)
+          allExt.iterator
+            .map { case (p, vs) =>
+              p -> vs.iterator.map { case (b, _) => b }.to(SortedSet)
+            }
+            .to(SortedMap)
 
-        def apply(p: PackageName, b: Bindable): Option[(Code.Include, Code.Ident, Int)] =
+        def apply(
+            p: PackageName,
+            b: Bindable
+        ): Option[(Code.Include, Code.Ident, Int)] =
           for {
             (include, inner) <- extMap.get(p)
             (ident, arity) <- inner.get(b)
@@ -115,26 +125,35 @@ object ClangGen {
 
     val FromJvmExternals: ExternalResolver =
       new ExternalResolver {
-        val predef_c = Code.Include.quote(stdExtFileName(PackageName.PredefName))
+        val predef_c =
+          Code.Include.quote(stdExtFileName(PackageName.PredefName))
 
         def predef(s: String, arity: Int) =
-          (PackageName.PredefName -> Identifier.Name(s)) -> (predef_c,
-            ClangGen.generatedName(PackageName.PredefName, Identifier.Name(s)), arity)
+          (PackageName.PredefName -> Identifier.Name(s)) -> (
+            predef_c,
+            ClangGen.generatedName(PackageName.PredefName, Identifier.Name(s)),
+            arity
+          )
 
-        val ext = Predef
-          .jvmExternals.toMap.iterator.map { case ((_, n), ffi) =>
+        val ext = Predef.jvmExternals.toMap.iterator
+          .map { case ((_, n), ffi) =>
             predef(n, ffi.arity)
           }
           .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
 
         lazy val names: SortedMap[PackageName, SortedSet[Bindable]] = {
-          val sm = Predef
-            .jvmExternals.toMap.iterator.map { case (pn, _) => pn }
+          val sm = Predef.jvmExternals.toMap.iterator
+            .map { case (pn, _) => pn }
             .toList
             .groupByNel(_._1)
 
           sm.map { case (k, vs) =>
-            (k, vs.toList.iterator.map { case (_, n) => Identifier.Name(n) }.to(SortedSet))
+            (
+              k,
+              vs.toList.iterator
+                .map { case (_, n) => Identifier.Name(n) }
+                .to(SortedSet)
+            )
           }
         }
         def apply(p: PackageName, b: Bindable) = ext.get((p, b))
@@ -147,10 +166,11 @@ object ClangGen {
   ): env.T[Unit] = {
     import env._
 
-    Traverse[Vector].compose[NonEmptyList]
+    Traverse[Vector]
+      .compose[NonEmptyList]
       .traverse_(sortedEnv) { case (pn, values) =>
         values.traverse_ { case (bindable, expr) =>
-          renderTop(pn, bindable, expr)      
+          renderTop(pn, bindable, expr)
         }
       }
   }
@@ -165,18 +185,19 @@ object ClangGen {
     val env = Impl.Env.impl
     import env.monadImpl
 
-    val res = renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2, value._3)
+    val res =
+      renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2, value._3)
 
     val allValues: Impl.AllValues =
-      sortedEnv
-        .iterator.flatMap(_.iterator)
+      sortedEnv.iterator
+        .flatMap(_.iterator)
         .flatMap { case (p, vs) =>
           vs.iterator.map { case (b, e) =>
-            (p, b) -> (e, generatedName(p, b)) 
-          }  
+            (p, b) -> (e, generatedName(p, b))
+          }
         }
         .toMap
-    
+
     env.run(allValues, externals, res)
   }
 
@@ -191,15 +212,15 @@ object ClangGen {
     val res = renderDeps(env, sortedEnv) *> env.renderTests(values)
 
     val allValues: Impl.AllValues =
-      sortedEnv
-        .iterator.flatMap(_.iterator)
+      sortedEnv.iterator
+        .flatMap(_.iterator)
         .flatMap { case (p, vs) =>
           vs.iterator.map { case (b, e) =>
-            (p, b) -> (e, generatedName(p, b)) 
-          }  
+            (p, b) -> (e, generatedName(p, b))
+          }
         }
         .toMap
-    
+
     env.run(allValues, externals, res)
   }
 
@@ -217,7 +238,11 @@ object ClangGen {
 
       type T[A]
       implicit val monadImpl: Monad[T]
-      def run(pm: AllValues, externals: ExternalResolver, t: T[Unit]): Either[Error, Doc]
+      def run(
+          pm: AllValues,
+          externals: ExternalResolver,
+          t: T[Unit]
+      ): Either[Error, Doc]
       def appendStatement(stmt: Code.Statement): T[Unit]
       def error[A](e: => Error): T[A]
       def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident]
@@ -226,7 +251,12 @@ object ClangGen {
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
       def getAnon(idx: Long): T[Code.Ident]
       // a recursive function needs to remap the Bindable to the top-level mangling
-      def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean, arity: Int)(in: T[A]): T[A]
+      def recursiveName[A](
+          fnName: Code.Ident,
+          bn: Bindable,
+          isClosure: Boolean,
+          arity: Int
+      )(in: T[A]): T[A]
       // used for temporary variables of type BValue
       def newLocalName(tag: String): T[Code.Ident]
       def newTopName(tag: String): T[Code.Ident]
@@ -243,20 +273,22 @@ object ClangGen {
       /////////////////////////////////////////
       // the below are independent of the environment implementation
       /////////////////////////////////////////
-    
+
       // This name has to be impossible to give out for any other purpose
       val slotsArgName: Code.Ident = Code.Ident("__bstsi_slot")
 
       def bindAll[A](nel: NonEmptyList[Bindable])(in: T[A]): T[A] =
         bind(nel.head) {
           NonEmptyList.fromList(nel.tail) match {
-            case None => in
+            case None       => in
             case Some(rest) => bindAll(rest)(in)
           }
         }
 
       def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression =
-        Code.Ident("bsts_char_code_point_from_value")(expr) =:= Code.IntLiteral(codePoint)
+        Code.Ident("bsts_char_code_point_from_value")(expr) =:= Code.IntLiteral(
+          codePoint
+        )
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
@@ -285,10 +317,11 @@ object ClangGen {
                 })
             }
           case Code.WithValue(sl, sv) => andCode(sv, r).map(sl +: _)
-          case ife @ Code.IfElseValue(c, t, f) if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
+          case ife @ Code.IfElseValue(c, t, f)
+              if ife.returnsBool || r.isInstanceOf[Code.Expression] =>
             // push down into the lhs since this won't increase the final branch count
             (andCode(t, r), andCode(f, r)).mapN { (t1, r1) =>
-              Code.IfElseValue(c, t1, r1) 
+              Code.IfElseValue(c, t1, r1)
             }
           case ife @ Code.IfElseValue(_, _, _) =>
             for {
@@ -300,47 +333,61 @@ object ClangGen {
               // size
               // TODO: not all onExpr uses have this type, we need to take type argument
               (Code.DeclareVar(Nil, Code.TypeIdent.Bool, resIdent, None) +
-              (resIdent := ife)) +: value
+                (resIdent := ife)) +: value
             )
-          }
+        }
 
-        def handleLet(name: Either[LocalAnon, Bindable], argV: Expr, in: T[Code.ValueLike]): T[Code.ValueLike] =
-          name match {
-            case Right(arg) =>
-              // arg isn't in scope for argV
-              innerToValue(argV).flatMap { v =>
-                bind(arg) {
+      def handleLet(
+          name: Either[LocalAnon, Bindable],
+          argV: Expr,
+          in: T[Code.ValueLike]
+      ): T[Code.ValueLike] =
+        name match {
+          case Right(arg) =>
+            // arg isn't in scope for argV
+            innerToValue(argV).flatMap { v =>
+              bind(arg) {
+                for {
+                  name <- getBinding(arg)
+                  result <- in
+                  stmt <- Code.ValueLike.declareVar(
+                    Code.TypeIdent.BValue,
+                    name,
+                    v
+                  )(newLocalName)
+                } yield stmt +: result
+              }
+            }
+          case Left(LocalAnon(idx)) =>
+            // LocalAnon(idx) isn't in scope for argV
+            innerToValue(argV)
+              .flatMap { v =>
+                bindAnon(idx) {
                   for {
-                    name <- getBinding(arg)
+                    name <- getAnon(idx)
                     result <- in
-                    stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
+                    stmt <- Code.ValueLike.declareVar(
+                      Code.TypeIdent.BValue,
+                      name,
+                      v
+                    )(newLocalName)
                   } yield stmt +: result
                 }
               }
-            case Left(LocalAnon(idx)) =>
-              // LocalAnon(idx) isn't in scope for argV
-              innerToValue(argV)
-                .flatMap { v =>
-                  bindAnon(idx) {
-                    for {
-                      name <- getAnon(idx)
-                      result <- in
-                      stmt <- Code.ValueLike.declareVar(Code.TypeIdent.BValue, name, v)(newLocalName)
-                    } yield stmt +: result
-                  }
-                }
-          }
+        }
       // The type of this value must be a C _Bool
       def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
         boolExpr match {
           case EqualsLit(expr, lit) =>
             innerToValue(expr).flatMap { vl =>
               lit match {
-                case c @ Lit.Chr(_) => vl.onExpr { e => pv(equalsChar(e, c.toCodePoint)) }(newLocalName)
+                case c @ Lit.Chr(_) =>
+                  vl.onExpr(e => pv(equalsChar(e, c.toCodePoint)))(newLocalName)
                 case Lit.Str(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_string_equals"),
+                      Code.ValueLike.applyArgs(
+                        Code.Ident("bsts_string_equals"),
                         NonEmptyList(e, litStr :: Nil)
                       )(newLocalName)
                     }
@@ -348,12 +395,13 @@ object ClangGen {
                 case Lit.Integer(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(Code.Ident("bsts_integer_equals"),
+                      Code.ValueLike.applyArgs(
+                        Code.Ident("bsts_integer_equals"),
                         NonEmptyList(e, litStr :: Nil)
                       )(newLocalName)
                     }
                   }(newLocalName)
-              }  
+              }
             }
           case EqualsNat(expr, nat) =>
             val fn = nat match {
@@ -361,23 +409,29 @@ object ClangGen {
               case DataRepr.SuccNat => Code.Ident("BSTS_NAT_GT_0")
             }
             innerToValue(expr).flatMap { vl =>
-              vl.onExpr { expr => pv(fn(expr)) }(newLocalName)  
+              vl.onExpr(expr => pv(fn(expr)))(newLocalName)
             }
           case And(e1, e2) =>
             (boolToValue(e1), boolToValue(e2))
-              .flatMapN { (a, b) => andCode(a, b) }
+              .flatMapN((a, b) => andCode(a, b))
 
           case CheckVariant(expr, expect, _, famArities) =>
             innerToValue(expr).flatMap { vl =>
-              val fn = if (famArities.forall(_ == 0)) "get_variant_value" else  "get_variant"
-              vl.onExpr { expr => pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect)) }(newLocalName)
+              val fn =
+                if (famArities.forall(_ == 0)) "get_variant_value"
+                else "get_variant"
+              vl.onExpr { expr =>
+                pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect))
+              }(newLocalName)
             }
           case MatchString(arg, parts, binds, mustMatch) =>
             (
               innerToValue(arg),
               binds.traverse { case LocalAnonMut(m) => getAnon(m) }
             ).flatMapN { (strVL, binds) =>
-              strVL.onExpr { arg => matchString(arg, parts, binds, mustMatch) }(newLocalName)
+              strVL.onExpr(arg => matchString(arg, parts, binds, mustMatch))(
+                newLocalName
+              )
             }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
@@ -398,7 +452,7 @@ object ClangGen {
         }
 
       object StringApi {
-        import Code.{Expression}
+        import Code.Expression
         private val prefix = "bsts_string_"
         def fn(nm: String): Expression = Code.Ident(prefix + nm)
 
@@ -407,11 +461,14 @@ object ClangGen {
           fn("utf8_len")(e)
 
         // (string, int) -> int
-        def codePointBytes(str: Expression, byteOffset: Expression): Expression =
+        def codePointBytes(
+            str: Expression,
+            byteOffset: Expression
+        ): Expression =
           fn("code_point_bytes")(str, byteOffset)
 
         // (string, int) -> char
-        def getCharAt(str: Expression, byteOffset: Expression): Expression = 
+        def getCharAt(str: Expression, byteOffset: Expression): Expression =
           fn("char_at")(str, byteOffset)
 
         // (string, int) -> string
@@ -419,17 +476,29 @@ object ClangGen {
           fn("substring_tail")(str, byteOffset)
 
         // (string, int, int) -> string
-        def substring(str: Expression, startOffset: Expression, endOff: Expression): Expression =
+        def substring(
+            str: Expression,
+            startOffset: Expression,
+            endOff: Expression
+        ): Expression =
           fn("substring")(str, startOffset, endOff)
 
         // return -1 if the needle isn't in the haystack, else the offset >= byteOffset it was found
         // (string, string, int) -> int
-        def find(haystack: Expression, needle: Expression, byteOffset: Expression): Expression =
+        def find(
+            haystack: Expression,
+            needle: Expression,
+            byteOffset: Expression
+        ): Expression =
           fn("find")(haystack, needle, byteOffset)
 
         // basically python src.startswith(expected, _) but with utf8 byte offsets
         // (string, int, string) -> _Bool
-        def matchesAt(src: Expression, byteOffset: Expression, expected: Expression): Expression =
+        def matchesAt(
+            src: Expression,
+            byteOffset: Expression,
+            expected: Expression
+        ): Expression =
           find(src, expected, byteOffset) =:= byteOffset
 
         def staticString(s: String): T[Code.StrLiteral] = {
@@ -440,8 +509,7 @@ object ClangGen {
             monadImpl.pure(
               Code.StrLiteral(new String(bytes.map(_.toChar)))
             )
-          }
-          else {
+          } else {
             error(Error.ExpectedStaticString(s))
           }
         }
@@ -457,14 +525,13 @@ object ClangGen {
                 Code.StrLiteral(s)
               )
             )
-          }
-          else {
+          } else {
             // We have some null bytes, we have to encode the length
             val lits =
               bytes.iterator.map { byte =>
                 Code.IntLiteral(byte.toInt & 0xff)
               }.toList
-            //call:
+            // call:
             // bsts_string_from_utf8_bytes_copy(size_t size, char* bytes);
             newLocalName("str").map { ident =>
               // TODO: this could be a static top level definition to initialize
@@ -516,9 +583,19 @@ object ClangGen {
               val utf8bytes = expect.getBytes(StandardCharsets.UTF_8).length
               for {
                 str <- StringApi.fromString(expect)
-                loopRes <- loop(knownOffset.map(_ + utf8bytes), offsetIdent, tail, next, mustMatch = false)
-                regionMatches <- str.onExpr { s => pv(StringApi.matchesAt(strEx, offsetIdent, s)) }(newLocalName)
-                rest = (offsetIdent := offsetIdent + Code.IntLiteral(utf8bytes)) +: (loopRes)
+                loopRes <- loop(
+                  knownOffset.map(_ + utf8bytes),
+                  offsetIdent,
+                  tail,
+                  next,
+                  mustMatch = false
+                )
+                regionMatches <- str.onExpr { s =>
+                  pv(StringApi.matchesAt(strEx, offsetIdent, s))
+                }(newLocalName)
+                rest = (offsetIdent := offsetIdent + Code.IntLiteral(
+                  utf8bytes
+                )) +: (loopRes)
                 bothMatch <- andCode(regionMatches, rest)
               } yield bothMatch
             case (c: CharPart) :: tail =>
@@ -530,14 +607,18 @@ object ClangGen {
               // the character at the current byte offset is how many bytes?
               val n1 = if (c.capture) (next + 1) else next
               val updateOffset =
-                offsetIdent := offsetIdent + StringApi.codePointBytes(strEx, offsetIdent)
+                offsetIdent := offsetIdent + StringApi.codePointBytes(
+                  strEx,
+                  offsetIdent
+                )
 
               val stmt =
                 if (c.capture) {
                   // b = str[offset]
                   Code
                     .Statements(
-                      bindArray(next) := StringApi.getCharAt(strEx, offsetIdent),
+                      bindArray(next) := StringApi
+                        .getCharAt(strEx, offsetIdent),
                       updateOffset
                     ) +: Code.TrueLit
 
@@ -547,7 +628,13 @@ object ClangGen {
               for {
                 // we don't know how many bytes this character took, so
                 // we have lost track of the total offset
-                tailRes <- loop(knownOffset = None, offsetIdent, tail, n1, mustMatch)
+                tailRes <- loop(
+                  knownOffset = None,
+                  offsetIdent,
+                  tail,
+                  n1,
+                  mustMatch
+                )
                 and2 <- andCode(stmt, tailRes)
                 and1 <- andCode(matches, and2)
               } yield and1
@@ -558,7 +645,8 @@ object ClangGen {
                   pv(
                     if (h.capture) {
                       // b = str[offset:]
-                      (bindArray(next) := StringApi.substringTail(strEx, offsetIdent)) +: Code.TrueLit
+                      (bindArray(next) := StringApi
+                        .substringTail(strEx, offsetIdent)) +: Code.TrueLit
                     } else Code.TrueLit
                   )
                 case LitStr(expect) :: tail2 =>
@@ -611,32 +699,45 @@ object ClangGen {
                     // note, a literal prefix can never be a total match
                     // also, note, since we have a glob on the left we don't know the
                     // offset the tail is matching at
-                    val searchEnv = loop(knownOffset = None, candOffset, tail2, next1, mustMatch = false)
+                    val searchEnv = loop(
+                      knownOffset = None,
+                      candOffset,
+                      tail2,
+                      next1,
+                      mustMatch = false
+                    )
 
                     def onSearch(search: Code.ValueLike): T[Code.Statement] =
                       search.exprToStatement { search =>
-                        monadImpl.pure(Code.ifThenElse(search, {
-                          // we have matched
-                          val after = Code.Statements(
-                            result := Code.TrueLit,
-                            start := Code.IntLiteral(-1)
+                        monadImpl.pure(
+                          Code.ifThenElse(
+                            search, {
+                              // we have matched
+                              val after = Code.Statements(
+                                result := Code.TrueLit,
+                                start := Code.IntLiteral(-1)
+                              )
+
+                              if (h.capture) {
+                                val capture: Code.Statement =
+                                  bindArray(next) := StringApi.substring(
+                                    strEx,
+                                    offsetIdent,
+                                    candidate
+                                  )
+
+                                capture + after
+                              } else after
+                            },
+                            // we couldn't match at start, advance just after the
+                            // candidate
+                            start := candidate + Code.IntLiteral.One
                           )
+                        )
+                      }(newLocalName)
 
-                          if (h.capture) {
-                            val capture: Code.Statement =
-                              bindArray(next) := StringApi.substring(strEx, offsetIdent, candidate)
-
-                            capture + after
-                          }
-                          else after
-                        },
-                        // we couldn't match at start, advance just after the
-                        // candidate
-                        start := candidate + Code.IntLiteral.One
-                      ))
-                    }(newLocalName)
-
-                    val utf8bytes = expect.getBytes(StandardCharsets.UTF_8).length
+                    val utf8bytes =
+                      expect.getBytes(StandardCharsets.UTF_8).length
                     def findBranch(search: Code.ValueLike): T[Code.Statement] =
                       onSearch(search)
                         .map { onS =>
@@ -644,7 +745,9 @@ object ClangGen {
                             candidate :> Code.IntLiteral(-1),
                             // update candidate and search
                             Code.Statements(
-                              candOffset := candidate + Code.IntLiteral(utf8bytes),
+                              candOffset := candidate + Code.IntLiteral(
+                                utf8bytes
+                              ),
                               onS
                             ),
                             // else no more candidates
@@ -657,14 +760,25 @@ object ClangGen {
                       find <- findBranch(search)
                       expectStr <- StringApi.fromString(expect)
                       found <- expectStr.onExpr { es =>
-                        pv(StringApi.find(strEx, es, start))  
+                        pv(StringApi.find(strEx, es, start))
                       }(newLocalName)
                     } yield (Code
                       .Statements(
-                        Code.DeclareVar(Nil, Code.TypeIdent.Int, start, Some(offsetIdent)),
+                        Code.DeclareVar(
+                          Nil,
+                          Code.TypeIdent.Int,
+                          start,
+                          Some(offsetIdent)
+                        ),
                         // these are mutable variables used in the loop below
-                        Code.DeclareVar(Nil, Code.TypeIdent.Int, candidate, None),
-                        Code.DeclareVar(Nil, Code.TypeIdent.Int, candOffset, None),
+                        Code
+                          .DeclareVar(Nil, Code.TypeIdent.Int, candidate, None),
+                        Code.DeclareVar(
+                          Nil,
+                          Code.TypeIdent.Int,
+                          candOffset,
+                          None
+                        ),
                         Code.declareBool(result, Some(false)),
                         Code.While(
                           (start :> -1),
@@ -685,17 +799,32 @@ object ClangGen {
                     off1 <- newLocalName("off1")
                     // the tail match isn't true, because we loop until we find
                     // a case
-                    tailMatched <- loop(knownOffset = None, off1, tail, next1, false)
+                    tailMatched <- loop(
+                      knownOffset = None,
+                      off1,
+                      tail,
+                      next1,
+                      false
+                    )
 
                     matchStmt = Code
                       .Statements(
                         decMatch,
-                        Code.DeclareVar(Nil, Code.TypeIdent.Int, off1, Some(offsetIdent)),
+                        Code.DeclareVar(
+                          Nil,
+                          Code.TypeIdent.Int,
+                          off1,
+                          Some(offsetIdent)
+                        ),
                         Code.While(
                           // TODO: we should only compute the length 1 time per loop
                           // if needed
-                          (!matched) && (off1 :< StringApi.utf8ByteLength(strEx)),
-                          Code.block(matched := tailMatched) // the tail match increments the
+                          (!matched) && (off1 :< StringApi.utf8ByteLength(
+                            strEx
+                          )),
+                          Code.block(
+                            matched := tailMatched
+                          ) // the tail match increments the
                         )
                       ) +: (if (mustMatch) Code.TrueLit else matched)
 
@@ -703,7 +832,11 @@ object ClangGen {
                       if (!h.capture) pv(matchStmt)
                       else {
                         val capture =
-                          (bindArray(next) := StringApi.substring(strEx, offsetIdent, off1)) +: (Code.TrueLit)
+                          (bindArray(next) := StringApi.substring(
+                            strEx,
+                            offsetIdent,
+                            off1
+                          )) +: (Code.TrueLit)
 
                         andCode(matchStmt, capture)
                       }
@@ -718,10 +851,10 @@ object ClangGen {
               }
           }
 
-          for {
-            offsetIdent <- newLocalName("offset")
-            res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
-          } yield Code.declareInt(offsetIdent, Some(0)) +: res
+        for {
+          offsetIdent <- newLocalName("offset")
+          res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
+        } yield Code.declareInt(offsetIdent, Some(0)) +: res
       }
 
       def boxFn(ident: Code.Ident, arity: Int): Code.Expression =
@@ -731,7 +864,7 @@ object ClangGen {
       // create any nesting
       def innerFn(fn: FnExpr): T[Code.ValueLike] = {
         val nameSuffix = fn.recursiveName match {
-          case None => ""
+          case None    => ""
           case Some(n) => Idents.escape("_", n.asString)
         }
         if (fn.captures.isEmpty) {
@@ -744,8 +877,7 @@ object ClangGen {
           }.map { ident =>
             boxFn(ident, fn.arity);
           }
-        }
-        else {
+        } else {
           // we create the function, then we allocate
           // values for the capture
           // alloc_closure<n>(capLen, captures, fnName)
@@ -761,8 +893,13 @@ object ClangGen {
             ident <- maybeCached
             capName <- newLocalName("captures")
             capValues <- fn.captures.traverse(innerToValue(_))
-            decl <- Code.ValueLike.declareArray(capName, Code.TypeIdent.BValue, capValues)(newLocalName)
-          } yield Code.WithValue(decl,
+            decl <- Code.ValueLike.declareArray(
+              capName,
+              Code.TypeIdent.BValue,
+              capValues
+            )(newLocalName)
+          } yield Code.WithValue(
+            decl,
             Code.Ident(s"alloc_closure${fn.arity}")(
               Code.IntLiteral(BigInt(fn.captures.length)),
               capName,
@@ -776,13 +913,16 @@ object ClangGen {
         lit match {
           case c @ Lit.Chr(_) =>
             // encoded as integers in pure values
-            pv(Code.Ident("bsts_char_from_code_point")(Code.IntLiteral(c.toCodePoint)))
+            pv(
+              Code.Ident("bsts_char_from_code_point")(
+                Code.IntLiteral(c.toCodePoint)
+              )
+            )
           case Lit.Integer(toBigInteger) =>
             try {
               val iv = toBigInteger.intValueExact()
               pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
-            }
-            catch {
+            } catch {
               case _: ArithmeticException =>
                 // emit the uint32 words and sign
                 val isPos = toBigInteger.signum >= 0
@@ -794,10 +934,14 @@ object ClangGen {
                   current = current.shiftRight(32)
                 }
                 val lits = bldr.result()
-                //call:
+                // call:
                 // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
                 newLocalName("int").map { ident =>
-                  Code.DeclareArray(Code.TypeIdent.UInt32, ident, Right(lits)) +:
+                  Code.DeclareArray(
+                    Code.TypeIdent.UInt32,
+                    ident,
+                    Right(lits)
+                  ) +:
                     Code.Ident("bsts_integer_from_words_copy")(
                       if (isPos) Code.TrueLit else Code.FalseLit,
                       Code.IntLiteral(lits.length),
@@ -820,16 +964,19 @@ object ClangGen {
                 }
               case None =>
                 // the ref be holding the result of another function call
-                (globalIdent(pack, fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
-                  // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-                  // but since these are ValueLike, we need to handle more carefully
-                  val fnValue = fnVL.onExpr { e => pv(e()) }(newLocalName);
-                  fnValue.flatMap { fnValue =>
-                    val fnSize = argsVL.length
-                    val callFn = Code.Ident(s"call_fn$fnSize")
-                    Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(newLocalName)
+                (globalIdent(pack, fnName), args.traverse(innerToValue(_)))
+                  .flatMapN { (fnVL, argsVL) =>
+                    // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                    // but since these are ValueLike, we need to handle more carefully
+                    val fnValue = fnVL.onExpr(e => pv(e()))(newLocalName);
+                    fnValue.flatMap { fnValue =>
+                      val fnSize = argsVL.length
+                      val callFn = Code.Ident(s"call_fn$fnSize")
+                      Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(
+                        newLocalName
+                      )
+                    }
                   }
-                }
             }
           case App(Local(fnName), args) =>
             directFn(fnName).flatMap {
@@ -845,44 +992,56 @@ object ClangGen {
                 }
               case None =>
                 // the ref be holding the result of another function call
-                (getBinding(fnName), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
-                  // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-                  // but since these are ValueLike, we need to handle more carefully
-                  val fnSize = argsVL.length
-                  val callFn = Code.Ident(s"call_fn$fnSize")
-                  Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
+                (getBinding(fnName), args.traverse(innerToValue(_))).flatMapN {
+                  (fnVL, argsVL) =>
+                    // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                    // but since these are ValueLike, we need to handle more carefully
+                    val fnSize = argsVL.length
+                    val callFn = Code.Ident(s"call_fn$fnSize")
+                    Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(
+                      newLocalName
+                    )
                 }
             }
           case App(MakeEnum(variant, arity, _), args) =>
             // to type check, we know that the arity must have the same length as args
             args.traverse(innerToValue).flatMap { argsVL =>
               val tag = Code.IntLiteral(variant)
-              Code.ValueLike.applyArgs(Code.Ident(s"alloc_enum$arity"), tag :: argsVL)(newLocalName)
+              Code.ValueLike.applyArgs(
+                Code.Ident(s"alloc_enum$arity"),
+                tag :: argsVL
+              )(newLocalName)
             }
           case App(MakeStruct(arity), args) =>
             if (arity == 1) {
               // this is a new-type, just return the arg
               innerToValue(args.head)
-            }
-            else {
+            } else {
               // to type check, we know that the arity must have the same length as args
               args.traverse(innerToValue).flatMap { argsVL =>
-                Code.ValueLike.applyArgs(Code.Ident(s"alloc_struct$arity"), argsVL)(newLocalName)
+                Code.ValueLike.applyArgs(
+                  Code.Ident(s"alloc_struct$arity"),
+                  argsVL
+                )(newLocalName)
               }
-          }
+            }
           case App(SuccNat, args) =>
             innerToValue(args.head).flatMap { arg =>
-              Code.ValueLike.applyArgs(Code.Ident("BSTS_NAT_SUCC"), NonEmptyList.one(arg))(newLocalName)
+              Code.ValueLike.applyArgs(
+                Code.Ident("BSTS_NAT_SUCC"),
+                NonEmptyList.one(arg)
+              )(newLocalName)
             }
           case App(fn, args) =>
-            (innerToValue(fn), args.traverse(innerToValue(_))).flatMapN { (fnVL, argsVL) =>
-              // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-              // but since these are ValueLike, we need to handle more carefully
-              val fnSize = argsVL.length
-              val callFn = Code.Ident(s"call_fn$fnSize")
-              Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
+            (innerToValue(fn), args.traverse(innerToValue(_))).flatMapN {
+              (fnVL, argsVL) =>
+                // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                // but since these are ValueLike, we need to handle more carefully
+                val fnSize = argsVL.length
+                val callFn = Code.Ident(s"call_fn$fnSize")
+                Code.ValueLike.applyArgs(callFn, fnVL :: argsVL)(newLocalName)
             }
-          }
+        }
 
       def innerToValue(expr: Expr): T[Code.ValueLike] =
         expr match {
@@ -905,8 +1064,7 @@ object ClangGen {
                   if (!isClosure) {
                     // a closure can't be a static name
                     pv(boxFn(nm, arity))
-                  }
-                  else {
+                  } else {
                     // recover the pointer to this closure from the slots argument
                     pv(Code.Ident("bsts_closure_from_slots")(slotsArgName))
                   }
@@ -916,7 +1074,7 @@ object ClangGen {
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
             pv(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
-          case LocalAnon(ident) => getAnon(ident).widen
+          case LocalAnon(ident)    => getAnon(ident).widen
           case LocalAnonMut(ident) => getAnon(ident).widen
           case LetMut(LocalAnonMut(m), span) =>
             bindAnon(m) {
@@ -939,28 +1097,30 @@ object ClangGen {
                   name <- getAnon(mut)
                   vl <- innerToValue(v)
                 } yield (name := vl)
-              }, innerToValue(result)
+              },
+              innerToValue(result)
             ).mapN { (assigns, result) =>
               Code.Statements(assigns) +: result
             }
           case Always(cond, thenExpr) =>
             boolToValue(cond).flatMap { bv =>
               bv.discardValue match {
-                case None => innerToValue(thenExpr)
+                case None         => innerToValue(thenExpr)
                 case Some(effect) => innerToValue(thenExpr).map(effect +: _)
               }
             }
           case GetEnumElement(arg, _, index, _) =>
             // call get_enum_index(v, index)
             innerToValue(arg).flatMap { v =>
-              v.onExpr(e => pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index))))(newLocalName)
+              v.onExpr(e =>
+                pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index)))
+              )(newLocalName)
             }
           case GetStructElement(arg, index, size) =>
             if (size == 1) {
               // this is just a new-type wrapper, ignore it
               innerToValue(arg)
-            }
-            else {
+            } else {
               // call get_struct_index(v, index)
               innerToValue(arg).flatMap { v =>
                 v.onExpr { e =>
@@ -970,17 +1130,23 @@ object ClangGen {
             }
           case makeEnum @ MakeEnum(variant, arity, _) =>
             // this is a closure over variant, we rewrite this
-            if (arity == 0) pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
+            if (arity == 0)
+              pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
             else {
               val named =
                 // safe because arity > 0
                 NonEmptyList.fromListUnsafe(
-                  Idents.allSimpleIdents.take(arity).map { nm => Identifier.Name(nm) }.toList
+                  Idents.allSimpleIdents
+                    .take(arity)
+                    .map(nm => Identifier.Name(nm))
+                    .toList
                 )
               // This relies on optimizing App(MakeEnum, _) otherwise
               // it creates an infinite loop.
               // Also, this we should cache creation of Lambda/Closure values
-              innerToValue(Lambda(Nil, None, named, App(makeEnum, named.map(Local(_)))))
+              innerToValue(
+                Lambda(Nil, None, named, App(makeEnum, named.map(Local(_))))
+              )
             }
           case MakeStruct(arity) =>
             pv {
@@ -997,8 +1163,14 @@ object ClangGen {
             // This relies on optimizing App(SuccNat, _) otherwise
             // it creates an infinite loop.
             // Also, this we should cache creation of Lambda/Closure values
-            innerToValue(Lambda(Nil, None, NonEmptyList.one(arg),
-              App(SuccNat, NonEmptyList.one(Local(arg)))))
+            innerToValue(
+              Lambda(
+                Nil,
+                None,
+                NonEmptyList.one(arg),
+                App(SuccNat, NonEmptyList.one(Local(arg)))
+              )
+            )
           case PrevNat(of) =>
             innerToValue(of).flatMap { argVL =>
               Code.ValueLike.applyArgs(
@@ -1007,19 +1179,26 @@ object ClangGen {
               )(newLocalName)
             }
           case WhileExpr(cond, effect, res) =>
-            (boolToValue(cond), innerToValue(effect), innerToValue(res), newLocalName("cond"))
+            (
+              boolToValue(cond),
+              innerToValue(effect),
+              innerToValue(res),
+              newLocalName("cond")
+            )
               .mapN { (cond, effect, res, condVar) =>
                 Code.Statements(
                   Code.DeclareVar(Nil, Code.TypeIdent.Bool, condVar, None),
                   condVar := cond,
-                  Code.While(condVar,
+                  Code.While(
+                    condVar,
                     Code.Block(
-                      NonEmptyList.one(
-                        condVar := cond,
-                      )
-                      .prependList(
-                        effect.discardValue.toList
-                      )
+                      NonEmptyList
+                        .one(
+                          condVar := cond
+                        )
+                        .prependList(
+                          effect.discardValue.toList
+                        )
                     )
                   )
                 ) +: res
@@ -1032,76 +1211,103 @@ object ClangGen {
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
               case None => body
-              case Some(rec) => recursiveName(fnName, rec, isClosure = captures.nonEmpty, arity = fn.arity)(body)
+              case Some(rec) =>
+                recursiveName(
+                  fnName,
+                  rec,
+                  isClosure = captures.nonEmpty,
+                  arity = fn.arity
+                )(body)
             }
 
             bindAll(args) {
               for {
                 argParams <- args.traverse { b =>
-                  getBinding(b).map { i => Code.Param(Code.TypeIdent.BValue, i) }
+                  getBinding(b).map(i => Code.Param(Code.TypeIdent.BValue, i))
                 }
                 fnBody <- body1
                 allArgs =
                   if (captures.isEmpty) argParams
                   else {
-                    Code.Param(Code.TypeIdent.BValue.ptr, slotsArgName) :: argParams
+                    Code.Param(
+                      Code.TypeIdent.BValue.ptr,
+                      slotsArgName
+                    ) :: argParams
                   }
-              } yield Code.DeclareFn(Nil, Code.TypeIdent.BValue, fnName, allArgs.toList, Some(Code.block(fnBody)))
+              } yield Code.DeclareFn(
+                Nil,
+                Code.TypeIdent.BValue,
+                fnName,
+                allArgs.toList,
+                Some(Code.block(fnBody))
+              )
             }
         })
 
       def renderTop(p: PackageName, b: Bindable, expr: Expr): T[Unit] =
-        inTop(p, b) { expr match {
-          case fn: FnExpr =>
-            for {
-              fnName <- globalIdent(p, b)
-              stmt <- fnStatement(fnName, fn)
-              _ <- appendStatement(stmt)
-            } yield ()
-          case someValue =>
-            // TODO: if we can create the value statically, we don't
-            // need the read_or_build trick
-            //
-            // we materialize an Atomic value to hold the static data
-            // then we generate a function to populate the value
-            for {
-              vl <- innerToValue(someValue)
-              value <- staticValueName(p, b)
-              consFn <- constructorFn(p, b)
-              readFn <- globalIdent(p, b)
-              _ <- makeConstructorsStatement(value, consFn, vl, readFn)
-            } yield ()
+        inTop(p, b) {
+          expr match {
+            case fn: FnExpr =>
+              for {
+                fnName <- globalIdent(p, b)
+                stmt <- fnStatement(fnName, fn)
+                _ <- appendStatement(stmt)
+              } yield ()
+            case someValue =>
+              // TODO: if we can create the value statically, we don't
+              // need the read_or_build trick
+              //
+              // we materialize an Atomic value to hold the static data
+              // then we generate a function to populate the value
+              for {
+                vl <- innerToValue(someValue)
+                value <- staticValueName(p, b)
+                consFn <- constructorFn(p, b)
+                readFn <- globalIdent(p, b)
+                _ <- makeConstructorsStatement(value, consFn, vl, readFn)
+              } yield ()
+          }
         }
-      }
 
-      def makeConstructorsStatement(value: Code.Ident, consFn: Code.Ident, vl: Code.ValueLike, readFn: Code.Ident): T[Unit] =
+      def makeConstructorsStatement(
+          value: Code.Ident,
+          consFn: Code.Ident,
+          vl: Code.ValueLike,
+          readFn: Code.Ident
+      ): T[Unit] =
         // TODO: if we can create the value statically, we don't
         // need the read_or_build trick
         //
         // we materialize an Atomic value to hold the static data
         // then we generate a function to populate the value
         for {
-          _ <- appendStatement(Code.DeclareVar(
-            Code.Attr.Static :: Nil,
-            Code.TypeIdent.AtomicBValue,
-            value,
-            Some(Code.IntLiteral.Zero)
-          ))
-          _ <- appendStatement(Code.DeclareFn(
-            Code.Attr.Static :: Nil,
-            Code.TypeIdent.BValue,
-            consFn,
-            Nil,
-            Some(Code.block(Code.returnValue(vl)))
-          ))
+          _ <- appendStatement(
+            Code.DeclareVar(
+              Code.Attr.Static :: Nil,
+              Code.TypeIdent.AtomicBValue,
+              value,
+              Some(Code.IntLiteral.Zero)
+            )
+          )
+          _ <- appendStatement(
+            Code.DeclareFn(
+              Code.Attr.Static :: Nil,
+              Code.TypeIdent.BValue,
+              consFn,
+              Nil,
+              Some(Code.block(Code.returnValue(vl)))
+            )
+          )
           res = Code.Ident("read_or_build")(value.addr, consFn)
-          _ <- appendStatement(Code.DeclareFn(
-            Code.Attr.Static :: Nil,
-            Code.TypeIdent.BValue,
-            readFn,
-            Nil,
-            Some(Code.block(Code.returnValue(res)))
-          ))
+          _ <- appendStatement(
+            Code.DeclareFn(
+              Code.Attr.Static :: Nil,
+              Code.TypeIdent.BValue,
+              readFn,
+              Nil,
+              Some(Code.block(Code.returnValue(res)))
+            )
+          )
         } yield ()
 
       def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit]
@@ -1110,7 +1316,8 @@ object ClangGen {
 
     object Env {
       def impl: Env = {
-        def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] = implicitly
+        def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] =
+          implicitly
 
         new Env {
           sealed abstract class BindingKind {
@@ -1118,9 +1325,16 @@ object ClangGen {
           }
           object BindingKind {
             case class Normal(bn: Bindable, idx: Int) extends BindingKind {
-              val ident = Code.Ident(Idents.escape("__bsts_b_", bn.asString + idx.toString))
+              val ident = Code.Ident(
+                Idents.escape("__bsts_b_", bn.asString + idx.toString)
+              )
             }
-            case class Recursive(ident: Code.Ident, isClosure: Boolean, arity: Int, idx: Int) extends BindingKind
+            case class Recursive(
+                ident: Code.Ident,
+                isClosure: Boolean,
+                arity: Int,
+                idx: Int
+            ) extends BindingKind
           }
           case class BindState(count: Int, stack: List[BindingKind]) {
             def pop: BindState =
@@ -1130,8 +1344,15 @@ object ClangGen {
             def nextBind(bn: Bindable): BindState =
               copy(count = count + 1, BindingKind.Normal(bn, count) :: stack)
 
-            def nextRecursive(fnName: Code.Ident, isClosure: Boolean, arity: Int): BindState =
-              copy(count = count + 1, BindingKind.Recursive(fnName, isClosure, arity, count) :: stack)
+            def nextRecursive(
+                fnName: Code.Ident,
+                isClosure: Boolean,
+                arity: Int
+            ): BindState =
+              copy(
+                count = count + 1,
+                BindingKind.Recursive(fnName, isClosure, arity, count) :: stack
+              )
           }
 
           object BindState {
@@ -1139,33 +1360,54 @@ object ClangGen {
           }
 
           case class State(
-            allValues: AllValues,
-            externals: ExternalResolver,
-            includeSet: Set[Code.Include],
-            includes: Chain[Code.Include],
-            stmts: Chain[Code.Statement],
-            currentTop: Option[(PackageName, Bindable)],
-            binds: Map[Bindable, BindState],
-            counter: Long,
-            identCache: Map[Expr, Code.Ident]
+              allValues: AllValues,
+              externals: ExternalResolver,
+              includeSet: Set[Code.Include],
+              includes: Chain[Code.Include],
+              stmts: Chain[Code.Statement],
+              currentTop: Option[(PackageName, Bindable)],
+              binds: Map[Bindable, BindState],
+              counter: Long,
+              identCache: Map[Expr, Code.Ident]
           ) {
             def finalFile: Doc =
-              Doc.intercalate(Doc.hardLine, includes.iterator.map(Code.toDoc(_)).toList) +
+              Doc.intercalate(
+                Doc.hardLine,
+                includes.iterator.map(Code.toDoc(_)).toList
+              ) +
                 Doc.hardLine + Doc.hardLine +
-                Doc.intercalate(Doc.hardLine + Doc.hardLine, stmts.iterator.map(Code.toDoc(_)).toList)
+                Doc.intercalate(
+                  Doc.hardLine + Doc.hardLine,
+                  stmts.iterator.map(Code.toDoc(_)).toList
+                )
 
             def include(incl: Code.Include): State =
               if (includeSet(incl)) this
-              else copy(includeSet = includeSet + incl, includes = includes :+ incl)
+              else
+                copy(
+                  includeSet = includeSet + incl,
+                  includes = includes :+ incl
+                )
           }
 
           object State {
-            def init(allValues: AllValues, externals: ExternalResolver): State = {
+            def init(
+                allValues: AllValues,
+                externals: ExternalResolver
+            ): State = {
               val defaultIncludes =
                 List(Code.Include.quote("bosatsu_runtime.h"))
 
-              State(allValues, externals, Set.empty ++ defaultIncludes, Chain.fromSeq(defaultIncludes), Chain.empty,
-                None, Map.empty, 0L, Map.empty
+              State(
+                allValues,
+                externals,
+                Set.empty ++ defaultIncludes,
+                Chain.fromSeq(defaultIncludes),
+                Chain.empty,
+                None,
+                Map.empty,
+                0L,
+                Map.empty
               )
             }
           }
@@ -1174,7 +1416,11 @@ object ClangGen {
 
           implicit val monadImpl: Monad[T] = catsMonad[State]
 
-          def run(pm: AllValues, externals: ExternalResolver, t: T[Unit]): Either[Error, Doc] =
+          def run(
+              pm: AllValues,
+              externals: ExternalResolver,
+              t: T[Unit]
+          ): Either[Error, Doc] =
             t.run(State.init(pm, externals))
               .value // get the value out of the EitherT
               .value // evaluate the Eval
@@ -1184,7 +1430,7 @@ object ClangGen {
             StateT.modify(s => s.copy(stmts = s.stmts :+ stmt))
 
           def errorRes[A](e: => Error): EitherT[Eval, Error, A] =
-              EitherT[Eval, Error, A](Eval.later(Left(e)))
+            EitherT[Eval, Error, A](Eval.later(Left(e)))
 
           def error[A](e: => Error): T[A] =
             StateT(_ => errorRes(e))
@@ -1195,16 +1441,22 @@ object ClangGen {
             )
 
           def update[A](fn: State => (State, A)): T[A] =
-            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s)))))
+            StateT(s =>
+              EitherT[Eval, Error, (State, A)](Eval.now(Right(fn(s))))
+            )
 
           def tryUpdate[A](fn: State => Either[Error, (State, A)]): T[A] =
             StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s))))
 
           def read[A](fn: State => A): T[A] =
-            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(Right((s, fn(s))))))
+            StateT(s =>
+              EitherT[Eval, Error, (State, A)](Eval.now(Right((s, fn(s)))))
+            )
 
           def tryRead[A](fn: State => Either[Error, A]): T[A] =
-            StateT(s => EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _)))))
+            StateT(s =>
+              EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _))))
+            )
 
           def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
             tryUpdate { s =>
@@ -1217,7 +1469,7 @@ object ClangGen {
                   val key = (pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => Right((s, ident))
-                    case None => Left(Error.UnknownValue(pn, bn))
+                    case None             => Left(Error.UnknownValue(pn, bn))
                   }
               }
             }
@@ -1225,9 +1477,9 @@ object ClangGen {
           def bind[A](bn: Bindable)(in: T[A]): T[A] = {
             val init: T[Unit] = update { s =>
               val bs0 = s.binds.get(bn) match {
-                case None => BindState.empty
+                case None     => BindState.empty
                 case Some(bs) => bs
-              }  
+              }
               val bs1 = bs0.nextBind(bn)
               (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
@@ -1235,14 +1487,14 @@ object ClangGen {
             val uninit: T[Unit] = update { s =>
               val bs1 = s.binds.get(bn) match {
                 case Some(bs) => bs.pop
-                case None => sys.error(s"bindable $bn no longer in $s")
-              }  
+                case None     => sys.error(s"bindable $bn no longer in $s")
+              }
               (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
             for {
               _ <- init
-              a <- in 
+              a <- in
               _ <- uninit
             } yield a
           }
@@ -1250,8 +1502,8 @@ object ClangGen {
             tryRead { s =>
               s.binds.get(bn) match {
                 case Some(bs) => Right(bs.stack.head.ident)
-                case None => Left(Error.Unbound(bn, s.currentTop))
-              }  
+                case None     => Left(Error.Unbound(bn, s.currentTop))
+              }
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =
             // in the future we see the scope of the binding which matters for GC, but here
@@ -1262,11 +1514,16 @@ object ClangGen {
             monadImpl.pure(Code.Ident(Idents.escape("__bsts_a_", idx.toString)))
 
           // a recursive function needs to remap the Bindable to the top-level mangling
-          def recursiveName[A](fnName: Code.Ident, bn: Bindable, isClosure: Boolean, arity: Int)(in: T[A]): T[A] = {
+          def recursiveName[A](
+              fnName: Code.Ident,
+              bn: Bindable,
+              isClosure: Boolean,
+              arity: Int
+          )(in: T[A]): T[A] = {
             val init: T[Unit] = update { s =>
               val bs0 = s.binds.get(bn) match {
                 case Some(bs) => bs
-                case None => BindState.empty
+                case None     => BindState.empty
               }
               val bs1 = bs0.nextRecursive(fnName, isClosure, arity)
               (s.copy(binds = s.binds.updated(bn, bs1)), ())
@@ -1275,21 +1532,21 @@ object ClangGen {
             val uninit: T[Unit] = update { s =>
               val bs1 = s.binds.get(bn) match {
                 case Some(bs) => bs.pop
-                case None => sys.error(s"bindable $bn no longer in $s")
-              }  
+                case None     => sys.error(s"bindable $bn no longer in $s")
+              }
               (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
             for {
               _ <- init
-              a <- in 
+              a <- in
               _ <- uninit
             } yield a
           }
 
           val nextCnt: T[Long] =
             StateT { s =>
-              val cnt = s.counter  
+              val cnt = s.counter
               val s1 = s.copy(counter = cnt + 1L)
               result(s1, cnt)
             }
@@ -1297,14 +1554,17 @@ object ClangGen {
           // used for temporary variables of type BValue
           def newLocalName(tag: String): T[Code.Ident] =
             nextCnt.map { cnt =>
-              Code.Ident(Idents.escape("__bsts_l_", tag + cnt.toString))  
+              Code.Ident(Idents.escape("__bsts_l_", tag + cnt.toString))
             }
           def newTopName(tag: String): T[Code.Ident] =
             nextCnt.map { cnt =>
-              Code.Ident(Idents.escape("__bsts_t_", tag + cnt.toString))  
+              Code.Ident(Idents.escape("__bsts_t_", tag + cnt.toString))
             }
           // record that this name is a top level function, so applying it can be direct
-          def directFn(pack: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]] =
+          def directFn(
+              pack: PackageName,
+              b: Bindable
+          ): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
               val key = (pack, b)
               s.allValues.get(key) match {
@@ -1319,45 +1579,60 @@ object ClangGen {
                     case _ => result(s, None)
                   }
                 case _ => result(s, None)
-              }  
+              }
             }
 
           def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]] =
             read { s =>
               s.binds.get(b) match {
-                case Some(BindState(_, BindingKind.Recursive(n, c, a, _) :: _)) =>
+                case Some(
+                      BindState(_, BindingKind.Recursive(n, c, a, _) :: _)
+                    ) =>
                   Some((n, c, a))
                 case _ =>
                   None
-              } 
+              }
             }
 
-          def inFnStatement[A](ta: T[A]): T[A] = {
+          def inFnStatement[A](ta: T[A]): T[A] =
             for {
-              bindState <- update { (s: State) => (s.copy(binds = Map.empty), s.binds) }
+              bindState <- update { (s: State) =>
+                (s.copy(binds = Map.empty), s.binds)
+              }
               a <- ta
-              _ <- update { (s: State) => (s.copy(binds = bindState), ()) }
+              _ <- update((s: State) => (s.copy(binds = bindState), ()))
             } yield a
-          }
 
           def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
             for {
-              bindState <- update { (s: State) => (s.copy(binds = Map.empty, currentTop = Some((p, bn))), s.binds)}
+              bindState <- update { (s: State) =>
+                (s.copy(binds = Map.empty, currentTop = Some((p, bn))), s.binds)
+              }
               a <- ta
-              _ <- update { (s: State) => (s.copy(currentTop = None, binds = bindState), ()) }
+              _ <- update { (s: State) =>
+                (s.copy(currentTop = None, binds = bindState), ())
+              }
             } yield a
 
           val currentTop: T[Option[(PackageName, Bindable)]] =
-            StateT { (s: State) => result(s, s.currentTop) }
+            StateT((s: State) => result(s, s.currentTop))
 
           def staticValueName(p: PackageName, b: Bindable): T[Code.Ident] =
-            monadImpl.pure(Code.Ident(Idents.escape("___bsts_s_", fullName(p, b))))
+            monadImpl.pure(
+              Code.Ident(Idents.escape("___bsts_s_", fullName(p, b)))
+            )
           def constructorFn(p: PackageName, b: Bindable): T[Code.Ident] =
-            monadImpl.pure(Code.Ident(Idents.escape("___bsts_c_", fullName(p, b))))
+            monadImpl.pure(
+              Code.Ident(Idents.escape("___bsts_c_", fullName(p, b)))
+            )
 
           // the Code.Ident should be a function with signature:
           // int run_main(BValue main_value, int argc, char** args)
-          def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit] =
+          def renderMain(
+              p: PackageName,
+              b: Bindable,
+              mainRun: Code.Ident
+          ): T[Unit] =
             /*
             int main(int argc, char** argv) {
               GC_init();
@@ -1367,34 +1642,43 @@ object ClangGen {
               int code = run_main(main_value, argc, argv);
               return code;
             }
-            */     
+             */
             globalIdent(p, b).flatMap { mainCons =>
-
               val mainValue = Code.Ident("main_value")
               val mainBody = Code.Statements(
                 Code.Ident("GC_init")().stmt,
                 Code.Ident("init_statics")().stmt,
                 Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
-                Code.DeclareVar(Nil, Code.TypeIdent.BValue, mainValue, Some(mainCons())),
-                Code.Return(Some(
-                  mainRun(mainValue, Code.Ident("argc"), Code.Ident("argv"))
-                ))
+                Code.DeclareVar(
+                  Nil,
+                  Code.TypeIdent.BValue,
+                  mainValue,
+                  Some(mainCons())
+                ),
+                Code.Return(
+                  Some(
+                    mainRun(mainValue, Code.Ident("argc"), Code.Ident("argv"))
+                  )
+                )
               )
 
               val mainFn = Code.declareMain(mainBody)
               appendStatement(mainFn)
-            } *> StateT { s => result(
+            } *> StateT { s =>
+              result(
                 s.include(Code.Include.angle("stdlib.h"))
-                  .include(Code.Include.quote("gc.h")), ()
+                  .include(Code.Include.quote("gc.h")),
+                ()
               )
             }
 
           def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
-            values.traverse { case (p, b) =>
-              (StringApi.staticString(p.asString), globalIdent(p, b)).tupled
-            }
-            .flatMap { packVals =>
-              /*
+            values
+              .traverse { case (p, b) =>
+                (StringApi.staticString(p.asString), globalIdent(p, b)).tupled
+              }
+              .flatMap { packVals =>
+                /*
               int main(int argc, char** argv) {
                 GC_init();
                 init_statics();
@@ -1406,31 +1690,40 @@ object ClangGen {
                 int code = bsts_test_result_print_summary(size, results);
                 return code;
               }
-              */     
-              val results = Code.Ident("results")
-              val runFn = Code.Ident("bsts_test_run")
-              val summaryFn = Code.Ident("bsts_test_result_print_summary")
-              val testCount = packVals.length
-              val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
-                results.bracket(Code.IntLiteral(idx)) := runFn(n, tv)
-              }
-              val header = Code.Statements(
-                Code.Ident("GC_init")().stmt,
-                Code.Ident("init_statics")().stmt,
-                Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
-                Code.DeclareArray(Code.TypeIdent.Named("BSTS_Test_Result"), results, Left(testCount))
-              )
-
-              val mainFn = Code.declareMain(header ++
-                allTests +
-                Code.returnValue(summaryFn(Code.IntLiteral(testCount), results)))
-
-              appendStatement(mainFn)
-            } *> StateT {
-              s => result(
-                  s.include(Code.Include.angle("stdlib.h"))
-                    .include(Code.Include.quote("gc.h")), ()
+                 */
+                val results = Code.Ident("results")
+                val runFn = Code.Ident("bsts_test_run")
+                val summaryFn = Code.Ident("bsts_test_result_print_summary")
+                val testCount = packVals.length
+                val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
+                  results.bracket(Code.IntLiteral(idx)) := runFn(n, tv)
+                }
+                val header = Code.Statements(
+                  Code.Ident("GC_init")().stmt,
+                  Code.Ident("init_statics")().stmt,
+                  Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                  Code.DeclareArray(
+                    Code.TypeIdent.Named("BSTS_Test_Result"),
+                    results,
+                    Left(testCount)
+                  )
                 )
+
+                val mainFn = Code.declareMain(
+                  header ++
+                    allTests +
+                    Code.returnValue(
+                      summaryFn(Code.IntLiteral(testCount), results)
+                    )
+                )
+
+                appendStatement(mainFn)
+              } *> StateT { s =>
+              result(
+                s.include(Code.Include.angle("stdlib.h"))
+                  .include(Code.Include.quote("gc.h")),
+                ()
+              )
             }
 
           def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident] =
@@ -1443,8 +1736,8 @@ object ClangGen {
                     (s1, ident) = s1Ident
                     s2 = s1.copy(identCache = s.identCache + (key -> ident))
                     res <- result(s2, ident)
-                  }  yield res
-              }  
+                  } yield res
+              }
             }
         }
       }

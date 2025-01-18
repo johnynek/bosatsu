@@ -195,10 +195,8 @@ final class SourceConverter(
   private val unitName = Identifier.Constructor("Unit")
   // this is lazy so it isn't initialized before Type
   private lazy val tup: Array[Declaration => Expr[Declaration]] =
-    (Iterator.single(
-      { (tc: Declaration) =>
-        Expr.Global(PackageName.PredefName, unitName, tc)
-      }
+    (Iterator.single((tc: Declaration) =>
+      Expr.Global(PackageName.PredefName, unitName, tc)
     ) ++ (1 to Type.FnType.MaxSize).iterator
       .map { idx =>
         val tup = Type.Tuple.Arity(idx)
@@ -335,9 +333,9 @@ final class SourceConverter(
         }
         val newBindings =
           defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
-        val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res =>
+        val lambda = toLambdaExpr(defstmt, decl.region, success(decl))(res =>
           withBound(res._1.get, newBindings)
-        })
+        )
 
         (inExpr, lambda).parMapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
@@ -1524,7 +1522,7 @@ final class SourceConverter(
                   defstmt,
                   d.region,
                   success(defstmt.result.get)
-                )({ (res: OptIndent[Declaration]) =>
+                )((res: OptIndent[Declaration]) =>
                   fromDecl(
                     res.get,
                     argGroups.flatten.iterator
@@ -1532,7 +1530,7 @@ final class SourceConverter(
                       .toSet + boundName,
                     topBound1
                   )
-                })
+                )
 
               val r = lam.map { (l: Expr[Declaration]) =>
                 // We rely on DefRecursionCheck to rule out bad recursions
