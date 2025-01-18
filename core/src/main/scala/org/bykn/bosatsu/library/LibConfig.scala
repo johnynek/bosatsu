@@ -7,7 +7,7 @@ import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import org.bykn.bosatsu.{Json, Package, PackageName, ProtoConverter}
 import org.bykn.bosatsu.tool.CliException
-import org.bykn.bosatsu.hashing.{Hashed, Algo}
+import org.bykn.bosatsu.hashing.{Hashed, HashValue, Algo}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 
@@ -93,17 +93,66 @@ case class LibConfig(
             case Some(prevVersion) =>
               if (prevVersion.justBefore(nextVersion)) Validated.unit
               else {
-                Validated.invalidNec(Error.VersionNotAdjacent(prevVersion, nextVersion))
+                inv(Error.VersionNotAdjacent(prevVersion, nextVersion))
               }
             case None =>
-              Validated.invalidNec(Error.InvalidPreviousLib("missing version", prevLib))
+              inv(Error.InvalidPreviousLib("missing version", prevLib))
           }
         case None =>
           // Then the version can be anything
           Validated.unit
       }
 
-      prop1 *> prop2 *> prop3
+      // hashes of dependencies match
+      val prop7 = {
+        val nameToDep = deps.groupByNel(_.arg.name)
+
+        val pubs = publicDeps.groupByNel(_.name)
+        val privs = privateDeps.groupByNel(_.name)
+        // nothing is private and public
+        val both = pubs.keySet & privs.keySet
+        val noOverlap =
+          both.traverse_ { o =>
+            inv(Error.DuplicateDep("both public and private", o, proto.LibDescriptor()))
+          }
+
+        val allOne = pubs.traverse_(libs =>
+          libs.tail.traverse_(e => inv(Error.DuplicateDep(
+            "public dep",
+            e.name, e.desc.getOrElse(proto.LibDescriptor()))))
+        ) *> privs.traverse_(libs =>
+          libs.tail.traverse_(e => inv(Error.DuplicateDep("private dep", e.name,
+            e.desc.getOrElse(proto.LibDescriptor()))))
+        ) *> nameToDep.traverse_(libs =>
+          libs.tail.traverse_(e => inv(Error.DuplicateDep("argument dep", e.arg.name,
+            e.arg.descriptor.getOrElse(proto.LibDescriptor()))))
+        )
+
+        def checkDep(note: String, dep: proto.LibDependency) = 
+          nameToDep.get(dep.name) match {
+            case None =>
+              inv(Error.MissingDep(note = note, dep = dep))
+            case Some(deps) =>
+              val hash = deps.head.hash.toIdent
+              if (dep.desc.exists(_.hashes.exists(_ == hash))) Validated.unit
+              else {
+                // the hash doesn't match
+                inv(Error.DepHashMismatch(
+                  note,
+                  dep,
+                  deps.head.hash,
+                  deps.head.arg
+                ))
+              }
+          }
+
+        val pubGood = pubs.traverse_ { libs => checkDep("public dep", libs.head) }
+        val privGood = privs.traverse_ { libs => checkDep("private dep", libs.head) }
+
+        noOverlap *> allOne *> pubGood *> privGood
+      }
+
+      prop1 *> prop2 *> prop3 *> prop7
     }
 
   // just build the library without any validations
@@ -115,15 +164,25 @@ case class LibConfig(
 
     val thisHistory = previous match {
       case None => proto.LibHistory()
-      case Some(Hashed(_, p)) =>
+      case Some(Hashed(hash, p)) =>
         val prevHistory = p.history.getOrElse(proto.LibHistory())
-        val desc = p.descriptor match {
-          case Some(desc) => desc
+        val v = p.descriptor match {
+          case Some(desc) =>
+            desc.version match {
+              case Some(v) => v
+              case None => 
+                // this should never happen after validation
+                return Left(new Exception(s"invalid previous missing version: $p"))
+            }
           case None =>
             // this should never happen after validation
             return Left(new Exception(s"invalid previous missing descriptor: $p"))
         }
-        prevHistory.nextHistory(desc)
+        val desc = proto.LibDescriptor(
+          version = Some(v),
+          hashes = List(hash.toIdent)
+        )
+        prevHistory.nextHistory(desc, nextVersion)
     }
 
     val sortPack = packs.sortBy(_.name)
@@ -162,6 +221,9 @@ object LibConfig {
     case class VersionNotIncreasing(note: String, previous: Version, current: Version) extends Error
     case class VersionNotAdjacent(previous: Version, current: Version) extends Error
     case class InvalidPreviousLib(note: String, previous: proto.Library) extends Error
+    case class DuplicateDep(note: String, name: String, desc: proto.LibDescriptor) extends Error
+    case class MissingDep(note: String, dep: proto.LibDependency) extends Error
+    case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Sha256], found: proto.Library) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -182,6 +244,12 @@ object LibConfig {
         case InvalidPreviousLib(note, _) => 
           Doc.text(s"invalid previous library: $note")
         case ProtoError(e) => Doc.text(s"error encoding to proto: ${e.getMessage}")
+        case DuplicateDep(note, name, desc) => 
+          Doc.text(s"duplicate dependency name=${name}, desc=${desc}: $note")
+        case MissingDep(note, dep) =>
+          Doc.text(s"dependency ${dep.name} not found in args: $note")
+        case DepHashMismatch(note, dep, foundHash, _) =>
+          Doc.text(s"hash mismatch: $note. lib name=${dep.name}, found hash=${foundHash.hex} expecteded ${dep.desc.toList.flatMap(_.hashes)}.")
       }
 
     implicit val showError: cats.Show[Error] =
@@ -251,7 +319,63 @@ object LibConfig {
     def allVersions: List[Version] =
       allDescriptors.flatMap(_.version).map(Version.fromProto(_)) 
 
-    def nextHistory(prevDesc: proto.LibDescriptor): proto.LibHistory = ???
+    def nextHistory(prevDesc: proto.LibDescriptor, nextVersion: Version): proto.LibHistory = {
+      val prevOptV = prevDesc.version
+      val prevVersion = prevOptV.map(Version.fromProto(_)).getOrElse(Version.zero)
+      require(Ordering[Version].lt(prevVersion, nextVersion), s"invalid version ordering: $prevVersion not < $nextVersion")
+
+      if (prevVersion.major == nextVersion.major) {
+        if (prevVersion.minor == nextVersion.minor) {
+          if (prevVersion.patch == nextVersion.patch) {
+            // must be pre-release
+            val all = allDescriptors.filterNot{desc => (desc.version != prevOptV) &&
+              (desc.version != history.previousMajor.flatMap(_.version)) &&
+              (desc.version != history.previousMinor.flatMap(_.version)) &&
+              (desc.version != history.previousPrerelease.flatMap(_.version))
+            }
+            proto.LibHistory(
+              previousMajor = history.previousMajor,
+              previousMinor = history.previousMinor,
+              previousPatch = history.previousPatch,
+              previousPrerelease = Some(prevDesc),
+              others = all.sortBy(_.version.map(Version.fromProto(_)))
+            )
+          }
+          else {
+            // we are bumping patch
+            val all = allDescriptors.filterNot{desc => (desc.version != prevOptV) &&
+              (desc.version != history.previousMajor.flatMap(_.version)) &&
+              (desc.version != history.previousMinor.flatMap(_.version))
+            }
+            proto.LibHistory(
+              previousMajor = history.previousMajor,
+              previousMinor = history.previousMinor,
+              previousPatch = Some(prevDesc),
+              others = all.sortBy(_.version.map(Version.fromProto(_)))
+            )
+          }
+        }
+        else {
+          // we are bumping minor
+          val all = allDescriptors.filterNot{desc => (desc.version != prevOptV) &&
+            (desc.version != history.previousMajor.flatMap(_.version))
+          }
+          proto.LibHistory(
+            previousMajor = history.previousMajor,
+            previousMinor = Some(prevDesc),
+            others = all.sortBy(_.version.map(Version.fromProto(_)))
+          )
+        }
+      }
+      else {
+        // we are bumping major versions
+        val all = allDescriptors.filterNot(_.version != prevOptV)
+        proto.LibHistory(
+          previousMajor = Some(prevDesc),
+          others = all.sortBy(_.version.map(Version.fromProto(_)))
+        )
+      }
+    }
   }
 
   implicit class LibMethods(private val lib: proto.Library) extends AnyVal {

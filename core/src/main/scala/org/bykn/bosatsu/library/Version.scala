@@ -113,6 +113,8 @@ object Version {
     }
   }
 
+  val zero: Version = Version(0L, 0L, 0L)
+
   // Actually the spec doesn't limit the version numbers, but it says you shouldn't use
   // really long version strings (e.g. < 255 almost certainly). Since Long can hold all 
   // decimals of 18 characters (and some 19), this seems like a good trade-off for
