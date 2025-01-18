@@ -8,8 +8,8 @@ lazy val commonSettings = Seq(
     "org.typelevel" %% "kind-projector" % "0.13.3" cross CrossVersion.full
   ),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.13.15",
-  crossScalaVersions := Seq("2.13.15"),
+  scalaVersion := "2.13.16",
+  crossScalaVersions := Seq("2.13.16"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation", // Emit warning and location for usages of deprecated APIs.
@@ -144,7 +144,7 @@ lazy val cli = (project in file("cli"))
         jawnAst.value % Test,
         jython.value % Test,
         munit.value % Test,
-        munitScalaCheck.value % Test,
+        munitScalaCheck.value % Test
       ),
     nativeImageOptions ++= {
       val common =
@@ -157,21 +157,26 @@ lazy val cli = (project in file("cli"))
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
-lazy val proto = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("proto"))
-  .settings(
-    Compile / PB.targets := Seq(
-      scalapb.gen() -> (Compile / sourceManaged).value
-    ),
-    // The trick is in this line:
-    Compile / PB.protoSources := Seq((ThisBuild / baseDirectory).value / "proto/src/main/protobuf"),
-    libraryDependencies ++= Seq(
-      "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
-    ),
-    PB.protocVersion := "3.19.1",
-    commonSettings,
-  )
+lazy val proto =
+  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
+    "proto"
+  ))
+    .settings(
+      Compile / PB.targets := Seq(
+        scalapb.gen() -> (Compile / sourceManaged).value
+      ),
+      // The trick is in this line:
+      Compile / PB.protoSources := Seq(
+        (ThisBuild / baseDirectory).value / "proto/src/main/protobuf"
+      ),
+      libraryDependencies ++= Seq(
+        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
+      ),
+      PB.protocVersion := "3.19.1",
+      commonSettings
+    )
 
-lazy val protoJs  = proto.js
+lazy val protoJs = proto.js
 lazy val protoJVM = proto.jvm
 
 lazy val core =
@@ -201,18 +206,18 @@ lazy val core =
     ,
     autoCompilerPlugins := true,
     addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.15"),
-    scalacOptions += "-P:acyclic:force",
-  )
-  .dependsOn(base, proto)
-  .jsSettings(
-    commonJsSettings,
-    Compile / npmDependencies += "js-sha256" -> "0.11.0"
-  )
+    scalacOptions += "-P:acyclic:force"
+  ).dependsOn(base, proto)
+    .jsSettings(
+      commonJsSettings,
+      Compile / npmDependencies += "js-sha256" -> "0.11.0"
+    )
 
 lazy val coreJVM = core.jvm
-lazy val coreJS = core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
+lazy val coreJS =
+  core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
 
-lazy val cliJS = 
+lazy val cliJS =
   (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
     .settings(
       commonSettings,
@@ -220,13 +225,13 @@ lazy val cliJS =
       name := "bosatsu-clijs",
       assembly / test := {},
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
-      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value),
+      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value)
     )
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
       scalaJSLinkerConfig ~= { _.withSourceMap(false).withOptimizer(true) },
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
-      scalaJSUseMainModuleInitializer := true,
+      scalaJSUseMainModuleInitializer := true
     )
     .dependsOn(base, core)
 
