@@ -54,6 +54,13 @@ final case class Package[A, B, C, +D](
     val iname = i.originalName
     NonEmptyList.fromList(exports.filter(_.name == iname))
   }
+
+  def visibleDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
+    exports.flatMap { en =>
+      val ref = ev(en.tag)
+      ref.depPackages
+    }
+    .distinct
 }
 
 object Package {

@@ -112,6 +112,9 @@ final case class DefinedType[+A](
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
     Kind(toAnnotatedKinds.map(_._2): _*)
+
+  def depPackages: List[PackageName] =
+    (packageName :: constructors.flatMap(_.depPackages)).distinct
 }
 
 object DefinedType {

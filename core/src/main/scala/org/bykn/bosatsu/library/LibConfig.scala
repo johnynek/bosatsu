@@ -60,6 +60,34 @@ case class LibConfig(
 
       def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
 
+      val exportedPacks: List[Package.Typed[Unit]] =
+        packs.filter(p => exportedPackages.exists(_.accepts(p.name)))
+
+      val privatePacks: List[Package.Typed[Unit]] =
+        packs.filter(p => allPackages.exists(_.accepts(p.name)))
+
+      val nameToDep = deps.groupByNel(_.arg.name)
+
+      val publicDepLibs: List[proto.Library] =
+        publicDeps.flatMap { dep =>
+          nameToDep.get(dep.name) match {
+            case None =>
+              // this will be a validation error later
+              Nil
+            case Some(libs) => libs.head.arg :: Nil
+          }
+        }
+
+      val privateDepLibs: List[proto.Library] =
+        privateDeps.flatMap { dep =>
+          nameToDep.get(dep.name) match {
+            case None =>
+              // this will be a validation error later
+              Nil
+            case Some(libs) => libs.head.arg :: Nil
+          }
+        }
+
       val prop1 =
         packs.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
           case Nil => Validated.unit
@@ -103,10 +131,39 @@ case class LibConfig(
           Validated.unit
       }
 
-      // hashes of dependencies match
-      val prop7 = {
-        val nameToDep = deps.groupByNel(_.arg.name)
+      // 4. the only packages that appear on exportedPackages apis are in exportedPackages or publicDeps
+      val prop4 = {
+        val validDepPacks: List[PackageName] =
+          PackageName.PredefName :: exportedPacks.map(_.name) :::
+            publicDepLibs.flatMap { lib =>
+              lib.exportedIfaces.flatMap { iface =>
+                PackageName.parse(ProtoConverter.iname(iface))
+              }  
+            }
 
+        val validSet = validDepPacks.toSet
+
+        exportedPacks.traverse_ { p =>
+          val depOn = p.visibleDepPackages 
+          val invalidDeps = depOn.filterNot(validSet)
+          invalidDeps.traverse_ { badPn =>
+            /*
+            TODO: explain what kind of bad package this is:
+              1. private package in this library
+              2. exported package of a private dependency
+              3. unknown package
+            */
+
+            inv(Error.IllegalVisibleDep("", p, badPn))
+          }
+        }
+      }
+
+      /*
+       * 7. hashes of dependencies match
+       * 8. there are no duplicate named dependencies
+       */
+      val prop7_8 = {
         val pubs = publicDeps.groupByNel(_.name)
         val privs = privateDeps.groupByNel(_.name)
         // nothing is private and public
@@ -152,7 +209,7 @@ case class LibConfig(
         noOverlap *> allOne *> pubGood *> privGood
       }
 
-      prop1 *> prop2 *> prop3 *> prop7
+      prop1 *> prop2 *> prop3 *> prop4 *> prop7_8
     }
 
   // just build the library without any validations
@@ -224,6 +281,7 @@ object LibConfig {
     case class DuplicateDep(note: String, name: String, desc: proto.LibDescriptor) extends Error
     case class MissingDep(note: String, dep: proto.LibDependency) extends Error
     case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Blake3], found: proto.Library) extends Error
+    case class IllegalVisibleDep(note: String, pack: Package.Typed[Unit], invalid: PackageName) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -250,6 +308,8 @@ object LibConfig {
           Doc.text(s"dependency ${dep.name} not found in args: $note")
         case DepHashMismatch(note, dep, foundHash, _) =>
           Doc.text(s"hash mismatch: $note. lib name=${dep.name}, found hash=${foundHash.hex} expecteded ${dep.desc.toList.flatMap(_.hashes)}.")
+        case IllegalVisibleDep(note, pack, invalid) =>
+          Doc.text(show"illegate visible dep: $note. in package ${pack.name} non-public package name escapes: $invalid")
       }
 
     implicit val showError: cats.Show[Error] =

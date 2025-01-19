@@ -527,6 +527,17 @@ object Type {
           quantify(q.quant, subin)
       })
 
+  def packageNamesIn(t: Type): List[PackageName] =
+    t match {
+      case TyApply(on, arg) =>
+        val right = packageNamesIn(arg)
+        val left = packageNamesIn(on).filterNot(right.toSet)
+        left ::: right
+      case TyVar(_) | TyMeta(_) => Nil
+      case TyConst(c) => c.toDefined.packageName :: Nil
+      case q: Quantified => packageNamesIn(q.in)
+    }
+
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
       case TyApply(on, arg) =>
