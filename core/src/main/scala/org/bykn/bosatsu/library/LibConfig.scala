@@ -10,8 +10,9 @@ import org.bykn.bosatsu.tool.CliException
 import org.bykn.bosatsu.hashing.{Hashed, HashValue, Algo}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
+import scala.collection.immutable.SortedMap
 
-import LibConfig.{Error, LibMethods, LibHistoryMethods}
+import LibConfig.{Error, LibMethods, LibHistoryMethods, LibDescriptorMethods, ValidationResult}
 
 case class LibConfig(
   name: Name,
@@ -30,16 +31,14 @@ case class LibConfig(
     vcsIdent: String, 
     previous: Option[Hashed[Algo.Blake3, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, proto.Library] = {
-      val validated = validate(previous, packs, deps)
-
-      val valProto = unvalidatedAssemble(previous, vcsIdent, packs) match {
-        case Right(value) => Validated.valid(value)
-        case Left(err) => Validated.invalidNec(Error.ProtoError(err): Error)
-      }
-
-      validated *> valProto
-    }
+    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, proto.Library] =
+      validate(previous, packs, deps)
+        .andThen { vr =>
+          unvalidatedAssemble(previous, vcsIdent, packs, vr.unusedTransitiveDeps.iterator.map(_._2).toList) match {
+            case Right(value) => Validated.valid(value)
+            case Left(err) => Validated.invalidNec(Error.ProtoError(err): Error)
+          }
+        }
 
 
   /**
@@ -52,13 +51,14 @@ case class LibConfig(
     * 6. all private deps are used somewhere
     * 7. hashes of dependencies match
     * 8. there are no duplicate named dependencies
+    * 9. there is a valid solution for transitive dependencies
     */
   def validate(
     previous: Option[Hashed[Algo.Blake3, proto.Library]],
     packs: List[Package.Typed[Unit]],
-    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, Unit] = {
+    deps: List[Hashed[Algo.Blake3, proto.Library]]): ValidatedNec[Error, ValidationResult] = {
 
-      def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
+      import Error.inv
 
       val exportedPacks: List[Package.Typed[Unit]] =
         packs.filter(p => exportedPackages.exists(_.accepts(p.name)))
@@ -148,7 +148,7 @@ case class LibConfig(
           val invalidDeps = depOn.filterNot(validSet)
           invalidDeps.traverse_ { badPn =>
             /*
-            TODO: explain what kind of bad package this is:
+            TODO (???): explain what kind of bad package this is:
               1. private package in this library
               2. exported package of a private dependency
               3. unknown package
@@ -209,11 +209,15 @@ case class LibConfig(
         noOverlap *> allOne *> pubGood *> privGood
       }
 
-      prop1 *> prop2 *> prop3 *> prop4 *> prop7_8
+      // 9. there is a valid solution for transitive dependencies
+      val prop9 =
+        LibConfig.unusedTransitiveDeps(publicDepLibs)
+
+      prop1 *> prop2 *> prop3 *> prop4 *> prop7_8 *> prop9.map(ValidationResult(_))
     }
 
   // just build the library without any validations
-  def unvalidatedAssemble(previous: Option[Hashed[Algo.Blake3, proto.Library]], vcsIdent: String, packs: List[Package.Typed[Unit]]): Either[Throwable, proto.Library] = {
+  def unvalidatedAssemble(previous: Option[Hashed[Algo.Blake3, proto.Library]], vcsIdent: String, packs: List[Package.Typed[Unit]], unusedTrans: List[proto.LibDependency]): Either[Throwable, proto.Library] = {
     val depth = previous match {
       case None => 0
       case Some(Hashed(_, prevLib)) => prevLib.depth + 1
@@ -264,6 +268,7 @@ case class LibConfig(
         internalPackages = protoPacks,
         publicDependencies = publicDeps.sortBy(_.name),
         privateDependencies = privateDeps.sortBy(_.name),
+        unusedTransitivePublicDependencies = unusedTrans,
         history = Some(thisHistory)
       )
     }
@@ -271,6 +276,9 @@ case class LibConfig(
 }
 
 object LibConfig {
+
+  case class ValidationResult(unusedTransitiveDeps: SortedMap[String, proto.LibDependency])
+
   sealed abstract class Error
   object Error {
     case class ExtraPackages(nel: NonEmptyList[Package.Typed[Unit]]) extends Error
@@ -282,6 +290,7 @@ object LibConfig {
     case class MissingDep(note: String, dep: proto.LibDependency) extends Error
     case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Blake3], found: proto.Library) extends Error
     case class IllegalVisibleDep(note: String, pack: Package.Typed[Unit], invalid: PackageName) extends Error
+    case class NoValidVersion(name: String, publicDep: Option[proto.LibDescriptor], versions: NonEmptyList[proto.LibDependency]) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -310,6 +319,8 @@ object LibConfig {
           Doc.text(s"hash mismatch: $note. lib name=${dep.name}, found hash=${foundHash.hex} expecteded ${dep.desc.toList.flatMap(_.hashes)}.")
         case IllegalVisibleDep(note, pack, invalid) =>
           Doc.text(show"illegate visible dep: $note. in package ${pack.name} non-public package name escapes: $invalid")
+        case NoValidVersion(name: String, publicDep: Option[proto.LibDescriptor], versions: NonEmptyList[proto.LibDependency]) =>
+          Doc.text(show"no valid common version of public transitive dep name=$name, public dependency = ${publicDep.flatMap(_.parsedVersion)}, transitive deps=${versions.map(_.desc.flatMap(_.parsedVersion))}")
       }
 
     implicit val showError: cats.Show[Error] =
@@ -322,6 +333,8 @@ object LibConfig {
           val stderr = errorsToDoc(errs)
           Failure(CliException(show"library errors: ${errs}", err = stderr))
       }
+
+    def inv(e: Error): ValidatedNec[Error, Nothing] = Validated.invalidNec(e)
   }
 
   import ProtoJsonReaders._
@@ -360,6 +373,42 @@ object LibConfig {
 
   def init(name: Name, repoUri: String, ver: Version): LibConfig =
     LibConfig(name = name, repoUri = repoUri, nextVersion = ver, Nil, Nil, Nil, Nil)
+
+  /**
+    * Compute the list of unused transitive dependencies if we can solve for them 
+    */
+  def unusedTransitiveDeps(publicDeps: List[proto.Library]): ValidatedNec[Error, SortedMap[String, proto.LibDependency]] = {
+    val usedDeps = publicDeps.iterator.map { lib => (lib.name, lib.descriptor) }.toMap
+    
+    val allTransitiveDeps = (
+          publicDeps.map(_.toDep) :::
+          publicDeps.flatMap(_.unusedTransitivePublicDependencies)
+        )
+        .groupByNel(_.name)
+
+    allTransitiveDeps.traverse { deps =>
+      val name = deps.head.name  
+      val selectedVersion = deps.head.desc.flatMap(_.parsedVersion).flatMap { v0 =>
+        deps.tail.foldM(v0) { (max, dep) =>
+          dep.desc.flatMap(_.parsedVersion).flatMap(cats.PartialOrder.pmax(max, _))
+        }
+      }
+
+      selectedVersion match {
+        case None =>
+          Error.inv(Error.NoValidVersion(name, usedDeps.get(name).flatten, deps))
+        case Some(v) =>
+          val selectedDep = deps.find { dep => dep.desc.flatMap(_.parsedVersion) === Some(v) }
+          selectedDep match {
+            case Some(dep) => Validated.valid(dep)
+            case None => sys.error(s"invariant violation: selected a version that isn't there: $deps")
+          }
+      }
+    }
+    .map { allGoodDeps =>
+      allGoodDeps.filterNot { case (k, _) => usedDeps.contains(k) }
+    }
+  }
 
   implicit class LibHistoryMethods(private val history: proto.LibHistory) extends AnyVal {
     def isEmpty: Boolean =
@@ -438,8 +487,22 @@ object LibConfig {
     }
   }
 
+  implicit class LibDescriptorMethods(private val desc: proto.LibDescriptor) extends AnyVal {
+    def parsedVersion: Option[Version] =
+      desc.version.map(Version.fromProto(_))
+      
+    def versionOrZero: Version =
+      parsedVersion match {
+        case Some(v) => v
+        case None => Version.zero
+      }
+  }
+
   implicit class LibMethods(private val lib: proto.Library) extends AnyVal {
-    def version: Option[Version] = lib.descriptor.flatMap(_.version).map(Version.fromProto(_))
+    def toDep: proto.LibDependency =
+      proto.LibDependency(name = lib.name, desc = lib.descriptor)
+
+    def version: Option[Version] = lib.descriptor.flatMap(_.parsedVersion)
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
