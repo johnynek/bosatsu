@@ -8,6 +8,7 @@ case class Name(name: String)
 object Name {
   implicit val showName: cats.Show[Name] = cats.Show(_.name)
   implicit val orderingName: Ordering[Name] = Ordering.by(_.name)
+  implicit val orderName: cats.Order[Name] = cats.Order.by(_.name)
   implicit val readerName: Reader[Name] = Reader[String].mapEither("Libraries.Name")(s => Right(Name(s)))
   implicit val writerName: Writer[Name] = Writer[String].contramap[Name](_.name)
   implicit val argumentName: Argument[Name] =

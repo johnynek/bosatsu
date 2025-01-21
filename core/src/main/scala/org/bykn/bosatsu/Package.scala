@@ -582,6 +582,8 @@ object Package {
       }
 
     def toIface: Interface = interfaceOf(pack)
+
+    def allImportPacks: List[PackageName] = pack.imports.map(_.pack.name).distinct
   }
 
   implicit class IfaceMethods(private val iface: Interface) extends AnyVal {

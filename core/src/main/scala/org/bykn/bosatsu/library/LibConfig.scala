@@ -12,7 +12,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 import scala.collection.immutable.SortedMap
 
-import LibConfig.{Error, LibMethods, LibHistoryMethods, LibDescriptorMethods, ValidationResult}
+import LibConfig.{Error, LibMethods, LibHistoryMethods, ValidationResult}
 
 case class LibConfig(
   name: Name,
@@ -88,6 +88,16 @@ case class LibConfig(
           }
         }
 
+      // TODO: we should check that all these are distinct
+      val packToLibName: Map[PackageName, Name] =
+        (exportedPacks.iterator.map { p => (p.name, name) } ++
+          (publicDepLibs.iterator ++ privateDepLibs.iterator).flatMap { lib =>
+            lib.exportedIfaces.flatMap { iface => PackageName.parse(ProtoConverter.iname(iface)) }
+              .map((_, Name(lib.name)))
+          }
+        )
+        .toMap
+
       val prop1 =
         packs.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
           case Nil => Validated.unit
@@ -147,17 +157,54 @@ case class LibConfig(
           val depOn = p.visibleDepPackages 
           val invalidDeps = depOn.filterNot(validSet)
           invalidDeps.traverse_ { badPn =>
-            /*
-            TODO (???): explain what kind of bad package this is:
-              1. private package in this library
-              2. exported package of a private dependency
-              3. unknown package
-            */
+            val msg = 
+              if (privateDepLibs.exists(_.exportedIfaces.exists { iface => ProtoConverter.iname(iface) === badPn.asString })) "package from private dependency"
+              else if (privatePacks.exists(_.name === badPn)) "private package in this library"
+              else "unknown package"
 
-            inv(Error.IllegalVisibleDep("", p, badPn))
+            inv(Error.IllegalVisibleDep(msg, p, badPn))
           }
         }
       }
+
+      val usedBy: Map[Option[Name], NonEmptyList[PackageName]] =
+        (for {
+          p <- packs
+          visPack <- p.allImportPacks
+          libName = packToLibName.get(visPack)
+        } yield (libName, p)).groupByNel(_._1).view.mapValues(_.map(_._2.name)).toMap
+
+      // 5. all public deps appear somewhere on an API
+      val prop5 = {
+        val exportedLibs = (for {
+          p <- exportedPacks
+          visPack <- p.visibleDepPackages
+          libName = packToLibName.get(visPack)
+        } yield libName).toSet
+
+        publicDeps.traverse_ { dep =>
+          val optName = Some(Name(dep.name))
+          if (exportedLibs.contains(optName)) Validated.unit 
+          else if (usedBy.contains(optName)) {
+            // this should be a private dep
+            inv(Error.PrivateDepMarkedPublic(dep))
+          }
+          else {
+            // this is unused
+            inv(Error.UnusedPublicDep(dep))
+          }
+        }
+      }
+      // 6. all private deps are used somewhere
+      val prop6 = 
+        privateDeps.traverse_ { dep =>
+          val optName = Some(Name(dep.name))
+          if (usedBy.contains(optName)) Validated.unit
+          else {
+            // this is unused private
+            inv(Error.UnusedPrivateDep(dep))
+          }
+        }
 
       /*
        * 7. hashes of dependencies match
@@ -213,7 +260,7 @@ case class LibConfig(
       val prop9 =
         LibConfig.unusedTransitiveDeps(publicDepLibs)
 
-      prop1 *> prop2 *> prop3 *> prop4 *> prop7_8 *> prop9.map(ValidationResult(_))
+      prop1 *> prop2 *> prop3 *> prop4 *> prop5 *> prop6 *> prop7_8 *> prop9.map(ValidationResult(_))
     }
 
   // just build the library without any validations
@@ -291,6 +338,9 @@ object LibConfig {
     case class DepHashMismatch(note: String, dep: proto.LibDependency, foundHash: HashValue[Algo.Blake3], found: proto.Library) extends Error
     case class IllegalVisibleDep(note: String, pack: Package.Typed[Unit], invalid: PackageName) extends Error
     case class NoValidVersion(name: String, publicDep: Option[proto.LibDescriptor], versions: NonEmptyList[proto.LibDependency]) extends Error
+    case class UnusedPublicDep(dep: proto.LibDependency) extends Error
+    case class UnusedPrivateDep(dep: proto.LibDependency) extends Error
+    case class PrivateDepMarkedPublic(dep: proto.LibDependency) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -321,6 +371,12 @@ object LibConfig {
           Doc.text(show"illegate visible dep: $note. in package ${pack.name} non-public package name escapes: $invalid")
         case NoValidVersion(name: String, publicDep: Option[proto.LibDescriptor], versions: NonEmptyList[proto.LibDependency]) =>
           Doc.text(show"no valid common version of public transitive dep name=$name, public dependency = ${publicDep.flatMap(_.parsedVersion)}, transitive deps=${versions.map(_.desc.flatMap(_.parsedVersion))}")
+        case UnusedPublicDep(dep: proto.LibDependency) =>
+          Doc.text(show"public dep ${dep.name} is not used publicly or privately.")
+        case UnusedPrivateDep(dep: proto.LibDependency) =>
+          Doc.text(show"private dep ${dep.name} is not used publicly or privately.")
+        case PrivateDepMarkedPublic(dep: proto.LibDependency) =>
+          Doc.text(show"pubic dep ${dep.name} is only used privately.")
       }
 
     implicit val showError: cats.Show[Error] =
