@@ -29,24 +29,56 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def pathToString(p: Path): String = p.toString
 
-  def system(cmd: String, args: List[String]): IO[Unit] = IO.blocking {
+  private def systemCmd[A](cmd: String, args: List[String], bldr: java.lang.ProcessBuilder)(fn: java.lang.Process => A): IO[A] = IO.blocking {
+    // Start the process
+    val process = bldr.start()
+    val result = fn(process)
+    // Wait for the process to complete and check the exit value
+    val exitCode = process.waitFor()
+    if (exitCode != 0) {
+      throw new RuntimeException(s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode")
+    }
+
+    result
+  }
+
+  private def processBldr(cmd: String, args: List[String]): IO[java.lang.ProcessBuilder] = IO {
     val processBuilder = new java.lang.ProcessBuilder()
     val command = new java.util.ArrayList[String]()
     (cmd :: args).foreach(command.add(_))
 
     processBuilder.command(command)
+  }
 
-    // Redirect output and error streams
-    processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
-    processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
+  def system(cmd: String, args: List[String]): IO[Unit] =
+    processBldr(cmd, args).flatMap { processBuilder =>
+      
+      // Redirect output and error streams
+      processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+      processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
+      systemCmd(cmd, args, processBuilder)(_ => ())
+    }
 
-    // Start the process
-    val process = processBuilder.start()
+  val gitShaHead: IO[String] = {
+    val args = "rev-parse" :: "HEAD" :: Nil
+    processBldr("git", args).flatMap { processBuilder =>
+      
+      // Combine stdout and stderr, and pipe the combined output for capturing
+      processBuilder.redirectErrorStream(true)
+      processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+      systemCmd("git", args, processBuilder) { process => 
+        // Prepare to read the combined output
+        val reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream))
+        val output = new StringBuilder
+        var line: String = null
 
-    // Wait for the process to complete and check the exit value
-    val exitCode = process.waitFor()
-    if (exitCode != 0) {
-      throw new RuntimeException(s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode")
+        // Read all lines from the process's output
+        while ({ line = reader.readLine(); line != null }) {
+          output.append(line).append("\n")
+        }
+        reader.close()
+        output.toString.trim
+      }
     }
   }
 

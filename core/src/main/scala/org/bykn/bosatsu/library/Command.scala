@@ -132,8 +132,13 @@ object Command {
                 }
             }
             (name, path) = namePath
-          } yield (gitRoot, name, platformIO.resolve(gitRoot, path))
+          } yield (gitRoot, name, platformIO.resolve(platformIO.resolve(gitRoot, path), show"${name}_conf.json"))
         }
+
+    val gitShaOpt: Opts[F[String]] =
+      Opts.option[String]("git_sha", help = "the git-sha to use for the library (default is `git rev-parse HEAD`)")
+        .map(moduleIOMonad.pure(_))
+        .orElse(Opts(platformIO.gitShaHead))
 
     val assembleCommand =
       Opts.subcommand("assemble", "construct a .bosatsu_lib from the configuration and .bosatsu_package files") {
@@ -141,11 +146,13 @@ object Command {
         Opts.options[P]("packages", help = "all the packages to include in this library.", "p").orEmpty,
         Opts.options[P]("dep", help = "dependency library", short = "d").orEmpty,
         Opts.option[P]("output", help = "path to write the library to, or default name_{version}.bosatsu_lib", "o").orNone,
-        Opts.option[P]("previous_lib", help = "if this is not the first version of the library this is the previous version.").orNone
+        Opts.option[P]("previous_lib", help = "if this is not the first version of the library this is the previous version.").orNone,
+        gitShaOpt
         )
-          .mapN { (fpnp, packs, deps, optOut, prevLibPath) =>
+          .mapN { (fpnp, packs, deps, optOut, prevLibPath, readGitSha) =>
             for {
               pnp <- fpnp
+              gitSha <- readGitSha
               (gitRoot, name, confPath) = pnp
               conf <- readLibConf(name, confPath)
               outPath <- optOut match {
@@ -155,8 +162,7 @@ object Command {
               prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
               packages <- platformIO.readPackages(packs)
               depLibs <- deps.traverse(platformIO.readLibrary(_))
-              // TODO: we need to read the git-commit and assert that it is clean
-              maybeNewLib = conf.assemble(vcsIdent = "", prevLib, packages, depLibs)
+              maybeNewLib = conf.assemble(vcsIdent = gitSha, prevLib, packages, depLibs)
               lib <- moduleIOMonad.fromTry(LibConfig.Error.toTry(maybeNewLib))
             } yield (Output.Library(lib, outPath): Output[P])
           }

@@ -51,6 +51,29 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       }
   }
 
+  def systemStdout(cmd: String, args: List[String]): IO[String] = {
+    import fs2.io.process.ProcessBuilder
+    ProcessBuilder(cmd, args)
+      .withCurrentWorkingDirectory
+      .spawn[IO]
+      .use { process =>
+        val drainAll = (
+            fs2.Stream.empty.through(process.stdin).compile.drain,
+            fs2.text.utf8.decode(process.stderr).evalMapChunk(IO.consoleForIO.error).compile.drain,
+            fs2.text.utf8.decode(process.stdout).compile.string
+          ).parTupled
+
+        for {
+          res <- drainAll
+          stdOut = res._3
+          result <- process.exitValue
+          _ <- IO.raiseError(new Exception(s"$cmd ${args.mkString(" ")} returned $result")).whenA(result != 0)
+        } yield stdOut
+      }
+  }
+
+  val gitShaHead: IO[String] = systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
+
   val pathOrdering: Ordering[Path] = Path.instances.toOrdering
 
   private val FilesIO = Files.forIO

@@ -168,6 +168,8 @@ object MemoryMain {
         def pathToString(path: Chain[String]): String = path.mkString_("/")
         def system(command: String, args: List[String]) = 
           moduleIOMonad.raiseError(new Exception(s"system not supported in memory mode: system($command, $args)"))
+        
+        def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
 
       def withEC[A](fn: Par.EC => F[A]): F[A] =
         StateT { state =>

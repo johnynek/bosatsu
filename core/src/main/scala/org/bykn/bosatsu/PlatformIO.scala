@@ -93,6 +93,8 @@ trait PlatformIO[F[_], Path] {
 
   def system(command: String, args: List[String]): F[Unit]
 
+  def gitShaHead: F[String]
+
   def gitTopLevel: F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
