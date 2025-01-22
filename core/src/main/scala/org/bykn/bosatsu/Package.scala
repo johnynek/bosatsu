@@ -61,6 +61,41 @@ final case class Package[A, B, C, +D](
       ref.depPackages
     }
     .distinct
+
+  /**
+   * These are all the types that are exported with constructors deleted for opaque types
+   */
+  def exportedTypeEnv[K](implicit ev: C <:< Referant[K]): TypeEnv[K] = {
+    type ListEN[+Z] = List[ExportedName[Z]]
+    val expRef: List[ExportedName[Referant[K]]] = ev.substituteCo[ListEN](exports)
+    TypeEnv.fromDefinitions(
+      expRef.groupByNel { e =>
+        e.tag match {
+          case Referant.DefinedT(dt) => Some(dt.toTypeConst)
+          case Referant.Constructor(dt, _) => Some(dt.toTypeConst)
+          case Referant.Value(_) => None
+        }
+      }
+      .iterator
+      .collect {
+        case (Some(_), exps) =>
+          val isOpaque = exps.map(_.tag).exists {
+            case Referant.Constructor(_, _) => true
+            case _ => false
+          }
+
+          val dt = exps.head.tag match {
+            case Referant.Constructor(dt, _) => dt
+            case Referant.DefinedT(dt) => dt
+            case Referant.Value(_) => sys.error("impossible since we have Some(tc)")
+          }
+
+          if (isOpaque) dt.toOpaque
+          else dt
+      }
+      .toList
+    )
+  }
 }
 
 object Package {

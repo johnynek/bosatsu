@@ -123,7 +123,9 @@ object ExportedName {
         case Some(v) => Validated.valid(v.toList)
       }
 
-    exports.traverse(expName1).map(_.flatten)
+    // we need the distinct because each constructor exports all the constructors
+    // maybe this shouldn't be the case... but it is
+    exports.traverse(expName1).map(_.flatten.distinct)
   }
 
   def typeEnvFromExports[A](

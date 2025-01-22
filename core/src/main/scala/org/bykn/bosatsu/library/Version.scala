@@ -95,6 +95,15 @@ case class Version(
     preRelease.map { pr =>
       copy(preRelease = Some(pr.next))
     }
+
+  def diffKindTo(that: Version): Version.DiffKind =
+    if (major == that.major) {
+      if (minor == that.minor) Version.DiffKind.Patch
+      else Version.DiffKind.Minor
+    }
+    else {
+      Version.DiffKind.Major
+    }
 }
 
 object Version {
@@ -374,4 +383,30 @@ object Version {
 
   implicit val versionArg: Argument[Version] =
     org.bykn.bosatsu.Parser.argFromParser(Version.parser, "semver", "Version", "Expects a val semver string.")
+
+  sealed abstract class DiffKind(val name: String) {
+    def isMajor: Boolean = this == DiffKind.Major
+    def isMinor: Boolean = this == DiffKind.Minor
+    def isPatch: Boolean = this == DiffKind.Patch
+  }
+
+  object DiffKind {
+    case object Patch extends DiffKind("patch")
+    case object Minor extends DiffKind("minor")
+    case object Major extends DiffKind("major")
+
+    implicit val orderDiffKind: Order[DiffKind] =
+      Order.by {
+        case Patch => 0
+        case Minor => 1
+        case Major => 2
+      }
+
+    implicit val orderingDiffKind: Ordering[DiffKind] =
+      Ordering.by {
+        case Patch => 0
+        case Minor => 1
+        case Major => 2
+      }
+  }
 }
