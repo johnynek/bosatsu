@@ -95,8 +95,8 @@ case class LibConfig(
 
         val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
 
-        val badDiffs = diff.badDiffs(dk) { (pack, ident, diff) =>
-          Error.InvalidDiff(pack, ident, dk, diff)
+        val badDiffs = diff.badDiffs(dk) { (pack, diff) =>
+          Error.InvalidDiff(pack, dk, diff)
         }
         .toVector
 
@@ -411,7 +411,7 @@ object LibConfig {
     case class AddedPublicDependencyInPatch(dep: proto.LibDependency) extends Error
     case class InvalidPublicDepChange(name: String, diffKind: Version.DiffKind, oldDeps: NonEmptyList[proto.LibDependency], newDeps: NonEmptyList[proto.LibDependency]) extends Error
     case class CannotDecodeLibraryIfaces(lib: proto.Library, err: Throwable) extends Error
-    case class InvalidDiff(pack: PackageName, ident: Identifier, diffKind: Version.DiffKind, diff: Diff) extends Error
+    case class InvalidDiff(pack: PackageName, diffKind: Version.DiffKind, diff: Diff) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -460,9 +460,9 @@ object LibConfig {
         case CannotDecodeLibraryIfaces(lib, err) =>
           Doc.text(show"cannot decode library interfaces in ${lib.name}: ${err.getMessage}")
 
-        case InvalidDiff(pack: PackageName, ident: Identifier, diffKind: Version.DiffKind, diff: Diff) =>
+        case InvalidDiff(pack: PackageName, diffKind: Version.DiffKind, diff: Diff) =>
           (
-            Doc.text(show"in package $pack identifier: $ident has invalid diff when doing ${diffKind.name}") + Doc.line + diff.toDoc
+            Doc.text(show"when doing ${diffKind.name} invalid diff:") + Doc.line + diff.toDoc
           ).nested(4).grouped
       }
 

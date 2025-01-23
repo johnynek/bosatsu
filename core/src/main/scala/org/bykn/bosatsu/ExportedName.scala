@@ -12,6 +12,12 @@ sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
   def tag: T
 
+  def nameKind: String = self match {
+    case ExportedName.Binding(_, _) => "binding"
+    case ExportedName.TypeName(_, _) => "typename"
+    case ExportedName.Constructor(_, _) => "constructor"
+  }
+
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
