@@ -61,6 +61,7 @@ final case class Package[A, B, C, +D](
       ref.depPackages
     }
     .distinct
+    .sorted
 
   /**
    * These are all the types that are exported with constructors deleted for opaque types
