@@ -5,7 +5,7 @@ import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
-import org.bykn.bosatsu.{Identifier, Json, Package, PackageName, ProtoConverter, Kind}
+import org.bykn.bosatsu.{Json, Package, PackageName, ProtoConverter, Kind}
 import org.bykn.bosatsu.tool.CliException
 import org.bykn.bosatsu.rankn.TypeEnv
 import org.bykn.bosatsu.hashing.{Hashed, HashValue, Algo}
@@ -40,70 +40,6 @@ case class LibConfig(
             case Left(err) => Validated.invalidNec(Error.ProtoError(err): Error)
           }
         }
-
-  def validNextVersion(prevLib: proto.Library, prevVersion: Version, exportedPacks: List[Package.Typed[Unit]], publicDepLibs: List[proto.Library]): ValidatedNec[Error, Unit] = {
-    val dk = prevVersion.diffKindTo(nextVersion)
-
-    val oldPublicVersions = (prevLib.publicDependencies.toList ::: prevLib.unusedTransitivePublicDependencies.toList).groupByNel(_.name)
-    val newPublicVersions = (publicDepLibs.map(_.toDep) ::: publicDepLibs.flatMap(_.unusedTransitivePublicDependencies)).distinct.groupByNel(_.name)
-    
-    val allLibNames = oldPublicVersions.keySet | newPublicVersions.keySet
-
-    val compatPublicDepChange = allLibNames.toList.traverse_ { name =>
-      (oldPublicVersions.get(name), newPublicVersions.get(name)) match {
-        case (None, Some(newDeps)) =>
-          if (dk.isPatch) {
-            // we can't add new dependencies in a patch release
-            Error.inv(Error.AddedPublicDependencyInPatch(newDeps.head))
-          }
-          else {
-            // we can add new dependencies safely in minor and major bumps
-            Validated.unit
-          }
-        case (Some(oldDeps), None) =>
-          if (!dk.isMajor) {
-            // we can't safely delete dependencies because we could later re-add an earlier version and that would be incompatible
-            Error.inv(Error.DeletedPublicDependency(oldDeps.head))
-          }
-          else Validated.unit
-        case (Some(oldDep), Some(newDep)) =>
-          val oldV: Version = oldDep.map(_.desc.flatMap(_.version).map(Version.fromProto(_)).getOrElse(Version.zero)).reduce[Version](cats.Order[Version].max(_, _))
-          val newV = newDep.map(_.desc.flatMap(_.version).map(Version.fromProto(_)).getOrElse(Version.zero))
-          if (newV.forall(v => oldV.diffKindTo(v) <= dk)) {
-            Validated.unit
-          }
-          else {
-            Error.inv(Error.InvalidPublicDepChange(name, dk, oldDep, newDep))
-          }
-        case (None, None) => sys.error("unreachable since name came from somewhere")
-      } 
-    }
-    
-    val publicTypes: ValidatedNec[Error, TypeEnv[Kind.Arg]] =
-      publicDepLibs.traverse { lib =>
-        lib.ifaces.map(_.foldMap(_.exportedTypeEnv))
-      }
-      .map(_.combineAll)
-    
-    compatPublicDepChange *> publicTypes.andThen { depTypes =>
-      prevLib.ifaces.andThen { prevIfaces =>
-        val prevExports = prevIfaces.iterator.map(iface => (iface.name, iface.exports)).to(SortedMap) 
-        val prevTE = depTypes ++ prevIfaces.foldMap(_.exportedTypeEnv)
-
-        val currExports = exportedPacks.iterator.map(pack => (pack.name, pack.exports)).to(SortedMap)
-        val currTE = depTypes ++ exportedPacks.foldMap(_.exportedTypeEnv)
-
-        val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
-
-        val badDiffs = diff.badDiffs(dk) { (pack, diff) =>
-          Error.InvalidDiff(pack, dk, diff)
-        }
-        .toVector
-
-        badDiffs.traverse_(Error.inv(_))
-      }
-    }
-  }
 
   /**
     * This checks the following properties and if they are set, builds the library
@@ -194,7 +130,31 @@ case class LibConfig(
           prevLib.version match {
             case Some(prevVersion) =>
               if (prevVersion.justBefore(nextVersion)) {
-                validNextVersion(prevLib, prevVersion, exportedPacks, publicDepLibs)
+                val dk = prevVersion.diffKindTo(nextVersion)
+                if (!dk.isMajor) {
+                  val diff = LibConfig.validNextVersion(prevLib, dk, exportedPacks, publicDepLibs)
+
+                  if (diff.isValid) diff
+                  else {
+                    // suggest a version that will work
+                    val valid =
+                      if (dk.isPatch &&
+                          LibConfig.validNextVersion(prevLib, Version.DiffKind.Minor, exportedPacks, publicDepLibs).isValid
+                        ) {
+                          // if it's patch and minor would have worked
+                          Version.DiffKind.Minor
+                      }
+                      else {
+                        Version.DiffKind.Major
+                      }
+
+                    diff *> inv(Error.MinimumValidVersion(prevVersion, prevVersion.next(valid)))
+                  }
+                }
+                else {
+                  // a major version change allows anything
+                  Validated.unit
+                }
               }
               else {
                 inv(Error.VersionNotAdjacent(prevVersion, nextVersion))
@@ -411,7 +371,8 @@ object LibConfig {
     case class AddedPublicDependencyInPatch(dep: proto.LibDependency) extends Error
     case class InvalidPublicDepChange(name: String, diffKind: Version.DiffKind, oldDeps: NonEmptyList[proto.LibDependency], newDeps: NonEmptyList[proto.LibDependency]) extends Error
     case class CannotDecodeLibraryIfaces(lib: proto.Library, err: Throwable) extends Error
-    case class InvalidDiff(pack: PackageName, diffKind: Version.DiffKind, diff: Diff) extends Error
+    case class InvalidDiff(diffKind: Version.DiffKind, diff: Diff) extends Error
+    case class MinimumValidVersion(prevVersion: Version, minimumValid: Version) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(Doc.hardLine + Doc.hardLine,
@@ -460,10 +421,13 @@ object LibConfig {
         case CannotDecodeLibraryIfaces(lib, err) =>
           Doc.text(show"cannot decode library interfaces in ${lib.name}: ${err.getMessage}")
 
-        case InvalidDiff(pack: PackageName, diffKind: Version.DiffKind, diff: Diff) =>
+        case InvalidDiff(diffKind: Version.DiffKind, diff: Diff) =>
           (
             Doc.text(show"when doing ${diffKind.name} invalid diff:") + Doc.line + diff.toDoc
           ).nested(4).grouped
+
+        case MinimumValidVersion(prevVersion: Version, minimumValid: Version) =>
+          Doc.text(show"previous version was $prevVersion require $minimumValid to accept the API changes")
       }
 
     implicit val showError: cats.Show[Error] =
@@ -552,6 +516,69 @@ object LibConfig {
       allGoodDeps.filterNot { case (k, _) => usedDeps.contains(k) }
     }
   }
+
+  def validNextVersion(prevLib: proto.Library, dk: Version.DiffKind, exportedPacks: List[Package.Typed[Unit]], publicDepLibs: List[proto.Library]): ValidatedNec[Error, Unit] = {
+    val oldPublicVersions = (prevLib.publicDependencies.toList ::: prevLib.unusedTransitivePublicDependencies.toList).groupByNel(_.name)
+    val newPublicVersions = (publicDepLibs.map(_.toDep) ::: publicDepLibs.flatMap(_.unusedTransitivePublicDependencies)).distinct.groupByNel(_.name)
+    
+    val allLibNames = oldPublicVersions.keySet | newPublicVersions.keySet
+
+    val compatPublicDepChange = allLibNames.toList.traverse_ { name =>
+      (oldPublicVersions.get(name), newPublicVersions.get(name)) match {
+        case (None, Some(newDeps)) =>
+          if (dk.isPatch) {
+            // we can't add new dependencies in a patch release
+            Error.inv(Error.AddedPublicDependencyInPatch(newDeps.head))
+          }
+          else {
+            // we can add new dependencies safely in minor and major bumps
+            Validated.unit
+          }
+        case (Some(oldDeps), None) =>
+          if (!dk.isMajor) {
+            // we can't safely delete dependencies because we could later re-add an earlier version and that would be incompatible
+            Error.inv(Error.DeletedPublicDependency(oldDeps.head))
+          }
+          else Validated.unit
+        case (Some(oldDep), Some(newDep)) =>
+          val oldV: Version = oldDep.map(_.desc.flatMap(_.version).map(Version.fromProto(_)).getOrElse(Version.zero)).reduce[Version](cats.Order[Version].max(_, _))
+          val newV = newDep.map(_.desc.flatMap(_.version).map(Version.fromProto(_)).getOrElse(Version.zero))
+          if (newV.forall(v => oldV.diffKindTo(v) <= dk)) {
+            Validated.unit
+          }
+          else {
+            Error.inv(Error.InvalidPublicDepChange(name, dk, oldDep, newDep))
+          }
+        case (None, None) => sys.error("unreachable since name came from somewhere")
+      } 
+    }
+    
+    val publicTypes: ValidatedNec[Error, TypeEnv[Kind.Arg]] =
+      publicDepLibs.traverse { lib =>
+        lib.ifaces.map(_.foldMap(_.exportedTypeEnv))
+      }
+      .map(_.combineAll)
+    
+    compatPublicDepChange *> publicTypes.andThen { depTypes =>
+      prevLib.ifaces.andThen { prevIfaces =>
+        val prevExports = prevIfaces.iterator.map(iface => (iface.name, iface.exports)).to(SortedMap) 
+        val prevTE = depTypes ++ prevIfaces.foldMap(_.exportedTypeEnv)
+
+        val currExports = exportedPacks.iterator.map(pack => (pack.name, pack.exports)).to(SortedMap)
+        val currTE = depTypes ++ exportedPacks.foldMap(_.exportedTypeEnv)
+
+        val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
+
+        val badDiffs = diff.badDiffs(dk) { diff =>
+          Error.InvalidDiff(dk, diff)
+        }
+        .toVector
+
+        badDiffs.traverse_(Error.inv(_))
+      }
+    }
+  }
+
 
   implicit class LibHistoryMethods(private val history: proto.LibHistory) extends AnyVal {
     def isEmpty: Boolean =

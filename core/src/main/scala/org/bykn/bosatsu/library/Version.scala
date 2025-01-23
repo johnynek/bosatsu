@@ -86,6 +86,13 @@ case class Version(
   def nextMajor: Version =
     copy(major = major + 1, minor = 0, patch = 0, preRelease = None, build = None)
 
+  def next(dk: Version.DiffKind): Version =
+    dk match {
+      case Version.DiffKind.Major => nextMajor
+      case Version.DiffKind.Minor => nextMinor
+      case Version.DiffKind.Patch => nextPatch
+    }
+
   /**
     * If the pre-release is set, increment so we have the next valid pre-release
     * if it is not set, you should set with something like: copy(preRelease = Some(PreRelease("pre")))
