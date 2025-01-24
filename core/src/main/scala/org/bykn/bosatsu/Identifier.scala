@@ -129,6 +129,8 @@ object Identifier {
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
 
+  implicit val showIdentifier: cats.Show[Identifier] = cats.Show(_.sourceCodeRepr)
+
   def synthetic(name: String): Bindable =
     Name("_" + name)
 }
