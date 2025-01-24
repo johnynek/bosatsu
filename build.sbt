@@ -1,6 +1,8 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
 
+lazy val versionString = "2.13.16"
+
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version := "0.0.7",
@@ -8,8 +10,8 @@ lazy val commonSettings = Seq(
     "org.typelevel" %% "kind-projector" % "0.13.3" cross CrossVersion.full
   ),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.13.15",
-  crossScalaVersions := Seq("2.13.15"),
+  scalaVersion := versionString,
+  crossScalaVersions := Seq(versionString),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation", // Emit warning and location for usages of deprecated APIs.
@@ -201,12 +203,12 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
 
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.12" % "0.3.16" % "provided"
+        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.16" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.12" % "0.3.16"),
+    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.16"),
     scalacOptions += "-P:acyclic:force",
   )
   .dependsOn(base, proto)
