@@ -7,7 +7,7 @@ import cats.effect.{IO, Resource}
 import fs2.io.file.{Files, Path}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.hashing.{Hashed, Algo}
+import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import scala.util.{Failure, Success, Try}
 
 import cats.syntax.all._
@@ -141,6 +141,70 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
     readHashed[proto.Library, Algo.Blake3](path)
+
+  def fetchHash[A](algo: Algo[A], hash: HashValue[A], path: Path, uri: String): IO[Unit] = {
+    // Create a Blaze client resource
+    import org.http4s._
+    import fs2.io.file.{Files, CopyFlags, CopyFlag}
+
+    val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
+      org.http4s.ember.client.EmberClientBuilder.default[IO].build
+
+    val hashFile: fs2.Pipe[IO, Byte, HashValue[A]] =
+      in =>
+        fs2.Stream.suspend {
+          in.chunks
+            .fold(algo.newHasher()) { (h, c) =>
+              val bytes = c.toArraySlice
+              algo.hashBytes(h, bytes.values, bytes.offset, bytes.size)
+            }
+            .flatMap(h => fs2.Stream.emit(algo.finishHash(h)))
+        }
+
+    val tempFileRes = FilesIO.tempFile(
+      dir = path.parent,
+      prefix = s"${algo.name}_${hash.hex.take(12)}",
+      suffix = "temp",
+      permissions = None
+    )
+
+    (clientResource,
+      tempFileRes,
+      Resource.eval(IO(Uri.unsafeFromString(uri)))
+    ).tupled.use { case (client, tempPath, uri) =>
+      // Create an HTTP GET request
+      val request = Request[IO](method = Method.GET, uri = uri)
+
+      // Stream the response body and write it to the specified file path
+      client.stream(request)
+        .flatMap { response =>
+          if (response.status.isSuccess) {
+            response.body
+          } else {
+            fs2.Stream.raiseError[IO](new Exception(s"Failed to download from $uri: ${response.status}"))
+          }
+        }
+        .broadcastThrough(
+          Files[IO].writeAll(tempPath),
+          hashFile
+        )
+        .compile
+        .lastOrError
+        .flatMap { computedHash =>
+          if (computedHash == hash) {
+            // move it atomically to output
+            FilesIO.move(
+              source = tempPath,
+              target = path,
+              // Reflink tries to do an atomic copy, and falls back to non-atomic if not
+              CopyFlags(CopyFlag.Reflink))
+          }
+          else {
+            IO.raiseError(new Exception(s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"))
+          }
+        }
+    }
+  }
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest

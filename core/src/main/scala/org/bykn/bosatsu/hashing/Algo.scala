@@ -1,12 +1,17 @@
 package org.bykn.bosatsu.hashing
 
 import cats.parse.Parser
-import pt.kcry.blake3.{Blake3 => B3}
+import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
 
 sealed abstract class Algo[A] {
   def name: String
   def hexLen: Int 
   def hashBytes(bytes: Array[Byte]): HashValue[A]
+
+  type Hasher
+  def newHasher(): Hasher
+  def hashBytes(h: Hasher, bytes: Array[Byte], offset: Int, len: Int): Hasher
+  def finishHash(h: Hasher): HashValue[A]
 }
 
 // A represents the algorithm
@@ -27,6 +32,13 @@ object Algo {
         HashValue(
           B3.newHasher().update(bytes).doneHex(64)
         )
+
+      type Hasher = B3Hasher
+      def newHasher() = B3.newHasher()
+      def hashBytes(h: Hasher, bytes: Array[Byte], offset: Int, len: Int): Hasher =
+        h.update(bytes, offset, len)
+      def finishHash(h: Hasher): HashValue[Blake3] =
+        HashValue(h.doneHex(64))
     }
 
   sealed abstract class WithAlgo[F[_]] {

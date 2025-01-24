@@ -142,6 +142,9 @@ lazy val cli = (project in file("cli"))
     libraryDependencies ++=
       Seq(
         catsEffect.value,
+        http4sBlaze.value,
+        fs2core.value,
+        fs2io.value,
         jawnParser.value % Test,
         jawnAst.value % Test,
         jython.value % Test,
@@ -228,7 +231,7 @@ lazy val cliJS =
       name := "bosatsu-clijs",
       assembly / test := {},
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
-      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value)
+      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value, http4sEmber.value)
     )
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
