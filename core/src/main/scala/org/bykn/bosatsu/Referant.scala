@@ -31,6 +31,19 @@ sealed abstract class Referant[+A] {
       case Referant.DefinedT(dt) =>
         te.addDefinedType(dt)
     }
+
+  def depPackages: List[PackageName] =
+    this match {
+      case Referant.Value(t) =>
+        // to use this value we need to be able to refer to the full type
+        Type.packageNamesIn(t)
+      case Referant.DefinedT(dt) =>
+        // what package is this type defined in
+        dt.packageName :: Nil
+      case Referant.Constructor(_, c) =>
+        // what packages do we need in order to refer to this constructor
+        c.depPackages
+    }
 }
 
 object Referant {

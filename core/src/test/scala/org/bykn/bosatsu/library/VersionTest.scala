@@ -181,6 +181,13 @@ class VersionTest extends munit.ScalaCheckSuite {
       assert(Ordering[Version].lt(v, v.nextPatch))  
       assert(Ordering[Version].lt(v.nextPatch, v.nextMinor))  
       assert(Ordering[Version].lt(v.nextMinor, v.nextMajor))  
+
+      assert(v.justBefore(v.nextPatch))
+      assert(v.justBefore(v.nextMinor))
+      assert(v.justBefore(v.nextMajor))
+      if (v.preRelease.isDefined) {
+        assert(v.justBefore(v.nextPreRelease.get))
+      }
     }
   }
 

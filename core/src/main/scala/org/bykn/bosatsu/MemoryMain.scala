@@ -1,10 +1,12 @@
 package org.bykn.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 import org.bykn.bosatsu.tool.Output
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
@@ -38,6 +40,7 @@ object MemoryMain {
     case class Str(str: String) extends FileContent
     case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
+    case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
   }
 
   case class State(children: SortedMap[String, Either[State, FileContent]], stdOut: Doc, stdErr: Doc) {
@@ -165,6 +168,8 @@ object MemoryMain {
         def pathToString(path: Chain[String]): String = path.mkString_("/")
         def system(command: String, args: List[String]) = 
           moduleIOMonad.raiseError(new Exception(s"system not supported in memory mode: system($command, $args)"))
+        
+        def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
 
       def withEC[A](fn: Par.EC => F[A]): F[A] =
         StateT { state =>
@@ -250,11 +255,25 @@ object MemoryMain {
                       moduleIOMonad.pure(res)
                     case other =>
                       moduleIOMonad.raiseError[List[Package.Interface]](
-                        new Exception(s"expect Packages content, found: $other")
+                        new Exception(s"expect Interfaces content, found: $other")
                       )
                   }
                 }
                 .map(_.flatten)
+            }
+
+        def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]] =
+          StateT
+            .get[G, MemoryMain.State]
+            .flatMap { files =>
+              files.get(path) match {
+                case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
+                  moduleIOMonad.pure(lib)
+                case other =>
+                  moduleIOMonad.raiseError[Hashed[Algo.Blake3, proto.Library]](
+                    new Exception(s"expect Library content, found: $other")
+                  )
+              }
             }
 
         def unfoldDir(path: Path): F[Option[F[List[Path]]]] =
@@ -306,6 +325,12 @@ object MemoryMain {
 
         def writePackages[A](packs: List[Package.Typed[A]], path: Path): F[Unit] =
           writeFC(path, FileContent.Packages(packs.map(_.void)))
+
+        def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
+          val hash = Algo.hashBytes(lib.toByteArray)
+          val hashed = Hashed(hash, lib)
+          writeFC(path, FileContent.Lib(hashed))
+        }
 
         def writeStdout(doc: Doc): F[Unit] =
           StateT.modify { state =>
