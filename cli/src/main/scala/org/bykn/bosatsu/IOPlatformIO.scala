@@ -12,9 +12,9 @@ import java.io.{
   BufferedOutputStream,
   PrintWriter
 }
-import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.hashing.{Hashed, Algo}
+import org.bykn.bosatsu.hashing.{Hashed, HashValue, Algo}
+import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import cats.syntax.all._
 
@@ -169,6 +169,70 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
     readHashed[proto.Library, Algo.Blake3](path)
+
+  def fetchHash[A](algo: Algo[A], hash: HashValue[A], path: Path, uri: String): F[Unit] = {
+    // Create a Blaze client resource
+    import org.http4s._
+    import fs2.io.file.{Files, Path => Fs2Path, CopyFlags, CopyFlag}
+
+    val filesIO = Files[IO]
+
+    val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
+      org.http4s.blaze.client.BlazeClientBuilder[IO].resource
+
+    val hashFile: fs2.Pipe[IO, Byte, HashValue[A]] =
+      in =>
+        fs2.Stream.suspend {
+          in.chunks
+            .fold(algo.newHasher()) { (h, c) =>
+              val bytes = c.toArraySlice
+              algo.hashBytes(h, bytes.values, bytes.offset, bytes.size)
+            }
+            .flatMap(h => fs2.Stream.emit(algo.finishHash(h)))
+        }
+
+    val tempFileRes = filesIO.tempFile(
+      dir = Option(path.getParent: Path),
+      prefix = s"${algo.name}_${hash.hex.take(12)}",
+      suffix = "temp"
+    )
+
+    (clientResource,
+      tempFileRes,
+      Resource.eval(IO(Uri.unsafeFromString(uri)))
+    ).tupled.use { case (client, tempPath, uri) =>
+      // Create an HTTP GET request
+      val request = Request[IO](method = Method.GET, uri = uri)
+
+      // Stream the response body and write it to the specified file path
+      client.stream(request)
+        .flatMap { response =>
+          if (response.status.isSuccess) {
+            response.body
+          } else {
+            fs2.Stream.raiseError[IO](new Exception(s"Failed to download from $uri: ${response.status}"))
+          }
+        }
+        .broadcastThrough(
+          Files[IO].writeAll(tempPath),
+          hashFile
+        )
+        .compile
+        .lastOrError
+        .flatMap { computedHash =>
+          if (computedHash == hash) {
+            // move it atomically to output
+            filesIO.move(
+              source = Fs2Path.fromNioPath(tempPath),
+              target = Fs2Path.fromNioPath(path),
+              CopyFlags(CopyFlag.AtomicMove))
+          }
+          else {
+            IO.raiseError(new Exception(s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"))
+          }
+        }
+    }
+  }
 
   def writeInterfaces(
       interfaces: List[Package.Interface],

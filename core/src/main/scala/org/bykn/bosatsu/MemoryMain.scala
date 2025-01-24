@@ -6,7 +6,7 @@ import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
 import org.bykn.bosatsu.tool.Output
-import org.bykn.bosatsu.hashing.{Hashed, Algo}
+import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
@@ -275,6 +275,11 @@ object MemoryMain {
                   )
               }
             }
+
+        def fetchHash[A](algo: Algo[A], hash: HashValue[A], path: Path, uri: String): F[Unit] =
+          moduleIOMonad.raiseError(
+            new Exception(s"fetchHash($algo, $hash, $path, $uri) not implemented yet.")
+          ) 
 
         def unfoldDir(path: Path): F[Option[F[List[Path]]]] =
           StateT
