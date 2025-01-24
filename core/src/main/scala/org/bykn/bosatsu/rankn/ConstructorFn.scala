@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.rankn
 
+import org.bykn.bosatsu.PackageName
 import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 
 final case class ConstructorFn(
@@ -18,4 +19,7 @@ final case class ConstructorFn(
     }
 
   def arity: Int = args.length
+
+  def depPackages: List[PackageName] =
+    args.flatMap { case (_, t) => Type.packageNamesIn(t) }.distinct
 }

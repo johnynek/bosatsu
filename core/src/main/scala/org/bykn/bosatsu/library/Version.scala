@@ -19,6 +19,33 @@ case class Version(
   preRelease: Option[Version.PreRelease],
   build: Option[Version.Build]
 ) {
+
+  // This expresses the valid next versions from a given version
+  def justBefore(next: Version): Boolean =
+    if (major == next.major) {
+      if (minor == next.minor) {
+        if (patch == next.patch) {
+          // we are bumping pre-release
+          nextPreRelease.exists { v1 =>
+            // the next has to be <= to we have
+            Ordering[Version].lteq(v1, next)
+          }
+        }
+        else {
+          (patch + 1L) == next.patch
+        }
+      }
+      else {
+        ((minor + 1L) == next.minor) &&
+        (next.patch == 0L)
+      }
+    }
+    else {
+      ((major + 1L) == next.major) &&
+        (next.minor == 0L) &&
+        (next.patch == 0L)
+    }
+
   def toProto: proto.Version = 
     proto.Version(
       major = major,
@@ -59,6 +86,13 @@ case class Version(
   def nextMajor: Version =
     copy(major = major + 1, minor = 0, patch = 0, preRelease = None, build = None)
 
+  def next(dk: Version.DiffKind): Version =
+    dk match {
+      case Version.DiffKind.Major => nextMajor
+      case Version.DiffKind.Minor => nextMinor
+      case Version.DiffKind.Patch => nextPatch
+    }
+
   /**
     * If the pre-release is set, increment so we have the next valid pre-release
     * if it is not set, you should set with something like: copy(preRelease = Some(PreRelease("pre")))
@@ -67,6 +101,15 @@ case class Version(
   def nextPreRelease: Option[Version] =
     preRelease.map { pr =>
       copy(preRelease = Some(pr.next))
+    }
+
+  def diffKindTo(that: Version): Version.DiffKind =
+    if (major == that.major) {
+      if (minor == that.minor) Version.DiffKind.Patch
+      else Version.DiffKind.Minor
+    }
+    else {
+      Version.DiffKind.Major
     }
 }
 
@@ -85,6 +128,8 @@ object Version {
       }
     }
   }
+
+  val zero: Version = Version(0L, 0L, 0L)
 
   // Actually the spec doesn't limit the version numbers, but it says you shouldn't use
   // really long version strings (e.g. < 255 almost certainly). Since Long can hold all 
@@ -345,4 +390,30 @@ object Version {
 
   implicit val versionArg: Argument[Version] =
     org.bykn.bosatsu.Parser.argFromParser(Version.parser, "semver", "Version", "Expects a val semver string.")
+
+  sealed abstract class DiffKind(val name: String) {
+    def isMajor: Boolean = this == DiffKind.Major
+    def isMinor: Boolean = this == DiffKind.Minor
+    def isPatch: Boolean = this == DiffKind.Patch
+  }
+
+  object DiffKind {
+    case object Patch extends DiffKind("patch")
+    case object Minor extends DiffKind("minor")
+    case object Major extends DiffKind("major")
+
+    implicit val orderDiffKind: Order[DiffKind] =
+      Order.by {
+        case Patch => 0
+        case Minor => 1
+        case Major => 2
+      }
+
+    implicit val orderingDiffKind: Ordering[DiffKind] =
+      Ordering.by {
+        case Patch => 0
+        case Minor => 1
+        case Major => 2
+      }
+  }
 }

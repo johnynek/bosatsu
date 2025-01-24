@@ -1,5 +1,7 @@
 package org.bykn.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
+
 import cats.{MonadError, Show}
 import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
@@ -9,6 +11,7 @@ import org.typelevel.paiges.Doc
 import cats.syntax.all._
 import cats.data.Validated.Invalid
 import cats.data.Validated.Valid
+import org.bykn.bosatsu.hashing.{Hashed, Algo}
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
@@ -54,6 +57,7 @@ trait PlatformIO[F[_], Path] {
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
+  def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
@@ -88,6 +92,8 @@ trait PlatformIO[F[_], Path] {
   def writeError(doc: Doc): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
+
+  def gitShaHead: F[String]
 
   def gitTopLevel: F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
@@ -125,6 +131,7 @@ trait PlatformIO[F[_], Path] {
       path: Path
   ): F[Unit]
 
+  def writeLibrary(lib: proto.Library, path: Path): F[Unit]
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
 }
 

@@ -1628,22 +1628,22 @@ object ProtoConverter {
         Program(te, lets, exts.map(_._1), ())
       }
 
+  def iname(p: proto.Interface): String =
+    p.strings
+      .lift(p.packageName - 1)
+      .getOrElse("_unknown_" + p.packageName.toString)
+
+  def pname(p: proto.Package): String =
+    p.strings
+      .lift(p.packageName - 1)
+      .getOrElse("_unknown_" + p.packageName.toString)
+
   def packagesFromProto(
       ifaces: Iterable[proto.Interface],
       packs: Iterable[proto.Package]
   ): Try[(List[Package.Interface], List[Package.Typed[Unit]])] = {
 
     type Node = Either[proto.Interface, proto.Package]
-    def iname(p: proto.Interface): String =
-      p.strings
-        .lift(p.packageName - 1)
-        .getOrElse("_unknown_" + p.packageName.toString)
-
-    def pname(p: proto.Package): String =
-      p.strings
-        .lift(p.packageName - 1)
-        .getOrElse("_unknown_" + p.packageName.toString)
-
     def nodeName(n: Node): String =
       n match {
         case Left(i)  => iname(i)
