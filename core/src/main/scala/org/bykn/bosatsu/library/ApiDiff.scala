@@ -140,31 +140,22 @@ object ApiDiff {
     prevIface: SortedMap[PackageName, List[ExportedName[R]]],
     prevEnv: TypeEnv[Kind.Arg],
     current: SortedMap[PackageName, List[ExportedName[R]]],
-    curEnv: TypeEnv[Kind.Arg]): Diffs = {
-    val allPacks = prevIface.keySet | current.keySet
+    curEnv: TypeEnv[Kind.Arg]): Diffs =
 
-    val map = allPacks.iterator.flatMap { pack =>
-      (prevIface.get(pack), current.get(pack)) match {
-        case (Some(es), None) => RemovedPackage(pack, es) :: Nil
-        case (None, Some(es)) => AddedPackage(pack, es) :: Nil
-        case (Some(oldE), Some(newE)) =>
-          apply(pack, oldE, prevEnv, newE, curEnv)
-        case (None, None) => Nil
-      }  
-    }
-    .toList
-    .groupByNel(_.pack)
-
-    Diffs(map)
-  }
+    Diffs(prevIface
+      .align(current)
+      .transform { (pack, ior) =>
+        ior match {
+          case Ior.Left(es) => RemovedPackage(pack, es) :: Nil
+          case Ior.Right(es) => AddedPackage(pack, es) :: Nil
+          case Ior.Both(oldE, newE) =>
+            apply(pack, oldE, prevEnv, newE, curEnv)
+        }  
+      }
+      .filter { case (_, diffs) => diffs.nonEmpty }
+      .transform { (_, diffs) => NonEmptyList.fromListUnsafe(diffs) })
 
   private def apply(pn: PackageName, prev: List[ExportedName[R]], prevEnv: TypeEnv[Kind.Arg], current: List[ExportedName[R]], curEnv: TypeEnv[Kind.Arg]): List[Diff] = {
-    val prevMap = prev.groupByNel(_.name)
-    val currMap = current.groupByNel(_.name)
-
-    val allNames = prevMap.keySet | currMap.keySet
-
-
     def diffType(oldTpe: Type, newTpe: Type): List[Diff] =
       // this should be the only valid case, otherwise there were multiple things previously
       if (oldTpe.sameAs(newTpe)) {
@@ -196,11 +187,14 @@ object ApiDiff {
       val cons = {
         val oldConsByName = oldDt.constructors.zipWithIndex.groupByNel(_._1.name)
         val newConsByName = newDt.constructors.zipWithIndex.groupByNel(_._1.name)
-        (oldConsByName.keySet | newConsByName.keySet).toList.flatMap { cons =>
-          (oldConsByName.get(cons), newConsByName.get(cons)) match {
-            case (Some(nel), None) => ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil
-            case (None, Some(nel)) => ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil
-            case (Some(NonEmptyList((oldCfn, oldIdx), Nil)), Some(NonEmptyList((newCfn, newIdx), Nil))) =>
+        oldConsByName.align(newConsByName)
+          .iterator
+          .flatMap {
+            case (_, Ior.Left(nel)) => ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil
+            case (_, Ior.Right(nel)) => ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil
+            case (cons, Ior.Both(oldNel, newNel)) =>
+              val (oldCfn, oldIdx) = oldNel.head
+              val (newCfn, newIdx) = newNel.head
               val idxDiff =
                 if (oldIdx == newIdx) Nil
                 else (ConstructorIndexChange(pn, oldDt.toTypeTyConst, cons, oldIdx, newIdx) :: Nil)
@@ -211,6 +205,7 @@ object ApiDiff {
                   // there is some difference
                   oldCfn.args
                     .align(newCfn.args)
+                    .iterator
                     .zipWithIndex
                     .flatMap {
                       case (Ior.Both((oldName, oldType), (newName, newType)), idx) =>
@@ -223,20 +218,23 @@ object ApiDiff {
                       case (Ior.Left((oldName, oldType)), idx) =>
                         ConstructorParamRemoved(pn, cons, newDt.toTypeTyConst, idx, oldName, oldType) :: Nil
                     }
+                    .toList
                 }
 
               idxDiff ::: fnDiff
-            case other => sys.error(s"should not possible: key must be from one side or the other or both and once: $other")
           }
-        }
+          .toList
       }
 
       kinds ::: cons
     }
 
-    allNames.toList.flatMap { name =>
-      (prevMap.get(name), currMap.get(name)) match {
-        case (Some(oldExp), Some(newExp)) =>
+    val prevMap = prev.groupByNel(_.name)
+    val currMap = current.groupByNel(_.name)
+
+    prevMap.align(currMap).iterator.flatMap { case (name, ior) =>
+      ior match {
+        case Ior.Both(oldExp, newExp) =>
           name match {
             case bindable: Identifier.Bindable => 
               def bindsOf(nel: NonEmptyList[ExportedName[R]]): List[ExportedName.Binding[R]] =
@@ -265,12 +263,11 @@ object ApiDiff {
                   sys.error(s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff")
               }
           }
-        case (None, Some(exports)) => AddedName(pn, name, exports) :: Nil
-        case (Some(oldExp), None) => RemovedName(pn, name, oldExp) :: Nil
-        case (None, None) =>
-          sys.error(s"invariant violation: $name must be in prev or current")
+        case Ior.Right(exports) => AddedName(pn, name, exports) :: Nil
+        case Ior.Left(oldExp) => RemovedName(pn, name, oldExp) :: Nil
       }
     }
+    .toList
     .distinct
   }
 }
