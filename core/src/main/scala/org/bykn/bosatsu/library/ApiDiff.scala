@@ -188,7 +188,8 @@ object ApiDiff {
         val oldConsByName = oldDt.constructors.zipWithIndex.groupByNel(_._1.name)
         val newConsByName = newDt.constructors.zipWithIndex.groupByNel(_._1.name)
         oldConsByName.align(newConsByName)
-          .transform {
+          .iterator
+          .flatMap {
             case (_, Ior.Left(nel)) => ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil
             case (_, Ior.Right(nel)) => ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil
             case (cons, Ior.Both(oldNel, newNel)) =>
@@ -204,6 +205,7 @@ object ApiDiff {
                   // there is some difference
                   oldCfn.args
                     .align(newCfn.args)
+                    .iterator
                     .zipWithIndex
                     .flatMap {
                       case (Ior.Both((oldName, oldType), (newName, newType)), idx) =>
@@ -216,12 +218,11 @@ object ApiDiff {
                       case (Ior.Left((oldName, oldType)), idx) =>
                         ConstructorParamRemoved(pn, cons, newDt.toTypeTyConst, idx, oldName, oldType) :: Nil
                     }
+                    .toList
                 }
 
               idxDiff ::: fnDiff
           }
-          .valuesIterator
-          .flatten
           .toList
       }
 
@@ -231,7 +232,7 @@ object ApiDiff {
     val prevMap = prev.groupByNel(_.name)
     val currMap = current.groupByNel(_.name)
 
-    prevMap.align(currMap).transform { (name, ior) =>
+    prevMap.align(currMap).iterator.flatMap { case (name, ior) =>
       ior match {
         case Ior.Both(oldExp, newExp) =>
           name match {
@@ -266,8 +267,6 @@ object ApiDiff {
         case Ior.Left(oldExp) => RemovedName(pn, name, oldExp) :: Nil
       }
     }
-    .valuesIterator
-    .flatten
     .toList
     .distinct
   }
