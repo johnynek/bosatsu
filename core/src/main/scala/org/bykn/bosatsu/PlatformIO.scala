@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 
-import cats.{MonadError, Show}
+import cats.{MonadError, Parallel, Show}
 import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
@@ -15,6 +15,8 @@ import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
+  implicit def parallelF: Parallel[F]
+
   implicit def pathArg: Argument[Path]
   implicit def pathOrdering: Ordering[Path]
 
@@ -70,6 +72,12 @@ trait PlatformIO[F[_], Path] {
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
 
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
+
+  def fileExists(p: Path): F[Boolean] =
+    fsDataType(p).map {
+      case Some(PlatformIO.FSDataType.File) => true
+      case _ => false
+    }
 
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path

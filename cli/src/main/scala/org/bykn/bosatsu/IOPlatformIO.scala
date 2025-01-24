@@ -85,6 +85,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
 
+  override val parallelF: cats.Parallel[IO] = IO.parallelForIO
+
   private val parResource: Resource[IO, Par.EC] =
     Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
@@ -191,12 +193,14 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
             .flatMap(h => fs2.Stream.emit(algo.finishHash(h)))
         }
 
+    val parent = Option(path.getParent)
     val tempFileRes = filesIO.tempFile(
-      dir = Option(path.getParent: Path),
+      dir = parent,
       prefix = s"${algo.name}_${hash.hex.take(12)}",
       suffix = "temp"
     )
 
+    parent.traverse_(p => filesIO.createDirectories(Fs2Path.fromNioPath(p))) *>
     (clientResource,
       tempFileRes,
       Resource.eval(IO(Uri.unsafeFromString(uri)))
