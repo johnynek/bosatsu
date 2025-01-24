@@ -16,6 +16,10 @@ final case class DefinedType[+A](
     constructors: List[ConstructorFn]
 ) {
 
+
+  def isOpaque: Boolean = constructors.isEmpty
+  def toOpaque: DefinedType[A] = copy(constructors = Nil)
+
   val typeParams: List[Type.Var.Bound] =
     annotatedTypeParams.map(_._1)
 
@@ -112,6 +116,9 @@ final case class DefinedType[+A](
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
     Kind(toAnnotatedKinds.map(_._2): _*)
+
+  def depPackages: List[PackageName] =
+    (packageName :: constructors.flatMap(_.depPackages)).distinct
 }
 
 object DefinedType {

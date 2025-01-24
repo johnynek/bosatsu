@@ -379,7 +379,10 @@ message Library {
   // Private dependencies used internally by the library
   repeated LibDependency private_dependencies = 9;
 
+  // Unused transitive public deps (to compose, we must be able to solve compatible versions of these)
+  repeated LibDependency unused_transitive_public_dependencies = 10;
+
   // Historical versions of the library
-  LibHistory history = 10;
+  LibHistory history = 11;
 }
 

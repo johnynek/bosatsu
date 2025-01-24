@@ -12,6 +12,12 @@ sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
   def tag: T
 
+  def nameKind: String = self match {
+    case ExportedName.Binding(_, _) => "binding"
+    case ExportedName.TypeName(_, _) => "typename"
+    case ExportedName.Constructor(_, _) => "constructor"
+  }
+
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
@@ -123,7 +129,9 @@ object ExportedName {
         case Some(v) => Validated.valid(v.toList)
       }
 
-    exports.traverse(expName1).map(_.flatten)
+    // we need the distinct because each constructor exports all the constructors
+    // maybe this shouldn't be the case... but it is
+    exports.traverse(expName1).map(_.flatten.distinct)
   }
 
   def typeEnvFromExports[A](

@@ -527,6 +527,9 @@ object Type {
           quantify(q.quant, subin)
       })
 
+  def packageNamesIn(t: Type): List[PackageName] =
+    allConsts(t :: Nil).map(_.tpe.toDefined.packageName).distinct
+
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
       case TyApply(on, arg) =>
@@ -1108,15 +1111,17 @@ object Type {
         }
     }
 
-    implicit val orderingTyConst: Ordering[Const] =
-      new Ordering[Const] {
-        def compare(a: Const, b: Const) = {
-          val Const.Defined(p0, n0) = a
-          val Const.Defined(p1, n1) = b
+    implicit def orderTyConst[A <: Const]: Order[A] =
+      new Order[A] {
+        def compare(a: A, b: A) = {
+          val Const.Defined(p0, n0) = a.toDefined
+          val Const.Defined(p1, n1) = b.toDefined
           val c = Ordering[PackageName].compare(p0, p1)
           if (c == 0) Ordering[TypeName].compare(n0, n1) else c
         }
       }
+
+    implicit val orderingTyConst: Ordering[Const] = orderTyConst.toOrdering
   }
 
   sealed abstract class Var {

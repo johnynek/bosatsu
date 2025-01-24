@@ -23,4 +23,11 @@ object CliException {
     def stdOutDoc: Doc = Doc.empty
     lazy val errDoc: Doc = Doc.text(summary)
   }
+
+  def apply(summary: String, err: Doc, stdOut: Doc = Doc.empty, code: ExitCode = ExitCode.Error): Exception with CliException =
+    new Exception(summary) with CliException {
+      def errDoc = err
+      def stdOutDoc = stdOut
+      def exitCode = code
+    }
 }

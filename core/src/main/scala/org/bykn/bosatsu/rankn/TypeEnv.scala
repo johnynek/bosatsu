@@ -197,4 +197,10 @@ object TypeEnv {
       t1.addExternalValue(p, n, t)
     }
   }
+
+  implicit def catsMonoidTypeEnv[A]: cats.Monoid[TypeEnv[A]] =
+    new cats.Monoid[TypeEnv[A]] {
+      def empty: TypeEnv[A] = TypeEnv.empty
+      def combine(a: TypeEnv[A], b: TypeEnv[A]) = a ++ b
+    }
 }
