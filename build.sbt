@@ -151,13 +151,8 @@ lazy val cli = (project in file("cli"))
         munit.value % Test,
         munitScalaCheck.value % Test
       ),
-    nativeImageOptions ++= {
-      val common =
-        List("--no-fallback", "--verbose")
-      if (Option(System.getProperty("os.name")).exists(_.contains("Mac OS")))
-        common
-      else ("--static" :: common)
-    },
+    // static linking doesn't work with macos or with linux http4s on the path
+    nativeImageOptions ++= List("--no-fallback", "--verbose"),
     nativeImageVersion := "22.3.0"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
