@@ -15,7 +15,8 @@ object Dependencies {
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val http4sBlaze = Def.setting("org.http4s" %% "http4s-blaze-client" % "0.23.17")
-  lazy val http4sEmber = Def.setting("org.http4s" %% "http4s-ember-client" % "0.23.30")
+  lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.30")
+  lazy val http4sEmber = Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.30")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.0.4")
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.0.0")
