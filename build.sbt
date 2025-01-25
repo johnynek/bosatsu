@@ -153,7 +153,7 @@ lazy val cli = (project in file("cli"))
       ),
     nativeImageOptions ++= {
       val common =
-        List("--no-fallback", "--verbose", "--initialize-at-build-time")
+        List("--no-fallback", "--verbose")
       if (Option(System.getProperty("os.name")).exists(_.contains("Mac OS")))
         common
       else ("--static" :: common)
