@@ -17,6 +17,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def moduleIOMonad: MonadError[IO, Throwable] =
     IO.asyncForIO
 
+  override val parallelF: cats.Parallel[IO] = IO.parallelForIO
+
   val pathArg: Argument[Path] =
     new Argument[Path] {
       def read(string: String) =
@@ -168,6 +170,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       permissions = None
     )
 
+    path.parent.traverse_(FilesIO.createDirectories(_)) *>
     (clientResource,
       tempFileRes,
       Resource.eval(IO(Uri.unsafeFromString(uri)))

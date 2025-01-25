@@ -65,6 +65,16 @@ object Algo {
         def algo = alg
         def value = v
       }
+
+    implicit class WithAlgoHashValue(private val hashValue: WithAlgo[HashValue]) extends AnyVal {
+      def toIdent: String = hashValue.value.toIdent(hashValue.algo)
+    }
+
+    implicit val ordWithAlgoHash: cats.Order[WithAlgo[HashValue]] =
+      cats.Order.by(_.toIdent)
+
+    implicit val orderingWithAlgoHash: Ordering[WithAlgo[HashValue]] =
+      Ordering.by(_.toIdent)
   }
 
   def hashBytes[A](bytes: Array[Byte])(implicit algo: Algo[A]): HashValue[A] =

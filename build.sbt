@@ -151,13 +151,8 @@ lazy val cli = (project in file("cli"))
         munit.value % Test,
         munitScalaCheck.value % Test
       ),
-    nativeImageOptions ++= {
-      val common =
-        List("--no-fallback", "--verbose", "--initialize-at-build-time")
-      if (Option(System.getProperty("os.name")).exists(_.contains("Mac OS")))
-        common
-      else ("--static" :: common)
-    },
+    // static linking doesn't work with macos or with linux http4s on the path
+    nativeImageOptions ++= List("--no-fallback", "--verbose"),
     nativeImageVersion := "22.3.0"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
@@ -231,7 +226,7 @@ lazy val cliJS =
       name := "bosatsu-clijs",
       assembly / test := {},
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
-      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value, http4sEmber.value)
+      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value, http4sCore.value, http4sEmber.value)
     )
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },

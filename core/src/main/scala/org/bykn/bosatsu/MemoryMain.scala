@@ -157,6 +157,7 @@ object MemoryMain {
         type F[A] = StateT[G, State, A]
         type Path = Chain[String]
         def moduleIOMonad: MonadError[F, Throwable] = catsDefaultME
+        val parallelF: cats.Parallel[F] = cats.Parallel.identity[F]
         def pathOrdering = Chain.catsDataOrderForChain[String].toOrdering
         val pathArg: Argument[Path] =
           new Argument[Path] {
