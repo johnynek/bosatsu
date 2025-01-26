@@ -51,9 +51,9 @@ object Code {
     def toDoc(te: TypeIdent): Doc =
       te match {
         case StructType(n) => structDoc + Doc.text(n)
-        case UnionType(n) => unionDoc + Doc.text(n)
-        case Named(n) => Doc.text(n)
-        case Ptr(ptr) => toDoc(ptr) + asterisk
+        case UnionType(n)  => unionDoc + Doc.text(n)
+        case Named(n)      => Doc.text(n)
+        case Ptr(ptr)      => toDoc(ptr) + asterisk
       }
   }
 
@@ -64,8 +64,8 @@ object Code {
     // returns something we can evaluate as an arg to if
     def returnsBool: Boolean =
       this match {
-        case e: Expression => e.evalToInt.isDefined
-        case WithValue(_, v) => v.returnsBool
+        case e: Expression        => e.evalToInt.isDefined
+        case WithValue(_, v)      => v.returnsBool
         case IfElseValue(_, t, f) => t.returnsBool && f.returnsBool
       }
 
@@ -74,13 +74,14 @@ object Code {
         case _: Expression => None
         case WithValue(stmt, vl) =>
           vl.discardValue match {
-            case None => Some(stmt)
+            case None      => Some(stmt)
             case Some(rhs) => Some(stmt + rhs)
           }
         case IfElseValue(cond, thenC, elseC) =>
           (thenC.discardValue, elseC.discardValue) match {
             case (Some(ts), Some(es)) => Some(ifThenElse(cond, ts, es))
-            case (Some(ts), None) => Some(IfElse(NonEmptyList.one(cond -> block(ts)), None))
+            case (Some(ts), None) =>
+              Some(IfElse(NonEmptyList.one(cond -> block(ts)), None))
             case (None, Some(es)) =>
               // if (cond) {} else {es} == if (!cond) { es }
               Some(IfElse(NonEmptyList.one(!cond -> block(es)), None))
@@ -88,10 +89,13 @@ object Code {
           }
       }
 
-    def onExpr[F[_]: Monad](fn: Expression => F[ValueLike])(newLocalName: String => F[Code.Ident]): F[ValueLike] =
+    def onExpr[F[_]: Monad](
+        fn: Expression => F[ValueLike]
+    )(newLocalName: String => F[Code.Ident]): F[ValueLike] =
       this match {
         case expr: Expression => fn(expr)
-        case WithValue(stmt, vl) => vl.onExpr[F](fn)(newLocalName).map(stmt +: _)
+        case WithValue(stmt, vl) =>
+          vl.onExpr[F](fn)(newLocalName).map(stmt +: _)
         case branch @ IfElseValue(_, _, _) =>
           for {
             resIdent <- newLocalName("branch_res")
@@ -102,14 +106,17 @@ object Code {
             // size
             // TODO: not all onExpr uses have this type, we need to take type argument
             (Code.DeclareVar(Nil, Code.TypeIdent.BValue, resIdent, None) +
-            (resIdent := branch)) +: value
+              (resIdent := branch)) +: value
           )
       }
 
-    def exprToStatement[F[_]: Monad](fn: Expression => F[Statement])(newLocalName: String => F[Code.Ident]): F[Statement] =
+    def exprToStatement[F[_]: Monad](
+        fn: Expression => F[Statement]
+    )(newLocalName: String => F[Code.Ident]): F[Statement] =
       this match {
         case expr: Expression => fn(expr)
-        case WithValue(stmt, vl) => vl.exprToStatement[F](fn)(newLocalName).map(stmt + _)
+        case WithValue(stmt, vl) =>
+          vl.exprToStatement[F](fn)(newLocalName).map(stmt + _)
         case branch @ IfElseValue(_, _, _) =>
           for {
             resIdent <- newLocalName("branch_res")
@@ -164,7 +171,7 @@ object Code {
     lazy val evalToInt: Option[IntLiteral] =
       this match {
         case i @ IntLiteral(_) => Some(i)
-        case _ =>
+        case _                 =>
           // TODO we can do a lot more here
           None
       }
@@ -191,18 +198,26 @@ object Code {
   // this prepares an expression with a number of statements
   case class WithValue(statement: Statement, value: ValueLike) extends ValueLike
   // At least one of thenCond or elseCond should not be an expression
-  case class IfElseValue(cond: Expression, thenCond: ValueLike, elseCond: ValueLike) extends ValueLike
+  case class IfElseValue(
+      cond: Expression,
+      thenCond: ValueLike,
+      elseCond: ValueLike
+  ) extends ValueLike
 
   object ValueLike {
     def applyArgs[F[_]: Monad](
-      fn: ValueLike,
-      args: NonEmptyList[ValueLike]
+        fn: ValueLike,
+        args: NonEmptyList[ValueLike]
     )(newLocalName: String => F[Code.Ident]): F[ValueLike] =
       fn.onExpr { fnExpr =>
-        def loop(rest: List[ValueLike], acc: NonEmptyList[Expression]): F[ValueLike] =
+        def loop(
+            rest: List[ValueLike],
+            acc: NonEmptyList[Expression]
+        ): F[ValueLike] =
           rest match {
             case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList: _*))
-            case h :: t => h.onExpr { hexpr => loop(t, hexpr :: acc)  }(newLocalName)
+            case h :: t =>
+              h.onExpr(hexpr => loop(t, hexpr :: acc))(newLocalName)
           }
 
         args.head.onExpr { hexpr =>
@@ -210,44 +225,52 @@ object Code {
         }(newLocalName)
       }(newLocalName)
 
-    def declareArray[F[_]: Monad](ident: Ident, tpe: TypeIdent, values: List[ValueLike])(newLocalName: String => F[Code.Ident]): F[Statement] = {
+    def declareArray[F[_]: Monad](
+        ident: Ident,
+        tpe: TypeIdent,
+        values: List[ValueLike]
+    )(newLocalName: String => F[Code.Ident]): F[Statement] = {
       def loop(values: List[ValueLike], acc: List[Expression]): F[Statement] =
         values match {
-          case Nil => Monad[F].pure(DeclareArray(tpe, ident, Right(acc.reverse)))
+          case Nil =>
+            Monad[F].pure(DeclareArray(tpe, ident, Right(acc.reverse)))
           case (e: Expression) :: tail =>
             loop(tail, e :: acc)
           case h :: tail =>
             h.exprToStatement { e =>
-              loop(tail, e :: acc)  
+              loop(tail, e :: acc)
             }(newLocalName)
         }
 
       loop(values, Nil)
     }
 
-    def declareVar[F[_]: Monad](
-      tpe: TypeIdent,
-      ident: Ident,
-      value: ValueLike)(newLocalName: String => F[Code.Ident]): F[Statement] =
-        value.exprToStatement[F] { expr =>
-          Monad[F].pure(DeclareVar(Nil, tpe, ident, Some(expr)))
-        }(newLocalName)
+    def declareVar[F[_]: Monad](tpe: TypeIdent, ident: Ident, value: ValueLike)(
+        newLocalName: String => F[Code.Ident]
+    ): F[Statement] =
+      value.exprToStatement[F] { expr =>
+        Monad[F].pure(DeclareVar(Nil, tpe, ident, Some(expr)))
+      }(newLocalName)
 
     def prefix(stmt: Statement, of: ValueLike): ValueLike =
       of match {
         case (_: Expression) | (_: IfElseValue) => WithValue(stmt, of)
-        case WithValue(stmt1, v) => WithValue(stmt + stmt1, v)
+        case WithValue(stmt1, v)                => WithValue(stmt + stmt1, v)
       }
 
     def assign(left: Expression, rhs: ValueLike): Statement =
       rhs match {
-        case expr: Expression => Assignment(left, expr)
+        case expr: Expression   => Assignment(left, expr)
         case WithValue(stmt, v) => stmt + (left := v)
         case IfElseValue(cond, thenC, elseC) =>
           ifThenElse(cond, left := thenC, left := elseC)
       }
 
-    def ifThenElseV[F[_]: Monad](cond: Code.ValueLike, thenC: Code.ValueLike, elseC: Code.ValueLike)(newLocalName: String => F[Code.Ident]): F[Code.ValueLike] = {
+    def ifThenElseV[F[_]: Monad](
+        cond: Code.ValueLike,
+        thenC: Code.ValueLike,
+        elseC: Code.ValueLike
+    )(newLocalName: String => F[Code.Ident]): F[Code.ValueLike] =
       cond match {
         case expr: Code.Expression =>
           Monad[F].pure {
@@ -257,7 +280,8 @@ object Code {
                 else thenC
               case None =>
                 (thenC, elseC) match {
-                  case (thenX: Expression, elseX: Expression) => Ternary(expr, thenX, elseX)
+                  case (thenX: Expression, elseX: Expression) =>
+                    Ternary(expr, thenX, elseX)
                   case _ => IfElseValue(expr, thenC, elseC)
                 }
             }
@@ -273,19 +297,18 @@ object Code {
             // and then use it so we don't exponentially blow up the code
             // size
             (Code.DeclareVar(Nil, Code.TypeIdent.Bool, condIdent, None) +
-            (condIdent := branchCond)) +:
-            res
+              (condIdent := branchCond)) +:
+              res
           }
       }
-    }
   }
 
   def returnValue(vl: ValueLike): Statement =
     vl match {
-        case expr: Expression => Return(Some(expr))
-        case WithValue(stmt, v) => stmt + returnValue(v)
-        case IfElseValue(cond, thenC, elseC) =>
-          ifThenElse(cond, returnValue(thenC), returnValue(elseC))
+      case expr: Expression   => Return(Some(expr))
+      case WithValue(stmt, v) => stmt + returnValue(v)
+      case IfElseValue(cond, thenC, elseC) =>
+        ifThenElse(cond, returnValue(thenC), returnValue(elseC))
     }
 
   sealed abstract class BinOp(repr: String) {
@@ -297,7 +320,7 @@ object Code {
     case object Mult extends BinOp("*")
     case object Div extends BinOp("/")
     case object Mod extends BinOp("%")
-    
+
     case object Eq extends BinOp("==")
     case object NotEq extends BinOp("!=")
     case object Lt extends BinOp("<")
@@ -357,11 +380,17 @@ object Code {
   case class Cast(tpe: TypeIdent, expr: Expression) extends Expression
   case class Apply(fn: Expression, args: List[Expression]) extends Expression
   case class Select(target: Expression, name: Ident) extends Expression
-  case class BinExpr(left: Expression, op: BinOp, right: Expression) extends Expression
+  case class BinExpr(left: Expression, op: BinOp, right: Expression)
+      extends Expression
   case class PrefixExpr(op: PrefixUnary, target: Expression) extends Expression
-  case class PostfixExpr(target: Expression, op: PostfixUnary) extends Expression
+  case class PostfixExpr(target: Expression, op: PostfixUnary)
+      extends Expression
   case class Bracket(target: Expression, item: Expression) extends Expression
-  case class Ternary(cond: Expression, whenTrue: Expression, whenFalse: Expression) extends Expression
+  case class Ternary(
+      cond: Expression,
+      whenTrue: Expression,
+      whenFalse: Expression
+  ) extends Expression
 
   object Expression {
     implicit def expressionFromInt(i: Int): Expression =
@@ -377,25 +406,43 @@ object Code {
 
     def ++(stmts: List[Statement]): Statement =
       NonEmptyList.fromList(stmts) match {
-        case None => this
+        case None      => this
         case Some(nel) => this + Statements(nel)
       }
 
     def maybeCombine(that: Option[Statement]): Statement =
       that match {
         case Some(t) => Statements.combine(this, t)
-        case None => this
+        case None    => this
 
       }
     def :+(vl: ValueLike): ValueLike = (this +: vl)
   }
 
   case class Assignment(target: Expression, value: Expression) extends Statement
-  case class DeclareArray(tpe: TypeIdent, ident: Ident, values: Either[Int, List[Expression]]) extends Statement
-  case class DeclareVar(attrs: List[Attr], tpe: TypeIdent, ident: Ident, value: Option[Expression]) extends Statement
-  case class DeclareFn(attrs: List[Attr], returnTpe: TypeIdent, ident: Ident, args: List[Param], value: Option[Block]) extends Statement
+  case class DeclareArray(
+      tpe: TypeIdent,
+      ident: Ident,
+      values: Either[Int, List[Expression]]
+  ) extends Statement
+  case class DeclareVar(
+      attrs: List[Attr],
+      tpe: TypeIdent,
+      ident: Ident,
+      value: Option[Expression]
+  ) extends Statement
+  case class DeclareFn(
+      attrs: List[Attr],
+      returnTpe: TypeIdent,
+      ident: Ident,
+      args: List[Param],
+      value: Option[Block]
+  ) extends Statement
   case class Typedef(tpe: TypeIdent, name: Ident) extends Statement
-  case class DefineComplex(tpe: TypeIdent.ComplexType, elements: List[(TypeIdent, Ident)]) extends Statement
+  case class DefineComplex(
+      tpe: TypeIdent.ComplexType,
+      elements: List[(TypeIdent, Ident)]
+  ) extends Statement
   case class Return(expr: Option[Expression]) extends Statement
   case class Block(items: NonEmptyList[Statement]) extends Statement {
     def doWhile(cond: Expression): Statement = DoWhile(this, cond)
@@ -414,7 +461,7 @@ object Code {
         case Statements(items) =>
           last match {
             case Statements(rhs) => Statements(items ++ rhs)
-            case notStmts => Statements(items :+ notStmts)
+            case notStmts        => Statements(items :+ notStmts)
           }
         case notBlock =>
           last match {
@@ -423,7 +470,10 @@ object Code {
           }
       }
   }
-  case class IfElse(ifs: NonEmptyList[(Expression, Block)], elseCond: Option[Block]) extends Statement
+  case class IfElse(
+      ifs: NonEmptyList[(Expression, Block)],
+      elseCond: Option[Block]
+  ) extends Statement
   case class DoWhile(block: Block, whileCond: Expression) extends Statement
   case class Effect(expr: Expression) extends Statement
   case class While(cond: Expression, body: Block) extends Statement
@@ -439,12 +489,24 @@ object Code {
     DeclareVar(Nil, TypeIdent.Int, ident, init.map(IntLiteral(_)))
 
   def declareBool(ident: Ident, init: Option[Boolean]): Statement =
-    DeclareVar(Nil, TypeIdent.Bool, ident, init.map(if (_) TrueLit else FalseLit))
+    DeclareVar(
+      Nil,
+      TypeIdent.Bool,
+      ident,
+      init.map(if (_) TrueLit else FalseLit)
+    )
 
   def declareMain(body: Statement): DeclareFn =
-    DeclareFn(Nil, TypeIdent.Int,
-      "main", Param(TypeIdent.Int, "argc") :: Param(TypeIdent.Char.ptr.ptr, "argv") :: Nil,
-      Some(block(body)))
+    DeclareFn(
+      Nil,
+      TypeIdent.Int,
+      "main",
+      Param(TypeIdent.Int, "argc") :: Param(
+        TypeIdent.Char.ptr.ptr,
+        "argv"
+      ) :: Nil,
+      Some(block(body))
+    )
 
   def block(item: Statement, rest: Statement*): Block =
     item match {
@@ -452,7 +514,11 @@ object Code {
       case _ => Block(NonEmptyList(item, rest.toList))
     }
 
-  def ifThenElse(cond: Expression, thenCond: Statement, elseCond: Statement): Statement = {
+  def ifThenElse(
+      cond: Expression,
+      thenCond: Statement,
+      elseCond: Statement
+  ): Statement =
     cond.evalToInt match {
       case Some(IntLiteral(i)) =>
         if (i == 0) elseCond
@@ -466,7 +532,6 @@ object Code {
             IfElse(NonEmptyList.one(first), Some(block(notIfElse)))
         }
     }
-  }
   private val equalsDoc = Doc.text(" = ")
   private val semiDoc = Doc.char(';')
   private val typeDefDoc = Doc.text("typedef ")
@@ -498,8 +563,7 @@ object Code {
   private def curlyBlock[A](items: Iterable[A])(fn: A => Doc): Doc =
     if (items.isEmpty) {
       leftCurly + rightCurly
-    }
-    else {
+    } else {
       val inner =
         (Doc.line + Doc.intercalate(Doc.line, items.map(fn))).nested(4)
 
@@ -510,38 +574,39 @@ object Code {
     // These are the highest priority, so safe to not use a parens
     def unapply(e: Expression): Option[Expression] =
       e match {
-        case noPar @ (Ident(_) | Apply(_, _) | Select(_, _) | Bracket(_, _) | IntLiteral(_)) => Some(noPar)
+        case noPar @ (Ident(_) | Apply(_, _) | Select(_, _) | Bracket(_, _) |
+            IntLiteral(_)) =>
+          Some(noPar)
         case _ => None
       }
   }
 
-  def toDoc(c: Code): Doc = 
+  def toDoc(c: Code): Doc =
     c match {
-      case Ident(n) => Doc.text(n)
+      case Ident(n)       => Doc.text(n)
       case IntLiteral(bi) => Doc.str(bi)
       case StrLiteral(str) =>
         val result = new java.lang.StringBuilder()
         val bytes = str.getBytes(StandardCharsets.UTF_8)
         bytes.foreach { c =>
-          val cint = c.toInt & 0xFF
+          val cint = c.toInt & 0xff
           if (cint == 92) { // this is \
             result.append("\\\\")
-          }
-          else if (cint == 34) { // this is "
+          } else if (cint == 34) { // this is "
             result.append("\\\"")
-          }
-          else if (25 <= cint && cint <= 126) {
+          } else if (25 <= cint && cint <= 126) {
             result.append(cint.toChar)
-          }
-          else {
-            result.append(s"\" \"\\x${java.lang.Integer.toHexString(cint)}\" \"")
+          } else {
+            result.append(
+              s"\" \"\\x${java.lang.Integer.toHexString(cint)}\" \""
+            )
           }
         }
         quoteDoc + (Doc.text(result.toString()) + quoteDoc)
       case Cast(tpe, expr) =>
         val edoc = expr match {
           case Ident(n) => Doc.text(n)
-          case _ => par(toDoc(expr))
+          case _        => par(toDoc(expr))
         }
         par(TypeIdent.toDoc(tpe)) + edoc
       case Apply(fn, args) =>
@@ -549,7 +614,12 @@ object Code {
           case Ident(n) => Doc.text(n)
           case notIdent => par(toDoc(notIdent))
         }
-        fnDoc + par(Doc.intercalate(commaLine, args.map(expr => toDoc(expr))).grouped.nested(4))
+        fnDoc + par(
+          Doc
+            .intercalate(commaLine, args.map(expr => toDoc(expr)))
+            .grouped
+            .nested(4)
+        )
       case PostfixExpr(expr, op) =>
         val left = expr match {
           case Ident(n) => Doc.text(n)
@@ -559,36 +629,39 @@ object Code {
       case PrefixExpr(op, expr) =>
         val right = expr match {
           case Tight(n) => toDoc(n)
-          case usePar => par(toDoc(usePar))
+          case usePar   => par(toDoc(usePar))
         }
         op.toDoc + right
       case BinExpr(left, op, right) =>
         val leftD = left match {
           case Tight(n) => toDoc(n)
-          case usePar => par(toDoc(usePar))
+          case usePar   => par(toDoc(usePar))
         }
         val rightD = right match {
           case Tight(n) => toDoc(n)
-          case usePar => par(toDoc(usePar))
+          case usePar   => par(toDoc(usePar))
         }
         leftD + Doc.space + op.toDoc + Doc.space + rightD
       case Select(target, Ident(nm)) =>
         target match {
-          case PrefixExpr(PrefixUnary.Deref, Tight(noPar)) => toDoc(noPar) + arrow + Doc.text(nm)
-          case PrefixExpr(PrefixUnary.Deref, notIdent) => par(toDoc(notIdent)) + arrow + Doc.text(nm)
+          case PrefixExpr(PrefixUnary.Deref, Tight(noPar)) =>
+            toDoc(noPar) + arrow + Doc.text(nm)
+          case PrefixExpr(PrefixUnary.Deref, notIdent) =>
+            par(toDoc(notIdent)) + arrow + Doc.text(nm)
           case Tight(noPar) => toDoc(noPar) + dot + Doc.text(nm)
-          case notIdent => par(toDoc(notIdent)) + dot + Doc.text(nm)
+          case notIdent     => par(toDoc(notIdent)) + dot + Doc.text(nm)
         }
       case Bracket(target, item) =>
         val left = target match {
           case Tight(noPar) => toDoc(noPar)
-          case yesPar => par(toDoc(yesPar))
+          case yesPar       => par(toDoc(yesPar))
         }
         left + leftBracket + toDoc(item) + rightBracket
       case Ternary(cond, t, f) =>
         def d(e: Expression): Doc =
           e match {
-            case noPar @ (Tight(_) | PrefixExpr(_, _) | BinExpr(_, _, _)) => toDoc(noPar)
+            case noPar @ (Tight(_) | PrefixExpr(_, _) | BinExpr(_, _, _)) =>
+              toDoc(noPar)
             case yesPar => par(toDoc(yesPar))
           }
         (d(cond) + (questionDoc + d(t) + colonDoc + d(f)).nested(4)).grouped
@@ -602,11 +675,16 @@ object Code {
         values match {
           case Right(init) =>
             val len = init.size
-            val begin = tpeName + leftBracket + Doc.str(len) + rightBracket + equalsDoc + leftCurly;
+            val begin = tpeName + leftBracket + Doc.str(
+              len
+            ) + rightBracket + equalsDoc + leftCurly;
             val items =
               if (init.isEmpty) Doc.empty
               else {
-                ((Doc.line + Doc.intercalate(commaLine, init.map(e => toDoc(e)))).nested(4) + Doc.line).grouped
+                ((Doc.line + Doc.intercalate(
+                  commaLine,
+                  init.map(e => toDoc(e))
+                )).nested(4) + Doc.line).grouped
               }
 
             begin + items + rightCurly + semiDoc
@@ -617,66 +695,80 @@ object Code {
         val attrDoc =
           if (attrs.isEmpty) Doc.empty
           else {
-            Doc.intercalate(Doc.space, attrs.map(a => Attr.toDoc(a))) + Doc.space
+            Doc.intercalate(
+              Doc.space,
+              attrs.map(a => Attr.toDoc(a))
+            ) + Doc.space
           }
 
-        val prefix = Doc.intercalate(Doc.space,
+        val prefix = Doc.intercalate(
+          Doc.space,
           (attrDoc + TypeIdent.toDoc(tpe)) ::
-          toDoc(ident) ::
-          Nil)
+            toDoc(ident) ::
+            Nil
+        )
 
         v match {
           case Some(rhs) => prefix + equalsDoc + toDoc(rhs) + semiDoc
-          case None => prefix + semiDoc
+          case None      => prefix + semiDoc
         }
       case DeclareFn(attrs, tpe, ident, args, v) =>
         val attrDoc =
           if (attrs.isEmpty) Doc.empty
           else {
-            Doc.intercalate(Doc.space, attrs.map(a => Attr.toDoc(a))) + Doc.space
+            Doc.intercalate(
+              Doc.space,
+              attrs.map(a => Attr.toDoc(a))
+            ) + Doc.space
           }
 
-        val paramDoc = Doc.intercalate(commaLine, args.map(_.toDoc)).nested(4).grouped
+        val paramDoc =
+          Doc.intercalate(commaLine, args.map(_.toDoc)).nested(4).grouped
 
-        val prefix = Doc.intercalate(Doc.space,
+        val prefix = Doc.intercalate(
+          Doc.space,
           (attrDoc + TypeIdent.toDoc(tpe)) ::
-          (toDoc(ident) + par(paramDoc)) ::
-          Nil)
+            (toDoc(ident) + par(paramDoc)) ::
+            Nil
+        )
 
         v match {
           case Some(rhs) => prefix + Doc.space + toDoc(rhs)
-          case None => prefix + semiDoc
+          case None      => prefix + semiDoc
         }
       case Typedef(td, n) =>
         typeDefDoc + TypeIdent.toDoc(td) + Doc.space + toDoc(n) + semiDoc
       case DefineComplex(tpe, els) =>
         val pre = TypeIdent.toDoc(tpe) + Doc.space
         val code = pre + curlyBlock(els) { case (t, n) =>
-          TypeIdent.toDoc(t) + Doc.space + toDoc(n) + semiDoc 
+          TypeIdent.toDoc(t) + Doc.space + toDoc(n) + semiDoc
         }
 
         code + semiDoc
       case Return(opt) =>
         opt match {
-          case None => returnSemi
+          case None       => returnSemi
           case Some(expr) => returnSpace + toDoc(expr) + semiDoc
         }
-      case Block(items) => curlyBlock(items.toList) { s => toDoc(s) }
+      case Block(items) => curlyBlock(items.toList)(s => toDoc(s))
       case Statements(items) =>
         Doc.intercalate(Doc.line, items.toNonEmptyList.toList.map(toDoc(_)))
       case IfElse(ifs, els) =>
-        //"if (ex) {} else if"
+        // "if (ex) {} else if"
         val (fcond, fblock) = ifs.head
         val first = ifDoc + par(toDoc(fcond)) + Doc.space + toDoc(fblock)
         val middle = ifs.tail match {
           case Nil => Doc.empty
           case nonEmpty =>
-            Doc.line + Doc.intercalate(Doc.line, nonEmpty.map { case (c, b) =>
-              elseIfDoc + par(toDoc(c)) + Doc.space + toDoc(b)
-            })
+            Doc.line + Doc.intercalate(
+              Doc.line,
+              nonEmpty.map { case (c, b) =>
+                elseIfDoc + par(toDoc(c)) + Doc.space + toDoc(b)
+              }
+            )
         }
         val end = els match {
-          case None => Doc.empty
+          case None    => Doc.empty
           case Some(e) => Doc.line + elseDoc + toDoc(e)
         }
 
@@ -689,9 +781,8 @@ object Code {
         whileDoc + Doc.space + par(toDoc(expr)) + Doc.space + toDoc(block)
       case Include(useQuote, file) =>
         val inc = if (useQuote) {
-          quoteDoc + Doc.text(file) + quoteDoc 
-        }
-        else {
+          quoteDoc + Doc.text(file) + quoteDoc
+        } else {
           leftAngleDoc + Doc.text(file) + rightAngleDoc
         }
         includeDoc + Doc.space + inc

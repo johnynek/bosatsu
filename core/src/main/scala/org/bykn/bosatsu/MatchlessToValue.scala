@@ -68,26 +68,22 @@ object MatchlessToValue {
 
     class DebugStr(prefix: String = "") {
       private var message: String = ""
-      def set(msg: String): Unit = {
+      def set(msg: String): Unit =
         message = msg;
-      }
 
-      def append(msg: String): Unit = {
+      def append(msg: String): Unit =
         message = message + " :: " + msg
-      }
 
       override def toString = prefix + message
 
-      def scope(outer: String): DebugStr = {
+      def scope(outer: String): DebugStr =
         new DebugStr(prefix + "/" + outer)
-      }
     }
 
     class Cell {
       private var value = uninit
-      def set(v: Value): Unit = {
+      def set(v: Value): Unit =
         value = v
-      }
 
       def get(): Value = value
     }
@@ -135,7 +131,13 @@ object MatchlessToValue {
 
     object Scope {
       def empty(): Scope =
-        Scope(Map.empty, LongMap.empty, LongMap.empty, Vector.empty, new DebugStr)
+        Scope(
+          Map.empty,
+          LongMap.empty,
+          LongMap.empty,
+          Vector.empty,
+          new DebugStr
+        )
 
       def capture(it: Vector[Value], dbg: DebugStr = new DebugStr): Scope =
         Scope(
@@ -352,7 +354,7 @@ object MatchlessToValue {
             // has failed
             Dynamic { (scope: Scope) =>
               var c = condF(scope)
-              while(c) {
+              while (c) {
                 effectF(scope)
                 c = condF(scope)
               }
@@ -364,14 +366,15 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)         => Dynamic(_.locals(b).value)
-          case LocalAnon(a)     => Dynamic(_.anon(a))
-          case LocalAnonMut(m)  => Dynamic { s =>
-            s.muts.get(m) match {
-              case Some(v) => v.get()
-              case None => sys.error(s"could not get: $m. ${s.debugString}")
+          case Local(b)     => Dynamic(_.locals(b).value)
+          case LocalAnon(a) => Dynamic(_.anon(a))
+          case LocalAnonMut(m) =>
+            Dynamic { s =>
+              s.muts.get(m) match {
+                case Some(v) => v.get()
+                case None => sys.error(s"could not get: $m. ${s.debugString}")
+              }
             }
-          }
           case ClosureSlot(idx) => Dynamic(_.slots(idx))
           case App(expr, args)  =>
             // TODO: App(lambda(while
@@ -433,9 +436,9 @@ object MatchlessToValue {
 
             Dynamic { scope =>
               values.iterator.foreach { case (m, e) =>
-                val ev = e(scope)  
+                val ev = e(scope)
                 scope.updateMut(m.ident, ev)
-              }               
+              }
 
               exprF(scope)
             }

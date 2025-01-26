@@ -226,7 +226,6 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   dt.dataFamily match {
                     case DataFamily.NewType =>
                       // the outer wrapping is so we add it back
-
                       { v => params(0, v :: Nil, v) }
                     case DataFamily.Struct => {
                       case prod: ProductValue =>

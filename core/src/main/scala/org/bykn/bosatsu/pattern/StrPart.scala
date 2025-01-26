@@ -63,11 +63,11 @@ object StrPart {
   }
 
   private[this] val emptyStringArray: Array[String] = new Array[String](0)
-  /**
-   * This performs the matchstring algorithm on a literal string
-   * it returns null if there is no match, or the array of binds
-   * in order if there is a match
-   */
+
+  /** This performs the matchstring algorithm on a literal string it returns
+    * null if there is no match, or the array of binds in order if there is a
+    * match
+    */
   def matchString(
       str: String,
       pat: List[StrPart],
@@ -183,7 +183,10 @@ object StrPart {
     if (loop(0, pat, 0)) results else null
   }
 
-  def matchPattern(str: String, pattern: Pattern.StrPat): Option[List[(Identifier.Bindable, Lit.StringMatchResult)]] = {
+  def matchPattern(
+      str: String,
+      pattern: Pattern.StrPat
+  ): Option[List[(Identifier.Bindable, Lit.StringMatchResult)]] = {
     val partList = pattern.parts.toList
 
     val sbinds: List[String => (Identifier.Bindable, Lit.StringMatchResult)] =
@@ -191,10 +194,12 @@ object StrPart {
         .collect {
           // that each name is distinct
           // should be checked in the SourceConverter/TotalityChecking code
-          case Pattern.StrPart.NamedStr(n)  =>
-            { (value: String) => (n, Lit.Str(value)) }
-          case Pattern.StrPart.NamedChar(n) =>
-            { (value: String) => (n, Lit.Chr(value)) }
+          case Pattern.StrPart.NamedStr(n) => { (value: String) =>
+            (n, Lit.Str(value))
+          }
+          case Pattern.StrPart.NamedChar(n) => { (value: String) =>
+            (n, Lit.Chr(value))
+          }
         }
 
     val pat = partList.map {
@@ -209,8 +214,7 @@ object StrPart {
     if (result == null) None
     else {
       // we match:
-      val matched = result
-        .iterator
+      val matched = result.iterator
         .zip(sbinds.iterator)
         .map { case (m, fn) => fn(m) }
         .toList

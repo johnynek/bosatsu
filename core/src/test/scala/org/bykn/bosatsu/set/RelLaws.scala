@@ -348,7 +348,7 @@ abstract class SetGenRelLaws[A](implicit
     def relatable = setgenrellaws.relatable
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
-      else Left({ (s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super })
+      else Left((s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super)
 
     def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 

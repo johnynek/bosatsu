@@ -14,7 +14,7 @@ class StrPartTest extends munit.ScalaCheckSuite {
   val nonUnicode: Gen[String] =
     Gen.oneOf(
       Gen.asciiStr,
-      Gen.identifier,
+      Gen.identifier
     )
 
   val genStr: Gen[String] =
@@ -26,7 +26,7 @@ class StrPartTest extends munit.ScalaCheckSuite {
 
   property("StringUtil codePoints work (used internally by matching)") {
     forAll(genStr) { str =>
-      val cp = StringUtil.codePoints(str)  
+      val cp = StringUtil.codePoints(str)
       val s1 = StringUtil.fromCodePoints(cp)
       assertEquals(s1, str, s"codepoints = $cp")
     }
@@ -41,10 +41,16 @@ class StrPartTest extends munit.ScalaCheckSuite {
           assertEquals(justNames.distinct, justNames)
           assertEquals(pat.names, justNames)
           // this should agree with the matches method
-          assert(pat.matcher(str).isDefined, s"seqPattern = $sp, named = ${pat.toNamedSeqPattern}")
+          assert(
+            pat.matcher(str).isDefined,
+            s"seqPattern = $sp, named = ${pat.toNamedSeqPattern}"
+          )
         case None =>
-          assert(pat.matcher(str).isEmpty, s"seqPattern = $sp, named = ${pat.toNamedSeqPattern}")
-      } 
+          assert(
+            pat.matcher(str).isEmpty,
+            s"seqPattern = $sp, named = ${pat.toNamedSeqPattern}"
+          )
+      }
     }
   }
 
@@ -59,7 +65,7 @@ class StrPartTest extends munit.ScalaCheckSuite {
           assert(pat.matches(str))
         case None =>
           assert(!pat.matches(str))
-      } 
+      }
     }
   }
 
@@ -70,9 +76,8 @@ class StrPartTest extends munit.ScalaCheckSuite {
 
       val res1 = StrPart.matchPattern(str, pat).map { pairs =>
         pairs.map { case (b, sr) =>
-          (b.sourceCodeRepr, sr.asStr)  
-        }
-        .toMap
+          (b.sourceCodeRepr, sr.asStr)
+        }.toMap
       }
       val matchRes = namedMatcher(str).map(_._2)
       assertEquals(matchRes, res1)
@@ -87,14 +92,15 @@ class StrPartTest extends munit.ScalaCheckSuite {
       StrPart.matchPattern(str, pat) match {
         case Some(binds) =>
           assert(matcher.matches(), s"binds = $binds, re = $re")
-          val reMatches = (1 to matcher.groupCount)
-            .map { idx =>
-              matcher.group(idx)  
-            }
-            .toList
+          val reMatches = (1 to matcher.groupCount).map { idx =>
+            matcher.group(idx)
+          }.toList
 
           // TODO: this fails
-          assertEquals(pat.names.zip(reMatches), binds.map { case (k, v) => (k, v.asStr)})
+          assertEquals(
+            pat.names.zip(reMatches),
+            binds.map { case (k, v) => (k, v.asStr) }
+          )
         case None =>
           assert(!matcher.matches())
       }

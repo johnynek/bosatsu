@@ -9,7 +9,8 @@ sealed trait PathParseError[Path]
 object PathParseError {
   case class ParseFailure[Path](error: Parser.Error.ParseFailure, path: Path)
       extends PathParseError[Path]
-  case class FileError[Path](readPath: Path, error: Throwable) extends PathParseError[Path]
+  case class FileError[Path](readPath: Path, error: Throwable)
+      extends PathParseError[Path]
 
   def parseString[Path, A](
       p: P0[A],
@@ -29,12 +30,13 @@ object PathParseError {
   ): IO[ValidatedNel[PathParseError[Path], (LocationMap, A)]] = {
     import platformIO.moduleIOMonad
 
-    platformIO.readUtf8(path)
+    platformIO
+      .readUtf8(path)
       .attempt
       .map {
         case Right(str) => PathParseError.parseString(p, path, str)
         case Left(err) =>
           Validated.invalidNel(PathParseError.FileError(path, err))
       }
-    }
+  }
 }

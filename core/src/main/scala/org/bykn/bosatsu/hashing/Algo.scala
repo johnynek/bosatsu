@@ -5,7 +5,7 @@ import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
 
 sealed abstract class Algo[A] {
   def name: String
-  def hexLen: Int 
+  def hexLen: Int
   def hashBytes(bytes: Array[Byte]): HashValue[A]
 
   type Hasher
@@ -23,7 +23,7 @@ case class HashValue[A](hex: String) {
 object Algo {
   trait Blake3
   object Blake3 extends Blake3
-  
+
   implicit val blake3Algo: Algo[Blake3] =
     new Algo[Blake3] {
       def name: String = "blake3"
@@ -35,7 +35,12 @@ object Algo {
 
       type Hasher = B3Hasher
       def newHasher() = B3.newHasher()
-      def hashBytes(h: Hasher, bytes: Array[Byte], offset: Int, len: Int): Hasher =
+      def hashBytes(
+          h: Hasher,
+          bytes: Array[Byte],
+          offset: Int,
+          len: Int
+      ): Hasher =
         h.update(bytes, offset, len)
       def finishHash(h: Hasher): HashValue[Blake3] =
         HashValue(h.doneHex(64))
@@ -49,7 +54,7 @@ object Algo {
     override def equals(obj: Any): Boolean =
       obj match {
         case e: WithAlgo[_] => (e.algo == algo) && (e.value == value)
-        case _ => false
+        case _              => false
       }
 
     override lazy val hashCode: Int =
@@ -66,7 +71,8 @@ object Algo {
         def value = v
       }
 
-    implicit class WithAlgoHashValue(private val hashValue: WithAlgo[HashValue]) extends AnyVal {
+    implicit class WithAlgoHashValue(private val hashValue: WithAlgo[HashValue])
+        extends AnyVal {
       def toIdent: String = hashValue.value.toIdent(hashValue.algo)
     }
 
@@ -80,12 +86,12 @@ object Algo {
   def hashBytes[A](bytes: Array[Byte])(implicit algo: Algo[A]): HashValue[A] =
     algo.hashBytes(bytes)
 
-
   private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
 
   def parseHashValue[A](algo: Algo[A]): Parser[WithAlgo[HashValue]] =
     Parser.string(algo.name) *> Parser.char(':') *> {
-      hexChar.repExactlyAs[String](algo.hexLen)
+      hexChar
+        .repExactlyAs[String](algo.hexLen)
         .map(hex => WithAlgo(algo, HashValue[A](hex)))
     }
 

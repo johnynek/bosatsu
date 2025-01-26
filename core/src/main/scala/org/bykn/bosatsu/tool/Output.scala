@@ -20,7 +20,8 @@ object Output {
       doc: Eval[Doc]
   ) extends Output[Nothing]
 
-  case class JsonOutput[Path](json: Json, output: Option[Path]) extends Output[Path]
+  case class JsonOutput[Path](json: Json, output: Option[Path])
+      extends Output[Path]
 
   case class CompileOut[Path](
       packList: List[Package.Typed[Any]],
@@ -43,7 +44,8 @@ object Output {
   ) extends Output[Path]
 
   case class Basic[Path](toDoc: Doc, output: Option[Path]) extends Output[Path]
-  case class Library[Path](lib: proto.Library, output: Path) extends Output[Path]
+  case class Library[Path](lib: proto.Library, output: Path)
+      extends Output[Path]
 
   case class Many[Path](outputs: Chain[Output[Path]]) extends Output[Path]
 

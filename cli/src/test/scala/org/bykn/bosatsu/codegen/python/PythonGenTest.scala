@@ -3,11 +3,7 @@ package org.bykn.bosatsu.codegen.python
 import cats.Show
 import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
-import org.bykn.bosatsu.{
-  MatchlessFromTypedExpr,
-  PackageName,
-  TestUtils
-}
+import org.bykn.bosatsu.{MatchlessFromTypedExpr, PackageName, TestUtils}
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   forAll,

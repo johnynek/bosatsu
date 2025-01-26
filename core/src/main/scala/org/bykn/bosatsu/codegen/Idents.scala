@@ -14,7 +14,7 @@ object Idents {
   val allSimpleIdents: LazyList[String] = {
     val front = firstChars.to(LazyList).map(_.toString)
     val inners = base62ItemsArray.to(LazyList).map(_.toString)
-    
+
     lazy val tails: LazyList[String] = inners #::: (for {
       h <- inners
       t <- tails
@@ -30,7 +30,10 @@ object Idents {
   private[this] val offsetA: Int = 'A'.toInt - 10
   private[this] val offseta: Int = 'a'.toInt - 36
 
-  private def toBase62(c: Char, bldr: java.lang.StringBuilder): java.lang.StringBuilder =
+  private def toBase62(
+      c: Char,
+      bldr: java.lang.StringBuilder
+  ): java.lang.StringBuilder =
     if (base62Items(c)) bldr.append(c)
     else if (c == '_') bldr.append("__")
     else {
@@ -39,15 +42,13 @@ object Idents {
           if (i0 < 36) {
             if (i0 < 10) offset0
             else offsetA
-          }
-          else offseta
+          } else offseta
         )).toChar
 
       def toString(i: Int): Unit =
         if (i < 62) {
           val _ = bldr.append(toChar(i))
-        }
-        else {
+        } else {
           val i1 = i / 62
           val i0 = i % 62
           // this isn't tail recursion, but it's okay
@@ -89,8 +90,7 @@ object Idents {
         if (idx == offset + 1) {
           // this is a literal _
           bldr.append('_')
-        }
-        else {
+        } else {
           // done, this is the trailing _
           bldr.append(num.toChar)
         }
@@ -100,8 +100,7 @@ object Idents {
           if (c <= 'Z') {
             if (c <= '9') offset0
             else offsetA
-          }
-          else offseta
+          } else offseta
 
         num = num * 62 + c.toInt - base
       }
