@@ -6,7 +6,6 @@ import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
-import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
 import org.bykn.bosatsu.tool.{CliException, CompilerApi, ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
 import org.typelevel.paiges.Document
@@ -83,20 +82,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 )
             }
         }
-
-      def messageString: String = messages.mkString("\n")
-      def errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
-      def stdOutDoc: Doc = Doc.empty
-      def exitCode: ExitCode = ExitCode.Error
-    }
-    case class PackageErrors(
-        sourceMap: PackageMap.SourceMap,
-        errors: NonEmptyList[PackageError],
-        color: Colorize
-    ) extends MainException {
-      def messages: List[String] =
-        errors.toList.distinct
-          .map(_.message(sourceMap, color))
 
       def messageString: String = messages.mkString("\n")
       def errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
@@ -682,7 +667,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
         for {
           maybeParsed <- inputs.packageResolver.parseHeaders(paths)(platformIO)
-          parsed <- moduleIOMonad.fromTry(toTry(maybeParsed, errColor))
+          parsed <- liftParseErrors(maybeParsed, errColor)
         } yield parsed.map { case (path, (pn, imps, _)) =>
           (path, pn, FileKind.Source, norm(imps.map(_.pack)))
         }
@@ -731,14 +716,14 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       type Result = Out
     }
 
-    private def toTry[A](
+    private def liftParseErrors[A](
         v: ValidatedNel[PathParseError[Path], A],
         color: Colorize
-    ): Try[A] =
+    ): F[A] =
       v match {
-        case Validated.Valid(a) => Success(a)
+        case Validated.Valid(a) => moduleIOMonad.pure(a)
         case Validated.Invalid(errs) =>
-          Failure(MainException.ParseErrors(errs, color))
+          moduleIOMonad.raiseError(MainException.ParseErrors(errs, color))
       }
 
     val opts: Opts[MainCommand] = {
