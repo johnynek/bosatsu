@@ -217,7 +217,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
         def compile(cmd: MainCommand, errColor: Colorize)(implicit
             ec: Par.EC
-        ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+        ): IO[PackageMap.Inferred] =
           for {
             ifpaths <- ifaces.read
             ifs <- readInterfaces(ifpaths)
@@ -229,7 +229,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               errColor,
               packageResolver
             )
-          } yield packPath
+          } yield packPath._1
       }
 
       class Show(
@@ -584,8 +584,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       def run =
         withEC { implicit ec =>
           for {
-            packPath <- inputs.compile(this, errColor)
-            packs = packPath._1
+            packs <- inputs.compile(this, errColor)
             packList =
               packs.toMap.iterator
                 .map { case (_, p) => p }

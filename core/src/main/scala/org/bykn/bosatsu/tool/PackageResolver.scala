@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.tool
 
+import cats.Traverse
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel}
 import cats.syntax.all._
 import com.monovore.decline.Opts
@@ -17,10 +18,10 @@ sealed abstract class PackageResolver[IO[_], Path] {
     * are not already included
     */
   final def parseAllInputs(
-      paths: List[Path],
+      paths: NonEmptyList[Path],
       included: Set[PackageName]
   )(platformIO: PlatformIO[IO, Path]): IO[
-    ValidatedNel[PathParseError[Path], List[((Path, LocationMap), Package.Parsed)]]
+    ValidatedNel[PathParseError[Path], NonEmptyList[((Path, LocationMap), Package.Parsed)]]
   ] = {
     import platformIO.moduleIOMonad
 
@@ -29,9 +30,9 @@ sealed abstract class PackageResolver[IO[_], Path] {
       (Chain[((Path, LocationMap), Package.Parsed)], Set[PackageName])
     ]
 
-    def parseInputs(
-        paths: List[Path],
-    ): IO[ValidatedNel[PathParseError[Path], List[((Path, LocationMap), Package.Parsed)]]] =
+    def parseInputs[F[_]: Traverse](
+        paths: F[Path],
+    ): IO[ValidatedNel[PathParseError[Path], F[((Path, LocationMap), Package.Parsed)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
@@ -122,7 +123,7 @@ sealed abstract class PackageResolver[IO[_], Path] {
           val allImports = parsed.toList.flatMap(_._2.imports.map(_.pack))
           val missing: List[PackageName] = allImports.filterNot(done)
           parseTransitivePacks(missing, done)
-            .map(_.map { case (searched, _) => parsed ::: searched.toList })
+            .map(_.map { case (searched, _) => parsed.concat(searched.toList) })
         }
       }
   }

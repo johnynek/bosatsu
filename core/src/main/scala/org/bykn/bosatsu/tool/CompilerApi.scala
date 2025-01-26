@@ -4,21 +4,22 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import org.bykn.bosatsu.{PlatformIO, Package, PackageError, PackageMap, PackageName, Par}
 import org.bykn.bosatsu.LocationMap.Colorize
 import org.typelevel.paiges.Doc
-import scala.util.{Success, Failure, Try}
 
 import org.bykn.bosatsu.IorMethods.IorExtension
 
 import cats.syntax.all._
 
 object CompilerApi {
-  private def toTry[Path, A](
+  private def fromParse[F[_], Path, A](
+      platformIO: PlatformIO[F, Path],
       v: ValidatedNel[PathParseError[Path], A],
       color: Colorize
-  ): Try[A] =
+  ): F[A] =
     v match {
-      case Validated.Valid(a) => Success(a)
+      case Validated.Valid(a) =>
+        platformIO.moduleIOMonad.pure(a)
       case Validated.Invalid(errs) =>
-        Failure(ParseErrors(errs, color))
+        platformIO.moduleIOMonad.raiseError(ParseErrors(errs, color))
     }
 
   /** like typecheck, but a no-op for empty lists
@@ -31,7 +32,9 @@ object CompilerApi {
       packRes: PackageResolver[IO, Path]
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+  ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+    import platformIO.moduleIOMonad
+
     NonEmptyList.fromList(inputs) match {
       case None =>
         // we should still return the predef
@@ -48,8 +51,11 @@ object CompilerApi {
         } else {
           platformIO.moduleIOMonad.pure((PackageMap.empty, Nil))
         }
-      case Some(nel) => typeCheck(platformIO, nel, ifs, errColor, packRes)
+      case Some(nel) => 
+        typeCheck(platformIO, nel, ifs, errColor, packRes)
+          .map { case (m, ps) => (m, ps.toList) }
     }
+  }
 
   def typeCheck[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
@@ -59,48 +65,33 @@ object CompilerApi {
       packRes: PackageResolver[IO, Path]
   )(implicit
       ec: Par.EC,
-  ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
-    packRes.parseAllInputs(inputs.toList, ifs.map(_.name).toSet)(platformIO)
-      .flatMap { ins =>
-        moduleIOMonad.fromTry {
-          // Now we have completed all IO, here we do all the checks we need for correctness
-          toTry(ins, errColor)
-            .flatMap { packs =>
-              // TODO, we could use applicative, to report both duplicate packages and the other
-              // errors
-              NonEmptyList.fromList(packs) match {
-                case Some(packs) =>
-                  val packsString = packs.map { case ((path, lm), parsed) =>
-                    ((path.toString, lm), parsed)
-                  }
-                  PackageMap
-                    .typeCheckParsed[String](packsString, ifs, "predef")
-                    .strictToValidated match {
-                    case Validated.Valid(p) =>
-                      val pathToName: List[(Path, PackageName)] =
-                        packs.map { case ((path, _), p) =>
-                          (path, p.name)
-                        }.toList
-                      Success((p, pathToName))
-                    case Validated.Invalid(errs) =>
-                      val sourceMap = PackageMap.buildSourceMap(packs)
-                      Failure(
-                        PackageErrors(
-                          sourceMap,
-                          errs,
-                          errColor
-                        )
-                      )
-                  }
-                case None =>
-                  Success((PackageMap.empty, Nil))
+    for {
+      ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)
+      // Now we have completed all IO, here we do all the checks we need for correctness
+      packs <- fromParse(platformIO, ins, errColor)
+      packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
+      checked = PackageMap.typeCheckParsed[String](packsString, ifs, "predef")
+      // TODO, we could use applicative, to report both duplicate packages and the other
+      // errors
+      res <- 
+        checked.strictToValidated match {
+          case Validated.Valid(p) =>
+            val pathToName: NonEmptyList[(Path, PackageName)] =
+              packs.map { case ((path, _), p) =>
+                (path, p.name)
               }
-            }
+            moduleIOMonad.pure((p, pathToName))
+          case Validated.Invalid(errs) =>
+            val sourceMap = PackageMap.buildSourceMap(packs)
+            moduleIOMonad.raiseError(
+              PackageErrors(sourceMap, errs, errColor)
+            )
         }
-      }
-    }
+    } yield res
+  }
 
   def buildPackMap[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
