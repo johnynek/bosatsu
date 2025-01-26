@@ -72,7 +72,7 @@ object CompilerApi {
       ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)
       // Now we have completed all IO, here we do all the checks we need for correctness
       packs <- fromParse(platformIO, ins, errColor)
-      packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
+      packsString = packs.map { case ((path, lm), parsed) => ((platformIO.pathToString(path), lm), parsed) }
       checked = PackageMap.typeCheckParsed[String](packsString, ifs, "predef")
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
