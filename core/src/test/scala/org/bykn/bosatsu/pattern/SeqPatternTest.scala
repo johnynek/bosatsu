@@ -527,7 +527,7 @@ class BoolSeqPatternTest
     }
 
   override def diffUBRegressions: List[(Pattern, Pattern, List[Boolean])] =
-    List({
+    List {
       val p1 = Cat(Wildcard, Empty)
       val p2 = Cat(
         Lit(Set(true)),
@@ -539,7 +539,7 @@ class BoolSeqPatternTest
       val s = List(true, false, false)
 
       (p1, p2, s)
-    })
+    }
 
   test("check an example [*_, True, *_], [], [False, *_]") {
     val missing = setOps.missingBranches(
@@ -638,19 +638,17 @@ class BoolSeqPatternTest
     forAll(genPattern, genPattern, Gen.listOf(genSeq))(law(_, _, _))
 
     val subsets: List[(Pattern, Pattern, Boolean)] =
-      List(
-        {
-          val p0 = Cat(
-            Wildcard,
-            Cat(
-              Lit(Set(false)),
-              Cat(Lit(Set(true, false)), Cat(Lit(Set(true, false)), Empty))
-            )
+      List {
+        val p0 = Cat(
+          Wildcard,
+          Cat(
+            Lit(Set(false)),
+            Cat(Lit(Set(true, false)), Cat(Lit(Set(true, false)), Empty))
           )
-          val p1 = Cat(Wildcard, Cat(Lit(Set(true, false)), Empty))
-          (p0, p1, true)
-        }
-      )
+        )
+        val p1 = Cat(Wildcard, Cat(Lit(Set(true, false)), Empty))
+        (p0, p1, true)
+      }
 
     subsets.foreach { case (p1, p2, res) =>
       assert(setOps.subset(p1, p2) == res)
@@ -778,14 +776,14 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
 
   override def diffUBRegressions
       : List[(SeqPattern[Int], SeqPattern[Int], String)] =
-    List({
+    List {
       val p1 = Cat(AnyElem, Cat(Wildcard, Empty))
       val p2 = Cat(
         Wildcard,
         Cat(AnyElem, Cat(lit('0'), Cat(lit('1'), Cat(Wildcard, Empty))))
       )
       (p1, p2, "11")
-    })
+    }
 
   test("some matching examples") {
     val ms: List[(Pattern, String)] =
@@ -878,7 +876,9 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
   test("Named.matches + render agree") {
     def law(n: Named, str: String) =
       namedMatch(n, str).foreach { m =>
-        n.render(m) { codePoint => StringUtil.fromCodePoints(codePoint :: Nil) } match {
+        n.render(m) { codePoint =>
+          StringUtil.fromCodePoints(codePoint :: Nil)
+        } match {
           case Some(s0) => assert(s0 == str, s"m = $m")
           case None     =>
             // this can only happen if we have unnamed Wild/AnyElem

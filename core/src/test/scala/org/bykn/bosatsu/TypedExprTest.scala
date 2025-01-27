@@ -416,8 +416,12 @@ foo = _ -> 1
       // substitution in let with a masking
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
       assert(
-        TypedExpr.substitute(Identifier.Name("x"), varTE("y", intTpe), let1).map(_.reprString) ==
-          Some("(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))")
+        TypedExpr
+          .substitute(Identifier.Name("x"), varTE("y", intTpe), let1)
+          .map(_.reprString) ==
+          Some(
+            "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
+          )
       )
     }
 
@@ -539,22 +543,24 @@ foo = _ -> 1
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
     assert(
-      TypedExprNormalization.normalize(
-        app(normalLet, varTE("w", intTpe), intTpe)
-      ).map(_.reprString) ==
+      TypedExprNormalization
+        .normalize(
+          app(normalLet, varTE("w", intTpe), intTpe)
+        )
+        .map(_.reprString) ==
         Some(
-            let(
-              "y0",
-              app(varTE("z", intTpe), int(43), intTpe),
+          let(
+            "y0",
+            app(varTE("z", intTpe), int(43), intTpe),
+            app(
               app(
-                app(
-                  app(varTE("y", intTpe), varTE("y0", intTpe), intTpe),
-                  varTE("y0", intTpe),
-                  intTpe
-                ),
-                varTE("w", intTpe),
+                app(varTE("y", intTpe), varTE("y0", intTpe), intTpe),
+                varTE("y0", intTpe),
                 intTpe
-              )
+              ),
+              varTE("w", intTpe),
+              intTpe
+            )
           ).reprString
         )
     )
@@ -879,7 +885,10 @@ x = (
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
-        assert(te1.void == te2.void, s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}")
+        assert(
+          te1.void == te2.void,
+          s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}"
+        )
       }
     }
   }

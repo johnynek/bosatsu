@@ -107,8 +107,7 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Int]] {
   }
 
   test("(a - b) n c = (a n c) - (b n c) regressions") {
-    val regressions
-        : List[(SeqPattern[Int], SeqPattern[Int], SeqPattern[Int])] =
+    val regressions: List[(SeqPattern[Int], SeqPattern[Int], SeqPattern[Int])] =
       (
         Cat(Wildcard, Empty),
         Cat(AnyElem, Cat(lit('1'), Cat(AnyElem, Empty))),

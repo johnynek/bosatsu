@@ -13,11 +13,11 @@ import org.bykn.bosatsu.Json
 import org.bykn.bosatsu.Json.JString
 
 case class Version(
-  major: Long,
-  minor: Long,
-  patch: Long,
-  preRelease: Option[Version.PreRelease],
-  build: Option[Version.Build]
+    major: Long,
+    minor: Long,
+    patch: Long,
+    preRelease: Option[Version.PreRelease],
+    build: Option[Version.Build]
 ) {
 
   // This expresses the valid next versions from a given version
@@ -30,39 +30,37 @@ case class Version(
             // the next has to be <= to we have
             Ordering[Version].lteq(v1, next)
           }
-        }
-        else {
+        } else {
           (patch + 1L) == next.patch
         }
-      }
-      else {
+      } else {
         ((minor + 1L) == next.minor) &&
         (next.patch == 0L)
       }
-    }
-    else {
+    } else {
       ((major + 1L) == next.major) &&
-        (next.minor == 0L) &&
-        (next.patch == 0L)
+      (next.minor == 0L) &&
+      (next.patch == 0L)
     }
 
-  def toProto: proto.Version = 
+  def toProto: proto.Version =
     proto.Version(
       major = major,
       minor = minor,
       patch = patch,
       preRelease = preRelease.fold("")(_.asString),
-      build = build.fold("")(_.asString))
+      build = build.fold("")(_.asString)
+    )
 
   override def toString(): String = render
 
   lazy val render: String = {
     val pre = preRelease match {
-      case None => ""
+      case None    => ""
       case Some(p) => "-" + p.asString
     }
     val bld = build match {
-      case None => ""
+      case None    => ""
       case Some(b) => "+" + b.asString
     }
 
@@ -84,7 +82,13 @@ case class Version(
     copy(minor = minor + 1, patch = 0, preRelease = None, build = None)
 
   def nextMajor: Version =
-    copy(major = major + 1, minor = 0, patch = 0, preRelease = None, build = None)
+    copy(
+      major = major + 1,
+      minor = 0,
+      patch = 0,
+      preRelease = None,
+      build = None
+    )
 
   def next(dk: Version.DiffKind): Version =
     dk match {
@@ -93,10 +97,9 @@ case class Version(
       case Version.DiffKind.Patch => nextPatch
     }
 
-  /**
-    * If the pre-release is set, increment so we have the next valid pre-release
-    * if it is not set, you should set with something like: copy(preRelease = Some(PreRelease("pre")))
-    * or "rc", or "alpha", etc..
+  /** If the pre-release is set, increment so we have the next valid pre-release
+    * if it is not set, you should set with something like: copy(preRelease =
+    * Some(PreRelease("pre"))) or "rc", or "alpha", etc..
     */
   def nextPreRelease: Option[Version] =
     preRelease.map { pr =>
@@ -107,8 +110,7 @@ case class Version(
     if (major == that.major) {
       if (minor == that.minor) Version.DiffKind.Patch
       else Version.DiffKind.Minor
-    }
-    else {
+    } else {
       Version.DiffKind.Major
     }
 }
@@ -132,17 +134,17 @@ object Version {
   val zero: Version = Version(0L, 0L, 0L)
 
   // Actually the spec doesn't limit the version numbers, but it says you shouldn't use
-  // really long version strings (e.g. < 255 almost certainly). Since Long can hold all 
+  // really long version strings (e.g. < 255 almost certainly). Since Long can hold all
   // decimals of 18 characters (and some 19), this seems like a good trade-off for
   // ergonomics of the common case, and spec conforming.
   // Since using 32 bit timestamps as patch numbers is plausible, I wanted to support
   // more than just Int, which will soon overflow.
   private val numericIdentifier: Parser[Long] =
-      nonNegativeIntString.flatMap { str =>
-        val bi = BigInt(str)
-        if (bi.isValidLong) Parser.pure(bi.toLong)
-        else Parser.failWith(s"$str would overflow Long")
-      }
+    nonNegativeIntString.flatMap { str =>
+      val bi = BigInt(str)
+      if (bi.isValidLong) Parser.pure(bi.toLong)
+      else Parser.failWith(s"$str would overflow Long")
+    }
 
   private val dot: Parser[Unit] = Parser.char('.')
   private val nonDigit = alpha | Parser.char('-').as('-')
@@ -150,27 +152,29 @@ object Version {
   private val identChars = identChar.rep.string
 
   object PreRelease {
-      /**
-      * Splits the pre-release string into identifiers.
-      * Example: "alpha.1" -> List("alpha", "1")
-      */
-    private def splitPreRelease(pre: PreRelease): Array[String] = pre.asString.split('.')
 
-    /**
-      * Attempts to parse a string as an integer.
-      * Returns Some(Int) if successful, None otherwise.
+    /** Splits the pre-release string into identifiers. Example: "alpha.1" ->
+      * List("alpha", "1")
+      */
+    private def splitPreRelease(pre: PreRelease): Array[String] =
+      pre.asString.split('.')
+
+    /** Attempts to parse a string as an integer. Returns Some(Int) if
+      * successful, None otherwise.
       */
     private def parseNumeric(id: String): Option[BigInt] =
       bigInt.parseAll(id).toOption
 
-    /**
-      * Compares two pre-release identifiers according to SemVer rules.
+    /** Compares two pre-release identifiers according to SemVer rules.
       *
-      * @param a First identifier
-      * @param b Second identifier
-      * @return Ordering result: -1 if a < b, 0 if a == b, 1 if a > b
+      * @param a
+      *   First identifier
+      * @param b
+      *   Second identifier
+      * @return
+      *   Ordering result: -1 if a < b, 0 if a == b, 1 if a > b
       */
-    private def compareIdentifiers(a: String, b: String): Int = {
+    private def compareIdentifiers(a: String, b: String): Int =
       (parseNumeric(a), parseNumeric(b)) match {
         case (Some(numA), Some(numB)) =>
           numA.compareTo(numB)
@@ -182,14 +186,15 @@ object Version {
         case (None, None) =>
           a.compareTo(b)
       }
-    }
 
-    /**
-      * Compares two lists of pre-release identifiers.
+    /** Compares two lists of pre-release identifiers.
       *
-      * @param a List of identifiers from first version
-      * @param b List of identifiers from second version
-      * @return Ordering result
+      * @param a
+      *   List of identifiers from first version
+      * @param b
+      *   List of identifiers from second version
+      * @return
+      *   Ordering result
       */
     private def comparePreRelease(a: Array[String], b: Array[String]): Int = {
       var idx = 0
@@ -218,13 +223,13 @@ object Version {
     private val alphaNumIdent: Parser[String] =
       // non-digit is first
       ((nonDigit *> identChars.?) |
-      // digits first then non-digit, then maybe more idents
-      // this needs soft because we need to backtrack if we don't find
-      // any nonDigit, because some sequences of digits only are invalid
-      // we need prerelease numbers to not have leading 0
-      (digits.soft *> nonDigit *> identChars.?)).string
+        // digits first then non-digit, then maybe more idents
+        // this needs soft because we need to backtrack if we don't find
+        // any nonDigit, because some sequences of digits only are invalid
+        // we need prerelease numbers to not have leading 0
+        (digits.soft *> nonDigit *> identChars.?)).string
 
-    // this looks like maybe identChars, but note that 00 wouldn't be a valid 
+    // this looks like maybe identChars, but note that 00 wouldn't be a valid
     // prerelease identifier, but would be a valid build identifier
     private val preReleaseIdentifier = alphaNumIdent | nonNegativeIntString
 
@@ -245,15 +250,17 @@ object Version {
     val build = Parser.char('+') *> Build.parser
     val prerelease = Parser.char('-') *> PreRelease.parser
     (
-      (numDot, numDot, numericIdentifier).tupled ~ (prerelease.?, build.?).tupled
+      (numDot, numDot, numericIdentifier).tupled ~ (
+        prerelease.?,
+        build.?
+      ).tupled
     ).map { case ((maj, min, patch), (p, b)) => Version(maj, min, patch, p, b) }
   }
-
 
   def unsafe(str: String): Version =
     parser.parseAll(str) match {
       case Right(value) => value
-      case Left(value) => sys.error(show"failed to parse: $str: $value")
+      case Left(value)  => sys.error(show"failed to parse: $str: $value")
     }
 
   def apply(major: Long, minor: Long, patch: Long): Version =
@@ -262,22 +269,37 @@ object Version {
   def apply(major: Int, minor: Int, patch: Int): Version =
     apply(major, minor, patch, None, None)
 
-  def apply(major: Int, minor: Int, patch: Int, preRelease: Option[PreRelease], build: Option[Build]): Version =
+  def apply(
+      major: Int,
+      minor: Int,
+      patch: Int,
+      preRelease: Option[PreRelease],
+      build: Option[Build]
+  ): Version =
     Version(major.toLong, minor.toLong, patch.toLong, preRelease, build)
 
   def fromProto(pv: proto.Version): Version =
-    Version(major = pv.major, minor = pv.minor, patch = pv.patch,
+    Version(
+      major = pv.major,
+      minor = pv.minor,
+      patch = pv.patch,
       preRelease = Option(pv.preRelease).flatMap {
         case "" => None
         case pr => Some(PreRelease(pr))
       },
       build = Option(pv.build).flatMap {
         case "" => None
-        case b => Some(Build(b))
+        case b  => Some(Build(b))
       }
     )
 
-  def ifValid(major: Long, minor: Long, patch: Long, preRelease: Option[PreRelease], build: Option[Build]): Option[Version] =
+  def ifValid(
+      major: Long,
+      minor: Long,
+      patch: Long,
+      preRelease: Option[PreRelease],
+      build: Option[Build]
+  ): Option[Version] =
     if ((major >= 0) && (minor >= 0) && (patch >= 0)) {
       (preRelease, build) match {
         case (None, None) =>
@@ -291,14 +313,14 @@ object Version {
             Version(major, minor, patch, Some(p), None)
           }
         case (Some(p), Some(b)) =>
-          (PreRelease.parser.parseAll(p.asString).toOption,
-           Build.parser.parseAll(b.asString).toOption
-           ).mapN { (p, b) =>
+          (
+            PreRelease.parser.parseAll(p.asString).toOption,
+            Build.parser.parseAll(b.asString).toOption
+          ).mapN { (p, b) =>
             Version(major, minor, patch, Some(p), Some(b))
           }
       }
-    }
-    else None
+    } else None
 
   implicit val versionOrder: Order[Version] = new Order[Version] {
     def noneLast[A](ord: Ordering[A]): Order[Option[A]] =
@@ -307,7 +329,7 @@ object Version {
           x match {
             case None =>
               y match {
-                case None => 0
+                case None    => 0
                 case Some(_) => 1
               }
             case Some(xvalue) =>
@@ -320,7 +342,8 @@ object Version {
       }
 
     val preOrd = noneLast(PreRelease.preReleaseOrdering)
-    val buildOrd = preOrd.contramap[Option[Build]](_.map(b => PreRelease(b.asString)))
+    val buildOrd =
+      preOrd.contramap[Option[Build]](_.map(b => PreRelease(b.asString)))
 
     override def compare(v1: Version, v2: Version): Int = {
       // 1. Compare major versions
@@ -343,26 +366,25 @@ object Version {
     }
   }
 
-  /**
-    * Defines the Ordering for Version according to SemVer 2.0.0
+  /** Defines the Ordering for Version according to SemVer 2.0.0
     */
   implicit val versionOrdering: Ordering[Version] = versionOrder.toOrdering
 
-  /**
-    * if one version can replace another, it is gteq. If the major
-    * versions disagree, we can't compare 
+  /** if one version can replace another, it is gteq. If the major versions
+    * disagree, we can't compare
     */
   val versionCompatiblePartialOrder: PartialOrder[Version] =
     new PartialOrder[Version] {
       def partialCompare(x: Version, y: Version): Double =
         if (x.major == y.major) {
           versionOrder.compare(x, y).toDouble
-        }
-        else java.lang.Double.NaN
+        } else java.lang.Double.NaN
     }
 
   val versionCompatiblePartialOrdering: PartialOrdering[Version] =
-    PartialOrder.catsKernelPartialOrderingForPartialOrder(versionCompatiblePartialOrder)
+    PartialOrder.catsKernelPartialOrderingForPartialOrder(
+      versionCompatiblePartialOrder
+    )
 
   implicit val versionShow: Show[Version] =
     new Show[Version] {
@@ -370,12 +392,15 @@ object Version {
     }
 
   implicit val versionWriter: Json.Writer[Version] =
-    Json.Writer[Version] { v => Json.JString(v.render) }
+    Json.Writer[Version](v => Json.JString(v.render))
 
   implicit val versionReader: Json.Reader[Version] =
     new Json.Reader[Version] {
       def describe: String = "Version"
-      def read(path: Json.Path, j: Json): Either[(String, Json, Json.Path),Version] =
+      def read(
+          path: Json.Path,
+          j: Json
+      ): Either[(String, Json, Json.Path), Version] =
         j match {
           case JString(str) =>
             parser.parseAll(str) match {
@@ -389,7 +414,12 @@ object Version {
     }
 
   implicit val versionArg: Argument[Version] =
-    org.bykn.bosatsu.Parser.argFromParser(Version.parser, "semver", "Version", "Expects a val semver string.")
+    org.bykn.bosatsu.Parser.argFromParser(
+      Version.parser,
+      "semver",
+      "Version",
+      "Expects a val semver string."
+    )
 
   sealed abstract class DiffKind(val name: String) {
     def isMajor: Boolean = this == DiffKind.Major

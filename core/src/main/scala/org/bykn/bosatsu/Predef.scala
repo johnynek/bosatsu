@@ -232,7 +232,7 @@ object PredefImpl {
     Value.Str(i(intValue).toString)
 
   final def string_to_Int(strValue: Value): Value = {
-    val Value.Str(str) = strValue 
+    val Value.Str(str) = strValue
     try Value.VOption.some(VInt(new BigInteger(str)))
     catch {
       case _: NumberFormatException => Value.VOption.none

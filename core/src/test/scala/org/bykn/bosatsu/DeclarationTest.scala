@@ -124,70 +124,68 @@ class DeclarationTest extends AnyFunSuite {
     }
 
     val regressions: List[(Bindable, Declaration.NonBinding, Declaration)] =
-      List(
-        {
-          import Declaration._
-          import Identifier.{Name, Constructor, Backticked}
-          import OptIndent._
+      List {
+        import Declaration._
+        import Identifier.{Name, Constructor, Backticked}
+        import OptIndent._
 
-          val b = Identifier.Backticked("")
-          val d1 = Literal(Lit.fromInt(0))
-          val d0 = DefFn(
-            DefStatement(
-              Name("mfLjwok"),
-              None,
-              NonEmptyList.one(NonEmptyList.one(Pattern.Var(Name("foo")))),
-              None,
-              (
-                NotSameLine(Padding(10, Indented(10, Var(Backticked(""))))),
-                Padding(
-                  10,
-                  Binding(
-                    BindingStatement(
-                      Pattern.Var(Backticked("")),
-                      Var(Constructor("Rgt")),
-                      Padding(
-                        1,
-                        DefFn(
-                          DefStatement(
-                            Backticked(""),
-                            None,
-                            NonEmptyList.one(
-                              NonEmptyList.one(Pattern.Var(Name("bar")))
-                            ),
-                            None,
-                            (
-                              NotSameLine(
-                                Padding(
-                                  2,
-                                  Indented(4, Literal(Lit.fromInt(42)))
-                                )
-                              ),
+        val b = Identifier.Backticked("")
+        val d1 = Literal(Lit.fromInt(0))
+        val d0 = DefFn(
+          DefStatement(
+            Name("mfLjwok"),
+            None,
+            NonEmptyList.one(NonEmptyList.one(Pattern.Var(Name("foo")))),
+            None,
+            (
+              NotSameLine(Padding(10, Indented(10, Var(Backticked(""))))),
+              Padding(
+                10,
+                Binding(
+                  BindingStatement(
+                    Pattern.Var(Backticked("")),
+                    Var(Constructor("Rgt")),
+                    Padding(
+                      1,
+                      DefFn(
+                        DefStatement(
+                          Backticked(""),
+                          None,
+                          NonEmptyList.one(
+                            NonEmptyList.one(Pattern.Var(Name("bar")))
+                          ),
+                          None,
+                          (
+                            NotSameLine(
                               Padding(
                                 2,
-                                DefFn(
-                                  DefStatement(
-                                    Name("gkxAckqpatu"),
-                                    None,
+                                Indented(4, Literal(Lit.fromInt(42)))
+                              )
+                            ),
+                            Padding(
+                              2,
+                              DefFn(
+                                DefStatement(
+                                  Name("gkxAckqpatu"),
+                                  None,
+                                  NonEmptyList.one(
                                     NonEmptyList.one(
-                                      NonEmptyList.one(
-                                        Pattern.Var(Name("quux"))
-                                      )
-                                    ),
-                                    Some(
-                                      TypeRef.TypeName(
-                                        TypeName(Constructor("Y"))
-                                      )
-                                    ),
-                                    (
-                                      NotSameLine(
-                                        Padding(
-                                          6,
-                                          Indented(8, Literal(Lit("oimsu")))
-                                        )
-                                      ),
-                                      Padding(2, Var(Name("j")))
+                                      Pattern.Var(Name("quux"))
                                     )
+                                  ),
+                                  Some(
+                                    TypeRef.TypeName(
+                                      TypeName(Constructor("Y"))
+                                    )
+                                  ),
+                                  (
+                                    NotSameLine(
+                                      Padding(
+                                        6,
+                                        Indented(8, Literal(Lit("oimsu")))
+                                      )
+                                    ),
+                                    Padding(2, Var(Name("j")))
                                   )
                                 )
                               )
@@ -201,10 +199,10 @@ class DeclarationTest extends AnyFunSuite {
               )
             )
           )
+        )
 
-          (b, d1, d0)
-        }
-      )
+        (b, d1, d0)
+      }
 
     regressions.foreach { case (b, d1, d0) => law(b, d1, d0) }
 

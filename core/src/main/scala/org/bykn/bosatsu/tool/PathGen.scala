@@ -66,28 +66,44 @@ object PathGen {
   def path[IO[_], P](path: P): PathGen[IO, P] =
     Direct(path)
 
-  def directChildren[IO[_], P](dir: P, extension: String)(platformIO: PlatformIO[IO, P]): PathGen[IO, P] =
-    ChildrenOfDir[IO, P](dir, platformIO.hasExtension(extension), false, platformIO.unfoldDir(_))
-    
-  def recursiveChildren[IO[_], P](dir: P, extension: String)(platformIO: PlatformIO[IO, P]): PathGen[IO, P] =
-    ChildrenOfDir[IO, P](dir, platformIO.hasExtension(extension), true, platformIO.unfoldDir(_))
+  def directChildren[IO[_], P](dir: P, extension: String)(
+      platformIO: PlatformIO[IO, P]
+  ): PathGen[IO, P] =
+    ChildrenOfDir[IO, P](
+      dir,
+      platformIO.hasExtension(extension),
+      false,
+      platformIO.unfoldDir(_)
+    )
+
+  def recursiveChildren[IO[_], P](dir: P, extension: String)(
+      platformIO: PlatformIO[IO, P]
+  ): PathGen[IO, P] =
+    ChildrenOfDir[IO, P](
+      dir,
+      platformIO.hasExtension(extension),
+      true,
+      platformIO.unfoldDir(_)
+    )
 
   def opts[IO[_], Path](
-    arg: String,
-    help: String,
-    ext: String
+      arg: String,
+      help: String,
+      ext: String
   )(platformIO: PlatformIO[IO, Path]): Opts[PathGen[IO, Path]] = {
     import platformIO.pathArg
 
     val direct = Opts
       .options[Path](arg, help = help)
       .orEmpty
-      .map(paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen[IO, Path]))
+      .map(paths =>
+        paths.foldMap(PathGen.Direct[IO, Path](_): PathGen[IO, Path])
+      )
 
     val child1 = Opts
       .options[Path](arg + "_dir", help = s"all $help in directory")
       .orEmpty
-      .map { paths => paths.foldMap(directChildren(_, ext)(platformIO)) }
+      .map(paths => paths.foldMap(directChildren(_, ext)(platformIO)))
 
     val childMany = Opts
       .options[Path](
@@ -95,7 +111,7 @@ object PathGen {
         help = s"all $help recursively in all directories"
       )
       .orEmpty
-      .map { paths => paths.foldMap(recursiveChildren(_, ext)(platformIO)) }
+      .map(paths => paths.foldMap(recursiveChildren(_, ext)(platformIO)))
 
     (direct, child1, childMany).mapN { (a, b, c) =>
       (a :: b :: c :: Nil).combineAll
