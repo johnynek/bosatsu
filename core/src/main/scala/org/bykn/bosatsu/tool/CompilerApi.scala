@@ -1,7 +1,14 @@
 package org.bykn.bosatsu.tool
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
-import org.bykn.bosatsu.{PlatformIO, Package, PackageError, PackageMap, PackageName, Par}
+import org.bykn.bosatsu.{
+  PlatformIO,
+  Package,
+  PackageError,
+  PackageMap,
+  PackageName,
+  Par
+}
 import org.bykn.bosatsu.LocationMap.Colorize
 import org.typelevel.paiges.Doc
 
@@ -51,7 +58,7 @@ object CompilerApi {
         } else {
           platformIO.moduleIOMonad.pure((PackageMap.empty, Nil))
         }
-      case Some(nel) => 
+      case Some(nel) =>
         typeCheck(platformIO, nel, ifs, errColor, packRes)
           .map { case (m, ps) => (m, ps.toList) }
     }
@@ -64,7 +71,7 @@ object CompilerApi {
       errColor: Colorize,
       packRes: PackageResolver[IO, Path]
   )(implicit
-      ec: Par.EC,
+      ec: Par.EC
   ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
@@ -72,11 +79,13 @@ object CompilerApi {
       ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)
       // Now we have completed all IO, here we do all the checks we need for correctness
       packs <- fromParse(platformIO, ins, errColor)
-      packsString = packs.map { case ((path, lm), parsed) => ((platformIO.pathToString(path), lm), parsed) }
+      packsString = packs.map { case ((path, lm), parsed) =>
+        ((platformIO.pathToString(path), lm), parsed)
+      }
       checked = PackageMap.typeCheckParsed[String](packsString, ifs, "predef")
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
-      res <- 
+      res <-
         checked.strictToValidated match {
           case Validated.Valid(p) =>
             val pathToName: NonEmptyList[(Path, PackageName)] =
@@ -114,23 +123,23 @@ object CompilerApi {
   }
 
   private def PackageErrors(
-    sourceMap: PackageMap.SourceMap,
-    errors: NonEmptyList[PackageError],
-    color: Colorize
+      sourceMap: PackageMap.SourceMap,
+      errors: NonEmptyList[PackageError],
+      color: Colorize
   ): CliException with Exception = {
-      val messages: List[String] =
-        errors.toList.distinct
-          .map(_.message(sourceMap, color))
+    val messages: List[String] =
+      errors.toList.distinct
+        .map(_.message(sourceMap, color))
 
-      val messageString: String = messages.mkString("\n")
-      val errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+    val messageString: String = messages.mkString("\n")
+    val errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
 
     CliException(messageString, errDoc)
   }
 
   private def ParseErrors[Path](
-    errors: NonEmptyList[PathParseError[Path]],
-    color: Colorize
+      errors: NonEmptyList[PathParseError[Path]],
+      color: Colorize
   ): CliException with Exception = {
 
     val messages: List[String] =

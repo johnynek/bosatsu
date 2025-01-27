@@ -1,6 +1,13 @@
 package org.bykn.bosatsu
 
-import Parser.{Combinators, Indy, maybeSpace, maybeSpacesAndLines, keySpace, toEOL}
+import Parser.{
+  Combinators,
+  Indy,
+  maybeSpace,
+  maybeSpacesAndLines,
+  keySpace,
+  toEOL
+}
 import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -232,15 +239,21 @@ object Statement {
       val externalDef = {
 
         val kindAnnot: P[Kind] =
-          (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
+          (maybeSpace.soft.with1 *> (P.char(
+            ':'
+          ) *> maybeSpacesAndLines *> Kind.parser))
         val typeParams = TypeRef.typeParams(kindAnnot.?).?
 
         val args =
-          P.char('(') *> maybeSpacesAndLines *> argParser.nonEmptyListOfWs(maybeSpacesAndLines) <* maybeSpacesAndLines <* P
+          P.char('(') *> maybeSpacesAndLines *> argParser.nonEmptyListOfWs(
+            maybeSpacesAndLines
+          ) <* maybeSpacesAndLines <* P
             .char(')')
 
         val result =
-          maybeSpace.with1 *> P.string("->") *> maybeSpacesAndLines *> TypeRef.parser
+          maybeSpace.with1 *> P.string(
+            "->"
+          ) *> maybeSpacesAndLines *> TypeRef.parser
 
         (((keySpace(
           "def"

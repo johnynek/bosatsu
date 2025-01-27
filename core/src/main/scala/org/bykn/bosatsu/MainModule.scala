@@ -7,7 +7,16 @@ import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.tool.{CliException, CompilerApi, ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
+import org.bykn.bosatsu.tool.{
+  CliException,
+  CompilerApi,
+  ExitCode,
+  FileKind,
+  GraphOutput,
+  Output,
+  PackageResolver,
+  PathParseError
+}
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
@@ -93,7 +102,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   def mainExceptionToString(ex: Throwable): Option[String] =
     ex match {
       case me: MainException => Some(me.messageString)
-      case _ => None
+      case _                 => None
     }
 
   sealed abstract class MainCommand(val name: String) {
@@ -169,10 +178,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     }
 
     val transOpt: Opts[Transpiler.Optioned[F, Path]] =
-      cats.Alternative[Opts].combineAllK(
-        codegen.python.PythonTranspiler.opts(platformIO) ::
-        codegen.clang.ClangTranspiler.opts(platformIO) ::
-        Nil)
+      cats
+        .Alternative[Opts]
+        .combineAllK(
+          codegen.python.PythonTranspiler.opts(platformIO) ::
+            codegen.clang.ClangTranspiler.opts(platformIO) ::
+            Nil
+        )
 
     sealed abstract class JsonInput {
       def read: IO[String]
@@ -320,9 +332,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
 
       private val srcs =
-        PathGen.opts("input", help = "input source files", ".bosatsu")(platformIO)
+        PathGen.opts("input", help = "input source files", ".bosatsu")(
+          platformIO
+        )
       private val ifaces =
-        PathGen.opts("interface", help = "interface files", ".bosatsig")(platformIO)
+        PathGen.opts("interface", help = "interface files", ".bosatsig")(
+          platformIO
+        )
       private val includes = PathGen.opts(
         "include",
         help = "compiled packages to include files",
@@ -360,7 +376,11 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            data <- generator.transpiler.renderAll(outDir, packs, generator.args)
+            data <- generator.transpiler.renderAll(
+              outDir,
+              packs,
+              generator.args
+            )
           } yield Output.TranspileOut(data)
         }
     }
@@ -711,7 +731,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
-    case class FromOutput[Out <: Output[Path]](commandName: String, run: IO[Out]) extends MainCommand(commandName) {
+    case class FromOutput[Out <: Output[Path]](
+        commandName: String,
+        run: IO[Out]
+    ) extends MainCommand(commandName) {
       type Result = Out
     }
 
@@ -837,7 +860,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           help = "directory to write all output into"
         )
       )
-      .mapN(TranspileCommand(_, _, _, _))
+        .mapN(TranspileCommand(_, _, _, _))
 
       val evalOpt = (Inputs.runtimeOpts, mainP, colorOpt)
         .mapN(Evaluate(_, _, _))
@@ -895,7 +918,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               case Some(gitVer) =>
                 // We can see at build time if the git version is set, if it isn't set
                 // don't create the option (in practice this will almost never happen)
-                Opts.flag("git", help = s"use the git-sha ($gitVer) the compiler was built at.", "g")
+                Opts
+                  .flag(
+                    "git",
+                    help =
+                      s"use the git-sha ($gitVer) the compiler was built at.",
+                    "g"
+                  )
                   .orFalse
                   .map(if (_) Some(gitVer) else None)
               case None =>
@@ -903,20 +932,32 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             }
 
           Opts.subcommand("version", "print to stdout the version of the tool")(
-            (gitOpt, Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o").orNone)
-            .mapN { (useGit, outPath) =>
-              val vStr = useGit match {
-                case Some(v) => v
-                case None => BuildInfo.version
-              }
+            (
+              gitOpt,
+              Opts
+                .option[Path](
+                  "output",
+                  "file to write to, if not set, use stdout.",
+                  "o"
+                )
+                .orNone
+            )
+              .mapN { (useGit, outPath) =>
+                val vStr = useGit match {
+                  case Some(v) => v
+                  case None    => BuildInfo.version
+                }
 
-            val out = moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
-            FromOutput("version", out)
-          })
+                val out =
+                  moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
+                FromOutput("version", out)
+              }
+          )
         }
         .orElse {
           Opts.subcommand("lib", "tools for working with bosatsu libraries")(
-            library.Command.opts(platformIO)
+            library.Command
+              .opts(platformIO)
               .map(FromOutput("lib", _))
           )
         }
@@ -1131,7 +1172,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case Output.Many(items) =>
         items.foldM[IO, ExitCode](ExitCode.Success) {
           case (ExitCode.Success, item) => reportOutput(item)
-          case (err, _) => moduleIOMonad.pure(err)
+          case (err, _)                 => moduleIOMonad.pure(err)
         }
     }
 
@@ -1147,7 +1188,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case ce: CliException => ce.report(platformIO)
       case _ =>
         platformIO.errorln("unknown error:\n") *>
-          platformIO.errorln(stackTraceToString(ex))
+          platformIO
+            .errorln(stackTraceToString(ex))
             .as(ExitCode.Error)
     }
 

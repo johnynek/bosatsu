@@ -1520,7 +1520,8 @@ object ProtoConverter {
       ps: F[Package.Typed[A]]
   ): Try[proto.Packages] =
     // sort so we are deterministic
-    ps.toList.sortBy(_.name)
+    ps.toList
+      .sortBy(_.name)
       .traverse(packageToProto(_))
       .map { packs =>
         proto.Packages(packs)

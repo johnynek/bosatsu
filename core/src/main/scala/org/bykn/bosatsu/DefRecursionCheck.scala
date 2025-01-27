@@ -31,13 +31,15 @@ object DefRecursionCheck {
   case class InvalidRecursion(name: Bindable, illegalPosition: Region)
       extends RecursionError {
     def region = illegalPosition
-    def message = s"invalid recursion on ${name.sourceCodeRepr}. Consider replacing `match` with `recur`."
+    def message =
+      s"invalid recursion on ${name.sourceCodeRepr}. Consider replacing `match` with `recur`."
   }
 
   case class NotEnoughRecurArgs(name: Bindable, illegalPosition: Region)
       extends RecursionError {
     def region = illegalPosition
-    def message = s"not enough args to ${name.sourceCodeRepr} to check recursion safety."
+    def message =
+      s"not enough args to ${name.sourceCodeRepr} to check recursion safety."
   }
   case class IllegalShadow(fnname: Bindable, decl: Declaration)
       extends RecursionError {

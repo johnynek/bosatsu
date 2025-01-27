@@ -579,7 +579,9 @@ object PackageError {
               lm.showRegion(reg, 2, errColor).getOrElse(Doc.str(reg))
 
             (
-              Doc.text(s"Use of unimported type. Add `from ${const.packageName.asString} import ${const.name.asString}`") + Doc.hardLine + context,
+              Doc.text(
+                s"Use of unimported type. Add `from ${const.packageName.asString} import ${const.name.asString}`"
+              ) + Doc.hardLine + context,
               Some(reg)
             )
           case ie: Infer.Error.InternalError =>

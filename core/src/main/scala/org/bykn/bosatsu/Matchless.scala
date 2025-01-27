@@ -18,7 +18,8 @@ object Matchless {
     def captures: List[Expr]
     // this is set if the function is recursive
     def recursiveName: Option[Bindable]
-    def recursionKind: RecursionKind = RecursionKind.recursive(recursiveName.isDefined)
+    def recursionKind: RecursionKind =
+      RecursionKind.recursive(recursiveName.isDefined)
 
     def args: NonEmptyList[Bindable]
     def arity: Int = args.length
@@ -35,7 +36,8 @@ object Matchless {
 
   // This is a while loop, the result of which is result and the body is evaluated
   // while cond is true
-  case class WhileExpr(cond: BoolExpr, effectExpr: Expr, result: LocalAnonMut) extends Expr
+  case class WhileExpr(cond: BoolExpr, effectExpr: Expr, result: LocalAnonMut)
+      extends Expr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -70,7 +72,7 @@ object Matchless {
 
   case class LetMut(name: LocalAnonMut, span: Expr) extends Expr {
     // often we have several LetMut at once, return all them
-    def flatten: (NonEmptyList[LocalAnonMut], Expr) = {
+    def flatten: (NonEmptyList[LocalAnonMut], Expr) =
       span match {
         case next @ LetMut(_, _) =>
           val (anons, expr) = next.flatten
@@ -78,7 +80,6 @@ object Matchless {
         case notLetMut =>
           (NonEmptyList.one(name), notLetMut)
       }
-    }
   }
   case class Literal(lit: Lit) extends CheapExpr
 
@@ -118,7 +119,7 @@ object Matchless {
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
   case class LetBool(
-    arg: Either[LocalAnon, Bindable],
+      arg: Either[LocalAnon, Bindable],
       expr: Expr,
       in: BoolExpr
   ) extends BoolExpr
@@ -136,7 +137,7 @@ object Matchless {
           EqualsNat(_, _) =>
         false
       case MatchString(_, _, b, _) => b.nonEmpty
-      case And(b1, b2)          => hasSideEffect(b1) || hasSideEffect(b2)
+      case And(b1, b2)             => hasSideEffect(b1) || hasSideEffect(b2)
       case LetBool(_, x, b) =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMutBool(_, b) => hasSideEffect(b)
@@ -153,8 +154,9 @@ object Matchless {
       case Let(_, x, b) =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMut(_, in) => hasSideEffect(in)
-      case PrevNat(n) => hasSideEffect(n)
-      case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat | Lambda(_, _, _, _) =>
+      case PrevNat(n)    => hasSideEffect(n)
+      case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat |
+          Lambda(_, _, _, _) =>
         // making a lambda or const is a pure function
         false
       case WhileExpr(_, _, _) =>
@@ -182,12 +184,14 @@ object Matchless {
   object Always {
     object SetChain {
       // a common pattern is Always(SetMut(m, e), r)
-      def unapply(expr: Expr): Option[(NonEmptyList[(LocalAnonMut, Expr)], Expr)] =
+      def unapply(
+          expr: Expr
+      ): Option[(NonEmptyList[(LocalAnonMut, Expr)], Expr)] =
         expr match {
           case Always(SetMut(mut, v), res) =>
             val pair = (mut, v)
             unapply(res) match {
-              case None => Some((NonEmptyList.one(pair), res))
+              case None              => Some((NonEmptyList.one(pair), res))
               case Some((muts, res)) => Some((pair :: muts, res))
             }
           case _ => None
@@ -351,7 +355,10 @@ object Matchless {
       def inLet(b: Bindable): LambdaState = copy(name = Some(b))
     }
 
-    def substituteLocalsBool(m: Map[Bindable, CheapExpr], e: BoolExpr): BoolExpr =
+    def substituteLocalsBool(
+        m: Map[Bindable, CheapExpr],
+        e: BoolExpr
+    ): BoolExpr =
       e match {
         case SetMut(mut, e) => SetMut(mut, substituteLocals(m, e))
         case And(b1, b2) =>
@@ -368,7 +375,7 @@ object Matchless {
         case LetBool(b, a, in) =>
           val m1 = b match {
             case Right(b) => m - b
-            case _ => m
+            case _        => m
           }
           LetBool(b, substituteLocals(m, a), substituteLocalsBool(m1, in))
         case LetMutBool(b, in) =>
@@ -380,7 +387,11 @@ object Matchless {
         case App(fn, appArgs) =>
           App(substituteLocals(m, fn), appArgs.map(substituteLocals(m, _)))
         case If(c, tcase, fcase) =>
-          If(substituteLocalsBool(m, c), substituteLocals(m, tcase), substituteLocals(m, fcase))
+          If(
+            substituteLocalsBool(m, c),
+            substituteLocals(m, tcase),
+            substituteLocals(m, fcase)
+          )
         case Always(c, e) =>
           Always(substituteLocalsBool(m, c), substituteLocals(m, e))
         case LetMut(mut, e) =>
@@ -388,13 +399,13 @@ object Matchless {
         case Let(n, v, in) =>
           val m1 = n match {
             case Right(b) => m - b
-            case _ => m
+            case _        => m
           }
           Let(n, substituteLocals(m, v), substituteLocals(m1, in))
         case Local(n) =>
           m.get(n) match {
             case Some(mut) => mut
-            case None => e
+            case None      => e
           }
         case PrevNat(n) => PrevNat(substituteLocals(m, n))
         case ge: GetEnumElement =>
@@ -408,25 +419,42 @@ object Matchless {
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
         case ClosureSlot(_) | Global(_, _) | LocalAnon(_) | LocalAnonMut(_) |
-          MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | ZeroNat => e
+            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) |
+            ZeroNat =>
+          e
       }
-    def substituteLocalsCheap(m: Map[Bindable, CheapExpr], e: CheapExpr): CheapExpr =
+    def substituteLocalsCheap(
+        m: Map[Bindable, CheapExpr],
+        e: CheapExpr
+    ): CheapExpr =
       substituteLocals(m, e) match {
         case ch: CheapExpr => ch
-        case notCheap => sys.error(s"invariant violation: substitution didn't maintain cheap: $e => $notCheap")
+        case notCheap =>
+          sys.error(
+            s"invariant violation: substitution didn't maintain cheap: $e => $notCheap"
+          )
       }
 
     def loopFn(
-      captures: List[Expr],
-      name: Bindable,
-      args: NonEmptyList[Bindable],
-      body: Expr): F[Expr] = {
+        captures: List[Expr],
+        name: Bindable,
+        args: NonEmptyList[Bindable],
+        body: Expr
+    ): F[Expr] = {
 
       // assign any results to result and set the condition to false
       // and replace any tail calls to nm(args) with assigning args to those values
-      case class ArgRecord(name: Bindable, tmp: LocalAnon, loopVar: LocalAnonMut)
-      def toWhileBody(args: NonEmptyList[ArgRecord], cond: LocalAnonMut, result: LocalAnonMut): Expr = {
-      
+      case class ArgRecord(
+          name: Bindable,
+          tmp: LocalAnon,
+          loopVar: LocalAnonMut
+      )
+      def toWhileBody(
+          args: NonEmptyList[ArgRecord],
+          cond: LocalAnonMut,
+          result: LocalAnonMut
+      ): Expr = {
+
         val nameExpr = Local(name)
 
         def returnValue(v: Expr): Expr =
@@ -442,23 +470,29 @@ object Matchless {
               // we know the length of appArgs must match args or the code wouldn't have compiled
               // we have to first assign to the temp variables, and then assign the temp variables
               // to the results to make sure we don't have any data dependency issues with the values;
-              val tmpAssigns = appArgs
-                .iterator
+              val tmpAssigns = appArgs.iterator
                 .zip(args.iterator)
                 .flatMap { case (appArg, argRecord) =>
                   if (appArg != argRecord.loopVar)
                     // don't create self assignments
-                    Iterator.single(((argRecord.tmp, appArg), (argRecord.loopVar, argRecord.tmp)))
+                    Iterator.single(
+                      (
+                        (argRecord.tmp, appArg),
+                        (argRecord.loopVar, argRecord.tmp)
+                      )
+                    )
                   else
                     Iterator.empty
                 }
                 .toList
 
               // there must be at least one assignment
-              Some(letAnons(
-                tmpAssigns.map(_._1),
-                setAll(tmpAssigns.map(_._2), UnitExpr)
-              ))
+              Some(
+                letAnons(
+                  tmpAssigns.map(_._1),
+                  setAll(tmpAssigns.map(_._2), UnitExpr)
+                )
+              )
             case If(c, tcase, fcase) =>
               // this can possible have tail calls inside the branches
               (loop(tcase), loop(fcase)) match {
@@ -478,20 +512,26 @@ object Matchless {
               // in is in tail position
               loop(in).map(Let(b, v, _))
             // the rest cannot have a call in tail position
-            case App(_, _) | ClosureSlot(_) | GetEnumElement(_, _, _, _) | GetStructElement(_, _, _) |
-              Global(_, _) | Lambda(_, _, _, _) | Literal(_) | Local(_) | LocalAnon(_) | LocalAnonMut(_) |
-              MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat | WhileExpr(_, _, _) | ZeroNat => None
+            case App(_, _) | ClosureSlot(_) | GetEnumElement(_, _, _, _) |
+                GetStructElement(_, _, _) | Global(_, _) | Lambda(_, _, _, _) |
+                Literal(_) | Local(_) | LocalAnon(_) | LocalAnonMut(_) |
+                MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat |
+                WhileExpr(_, _, _) | ZeroNat =>
+              None
           }
 
         val bodyTrans = substituteLocals(
           args.toList.map(a => (a.name, a.loopVar)).toMap,
-          body)
+          body
+        )
 
         loop(bodyTrans) match {
           case Some(expr) => expr
           case None =>
-            sys.error("invariant violation: could not find tail calls in:" +
-              s"toWhileBody(name = $name, body = $body)")
+            sys.error(
+              "invariant violation: could not find tail calls in:" +
+                s"toWhileBody(name = $name, body = $body)"
+            )
         }
       }
       val mut = makeAnon.map(LocalAnonMut(_))
@@ -499,19 +539,25 @@ object Matchless {
       for {
         cond <- mut
         result <- mut
-        args1 <- args.traverse { b => (anon, mut).mapN(ArgRecord(b, _, _)) }
+        args1 <- args.traverse(b => (anon, mut).mapN(ArgRecord(b, _, _)))
         whileLoop = toWhileBody(args1, cond, result)
         allMuts = cond :: result :: args1.toList.map(_.loopVar)
         // we don't need to set the name on the lambda because this is no longer recursive
-      } yield Lambda(captures, None, args,
-          letMutAll(allMuts,
-            setAll(
-              args1.toList.map(arg => (arg.loopVar, Local(arg.name))),
-              Always(SetMut(cond, TrueExpr),
-              WhileExpr(isTrueExpr(cond), whileLoop, result))
+      } yield Lambda(
+        captures,
+        None,
+        args,
+        letMutAll(
+          allMuts,
+          setAll(
+            args1.toList.map(arg => (arg.loopVar, Local(arg.name))),
+            Always(
+              SetMut(cond, TrueExpr),
+              WhileExpr(isTrueExpr(cond), whileLoop, result)
             )
           )
         )
+      )
     }
 
     def loopLetVal(
@@ -526,11 +572,15 @@ object Matchless {
           def letrec(expr: Expr): Expr =
             expr match {
               case fn: FnExpr if fn.recursiveName == Some(name) => fn
-              case fn: FnExpr =>
+              case fn: FnExpr                                   =>
                 // loops always have a function name
-                sys.error(s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn")
+                sys.error(
+                  s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
+                )
               case _ =>
-                sys.error(s"expected ${e.repr.render(80)} to compile to a function, but got: $expr")
+                sys.error(
+                  s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
+                )
             }
 
           // this could be tail recursive
@@ -669,11 +719,11 @@ object Matchless {
           }
       }
 
-  // handle list matching, this is a while loop, that is evaluting
-  // lst is initialized to init, leftAcc is initialized to empty
-  // tail until it is true while mutating lst => lst.tail
-  // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
-  // which could have nested searches of its own
+    // handle list matching, this is a while loop, that is evaluting
+    // lst is initialized to init, leftAcc is initialized to empty
+    // tail until it is true while mutating lst => lst.tail
+    // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
+    // which could have nested searches of its own
     def searchList(
         lst: LocalAnonMut,
         init: CheapExpr,
@@ -685,40 +735,44 @@ object Matchless {
         makeAnon.map(LocalAnon(_)),
         makeAnon.map(LocalAnonMut(_))
       )
-      .mapN { (resMut, letBind, currentList) =>
-        val initSets =
-          (resMut, FalseExpr) ::
-          (currentList, init) ::
-          (leftAcc.toList.map { left =>
-            (left, ListExpr.Nil)
-          })
+        .mapN { (resMut, letBind, currentList) =>
+          val initSets =
+            (resMut, FalseExpr) ::
+              (currentList, init) ::
+              (leftAcc.toList.map { left =>
+                (left, ListExpr.Nil)
+              })
 
-        val whileCheck = ListExpr.notNil(currentList)
-        val effect: Expr = {
-          setAll((lst, currentList) :: Nil,
-            If(check, {
-              setAll(
-                (currentList, ListExpr.Nil) ::
-                (resMut, TrueExpr) ::
-                Nil,
-                UnitExpr
+          val whileCheck = ListExpr.notNil(currentList)
+          val effect: Expr =
+            setAll(
+              (lst, currentList) :: Nil,
+              If(
+                check,
+                setAll(
+                  (currentList, ListExpr.Nil) ::
+                    (resMut, TrueExpr) ::
+                    Nil,
+                  UnitExpr
+                ),
+                setAll(
+                  (currentList, ListExpr.tail(currentList)) ::
+                    leftAcc.toList.map { left =>
+                      (left, ListExpr.cons(ListExpr.head(currentList), left))
+                    },
+                  UnitExpr
+                )
               )
-            }, {
-              setAll(
-                (currentList, ListExpr.tail(currentList)) ::
-                leftAcc.toList.map { left =>
-                  (left, ListExpr.cons(ListExpr.head(currentList), left))
-                },
-                UnitExpr
-              )
-            }))
+            )
+          val searchLoop =
+            setAll(initSets, WhileExpr(whileCheck, effect, resMut))
+
+          LetMutBool(
+            resMut :: currentList :: Nil,
+            LetBool(Left(letBind), searchLoop, isTrueExpr(resMut))
+          )
         }
-        val searchLoop = setAll(initSets, WhileExpr(whileCheck, effect, resMut))
-
-        LetMutBool(resMut :: currentList :: Nil,
-          LetBool(Left(letBind), searchLoop, isTrueExpr(resMut)))
-      }
-        /*
+      /*
             Dynamic { (scope: Scope) =>
               var res = false
               var currentList = initF(scope)
@@ -742,7 +796,7 @@ object Matchless {
               }
               res
             }
-              */
+       */
     }
 
     // return the check expression for the check we need to do, and the list of bindings
@@ -785,15 +839,18 @@ object Matchless {
                 case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
               }
 
-              sbinds.traverse { b =>
-                makeAnon.map(LocalAnonMut(_)).map((b, _))
-              }
-              .map { binds =>
-                val ms = binds.map(_._2)
+              sbinds
+                .traverse { b =>
+                  makeAnon.map(LocalAnonMut(_)).map((b, _))
+                }
+                .map { binds =>
+                  val ms = binds.map(_._2)
 
-                NonEmptyList.one((ms, MatchString(arg, pat, ms, mustMatch), binds))
-              }
-            }
+                  NonEmptyList.one(
+                    (ms, MatchString(arg, pat, ms, mustMatch), binds)
+                  )
+                }
+          }
         case lp @ Pattern.ListPat(_) =>
           lp.toPositionalStruct(empty, cons) match {
             case Right(p) => doesMatch(arg, p, mustMatch)
@@ -852,7 +909,7 @@ object Matchless {
                             }
 
                           searchList(anonList, arg, expr, leftOpt)
-                            .map { s => (resLet, s, resBind) }
+                            .map(s => (resLet, s, resBind))
                       }
                     }
                 }
@@ -996,10 +1053,10 @@ object Matchless {
                       val check =
                         if (mustMatch) TrueConst
                         else EqualsNat(arg, DataRepr.SuccNat)
-                      
+
                       val ignoreInner = single match {
                         case Pattern.WildCard => true
-                        case _ => false
+                        case _                => false
                       }
 
                       if (!ignoreInner) {
@@ -1015,15 +1072,15 @@ object Matchless {
                             res
                           )
                         }
-                      }
-                      else {
+                      } else {
                         // we don't need to bind the prev
-                        Monad[F].pure(wildMatch.map { case (preLets, cond, res) =>
-                          (
-                            preLets,
-                            check && cond,
-                            res
-                          )
+                        Monad[F].pure(wildMatch.map {
+                          case (preLets, cond, res) =>
+                            (
+                              preLets,
+                              check && cond,
+                              res
+                            )
                         })
                       }
                     case other =>

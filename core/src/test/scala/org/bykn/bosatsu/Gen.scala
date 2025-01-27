@@ -28,9 +28,10 @@ object Generators {
         }
       )
     )
-  
+
   val genValidUtf: Gen[String] =
-    Gen.listOf(genCodePoints)
+    Gen
+      .listOf(genCodePoints)
       .map { points =>
         val bldr = new java.lang.StringBuilder
         points.foreach(bldr.appendCodePoint(_))
@@ -581,8 +582,11 @@ object Generators {
       nel match {
         case NonEmptyList(_, Nil) => nel
         case NonEmptyList(h1, h2 :: t)
-          if Pattern.StrPat(NonEmptyList.one(h1)).names.exists(Pattern.StrPat(NonEmptyList(h2, t)).names.toSet) =>
-            makeValid(NonEmptyList(h2, t))
+            if Pattern
+              .StrPat(NonEmptyList.one(h1))
+              .names
+              .exists(Pattern.StrPat(NonEmptyList(h2, t)).names.toSet) =>
+          makeValid(NonEmptyList(h2, t))
         case NonEmptyList(
               Pattern.StrPart.LitStr(h1),
               Pattern.StrPart.LitStr(h2) :: t
@@ -592,8 +596,7 @@ object Generators {
           val tail = makeValid(NonEmptyList(h2, t))
           if (isWild(tail.head) && isWild(h1)) {
             tail
-          }
-          else {
+          } else {
             h1 :: tail
           }
       }

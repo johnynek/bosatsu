@@ -9,7 +9,9 @@ case class CcConf(
     libs: List[String],
     os: String
 ) {
-  def compile[F[_], Path](src: Path, to: Path)(platformIO: PlatformIO[F, Path]): F[Unit] = {
+  def compile[F[_], Path](src: Path, to: Path)(
+      platformIO: PlatformIO[F, Path]
+  ): F[Unit] = {
     val args = List.newBuilder[String]
 
     args ++= flags
@@ -28,7 +30,9 @@ object CcConf {
   implicit val ccConfJsonReader: Json.Reader[CcConf] =
     new Json.Reader.Obj[CcConf] {
       def describe = "CcConf"
-      def readObj(from: Json.Reader.FromObj): Either[(String, Json, Json.Path), CcConf] = {
+      def readObj(
+          from: Json.Reader.FromObj
+      ): Either[(String, Json, Json.Path), CcConf] = {
         import from.field
         for {
           ccPath <- field[String]("cc_path")

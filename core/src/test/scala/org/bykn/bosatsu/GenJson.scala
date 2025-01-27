@@ -86,7 +86,8 @@ object GenJson {
     })
 
   lazy val genPath: Gen[Json.Path] =
-    Gen.oneOf(Gen.const(Json.Path.Root),
+    Gen.oneOf(
+      Gen.const(Json.Path.Root),
       for {
         idx <- Gen.choose(0, Int.MaxValue)
         of <- genPath

@@ -61,14 +61,15 @@ class MatchlessTest extends AnyFunSuite {
   }
 
   lazy val genMatchlessExpr: Gen[Matchless.Expr] =
-    genInputs.map { case (b, r, t, fn) =>
-      // ill-formed inputs can fail
-      Try(Matchless.fromLet(b, r, t)(fn)).toOption
-    }
-    .flatMap {
-      case Some(e) => Gen.const(e)
-      case None => genMatchlessExpr
-    }
+    genInputs
+      .map { case (b, r, t, fn) =>
+        // ill-formed inputs can fail
+        Try(Matchless.fromLet(b, r, t)(fn)).toOption
+      }
+      .flatMap {
+        case Some(e) => Gen.const(e)
+        case None    => genMatchlessExpr
+      }
 
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {

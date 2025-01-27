@@ -7,18 +7,24 @@ class IdentsTest extends munit.ScalaCheckSuite {
 
   property("Idents.escape/unescape") {
     forAll { (prefix: String, content: String) =>
-      val escaped = Idents.escape(prefix, content)  
+      val escaped = Idents.escape(prefix, content)
       val stringNums = content.map(_.toInt).toList
       Idents.unescape(prefix, escaped) match {
-        case Some(c1) => assertEquals(c1, content, s"escaped = $escaped, stringNums = $stringNums")
-        case None => fail(s"expected to unescape: $escaped, stringNums = $stringNums")
+        case Some(c1) =>
+          assertEquals(
+            c1,
+            content,
+            s"escaped = $escaped, stringNums = $stringNums"
+          )
+        case None =>
+          fail(s"expected to unescape: $escaped, stringNums = $stringNums")
       }
     }
   }
 
   test("allSimpleIdents escape to identity") {
     Idents.allSimpleIdents.take(10000).foreach { str =>
-      assertEquals(Idents.escape("", str), str)  
+      assertEquals(Idents.escape("", str), str)
     }
   }
 
@@ -43,12 +49,14 @@ class IdentsTest extends munit.ScalaCheckSuite {
     forAll { (prefix: String, content: String) =>
       val escaped = Idents.escape(prefix, content)
       if (content.forall(validIdentChars)) {
-        assertEquals(escaped, prefix + content.flatMap {
-          case '_' => "__"
-          case a => a.toString
-        })
-      }
-      else {
+        assertEquals(
+          escaped,
+          prefix + content.flatMap {
+            case '_' => "__"
+            case a   => a.toString
+          }
+        )
+      } else {
         assert(escaped.length > (prefix + content).length)
       }
     }
