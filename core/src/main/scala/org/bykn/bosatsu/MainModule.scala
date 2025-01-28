@@ -760,25 +760,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
         )
 
-      implicit val argColor: Argument[Colorize] =
-        new Argument[Colorize] {
-          def defaultMetavar: String = "color"
-          def read(str: String): ValidatedNel[String, Colorize] =
-            str.toLowerCase match {
-              case "none" => Validated.valid(Colorize.None)
-              case "ansi" => Validated.valid(Colorize.Console)
-              case "html" => Validated.valid(Colorize.HmtlFont)
-              case other =>
-                Validated.invalidNel(
-                  s"unknown colorize: $other, expected: none, ansi or html"
-                )
-            }
-        }
-
-      val colorOpt = Opts
-        .option[Colorize]("color", help = "colorize mode: none, ansi or html")
-        .orElse(Opts(Colorize.Console))
-
       val mainP =
         MainIdentifier.opts(
           Opts.option[(PackageName, Option[Bindable])](
@@ -815,7 +796,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       val jsonCommand = {
         def toJsonOpt(modeOpt: Opts[JsonMode]) =
-          (Inputs.runtimeOpts, modeOpt, mainP, outputPath.orNone, colorOpt)
+          (
+            Inputs.runtimeOpts,
+            modeOpt,
+            mainP,
+            outputPath.orNone,
+            Colorize.optsConsoleDefault
+          )
             .mapN(ToJson(_, _, _, _, _))
 
         val input: Opts[JsonInput] =
@@ -853,7 +840,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       val transpileOpt = (
         Inputs.runtimeOpts,
-        colorOpt,
+        Colorize.optsConsoleDefault,
         transOpt,
         Opts.option[Path](
           "outdir",
@@ -862,18 +849,18 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       )
         .mapN(TranspileCommand(_, _, _, _))
 
-      val evalOpt = (Inputs.runtimeOpts, mainP, colorOpt)
+      val evalOpt = (Inputs.runtimeOpts, mainP, Colorize.optsConsoleDefault)
         .mapN(Evaluate(_, _, _))
 
       val typeCheckOpt = (
         Inputs.compileOpts,
         outputPath.orNone,
         interfaceOutputPath.orNone,
-        colorOpt
+        Colorize.optsConsoleDefault
       )
         .mapN(Check(_, _, _, _))
 
-      val testOpt = (Inputs.runtimeOpts, testP, colorOpt)
+      val testOpt = (Inputs.runtimeOpts, testP, Colorize.optsConsoleDefault)
         .mapN(RunTests(_, _, _))
 
       Opts
@@ -897,7 +884,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         )
         .orElse(
           Opts.subcommand("show", "show compiled packages")(
-            (Inputs.showOpts, outputPath.orNone, colorOpt)
+            (Inputs.showOpts, outputPath.orNone, Colorize.optsConsoleDefault)
               .mapN(Show(_, _, _))
           )
         )
@@ -906,7 +893,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             (
               Inputs.depsOpts,
               outputPath.orNone,
-              colorOpt,
+              Colorize.optsConsoleDefault,
               GraphOutput.jsonOrDot
             )
               .mapN(Deps(_, _, _, _))
