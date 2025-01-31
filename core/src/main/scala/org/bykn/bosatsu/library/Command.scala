@@ -3,7 +3,13 @@ package org.bykn.bosatsu.library
 import cats.{Monad, MonoidK}
 import cats.data.NonEmptyList
 import com.monovore.decline.Opts
-import org.bykn.bosatsu.tool.{CliException, CompilerApi, Output, PathGen}
+import org.bykn.bosatsu.tool.{
+  CliException,
+  CompilerApi,
+  Output,
+  PathGen,
+  PackageResolver
+}
 import org.bykn.bosatsu.hashing.{Algo, HashValue}
 import org.bykn.bosatsu.LocationMap.Colorize
 import org.bykn.bosatsu.{Json, PlatformIO}
@@ -13,7 +19,6 @@ import scala.collection.immutable.SortedMap
 import _root_.bosatsu.{TypedAst => proto}
 
 import cats.syntax.all._
-import org.bykn.bosatsu.tool.PackageResolver
 
 object Command {
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
@@ -299,7 +304,7 @@ object Command {
     ): F[Doc] = {
       val cas = new Cas(casDir, platformIO)
       val inputRes =
-        PackageResolver.search(NonEmptyList.one(confDir), platformIO)
+        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
       for {
         pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
         (pubLibs, privLibs) = pubPriv
