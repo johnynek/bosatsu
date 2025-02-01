@@ -208,31 +208,31 @@ object PackageResolver {
     )
   }
 
-  private def packSearch[IO[_], Path](
+  def search[IO[_], Path](
+      roots: NonEmptyList[Path],
       platformIO: PlatformIO[IO, Path]
-  ): Opts[Option[(Path, PackageName) => IO[Option[Path]]]] =
-    Opts
+  ): PackageResolver[IO, Path] =
+    LocalRoots(
+      roots,
+      Some((p, pn) => platformIO.resolveFile(p, pn))
+    )
+
+  def opts[IO[_], Path](
+      platformIO: PlatformIO[IO, Path]
+  ): Opts[PackageResolver[IO, Path]] =
+    (Opts
       .flag(
         "search",
         help =
           "if set, we search the package_roots for imports not explicitly given"
       )
       .orFalse
-      .map {
-        case true  => Some((p, pn) => platformIO.resolveFile(p, pn))
-        case false => None
-      }
-
-  def opts[IO[_], Path](
-      platformIO: PlatformIO[IO, Path]
-  ): Opts[PackageResolver[IO, Path]] =
-    (packRoot(platformIO)
-      .product(packSearch(platformIO)))
+      .product(packRoot(platformIO)))
       .orNone
       .map {
-        case None => PackageResolver.ExplicitOnly()
-        case Some((paths, search)) =>
-          PackageResolver.LocalRoots(paths, search)
+        case None                 => ExplicitOnly()
+        case Some((true, roots))  => search(roots, platformIO)
+        case Some((false, roots)) => LocalRoots(roots, None)
       }
 
   // type-checking and writing protos should be explicit. search option isn't supported

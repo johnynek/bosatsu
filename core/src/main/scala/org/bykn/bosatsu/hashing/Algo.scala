@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.hashing
 
+import cats.arrow.FunctionK
 import cats.parse.Parser
 import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
 
@@ -50,6 +51,9 @@ object Algo {
     type A
     def algo: Algo[A]
     def value: F[A]
+
+    def mapK[G[_]](fn: FunctionK[F, G]): WithAlgo[G] =
+      WithAlgo[G, A](algo, fn(value))
 
     override def equals(obj: Any): Boolean =
       obj match {
