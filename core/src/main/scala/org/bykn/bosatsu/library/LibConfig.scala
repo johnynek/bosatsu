@@ -37,9 +37,9 @@ case class LibConfig(
     */
   def assemble(
       vcsIdent: String,
-      previous: Option[Hashed[Algo.Blake3, proto.Library]],
+      previous: Option[DecodedLibrary[Algo.Blake3]],
       packs: List[Package.Typed[Unit]],
-      deps: List[Hashed[Algo.Blake3, proto.Library]]
+      deps: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, proto.Library] =
     validate(previous, packs, deps)
       .andThen { vr =>
@@ -68,9 +68,9 @@ case class LibConfig(
     *   9. there is a valid solution for transitive dependencies
     */
   def validate(
-      previous: Option[Hashed[Algo.Blake3, proto.Library]],
+      previous: Option[DecodedLibrary[Algo.Blake3]],
       packs: List[Package.Typed[Unit]],
-      deps: List[Hashed[Algo.Blake3, proto.Library]]
+      deps: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, ValidationResult] = {
 
     import Error.inv
@@ -81,25 +81,25 @@ case class LibConfig(
     val privatePacks: List[Package.Typed[Unit]] =
       packs.filter(p => allPackages.exists(_.accepts(p.name)))
 
-    val nameToDep = deps.groupByNel(_.arg.name)
+    val nameToDep = deps.groupByNel(_.protoLib.name)
 
-    val publicDepLibs: List[proto.Library] =
+    val publicDepLibs: List[DecodedLibrary[Algo.Blake3]] =
       publicDeps.flatMap { dep =>
         nameToDep.get(dep.name) match {
           case None =>
             // this will be a validation error later
             Nil
-          case Some(libs) => libs.head.arg :: Nil
+          case Some(libs) => libs.head :: Nil
         }
       }
 
-    val privateDepLibs: List[proto.Library] =
+    val privateDepLibs: List[DecodedLibrary[Algo.Blake3]] =
       privateDeps.flatMap { dep =>
         nameToDep.get(dep.name) match {
           case None =>
             // this will be a validation error later
             Nil
-          case Some(libs) => libs.head.arg :: Nil
+          case Some(libs) => libs.head :: Nil
         }
       }
 
@@ -107,9 +107,8 @@ case class LibConfig(
     val packToLibName: Map[PackageName, Name] =
       (exportedPacks.iterator.map(p => (p.name, name)) ++
         (publicDepLibs.iterator ++ privateDepLibs.iterator).flatMap { lib =>
-          lib.exportedIfaces
-            .flatMap(iface => PackageName.parse(ProtoConverter.iname(iface)))
-            .map((_, Name(lib.name)))
+          lib.interfaces
+            .map(iface => (iface.name, Name(lib.protoLib.name)))
         }).toMap
 
     val prop1 =
@@ -118,7 +117,8 @@ case class LibConfig(
         case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
       }
 
-    val prop2 = previous.traverse_ { case Hashed(_, p) =>
+    val prop2 = previous.traverse_ { dec =>
+      val p = dec.protoLib
       val prevLt = p.version match {
         case Some(prevV) =>
           if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit
@@ -147,14 +147,15 @@ case class LibConfig(
     }
 
     val prop3 = previous match {
-      case Some(Hashed(_, prevLib)) =>
+      case Some(dec) =>
+        val prevLib = dec.protoLib
         prevLib.version match {
           case Some(prevVersion) =>
             if (prevVersion.justBefore(nextVersion)) {
               val dk = prevVersion.diffKindTo(nextVersion)
               if (!dk.isMajor) {
                 val diff = LibConfig.validNextVersion(
-                  prevLib,
+                  dec,
                   dk,
                   exportedPacks,
                   publicDepLibs
@@ -168,7 +169,7 @@ case class LibConfig(
                       dk.isPatch &&
                       LibConfig
                         .validNextVersion(
-                          prevLib,
+                          dec,
                           Version.DiffKind.Minor,
                           exportedPacks,
                           publicDepLibs
@@ -207,11 +208,7 @@ case class LibConfig(
     val prop4 = {
       val validDepPacks: List[PackageName] =
         PackageName.PredefName :: exportedPacks.map(_.name) :::
-          publicDepLibs.flatMap { lib =>
-            lib.exportedIfaces.flatMap { iface =>
-              PackageName.parse(ProtoConverter.iname(iface))
-            }
-          }
+          publicDepLibs.flatMap(lib => lib.interfaces.map(_.name))
 
       val validSet = validDepPacks.toSet
 
@@ -221,8 +218,8 @@ case class LibConfig(
         invalidDeps.traverse_ { badPn =>
           val msg =
             if (
-              privateDepLibs.exists(_.exportedIfaces.exists { iface =>
-                ProtoConverter.iname(iface) === badPn.asString
+              privateDepLibs.exists(_.interfaces.exists { iface =>
+                iface.name === badPn
               })
             ) "package from private dependency"
             else if (privatePacks.exists(_.name === badPn))
@@ -321,8 +318,8 @@ case class LibConfig(
           inv(
             Error.DuplicateDep(
               "argument dep",
-              e.arg.name,
-              e.arg.descriptor.getOrElse(proto.LibDescriptor())
+              e.protoLib.name,
+              e.protoLib.descriptor.getOrElse(proto.LibDescriptor())
             )
           )
         )
@@ -333,7 +330,7 @@ case class LibConfig(
           case None =>
             inv(Error.MissingDep(note = note, dep = dep))
           case Some(deps) =>
-            val hash = deps.head.hash.toIdent
+            val hash = deps.head.hashValue.toIdent
             if (dep.desc.exists(_.hashes.exists(_ == hash))) Validated.unit
             else {
               // the hash doesn't match
@@ -341,8 +338,8 @@ case class LibConfig(
                 Error.DepHashMismatch(
                   note,
                   dep,
-                  deps.head.hash,
-                  deps.head.arg
+                  deps.head.hashValue,
+                  deps.head.protoLib
                 )
               )
             }
@@ -365,19 +362,21 @@ case class LibConfig(
 
   // just build the library without any validations
   def unvalidatedAssemble(
-      previous: Option[Hashed[Algo.Blake3, proto.Library]],
+      previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
       packs: List[Package.Typed[Unit]],
       unusedTrans: List[proto.LibDependency]
   ): Either[Throwable, proto.Library] = {
     val depth = previous match {
-      case None                     => 0
-      case Some(Hashed(_, prevLib)) => prevLib.depth + 1
+      case None      => 0
+      case Some(dec) => dec.protoLib.depth + 1
     }
 
     val thisHistory = previous match {
       case None => proto.LibHistory()
-      case Some(Hashed(hash, p)) =>
+      case Some(dec) =>
+        val hash = dec.hashValue
+        val p = dec.protoLib
         val prevHistory = p.history.getOrElse(proto.LibHistory())
         val v = p.descriptor match {
           case Some(desc) =>
@@ -660,14 +659,16 @@ object LibConfig {
     * them
     */
   def unusedTransitiveDeps(
-      publicDeps: List[proto.Library]
+      publicDeps: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, SortedMap[String, proto.LibDependency]] = {
     val usedDeps =
-      publicDeps.iterator.map(lib => (lib.name, lib.descriptor)).toMap
+      publicDeps.iterator
+        .map(lib => (lib.protoLib.name, lib.protoLib.descriptor))
+        .toMap
 
     val allTransitiveDeps = (
-      publicDeps.map(_.toDep) :::
-        publicDeps.flatMap(_.unusedTransitivePublicDependencies)
+      publicDeps.map(_.protoLib.toDep) :::
+        publicDeps.flatMap(_.protoLib.unusedTransitivePublicDependencies)
     )
       .groupByNel(_.name)
 
@@ -706,17 +707,18 @@ object LibConfig {
   }
 
   def validNextVersion(
-      prevLib: proto.Library,
+      prevDec: DecodedLibrary[Algo.Blake3],
       dk: Version.DiffKind,
       exportedPacks: List[Package.Typed[Unit]],
-      publicDepLibs: List[proto.Library]
+      publicDepLibs: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, Unit] = {
+    val prevLib = prevDec.protoLib
     val oldPublicVersions =
       (prevLib.publicDependencies.toList ::: prevLib.unusedTransitivePublicDependencies.toList)
         .groupByNel(_.name)
     val newPublicVersions =
-      (publicDepLibs.map(_.toDep) ::: publicDepLibs.flatMap(
-        _.unusedTransitivePublicDependencies
+      (publicDepLibs.map(_.protoLib.toDep) ::: publicDepLibs.flatMap(
+        _.protoLib.unusedTransitivePublicDependencies
       )).distinct.groupByNel(_.name)
 
     val allLibNames = oldPublicVersions.keySet | newPublicVersions.keySet
@@ -761,35 +763,33 @@ object LibConfig {
       }
     }
 
-    val publicTypes: ValidatedNec[Error, TypeEnv[Kind.Arg]] =
+    val depTypes: TypeEnv[Kind.Arg] =
       publicDepLibs
-        .traverse { lib =>
-          lib.ifaces.map(_.foldMap(_.exportedTypeEnv))
+        .foldMap { lib =>
+          lib.interfaces.foldMap(_.exportedTypeEnv)
         }
-        .map(_.combineAll)
 
-    compatPublicDepChange *> publicTypes.andThen { depTypes =>
-      prevLib.ifaces.andThen { prevIfaces =>
-        val prevExports = prevIfaces.iterator
-          .map(iface => (iface.name, iface.exports))
-          .to(SortedMap)
-        val prevTE = depTypes ++ prevIfaces.foldMap(_.exportedTypeEnv)
+    val prevIfaces = prevDec.interfaces
+    compatPublicDepChange *> {
+      val prevExports = prevIfaces.iterator
+        .map(iface => (iface.name, iface.exports))
+        .to(SortedMap)
+      val prevTE = depTypes ++ prevIfaces.foldMap(_.exportedTypeEnv)
 
-        val currExports = exportedPacks.iterator
-          .map(pack => (pack.name, pack.exports))
-          .to(SortedMap)
-        val currTE = depTypes ++ exportedPacks.foldMap(_.exportedTypeEnv)
+      val currExports = exportedPacks.iterator
+        .map(pack => (pack.name, pack.exports))
+        .to(SortedMap)
+      val currTE = depTypes ++ exportedPacks.foldMap(_.exportedTypeEnv)
 
-        val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
+      val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
 
-        val badDiffs = diff
-          .badDiffs(dk) { diff =>
-            Error.InvalidDiff(dk, diff)
-          }
-          .toVector
+      val badDiffs = diff
+        .badDiffs(dk) { diff =>
+          Error.InvalidDiff(dk, diff)
+        }
+        .toVector
 
-        badDiffs.traverse_(Error.inv(_))
-      }
+      badDiffs.traverse_(Error.inv(_))
     }
   }
 
@@ -895,14 +895,6 @@ object LibConfig {
       proto.LibDependency(name = lib.name, desc = lib.descriptor)
 
     def version: Option[Version] = lib.descriptor.flatMap(_.parsedVersion)
-
-    def ifaces: ValidatedNec[Error, List[Package.Interface]] =
-      ProtoConverter.packagesFromProto(lib.exportedIfaces, Nil) match {
-        case Success((ifaces, _)) => Validated.valid(ifaces)
-        case Failure(err) =>
-          Error.inv(Error.CannotDecodeLibraryIfaces(lib, err))
-      }
-
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
@@ -953,7 +945,8 @@ object LibConfig {
     }
 }
 
-case class DecodedLibrary(
+case class DecodedLibrary[A](
+    hashValue: HashValue[A],
     protoLib: proto.Library,
     interfaces: List[Package.Interface],
     implementations: PackageMap.Typed[Unit]
@@ -963,17 +956,21 @@ case class DecodedLibrary(
 }
 
 object DecodedLibrary {
-  def decode[F[_]](
-      protoLib: proto.Library
-  )(implicit F: MonadError[F, Throwable]): F[DecodedLibrary] =
+  def decode[F[_], A](
+      protoLib: Hashed[A, proto.Library]
+  )(implicit F: MonadError[F, Throwable]): F[DecodedLibrary[A]] =
     F.fromTry(
       ProtoConverter
-        .packagesFromProto(protoLib.exportedIfaces, protoLib.internalPackages)
+        .packagesFromProto(
+          protoLib.arg.exportedIfaces,
+          protoLib.arg.internalPackages
+        )
     ).map { case (ifs, impls) =>
       // TODO: should verify somewhere that all the package names are distinct, but since this is presumed to be
       // a good library maybe that's a waste
-      DecodedLibrary(
-        protoLib,
+      DecodedLibrary[A](
+        protoLib.hash,
+        protoLib.arg,
         ifs,
         PackageMap(impls.iterator.map(pack => (pack.name, pack)).to(SortedMap))
       )

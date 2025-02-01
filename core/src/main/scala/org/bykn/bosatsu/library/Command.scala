@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.library
 
 import cats.{Monad, MonoidK}
+import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import com.monovore.decline.Opts
 import org.bykn.bosatsu.tool.{
@@ -10,7 +11,7 @@ import org.bykn.bosatsu.tool.{
   PathGen,
   PackageResolver
 }
-import org.bykn.bosatsu.hashing.{Algo, HashValue}
+import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.bykn.bosatsu.LocationMap.Colorize
 import org.bykn.bosatsu.{Json, PlatformIO}
 import org.typelevel.paiges.Doc
@@ -253,13 +254,15 @@ object Command {
                   )
               }
               prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
+              prevLibDec <- prevLib.traverse(DecodedLibrary.decode(_))
               packages <- platformIO.readPackages(packs)
               depLibs <- deps.traverse(platformIO.readLibrary(_))
+              decLibs <- depLibs.traverse(DecodedLibrary.decode(_))
               maybeNewLib = conf.assemble(
                 vcsIdent = gitSha,
-                prevLib,
+                prevLibDec,
                 packages,
-                depLibs
+                decLibs
               )
               lib <- moduleIOMonad.fromTry(LibConfig.Error.toTry(maybeNewLib))
             } yield (Output.Library(lib, outPath): Output[P])
@@ -313,22 +316,31 @@ object Command {
         inputSrcs <- PathGen
           .recursiveChildren(confDir, ".bosatsu")(platformIO)
           .read
-        _ <- NonEmptyList.fromList(inputSrcs) match {
+        allPacks <- NonEmptyList.fromList(inputSrcs) match {
           case Some(inputNel) =>
-            platformIO.withEC { ec =>
-              CompilerApi.typeCheck(
-                platformIO,
-                inputNel,
-                pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
-                  _.interfaces
-                ),
-                colorize,
-                inputRes
-              )(ec)
-            }.void
+            platformIO
+              .withEC { ec =>
+                CompilerApi.typeCheck(
+                  platformIO,
+                  inputNel,
+                  pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
+                    _.interfaces
+                  ),
+                  colorize,
+                  inputRes
+                )(ec)
+              }
+              .map(_._1.toMap.values.toList.map(_.void))
           case None =>
-            moduleIOMonad.unit
+            moduleIOMonad.pure(Nil)
         }
+        prevThis = None // TODO
+        validated = conf.validate(
+          prevThis,
+          allPacks,
+          pubDecodes ::: privDecodes
+        )
+        _ <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
       } yield Doc.text("")
     }
 
@@ -381,7 +393,9 @@ object Command {
 
     def casPaths(
         dep: proto.LibDependency
-    ): SortedMap[Algo.WithAlgo[HashValue], P] =
+    ): SortedMap[Algo.WithAlgo[HashValue], Algo.WithAlgo[Lambda[
+      A => Hashed[A, P]
+    ]]] =
       hashes(dep)
         .map { withAlgo =>
           val algoName = withAlgo.algo.name
@@ -391,14 +405,22 @@ object Command {
           val path =
             platformIO.resolve(casDir, algoName :: hex1 :: hex2 :: Nil)
 
-          (withAlgo, path)
+          (
+            withAlgo,
+            withAlgo.mapK(new FunctionK[HashValue, Lambda[A => Hashed[A, P]]] {
+              def apply[A](fn: HashValue[A]) = Hashed(fn, path)
+            })
+          )
         }
         .to(SortedMap)
 
-    def libFromCas(dep: proto.LibDependency): F[Option[proto.Library]] =
-      casPaths(dep).values.toList.collectFirstSomeM { path =>
+    def libFromCas(
+        dep: proto.LibDependency
+    ): F[Option[Hashed[Algo.Blake3, proto.Library]]] =
+      casPaths(dep).values.toList.collectFirstSomeM { hashed =>
+        val path = hashed.value.arg
         platformIO.fileExists(path).flatMap {
-          case true  => platformIO.readLibrary(path).map(h => Some(h.arg))
+          case true  => platformIO.readLibrary(path).map(h => Some(h))
           case false => Monad[F].pure(None)
         }
       }
@@ -406,7 +428,12 @@ object Command {
     def depsFromCas(
         pubDeps: List[proto.LibDependency],
         privDeps: List[proto.LibDependency]
-    ): F[(List[proto.Library], List[proto.Library])] =
+    ): F[
+      (
+          List[Hashed[Algo.Blake3, proto.Library]],
+          List[Hashed[Algo.Blake3, proto.Library]]
+      )
+    ] =
       (
         pubDeps.parTraverse(dep => libFromCas(dep).map(dep -> _)),
         privDeps.parTraverse(dep => libFromCas(dep).map(dep -> _))
@@ -467,7 +494,8 @@ object Command {
       val paths = casPaths(dep)
       val uris = depUris(dep)
 
-      paths.transform { (hashValue, path) =>
+      paths.transform { (hashValue, hashed) =>
+        val path = hashed.value.arg
         platformIO
           .fileExists(path)
           .flatMap {
@@ -547,7 +575,7 @@ object Command {
                     case None      => Nil
                     case Some(dep) =>
                       // we will find the transitivies by walking them
-                      dep.publicDependencies.toList ::: dep.privateDependencies.toList
+                      dep.arg.publicDependencies.toList ::: dep.arg.privateDependencies.toList
                   }
 
                   fetchedDeps.filterNot { dep =>
