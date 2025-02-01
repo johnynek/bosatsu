@@ -27,6 +27,7 @@ case class LibConfig(
     name: Name,
     repoUri: String,
     nextVersion: Version,
+    previous: Option[proto.LibDescriptor],
     exportedPackages: List[LibConfig.PackageFilter],
     allPackages: List[LibConfig.PackageFilter],
     publicDeps: List[proto.LibDependency],
@@ -143,7 +144,46 @@ case class LibConfig(
         case None => Validated.unit
       }
 
-      prevLt *> histLt
+      val matchesPrev =
+        (previous, this.previous) match {
+          case (None, None) => Validated.unit
+          case (Some(dec), Some(desc)) =>
+            val decV = dec.protoLib.version
+            val expectedV = desc.version.map(Version.fromProto(_))
+            if (decV === expectedV) {
+              val hashIdent = dec.hashValue.toIdent
+              if (desc.hashes.exists(_ === hashIdent)) {
+                Validated.unit
+              } else {
+                inv(
+                  Error.InvalidPreviousLib(
+                    show"declared hashes ${desc.hashes} in config doesn't match binary previous=${hashIdent}",
+                    dec.protoLib
+                  )
+                )
+              }
+            } else {
+              // the previous version doesn't match
+              inv(
+                Error.InvalidPreviousLib(
+                  show"declared previous version=${expectedV} in config doesn't match binary previous=${decV}",
+                  dec.protoLib
+                )
+              )
+            }
+
+          case (None, Some(dec)) =>
+            inv(Error.MissingExpectedPrevious(dec))
+          case (Some(dec), None) =>
+            inv(
+              Error.InvalidPreviousLib(
+                show"config doesn't declare a previous, but one was passed.",
+                dec.protoLib
+              )
+            )
+        }
+
+      prevLt *> histLt *> matchesPrev
     }
 
     val prop3 = previous match {
@@ -490,6 +530,7 @@ object LibConfig {
     case class InvalidDiff(diffKind: Version.DiffKind, diff: Diff) extends Error
     case class MinimumValidVersion(prevVersion: Version, minimumValid: Version)
         extends Error
+    case class MissingExpectedPrevious(desc: proto.LibDescriptor) extends Error
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
       Doc.intercalate(
@@ -591,6 +632,10 @@ object LibConfig {
           Doc.text(
             show"previous version was $prevVersion require $minimumValid to accept the API changes"
           )
+        case MissingExpectedPrevious(desc: proto.LibDescriptor) =>
+          Doc.text(
+            s"no previous library binary found, but config expects ${desc}"
+          )
       }
 
     implicit val showError: cats.Show[Error] =
@@ -649,6 +694,7 @@ object LibConfig {
       name = name,
       repoUri = repoUri,
       nextVersion = ver,
+      previous = None,
       Nil,
       Nil,
       Nil,
@@ -906,6 +952,10 @@ object LibConfig {
         ("name" -> write(name)) ::
           ("repo_uri" -> write(repoUri)) ::
           ("next_version" -> write(nextVersion)) ::
+          (previous match {
+            case None    => Nil
+            case Some(p) => ("previous" -> write(p)) :: Nil
+          }) :::
           ("exported_packages" -> write(exportedPackages)) ::
           ("all_packages" -> write(allPackages)) ::
           (if (publicDeps.isEmpty) Nil
@@ -925,6 +975,7 @@ object LibConfig {
           name <- from.field[Name]("name")
           repoUri <- from.field[String]("repo_uri")
           nextVersion <- from.field[Version]("next_version")
+          previous <- from.optional[proto.LibDescriptor]("previous")
           exportedPackages <- from.field[List[PackageFilter]](
             "exported_packages"
           )
@@ -937,6 +988,7 @@ object LibConfig {
           name = name,
           repoUri = repoUri,
           nextVersion = nextVersion,
+          previous = previous,
           exportedPackages = exportedPackages,
           allPackages = allPackages,
           publicDeps = publicDeps.toList.flatten,

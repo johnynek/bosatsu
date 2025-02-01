@@ -159,15 +159,19 @@ object Command {
             namePath <- optName match {
               case None =>
                 // there must be only one library
-                if (libs.toMap.size == 1) {
+                val libSize = libs.toMap.size
+                if (libSize == 1) {
                   val (name, pathStr) = libs.toMap.head
                   platformIO.pathF(pathStr).map((name, _))
                 } else {
-                  moduleIOMonad.raiseError(
-                    CliException.Basic(
-                      show"more than one library, select one: ${libs.toMap.keys.toList.sorted}"
-                    )
-                  )
+                  val msg =
+                    if (libSize == 0) {
+                      "no libraries configured. Run `lib init`"
+                    } else {
+                      show"more than one library, select one: ${libs.toMap.keys.toList.sorted.mkString(", ")}"
+                    }
+
+                  moduleIOMonad.raiseError(CliException.Basic(msg))
                 }
               case Some(value) =>
                 // make sure this name exists
@@ -294,6 +298,11 @@ object Command {
             (gitRoot, name, confPath) = pnp
             conf <- readLibConf(name, confPath)
             cas = new Cas(casDirFn(gitRoot), platformIO)
+            _ <- conf.previous.traverse_ { desc =>
+              cas.fetchIfNeeded(
+                proto.LibDependency(name = conf.name.name, desc = Some(desc))
+              )
+            }
             msg <- cas.fetchAllDeps(conf.publicDeps ::: conf.privateDeps)
           } yield (Output.Basic(msg, None): Output[P])
         }
@@ -334,7 +343,24 @@ object Command {
           case None =>
             moduleIOMonad.pure(Nil)
         }
-        prevThis = None // TODO
+        prevThis <- conf.previous.traverse { desc =>
+          cas
+            .libFromCas(
+              proto.LibDependency(name = conf.name.name, desc = Some(desc))
+            )
+            .flatMap {
+              case Some(a) => DecodedLibrary.decode(a)
+              case None =>
+                moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
+                  CliException(
+                    "previous not in cas",
+                    Doc.text(
+                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
+                    )
+                  )
+                )
+            }
+        }
         validated = conf.validate(
           prevThis,
           allPacks,
