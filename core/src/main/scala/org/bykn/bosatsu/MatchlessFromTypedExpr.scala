@@ -5,11 +5,11 @@ import Identifier.Bindable
 import cats.implicits._
 
 object MatchlessFromTypedExpr {
-  type Compiled = Map[PackageName, List[(Bindable, Matchless.Expr[Unit])]]
+  type Compiled[+A] = Map[PackageName, List[(Bindable, Matchless.Expr[A])]]
   // compile a set of packages given a set of external remappings
   def compile[A](
       pm: PackageMap.Typed[A]
-  )(implicit ec: Par.EC): Compiled = {
+  )(implicit ec: Par.EC): Compiled[Unit] = {
 
     val gdr = pm.getDataRepr
 
