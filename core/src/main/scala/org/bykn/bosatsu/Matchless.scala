@@ -280,8 +280,9 @@ object Matchless {
 
   private[this] val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private[this] val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
-  private[this] val reverseFn =
-    Global[Nothing](???, PackageName.PredefName, Identifier.Name("reverse"))
+  private[this] val revName = Identifier.Name("reverse")
+  private[this] def reverseFn[A](from: A) =
+    Global[A](from, PackageName.PredefName, revName)
 
   // drop all items in the tail after the first time fn returns true
   // as a result, we have 0 or 1 items where fn is true in the result
@@ -919,7 +920,10 @@ object Matchless {
                             optAnonLeft match {
                               case Some((anonLeft, ln)) =>
                                 val revList =
-                                  App(reverseFn, NonEmptyList.one(anonLeft))
+                                  App(
+                                    reverseFn(from),
+                                    NonEmptyList.one(anonLeft)
+                                  )
                                 (
                                   anonLeft :: letTail,
                                   Some(anonLeft),
