@@ -105,7 +105,10 @@ object TestUtils {
   def checkMatchless[A](
       statement: String
   )(
-      fn: Map[PackageName, List[(Identifier.Bindable, Matchless.Expr)]] => A
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {

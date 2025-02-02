@@ -431,7 +431,7 @@ object PythonGen {
 
   /** Remap is used to handle remapping external values
     */
-  private def apply(packName: PackageName, name: Bindable, me: Expr)(
+  private def apply(packName: PackageName, name: Bindable, me: Expr[Unit])(
       remap: (PackageName, Bindable) => Env[Option[ValueLike]]
   ): Env[Statement] = {
     val ops = new Impl.Ops(packName, remap)
@@ -444,11 +444,11 @@ object PythonGen {
         for {
           nm <- Env.topLevelName(name)
           res <- inner match {
-            case fn: FnExpr => ops.topFn(nm, fn, None)
-            case _          => ops.loop(inner, None).map(nm := _)
+            case fn: FnExpr[Unit] => ops.topFn(nm, fn, None)
+            case _                => ops.loop(inner, None).map(nm := _)
           }
         } yield res
-      case fn: FnExpr =>
+      case fn: FnExpr[Unit] =>
         for {
           nm <- Env.topLevelName(name)
           res <- ops.topFn(nm, fn, None)
@@ -587,7 +587,7 @@ object PythonGen {
 
   // compile a set of packages given a set of external remappings
   def renderAll(
-      pm: Map[PackageName, List[(Bindable, Expr)]],
+      pm: Map[PackageName, List[(Bindable, Expr[Unit])]],
       externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
       tests: Map[PackageName, Bindable],
       evaluators: Map[PackageName, (Bindable, Module, Code.Ident)]
@@ -1098,11 +1098,11 @@ object PythonGen {
           }
 
       def unapply(
-          expr: Expr
+          expr: Expr[Unit]
       ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
-          case Global(PackageName.PredefName, name) => results.get(name)
-          case _                                    => None
+          case Global(_, PackageName.PredefName, name) => results.get(name)
+          case _                                       => None
         }
 
       def makeLambda(
@@ -1178,7 +1178,10 @@ object PythonGen {
         makeLam(ce.arity - sz, args)
       }
 
-      def boolExpr(ix: BoolExpr, slotName: Option[Code.Ident]): Env[ValueLike] =
+      def boolExpr(
+          ix: BoolExpr[Unit],
+          slotName: Option[Code.Ident]
+      ): Env[ValueLike] =
         ix match {
           case EqualsLit(expr, lit) =>
             val literal = Code.litToExpr(lit)
@@ -1621,7 +1624,7 @@ object PythonGen {
       // if expr is a Lambda handle it
       def topFn(
           name: Code.Ident,
-          expr: FnExpr,
+          expr: FnExpr[Unit],
           slotName: Option[Code.Ident]
       ): Env[Statement] =
         expr match {
@@ -1639,7 +1642,10 @@ object PythonGen {
               } <* args.traverse_(Env.unbind(_))
         }
 
-      def makeSlots[A](captures: List[Expr], slotName: Option[Code.Ident])(
+      def makeSlots[A](
+          captures: List[Expr[Unit]],
+          slotName: Option[Code.Ident]
+      )(
           fn: Option[Code.Ident] => Env[A]
       ): Env[(Option[Statement], A)] =
         if (captures.isEmpty) fn(None).map((None, _))
@@ -1654,7 +1660,7 @@ object PythonGen {
 
       def doLet(
           name: Either[LocalAnon, Bindable],
-          value: Expr,
+          value: Expr[Unit],
           inF: Env[ValueLike],
           slotName: Option[Code.Ident]
       ): Env[ValueLike] =
@@ -1674,7 +1680,7 @@ object PythonGen {
                 inF.map((bi := vE).withValue(_))
               }
         }
-      def loop(expr: Expr, slotName: Option[Code.Ident]): Env[ValueLike] =
+      def loop(expr: Expr[Unit], slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
           case Lambda(captures, recName, args, res) =>
             val defName = recName match {
@@ -1721,7 +1727,7 @@ object PythonGen {
           case PredefExternal((fn, arity)) =>
             // make a lambda
             PredefExternal.makeLambda(arity)(fn)
-          case Global(p, n) =>
+          case Global(_, p, n) =>
             remap(p, n)
               .flatMap {
                 case Some(v) => Env.pure(v)
@@ -1769,7 +1775,7 @@ object PythonGen {
                   // $COVERAGE-ON$
                 }
             }.flatten
-          case Let(localOrBind, fn: FnExpr, in) =>
+          case Let(localOrBind, fn: FnExpr[Unit], in) =>
             val inF = loop(in, slotName)
 
             localOrBind match {
