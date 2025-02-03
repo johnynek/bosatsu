@@ -21,7 +21,7 @@ class ClangGenTest extends munit.FunSuite {
     println(exCode.render(80))
     sys.error("stop")
      */
-    val matchlessMap = MatchlessFromTypedExpr.compile(pm)
+    val matchlessMap = MatchlessFromTypedExpr.compile((), pm)
     val topoSort = pm.topoSort.toSuccess.get
     val sortedEnv =
       cats.Functor[Vector].compose[NonEmptyList].map(topoSort) { pn =>

@@ -89,7 +89,7 @@ class PythonGenTest extends AnyFunSuite {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
 
     val bosatsuPM = compileFile(natPathBosatu)
-    val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
+    val matchless = MatchlessFromTypedExpr.compile((), bosatsuPM)
 
     val packMap =
       PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
@@ -148,7 +148,7 @@ class PythonGenTest extends AnyFunSuite {
       val intr = new PythonInterpreter()
 
       val bosatsuPM = compileFile(path)
-      val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
+      val matchless = MatchlessFromTypedExpr.compile((), bosatsuPM)
 
       val packMap =
         PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
