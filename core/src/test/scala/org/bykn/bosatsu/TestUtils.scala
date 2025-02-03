@@ -131,7 +131,7 @@ object TestUtils {
         val srv = Par.newService()
         try {
           implicit val ec = Par.ecFromService(srv)
-          val comp = MatchlessFromTypedExpr.compile(pm)
+          val comp = MatchlessFromTypedExpr.compile((), pm)
           fn(comp)
         } finally Par.shutdownService(srv)
     }

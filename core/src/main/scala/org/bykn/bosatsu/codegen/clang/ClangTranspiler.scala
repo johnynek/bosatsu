@@ -315,7 +315,7 @@ case object ClangTranspiler extends Transpiler {
                 validMain(t) match {
                   case Right(mainRun) =>
                     val pm1 = args.emit(pm, Set((p, b)))
-                    val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
+                    val matchlessMap = MatchlessFromTypedExpr.compile((), pm1)
                     val sortedEnv = cats
                       .Functor[Vector]
                       .compose[NonEmptyList]
@@ -344,7 +344,7 @@ case object ClangTranspiler extends Transpiler {
                 )
               case nonEmpty =>
                 val pm1 = args.emit(pm, nonEmpty.toSet)
-                val matchlessMap = MatchlessFromTypedExpr.compile(pm1)
+                val matchlessMap = MatchlessFromTypedExpr.compile((), pm1)
                 val sortedEnv = cats
                   .Functor[Vector]
                   .compose[NonEmptyList]

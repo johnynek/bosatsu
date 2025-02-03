@@ -56,14 +56,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         .run
         .value
 
-    val evalFn: (PackageName, Identifier) => Eval[Value] = { (p, i) =>
+    val evalFn: (Unit, PackageName, Identifier) => Eval[Value] = { (_, p, i) =>
       if (p == thisPack) Eval.defer(evaluate(p)(i))
       else evaluate(p)(i)
     }
 
     type F[A] = List[(Bindable, A)]
     val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
-    MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
+    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(ffunc)
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =
