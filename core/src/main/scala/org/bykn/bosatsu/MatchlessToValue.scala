@@ -15,7 +15,7 @@ object MatchlessToValue {
 
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](
-      me: F[Expr]
+      me: F[Expr[Unit]]
   )(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
@@ -208,7 +208,7 @@ object MatchlessToValue {
 
     class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
-      private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
+      private def boolExpr(ix: BoolExpr[Unit]): Scoped[Boolean] =
         ix match {
           case EqualsLit(expr, lit) =>
             val litAny = lit.unboxToAny
@@ -300,7 +300,7 @@ object MatchlessToValue {
         }
 
       // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr): Scoped[Value] =
+      def loop(me: Expr[Unit]): Scoped[Value] =
         me match {
           case Lambda(Nil, None, args, res) =>
             val resFn = loop(res)
@@ -360,7 +360,7 @@ object MatchlessToValue {
               }
               scope.muts(result.ident).get()
             }
-          case Global(p, n) =>
+          case Global(_, p, n) =>
             val res = resolve(p, n)
 
             // this has to be lazy because it could be

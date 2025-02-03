@@ -43,13 +43,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       thisPack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[T])]
   ): List[(Bindable, Eval[Value])] = {
-    val exprs: List[(Bindable, Matchless.Expr)] =
+    val exprs: List[(Bindable, Matchless.Expr[Unit])] =
       rankn.RefSpace.allocCounter
         .flatMap { c =>
           lets
             .traverse { case (name, rec, te) =>
               Matchless
-                .fromLet(name, rec, te, gdr, c)
+                .fromLet((), name, rec, te, gdr, c)
                 .map((name, _))
             }
         }

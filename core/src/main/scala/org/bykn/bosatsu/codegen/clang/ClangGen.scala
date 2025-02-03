@@ -30,7 +30,8 @@ object ClangGen {
 
   object Error {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
-    case class InvariantViolation(message: String, expr: Expr) extends Error
+    case class InvariantViolation(message: String, expr: Expr[Any])
+        extends Error
     case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)])
         extends Error
     case class ExpectedStaticString(str: String) extends Error
@@ -162,7 +163,9 @@ object ClangGen {
 
   private def renderDeps(
       env: Impl.Env,
-      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]]
+      sortedEnv: Vector[
+        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
+      ]
   ): env.T[Unit] = {
     import env._
 
@@ -178,7 +181,9 @@ object ClangGen {
   // the Code.Ident should be a function with signature:
   // int run_main(BValue main_value, int argc, char** args)
   def renderMain(
-      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
+      sortedEnv: Vector[
+        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
+      ],
       externals: ExternalResolver,
       value: (PackageName, Bindable, Code.Ident)
   ): Either[Error, Doc] = {
@@ -202,7 +207,9 @@ object ClangGen {
   }
 
   def renderTests(
-      sortedEnv: Vector[NonEmptyList[(PackageName, List[(Bindable, Expr)])]],
+      sortedEnv: Vector[
+        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
+      ],
       externals: ExternalResolver,
       values: List[(PackageName, Bindable)]
   ): Either[Error, Doc] = {
@@ -231,7 +238,7 @@ object ClangGen {
     Code.Ident(Idents.escape("___bsts_g_", fullName(p, b)))
 
   private object Impl {
-    type AllValues = Map[(PackageName, Bindable), (Expr, Code.Ident)]
+    type AllValues = Map[(PackageName, Bindable), (Expr[Unit], Code.Ident)]
 
     trait Env {
       import Matchless._
@@ -268,7 +275,7 @@ object ClangGen {
       def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
 
-      def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident]
+      def cachedIdent(key: Expr[Unit])(value: => T[Code.Ident]): T[Code.Ident]
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -339,7 +346,7 @@ object ClangGen {
 
       def handleLet(
           name: Either[LocalAnon, Bindable],
-          argV: Expr,
+          argV: Expr[Unit],
           in: T[Code.ValueLike]
       ): T[Code.ValueLike] =
         name match {
@@ -376,7 +383,7 @@ object ClangGen {
               }
         }
       // The type of this value must be a C _Bool
-      def boolToValue(boolExpr: BoolExpr): T[Code.ValueLike] =
+      def boolToValue(boolExpr: BoolExpr[Unit]): T[Code.ValueLike] =
         boolExpr match {
           case EqualsLit(expr, lit) =>
             innerToValue(expr).flatMap { vl =>
@@ -862,7 +869,7 @@ object ClangGen {
 
       // We have to lift functions to the top level and not
       // create any nesting
-      def innerFn(fn: FnExpr): T[Code.ValueLike] = {
+      def innerFn(fn: FnExpr[Unit]): T[Code.ValueLike] = {
         val nameSuffix = fn.recursiveName match {
           case None    => ""
           case Some(n) => Idents.escape("_", n.asString)
@@ -953,9 +960,9 @@ object ClangGen {
           case Lit.Str(toStr) => StringApi.fromString(toStr)
         }
 
-      def innerApp(app: App): T[Code.ValueLike] =
+      def innerApp(app: App[Unit]): T[Code.ValueLike] =
         app match {
-          case App(Global(pack, fnName), args) =>
+          case App(Global(_, pack, fnName), args) =>
             directFn(pack, fnName).flatMap {
               case Some((ident, _)) =>
                 // directly invoke instead of by treating them like lambdas
@@ -1043,13 +1050,13 @@ object ClangGen {
             }
         }
 
-      def innerToValue(expr: Expr): T[Code.ValueLike] =
+      def innerToValue(expr: Expr[Unit]): T[Code.ValueLike] =
         expr match {
-          case fn: FnExpr => innerFn(fn)
+          case fn: FnExpr[Unit] => innerFn(fn)
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _) => innerApp(app)
-          case Global(pack, name) =>
+          case Global(_, pack, name) =>
             directFn(pack, name)
               .flatMap {
                 case Some((ident, arity)) =>
@@ -1205,7 +1212,7 @@ object ClangGen {
               }
         }
 
-      def fnStatement(fnName: Code.Ident, fn: FnExpr): T[Code.Statement] =
+      def fnStatement(fnName: Code.Ident, fn: FnExpr[Unit]): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
@@ -1244,10 +1251,10 @@ object ClangGen {
             }
         })
 
-      def renderTop(p: PackageName, b: Bindable, expr: Expr): T[Unit] =
+      def renderTop(p: PackageName, b: Bindable, expr: Expr[Unit]): T[Unit] =
         inTop(p, b) {
           expr match {
-            case fn: FnExpr =>
+            case fn: FnExpr[Unit] =>
               for {
                 fnName <- globalIdent(p, b)
                 stmt <- fnStatement(fnName, fn)
@@ -1368,7 +1375,7 @@ object ClangGen {
               currentTop: Option[(PackageName, Bindable)],
               binds: Map[Bindable, BindState],
               counter: Long,
-              identCache: Map[Expr, Code.Ident]
+              identCache: Map[Expr[Unit], Code.Ident]
           ) {
             def finalFile: Doc =
               Doc.intercalate(
@@ -1568,7 +1575,7 @@ object ClangGen {
             StateT { s =>
               val key = (pack, b)
               s.allValues.get(key) match {
-                case Some((fn: Matchless.FnExpr, ident)) =>
+                case Some((fn: Matchless.FnExpr[Unit], ident)) =>
                   result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external
@@ -1726,7 +1733,9 @@ object ClangGen {
               )
             }
 
-          def cachedIdent(key: Expr)(value: => T[Code.Ident]): T[Code.Ident] =
+          def cachedIdent(
+              key: Expr[Unit]
+          )(value: => T[Code.Ident]): T[Code.Ident] =
             StateT { s =>
               s.identCache.get(key) match {
                 case Some(ident) => result(s, ident)
