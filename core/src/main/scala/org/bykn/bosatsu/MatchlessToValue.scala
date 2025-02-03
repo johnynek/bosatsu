@@ -14,9 +14,9 @@ object MatchlessToValue {
   import Matchless._
 
   // reuse some cache structures across a number of calls
-  def traverse[F[_]: Functor](
-      me: F[Expr[Unit]]
-  )(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
+  def traverse[F[_]: Functor, A](
+      me: F[Expr[A]]
+  )(resolve: (A, PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
       env.loop(expr)
@@ -28,41 +28,42 @@ object MatchlessToValue {
     }
   }
 
-  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-  private[this] val succNat: Value = {
-    def inc(v: Value): Value = {
-      val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
-      ExternalValue(bi.add(BigInteger.ONE))
-    }
-    FnValue { case NonEmptyList(a, _) => inc(a) }
-  }
-
-  def makeCons(c: ConsExpr): Value =
-    c match {
-      case MakeEnum(variant, arity, _) =>
-        if (arity == 0) SumValue(variant, UnitValue)
-        else if (arity == 1) {
-          FnValue { case NonEmptyList(v, _) =>
-            SumValue(variant, ProductValue.single(v))
-          }
-        } else
-          // arity > 1
-          FnValue { args =>
-            val prod = ProductValue.fromList(args.toList)
-            SumValue(variant, prod)
-          }
-      case MakeStruct(arity) =>
-        if (arity == 0) UnitValue
-        else if (arity == 1) FnValue.identity
-        else
-          FnValue { args =>
-            ProductValue.fromList(args.toList)
-          }
-      case ZeroNat => zeroNat
-      case SuccNat => succNat
-    }
-
   private object Impl {
+
+    private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
+    private[this] val succNat: Value = {
+      def inc(v: Value): Value = {
+        val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
+        ExternalValue(bi.add(BigInteger.ONE))
+      }
+      FnValue { case NonEmptyList(a, _) => inc(a) }
+    }
+
+    def makeCons(c: ConsExpr): Value =
+      c match {
+        case MakeEnum(variant, arity, _) =>
+          if (arity == 0) SumValue(variant, UnitValue)
+          else if (arity == 1) {
+            FnValue { case NonEmptyList(v, _) =>
+              SumValue(variant, ProductValue.single(v))
+            }
+          } else
+            // arity > 1
+            FnValue { args =>
+              val prod = ProductValue.fromList(args.toList)
+              SumValue(variant, prod)
+            }
+        case MakeStruct(arity) =>
+          if (arity == 0) UnitValue
+          else if (arity == 1) FnValue.identity
+          else
+            FnValue { args =>
+              ProductValue.fromList(args.toList)
+            }
+        case ZeroNat => zeroNat
+        case SuccNat => succNat
+      }
+
     case object Uninitialized
     val uninit: Value = ExternalValue(Uninitialized)
 
@@ -206,9 +207,9 @@ object MatchlessToValue {
         }
     }
 
-    class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
+    class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
-      private def boolExpr(ix: BoolExpr[Unit]): Scoped[Boolean] =
+      private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
           case EqualsLit(expr, lit) =>
             val litAny = lit.unboxToAny
@@ -300,7 +301,7 @@ object MatchlessToValue {
         }
 
       // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr[Unit]): Scoped[Value] =
+      def loop(me: Expr[F]): Scoped[Value] =
         me match {
           case Lambda(Nil, None, args, res) =>
             val resFn = loop(res)
@@ -360,8 +361,8 @@ object MatchlessToValue {
               }
               scope.muts(result.ident).get()
             }
-          case Global(_, p, n) =>
-            val res = resolve(p, n)
+          case Global(f, p, n) =>
+            val res = resolve(f, p, n)
 
             // this has to be lazy because it could be
             // in this package, which isn't complete yet

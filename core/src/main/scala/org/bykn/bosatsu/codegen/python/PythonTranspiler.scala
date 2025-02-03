@@ -70,7 +70,7 @@ case object PythonTranspiler extends Transpiler {
 
     import args.platformIO._
 
-    val cmp = MatchlessFromTypedExpr.compile(pm)
+    val cmp = MatchlessFromTypedExpr.compile((), pm)
     args.read.flatMap { case (externals, evaluators) =>
       moduleIOMonad.fromTry(Try {
         val parsedExt =
