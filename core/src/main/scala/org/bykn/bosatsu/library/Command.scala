@@ -597,20 +597,55 @@ object Command {
                   libFromCas(dep)
                 }
                 .map { fetchedLibsOpt =>
-                  val fetchedDeps = fetchedLibsOpt.flatMap {
+                  fetchedLibsOpt.flatMap {
                     case None      => Nil
                     case Some(dep) =>
                       // we will find the transitivies by walking them
-                      dep.arg.publicDependencies.toList ::: dep.arg.privateDependencies.toList
+                      (dep.arg.publicDependencies.toList ::: dep.arg.privateDependencies.toList)
+                        .filterNot { dep =>
+                          nextFetched.contains((dep.name, versionOf(dep)))
+                        }
                   }
 
-                  fetchedDeps.filterNot { dep =>
-                    nextFetched.contains((dep.name, versionOf(dep)))
-                  }
                 }
 
             nextBatchF.map((nextFetched, _))
           }
+
+      def showFetchState(fs: FetchState): F[Doc] = {
+        val depStr = if (fs.size == 1) "dependency" else "dependencies"
+        val header = Doc.text(s"fetched ${fs.size} transitive ${depStr}.")
+
+        val resultDoc = header + Doc.line + Doc.intercalate(
+          Doc.hardLine,
+          fs.toList.map { case ((n, v), hashes) =>
+            val sortedHashes = hashes.toList.sortBy(_._1.toIdent)
+            val hashDoc = Doc.intercalate(
+              Doc.comma + Doc.line,
+              sortedHashes.map { case (wh, msg) =>
+                val ident = wh.toIdent
+                msg match {
+                  case Right(true)  => Doc.text(show"fetched $ident")
+                  case Right(false) => Doc.text(show"cached $ident")
+                  case Left(err) =>
+                    Doc.text(show"failed: $ident ${err.getMessage}")
+                }
+              }
+            )
+
+            Doc.text(show"$n $v:") + (Doc.line + hashDoc).nested(4).grouped
+          }
+        )
+
+        val success = fs.forall { case (_, dl) =>
+          dl.forall { case (_, res) => res.isRight }
+        }
+        if (success) moduleIOMonad.pure(resultDoc)
+        else
+          moduleIOMonad.raiseError(
+            CliException("failed to fetch", err = resultDoc)
+          )
+      }
 
       moduleIOMonad
         .tailRecM((SortedMap.empty: FetchState, deps)) { case (fetched, deps) =>
@@ -619,40 +654,7 @@ object Command {
             case next         => Left(next)
           }
         }
-        .flatMap { fs =>
-          val depStr = if (fs.size == 1) "dependency" else "dependencies"
-          val header = Doc.text(s"fetched ${fs.size} transitive ${depStr}.")
-
-          val resultDoc = header + Doc.line + Doc.intercalate(
-            Doc.hardLine,
-            fs.toList.map { case ((n, v), hashes) =>
-              val sortedHashes = hashes.toList.sortBy(_._1.toIdent)
-              val hashDoc = Doc.intercalate(
-                Doc.comma + Doc.line,
-                sortedHashes.map { case (wh, msg) =>
-                  val ident = wh.toIdent
-                  msg match {
-                    case Right(true)  => Doc.text(show"fetched $ident")
-                    case Right(false) => Doc.text(show"cached $ident")
-                    case Left(err) =>
-                      Doc.text(show"failed: $ident ${err.getMessage}")
-                  }
-                }
-              )
-
-              Doc.text(show"$n $v:") + (Doc.line + hashDoc).nested(4).grouped
-            }
-          )
-
-          val success = fs.forall { case (_, dl) =>
-            dl.forall { case (_, res) => res.isRight }
-          }
-          if (success) moduleIOMonad.pure(resultDoc)
-          else
-            moduleIOMonad.raiseError(
-              CliException("failed to fetch", err = resultDoc)
-            )
-        }
+        .flatMap(showFetchState(_))
     }
   }
 }
