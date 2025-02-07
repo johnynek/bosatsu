@@ -8,11 +8,13 @@ import org.bykn.bosatsu.codegen.Idents
 import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
+import scala.collection.immutable.SortedMap
 
 import Identifier.Bindable
 import Matchless._
 
 import cats.implicits._
+import org.bykn.bosatsu.codegen.CompilationNamespace
 
 object PythonGen {
   import Code.{ValueLike, Statement, Expression}
@@ -202,8 +204,8 @@ object PythonGen {
           Code.Ident(s"___t$long")
         }
 
-    def importPackage(pack: PackageName): Env[Code.Ident] =
-      importEscape(pack.parts)
+    def importPackage(ident: NonEmptyList[String]): Env[Code.Ident] =
+      importEscape(ident)
 
     def importEscape(parts: NonEmptyList[String]): Env[Code.Ident] =
       importLiteral(parts.map(escapeModule))
@@ -431,10 +433,15 @@ object PythonGen {
 
   /** Remap is used to handle remapping external values
     */
-  private def apply(packName: PackageName, name: Bindable, me: Expr[Unit])(
+  private def stmtOf[K](
+      packName: PackageName,
+      name: Bindable,
+      me: Expr[K],
+      ns: CompilationNamespace[K]
+  )(
       remap: (PackageName, Bindable) => Env[Option[ValueLike]]
   ): Env[Statement] = {
-    val ops = new Impl.Ops(packName, remap)
+    val ops = new Impl.Ops(packName, remap, ns)
 
     // if we have a top level let rec with the same name, handle it more cleanly
     me match {
@@ -444,11 +451,11 @@ object PythonGen {
         for {
           nm <- Env.topLevelName(name)
           res <- inner match {
-            case fn: FnExpr[Unit] => ops.topFn(nm, fn, None)
-            case _                => ops.loop(inner, None).map(nm := _)
+            case fn: FnExpr[K] => ops.topFn(nm, fn, None)
+            case _             => ops.loop(inner, None).map(nm := _)
           }
         } yield res
-      case fn: FnExpr[Unit] =>
+      case fn: FnExpr[K] =>
         for {
           nm <- Env.topLevelName(name)
           res <- ops.topFn(nm, fn, None)
@@ -586,12 +593,12 @@ object PythonGen {
     ) <* Parser.maybeSpacesAndLines
 
   // compile a set of packages given a set of external remappings
-  def renderAll(
-      pm: Map[PackageName, List[(Bindable, Expr[Unit])]],
+  def renderAll[K](
+      pm: SortedMap[K, Map[PackageName, List[(Bindable, Expr[K])]]],
       externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
-      tests: Map[PackageName, Bindable],
-      evaluators: Map[PackageName, (Bindable, Module, Code.Ident)]
-  )(implicit ec: Par.EC): Map[PackageName, (Module, Doc)] = {
+      evaluators: Map[PackageName, (Bindable, Module, Code.Ident)],
+      ns: CompilationNamespace[K]
+  )(implicit ec: Par.EC): SortedMap[K, Map[PackageName, (Module, Doc)]] = {
 
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] = {
       (p, b) =>
@@ -604,43 +611,52 @@ object PythonGen {
         }
     }
 
-    val all = pm.toList
-      .traverse { case (p, lets) =>
-        Par.start {
-          val stmts0: Env[List[Statement]] =
-            lets
-              .traverse { case (b, x) =>
-                apply(p, b, x)(externalRemap)
+    val all = pm.transform { (k, pm) =>
+      val testsK =
+        if (ns.isRoot(k)) ns.testValues else Map.empty[PackageName, Nothing]
+      val evaluatorsK =
+        if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
+
+      pm.toList
+        .traverse { case (p, lets) =>
+          Par.start {
+            val stmts0: Env[List[Statement]] =
+              lets
+                .traverse { case (b, x) =>
+                  stmtOf(p, b, x, ns)(externalRemap)
+                }
+
+            val evalStmt: Env[Option[Statement]] =
+              evaluatorsK.get(p).traverse { case (b, m, c) =>
+                addMainEval(b, m, c)
               }
 
-          val evalStmt: Env[Option[Statement]] =
-            evaluators.get(p).traverse { case (b, m, c) =>
-              addMainEval(b, m, c)
-            }
+            val testStmt: Env[Option[Statement]] =
+              testsK.get(p).traverse(addUnitTest)
 
-          val testStmt: Env[Option[Statement]] =
-            tests.get(p).traverse(addUnitTest)
+            val stmts = (stmts0, testStmt, evalStmt)
+              .mapN { (s, optT, optM) =>
+                s :++ optT.toList :++ optM.toList
+              }
 
-          val stmts = (stmts0, testStmt, evalStmt)
-            .mapN { (s, optT, optM) =>
-              s :++ optT.toList :++ optM.toList
-            }
+            def modName(p: NonEmptyList[String]): Module =
+              p match {
+                case NonEmptyList(h, Nil) =>
+                  val Code.Ident(m) = escapeModule(h)
 
-          def modName(p: NonEmptyList[String]): Module =
-            p match {
-              case NonEmptyList(h, Nil) =>
-                val Code.Ident(m) = escapeModule(h)
+                  NonEmptyList.one(Code.Ident(m + ".py"))
+                case NonEmptyList(h, t1 :: t2) =>
+                  escapeModule(h) :: modName(NonEmptyList(t1, t2))
+              }
 
-                NonEmptyList.one(Code.Ident(m + ".py"))
-              case NonEmptyList(h, t1 :: t2) =>
-                escapeModule(h) :: modName(NonEmptyList(t1, t2))
-            }
-
-          (p, (modName(p.parts), Env.render(stmts)))
+            (p, (modName(ns.identOf(k, p)), Env.render(stmts)))
+          }
         }
-      }
+    }.sequence
 
-    Par.await(all).toMap
+    Par
+      .await(all)
+      .transform((_, vs) => vs.toMap)
   }
 
   // These are values replaced with python operations
@@ -1118,9 +1134,10 @@ object PythonGen {
         } yield res
     }
 
-    class Ops(
+    class Ops[K](
         packName: PackageName,
-        remap: (PackageName, Bindable) => Env[Option[ValueLike]]
+        remap: (PackageName, Bindable) => Env[Option[ValueLike]],
+        ns: CompilationNamespace[K]
     ) {
       /*
        * enums with no fields are integers
@@ -1179,7 +1196,7 @@ object PythonGen {
       }
 
       def boolExpr(
-          ix: BoolExpr[Unit],
+          ix: BoolExpr[K],
           slotName: Option[Code.Ident]
       ): Env[ValueLike] =
         ix match {
@@ -1624,7 +1641,7 @@ object PythonGen {
       // if expr is a Lambda handle it
       def topFn(
           name: Code.Ident,
-          expr: FnExpr[Unit],
+          expr: FnExpr[K],
           slotName: Option[Code.Ident]
       ): Env[Statement] =
         expr match {
@@ -1643,7 +1660,7 @@ object PythonGen {
         }
 
       def makeSlots[A](
-          captures: List[Expr[Unit]],
+          captures: List[Expr[K]],
           slotName: Option[Code.Ident]
       )(
           fn: Option[Code.Ident] => Env[A]
@@ -1660,7 +1677,7 @@ object PythonGen {
 
       def doLet(
           name: Either[LocalAnon, Bindable],
-          value: Expr[Unit],
+          value: Expr[K],
           inF: Env[ValueLike],
           slotName: Option[Code.Ident]
       ): Env[ValueLike] =
@@ -1680,7 +1697,7 @@ object PythonGen {
                 inF.map((bi := vE).withValue(_))
               }
         }
-      def loop(expr: Expr[Unit], slotName: Option[Code.Ident]): Env[ValueLike] =
+      def loop(expr: Expr[K], slotName: Option[Code.Ident]): Env[ValueLike] =
         expr match {
           case Lambda(captures, recName, args, res) =>
             val defName = recName match {
@@ -1727,7 +1744,7 @@ object PythonGen {
           case PredefExternal((fn, arity)) =>
             // make a lambda
             PredefExternal.makeLambda(arity)(fn)
-          case Global(_, p, n) =>
+          case Global(k, p, n) =>
             remap(p, n)
               .flatMap {
                 case Some(v) => Env.pure(v)
@@ -1736,7 +1753,8 @@ object PythonGen {
                     // This is just a name in the local package
                     Env.topLevelName(n)
                   } else {
-                    (Env.importPackage(p), Env.topLevelName(n))
+                    val ident = ns.globalIdent(k, p)
+                    (Env.importPackage(ident), Env.topLevelName(n))
                       .mapN(Code.DotSelect(_, _))
                   }
               }
@@ -1775,7 +1793,7 @@ object PythonGen {
                   // $COVERAGE-ON$
                 }
             }.flatten
-          case Let(localOrBind, fn: FnExpr[Unit], in) =>
+          case Let(localOrBind, fn: FnExpr[K], in) =>
             val inF = loop(in, slotName)
 
             localOrBind match {

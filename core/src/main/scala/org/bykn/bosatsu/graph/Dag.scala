@@ -35,7 +35,8 @@ sealed trait Dag[A] {
         NonEmptyList.fromListUnsafe(layerMap(idx).toList)
       }
       .to(Vector)
-    Toposort.Success(ls, deps(_).toList)
+
+    Toposort.Success(ls)
   }
 
   override def equals(that: Any) =
@@ -132,14 +133,6 @@ object Dag {
 
     (clusterMap.get(_), dag)
   }
-
-  def fromToposorted[A: Ordering](s: Toposort.Success[A]): Dag[A] =
-    new Dag[A] {
-      val nodes = s.layers.iterator.flatMap(nel => nel.toList).to(SortedSet)
-      val depCache = MMap.empty[A, SortedSet[A]]
-      def deps(a: A): SortedSet[A] =
-        depCache.getOrElseUpdate(a, s.nfn(a).to(SortedSet))
-    }
 
   def transitiveSet[A: Ordering](
       nodes: List[A]

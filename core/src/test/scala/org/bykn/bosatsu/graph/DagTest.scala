@@ -98,7 +98,7 @@ class DagTest extends AnyFunSuite {
 
       // if we toposort a dag, we always succeed
       implicit val setOrd = ListOrdering.byIterator[SortedSet[Int], Int]
-      val sortRes @ Toposort.Success(_, _) = Toposort.sort(dag.nodes) { n =>
+      val sortRes @ Toposort.Success(_) = Toposort.sort(dag.nodes) { n =>
         dag.deps(n).toList
       }
       assert(sortRes.isSuccess)
@@ -108,7 +108,6 @@ class DagTest extends AnyFunSuite {
         }
       }
       assert(dag.layers == sortRes.layers.length)
-      assert(Dag.fromToposorted(sortRes) === dag)
       assert(sortRes.layers == dag.toToposorted.layers)
 
       // if we dagify again we get singletons:
