@@ -604,17 +604,17 @@ object PythonGen {
       ec: Par.EC
   ): SortedMap[CS.ScopeKey, Map[PackageName, (Module, Doc)]] = {
     val ns = CS.namespace(src)
-    renderAll(ns.compiled, externals, evaluators, ns)
+    renderAll(ns, externals, evaluators)
   }
 
   // compile a set of packages given a set of external remappings
   def renderAll[K](
-      pm: SortedMap[K, Map[PackageName, List[(Bindable, Expr[K])]]],
+      ns: CompilationNamespace[K],
       externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
-      evaluators: Map[PackageName, (Bindable, Module, Code.Ident)],
-      ns: CompilationNamespace[K]
+      evaluators: Map[PackageName, (Bindable, Module, Code.Ident)]
   )(implicit ec: Par.EC): SortedMap[K, Map[PackageName, (Module, Doc)]] = {
 
+    val pm = ns.compiled
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] = {
       (p, b) =>
         externals.get((p, b)) match {

@@ -115,9 +115,8 @@ case object PythonTranspiler extends Transpiler {
           def toPath(ns: NonEmptyList[String]): P =
             resolve(outDir, ns.toList)
 
-          val cmp = ns.compiled
           val docs = PythonGen
-            .renderAll(cmp, extMap, evalMap, ns)
+            .renderAll(ns, extMap, evalMap)
             .iterator
             .flatMap { case (_, packs) =>
               packs.iterator.map { case (_, (path, doc)) =>
