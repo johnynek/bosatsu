@@ -3,7 +3,7 @@ package org.bykn.bosatsu.codegen.clang
 import cats.data.{NonEmptyList, Validated}
 import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
-import org.bykn.bosatsu.codegen.{Transpiler, CompilationSource}
+import org.bykn.bosatsu.codegen.{Transpiler, CompilationNamespace}
 import org.bykn.bosatsu.{
   BuildInfo,
   Identifier,
@@ -21,7 +21,6 @@ import scala.util.{Failure, Success, Try}
 import Identifier.Bindable
 
 import cats.syntax.all._
-import org.bykn.bosatsu.codegen.CompilationNamespace
 
 case object ClangTranspiler extends Transpiler {
 
@@ -265,11 +264,6 @@ case object ClangTranspiler extends Transpiler {
     def exitCode: ExitCode = ExitCode.Error
   }
 
-  /*
-  def externalsFor[K](ns: CompilationNamespace[K]): ClangGen.ExternalResolver =
-    ClangGen.ExternalResolver.stdExternals(ns)
-   */
-
   /** given the type (and possible the value) we return a C function name that
     * takes this value and the C args and returns an exit code which the main
     * function can return:
@@ -291,17 +285,15 @@ case object ClangTranspiler extends Transpiler {
 
   def renderAll[F[_], P, S](
       outDir: P,
-      pm: S,
+      ns: CompilationNamespace[S],
       args: Args[F, P]
-  )(implicit ec: Par.EC, CS: CompilationSource[S]): F[List[(P, Doc)]] = {
+  )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
     import args.platformIO._
 
     // we have to render the code in sorted order
-    val ns = CS.namespace(pm)
     NonEmptyList.fromList(ns.topoSort.loopNodes) match {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
-      case None       =>
-        // val ext = externalsFor(pm)
+      case None =>
         val doc = args.mode match {
           case Mode.Main(p) =>
             ns.mainValues(_ => true).get(p) match {

@@ -31,7 +31,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         extends Error
     case class Unbound(bn: Bindable, inside: Option[(K, PackageName, Bindable)])
         extends Error
-    case class ExpectedStaticString(str: String) extends Error
   }
 
   def generateExternalsStub: SortedMap[String, Doc] =
@@ -186,11 +185,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         (k, p, exprs)
       }
 
-  private def renderDeps(
-      env: Impl.Env
-  ): env.T[Unit] = {
-    import env._
+  private val allValues: Impl.AllValues =
+    sortedEnv.iterator
+      .flatMap(_.iterator)
+      .flatMap { case (k, p, vs) =>
+        vs.iterator.map { case (b, e) =>
+          (k, p, b) -> (e, generatedName(k, p, b))
+        }
+      }
+      .toMap
 
+  private val env = Impl.Env.impl
+  private val deps = {
+    import env._
     Traverse[Vector]
       .compose[NonEmptyList]
       .traverse_(sortedEnv) { case (k, pn, values) =>
@@ -200,52 +207,24 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       }
   }
 
+  private def render(res: env.T[Unit]): Either[Error, Doc] = {
+    import env.monadImpl
+    env.run(allValues, ExternalResolver.stdExternals, deps *> res)
+  }
+
   // the Code.Ident should be a function with signature:
   // int run_main(BValue main_value, int argc, char** args)
   def renderMain(
       pn: PackageName,
       value: Bindable,
       runner: Code.Ident
-  ): Either[Error, Doc] = {
-    val env = Impl.Env.impl
-    import env.monadImpl
-
-    val res =
-      renderDeps(env) *> env.renderMain(pn, value, runner)
-
-    val allValues: Impl.AllValues =
-      sortedEnv.iterator
-        .flatMap(_.iterator)
-        .flatMap { case (k, p, vs) =>
-          vs.iterator.map { case (b, e) =>
-            (k, p, b) -> (e, generatedName(k, p, b))
-          }
-        }
-        .toMap
-
-    env.run(allValues, ExternalResolver.stdExternals, res)
-  }
+  ): Either[Error, Doc] =
+    render(env.renderMain(pn, value, runner))
 
   def renderTests(
       values: List[(PackageName, Bindable)]
-  ): Either[Error, Doc] = {
-    val env = Impl.Env.impl
-    import env.monadImpl
-
-    val res = renderDeps(env) *> env.renderTests(values)
-
-    val allValues: Impl.AllValues =
-      sortedEnv.iterator
-        .flatMap(_.iterator)
-        .flatMap { case (k, p, vs) =>
-          vs.iterator.map { case (b, e) =>
-            (k, p, b) -> (e, generatedName(k, p, b))
-          }
-        }
-        .toMap
-
-    env.run(allValues, ExternalResolver.stdExternals, res)
-  }
+  ): Either[Error, Doc] =
+    render(env.renderTests(values))
 
   private def fullName(k: K, p: PackageName, b: Bindable): String =
     ns.identOf(k, p).mkString_("/") + "/" + b.asString
@@ -527,19 +506,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             expected: Expression
         ): Expression =
           find(src, expected, byteOffset) =:= byteOffset
-
-        def staticString(s: String): T[Code.StrLiteral] = {
-          // convert to utf8 and then to a literal array of bytes
-          val bytes = s.getBytes(StandardCharsets.UTF_8)
-          if (bytes.forall(_.toInt != 0)) {
-            // just send the utf8 bytes as a string to C
-            monadImpl.pure(
-              Code.StrLiteral(new String(bytes.map(_.toChar)))
-            )
-          } else {
-            error(Error.ExpectedStaticString(s))
-          }
-        }
 
         def fromString(s: String): T[Code.ValueLike] = {
           // convert to utf8 and then to a literal array of bytes
@@ -1710,10 +1676,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
             values
               .traverse { case (p, b) =>
-                (
-                  StringApi.staticString(p.asString),
-                  globalIdent(ns.rootKey, p, b)
-                ).tupled
+                globalIdent(ns.rootKey, p, b).map { i =>
+                  (Code.StrLiteral(p.asString), i)
+                }
               }
               .flatMap { packVals =>
                 /*

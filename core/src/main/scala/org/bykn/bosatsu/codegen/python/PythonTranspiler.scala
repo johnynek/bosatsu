@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import cats.implicits.catsKernelOrderingForOrder
 import com.monovore.decline.{Argument, Opts}
 import org.bykn.bosatsu.CollectionUtils.listToUnique
-import org.bykn.bosatsu.codegen.{CompilationSource, Transpiler}
+import org.bykn.bosatsu.codegen.{CompilationNamespace, Transpiler}
 import org.bykn.bosatsu.{Par, Parser, PlatformIO}
 import org.typelevel.paiges.Doc
 import scala.util.Try
@@ -58,9 +58,9 @@ case object PythonTranspiler extends Transpiler {
 
   def renderAll[F[_], P, S](
       outDir: P,
-      pm: S,
+      ns: CompilationNamespace[S],
       args: Args[F, P]
-  )(implicit ec: Par.EC, CS: CompilationSource[S]): F[List[(P, Doc)]] = {
+  )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
 
     import args.platformIO._
 
@@ -77,8 +77,6 @@ case object PythonTranspiler extends Transpiler {
 
         val exts = extMap.keySet
         val intrinsic = PythonGen.intrinsicValues
-
-        val ns = CS.namespace(pm)
 
         val allExternals = ns.externals
         val missingExternals =
