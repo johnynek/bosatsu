@@ -4,7 +4,11 @@ import cats.{Eval, Functor, Monad, Traverse}
 import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
-import org.bykn.bosatsu.codegen.Idents
+import org.bykn.bosatsu.codegen.{
+  CompilationNamespace,
+  CompilationSource,
+  Idents
+}
 import org.bykn.bosatsu.rankn.{DataRepr, Type}
 import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
 import org.bykn.bosatsu.pattern.StrPart
@@ -14,7 +18,6 @@ import org.typelevel.paiges.Doc
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 import cats.syntax.all._
-import org.bykn.bosatsu.codegen.CompilationNamespace
 
 class ClangGen[K](ns: CompilationNamespace[K]) {
   sealed abstract class Error {
@@ -1780,4 +1783,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       }
     }
   }
+}
+
+object ClangGen {
+  def apply[S](src: S)(implicit
+      CS: CompilationSource[S]
+  ): ClangGen[CS.ScopeKey] =
+    new ClangGen(CS.namespace(src))
 }

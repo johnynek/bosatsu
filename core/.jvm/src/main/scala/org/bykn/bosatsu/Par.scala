@@ -24,6 +24,15 @@ object Par {
   def ecFromService(es: ExecutionService): EC =
     ExecutionContext.fromExecutor(es)
 
+  // Used in testing generally, we don't want to make more than one of these per app
+  def withEC[A](fn: EC => A): A = {
+    val srv = newService()
+    try {
+      val ec = ecFromService(srv)
+      fn(ec)
+    } finally shutdownService(srv)
+  }
+
   @inline def start[A](a: => A)(implicit ec: EC): F[A] =
     Future(a)
 

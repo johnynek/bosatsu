@@ -3,7 +3,7 @@ package org.bykn.bosatsu.codegen.python
 import cats.Show
 import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
-import org.bykn.bosatsu.{MatchlessFromTypedExpr, PackageName, TestUtils}
+import org.bykn.bosatsu.{PackageName, TestUtils}
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   forAll,
@@ -89,11 +89,10 @@ class PythonGenTest extends AnyFunSuite {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
 
     val bosatsuPM = compileFile(natPathBosatu)
-    val matchless = MatchlessFromTypedExpr.compile((), bosatsuPM)
 
     val packMap =
-      PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
-    val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
+      PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+    val natDoc = packMap(())(PackageName.parts("Bosatsu", "Nat"))._2
     val natStr = natDoc.renderTrim(80)
 
     JythonBarrier.run {
@@ -148,11 +147,10 @@ class PythonGenTest extends AnyFunSuite {
       val intr = new PythonInterpreter()
 
       val bosatsuPM = compileFile(path)
-      val matchless = MatchlessFromTypedExpr.compile((), bosatsuPM)
 
       val packMap =
-        PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
-      val doc = packMap(pn)._2
+        PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+      val doc = packMap(())(pn)._2
 
       intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
       checkTest(intr.get(testName), pn.asString)

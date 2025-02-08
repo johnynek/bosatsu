@@ -4,7 +4,11 @@ import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
-import org.bykn.bosatsu.codegen.Idents
+import org.bykn.bosatsu.codegen.{
+  CompilationNamespace,
+  CompilationSource,
+  Idents
+}
 import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -14,7 +18,6 @@ import Identifier.Bindable
 import Matchless._
 
 import cats.implicits._
-import org.bykn.bosatsu.codegen.CompilationNamespace
 
 object PythonGen {
   import Code.{ValueLike, Statement, Expression}
@@ -591,6 +594,18 @@ object PythonGen {
       Type.fullyResolvedParser,
       modParser
     ) <* Parser.maybeSpacesAndLines
+
+  def renderSource[S](
+      src: S,
+      externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
+      evaluators: Map[PackageName, (Bindable, Module, Code.Ident)]
+  )(implicit
+      CS: CompilationSource[S],
+      ec: Par.EC
+  ): SortedMap[CS.ScopeKey, Map[PackageName, (Module, Doc)]] = {
+    val ns = CS.namespace(src)
+    renderAll(ns.compiled, externals, evaluators, ns)
+  }
 
   // compile a set of packages given a set of external remappings
   def renderAll[K](

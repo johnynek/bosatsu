@@ -80,13 +80,13 @@ object CompilationSource {
 
   def apply[A](implicit cs: CompilationSource[A]): CompilationSource[A] = cs
 
-  implicit def packageMapSrc(implicit
+  implicit def packageMapSrc[A](implicit
       ec: Par.EC
-  ): CompilationSource[PackageMap.Typed[Any]] { type ScopeKey = Unit } =
-    new CompilationSource[PackageMap.Typed[Any]] { self =>
+  ): CompilationSource[PackageMap.Typed[A]] { type ScopeKey = Unit } =
+    new CompilationSource[PackageMap.Typed[A]] { self =>
       type ScopeKey = Unit
 
-      def namespace(pm: PackageMap.Typed[Any]): CompilationNamespace[Unit] =
+      def namespace(pm: PackageMap.Typed[A]): CompilationNamespace[Unit] =
         new CompilationNamespace[Unit] {
           implicit val keyOrder: Ordering[ScopeKey] = new Ordering[Unit] {
             def compare(x: Unit, y: Unit): Int = 0
