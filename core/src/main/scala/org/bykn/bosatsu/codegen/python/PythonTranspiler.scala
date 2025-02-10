@@ -4,14 +4,8 @@ import cats.data.NonEmptyList
 import cats.implicits.catsKernelOrderingForOrder
 import com.monovore.decline.{Argument, Opts}
 import org.bykn.bosatsu.CollectionUtils.listToUnique
-import org.bykn.bosatsu.codegen.Transpiler
-import org.bykn.bosatsu.{
-  PackageMap,
-  Par,
-  Parser,
-  PlatformIO,
-  MatchlessFromTypedExpr
-}
+import org.bykn.bosatsu.codegen.{CompilationNamespace, Transpiler}
+import org.bykn.bosatsu.{Par, Parser, PlatformIO}
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
@@ -62,15 +56,14 @@ case object PythonTranspiler extends Transpiler {
         .map(arg => Transpiler.optioned(this)(arg))
     }
 
-  def renderAll[F[_], P](
+  def renderAll[F[_], P, S](
       outDir: P,
-      pm: PackageMap.Typed[Any],
+      ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
 
     import args.platformIO._
 
-    val cmp = MatchlessFromTypedExpr.compile((), pm)
     args.read.flatMap { case (externals, evaluators) =>
       moduleIOMonad.fromTry(Try {
         val parsedExt =
@@ -85,20 +78,20 @@ case object PythonTranspiler extends Transpiler {
         val exts = extMap.keySet
         val intrinsic = PythonGen.intrinsicValues
 
-        val allExternals = pm.allExternals
+        val allExternals = ns.externals
         val missingExternals =
-          allExternals.iterator.flatMap { case (p, names) =>
-            val missing = names.filterNot { case (n, _) =>
-              exts((p, n)) || intrinsic.get(p).exists(_(n))
-            }
+          allExternals.iterator.flatMap { case (_, pmap) =>
+            pmap.iterator.flatMap { case (p, names) =>
+              val missing = names.filterNot { case (n, _) =>
+                exts((p, n)) || intrinsic.get(p).exists(_(n))
+              }
 
-            if (missing.isEmpty) Nil
-            else (p, missing.sorted) :: Nil
+              if (missing.isEmpty) Nil
+              else (p, missing.sorted) :: Nil
+            }
           }.toList
 
         if (missingExternals.isEmpty) {
-          val tests = pm.testValues
-
           val parsedEvals =
             evaluators.map(Parser.unsafeParse(PythonGen.evaluatorParser, _))
           // TODO, we don't check that these types even exist in the fully
@@ -110,26 +103,25 @@ case object PythonTranspiler extends Transpiler {
             "expected each type to have to just one evaluator"
           ).get
 
-          val evalMap = pm.toMap.iterator.flatMap { case (n, p) =>
-            val optEval = p.lets.findLast { case (_, _, te) =>
-              // TODO this should really e checking that te.getType <:< a key
-              // in the map.
-              typeEvalMap.contains(te.getType)
-            }
-            optEval.map { case (b, _, te) =>
-              val (m, i) = typeEvalMap(te.getType)
-              (n, (b, m, i))
-            }
-          }.toMap
+          val evalMap =
+            ns.mainValues(typeEvalMap.contains(_))
+              .view
+              .mapValues { case (b, t) =>
+                val (m, i) = typeEvalMap(t)
+                (b, m, i)
+              }
+              .toMap
 
           def toPath(ns: NonEmptyList[String]): P =
             resolve(outDir, ns.toList)
 
           val docs = PythonGen
-            .renderAll(cmp, extMap, tests, evalMap)
+            .renderAll(ns, extMap, evalMap)
             .iterator
-            .map { case (_, (path, doc)) =>
-              (path.map(_.name), doc)
+            .flatMap { case (_, packs) =>
+              packs.iterator.map { case (_, (path, doc)) =>
+                (path.map(_.name), doc)
+              }
             }
             .toList
 

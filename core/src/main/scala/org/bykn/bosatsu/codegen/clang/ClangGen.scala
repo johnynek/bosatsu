@@ -1,19 +1,16 @@
 package org.bykn.bosatsu.codegen.clang
 
-import cats.{Eval, Monad, Traverse}
+import cats.{Eval, Functor, Monad, Traverse}
 import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
-import org.bykn.bosatsu.codegen.Idents
-import org.bykn.bosatsu.rankn.{DataRepr, Type}
-import org.bykn.bosatsu.{
-  Identifier,
-  Lit,
-  Matchless,
-  Predef,
-  PackageName,
-  PackageMap
+import org.bykn.bosatsu.codegen.{
+  CompilationNamespace,
+  CompilationSource,
+  Idents
 }
+import org.bykn.bosatsu.rankn.{DataRepr, Type}
+import org.bykn.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
 import org.bykn.bosatsu.pattern.StrPart
 import org.bykn.bosatsu.Matchless.Expr
 import org.bykn.bosatsu.Identifier.Bindable
@@ -22,7 +19,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 import cats.syntax.all._
 
-object ClangGen {
+class ClangGen[K](ns: CompilationNamespace[K]) {
   sealed abstract class Error {
     // TODO: implement this in a nice way
     def display: Doc = Doc.text(this.toString)
@@ -32,14 +29,17 @@ object ClangGen {
     case class UnknownValue(pack: PackageName, value: Bindable) extends Error
     case class InvariantViolation(message: String, expr: Expr[Any])
         extends Error
-    case class Unbound(bn: Bindable, inside: Option[(PackageName, Bindable)])
+    case class Unbound(bn: Bindable, inside: Option[(K, PackageName, Bindable)])
         extends Error
-    case class ExpectedStaticString(str: String) extends Error
   }
 
+  def generateExternalsStub: SortedMap[String, Doc] =
+    ExternalResolver.stdExternals.generateExternalsStub
+
   trait ExternalResolver {
-    def names: SortedMap[PackageName, SortedSet[Bindable]]
+    def names: Iterable[(K, PackageName, SortedSet[Bindable])]
     def apply(
+        key: K,
         p: PackageName,
         b: Bindable
     ): Option[(Code.Include, Code.Ident, Int)]
@@ -59,11 +59,11 @@ object ClangGen {
         Doc.intercalate(Doc.hardLine, includes.map(Code.toDoc))
 
       SortedMap.empty[String, Doc] ++ names.iterator
-        .flatMap { case (p, binds) =>
+        .flatMap { case (k, p, binds) =>
 
           val fns = binds.iterator
             .flatMap { n =>
-              apply(p, n)
+              apply(k, p, n)
             }
             .map { case (i, n, arity) =>
               i.filename -> Code.toDoc(toStmt(n, arity))
@@ -82,10 +82,10 @@ object ClangGen {
   }
 
   object ExternalResolver {
-    def stdExtFileName(pn: PackageName): String =
-      s"${Idents.escape("bosatsu_ext_", pn.asString)}.h"
+    def stdExtFileName(key: K, pn: PackageName): String =
+      s"${Idents.escape("bosatsu_ext_", ns.globalIdent(key, pn).mkString_("/"))}.h"
 
-    def stdExternals(pm: PackageMap.Typed[Any]): ExternalResolver = {
+    def stdExternals: ExternalResolver = {
 
       def tpeArity(t: Type): Int =
         t match {
@@ -93,32 +93,37 @@ object ClangGen {
           case _                               => 0
         }
 
-      val allExt = pm.allExternals
-      val extMap = allExt.iterator.map { case (p, vs) =>
-        val fileName = ExternalResolver.stdExtFileName(p)
+      val keyedExt = ns.externals
+      val extMap = keyedExt.iterator.flatMap { case (k, allExt) =>
+        allExt.iterator.map { case (p, vs) =>
+          val fileName = ExternalResolver.stdExtFileName(k, p)
 
-        val fns = vs.iterator.map { case (n, tpe) =>
-          val cIdent = generatedName(p, n)
-          n -> (cIdent, tpeArity(tpe))
-        }.toMap
+          val fns = vs.iterator.map { case (n, tpe) =>
+            val cIdent = generatedName(k, p, n)
+            n -> (cIdent, tpeArity(tpe))
+          }.toMap
 
-        p -> (Code.Include.quote(fileName), fns)
+          (k, p) -> (Code.Include.quote(fileName), fns)
+        }
       }.toMap
 
       new ExternalResolver {
-        lazy val names: SortedMap[PackageName, SortedSet[Bindable]] =
-          allExt.iterator
-            .map { case (p, vs) =>
-              p -> vs.iterator.map { case (b, _) => b }.to(SortedSet)
-            }
-            .to(SortedMap)
+        lazy val names: Iterable[(K, PackageName, SortedSet[Bindable])] =
+          (for {
+            kPmap <- keyedExt.iterator
+            (k, pmap) = kPmap
+            packBinds <- pmap.iterator
+            (pack, binds) = packBinds
+            bindSet = binds.iterator.map(_._1).to(SortedSet)
+          } yield (k, pack, bindSet)).to(LazyList)
 
         def apply(
+            k: K,
             p: PackageName,
             b: Bindable
         ): Option[(Code.Include, Code.Ident, Int)] =
           for {
-            (include, inner) <- extMap.get(p)
+            (include, inner) <- extMap.get((k, p))
             (ident, arity) <- inner.get(b)
           } yield (include, ident, arity)
       }
@@ -127,12 +132,16 @@ object ClangGen {
     val FromJvmExternals: ExternalResolver =
       new ExternalResolver {
         val predef_c =
-          Code.Include.quote(stdExtFileName(PackageName.PredefName))
+          Code.Include.quote(stdExtFileName(ns.rootKey, PackageName.PredefName))
 
         def predef(s: String, arity: Int) =
           (PackageName.PredefName -> Identifier.Name(s)) -> (
             predef_c,
-            ClangGen.generatedName(PackageName.PredefName, Identifier.Name(s)),
+            generatedName(
+              ns.rootKey,
+              PackageName.PredefName,
+              Identifier.Name(s)
+            ),
             arity
           )
 
@@ -142,7 +151,7 @@ object ClangGen {
           }
           .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
 
-        lazy val names: SortedMap[PackageName, SortedSet[Bindable]] = {
+        lazy val names: Iterable[(K, PackageName, SortedSet[Bindable])] = {
           val sm = Predef.jvmExternals.toMap.iterator
             .map { case (pn, _) => pn }
             .toList
@@ -150,6 +159,7 @@ object ClangGen {
 
           sm.map { case (k, vs) =>
             (
+              ns.rootKey,
               k,
               vs.toList.iterator
                 .map { case (_, n) => Identifier.Name(n) }
@@ -157,88 +167,73 @@ object ClangGen {
             )
           }
         }
-        def apply(p: PackageName, b: Bindable) = ext.get((p, b))
+        def apply(k: K, p: PackageName, b: Bindable) = ext.get((p, b))
       }
   }
 
-  private def renderDeps(
-      env: Impl.Env,
-      sortedEnv: Vector[
-        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
-      ]
-  ): env.T[Unit] = {
-    import env._
-
-    Traverse[Vector]
+  val sortedEnv
+      : Vector[NonEmptyList[(K, PackageName, List[(Bindable, Expr[K])])]] =
+    Functor[Vector]
       .compose[NonEmptyList]
-      .traverse_(sortedEnv) { case (pn, values) =>
-        values.traverse_ { case (bindable, expr) =>
-          renderTop(pn, bindable, expr)
+      .map(ns.topoSort.layers) { case (k, p) =>
+        val exprs = for {
+          pms <- ns.compiled.get(k).toList
+          exprs <- pms.get(p).toList
+          expr <- exprs
+        } yield expr
+
+        (k, p, exprs)
+      }
+
+  private val allValues: Impl.AllValues =
+    sortedEnv.iterator
+      .flatMap(_.iterator)
+      .flatMap { case (k, p, vs) =>
+        vs.iterator.map { case (b, e) =>
+          (k, p, b) -> (e, generatedName(k, p, b))
         }
       }
+      .toMap
+
+  private val env = Impl.Env.impl
+  private val deps = {
+    import env._
+    Traverse[Vector]
+      .compose[NonEmptyList]
+      .traverse_(sortedEnv) { case (k, pn, values) =>
+        values.traverse_ { case (bindable, expr) =>
+          renderTop(k, pn, bindable, expr)
+        }
+      }
+  }
+
+  private def render(res: env.T[Unit]): Either[Error, Doc] = {
+    import env.monadImpl
+    env.run(allValues, ExternalResolver.stdExternals, deps *> res)
   }
 
   // the Code.Ident should be a function with signature:
   // int run_main(BValue main_value, int argc, char** args)
   def renderMain(
-      sortedEnv: Vector[
-        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
-      ],
-      externals: ExternalResolver,
-      value: (PackageName, Bindable, Code.Ident)
-  ): Either[Error, Doc] = {
-    val env = Impl.Env.impl
-    import env.monadImpl
-
-    val res =
-      renderDeps(env, sortedEnv) *> env.renderMain(value._1, value._2, value._3)
-
-    val allValues: Impl.AllValues =
-      sortedEnv.iterator
-        .flatMap(_.iterator)
-        .flatMap { case (p, vs) =>
-          vs.iterator.map { case (b, e) =>
-            (p, b) -> (e, generatedName(p, b))
-          }
-        }
-        .toMap
-
-    env.run(allValues, externals, res)
-  }
+      pn: PackageName,
+      value: Bindable,
+      runner: Code.Ident
+  ): Either[Error, Doc] =
+    render(env.renderMain(pn, value, runner))
 
   def renderTests(
-      sortedEnv: Vector[
-        NonEmptyList[(PackageName, List[(Bindable, Expr[Unit])])]
-      ],
-      externals: ExternalResolver,
       values: List[(PackageName, Bindable)]
-  ): Either[Error, Doc] = {
-    val env = Impl.Env.impl
-    import env.monadImpl
+  ): Either[Error, Doc] =
+    render(env.renderTests(values))
 
-    val res = renderDeps(env, sortedEnv) *> env.renderTests(values)
+  private def fullName(k: K, p: PackageName, b: Bindable): String =
+    ns.identOf(k, p).mkString_("/") + "/" + b.asString
 
-    val allValues: Impl.AllValues =
-      sortedEnv.iterator
-        .flatMap(_.iterator)
-        .flatMap { case (p, vs) =>
-          vs.iterator.map { case (b, e) =>
-            (p, b) -> (e, generatedName(p, b))
-          }
-        }
-        .toMap
-
-    env.run(allValues, externals, res)
-  }
-
-  private def fullName(p: PackageName, b: Bindable): String =
-    p.asString + "/" + b.asString
-
-  def generatedName(p: PackageName, b: Bindable): Code.Ident =
-    Code.Ident(Idents.escape("___bsts_g_", fullName(p, b)))
+  def generatedName(k: K, p: PackageName, b: Bindable): Code.Ident =
+    Code.Ident(Idents.escape("___bsts_g_", fullName(k, p, b)))
 
   private object Impl {
-    type AllValues = Map[(PackageName, Bindable), (Expr[Unit], Code.Ident)]
+    type AllValues = Map[(K, PackageName, Bindable), (Expr[K], Code.Ident)]
 
     trait Env {
       import Matchless._
@@ -252,7 +247,7 @@ object ClangGen {
       ): Either[Error, Doc]
       def appendStatement(stmt: Code.Statement): T[Unit]
       def error[A](e: => Error): T[A]
-      def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident]
+      def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident]
       def bind[A](bn: Bindable)(in: T[A]): T[A]
       def getBinding(bn: Bindable): T[Code.Ident]
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
@@ -267,15 +262,19 @@ object ClangGen {
       // used for temporary variables of type BValue
       def newLocalName(tag: String): T[Code.Ident]
       def newTopName(tag: String): T[Code.Ident]
-      def directFn(p: PackageName, b: Bindable): T[Option[(Code.Ident, Int)]]
+      def directFn(
+          k: K,
+          p: PackageName,
+          b: Bindable
+      ): T[Option[(Code.Ident, Int)]]
       def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]]
-      def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A]
+      def inTop[A](k: K, p: PackageName, bn: Bindable)(ta: T[A]): T[A]
       def inFnStatement[A](in: T[A]): T[A]
-      def currentTop: T[Option[(PackageName, Bindable)]]
-      def staticValueName(p: PackageName, b: Bindable): T[Code.Ident]
-      def constructorFn(p: PackageName, b: Bindable): T[Code.Ident]
+      def currentTop: T[Option[(K, PackageName, Bindable)]]
+      def staticValueName(k: K, p: PackageName, b: Bindable): T[Code.Ident]
+      def constructorFn(k: K, p: PackageName, b: Bindable): T[Code.Ident]
 
-      def cachedIdent(key: Expr[Unit])(value: => T[Code.Ident]): T[Code.Ident]
+      def cachedIdent(key: Expr[K])(value: => T[Code.Ident]): T[Code.Ident]
 
       /////////////////////////////////////////
       // the below are independent of the environment implementation
@@ -346,7 +345,7 @@ object ClangGen {
 
       def handleLet(
           name: Either[LocalAnon, Bindable],
-          argV: Expr[Unit],
+          argV: Expr[K],
           in: T[Code.ValueLike]
       ): T[Code.ValueLike] =
         name match {
@@ -383,7 +382,7 @@ object ClangGen {
               }
         }
       // The type of this value must be a C _Bool
-      def boolToValue(boolExpr: BoolExpr[Unit]): T[Code.ValueLike] =
+      def boolToValue(boolExpr: BoolExpr[K]): T[Code.ValueLike] =
         boolExpr match {
           case EqualsLit(expr, lit) =>
             innerToValue(expr).flatMap { vl =>
@@ -507,19 +506,6 @@ object ClangGen {
             expected: Expression
         ): Expression =
           find(src, expected, byteOffset) =:= byteOffset
-
-        def staticString(s: String): T[Code.StrLiteral] = {
-          // convert to utf8 and then to a literal array of bytes
-          val bytes = s.getBytes(StandardCharsets.UTF_8)
-          if (bytes.forall(_.toInt != 0)) {
-            // just send the utf8 bytes as a string to C
-            monadImpl.pure(
-              Code.StrLiteral(new String(bytes.map(_.toChar)))
-            )
-          } else {
-            error(Error.ExpectedStaticString(s))
-          }
-        }
 
         def fromString(s: String): T[Code.ValueLike] = {
           // convert to utf8 and then to a literal array of bytes
@@ -869,7 +855,7 @@ object ClangGen {
 
       // We have to lift functions to the top level and not
       // create any nesting
-      def innerFn(fn: FnExpr[Unit]): T[Code.ValueLike] = {
+      def innerFn(fn: FnExpr[K]): T[Code.ValueLike] = {
         val nameSuffix = fn.recursiveName match {
           case None    => ""
           case Some(n) => Idents.escape("_", n.asString)
@@ -960,10 +946,10 @@ object ClangGen {
           case Lit.Str(toStr) => StringApi.fromString(toStr)
         }
 
-      def innerApp(app: App[Unit]): T[Code.ValueLike] =
+      def innerApp(app: App[K]): T[Code.ValueLike] =
         app match {
-          case App(Global(_, pack, fnName), args) =>
-            directFn(pack, fnName).flatMap {
+          case App(Global(k, pack, fnName), args) =>
+            directFn(k, pack, fnName).flatMap {
               case Some((ident, _)) =>
                 // directly invoke instead of by treating them like lambdas
                 args.traverse(innerToValue(_)).flatMap { argsVL =>
@@ -971,7 +957,7 @@ object ClangGen {
                 }
               case None =>
                 // the ref be holding the result of another function call
-                (globalIdent(pack, fnName), args.traverse(innerToValue(_)))
+                (globalIdent(k, pack, fnName), args.traverse(innerToValue(_)))
                   .flatMapN { (fnVL, argsVL) =>
                     // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
                     // but since these are ValueLike, we need to handle more carefully
@@ -1050,19 +1036,19 @@ object ClangGen {
             }
         }
 
-      def innerToValue(expr: Expr[Unit]): T[Code.ValueLike] =
+      def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn: FnExpr[Unit] => innerFn(fn)
+          case fn: FnExpr[K] => innerFn(fn)
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _) => innerApp(app)
-          case Global(_, pack, name) =>
-            directFn(pack, name)
+          case Global(k, pack, name) =>
+            directFn(k, pack, name)
               .flatMap {
                 case Some((ident, arity)) =>
                   pv(boxFn(ident, arity))
                 case None =>
-                  globalIdent(pack, name).map(nm => nm())
+                  globalIdent(k, pack, name).map(nm => nm())
               }
           case Local(arg) =>
             directFn(arg)
@@ -1212,7 +1198,7 @@ object ClangGen {
               }
         }
 
-      def fnStatement(fnName: Code.Ident, fn: FnExpr[Unit]): T[Code.Statement] =
+      def fnStatement(fnName: Code.Ident, fn: FnExpr[K]): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
@@ -1251,12 +1237,12 @@ object ClangGen {
             }
         })
 
-      def renderTop(p: PackageName, b: Bindable, expr: Expr[Unit]): T[Unit] =
-        inTop(p, b) {
+      def renderTop(k: K, p: PackageName, b: Bindable, expr: Expr[K]): T[Unit] =
+        inTop(k, p, b) {
           expr match {
-            case fn: FnExpr[Unit] =>
+            case fn: FnExpr[K] =>
               for {
-                fnName <- globalIdent(p, b)
+                fnName <- globalIdent(k, p, b)
                 stmt <- fnStatement(fnName, fn)
                 _ <- appendStatement(stmt)
               } yield ()
@@ -1268,9 +1254,9 @@ object ClangGen {
               // then we generate a function to populate the value
               for {
                 vl <- innerToValue(someValue)
-                value <- staticValueName(p, b)
-                consFn <- constructorFn(p, b)
-                readFn <- globalIdent(p, b)
+                value <- staticValueName(k, p, b)
+                consFn <- constructorFn(k, p, b)
+                readFn <- globalIdent(k, p, b)
                 _ <- makeConstructorsStatement(value, consFn, vl, readFn)
               } yield ()
           }
@@ -1372,10 +1358,10 @@ object ClangGen {
               includeSet: Set[Code.Include],
               includes: Chain[Code.Include],
               stmts: Chain[Code.Statement],
-              currentTop: Option[(PackageName, Bindable)],
+              currentTop: Option[(K, PackageName, Bindable)],
               binds: Map[Bindable, BindState],
               counter: Long,
-              identCache: Map[Expr[Unit], Code.Ident]
+              identCache: Map[Expr[K], Code.Ident]
           ) {
             def finalFile: Doc =
               Doc.intercalate(
@@ -1465,15 +1451,15 @@ object ClangGen {
               EitherT[Eval, Error, (State, A)](Eval.now(fn(s).map((s, _))))
             )
 
-          def globalIdent(pn: PackageName, bn: Bindable): T[Code.Ident] =
+          def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident] =
             tryUpdate { s =>
-              s.externals(pn, bn) match {
+              s.externals(k, pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl = s.include(incl)
                   Right((withIncl, ident))
                 case None =>
-                  val key = (pn, bn)
+                  val key = (k, pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => Right((s, ident))
                     case None             => Left(Error.UnknownValue(pn, bn))
@@ -1569,17 +1555,18 @@ object ClangGen {
             }
           // record that this name is a top level function, so applying it can be direct
           def directFn(
+              k: K,
               pack: PackageName,
               b: Bindable
           ): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
-              val key = (pack, b)
+              val key = (k, pack, b)
               s.allValues.get(key) match {
-                case Some((fn: Matchless.FnExpr[Unit], ident)) =>
+                case Some((fn: Matchless.FnExpr[K], ident)) =>
                   result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external
-                  s.externals(pack, b) match {
+                  s.externals(k, pack, b) match {
                     case Some((incl, ident, arity)) if arity > 0 =>
                       val withIncl = s.include(incl)
                       result(withIncl, Some((ident, arity)))
@@ -1610,10 +1597,13 @@ object ClangGen {
               _ <- update((s: State) => (s.copy(binds = bindState), ()))
             } yield a
 
-          def inTop[A](p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
+          def inTop[A](k: K, p: PackageName, bn: Bindable)(ta: T[A]): T[A] =
             for {
               bindState <- update { (s: State) =>
-                (s.copy(binds = Map.empty, currentTop = Some((p, bn))), s.binds)
+                (
+                  s.copy(binds = Map.empty, currentTop = Some((k, p, bn))),
+                  s.binds
+                )
               }
               a <- ta
               _ <- update { (s: State) =>
@@ -1621,16 +1611,20 @@ object ClangGen {
               }
             } yield a
 
-          val currentTop: T[Option[(PackageName, Bindable)]] =
+          val currentTop: T[Option[(K, PackageName, Bindable)]] =
             StateT((s: State) => result(s, s.currentTop))
 
-          def staticValueName(p: PackageName, b: Bindable): T[Code.Ident] =
+          def staticValueName(
+              k: K,
+              p: PackageName,
+              b: Bindable
+          ): T[Code.Ident] =
             monadImpl.pure(
-              Code.Ident(Idents.escape("___bsts_s_", fullName(p, b)))
+              Code.Ident(Idents.escape("___bsts_s_", fullName(k, p, b)))
             )
-          def constructorFn(p: PackageName, b: Bindable): T[Code.Ident] =
+          def constructorFn(k: K, p: PackageName, b: Bindable): T[Code.Ident] =
             monadImpl.pure(
-              Code.Ident(Idents.escape("___bsts_c_", fullName(p, b)))
+              Code.Ident(Idents.escape("___bsts_c_", fullName(k, p, b)))
             )
 
           // the Code.Ident should be a function with signature:
@@ -1650,7 +1644,7 @@ object ClangGen {
               return code;
             }
              */
-            globalIdent(p, b).flatMap { mainCons =>
+            globalIdent(ns.rootKey, p, b).flatMap { mainCons =>
               val mainValue = Code.Ident("main_value")
               val mainBody = Code.Statements(
                 Code.Ident("GC_init")().stmt,
@@ -1682,7 +1676,9 @@ object ClangGen {
           def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
             values
               .traverse { case (p, b) =>
-                (StringApi.staticString(p.asString), globalIdent(p, b)).tupled
+                globalIdent(ns.rootKey, p, b).map { i =>
+                  (Code.StrLiteral(p.asString), i)
+                }
               }
               .flatMap { packVals =>
                 /*
@@ -1734,7 +1730,7 @@ object ClangGen {
             }
 
           def cachedIdent(
-              key: Expr[Unit]
+              key: Expr[K]
           )(value: => T[Code.Ident]): T[Code.Ident] =
             StateT { s =>
               s.identCache.get(key) match {
@@ -1752,4 +1748,11 @@ object ClangGen {
       }
     }
   }
+}
+
+object ClangGen {
+  def apply[S](src: S)(implicit
+      CS: CompilationSource[S]
+  ): ClangGen[CS.ScopeKey] =
+    new ClangGen(CS.namespace(src))
 }

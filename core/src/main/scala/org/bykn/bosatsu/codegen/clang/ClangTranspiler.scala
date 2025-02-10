@@ -3,18 +3,14 @@ package org.bykn.bosatsu.codegen.clang
 import cats.data.{NonEmptyList, Validated}
 import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
-import org.bykn.bosatsu.codegen.Transpiler
+import org.bykn.bosatsu.codegen.{Transpiler, CompilationNamespace}
 import org.bykn.bosatsu.{
   BuildInfo,
   Identifier,
   Json,
-  MatchlessFromTypedExpr,
-  Package,
   PackageName,
-  PackageMap,
   Par,
   PlatformIO,
-  TypedExpr,
   TypeName
 }
 import org.bykn.bosatsu.tool.{CliException, ExitCode}
@@ -29,24 +25,25 @@ import cats.syntax.all._
 case object ClangTranspiler extends Transpiler {
 
   sealed abstract class EmitMode {
-    def apply[A](
-        pm: PackageMap.Typed[A],
+    def apply[K](
+        cs: CompilationNamespace[K],
         roots: Set[(PackageName, Identifier)]
-    ): PackageMap.Typed[A]
+    ): CompilationNamespace[K]
   }
   object EmitMode {
     case object Shake extends EmitMode {
-      def apply[A](
-          pm: PackageMap.Typed[A],
+      def apply[K](
+          cs: CompilationNamespace[K],
           roots: Set[(PackageName, Identifier)]
-      ): PackageMap.Typed[A] =
-        PackageMap.treeShake(pm, roots)
+      ): CompilationNamespace[K] =
+        cs.treeShake(roots)
     }
     case object All extends EmitMode {
-      def apply[A](
-          pm: PackageMap.Typed[A],
+      def apply[K](
+          cs: CompilationNamespace[K],
           roots: Set[(PackageName, Identifier)]
-      ): PackageMap.Typed[A] = pm
+      ): CompilationNamespace[K] =
+        cs
     }
 
     implicit val argumentEmitMode: Argument[EmitMode] =
@@ -73,12 +70,14 @@ case object ClangTranspiler extends Transpiler {
         filter: Option[PackageName => Boolean],
         filterRegexes: NonEmptyList[String]
     ) extends Mode("test") {
-      def values(p: PackageMap.Typed[Any]): List[(PackageName, Bindable)] =
+      def values[K](
+          ns: CompilationNamespace[K]
+      ): List[(PackageName, Bindable)] =
         (filter match {
           case None =>
-            p.testValues.toList
+            ns.testValues.toList
           case Some(k) =>
-            p.testValues.iterator.filter { case (p, _) => k(p) }.toList
+            ns.testValues.iterator.filter { case (p, _) => k(p) }.toList
         }).sortBy(_._1)
     }
 
@@ -224,14 +223,6 @@ case object ClangTranspiler extends Transpiler {
       }
     }
 
-  case class GenError(error: ClangGen.Error)
-      extends Exception(s"clang gen error: ${error.display.render(80)}")
-      with CliException {
-    def errDoc: Doc = error.display
-    def stdOutDoc: Doc = Doc.empty
-    def exitCode: ExitCode = ExitCode.Error
-  }
-
   private def spacePackList(ps: Iterable[PackageName]): Doc =
     (Doc.line + Doc.intercalate(
       Doc.comma + Doc.line,
@@ -240,12 +231,12 @@ case object ClangTranspiler extends Transpiler {
       .nested(4)
       .grouped
 
-  case class CircularPackagesFound(loop: NonEmptyList[PackageName])
+  case class CircularPackagesFound(loop: NonEmptyList[(Any, PackageName)])
       extends Exception("circular deps in packages")
       with CliException {
     def errDoc: Doc =
       (Doc.text("circular dependencies found in packages:") + spacePackList(
-        loop.toList
+        loop.toList.map(_._2) // ??? TODO report the key in a sane way
       ))
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
@@ -273,19 +264,16 @@ case object ClangTranspiler extends Transpiler {
     def exitCode: ExitCode = ExitCode.Error
   }
 
-  def externalsFor(pm: PackageMap.Typed[Any]): ClangGen.ExternalResolver =
-    ClangGen.ExternalResolver.stdExternals(pm)
-
   /** given the type (and possible the value) we return a C function name that
     * takes this value and the C args and returns an exit code which the main
     * function can return:
     *
     * int run_main(BValue main_value, int argc, char** args)
     */
-  def validMain[A](te: TypedExpr[A]): Either[String, Code.Ident] = {
+  def validMain(tpe: Type): Either[String, Code.Ident] = {
     val ProgMain =
       Type.Const.Defined(PackageName.parts("Bosatsu", "Prog"), TypeName("Main"))
-    te.getType match {
+    tpe match {
       case Type.TyConst(ProgMain) =>
         Right(Code.Ident("bsts_Bosatsu_Prog_run_main"))
       case notMain =>
@@ -295,37 +283,26 @@ case object ClangTranspiler extends Transpiler {
     }
   }
 
-  def renderAll[F[_], P](
+  def renderAll[F[_], P, S](
       outDir: P,
-      pm: PackageMap.Typed[Any],
+      ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
     import args.platformIO._
 
     // we have to render the code in sorted order
-    val sorted = pm.topoSort
-    NonEmptyList.fromList(sorted.loopNodes) match {
+    NonEmptyList.fromList(ns.topoSort.loopNodes) match {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
       case None =>
-        val ext = externalsFor(pm)
         val doc = args.mode match {
           case Mode.Main(p) =>
-            pm.toMap.get(p).flatMap(Package.mainValue(_)) match {
-              case Some((b, _, t)) =>
+            ns.mainValues(_ => true).get(p) match {
+              case Some((b, t)) =>
                 validMain(t) match {
                   case Right(mainRun) =>
-                    val pm1 = args.emit(pm, Set((p, b)))
-                    val matchlessMap = MatchlessFromTypedExpr.compile((), pm1)
-                    val sortedEnv = cats
-                      .Functor[Vector]
-                      .compose[NonEmptyList]
-                      .map(sorted.layers)(pn => pn -> matchlessMap(pn))
-
-                    ClangGen.renderMain(
-                      sortedEnv = sortedEnv,
-                      externals = ext,
-                      value = (p, b, mainRun)
-                    )
+                    val ns1 = args.emit(ns, Set((p, b)))
+                    val clangGen = new ClangGen(ns1)
+                    clangGen.renderMain(p, b, mainRun)
                   case Left(invalid) =>
                     return moduleIOMonad.raiseError(
                       InvalidMainValue(p, invalid)
@@ -337,35 +314,36 @@ case object ClangTranspiler extends Transpiler {
                 )
             }
           case test @ Mode.Test(_, re) =>
-            test.values(pm) match {
-              case Nil =>
-                return moduleIOMonad.raiseError(
-                  NoTestsFound(pm.toMap.keySet.toList.sorted, re)
-                )
-              case nonEmpty =>
-                val pm1 = args.emit(pm, nonEmpty.toSet)
-                val matchlessMap = MatchlessFromTypedExpr.compile((), pm1)
-                val sortedEnv = cats
-                  .Functor[Vector]
-                  .compose[NonEmptyList]
-                  .map(sorted.layers)(pn => pn -> matchlessMap(pn))
-
-                ClangGen.renderTests(
-                  sortedEnv = sortedEnv,
-                  externals = ext,
-                  values = nonEmpty
-                )
+            val tvs = test.values(ns)
+            if (tvs.isEmpty) {
+              return moduleIOMonad.raiseError(
+                NoTestsFound(ns.rootPackages.toList, re)
+              )
+            } else {
+              val ns1 = args.emit(ns, tvs.toSet)
+              val clangGen = new ClangGen(ns1)
+              clangGen.renderTests(
+                values = tvs.toList.sorted
+              )
             }
         }
 
         doc match {
-          case Left(err) => moduleIOMonad.raiseError(GenError(err))
+          case Left(err) =>
+            moduleIOMonad.raiseError(
+              CliException(
+                s"clang gen error: ${err.display.render(80)}",
+                err = err.display
+              )
+            )
+
           case Right(doc) =>
             val outputName = resolve(outDir, args.output.cOut)
             val externalHeaders =
               if (args.generateExternals.generate) {
-                ext.generateExternalsStub.iterator.map { case (n, d) =>
-                  resolve(outDir, n) -> d
+                (new ClangGen(ns)).generateExternalsStub.iterator.map {
+                  case (n, d) =>
+                    resolve(outDir, n) -> d
                 }.toList
               } else Nil
 

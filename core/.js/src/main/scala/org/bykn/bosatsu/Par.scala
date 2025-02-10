@@ -22,6 +22,8 @@ object Par {
   def shutdownService(es: ExecutionService): Unit = es
   def ecFromService(es: ExecutionService): EC = DummyImplicit.dummyImplicit
 
+  def withEC[A](fn: EC => A): A = fn(DummyImplicit.dummyImplicit)
+
   @inline def start[A](a: => A): F[A] = a
 
   @inline def await[A](f: F[A]): A = f

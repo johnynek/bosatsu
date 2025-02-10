@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen
 
 import com.monovore.decline.Opts
-import org.bykn.bosatsu.{PackageMap, Par, PlatformIO}
+import org.bykn.bosatsu.{PlatformIO, Par}
 import org.typelevel.paiges.Doc
 
 trait Transpiler {
@@ -12,9 +12,9 @@ trait Transpiler {
   def opts[F[_], P](plat: PlatformIO[F, P]): Opts[Transpiler.Optioned[F, P]]
 
   // return paths to be resolved against the base output path
-  def renderAll[F[_], P](
+  def renderAll[F[_], P, S](
       outDir: P,
-      pm: PackageMap.Typed[Any],
+      ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]]
 }

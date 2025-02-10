@@ -102,13 +102,10 @@ object TestUtils {
     }
   }
 
-  def checkMatchless[A](
+  def checkPackageMap[A](
       statement: String
   )(
-      fn: Map[
-        PackageName,
-        List[(Identifier.Bindable, Matchless.Expr[Unit])]
-      ] => A
+      fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
@@ -128,14 +125,24 @@ object TestUtils {
           Package(testPackage, Nil, Nil, (program, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
           PackageMap.empty + pack + PackageMap.predefCompiled
-        val srv = Par.newService()
-        try {
-          implicit val ec = Par.ecFromService(srv)
-          val comp = MatchlessFromTypedExpr.compile((), pm)
-          fn(comp)
-        } finally Par.shutdownService(srv)
+        fn(pm)
     }
   }
+
+  def checkMatchless[A](
+      statement: String
+  )(
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
+  ): A =
+    checkPackageMap(statement) { pm =>
+      Par.withEC { implicit ec =>
+        val comp = MatchlessFromTypedExpr.compile((), pm)
+        fn(comp)
+      }
+    }
 
   def compileFile(path: String, rest: String*)(implicit
       ec: Par.EC

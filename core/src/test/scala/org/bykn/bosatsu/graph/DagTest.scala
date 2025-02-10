@@ -89,7 +89,7 @@ class DagTest extends AnyFunSuite {
       val clusterVec = dag.nodes.toVector.zipWithIndex
       for {
         (c1, idx) <- clusterVec
-        (c2, idx2) <- (0 until idx).map(clusterVec(_))
+        (c2, _) <- (0 until idx).map(clusterVec(_))
       } assert((c1 & c2).isEmpty)
 
       // every node is in one cluster
@@ -98,7 +98,7 @@ class DagTest extends AnyFunSuite {
 
       // if we toposort a dag, we always succeed
       implicit val setOrd = ListOrdering.byIterator[SortedSet[Int], Int]
-      val sortRes @ Toposort.Success(_, _) = Toposort.sort(dag.nodes) { n =>
+      val sortRes @ Toposort.Success(_) = Toposort.sort(dag.nodes) { n =>
         dag.deps(n).toList
       }
       assert(sortRes.isSuccess)
@@ -108,7 +108,6 @@ class DagTest extends AnyFunSuite {
         }
       }
       assert(dag.layers == sortRes.layers.length)
-      assert(Dag.fromToposorted(sortRes) === dag)
       assert(sortRes.layers == dag.toToposorted.layers)
 
       // if we dagify again we get singletons:

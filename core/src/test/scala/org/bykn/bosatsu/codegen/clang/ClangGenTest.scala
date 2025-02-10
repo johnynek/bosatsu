@@ -1,10 +1,17 @@
 package org.bykn.bosatsu.codegen.clang
 
-import cats.data.NonEmptyList
-import org.bykn.bosatsu.{PackageName, TestUtils, Identifier}
-import org.scalacheck.{Prop, Gen}
-import org.bykn.bosatsu.{Generators, StringUtil, PredefImpl}
 import org.bykn.bosatsu.Generators.genValidUtf
+import org.bykn.bosatsu.{
+  Generators,
+  StringUtil,
+  PredefImpl,
+  PackageName,
+  PackageMap,
+  Par,
+  TestUtils,
+  Identifier
+}
+import org.scalacheck.{Prop, Gen}
 
 class ClangGenTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
@@ -15,29 +22,21 @@ class ClangGenTest extends munit.ScalaCheckSuite {
   def assertPredefFns(
       fns: String*
   )(matches: String)(implicit loc: munit.Location) =
-    TestUtils.checkMatchless("""
+    TestUtils.checkPackageMap("""
 x = 1    
-""") { matchlessMap0 =>
+""") { pm =>
       val fnSet = fns.toSet
-      val matchlessMap = matchlessMap0.flatMap {
-        case (k, vs) if k == PackageName.PredefName =>
-          (k -> vs.filter(tup => fnSet(tup._1.asString))) :: Nil
-        case _ => Nil
-      }.toMap
+      val predef = pm.toMap(PackageName.PredefName)
+      val filtered = predef.filterLets(ident => fnSet(ident.asString))
+      val pm1 = PackageMap.fromIterable(filtered :: Nil)
 
-      val res = ClangGen.renderMain(
-        sortedEnv = Vector(
-          NonEmptyList.one(
-            PackageName.PredefName -> matchlessMap(PackageName.PredefName)
-          )
-        ),
-        externals = ClangGen.ExternalResolver.FromJvmExternals,
-        value = (
+      val res = Par.withEC { implicit ec =>
+        ClangGen(pm1).renderMain(
           PackageName.PredefName,
           Identifier.Name(fns.last),
           Code.Ident("run_main")
         )
-      )
+      }
 
       res match {
         case Right(d) => assertEquals(d.render(80), matches)
