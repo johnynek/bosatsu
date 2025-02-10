@@ -24,15 +24,18 @@ case class DecodedLibraryWithDeps[A](
 
   def depFor(pn: PackageName): Option[DecodedLibraryWithDeps[A]] =
     if (lib.implementations.toMap.contains(pn)) Some(this)
-    else deps.collectFirstSome { dep =>
-      if (dep.lib.interfaces.exists(_.name === pn)) Some(dep)
-      else None
-    }
+    else
+      deps.collectFirstSome { dep =>
+        if (dep.lib.interfaces.exists(_.name === pn)) Some(dep)
+        else None
+      }
 
   lazy val allKeys: SortedSet[(Name, Version)] =
     deps.iterator.map(_._2.allKeys).foldLeft(SortedSet(nameVersion))(_ | _)
 
-  def compile(implicit ec: Par.EC): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
+  def compile(implicit
+      ec: Par.EC
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
 }
 
@@ -97,20 +100,28 @@ object DecodedLibraryWithDeps {
     decodeAndStore(protoLib).runA(Map.empty)
   }
 
-  implicit def decodedLibraryWithDepsCompilationSource[A](implicit EC: Par.EC): CompilationSource[DecodedLibraryWithDeps[A]] =
+  implicit def decodedLibraryWithDepsCompilationSource[A](implicit
+      EC: Par.EC
+  ): CompilationSource[DecodedLibraryWithDeps[A]] =
     new CompilationSource[DecodedLibraryWithDeps[A]] {
       type ScopeKey = (Name, Version)
 
-      def namespace(a: DecodedLibraryWithDeps[A]): CompilationNamespace[ScopeKey] =
+      def namespace(
+          a: DecodedLibraryWithDeps[A]
+      ): CompilationNamespace[ScopeKey] =
         new CompilationNamespace[ScopeKey] {
           implicit val keyOrder: Ordering[ScopeKey] = Ordering.Tuple2
 
           val depForKey: ScopeKey => Option[DecodedLibraryWithDeps[A]] =
-            Memoize.memoizeDagHashedConcurrent[ScopeKey, Option[DecodedLibraryWithDeps[A]]] { (nameV, _) =>
-              def search(d: DecodedLibraryWithDeps[A]): Option[DecodedLibraryWithDeps[A]] =
+            Memoize.memoizeDagHashedConcurrent[ScopeKey, Option[
+              DecodedLibraryWithDeps[A]
+            ]] { (nameV, _) =>
+              def search(
+                  d: DecodedLibraryWithDeps[A]
+              ): Option[DecodedLibraryWithDeps[A]] =
                 if (keyOrder.equiv(d.nameVersion, nameV)) Some(d)
                 else {
-                  d.deps.collectFirstSome { child => search(child) }
+                  d.deps.collectFirstSome(child => search(child))
                 }
 
               search(a)
@@ -129,7 +140,7 @@ object DecodedLibraryWithDeps {
           def depFor(src: ScopeKey, pn: PackageName): ScopeKey =
             depForKey(src).flatMap(_.depFor(pn)) match {
               case Some(value) => value.nameVersion
-              case None =>
+              case None        =>
                 // This should never happen for well compiled
                 // packages, for now, just returning rootKey
                 rootKey
@@ -161,14 +172,16 @@ object DecodedLibraryWithDeps {
               depForKey(key)
             }
 
-          lazy val compiled: SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
-            allDeps.map { dep =>
-              (dep.nameVersion, Par.start(dep.compile))
-            }
-            .to(SortedMap)
-            .transform { (_, p) => Par.await(p) }
+          lazy val compiled
+              : SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
+            allDeps
+              .map { dep =>
+                (dep.nameVersion, Par.start(dep.compile))
+              }
+              .to(SortedMap)
+              .transform((_, p) => Par.await(p))
 
-          def testValues: Map[PackageName, Identifier.Bindable] = 
+          def testValues: Map[PackageName, Identifier.Bindable] =
             a.lib.implementations.testValues
 
           def mainValues(
@@ -185,14 +198,18 @@ object DecodedLibraryWithDeps {
               }
             }.toMap
 
-          lazy val externals
-              : SortedMap[ScopeKey, Map[PackageName, List[(Identifier.Bindable, Type)]]] =
-            allDeps.map { dep =>
-              (dep.nameVersion, dep.lib.implementations.allExternals)  
-            }
-            .to(SortedMap)
+          lazy val externals: SortedMap[ScopeKey, Map[PackageName, List[
+            (Identifier.Bindable, Type)
+          ]]] =
+            allDeps
+              .map { dep =>
+                (dep.nameVersion, dep.lib.implementations.allExternals)
+              }
+              .to(SortedMap)
 
-          def treeShake(roots: Set[(PackageName, Identifier)]): CompilationNamespace[ScopeKey] = ???
+          def treeShake(
+              roots: Set[(PackageName, Identifier)]
+          ): CompilationNamespace[ScopeKey] = ???
 
           def rootPackages: SortedSet[PackageName] =
             a.lib.implementations.toMap.keySet
