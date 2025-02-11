@@ -45,12 +45,12 @@ case class DecodedLibraryWithDeps[A](
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
 
   def filterLets(
-      keep: Map[(Name, Version), Set[(PackageName, Identifier)]]
+      keep: ((Name, Version)) => Option[((PackageName, Identifier)) => Boolean]
   ): Option[DecodedLibraryWithDeps[A]] =
-    keep.get(nameVersion).map { set =>
+    keep(nameVersion).map { pred =>
       copy(
         lib = lib.copy(implementations =
-          PackageMap.filterLets(lib.implementations, set)
+          PackageMap.filterLets(lib.implementations, pred)
         ),
         deps = deps.transform((_, dep) => dep.filterLets(keep)).collect {
           case (k, Some(v)) => (k, v)
@@ -168,7 +168,7 @@ object DecodedLibraryWithDeps {
 
           def rootKey: ScopeKey = a.nameVersion
 
-          def topoSort: Toposort.Result[(ScopeKey, PackageName)] = {
+          lazy val topoSort: Toposort.Result[(ScopeKey, PackageName)] = {
             val allPacks: SortedSet[(ScopeKey, PackageName)] = for {
               k <- a.allKeys
               dec <- depForKey(k).iterator
@@ -201,7 +201,7 @@ object DecodedLibraryWithDeps {
               .to(SortedMap)
               .transform((_, p) => Par.await(p))
 
-          def testValues: Map[PackageName, Identifier.Bindable] =
+          lazy val testValues: Map[PackageName, Identifier.Bindable] =
             a.lib.implementations.testValues
 
           def mainValues(
@@ -262,7 +262,7 @@ object DecodedLibraryWithDeps {
                 .groupBy(_._1)
                 .transform((_, vs) => vs.map(_._2))
 
-            a.filterLets(keep) match {
+            a.filterLets(keep.get(_)) match {
               case Some(a1) => namespace(a1)
               case None     =>
                 // we have filtered everything out

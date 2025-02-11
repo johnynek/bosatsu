@@ -132,10 +132,11 @@ object PackageMap {
 
   def filterLets[A](
       p: Typed[A],
-      keep: Set[(PackageName, Identifier)]
+      keep: ((PackageName, Identifier)) => Boolean
   ): Typed[A] = {
     val kept = p.toMap.iterator.map { case (_, pack) =>
-      pack.filterLets(nm => keep((pack.name, nm)))
+      val name = pack.name
+      pack.filterLets(nm => keep((name, nm)))
     }.toList
 
     fromIterable(kept)
