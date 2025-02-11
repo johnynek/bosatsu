@@ -4,10 +4,16 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.data.{NonEmptyList, StateT}
 import cats.syntax.all._
-import org.bykn.bosatsu.{Identifier, MatchlessFromTypedExpr, PackageName, Par}
+import org.bykn.bosatsu.{
+  Identifier,
+  MatchlessFromTypedExpr,
+  PackageName,
+  PackageMap,
+  Par
+}
 import org.bykn.bosatsu.codegen.{CompilationNamespace, CompilationSource}
 import org.bykn.bosatsu.hashing.{Algo, Hashed}
-import org.bykn.bosatsu.graph.{Memoize, Toposort}
+import org.bykn.bosatsu.graph.{Dag, Memoize, Toposort}
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -37,6 +43,20 @@ case class DecodedLibraryWithDeps[A](
       ec: Par.EC
   ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
+
+  def filterLets(
+      keep: Map[(Name, Version), Set[(PackageName, Identifier)]]
+  ): Option[DecodedLibraryWithDeps[A]] =
+    keep.get(nameVersion).map { set =>
+      copy(
+        lib = lib.copy(implementations =
+          PackageMap.filterLets(lib.implementations, set)
+        ),
+        deps = deps.transform((_, dep) => dep.filterLets(keep)).collect {
+          case (k, Some(v)) => (k, v)
+        }
+      )
+    }
 }
 
 object DecodedLibraryWithDeps {
@@ -209,7 +229,54 @@ object DecodedLibraryWithDeps {
 
           def treeShake(
               roots: Set[(PackageName, Identifier)]
-          ): CompilationNamespace[ScopeKey] = ???
+          ): CompilationNamespace[ScopeKey] = {
+            type Ident = (ScopeKey, (PackageName, Identifier))
+
+            def dependency(a: Ident): Iterable[Ident] = {
+              val (sk, (pn, ident)) = a
+              ident match {
+                case b: Identifier.Bindable =>
+                  depForKey(sk).toList.flatMap { dl =>
+                    dl.lib.implementations.toMap.get(pn) match {
+                      case Some(pack) =>
+                        pack.program._1
+                          .getLet(b)
+                          .toList
+                          .flatMap(_._2.globals)
+                          .flatMap { case globalIdent @ (pn, _) =>
+                            dl.depFor(pn).map { depDl =>
+                              (depDl.nameVersion, globalIdent)
+                            }
+                          }
+                      case None => Nil
+                    }
+                  }
+                case _ => Nil
+              }
+            }
+
+            val keep
+                : Map[(Name, Version), SortedSet[(PackageName, Identifier)]] =
+              Dag
+                .transitiveSet(roots.toList.map(i => (rootKey, i)))(dependency)
+                .groupBy(_._1)
+                .transform((_, vs) => vs.map(_._2))
+
+            a.filterLets(keep) match {
+              case Some(a1) => namespace(a1)
+              case None     =>
+                // we have filtered everything out
+                namespace(
+                  DecodedLibraryWithDeps(
+                    lib = a.lib.copy(
+                      implementations = PackageMap.empty,
+                      interfaces = Nil
+                    ),
+                    deps = SortedMap.empty
+                  )
+                )
+            }
+          }
 
           def rootPackages: SortedSet[PackageName] =
             a.lib.implementations.toMap.keySet

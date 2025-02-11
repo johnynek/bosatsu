@@ -5,7 +5,14 @@ import cats.MonadError
 import cats.syntax.all._
 import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.bykn.bosatsu.tool.CliException
-import org.bykn.bosatsu.{Package, PackageName, PackageMap, ProtoConverter}
+import org.bykn.bosatsu.{
+  Kind,
+  Package,
+  PackageName,
+  PackageMap,
+  ProtoConverter,
+  Referant
+}
 import scala.collection.immutable.{SortedMap, SortedSet}
 import org.typelevel.paiges.Doc
 
@@ -17,8 +24,13 @@ case class DecodedLibrary[A](
     interfaces: List[Package.Interface],
     implementations: PackageMap.Typed[Unit]
 ) {
+  lazy val interfaceMap: PackageMap.Interface =
+    PackageMap.fromIterable[Nothing, Nothing, Referant[Kind.Arg], Unit](
+      interfaces
+    )
+
   lazy val publicPackageNames: SortedSet[PackageName] =
-    interfaces.iterator.map(_.name).to(SortedSet)
+    interfaceMap.toMap.keySet
 }
 
 object DecodedLibrary {
