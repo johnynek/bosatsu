@@ -123,11 +123,24 @@ object PackageMap {
         ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
     )
   ]
+  type Interface = PackageMap[Nothing, Nothing, Referant[Kind.Arg], Unit]
 
   type SourceMap = Map[PackageName, (LocationMap, String)]
 
   // convenience for type inference
   def toAnyTyped[A](p: Typed[A]): Typed[Any] = p
+
+  def filterLets[A](
+      p: Typed[A],
+      keep: ((PackageName, Identifier)) => Boolean
+  ): Typed[A] = {
+    val kept = p.toMap.iterator.map { case (_, pack) =>
+      val name = pack.name
+      pack.filterLets(nm => keep((name, nm)))
+    }.toList
+
+    fromIterable(kept)
+  }
 
   def treeShake[A](
       p: Typed[A],
@@ -149,12 +162,7 @@ object PackageMap {
     }
 
     val keep = Dag.transitiveSet(roots.toList.sorted)(dependency)
-
-    val kept = p.toMap.iterator.map { case (_, pack) =>
-      pack.filterLets(nm => keep((pack.name, nm)))
-    }.toList
-
-    fromIterable(kept)
+    filterLets(p, keep)
   }
 
   type Inferred = Typed[Declaration]
