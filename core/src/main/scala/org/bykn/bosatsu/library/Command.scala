@@ -233,7 +233,7 @@ object Command {
           for {
             pnp <- fpnp
             (gitRoot, name, confDir) = pnp
-            conf <- readLibConf(name, confPath(confDir, name))
+            conf <- readLibConf(name, confDir)
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
           } yield ConfigConf(conf, cas, confDir)
