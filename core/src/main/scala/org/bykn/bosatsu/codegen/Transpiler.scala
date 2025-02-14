@@ -17,6 +17,13 @@ trait Transpiler {
       ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]]
+
+  final def renderAll[F[_], P, S](
+      outDir: P,
+      ns: S,
+      args: Args[F, P]
+  )(implicit ec: Par.EC, cs: CompilationSource[S]): F[List[(P, Doc)]] =
+    renderAll(outDir, cs.namespace(ns), args)
 }
 
 object Transpiler {
@@ -29,5 +36,10 @@ object Transpiler {
   sealed abstract class Optioned[F[_], P] { self =>
     val transpiler: Transpiler
     def args: transpiler.Args[F, P]
+    final def renderAll[S](
+        outDir: P,
+        ns: S
+    )(implicit ec: Par.EC, cs: CompilationSource[S]): F[List[(P, Doc)]] =
+      transpiler.renderAll(outDir, cs.namespace(ns), args)
   }
 }

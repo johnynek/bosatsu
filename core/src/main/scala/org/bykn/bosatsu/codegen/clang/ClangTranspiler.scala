@@ -21,6 +21,7 @@ import scala.util.{Failure, Success, Try}
 import Identifier.Bindable
 
 import cats.syntax.all._
+import cats.Applicative
 
 case object ClangTranspiler extends Transpiler {
 
@@ -63,13 +64,13 @@ case object ClangTranspiler extends Transpiler {
         .option[EmitMode]("emitmode", "emit mode: shake|all, default = all")
         .withDefault(All)
   }
-  sealed abstract class Mode(val name: String)
+  sealed abstract class Mode[F[_]](val name: String)
   object Mode {
-    case class Main(pack: PackageName) extends Mode("main")
-    case class Test(
+    case class Main[F[_]](pack: F[PackageName]) extends Mode[F]("main")
+    case class Test[F[_]](
         filter: Option[PackageName => Boolean],
         filterRegexes: NonEmptyList[String]
-    ) extends Mode("test") {
+    ) extends Mode[F]("test") {
       def values[K](
           ns: CompilationNamespace[K]
       ): List[(PackageName, Bindable)] =
@@ -81,10 +82,10 @@ case object ClangTranspiler extends Transpiler {
         }).sortBy(_._1)
     }
 
-    val opts: Opts[Mode] =
+    def opts[F[_]: Applicative]: Opts[Mode[F]] =
       Opts
         .option[PackageName]("main", "the package to use as an entry point")
-        .map(Main(_))
+        .map(pn => Main(Applicative[F].pure(pn)))
         .orElse(
           Opts.flag("test", "compile the tests") *>
             (Opts
@@ -201,7 +202,7 @@ case object ClangTranspiler extends Transpiler {
   }
 
   case class Arguments[F[_], P](
-      mode: Mode,
+      mode: Mode[F],
       emit: EmitMode,
       generateExternals: GenExternalsMode,
       output: Output[F, P],
@@ -209,18 +210,31 @@ case object ClangTranspiler extends Transpiler {
   )
   type Args[F[_], P] = Arguments[F, P]
 
+  def justOptsGivenMode[F[_], M, P](
+      modeOpts: Opts[M],
+      platformIO: PlatformIO[F, P]
+  )(extractMode: M => Mode[F]): Opts[(M, Transpiler.Optioned[F, P])] =
+    (
+      modeOpts,
+      EmitMode.opts,
+      GenExternalsMode.opts,
+      Output.opts[F, P](platformIO)
+    ).mapN { (m, e, g, out) =>
+      (
+        m,
+        Transpiler.optioned(this)(
+          Arguments(extractMode(m), e, g, out, platformIO)
+        )
+      )
+    }
+
   def opts[F[_], P](
       platformIO: PlatformIO[F, P]
   ): Opts[Transpiler.Optioned[F, P]] =
     Opts.subcommand("c", "generate c code") {
-      (
-        Mode.opts,
-        EmitMode.opts,
-        GenExternalsMode.opts,
-        Output.opts[F, P](platformIO)
-      ).mapN { (m, e, g, out) =>
-        Transpiler.optioned(this)(Arguments(m, e, g, out, platformIO))
-      }
+      justOptsGivenMode(Mode.opts[F](platformIO.moduleIOMonad), platformIO)(m =>
+        m
+      ).map(_._2)
     }
 
   private def spacePackList(ps: Iterable[PackageName]): Doc =
@@ -295,40 +309,44 @@ case object ClangTranspiler extends Transpiler {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
       case None =>
         val doc = args.mode match {
-          case Mode.Main(p) =>
-            ns.mainValues(_ => true).get(p) match {
-              case Some((b, t)) =>
-                validMain(t) match {
-                  case Right(mainRun) =>
-                    val ns1 = args.emit(ns, Set((p, b)))
-                    val clangGen = new ClangGen(ns1)
-                    clangGen.renderMain(p, b, mainRun)
-                  case Left(invalid) =>
-                    return moduleIOMonad.raiseError(
-                      InvalidMainValue(p, invalid)
-                    )
-                }
-              case None =>
-                return moduleIOMonad.raiseError(
-                  InvalidMainValue(p, "empty package")
-                )
+          case Mode.Main(fp) =>
+            fp.flatMap { p =>
+              (ns.mainValues(_ => true).get(p) match {
+                case Some((b, t)) =>
+                  validMain(t) match {
+                    case Right(mainRun) =>
+                      val ns1 = args.emit(ns, Set((p, b)))
+                      val clangGen = new ClangGen(ns1)
+                      moduleIOMonad.pure(clangGen.renderMain(p, b, mainRun))
+                    case Left(invalid) =>
+                      moduleIOMonad.raiseError[Either[ClangGen.Error, Doc]](
+                        InvalidMainValue(p, invalid)
+                      )
+                  }
+                case None =>
+                  moduleIOMonad.raiseError[Either[ClangGen.Error, Doc]](
+                    InvalidMainValue(p, "empty package")
+                  )
+              })
             }
           case test @ Mode.Test(_, re) =>
             val tvs = test.values(ns)
-            if (tvs.isEmpty) {
-              return moduleIOMonad.raiseError(
-                NoTestsFound(ns.rootPackages.toList, re)
-              )
-            } else {
-              val ns1 = args.emit(ns, tvs.toSet)
-              val clangGen = new ClangGen(ns1)
-              clangGen.renderTests(
-                values = tvs.toList.sorted
-              )
-            }
+            (if (tvs.isEmpty) {
+               moduleIOMonad.raiseError(
+                 NoTestsFound(ns.rootPackages.toList, re)
+               )
+             } else {
+               val ns1 = args.emit(ns, tvs.toSet)
+               val clangGen = new ClangGen(ns1)
+               moduleIOMonad.pure(
+                 clangGen.renderTests(
+                   values = tvs.toList.sorted
+                 )
+               )
+             })
         }
 
-        doc match {
+        doc.flatMap {
           case Left(err) =>
             moduleIOMonad.raiseError(
               CliException(

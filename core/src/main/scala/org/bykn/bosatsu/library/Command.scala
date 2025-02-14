@@ -11,9 +11,11 @@ import org.bykn.bosatsu.tool.{
   PathGen,
   PackageResolver
 }
+import org.bykn.bosatsu.codegen.Transpiler
+import org.bykn.bosatsu.codegen.clang.ClangTranspiler
 import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.bykn.bosatsu.LocationMap.Colorize
-import org.bykn.bosatsu.{Json, PlatformIO}
+import org.bykn.bosatsu.{Json, PackageName, PlatformIO}
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
@@ -210,6 +212,34 @@ object Command {
         .map(moduleIOMonad.pure(_))
         .orElse(Opts(platformIO.gitShaHead))
 
+    val casDirOpts: Opts[P => P] =
+      Opts
+        .option[P](
+          "cas_dir",
+          "the path to the cas/ directory, by default .bosatsuc/cas/ in git root"
+        )
+        .orNone
+        .map {
+          case None => { root =>
+            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
+          }
+          case Some(d) => { _ => d }
+        }
+
+    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P)
+    object ConfigConf {
+      val opts: Opts[F[ConfigConf]] =
+        (rootAndName, casDirOpts).mapN { (fpnp, casDirFn) =>
+          for {
+            pnp <- fpnp
+            (gitRoot, name, confDir) = pnp
+            conf <- readLibConf(name, confPath(confDir, name))
+            casDir = casDirFn(gitRoot)
+            cas = new Cas(casDir, platformIO)
+          } yield ConfigConf(conf, cas, confDir)
+        }
+    }
+
     val assembleCommand =
       Opts.subcommand(
         "assemble",
@@ -273,48 +303,29 @@ object Command {
           }
       }
 
-    val casDirOpts: Opts[P => P] =
-      Opts
-        .option[P](
-          "cas_dir",
-          "the path to the cas/ directory, by default .bosatsuc/cas/ in git root"
-        )
-        .orNone
-        .map {
-          case None => { root =>
-            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
-          }
-          case Some(d) => { _ => d }
-        }
-
     val fetchCommand =
       Opts.subcommand(
         "fetch",
         "download all transitive deps into the content storage."
       ) {
-        (rootAndName, casDirOpts).mapN { (fpnp, casDirFn) =>
+        ConfigConf.opts.map { fcc =>
           for {
-            pnp <- fpnp
-            (gitRoot, name, confPath) = pnp
-            conf <- readLibConf(name, confPath)
-            cas = new Cas(casDirFn(gitRoot), platformIO)
-            _ <- conf.previous.traverse_ { desc =>
-              cas.fetchIfNeeded(
-                proto.LibDependency(name = conf.name.name, desc = Some(desc))
+            cc <- fcc
+            _ <- cc.conf.previous.traverse_ { desc =>
+              cc.cas.fetchIfNeeded(
+                proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
               )
             }
-            msg <- cas.fetchAllDeps(conf.publicDeps ::: conf.privateDeps)
+            msg <- cc.cas.fetchAllDeps(
+              cc.conf.publicDeps ::: cc.conf.privateDeps
+            )
           } yield (Output.Basic(msg, None): Output[P])
         }
       }
 
-    def check(
-        conf: LibConfig,
-        casDir: P,
-        confDir: P,
-        colorize: Colorize
-    ): F[Doc] = {
-      val cas = new Cas(casDir, platformIO)
+    def check(cc: ConfigConf, colorize: Colorize): F[Doc] = {
+      import cc.{cas, conf, confDir}
+
       val inputRes =
         PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
       for {
@@ -375,15 +386,64 @@ object Command {
         "check",
         "check all the code, but do not build the final output library (faster than build)."
       ) {
-        (rootNameRoot, casDirOpts, Colorize.optsConsoleDefault).mapN {
-          (fpnp, casDirFn, colorize) =>
-            for {
-              pnp <- fpnp
-              (gitRoot, name, confDir) = pnp
-              conf <- readLibConf(name, confPath(confDir, name))
-              casDir = casDirFn(gitRoot)
-              msg <- check(conf, casDir, confDir, colorize)
-            } yield (Output.Basic(msg, None): Output[P])
+        (ConfigConf.opts, Colorize.optsConsoleDefault).mapN { (fcc, colorize) =>
+          for {
+            cc <- fcc
+            msg <- check(cc, colorize)
+          } yield (Output.Basic(msg, None): Output[P])
+        }
+      }
+
+    def build(
+        cc: ConfigConf,
+        colorize: Colorize,
+        trans: Transpiler.Optioned[F, P]
+    ): F[Doc] = ???
+
+    val buildCommand =
+      Opts.subcommand(
+        "build",
+        "build an executable for the library"
+      ) {
+        val mainPack = Opts
+          .option[PackageName](
+            "main_pack",
+            help = "package to use to define the main.",
+            "m"
+          )
+          .orNone
+
+        (
+          ClangTranspiler.justOptsGivenMode(
+            ConfigConf.opts.product(mainPack),
+            platformIO
+          ) {
+            case (_, Some(m)) =>
+              ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
+            case (fcc, None) =>
+              ClangTranspiler.Mode.Main(
+                fcc.flatMap { cc =>
+                  cc.conf.defaultMain match {
+                    case Some(m) => moduleIOMonad.pure(m)
+                    case None =>
+                      moduleIOMonad.raiseError(
+                        CliException(
+                          "no main defined",
+                          Doc.text(
+                            s"no argument given to define main package and none found in ${cc.conf.name}"
+                          )
+                        )
+                      )
+                  }
+                }
+              )
+          },
+          Colorize.optsConsoleDefault
+        ).mapN { case (((fcc, _), trans), colorize) =>
+          for {
+            cc <- fcc
+            msg <- build(cc, colorize, trans)
+          } yield (Output.Basic(msg, None): Output[P])
         }
       }
 
@@ -393,6 +453,7 @@ object Command {
         assembleCommand ::
         fetchCommand ::
         checkCommand ::
+        buildCommand ::
         Nil
     )
   }

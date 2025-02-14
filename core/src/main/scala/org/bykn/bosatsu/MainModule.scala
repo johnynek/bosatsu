@@ -7,7 +7,6 @@ import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.codegen.CompilationSource
 import org.bykn.bosatsu.tool.{
   CliException,
   CompilerApi,
@@ -377,11 +376,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            data <- generator.transpiler.renderAll(
-              outDir,
-              CompilationSource.namespace(packs),
-              generator.args
-            )
+            data <- generator.renderAll(outDir, packs)
           } yield Output.TranspileOut(data)
         }
     }
