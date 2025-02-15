@@ -22,6 +22,7 @@ import scala.collection.immutable.SortedMap
 import _root_.bosatsu.{TypedAst => proto}
 
 import cats.syntax.all._
+import org.bykn.bosatsu.codegen.python.PythonGen.Impl.PredefExternal.results
 
 object Command {
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
@@ -226,7 +227,63 @@ object Command {
           case Some(d) => { _ => d }
         }
 
-    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P)
+    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+      def check(colorize: Colorize): F[LibConfig.ValidationResult] = {
+        val inputRes =
+          PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
+        for {
+          pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
+          (pubLibs, privLibs) = pubPriv
+          pubDecodes <- pubLibs.traverse(DecodedLibrary.decode(_))
+          privDecodes <- privLibs.traverse(DecodedLibrary.decode(_))
+          inputSrcs <- PathGen
+            .recursiveChildren(confDir, ".bosatsu")(platformIO)
+            .read
+          allPacks <- NonEmptyList.fromList(inputSrcs) match {
+            case Some(inputNel) =>
+              platformIO
+                .withEC { ec =>
+                  CompilerApi.typeCheck(
+                    platformIO,
+                    inputNel,
+                    pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
+                      _.interfaces
+                    ),
+                    colorize,
+                    inputRes
+                  )(ec)
+                }
+                .map(_._1.toMap.values.toList.map(_.void))
+            case None =>
+              moduleIOMonad.pure(Nil)
+          }
+          prevThis <- conf.previous.traverse { desc =>
+            cas
+              .libFromCas(
+                proto.LibDependency(name = conf.name.name, desc = Some(desc))
+              )
+              .flatMap {
+                case Some(a) => DecodedLibrary.decode(a)
+                case None =>
+                  moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
+                    CliException(
+                      "previous not in cas",
+                      Doc.text(
+                        s"could not find previous version ($desc) in CAS, run `lib fetch`."
+                      )
+                    )
+                  )
+              }
+          }
+          validated = conf.validate(
+            prevThis,
+            allPacks,
+            pubDecodes ::: privDecodes
+          )
+          res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+        } yield res
+      }
+    }
     object ConfigConf {
       val opts: Opts[F[ConfigConf]] =
         (rootAndName, casDirOpts).mapN { (fpnp, casDirFn) =>
@@ -323,64 +380,6 @@ object Command {
         }
       }
 
-    def check(cc: ConfigConf, colorize: Colorize): F[Doc] = {
-      import cc.{cas, conf, confDir}
-
-      val inputRes =
-        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
-      for {
-        pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
-        (pubLibs, privLibs) = pubPriv
-        pubDecodes <- pubLibs.traverse(DecodedLibrary.decode(_))
-        privDecodes <- privLibs.traverse(DecodedLibrary.decode(_))
-        inputSrcs <- PathGen
-          .recursiveChildren(confDir, ".bosatsu")(platformIO)
-          .read
-        allPacks <- NonEmptyList.fromList(inputSrcs) match {
-          case Some(inputNel) =>
-            platformIO
-              .withEC { ec =>
-                CompilerApi.typeCheck(
-                  platformIO,
-                  inputNel,
-                  pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
-                    _.interfaces
-                  ),
-                  colorize,
-                  inputRes
-                )(ec)
-              }
-              .map(_._1.toMap.values.toList.map(_.void))
-          case None =>
-            moduleIOMonad.pure(Nil)
-        }
-        prevThis <- conf.previous.traverse { desc =>
-          cas
-            .libFromCas(
-              proto.LibDependency(name = conf.name.name, desc = Some(desc))
-            )
-            .flatMap {
-              case Some(a) => DecodedLibrary.decode(a)
-              case None =>
-                moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
-                  CliException(
-                    "previous not in cas",
-                    Doc.text(
-                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
-                    )
-                  )
-                )
-            }
-        }
-        validated = conf.validate(
-          prevThis,
-          allPacks,
-          pubDecodes ::: privDecodes
-        )
-        _ <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
-      } yield Doc.text("")
-    }
-
     val checkCommand =
       Opts.subcommand(
         "check",
@@ -389,7 +388,8 @@ object Command {
         (ConfigConf.opts, Colorize.optsConsoleDefault).mapN { (fcc, colorize) =>
           for {
             cc <- fcc
-            msg <- check(cc, colorize)
+            _ <- cc.check(colorize)
+            msg = Doc.text("")
           } yield (Output.Basic(msg, None): Output[P])
         }
       }
