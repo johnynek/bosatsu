@@ -408,29 +408,12 @@ case class LibConfig(
     val thisHistory = previous match {
       case None => proto.LibHistory()
       case Some(dec) =>
-        val hash = dec.hashValue
+        val desc = proto.LibDescriptor(
+          version = Some(dec.version.toProto),
+          hashes = List(dec.hashValue.toIdent)
+        )
         val p = dec.protoLib
         val prevHistory = p.history.getOrElse(proto.LibHistory())
-        val v = p.descriptor match {
-          case Some(desc) =>
-            desc.version match {
-              case Some(v) => v
-              case None    =>
-                // this should never happen after validation
-                return Left(
-                  new Exception(s"invalid previous missing version: $p")
-                )
-            }
-          case None =>
-            // this should never happen after validation
-            return Left(
-              new Exception(s"invalid previous missing descriptor: $p")
-            )
-        }
-        val desc = proto.LibDescriptor(
-          version = Some(v),
-          hashes = List(hash.toIdent)
-        )
         prevHistory.nextHistory(desc, nextVersion)
     }
 
