@@ -207,12 +207,11 @@ lazy val core =
     ,
     autoCompilerPlugins := true,
     addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.16"),
-    scalacOptions += "-P:acyclic:force",
-  )
-  .dependsOn(base, proto)
-  .jsSettings(
-    commonJsSettings,
-  )
+    scalacOptions += "-P:acyclic:force"
+  ).dependsOn(base, proto)
+    .jsSettings(
+      commonJsSettings
+    )
 
 lazy val coreJVM = core.jvm
 lazy val coreJS =
@@ -226,7 +225,13 @@ lazy val cliJS =
       name := "bosatsu-clijs",
       assembly / test := {},
       mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
-      libraryDependencies ++= Seq(fs2core.value, fs2io.value, catsEffect.value, http4sCore.value, http4sEmber.value)
+      libraryDependencies ++= Seq(
+        fs2core.value,
+        fs2io.value,
+        catsEffect.value,
+        http4sCore.value,
+        http4sEmber.value
+      )
     )
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
