@@ -23,7 +23,8 @@ case class LibConfig(
     exportedPackages: List[LibConfig.PackageFilter],
     allPackages: List[LibConfig.PackageFilter],
     publicDeps: List[proto.LibDependency],
-    privateDeps: List[proto.LibDependency]
+    privateDeps: List[proto.LibDependency],
+    defaultMain: Option[PackageName]
 ) {
 
   /** validate then unvalidatedAssemble
@@ -393,10 +394,10 @@ case class LibConfig(
   }
 
   // just build the library without any validations
-  def unvalidatedAssemble(
+  def unvalidatedAssemble[A](
       previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
-      packs: List[Package.Typed[Unit]],
+      packs: List[Package.Typed[A]],
       unusedTrans: List[proto.LibDependency]
   ): Either[Throwable, proto.Library] = {
     val depth = previous match {
@@ -407,29 +408,12 @@ case class LibConfig(
     val thisHistory = previous match {
       case None => proto.LibHistory()
       case Some(dec) =>
-        val hash = dec.hashValue
+        val desc = proto.LibDescriptor(
+          version = Some(dec.version.toProto),
+          hashes = List(dec.hashValue.toIdent)
+        )
         val p = dec.protoLib
         val prevHistory = p.history.getOrElse(proto.LibHistory())
-        val v = p.descriptor match {
-          case Some(desc) =>
-            desc.version match {
-              case Some(v) => v
-              case None    =>
-                // this should never happen after validation
-                return Left(
-                  new Exception(s"invalid previous missing version: $p")
-                )
-            }
-          case None =>
-            // this should never happen after validation
-            return Left(
-              new Exception(s"invalid previous missing descriptor: $p")
-            )
-        }
-        val desc = proto.LibDescriptor(
-          version = Some(v),
-          hashes = List(hash.toIdent)
-        )
         prevHistory.nextHistory(desc, nextVersion)
     }
 
@@ -457,7 +441,8 @@ case class LibConfig(
         publicDependencies = publicDeps.sortBy(_.name),
         privateDependencies = privateDeps.sortBy(_.name),
         unusedTransitivePublicDependencies = unusedTrans,
-        history = Some(thisHistory)
+        history = Some(thisHistory),
+        defaultMain = defaultMain.fold("")(_.asString)
       )
     }
   }
@@ -690,7 +675,8 @@ object LibConfig {
       Nil,
       Nil,
       Nil,
-      Nil
+      Nil,
+      None
     )
 
   /** Compute the list of unused transitive dependencies if we can solve for
@@ -940,6 +926,9 @@ object LibConfig {
       import Json.Writer.write
       import lc._
 
+      implicit val writePn: Json.Writer[PackageName] =
+        Json.Writer[String].contramap[PackageName](_.asString)
+
       Json.JObject(
         ("name" -> write(name)) ::
           ("repo_uri" -> write(repoUri)) ::
@@ -954,11 +943,22 @@ object LibConfig {
            else ("public_deps" -> write(publicDeps)) :: Nil) :::
           (if (privateDeps.isEmpty) Nil
            else ("private_deps" -> write(privateDeps)) :: Nil) :::
+          (defaultMain match {
+            case None     => Nil
+            case Some(dm) => ("default_main" -> write(dm)) :: Nil
+          }) :::
           Nil
       )
     }
   implicit val libConfigReader: Json.Reader[LibConfig] =
     new Json.Reader.Obj[LibConfig] {
+      implicit val readPn: Json.Reader[PackageName] =
+        Json.Reader[String].mapEither("PackageName") { str =>
+          PackageName.parse(str) match {
+            case None        => Left(s"could not parse $str into package name")
+            case Some(value) => Right(value)
+          }
+        }
       def describe: String = "LibConfig"
       def readObj(
           from: Json.Reader.FromObj
@@ -976,6 +976,7 @@ object LibConfig {
           privateDeps <- from.optional[List[proto.LibDependency]](
             "private_deps"
           )
+          defaultMain <- from.optional[PackageName]("default_main")
         } yield LibConfig(
           name = name,
           repoUri = repoUri,
@@ -984,7 +985,8 @@ object LibConfig {
           exportedPackages = exportedPackages,
           allPackages = allPackages,
           publicDeps = publicDeps.toList.flatten,
-          privateDeps = privateDeps.toList.flatten
+          privateDeps = privateDeps.toList.flatten,
+          defaultMain = defaultMain
         )
     }
 }

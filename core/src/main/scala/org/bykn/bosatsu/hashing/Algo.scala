@@ -25,6 +25,8 @@ object Algo {
   trait Blake3
   object Blake3 extends Blake3
 
+  implicit def apply[A](implicit algo: Algo[A]): Algo[A] = algo
+
   implicit val blake3Algo: Algo[Blake3] =
     new Algo[Blake3] {
       def name: String = "blake3"

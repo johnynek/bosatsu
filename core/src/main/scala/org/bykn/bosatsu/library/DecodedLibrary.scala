@@ -22,7 +22,7 @@ case class DecodedLibrary[A](
     hashValue: HashValue[A],
     protoLib: proto.Library,
     interfaces: List[Package.Interface],
-    implementations: PackageMap.Typed[Unit]
+    implementations: PackageMap.Typed[Any]
 ) {
   lazy val interfaceMap: PackageMap.Interface =
     PackageMap.fromIterable[Nothing, Nothing, Referant[Kind.Arg], Unit](
@@ -31,45 +31,51 @@ case class DecodedLibrary[A](
 
   lazy val publicPackageNames: SortedSet[PackageName] =
     interfaceMap.toMap.keySet
+
+  lazy val toHashed: Hashed[A, proto.Library] = Hashed(hashValue, protoLib)
 }
 
 object DecodedLibrary {
+
+  def versionOf[A: Algo](
+      protoLib: Hashed[A, proto.Library]
+  ): Either[Throwable, Version] =
+    protoLib.arg.descriptor.flatMap(_.version) match {
+      case Some(protoV) => Right(Version.fromProto(protoV))
+      case None =>
+        Left(
+          CliException(
+            "missing version",
+            Doc.text(
+              show"while decoding library ${protoLib.arg.name} with hash ${protoLib.hash.toIdent} has missing version."
+            )
+          )
+        )
+    }
+
   def decode[F[_], A: Algo](
       protoLib: Hashed[A, proto.Library]
   )(implicit F: MonadError[F, Throwable]): F[DecodedLibrary[A]] =
-    F.fromTry(
-      ProtoConverter
-        .packagesFromProto(
-          protoLib.arg.exportedIfaces,
-          protoLib.arg.internalPackages
-        )
-    ).flatMap { case (ifs, impls) =>
+    for {
+      ifsImpls <- F.fromTry(
+        ProtoConverter
+          .packagesFromProto(
+            protoLib.arg.exportedIfaces,
+            protoLib.arg.internalPackages
+          )
+      )
+      (ifs, impls) = ifsImpls
       // TODO: should verify somewhere that all the package names are distinct, but since this is presumed to be
       // a good library maybe that's a waste
-
-      protoLib.arg.descriptor.flatMap(_.version) match {
-        case Some(protoV) =>
-          F.pure(
-            DecodedLibrary[A](
-              Name(protoLib.arg.name),
-              Version.fromProto(protoV),
-              protoLib.hash,
-              protoLib.arg,
-              ifs,
-              PackageMap(
-                impls.iterator.map(pack => (pack.name, pack)).to(SortedMap)
-              )
-            )
-          )
-        case None =>
-          F.raiseError(
-            CliException(
-              "missing version",
-              Doc.text(
-                show"while decoding library ${protoLib.arg.name} with hash ${protoLib.hash.toIdent} has missing version."
-              )
-            )
-          )
-      }
-    }
+      version <- F.fromEither(versionOf(protoLib))
+    } yield DecodedLibrary[A](
+      Name(protoLib.arg.name),
+      version,
+      protoLib.hash,
+      protoLib.arg,
+      ifs,
+      PackageMap(
+        impls.iterator.map(pack => (pack.name, pack)).to(SortedMap)
+      )
+    )
 }

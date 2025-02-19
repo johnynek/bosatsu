@@ -19,20 +19,9 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 import cats.syntax.all._
 
+import ClangGen.Error
+
 class ClangGen[K](ns: CompilationNamespace[K]) {
-  sealed abstract class Error {
-    // TODO: implement this in a nice way
-    def display: Doc = Doc.text(this.toString)
-  }
-
-  object Error {
-    case class UnknownValue(pack: PackageName, value: Bindable) extends Error
-    case class InvariantViolation(message: String, expr: Expr[Any])
-        extends Error
-    case class Unbound(bn: Bindable, inside: Option[(K, PackageName, Bindable)])
-        extends Error
-  }
-
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -1462,7 +1451,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   val key = (k, pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => Right((s, ident))
-                    case None             => Left(Error.UnknownValue(pn, bn))
+                    case None => Left(ClangGen.Error.UnknownValue(pn, bn))
                   }
               }
             }
@@ -1495,7 +1484,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             tryRead { s =>
               s.binds.get(bn) match {
                 case Some(bs) => Right(bs.stack.head.ident)
-                case None     => Left(Error.Unbound(bn, s.currentTop))
+                case None     => Left(ClangGen.Error.Unbound(bn, s.currentTop))
               }
             }
           def bindAnon[A](idx: Long)(in: T[A]): T[A] =
@@ -1751,6 +1740,21 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 }
 
 object ClangGen {
+  sealed abstract class Error {
+    // TODO: implement this in a nice way
+    def display: Doc = Doc.text(this.toString)
+  }
+
+  object Error {
+    case class UnknownValue(pack: PackageName, value: Bindable) extends Error
+    case class InvariantViolation(message: String, expr: Expr[Any])
+        extends Error
+    case class Unbound(
+        bn: Bindable,
+        inside: Option[(Any, PackageName, Bindable)]
+    ) extends Error
+  }
+
   def apply[S](src: S)(implicit
       CS: CompilationSource[S]
   ): ClangGen[CS.ScopeKey] =

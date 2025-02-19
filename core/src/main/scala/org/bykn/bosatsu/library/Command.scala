@@ -11,9 +11,11 @@ import org.bykn.bosatsu.tool.{
   PathGen,
   PackageResolver
 }
+import org.bykn.bosatsu.codegen.Transpiler
+import org.bykn.bosatsu.codegen.clang.ClangTranspiler
 import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.bykn.bosatsu.LocationMap.Colorize
-import org.bykn.bosatsu.{Json, PlatformIO}
+import org.bykn.bosatsu.{Json, PackageName, PackageMap, PlatformIO}
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
@@ -87,14 +89,15 @@ object Command {
     val initCommand =
       Opts.subcommand("init", "initialize a config") {
         (
-          Opts.option[Name]("name", "name of the library"),
+          Opts.option[Name]("name", help = "name of the library"),
           Opts.option[String](
             "repo_uri",
-            "uri for the version control of this library"
+            help = "uri for the version control of this library"
           ),
           Opts.option[P](
             "src_root",
-            "path to the src root for the bosatsu packages in this library"
+            help =
+              "path to the src root for the bosatsu packages in this library"
           ),
           Opts.option[Version]("version", "the initial version to use"),
           topLevelOpt
@@ -210,6 +213,186 @@ object Command {
         .map(moduleIOMonad.pure(_))
         .orElse(Opts(platformIO.gitShaHead))
 
+    val casDirOpts: Opts[P => P] =
+      Opts
+        .option[P](
+          "cas_dir",
+          "the path to the cas/ directory, by default .bosatsuc/cas/ in git root"
+        )
+        .orNone
+        .map {
+          case None => { root =>
+            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
+          }
+          case Some(d) => { _ => d }
+        }
+
+    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+
+      def pubPrivDeps: F[
+        (List[DecodedLibrary[Algo.Blake3]], List[DecodedLibrary[Algo.Blake3]])
+      ] =
+        for {
+          pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
+          (pubLibs, privLibs) = pubPriv
+          pubDecodes <- pubLibs.traverse(DecodedLibrary.decode(_))
+          privDecodes <- privLibs.traverse(DecodedLibrary.decode(_))
+        } yield (pubDecodes, privDecodes)
+
+      def previousThis: F[Option[DecodedLibrary[Algo.Blake3]]] =
+        conf.previous.traverse { desc =>
+          cas
+            .libFromCas(
+              proto.LibDependency(name = conf.name.name, desc = Some(desc))
+            )
+            .flatMap {
+              case Some(a) => DecodedLibrary.decode(a)
+              case None =>
+                moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
+                  CliException(
+                    "previous not in cas",
+                    Doc.text(
+                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
+                    )
+                  )
+                )
+            }
+        }
+
+      private val inputRes =
+        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
+
+      def packageMap[A](
+          pubDecodes: List[DecodedLibrary[A]],
+          privDecodes: List[DecodedLibrary[A]],
+          colorize: Colorize
+      ): F[PackageMap.Inferred] =
+        PathGen
+          .recursiveChildren(confDir, ".bosatsu")(platformIO)
+          .read
+          .flatMap { inputSrcs =>
+            NonEmptyList.fromList(inputSrcs) match {
+              case Some(inputNel) =>
+                platformIO
+                  .withEC { ec =>
+                    CompilerApi.typeCheck(
+                      platformIO,
+                      inputNel,
+                      pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
+                        _.interfaces
+                      ),
+                      colorize,
+                      inputRes
+                    )(ec)
+                  }
+                  .map(_._1)
+              case None =>
+                moduleIOMonad.pure(PackageMap.empty)
+            }
+          }
+
+      def check(colorize: Colorize): F[LibConfig.ValidationResult] =
+        for {
+          prevThis <- previousThis
+          pubPriv <- pubPrivDeps
+          (pubDecodes, privDecodes) = pubPriv
+          allPacks <- packageMap(
+            pubDecodes = pubDecodes,
+            privDecodes = privDecodes,
+            colorize
+          )
+          validated = conf.validate(
+            prevThis,
+            allPacks.toMap.values.toList.map(_.void),
+            pubDecodes ::: privDecodes
+          )
+          res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+        } yield res
+
+      def build(
+          colorize: Colorize,
+          trans: Transpiler.Optioned[F, P]
+      ): F[Doc] =
+        for {
+          pubPriv <- pubPrivDeps
+          (pubDecodes, privDecodes) = pubPriv
+          allPacks <- packageMap(
+            pubDecodes = pubDecodes,
+            privDecodes = privDecodes,
+            colorize
+          )
+          // we don't need a valid protoLib which will be published, just for resolving names/versions
+          protoLib <- moduleIOMonad.fromEither(
+            conf.unvalidatedAssemble(
+              None,
+              "",
+              allPacks.toMap.values.toList,
+              Nil
+            )
+          )
+          hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
+            _.toByteArray
+          )
+          // TODO: it's wasteful to serialize, just do
+          decLib = DecodedLibrary(
+            conf.name,
+            conf.nextVersion,
+            hashedLib.hash,
+            protoLib,
+            Nil, // we can ignore interfaces when generating binaries
+            allPacks
+          )
+          allDeps = (pubDecodes.iterator ++ privDecodes.iterator).map { dec =>
+            (dec.name.name, dec.version) -> dec.toHashed
+          }.toMap
+
+          loadFn = { (dep: proto.LibDependency) =>
+            val version = dep.desc
+              .flatMap(_.version)
+              .fold(Version.zero)(Version.fromProto(_))
+            allDeps.get((dep.name, version)) match {
+              case Some(lib) => moduleIOMonad.pure(lib)
+              case None =>
+                cas.libFromCas(dep).flatMap {
+                  case Some(lib) => moduleIOMonad.pure(lib)
+                  case None =>
+                    moduleIOMonad
+                      .raiseError[Hashed[Algo.Blake3, proto.Library]](
+                        CliException(
+                          "missing dep from cas",
+                          Doc.text(
+                            s"missing ${dep.name} $version"
+                          ) + Doc.line + Doc.text(
+                            "run `lib fetch` to insert these libraries into the cas."
+                          )
+                        )
+                      )
+                }
+            }
+          }
+          decWithLibs <- DecodedLibraryWithDeps.decodeAll(decLib)(loadFn)
+          outputs <- platformIO.withEC { implicit ec =>
+            trans.renderAll(decWithLibs)
+          }
+          _ <- outputs.traverse_ { case (path, doc) =>
+            platformIO.writeDoc(path, doc)
+          }
+        } yield Doc.empty
+    }
+
+    object ConfigConf {
+      val opts: Opts[F[ConfigConf]] =
+        (rootNameRoot, casDirOpts).mapN { (fpnp, casDirFn) =>
+          for {
+            pnp <- fpnp
+            (gitRoot, name, confDir) = pnp
+            conf <- readLibConf(name, confPath(confDir, name))
+            casDir = casDirFn(gitRoot)
+            cas = new Cas(casDir, platformIO)
+          } yield ConfigConf(conf, cas, confDir)
+        }
+    }
+
     val assembleCommand =
       Opts.subcommand(
         "assemble",
@@ -273,117 +456,84 @@ object Command {
           }
       }
 
-    val casDirOpts: Opts[P => P] =
-      Opts
-        .option[P](
-          "cas_dir",
-          "the path to the cas/ directory, by default .bosatsuc/cas/ in git root"
-        )
-        .orNone
-        .map {
-          case None => { root =>
-            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
-          }
-          case Some(d) => { _ => d }
-        }
-
     val fetchCommand =
       Opts.subcommand(
         "fetch",
         "download all transitive deps into the content storage."
       ) {
-        (rootAndName, casDirOpts).mapN { (fpnp, casDirFn) =>
+        ConfigConf.opts.map { fcc =>
           for {
-            pnp <- fpnp
-            (gitRoot, name, confPath) = pnp
-            conf <- readLibConf(name, confPath)
-            cas = new Cas(casDirFn(gitRoot), platformIO)
-            _ <- conf.previous.traverse_ { desc =>
-              cas.fetchIfNeeded(
-                proto.LibDependency(name = conf.name.name, desc = Some(desc))
+            cc <- fcc
+            _ <- cc.conf.previous.traverse_ { desc =>
+              cc.cas.fetchIfNeeded(
+                proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
               )
             }
-            msg <- cas.fetchAllDeps(conf.publicDeps ::: conf.privateDeps)
+            msg <- cc.cas.fetchAllDeps(
+              cc.conf.publicDeps ::: cc.conf.privateDeps
+            )
           } yield (Output.Basic(msg, None): Output[P])
         }
       }
-
-    def check(
-        conf: LibConfig,
-        casDir: P,
-        confDir: P,
-        colorize: Colorize
-    ): F[Doc] = {
-      val cas = new Cas(casDir, platformIO)
-      val inputRes =
-        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
-      for {
-        pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
-        (pubLibs, privLibs) = pubPriv
-        pubDecodes <- pubLibs.traverse(DecodedLibrary.decode(_))
-        privDecodes <- privLibs.traverse(DecodedLibrary.decode(_))
-        inputSrcs <- PathGen
-          .recursiveChildren(confDir, ".bosatsu")(platformIO)
-          .read
-        allPacks <- NonEmptyList.fromList(inputSrcs) match {
-          case Some(inputNel) =>
-            platformIO
-              .withEC { ec =>
-                CompilerApi.typeCheck(
-                  platformIO,
-                  inputNel,
-                  pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
-                    _.interfaces
-                  ),
-                  colorize,
-                  inputRes
-                )(ec)
-              }
-              .map(_._1.toMap.values.toList.map(_.void))
-          case None =>
-            moduleIOMonad.pure(Nil)
-        }
-        prevThis <- conf.previous.traverse { desc =>
-          cas
-            .libFromCas(
-              proto.LibDependency(name = conf.name.name, desc = Some(desc))
-            )
-            .flatMap {
-              case Some(a) => DecodedLibrary.decode(a)
-              case None =>
-                moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
-                  CliException(
-                    "previous not in cas",
-                    Doc.text(
-                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
-                    )
-                  )
-                )
-            }
-        }
-        validated = conf.validate(
-          prevThis,
-          allPacks,
-          pubDecodes ::: privDecodes
-        )
-        _ <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
-      } yield Doc.text("")
-    }
 
     val checkCommand =
       Opts.subcommand(
         "check",
         "check all the code, but do not build the final output library (faster than build)."
       ) {
-        (rootNameRoot, casDirOpts, Colorize.optsConsoleDefault).mapN {
-          (fpnp, casDirFn, colorize) =>
-            for {
-              pnp <- fpnp
-              (gitRoot, name, confDir) = pnp
-              conf <- readLibConf(name, confPath(confDir, name))
-              casDir = casDirFn(gitRoot)
-              msg <- check(conf, casDir, confDir, colorize)
-            } yield (Output.Basic(msg, None): Output[P])
+        (ConfigConf.opts, Colorize.optsConsoleDefault).mapN { (fcc, colorize) =>
+          for {
+            cc <- fcc
+            _ <- cc.check(colorize)
+            msg = Doc.text("")
+          } yield (Output.Basic(msg, None): Output[P])
+        }
+      }
+
+    val buildCommand =
+      Opts.subcommand(
+        "build",
+        "build an executable for the library"
+      ) {
+        val mainPack = Opts
+          .option[PackageName](
+            "main_pack",
+            help = "package to use to define the main.",
+            "m"
+          )
+          .orNone
+
+        (
+          ClangTranspiler.justOptsGivenMode(
+            ConfigConf.opts.product(mainPack),
+            platformIO
+          ) {
+            case (_, Some(m)) =>
+              ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
+            case (fcc, None) =>
+              ClangTranspiler.Mode.Main(
+                fcc.flatMap { cc =>
+                  cc.conf.defaultMain match {
+                    case Some(m) => moduleIOMonad.pure(m)
+                    case None =>
+                      moduleIOMonad.raiseError(
+                        CliException(
+                          "no main defined",
+                          Doc.text(
+                            s"no argument (--main_pack, -m) given to define main package and none found in ${cc.conf.name.name}"
+                          )
+                        )
+                      )
+                  }
+                }
+              )
+          },
+          Colorize.optsConsoleDefault
+        ).mapN { case (((fcc, _), trans), colorize) =>
+          for {
+            cc <- fcc
+            msg <- cc.build(colorize, trans)
+          } yield (Output.Basic(msg, None): Output[P])
         }
       }
 
@@ -393,6 +543,7 @@ object Command {
         assembleCommand ::
         fetchCommand ::
         checkCommand ::
+        buildCommand ::
         Nil
     )
   }
