@@ -64,6 +64,13 @@ object DecodedLibraryWithDeps {
       protoLib: Hashed[Algo.Blake3, proto.Library]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
       F: MonadError[F, Throwable]
+  ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+    DecodedLibrary.decode(protoLib).flatMap(decodeAll(_)(load))
+
+  def decodeAll[F[_]](
+      dec: DecodedLibrary[Algo.Blake3]
+  )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
+      F: MonadError[F, Throwable]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] = {
     type Key = (Name, Version)
     type Value = DecodedLibraryWithDeps[Algo.Blake3]
@@ -76,19 +83,18 @@ object DecodedLibraryWithDeps {
       getS.map(_.get(k))
 
     def decodeAndStore(
-        protoLib: Hashed[Algo.Blake3, proto.Library]
+        decoded: DecodedLibrary[Algo.Blake3]
     ): Cached[Value] =
       for {
-        root <- StateT.liftF(DecodedLibrary.decode[F, Algo.Blake3](protoLib))
         deps <-
-          (protoLib.arg.privateDependencies.toList ::: protoLib.arg.publicDependencies.toList)
+          (decoded.protoLib.privateDependencies.toList ::: decoded.protoLib.publicDependencies.toList)
             .traverse(fetchDep(_))
         depMap = deps.iterator
-          .map(dec => (dec.name, dec.version) -> dec)
+          .map(dec => dec.nameVersion -> dec)
           .to(SortedMap)
-        result = DecodedLibraryWithDeps(root, depMap)
+        result = DecodedLibraryWithDeps(decoded, depMap)
         _ <- StateT.modify[F, S](
-          _.updated((root.name, root.version), result)
+          _.updated(result.nameVersion, result)
         )
       } yield result
 
@@ -112,12 +118,14 @@ object DecodedLibraryWithDeps {
         res <- cached match {
           case Some(d) => StateT.pure[F, S, Value](d)
           case None =>
-            StateT.liftF(load(dep)).flatMap(decodeAndStore(_))
+            StateT
+              .liftF(load(dep).flatMap(DecodedLibrary.decode(_)))
+              .flatMap(decodeAndStore(_))
         }
       } yield res
     }
 
-    decodeAndStore(protoLib).runA(Map.empty)
+    decodeAndStore(dec).runA(Map.empty)
   }
 
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit
@@ -130,6 +138,9 @@ object DecodedLibraryWithDeps {
           a: DecodedLibraryWithDeps[A]
       ): CompilationNamespace[ScopeKey] =
         new CompilationNamespace[ScopeKey] {
+          override def toString: String =
+            s"DecodedLibraryWithDepsCompilationSource($a)"
+
           implicit val keyOrder: Ordering[ScopeKey] = Ordering.Tuple2
 
           val depForKey: ScopeKey => Option[DecodedLibraryWithDeps[A]] =

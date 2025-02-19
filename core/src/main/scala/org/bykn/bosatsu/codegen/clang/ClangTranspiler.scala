@@ -130,7 +130,7 @@ case object ClangTranspiler extends Transpiler {
       import platformIO.{moduleIOMonad, pathArg, showPath}
 
       val cOpt = Opts
-        .option[P]("output", "o", "name of output c code file.")
+        .option[P]("output", help = "name of output c code file.", short = "o")
         .orElse {
           Opts("output.c")
             .mapValidated(platformIO.path(_))
@@ -206,6 +206,7 @@ case object ClangTranspiler extends Transpiler {
       emit: EmitMode,
       generateExternals: GenExternalsMode,
       output: Output[F, P],
+      outDir: P,
       platformIO: PlatformIO[F, P]
   )
   type Args[F[_], P] = Arguments[F, P]
@@ -218,12 +219,13 @@ case object ClangTranspiler extends Transpiler {
       modeOpts,
       EmitMode.opts,
       GenExternalsMode.opts,
-      Output.opts[F, P](platformIO)
-    ).mapN { (m, e, g, out) =>
+      Output.opts[F, P](platformIO),
+      Transpiler.outDir(platformIO.pathArg)
+    ).mapN { (m, e, g, out, outDir) =>
       (
         m,
         Transpiler.optioned(this)(
-          Arguments(extractMode(m), e, g, out, platformIO)
+          Arguments(extractMode(m), e, g, out, outDir, platformIO)
         )
       )
     }
@@ -298,7 +300,6 @@ case object ClangTranspiler extends Transpiler {
   }
 
   def renderAll[F[_], P, S](
-      outDir: P,
       ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
@@ -311,7 +312,7 @@ case object ClangTranspiler extends Transpiler {
         val doc = args.mode match {
           case Mode.Main(fp) =>
             fp.flatMap { p =>
-              (ns.mainValues(_ => true).get(p) match {
+              (ns.mainValues(validMain(_).isRight).get(p) match {
                 case Some((b, t)) =>
                   validMain(t) match {
                     case Right(mainRun) =>
@@ -356,12 +357,12 @@ case object ClangTranspiler extends Transpiler {
             )
 
           case Right(doc) =>
-            val outputName = resolve(outDir, args.output.cOut)
+            val outputName = resolve(args.outDir, args.output.cOut)
             val externalHeaders =
               if (args.generateExternals.generate) {
                 (new ClangGen(ns)).generateExternalsStub.iterator.map {
                   case (n, d) =>
-                    resolve(outDir, n) -> d
+                    resolve(args.outDir, n) -> d
                 }.toList
               } else Nil
 
@@ -375,7 +376,7 @@ case object ClangTranspiler extends Transpiler {
                   ccConf <- fcc
                   // we have to write the c code before we can compile
                   _ <- args.platformIO.writeDoc(outputName, doc)
-                  _ <- ccConf.compile(outputName, resolve(outDir, exe))(
+                  _ <- ccConf.compile(outputName, resolve(args.outDir, exe))(
                     args.platformIO
                   )
                 } yield externalHeaders

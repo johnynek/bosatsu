@@ -15,6 +15,7 @@ case object PythonTranspiler extends Transpiler {
   case class Arguments[F[_], P](
       externals: List[P],
       evaluators: List[P],
+      outDir: P,
       platformIO: PlatformIO[F, P]
   ) {
     def read: F[(List[String], List[String])] = {
@@ -50,14 +51,14 @@ case object PythonTranspiler extends Transpiler {
             "evaluators",
             help = "evaluators which run values of certain types"
           )
-          .orEmpty
+          .orEmpty,
+        Transpiler.outDir(platformIO.pathArg)
       )
-        .mapN(Arguments(_, _, platformIO))
+        .mapN(Arguments(_, _, _, platformIO))
         .map(arg => Transpiler.optioned(this)(arg))
     }
 
   def renderAll[F[_], P, S](
-      outDir: P,
       ns: CompilationNamespace[S],
       args: Args[F, P]
   )(implicit ec: Par.EC): F[List[(P, Doc)]] = {
@@ -113,7 +114,7 @@ case object PythonTranspiler extends Transpiler {
               .toMap
 
           def toPath(ns: NonEmptyList[String]): P =
-            resolve(outDir, ns.toList)
+            resolve(args.outDir, ns.toList)
 
           val docs = PythonGen
             .renderAll(ns, extMap, evalMap)

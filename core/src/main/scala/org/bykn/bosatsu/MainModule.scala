@@ -365,8 +365,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     case class TranspileCommand(
         inputs: Inputs.Runtime,
         errColor: Colorize,
-        generator: Transpiler.Optioned[F, Path],
-        outDir: Path
+        generator: Transpiler.Optioned[F, Path]
     ) extends MainCommand("transpile") {
 
       type Result = Output.TranspileOut[Path]
@@ -376,7 +375,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            data <- generator.renderAll(outDir, packs)
+            data <- generator.renderAll(packs)
           } yield Output.TranspileOut(data)
         }
     }
@@ -837,13 +836,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       val transpileOpt = (
         Inputs.runtimeOpts,
         Colorize.optsConsoleDefault,
-        transOpt,
-        Opts.option[Path](
-          "outdir",
-          help = "directory to write all output into"
-        )
+        transOpt
       )
-        .mapN(TranspileCommand(_, _, _, _))
+        .mapN(TranspileCommand(_, _, _))
 
       val evalOpt = (Inputs.runtimeOpts, mainP, Colorize.optsConsoleDefault)
         .mapN(Evaluate(_, _, _))

@@ -89,14 +89,15 @@ object Command {
     val initCommand =
       Opts.subcommand("init", "initialize a config") {
         (
-          Opts.option[Name]("name", "name of the library"),
+          Opts.option[Name]("name", help = "name of the library"),
           Opts.option[String](
             "repo_uri",
-            "uri for the version control of this library"
+            help = "uri for the version control of this library"
           ),
           Opts.option[P](
             "src_root",
-            "path to the src root for the bosatsu packages in this library"
+            help =
+              "path to the src root for the bosatsu packages in this library"
           ),
           Opts.option[Version]("version", "the initial version to use"),
           topLevelOpt
@@ -292,8 +293,8 @@ object Command {
 
       def check(colorize: Colorize): F[LibConfig.ValidationResult] =
         for {
-          pubPriv <- pubPrivDeps
           prevThis <- previousThis
+          pubPriv <- pubPrivDeps
           (pubDecodes, privDecodes) = pubPriv
           allPacks <- packageMap(
             pubDecodes = pubDecodes,
@@ -307,15 +308,85 @@ object Command {
           )
           res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
         } yield res
+
+      def build(
+          colorize: Colorize,
+          trans: Transpiler.Optioned[F, P]
+      ): F[Doc] =
+        for {
+          pubPriv <- pubPrivDeps
+          (pubDecodes, privDecodes) = pubPriv
+          allPacks <- packageMap(
+            pubDecodes = pubDecodes,
+            privDecodes = privDecodes,
+            colorize
+          )
+          // we don't need a valid protoLib which will be published, just for resolving names/versions
+          protoLib <- moduleIOMonad.fromEither(
+            conf.unvalidatedAssemble(
+              None,
+              "",
+              allPacks.toMap.values.toList,
+              Nil
+            )
+          )
+          hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
+            _.toByteArray
+          )
+          // TODO: it's wasteful to serialize, just do
+          decLib = DecodedLibrary(
+            conf.name,
+            conf.nextVersion,
+            hashedLib.hash,
+            protoLib,
+            Nil, // we can ignore interfaces when generating binaries
+            allPacks
+          )
+          allDeps = (pubDecodes.iterator ++ privDecodes.iterator).map { dec =>
+            (dec.name.name, dec.version) -> dec.toHashed
+          }.toMap
+
+          loadFn = { (dep: proto.LibDependency) =>
+            val version = dep.desc
+              .flatMap(_.version)
+              .fold(Version.zero)(Version.fromProto(_))
+            allDeps.get((dep.name, version)) match {
+              case Some(lib) => moduleIOMonad.pure(lib)
+              case None =>
+                cas.libFromCas(dep).flatMap {
+                  case Some(lib) => moduleIOMonad.pure(lib)
+                  case None =>
+                    moduleIOMonad
+                      .raiseError[Hashed[Algo.Blake3, proto.Library]](
+                        CliException(
+                          "missing dep from cas",
+                          Doc.text(
+                            s"missing ${dep.name} $version"
+                          ) + Doc.line + Doc.text(
+                            "run `lib fetch` to insert these libraries into the cas."
+                          )
+                        )
+                      )
+                }
+            }
+          }
+          decWithLibs <- DecodedLibraryWithDeps.decodeAll(decLib)(loadFn)
+          outputs <- platformIO.withEC { implicit ec =>
+            trans.renderAll(decWithLibs)
+          }
+          _ <- outputs.traverse_ { case (path, doc) =>
+            platformIO.writeDoc(path, doc)
+          }
+        } yield Doc.empty
     }
 
     object ConfigConf {
       val opts: Opts[F[ConfigConf]] =
-        (rootAndName, casDirOpts).mapN { (fpnp, casDirFn) =>
+        (rootNameRoot, casDirOpts).mapN { (fpnp, casDirFn) =>
           for {
             pnp <- fpnp
             (gitRoot, name, confDir) = pnp
-            conf <- readLibConf(name, confDir)
+            conf <- readLibConf(name, confPath(confDir, name))
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
           } yield ConfigConf(conf, cas, confDir)
@@ -419,12 +490,6 @@ object Command {
         }
       }
 
-    def build(
-        cc: ConfigConf,
-        colorize: Colorize,
-        trans: Transpiler.Optioned[F, P]
-    ): F[Doc] = ???
-
     val buildCommand =
       Opts.subcommand(
         "build",
@@ -455,7 +520,7 @@ object Command {
                         CliException(
                           "no main defined",
                           Doc.text(
-                            s"no argument given to define main package and none found in ${cc.conf.name}"
+                            s"no argument (--main_pack, -m) given to define main package and none found in ${cc.conf.name.name}"
                           )
                         )
                       )
@@ -467,7 +532,7 @@ object Command {
         ).mapN { case (((fcc, _), trans), colorize) =>
           for {
             cc <- fcc
-            msg <- build(cc, colorize, trans)
+            msg <- cc.build(colorize, trans)
           } yield (Output.Basic(msg, None): Output[P])
         }
       }

@@ -394,10 +394,10 @@ case class LibConfig(
   }
 
   // just build the library without any validations
-  def unvalidatedAssemble(
+  def unvalidatedAssemble[A](
       previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
-      packs: List[Package.Typed[Unit]],
+      packs: List[Package.Typed[A]],
       unusedTrans: List[proto.LibDependency]
   ): Either[Throwable, proto.Library] = {
     val depth = previous match {
