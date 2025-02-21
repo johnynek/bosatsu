@@ -69,7 +69,8 @@ case object ClangTranspiler extends Transpiler {
     case class Main[F[_]](pack: F[PackageName]) extends Mode[F]("main")
     case class Test[F[_]](
         filter: Option[PackageName => Boolean],
-        filterRegexes: NonEmptyList[String]
+        filterRegexes: NonEmptyList[String],
+        execute: Boolean
     ) extends Mode[F]("test") {
       def values[K](
           ns: CompilationNamespace[K]
@@ -82,37 +83,49 @@ case object ClangTranspiler extends Transpiler {
         }).sortBy(_._1)
     }
 
+    def testOpts[F[_]](executeOpts: Opts[Boolean]): Opts[Mode.Test[F]] =
+      (
+        Opts
+          .options[String](
+            "filter",
+            help = "regular expression to filter package names"
+          )
+          .orNone,
+        executeOpts
+      ).tupled
+        .mapValidated {
+          case (None, e) =>
+            Validated.valid(Test(None, NonEmptyList.one(".*"), e))
+          case (Some(res), e) =>
+            Try(res.map(RegexPat.compile(_))) match {
+              case Success(pats) =>
+                Validated.valid(
+                  Test(
+                    Some(pn => pats.exists(_.matcher(pn.asString).matches())),
+                    res,
+                    e
+                  )
+                )
+              case Failure(e) =>
+                Validated.invalidNel(
+                  s"could not parse pattern: $res\n\n${e.getMessage}"
+                )
+            }
+        }
+
     def opts[F[_]: Applicative]: Opts[Mode[F]] =
       Opts
         .option[PackageName]("main", "the package to use as an entry point")
         .map(pn => Main(Applicative[F].pure(pn)))
         .orElse(
-          Opts.flag("test", "compile the tests") *>
-            (Opts
-              .options[String](
-                "filter",
-                "regular expression to filter package names"
+          Opts.flag("test", "compile the tests") *> testOpts[F](
+            Opts
+              .flag(
+                "execute",
+                help = "run the test immediately after compiling"
               )
-              .orNone)
-              .mapValidated {
-                case None => Validated.valid(Test(None, NonEmptyList.one(".*")))
-                case Some(res) =>
-                  Try(res.map(RegexPat.compile(_))) match {
-                    case Success(pats) =>
-                      Validated.valid(
-                        Test(
-                          Some(pn =>
-                            pats.exists(_.matcher(pn.asString).matches())
-                          ),
-                          res
-                        )
-                      )
-                    case Failure(e) =>
-                      Validated.invalidNel(
-                        s"could not parse patterns: $res\n\n${e.getMessage}"
-                      )
-                  }
-              }
+              .orFalse
+          )
         )
   }
   case class GenExternalsMode(generate: Boolean)
@@ -126,15 +139,8 @@ case object ClangTranspiler extends Transpiler {
 
   case class Output[F[_], P](cOut: P, exeOut: Option[(P, F[CcConf])])
   object Output {
-    def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Output[F, P]] = {
+    def ccConfOpt[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[CcConf]] = {
       import platformIO.{moduleIOMonad, pathArg, showPath}
-
-      val cOpt = Opts
-        .option[P]("output", help = "name of output c code file.", short = "o")
-        .orElse {
-          Opts("output.c")
-            .mapValidated(platformIO.path(_))
-        }
 
       def parseCCFile(confPath: P): F[CcConf] =
         for {
@@ -177,6 +183,29 @@ case object ClangTranspiler extends Transpiler {
         ccConf <- parseCCFile(confPath)
       } yield ccConf
 
+      Opts
+        .option[P](
+          "cc_conf",
+          help =
+            "path to cc_conf.json file which configures c compilation on this platform"
+        )
+        .orNone
+        .map {
+          case Some(p) => parseCCFile(p)
+          case None    => defaultCcConf
+        }
+    }
+
+    def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[Output[F, P]] = {
+      import platformIO.pathArg
+
+      val cOpt = Opts
+        .option[P]("output", help = "name of output c code file.", short = "o")
+        .orElse {
+          Opts("output.c")
+            .mapValidated(platformIO.path(_))
+        }
+
       val exeOpt =
         (
           Opts.option[P](
@@ -184,17 +213,7 @@ case object ClangTranspiler extends Transpiler {
             help = "if set, compile the c code to an executable",
             short = "e"
           ),
-          Opts
-            .option[P](
-              "cc_conf",
-              help =
-                "path to cc_conf.json file which configures c compilation on this platform"
-            )
-            .orNone
-            .map {
-              case Some(p) => parseCCFile(p)
-              case None    => defaultCcConf
-            }
+          ccConfOpt[F, P](platformIO)
         ).tupled
 
       (cOpt, exeOpt.orNone).mapN(Output(_, _))
@@ -211,24 +230,36 @@ case object ClangTranspiler extends Transpiler {
   )
   type Args[F[_], P] = Arguments[F, P]
 
+  def justOptsGivenModeOutput[F[_], M, P](
+      modeOutOpts: Opts[M],
+      platformIO: PlatformIO[F, P]
+  )(
+      extract: M => (Mode[F], Output[F, P])
+  ): Opts[(M, Transpiler.Optioned[F, P])] =
+    (
+      modeOutOpts,
+      EmitMode.opts,
+      GenExternalsMode.opts,
+      Transpiler.outDir(platformIO.pathArg)
+    ).mapN { (mOut, e, g, outDir) =>
+      (
+        mOut,
+        Transpiler.optioned(this) {
+          val (m, out) = extract(mOut)
+          Arguments(m, e, g, out, outDir, platformIO)
+        }
+      )
+    }
+
   def justOptsGivenMode[F[_], M, P](
       modeOpts: Opts[M],
       platformIO: PlatformIO[F, P]
   )(extractMode: M => Mode[F]): Opts[(M, Transpiler.Optioned[F, P])] =
-    (
-      modeOpts,
-      EmitMode.opts,
-      GenExternalsMode.opts,
-      Output.opts[F, P](platformIO),
-      Transpiler.outDir(platformIO.pathArg)
-    ).mapN { (m, e, g, out, outDir) =>
-      (
-        m,
-        Transpiler.optioned(this)(
-          Arguments(extractMode(m), e, g, out, outDir, platformIO)
-        )
-      )
-    }
+    justOptsGivenModeOutput(
+      modeOpts.product(Output.opts(platformIO)),
+      platformIO
+    ) { case (m, o) => (extractMode(m), o) }
+      .map { case ((m, _), opt) => (m, opt) }
 
   def opts[F[_], P](
       platformIO: PlatformIO[F, P]
@@ -330,7 +361,7 @@ case object ClangTranspiler extends Transpiler {
                   )
               })
             }
-          case test @ Mode.Test(_, re) =>
+          case test @ Mode.Test(_, re, execute) =>
             val tvs = test.values(ns)
             (if (tvs.isEmpty) {
                moduleIOMonad.raiseError(
@@ -339,11 +370,20 @@ case object ClangTranspiler extends Transpiler {
              } else {
                val ns1 = args.emit(ns, tvs.toSet)
                val clangGen = new ClangGen(ns1)
-               moduleIOMonad.pure(
-                 clangGen.renderTests(
-                   values = tvs.toList.sorted
-                 )
-               )
+               val r = clangGen.renderTests(values = tvs.toList.sorted)
+
+               val exeIO = args.output match {
+                 case Output(_, Some((exeName, _))) if execute =>
+                   val exePath = args.platformIO.resolve(args.outDir, exeName)
+                   args.platformIO.system(
+                     args.platformIO.showPath.show(exePath),
+                     Nil
+                   )
+                 case _ =>
+                   moduleIOMonad.unit
+               }
+
+               exeIO.as(r)
              })
         }
 

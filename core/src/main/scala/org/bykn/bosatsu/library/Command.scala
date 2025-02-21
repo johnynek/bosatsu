@@ -537,6 +537,40 @@ object Command {
         }
       }
 
+    val testCommand =
+      Opts.subcommand(
+        "test",
+        "test packages in this library"
+      ) {
+        val clangOut: Opts[ClangTranspiler.Output[F, P]] =
+          (
+            Opts("test.c").mapValidated(platformIO.path(_)),
+            Opts("test").mapValidated(platformIO.path(_)),
+            ClangTranspiler.Output.ccConfOpt(platformIO)
+          ).mapN { (o, e, conf) =>
+            ClangTranspiler.Output(o, Some((e, conf)))
+          }
+
+        (
+          ClangTranspiler.justOptsGivenModeOutput(
+            (
+              ConfigConf.opts,
+              // we want to run the test after generating it
+              ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
+              clangOut
+            ).tupled,
+            platformIO
+          ) { case (_, test, out) => (test, out) },
+          Colorize.optsConsoleDefault
+        ).mapN { case (((fcc, _, _), trans), colorize) =>
+          for {
+            cc <- fcc
+            // build is the same as test, Transpiler controls the difference
+            msg <- cc.build(colorize, trans)
+          } yield (Output.Basic(msg, None): Output[P])
+        }
+      }
+
     MonoidK[Opts].combineAllK(
       initCommand ::
         listCommand ::
@@ -544,6 +578,7 @@ object Command {
         fetchCommand ::
         checkCommand ::
         buildCommand ::
+        testCommand ::
         Nil
     )
   }
