@@ -197,6 +197,22 @@ object Command {
           )
         }
 
+    val allLibs: Opts[F[(P, SortedMap[Name, (LibConfig, P)])]] =
+      topLevelOpt
+        .map { gitRootF =>
+          for {
+            gitRoot <- gitRootF
+            path = libsPath(gitRoot)
+            libs <- readLibs(path)
+            configs <- libs.toMap.transform { (name, path) =>
+              val confDir = platformIO.resolve(gitRoot, path)
+              readLibConf(name, confPath(confDir, name)).map { conf =>
+                (conf, confDir)
+              }
+            }.sequence
+          } yield (gitRoot, configs)
+        }
+
     val rootAndName: Opts[F[(P, Name, P)]] =
       cats.Functor[Opts].compose[F].map(rootNameRoot) {
         case (gitRoot, name, path) =>
@@ -493,7 +509,7 @@ object Command {
     val buildCommand =
       Opts.subcommand(
         "build",
-        "build an executable for the library"
+        "build an executable for a library"
       ) {
         val mainPack = Opts
           .option[PackageName](
@@ -540,7 +556,7 @@ object Command {
     val testCommand =
       Opts.subcommand(
         "test",
-        "test packages in this library"
+        "test packages in a library"
       ) {
         val clangOut: Opts[ClangTranspiler.Output[F, P]] =
           (
@@ -571,6 +587,28 @@ object Command {
         }
       }
 
+    val publishCommand =
+      Opts.subcommand(
+        "publish",
+        "publish all the libraries into binary files"
+      ) {
+        (allLibs, casDirOpts).mapN { (readGitLibs, casDirFn) =>
+          for {
+            gitRootlibs <- readGitLibs
+            (gitRoot, libs) = gitRootlibs
+            casDir = casDirFn(gitRoot)
+            cas = new Cas(casDir, platformIO)
+            allConfigs = libs.transform { case (_, (conf, path)) =>
+              ConfigConf(conf, cas, path)
+            }
+            // TODO:
+            // check all code, it it all checks, then write all the files.
+            // insert them into the CAS, update previous and versions
+            out = Output.Basic(Doc.text(allConfigs.toString), None): Output[P]
+          } yield out
+        }
+      }
+
     MonoidK[Opts].combineAllK(
       initCommand ::
         listCommand ::
@@ -579,6 +617,7 @@ object Command {
         checkCommand ::
         buildCommand ::
         testCommand ::
+        publishCommand ::
         Nil
     )
   }
