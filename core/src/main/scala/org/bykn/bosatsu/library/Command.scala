@@ -2,7 +2,7 @@ package org.bykn.bosatsu.library
 
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 import com.monovore.decline.Opts
 import org.bykn.bosatsu.tool.{
   CliException,
@@ -394,6 +394,8 @@ object Command {
             platformIO.writeDoc(path, doc)
           }
         } yield Doc.empty
+
+      def buildLibrary: F[proto.Library] = ???
     }
 
     object ConfigConf {
@@ -598,14 +600,19 @@ object Command {
             (gitRoot, libs) = gitRootlibs
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-            allConfigs = libs.transform { case (_, (conf, path)) =>
-              ConfigConf(conf, cas, path)
-            }
-            // TODO:
-            // check all code, it it all checks, then write all the files.
-            // insert them into the CAS, update previous and versions
-            out = Output.Basic(Doc.text(allConfigs.toString), None): Output[P]
-          } yield out
+            allLibs <- libs.transform { case (_, (conf, path)) =>
+              val cc = ConfigConf(conf, cas, path)
+              val libOut: P = ???
+              cc.buildLibrary.map((_, libOut))
+            }.sequence
+            out = Output.Many(
+              Chain.fromIterableOnce(
+                allLibs.iterator.map { case (_, (lib, path)) =>
+                  Output.Library(lib, path)
+                }
+              )
+            )
+          } yield (out: Output[P])
         }
       }
 
