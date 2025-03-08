@@ -153,6 +153,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def write(a: GeneratedMessage, path: Path): IO[Unit] =
     IO.blocking {
       val f = path.toFile
+      Option(f.getParentFile).foreach(_.mkdirs())
       val os = new BufferedOutputStream(new FileOutputStream(f))
       try a.writeTo(os)
       finally {

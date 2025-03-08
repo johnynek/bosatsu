@@ -70,12 +70,17 @@ object Algo {
   }
 
   object WithAlgo {
-    def apply[F[_], T](alg: Algo[T], v: F[T]): WithAlgo[F] =
+    def apply[F[_], T](v: F[T])(implicit alg: Algo[T]): WithAlgo[F] {
+      type A = T
+    } =
       new WithAlgo[F] {
         type A = T
         def algo = alg
         def value = v
       }
+
+    def apply[F[_], T](alg: Algo[T], v: F[T]): WithAlgo[F] { type A = T } =
+      apply(v)(alg)
 
     implicit class WithAlgoHashValue(private val hashValue: WithAlgo[HashValue])
         extends AnyVal {

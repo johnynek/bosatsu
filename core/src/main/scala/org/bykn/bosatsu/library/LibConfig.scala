@@ -32,7 +32,7 @@ case class LibConfig(
   def assemble(
       vcsIdent: String,
       previous: Option[DecodedLibrary[Algo.Blake3]],
-      packs: List[Package.Typed[Unit]],
+      packs: List[Package.Typed[Any]],
       deps: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, proto.Library] =
     validate(previous, packs, deps)
@@ -63,16 +63,16 @@ case class LibConfig(
     */
   def validate(
       previous: Option[DecodedLibrary[Algo.Blake3]],
-      packs: List[Package.Typed[Unit]],
+      packs: List[Package.Typed[Any]],
       deps: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, ValidationResult] = {
 
     import Error.inv
 
-    val exportedPacks: List[Package.Typed[Unit]] =
+    val exportedPacks: List[Package.Typed[Any]] =
       packs.filter(p => exportedPackages.exists(_.accepts(p.name)))
 
-    val privatePacks: List[Package.Typed[Unit]] =
+    val privatePacks: List[Package.Typed[Any]] =
       packs.filter(p => allPackages.exists(_.accepts(p.name)))
 
     val nameToDep = deps.groupByNel(_.protoLib.name)
@@ -456,7 +456,7 @@ object LibConfig {
 
   sealed abstract class Error
   object Error {
-    case class ExtraPackages(nel: NonEmptyList[Package.Typed[Unit]])
+    case class ExtraPackages(nel: NonEmptyList[Package.Typed[Any]])
         extends Error
     case class ProtoError(error: Throwable) extends Error
     case class VersionNotIncreasing(
@@ -482,7 +482,7 @@ object LibConfig {
     ) extends Error
     case class IllegalVisibleDep(
         note: String,
-        pack: Package.Typed[Unit],
+        pack: Package.Typed[Any],
         invalid: PackageName
     ) extends Error
     case class NoValidVersion(
@@ -733,7 +733,7 @@ object LibConfig {
   def validNextVersion(
       prevDec: DecodedLibrary[Algo.Blake3],
       dk: Version.DiffKind,
-      exportedPacks: List[Package.Typed[Unit]],
+      exportedPacks: List[Package.Typed[Any]],
       publicDepLibs: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, Unit] = {
     val prevLib = prevDec.protoLib

@@ -2,7 +2,7 @@ package org.bykn.bosatsu.library
 
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 import com.monovore.decline.Opts
 import org.bykn.bosatsu.tool.{
   CliException,
@@ -25,7 +25,7 @@ import cats.syntax.all._
 
 object Command {
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
-    import platformIO.{pathArg, moduleIOMonad, showPath}
+    import platformIO.{pathArg, moduleIOMonad, showPath, parallelF}
 
     val topLevelOpt: Opts[F[P]] =
       Opts
@@ -86,6 +86,11 @@ object Command {
     def confPath(root: P, name: Name): P =
       platformIO.resolve(root, s"${name.name}_conf.json")
 
+    def confOutput(rootDir: P, conf: LibConfig): Output[P] = {
+      val confJson = Json.Writer.write(conf)
+      Output.JsonOutput(confJson, Some(confPath(rootDir, conf.name)))
+    }
+
     val initCommand =
       Opts.subcommand("init", "initialize a config") {
         (
@@ -103,9 +108,7 @@ object Command {
           topLevelOpt
         ).mapN { (name, repoUri, rootDir, ver, repoRootF) =>
           val conf = LibConfig.init(name, repoUri, ver)
-          val confJson = Json.Writer.write(conf)
-          val writeJson =
-            Output.JsonOutput(confJson, Some(confPath(rootDir, name)))
+          val writeJson = confOutput(rootDir, conf)
 
           repoRootF
             .flatMap { gitRoot =>
@@ -197,6 +200,26 @@ object Command {
           )
         }
 
+    def readAllLibs(gitRoot: P): F[SortedMap[Name, (LibConfig, P)]] =
+      for {
+        libs <- readLibs(libsPath(gitRoot))
+        configs <- libs.toMap.transform { (name, path) =>
+          val confDir = platformIO.resolve(gitRoot, path)
+          readLibConf(name, confPath(confDir, name)).map { conf =>
+            (conf, confDir)
+          }
+        }.sequence
+      } yield configs
+
+    val allLibs: Opts[F[(P, SortedMap[Name, (LibConfig, P)])]] =
+      topLevelOpt
+        .map { gitRootF =>
+          for {
+            gitRoot <- gitRootF
+            configs <- readAllLibs(gitRoot)
+          } yield (gitRoot, configs)
+        }
+
     val rootAndName: Opts[F[(P, Name, P)]] =
       cats.Functor[Opts].compose[F].map(rootNameRoot) {
         case (gitRoot, name, path) =>
@@ -262,49 +285,58 @@ object Command {
       private val inputRes =
         PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
 
-      def packageMap[A](
-          pubDecodes: List[DecodedLibrary[A]],
-          privDecodes: List[DecodedLibrary[A]],
-          colorize: Colorize
-      ): F[PackageMap.Inferred] =
-        PathGen
-          .recursiveChildren(confDir, ".bosatsu")(platformIO)
-          .read
-          .flatMap { inputSrcs =>
-            NonEmptyList.fromList(inputSrcs) match {
-              case Some(inputNel) =>
-                platformIO
-                  .withEC { ec =>
-                    CompilerApi.typeCheck(
-                      platformIO,
-                      inputNel,
-                      pubDecodes.flatMap(_.interfaces) ::: privDecodes.flatMap(
-                        _.interfaces
-                      ),
-                      colorize,
-                      inputRes
-                    )(ec)
-                  }
-                  .map(_._1)
-              case None =>
-                moduleIOMonad.pure(PackageMap.empty)
-            }
-          }
+      case class CheckState(
+          prevThis: Option[DecodedLibrary[Algo.Blake3]],
+          pubDecodes: List[DecodedLibrary[Algo.Blake3]],
+          privDecodes: List[DecodedLibrary[Algo.Blake3]]
+      ) {
 
-      def check(colorize: Colorize): F[LibConfig.ValidationResult] =
+        def packageMap(colorize: Colorize): F[PackageMap.Inferred] =
+          PathGen
+            .recursiveChildren(confDir, ".bosatsu")(platformIO)
+            .read
+            .flatMap { inputSrcs =>
+              NonEmptyList.fromList(inputSrcs) match {
+                case Some(inputNel) =>
+                  platformIO
+                    .withEC { ec =>
+                      CompilerApi.typeCheck(
+                        platformIO,
+                        inputNel,
+                        pubDecodes.flatMap(_.interfaces) ::: privDecodes
+                          .flatMap(
+                            _.interfaces
+                          ),
+                        colorize,
+                        inputRes
+                      )(ec)
+                    }
+                    .map(_._1)
+                case None =>
+                  moduleIOMonad.pure(PackageMap.empty)
+              }
+            }
+      }
+
+      def checkState: F[CheckState] =
         for {
           prevThis <- previousThis
           pubPriv <- pubPrivDeps
           (pubDecodes, privDecodes) = pubPriv
-          allPacks <- packageMap(
-            pubDecodes = pubDecodes,
-            privDecodes = privDecodes,
-            colorize
-          )
+        } yield CheckState(
+          prevThis = prevThis,
+          pubDecodes = pubDecodes,
+          privDecodes = privDecodes
+        )
+
+      def check(colorize: Colorize): F[LibConfig.ValidationResult] =
+        for {
+          cs <- checkState
+          allPacks <- cs.packageMap(colorize)
           validated = conf.validate(
-            prevThis,
-            allPacks.toMap.values.toList.map(_.void),
-            pubDecodes ::: privDecodes
+            cs.prevThis,
+            allPacks.toMap.values.toList,
+            cs.pubDecodes ::: cs.privDecodes
           )
           res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
         } yield res
@@ -316,11 +348,12 @@ object Command {
         for {
           pubPriv <- pubPrivDeps
           (pubDecodes, privDecodes) = pubPriv
-          allPacks <- packageMap(
+          cs = CheckState(
+            None,
             pubDecodes = pubDecodes,
-            privDecodes = privDecodes,
-            colorize
+            privDecodes = privDecodes
           )
+          allPacks <- cs.packageMap(colorize)
           // we don't need a valid protoLib which will be published, just for resolving names/versions
           protoLib <- moduleIOMonad.fromEither(
             conf.unvalidatedAssemble(
@@ -378,6 +411,19 @@ object Command {
             platformIO.writeDoc(path, doc)
           }
         } yield Doc.empty
+
+      def buildLibrary(vcsIdent: String, colorize: Colorize): F[proto.Library] =
+        for {
+          cs <- checkState
+          allPacks <- cs.packageMap(colorize)
+          validated = conf.assemble(
+            vcsIdent = vcsIdent,
+            previous = cs.prevThis,
+            packs = allPacks.toMap.values.toList,
+            deps = cs.pubDecodes ::: cs.privDecodes
+          )
+          res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+        } yield res
     }
 
     object ConfigConf {
@@ -392,6 +438,9 @@ object Command {
           } yield ConfigConf(conf, cas, confDir)
         }
     }
+
+    def libraryFileName(name: Name, version: Version): String =
+      show"${name}-v${version}.bosatsu_lib"
 
     val assembleCommand =
       Opts.subcommand(
@@ -414,7 +463,7 @@ object Command {
             .option[P](
               "output",
               help =
-                "path to write the library to, or default name_{version}.bosatsu_lib",
+                "path to write the library to, or default {name}-v{version}.bosatsu_lib",
               "o"
             )
             .orNone,
@@ -436,9 +485,7 @@ object Command {
               outPath <- optOut match {
                 case Some(p) => moduleIOMonad.pure(p)
                 case None =>
-                  platformIO.pathF(
-                    show"${name}_${conf.nextVersion}.bosatsu_lib"
-                  )
+                  platformIO.pathF(libraryFileName(name, conf.nextVersion))
               }
               prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
               prevLibDec <- prevLib.traverse(DecodedLibrary.decode(_))
@@ -493,7 +540,7 @@ object Command {
     val buildCommand =
       Opts.subcommand(
         "build",
-        "build an executable for the library"
+        "build an executable for a library"
       ) {
         val mainPack = Opts
           .option[PackageName](
@@ -540,7 +587,7 @@ object Command {
     val testCommand =
       Opts.subcommand(
         "test",
-        "test packages in this library"
+        "test packages in a library"
       ) {
         val clangOut: Opts[ClangTranspiler.Output[F, P]] =
           (
@@ -571,6 +618,90 @@ object Command {
         }
       }
 
+    def libraryPath(outDir: P, name: Name, version: Version): P =
+      platformIO.resolve(outDir, libraryFileName(name, version))
+
+    def toDesc(
+        hashedLib: Hashed[Algo.Blake3, proto.Library],
+        uris: List[String]
+    ): proto.LibDescriptor =
+      proto.LibDescriptor(
+        version = hashedLib.arg.descriptor.flatMap(_.version),
+        hashes = hashedLib.hash.toIdent :: Nil,
+        uris = uris
+      )
+
+    val publishCommand =
+      Opts.subcommand(
+        "publish",
+        "publish all the libraries into binary files"
+      ) {
+        (
+          allLibs,
+          casDirOpts,
+          Colorize.optsConsoleDefault,
+          gitShaOpt,
+          Transpiler.outDir[P],
+          Opts
+            .option[String](
+              long = "uri-base",
+              short = "u",
+              help = "uri prefix where all the libraries will be accessible."
+            )
+            .orNone
+        ).mapN { (readGitLibs, casDirFn, colorize, gitShaF, outDir, uriBaseOpt) =>
+          for {
+            gitRootlibs <- readGitLibs
+            gitSha <- gitShaF
+            (gitRoot, libs) = gitRootlibs
+            casDir = casDirFn(gitRoot)
+            cas = new Cas(casDir, platformIO)
+            allLibs <- libs.transform { case (name, (conf, path)) =>
+              val cc = ConfigConf(conf, cas, path)
+              val libOut: P = libraryPath(outDir, name, conf.nextVersion)
+              for {
+                protoLib <- cc.buildLibrary(vcsIdent = gitSha, colorize)
+                hashedLib = Hashed(
+                  Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
+                  protoLib
+                )
+                _ <- cas.putIfAbsent(hashedLib)
+              } yield (hashedLib, libOut, cc)
+            }.parSequence
+            // if we get here, we have successfully built all the libraries, now update the libconfig
+            // and mutate those
+            confOuts = allLibs.values.iterator.map { case (hashedLib, _, cc) =>
+              val uris = uriBaseOpt match {
+                case None => Nil
+                case Some(uriBase) =>
+                  val uriBase1 =
+                    if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
+                  val uri = uriBase1 + libraryFileName(
+                    cc.conf.name,
+                    cc.conf.nextVersion
+                  )
+
+                  uri :: Nil
+              }
+              val conf1 = cc.conf.copy(
+                previous = Some(toDesc(hashedLib, uris)),
+                nextVersion = cc.conf.nextVersion.nextPatch
+              )
+
+              confOutput(cc.confDir, conf1)
+            }
+            out = Output.Many(
+              Chain.fromIterableOnce(
+                allLibs.iterator.map { case (_, (lib, path, _)) =>
+                  Output.Library(lib.arg, path)
+                } ++
+                  confOuts
+              )
+            )
+          } yield (out: Output[P])
+        }
+      }
+
     MonoidK[Opts].combineAllK(
       initCommand ::
         listCommand ::
@@ -579,6 +710,7 @@ object Command {
         checkCommand ::
         buildCommand ::
         testCommand ::
+        publishCommand ::
         Nil
     )
   }
@@ -603,6 +735,14 @@ object Command {
         hashValue <- Algo.parseIdent.parseAll(hash).toOption.toList
       } yield hashValue
 
+    def hashPath(withAlgo: Algo.WithAlgo[HashValue]): P = {
+      val algoName = withAlgo.algo.name
+      val hex1 = withAlgo.value.hex.take(2)
+      val hex2 = withAlgo.value.hex.drop(2)
+
+      platformIO.resolve(casDir, algoName :: hex1 :: hex2 :: Nil)
+    }
+
     def casPaths(
         dep: proto.LibDependency
     ): SortedMap[Algo.WithAlgo[HashValue], Algo.WithAlgo[Lambda[
@@ -610,13 +750,7 @@ object Command {
     ]]] =
       hashes(dep)
         .map { withAlgo =>
-          val algoName = withAlgo.algo.name
-          val hex1 = withAlgo.value.hex.take(2)
-          val hex2 = withAlgo.value.hex.drop(2)
-
-          val path =
-            platformIO.resolve(casDir, algoName :: hex1 :: hex2 :: Nil)
-
+          val path = hashPath(withAlgo)
           (
             withAlgo,
             withAlgo.mapK(new FunctionK[HashValue, Lambda[A => Hashed[A, P]]] {
@@ -699,6 +833,17 @@ object Command {
         case None    => Version.zero
         case Some(v) => Version.fromProto(v)
       }
+
+    def putIfAbsent(lib: Hashed[Algo.Blake3, proto.Library]): F[Unit] = {
+      val path = hashPath(Algo.WithAlgo(lib.hash))
+
+      platformIO
+        .fileExists(path)
+        .flatMap {
+          case true  => moduleIOMonad.unit
+          case false => platformIO.writeLibrary(lib.arg, path)
+        }
+    }
 
     def fetchIfNeeded(
         dep: proto.LibDependency
