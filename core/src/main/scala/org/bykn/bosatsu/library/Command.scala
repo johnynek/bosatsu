@@ -200,19 +200,23 @@ object Command {
           )
         }
 
+    def readAllLibs(gitRoot: P): F[SortedMap[Name, (LibConfig, P)]] =
+      for {
+        libs <- readLibs(libsPath(gitRoot))
+        configs <- libs.toMap.transform { (name, path) =>
+          val confDir = platformIO.resolve(gitRoot, path)
+          readLibConf(name, confPath(confDir, name)).map { conf =>
+            (conf, confDir)
+          }
+        }.sequence
+      } yield configs
+
     val allLibs: Opts[F[(P, SortedMap[Name, (LibConfig, P)])]] =
       topLevelOpt
         .map { gitRootF =>
           for {
             gitRoot <- gitRootF
-            path = libsPath(gitRoot)
-            libs <- readLibs(path)
-            configs <- libs.toMap.transform { (name, path) =>
-              val confDir = platformIO.resolve(gitRoot, path)
-              readLibConf(name, confPath(confDir, name)).map { conf =>
-                (conf, confDir)
-              }
-            }.sequence
+            configs <- readAllLibs(gitRoot)
           } yield (gitRoot, configs)
         }
 
