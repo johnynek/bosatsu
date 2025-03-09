@@ -48,24 +48,204 @@ case class LibConfig(
         }
       }
 
+  // Validates that the maximum version in history < nextVersion
+  def validatePreviousHist(
+      previous: Option[DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[Error, Unit] = {
+    import Error.inv
+    val withPrev = previous.traverse_ { dec =>
+      val p = dec.protoLib
+      val prevLt = p.version match {
+        case Some(prevV) =>
+          if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit
+          else
+            inv(
+              Error.VersionNotIncreasing("previous library", prevV, nextVersion)
+            )
+        case None =>
+          inv(Error.InvalidPreviousLib("missing version", p))
+      }
+
+      val histLt = p.history match {
+        case Some(history) =>
+          history.allVersions.traverse_ { prevV =>
+            if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit
+            else
+              inv(
+                Error
+                  .VersionNotIncreasing("history version", prevV, nextVersion)
+              )
+          }
+        case None => Validated.unit
+      }
+
+      prevLt *> histLt
+    }
+
+    val matchesPrev =
+      (previous, this.previous) match {
+        case (None, None) => Validated.unit
+        case (Some(dec), Some(desc)) =>
+          val decV = dec.protoLib.version
+          val expectedV = desc.version.map(Version.fromProto(_))
+          if (decV === expectedV) {
+            val hashIdent = dec.hashValue.toIdent
+            if (desc.hashes.exists(_ === hashIdent)) {
+              Validated.unit
+            } else {
+              inv(
+                Error.InvalidPreviousLib(
+                  show"declared hashes ${desc.hashes} in config doesn't match binary previous=${hashIdent}",
+                  dec.protoLib
+                )
+              )
+            }
+          } else {
+            // the previous version doesn't match
+            inv(
+              Error.InvalidPreviousLib(
+                show"declared previous version=${expectedV} in config doesn't match binary previous=${decV}",
+                dec.protoLib
+              )
+            )
+          }
+
+        case (None, Some(dec)) =>
+          inv(Error.MissingExpectedPrevious(dec))
+        case (Some(dec), None) =>
+          inv(
+            Error.InvalidPreviousLib(
+              show"config doesn't declare a previous, but one was passed.",
+              dec.protoLib
+            )
+          )
+      }
+
+    withPrev *> matchesPrev
+  }
+
+  /** This checks the following properties and if they are set, builds the
+    * library
+    *   7. hashes of dependencies match
+    *   8. there are no duplicate named dependencies
+    *   9. there is a valid solution for transitive dependencies
+    */
+  def validateDeps(
+      deps: List[DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[Error, ValidationResult] = {
+    import Error.inv
+
+    val nameToDep = deps.groupByNel(_.protoLib.name)
+
+    val publicDepLibs: List[DecodedLibrary[Algo.Blake3]] =
+      publicDeps.flatMap { dep =>
+        nameToDep.get(dep.name) match {
+          case None =>
+            // this will be a validation error later
+            Nil
+          case Some(libs) => libs.head :: Nil
+        }
+      }
+
+    /*
+     * 7. hashes of dependencies match
+     * 8. there are no duplicate named dependencies
+     */
+    val prop7_8 = {
+      val pubs = publicDeps.groupByNel(_.name)
+      val privs = privateDeps.groupByNel(_.name)
+      // nothing is private and public
+      val both = pubs.keySet & privs.keySet
+      val noOverlap =
+        both.traverse_ { o =>
+          inv(
+            Error.DuplicateDep(
+              "both public and private",
+              o,
+              proto.LibDescriptor()
+            )
+          )
+        }
+
+      val allOne = pubs.traverse_(libs =>
+        libs.tail.traverse_(e =>
+          inv(
+            Error.DuplicateDep(
+              "public dep",
+              e.name,
+              e.desc.getOrElse(proto.LibDescriptor())
+            )
+          )
+        )
+      ) *> privs.traverse_(libs =>
+        libs.tail.traverse_(e =>
+          inv(
+            Error.DuplicateDep(
+              "private dep",
+              e.name,
+              e.desc.getOrElse(proto.LibDescriptor())
+            )
+          )
+        )
+      ) *> nameToDep.traverse_(libs =>
+        libs.tail.traverse_(e =>
+          inv(
+            Error.DuplicateDep(
+              "argument dep",
+              e.protoLib.name,
+              e.protoLib.descriptor.getOrElse(proto.LibDescriptor())
+            )
+          )
+        )
+      )
+
+      def checkDep(note: String, dep: proto.LibDependency) =
+        nameToDep.get(dep.name) match {
+          case None =>
+            inv(Error.MissingDep(note = note, dep = dep))
+          case Some(deps) =>
+            val hash = deps.head.hashValue.toIdent
+            if (dep.desc.exists(_.hashes.exists(_ == hash))) Validated.unit
+            else {
+              // the hash doesn't match
+              inv(
+                Error.DepHashMismatch(
+                  note,
+                  dep,
+                  deps.head.hashValue,
+                  deps.head.protoLib
+                )
+              )
+            }
+        }
+
+      val pubGood = pubs.traverse_(libs => checkDep("public dep", libs.head))
+      val privGood = privs.traverse_(libs => checkDep("private dep", libs.head))
+
+      noOverlap *> allOne *> pubGood *> privGood
+    }
+
+    // 9. there is a valid solution for transitive dependencies
+    val prop9 =
+      LibConfig.unusedTransitiveDeps(publicDepLibs)
+
+    prop7_8 *> prop9.map(ValidationResult(_))
+  }
+
   /** This checks the following properties and if they are set, builds the
     * library
     *   1. all the included packs are set in allPackages
-    *   2. the maximum version in history < nextVersion
     *   3. the version is semver compatible with previous
     *   4. the only packages that appear on exportedPackages apis are in
     *      exportedPackages or publicDeps
     *   5. all public deps appear somewhere on an API
     *   6. all private deps are used somewhere
-    *   7. hashes of dependencies match
-    *   8. there are no duplicate named dependencies
-    *   9. there is a valid solution for transitive dependencies
     */
-  def validate(
+  def validatePacks(
       previous: Option[DecodedLibrary[Algo.Blake3]],
       packs: List[Package.Typed[Any]],
       deps: List[DecodedLibrary[Algo.Blake3]]
-  ): ValidatedNec[Error, ValidationResult] = {
+  ): ValidatedNec[Error, Unit] = {
 
     import Error.inv
 
@@ -110,74 +290,6 @@ case class LibConfig(
         case Nil    => Validated.unit
         case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
       }
-
-    val prop2 = previous.traverse_ { dec =>
-      val p = dec.protoLib
-      val prevLt = p.version match {
-        case Some(prevV) =>
-          if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit
-          else
-            inv(
-              Error.VersionNotIncreasing("previous library", prevV, nextVersion)
-            )
-        case None =>
-          inv(Error.InvalidPreviousLib("missing version", p))
-      }
-
-      val histLt = p.history match {
-        case Some(history) =>
-          history.allVersions.traverse_ { prevV =>
-            if (Ordering[Version].lt(prevV, nextVersion)) Validated.unit
-            else
-              inv(
-                Error
-                  .VersionNotIncreasing("history version", prevV, nextVersion)
-              )
-          }
-        case None => Validated.unit
-      }
-
-      val matchesPrev =
-        (previous, this.previous) match {
-          case (None, None) => Validated.unit
-          case (Some(dec), Some(desc)) =>
-            val decV = dec.protoLib.version
-            val expectedV = desc.version.map(Version.fromProto(_))
-            if (decV === expectedV) {
-              val hashIdent = dec.hashValue.toIdent
-              if (desc.hashes.exists(_ === hashIdent)) {
-                Validated.unit
-              } else {
-                inv(
-                  Error.InvalidPreviousLib(
-                    show"declared hashes ${desc.hashes} in config doesn't match binary previous=${hashIdent}",
-                    dec.protoLib
-                  )
-                )
-              }
-            } else {
-              // the previous version doesn't match
-              inv(
-                Error.InvalidPreviousLib(
-                  show"declared previous version=${expectedV} in config doesn't match binary previous=${decV}",
-                  dec.protoLib
-                )
-              )
-            }
-
-          case (None, Some(dec)) =>
-            inv(Error.MissingExpectedPrevious(dec))
-          case (Some(dec), None) =>
-            inv(
-              Error.InvalidPreviousLib(
-                show"config doesn't declare a previous, but one was passed.",
-                dec.protoLib
-              )
-            )
-        }
-
-      prevLt *> histLt *> matchesPrev
-    }
 
     val prop3 = previous match {
       case Some(dec) =>
@@ -306,92 +418,23 @@ case class LibConfig(
         }
       }
 
-    /*
-     * 7. hashes of dependencies match
-     * 8. there are no duplicate named dependencies
-     */
-    val prop7_8 = {
-      val pubs = publicDeps.groupByNel(_.name)
-      val privs = privateDeps.groupByNel(_.name)
-      // nothing is private and public
-      val both = pubs.keySet & privs.keySet
-      val noOverlap =
-        both.traverse_ { o =>
-          inv(
-            Error.DuplicateDep(
-              "both public and private",
-              o,
-              proto.LibDescriptor()
-            )
-          )
-        }
-
-      val allOne = pubs.traverse_(libs =>
-        libs.tail.traverse_(e =>
-          inv(
-            Error.DuplicateDep(
-              "public dep",
-              e.name,
-              e.desc.getOrElse(proto.LibDescriptor())
-            )
-          )
-        )
-      ) *> privs.traverse_(libs =>
-        libs.tail.traverse_(e =>
-          inv(
-            Error.DuplicateDep(
-              "private dep",
-              e.name,
-              e.desc.getOrElse(proto.LibDescriptor())
-            )
-          )
-        )
-      ) *> nameToDep.traverse_(libs =>
-        libs.tail.traverse_(e =>
-          inv(
-            Error.DuplicateDep(
-              "argument dep",
-              e.protoLib.name,
-              e.protoLib.descriptor.getOrElse(proto.LibDescriptor())
-            )
-          )
-        )
-      )
-
-      def checkDep(note: String, dep: proto.LibDependency) =
-        nameToDep.get(dep.name) match {
-          case None =>
-            inv(Error.MissingDep(note = note, dep = dep))
-          case Some(deps) =>
-            val hash = deps.head.hashValue.toIdent
-            if (dep.desc.exists(_.hashes.exists(_ == hash))) Validated.unit
-            else {
-              // the hash doesn't match
-              inv(
-                Error.DepHashMismatch(
-                  note,
-                  dep,
-                  deps.head.hashValue,
-                  deps.head.protoLib
-                )
-              )
-            }
-        }
-
-      val pubGood = pubs.traverse_(libs => checkDep("public dep", libs.head))
-      val privGood = privs.traverse_(libs => checkDep("private dep", libs.head))
-
-      noOverlap *> allOne *> pubGood *> privGood
-    }
-
-    // 9. there is a valid solution for transitive dependencies
-    val prop9 =
-      LibConfig.unusedTransitiveDeps(publicDepLibs)
-
-    prop1 *> prop2 *> prop3 *> prop4 *> prop5 *> prop6 *> prop7_8 *> prop9.map(
-      ValidationResult(_)
-    )
+    prop1 *> prop3 *> prop4 *> prop5 *> prop6
   }
+
+  /** call validatePacks, validatePreviousHist, validateDeps Note: we can cache
+    * the results in principle of validateDeps and validatePreviousHist based on
+    * the hash of the config and the hash of the library inputs. So, we only
+    * need to validatePacks on change of code (that said, those validations may
+    * be so fast you don't care).
+    */
+  def validate(
+      previous: Option[DecodedLibrary[Algo.Blake3]],
+      packs: List[Package.Typed[Any]],
+      deps: List[DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[Error, ValidationResult] =
+    validatePacks(previous, packs, deps) *>
+      validatePreviousHist(previous) *>
+      validateDeps(deps)
 
   // just build the library without any validations
   def unvalidatedAssemble[A](
