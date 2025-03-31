@@ -50,51 +50,56 @@ final case class Package[A, B, C, +D](
   ): Package[A1, B1, C, D] =
     Package(name, newImports, exports, program)
 
-  def getExport[T](i: ImportedName[T]): Option[NonEmptyList[ExportedName[C]]] = {
+  def getExport[T](
+      i: ImportedName[T]
+  ): Option[NonEmptyList[ExportedName[C]]] = {
     val iname = i.originalName
     NonEmptyList.fromList(exports.filter(_.name == iname))
   }
 
   def visibleDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
-    exports.flatMap { en =>
-      val ref = ev(en.tag)
-      ref.depPackages
-    }
-    .distinct
-    .sorted
+    exports
+      .flatMap { en =>
+        val ref = ev(en.tag)
+        ref.depPackages
+      }
+      .distinct
+      .sorted
 
-  /**
-   * These are all the types that are exported with constructors deleted for opaque types
-   */
+  /** These are all the types that are exported with constructors deleted for
+    * opaque types
+    */
   def exportedTypeEnv[K](implicit ev: C <:< Referant[K]): TypeEnv[K] = {
     type ListEN[+Z] = List[ExportedName[Z]]
-    val expRef: List[ExportedName[Referant[K]]] = ev.substituteCo[ListEN](exports)
+    val expRef: List[ExportedName[Referant[K]]] =
+      ev.substituteCo[ListEN](exports)
     TypeEnv.fromDefinitions(
-      expRef.groupByNel { e =>
-        e.tag match {
-          case Referant.DefinedT(dt) => Some(dt.toTypeConst)
-          case Referant.Constructor(dt, _) => Some(dt.toTypeConst)
-          case Referant.Value(_) => None
+      expRef
+        .groupByNel { e =>
+          e.tag match {
+            case Referant.DefinedT(dt)       => Some(dt.toTypeConst)
+            case Referant.Constructor(dt, _) => Some(dt.toTypeConst)
+            case Referant.Value(_)           => None
+          }
         }
-      }
-      .iterator
-      .collect {
-        case (Some(_), exps) =>
+        .iterator
+        .collect { case (Some(_), exps) =>
           val isOpaque = exps.map(_.tag).exists {
             case Referant.Constructor(_, _) => true
-            case _ => false
+            case _                          => false
           }
 
           val dt = exps.head.tag match {
             case Referant.Constructor(dt, _) => dt
-            case Referant.DefinedT(dt) => dt
-            case Referant.Value(_) => sys.error("impossible since we have Some(tc)")
+            case Referant.DefinedT(dt)       => dt
+            case Referant.Value(_) =>
+              sys.error("impossible since we have Some(tc)")
           }
 
           if (isOpaque) dt.toOpaque
           else dt
-      }
-      .toList
+        }
+        .toList
     )
   }
 }
@@ -113,12 +118,17 @@ object Package {
   type Resolved =
     FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type ResolvedPackage =
-    Package[Resolved, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+    Package[
+      Resolved,
+      Unit,
+      Unit,
+      (List[Statement], ImportMap[PackageName, Unit])
+    ]
 
   type TypedProgram[T] = (
-        Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
-        ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
-    )
+      Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+      ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
+  )
   type Typed[T] = Package[
     Interface,
     NonEmptyList[Referant[Kind.Arg]],
@@ -306,9 +316,15 @@ object Package {
       p: PackageName,
       imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
       stmts: List[Statement]
-  ): Ior[NonEmptyList[
-    PackageError
-  ], (TypeEnv[Kind.Arg], Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]])] = {
+  ): Ior[
+    NonEmptyList[
+      PackageError
+    ],
+    (
+        TypeEnv[Kind.Arg],
+        Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
+    )
+  ] = {
 
     // here we make a pass to get all the local names
     val optProg = SourceConverter
@@ -597,7 +613,7 @@ object Package {
     def getImport[B](
         inside: PackageName,
         i: ImportedName[B]
-    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] =
       pack.getExport(i) match {
         case Some(exps) =>
           val bs = exps.map(_.tag)
@@ -614,19 +630,19 @@ object Package {
               pack.exports
             )
           )
-        }
       }
 
     def toIface: Interface = interfaceOf(pack)
 
-    def allImportPacks: List[PackageName] = pack.imports.map(_.pack.name).distinct
+    def allImportPacks: List[PackageName] =
+      pack.imports.map(_.pack.name).distinct
   }
 
   implicit class IfaceMethods(private val iface: Interface) extends AnyVal {
     def getImportIface[A](
         inside: PackageName,
         i: ImportedName[A]
-    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
+    ): Either[PackageError, ImportedName[NonEmptyList[Referant[Kind.Arg]]]] =
       iface.getExport(i) match {
         case Some(exps) =>
           val bs = exps.map(_.tag)
@@ -642,10 +658,10 @@ object Package {
             )
           )
       }
-    }
   }
 
-  implicit class ResolvedMethods(private val resolved: Resolved) extends AnyVal {
+  implicit class ResolvedMethods(private val resolved: Resolved)
+      extends AnyVal {
     def name: PackageName =
       FixType.unfix(resolved) match {
         case Left(iface) => iface.name
@@ -653,27 +669,36 @@ object Package {
       }
 
     def importName[F[_], A](
-      fromPackage: PackageName,
-      item: ImportedName[Unit]
-    )(recurse: ResolvedPackage => F[Typed[A]])(implicit F: Applicative[F]): F[Either[PackageError, (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])]] =
+        fromPackage: PackageName,
+        item: ImportedName[Unit]
+    )(recurse: ResolvedPackage => F[Typed[A]])(implicit
+        F: Applicative[F]
+    ): F[Either[
+      PackageError,
+      (Package.Interface, ImportedName[NonEmptyList[Referant[Kind.Arg]]])
+    ]] =
       Package.unfix(resolved) match {
         case Right(p) =>
           /*
-            * Here we have a source we need to fully resolve
-            */
+           * Here we have a source we need to fully resolve
+           */
           recurse(p)
             .map { packF =>
               val packInterface = Package.interfaceOf(packF)
-              packF.getImport(fromPackage, item)
+              packF
+                .getImport(fromPackage, item)
                 .map((packInterface, _))
             }
         case Left(iface) =>
           /*
-            * this import is already an interface, we can stop here
-            */
+           * this import is already an interface, we can stop here
+           */
           // this is very fast and does not need to be done in a thread
-          F.pure(iface.getImportIface(fromPackage, item)
-              .map((iface, _)))
+          F.pure(
+            iface
+              .getImportIface(fromPackage, item)
+              .map((iface, _))
+          )
       }
   }
 

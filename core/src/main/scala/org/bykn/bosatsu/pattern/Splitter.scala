@@ -36,7 +36,7 @@ object Splitter {
 
       val monoidResult = m
       def positions(c: Int): String => LazyList[(String, Int, R, String)] = {
-        str => {
+        str =>
           def loop(strOffset: Int): LazyList[(String, Int, R, String)] =
             if (strOffset >= str.length) LazyList.empty
             else {
@@ -57,7 +57,6 @@ object Splitter {
             }
 
           loop(0)
-        }
       }
 
       def anySplits(str: String): LazyList[(String, Int, R, String)] =
@@ -90,7 +89,7 @@ object Splitter {
 
       def emptySeq = ""
       def catSeqs(s: List[String]) = s.mkString
-      override def toList(s: String) = 
+      override def toList(s: String) =
         StringUtil.codePoints(s)
 
       override def fromList(cs: List[Int]) =

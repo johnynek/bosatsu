@@ -155,7 +155,7 @@ class PathModuleTest extends AnyFunSuite {
 
   test("test python transpile on the entire test_workspace") {
     val out = run(
-      "transpile --input_dir test_workspace/ --outdir pyout --package_root test_workspace python --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+      "transpile --input_dir test_workspace/ --package_root test_workspace python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
         .split("\\s+")
         .toSeq: _*
     )

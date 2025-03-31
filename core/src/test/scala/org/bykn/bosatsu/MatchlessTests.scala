@@ -52,23 +52,24 @@ class MatchlessTest extends AnyFunSuite {
 
   test("matchless.fromLet is pure: f(x) == f(x)") {
     forAll(genInputs) { case (b, r, t, fn) =>
-      def run(): Option[Matchless.Expr] =
+      def run(): Option[Matchless.Expr[Unit]] =
         // ill-formed inputs can fail
-        Try(Matchless.fromLet(b, r, t)(fn)).toOption
+        Try(Matchless.fromLet((), b, r, t)(fn)).toOption
 
       assert(run() == run())
     }
   }
 
-  lazy val genMatchlessExpr: Gen[Matchless.Expr] =
-    genInputs.map { case (b, r, t, fn) =>
-      // ill-formed inputs can fail
-      Try(Matchless.fromLet(b, r, t)(fn)).toOption
-    }
-    .flatMap {
-      case Some(e) => Gen.const(e)
-      case None => genMatchlessExpr
-    }
+  lazy val genMatchlessExpr: Gen[Matchless.Expr[Unit]] =
+    genInputs
+      .map { case (b, r, t, fn) =>
+        // ill-formed inputs can fail
+        Try(Matchless.fromLet((), b, r, t)(fn)).toOption
+      }
+      .flatMap {
+        case Some(e) => Gen.const(e)
+        case None    => genMatchlessExpr
+      }
 
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {
@@ -156,10 +157,10 @@ class MatchlessTest extends AnyFunSuite {
     forAll(genMatchlessExpr) {
       case ifexpr @ Matchless.If(_, _, _) =>
         val (chain, rest) = ifexpr.flatten
-        def unflatten(
-            ifs: NonEmptyList[(Matchless.BoolExpr, Matchless.Expr)],
-            elseX: Matchless.Expr
-        ): Matchless.If =
+        def unflatten[A](
+            ifs: NonEmptyList[(Matchless.BoolExpr[A], Matchless.Expr[A])],
+            elseX: Matchless.Expr[A]
+        ): Matchless.If[A] =
           ifs.tail match {
             case Nil => Matchless.If(ifs.head._1, ifs.head._2, elseX)
             case head :: next =>

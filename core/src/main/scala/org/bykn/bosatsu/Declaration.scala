@@ -1018,8 +1018,8 @@ object Declaration {
 
   def commentP(parser: Indy[Declaration]): Parser.Indy[Declaration] =
     CommentStatement
-      .parser(
-        { indent => Padding.parser(P.string0(indent).with1 *> parser(indent)) }
+      .parser(indent =>
+        Padding.parser(P.string0(indent).with1 *> parser(indent))
       )
       .region
       .map { case (r, c) =>
@@ -1033,12 +1033,10 @@ object Declaration {
 
   def commentNBP(parser: P[NonBinding]): Indy[CommentNB] =
     CommentStatement
-      .parser(
-        { indent =>
-          Padding.parser(
-            P.string0(indent).with1 *> (Parser.maybeSpace.soft.with1 *> parser)
-          )
-        }
+      .parser(indent =>
+        Padding.parser(
+          P.string0(indent).with1 *> (Parser.maybeSpace.soft.with1 *> parser)
+        )
       )
       .region
       .map { case (r, c) => CommentNB(c)(r) }
@@ -1362,7 +1360,7 @@ object Declaration {
                 })
                 .orElse(nestedBlock)
                 // or it could be () which is just unit
-                .orElse(P.pure({ (r: Region) => TupleCons(Nil)(r) })),
+                .orElse(P.pure((r: Region) => TupleCons(Nil)(r))),
               P.unit
             )
             .region
