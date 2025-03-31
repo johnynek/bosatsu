@@ -64,7 +64,9 @@ object DefStatement {
     val args = argParser.parensLines1Cut
     val result = (P.string("->") *> maybeSpacesAndLines *> TypeRef.parser).?
     val kindAnnot: P[Kind] =
-      (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
+      (maybeSpace.soft.with1 *> (P.char(
+        ':'
+      ) *> maybeSpacesAndLines *> Kind.parser))
 
     (
       Parser.keySpace(

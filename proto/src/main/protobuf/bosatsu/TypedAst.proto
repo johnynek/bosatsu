@@ -384,5 +384,8 @@ message Library {
 
   // Historical versions of the library
   LibHistory history = 11;
+
+  // Default main package, may be empty for libraries
+  string default_main = 12;
 }
 

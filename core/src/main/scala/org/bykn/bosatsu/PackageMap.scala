@@ -48,14 +48,23 @@ case class PackageMap[A, B, C, +D](
   ): Map[PackageName, List[(Identifier.Bindable, rankn.Type)]] =
     toMap.iterator.map { case (name, pack) =>
       val tpack = ev(pack)
-      (name, tpack.externalDefs.map { n =>
-        (n, tpack.types.getExternalValue(name, n)
-          .getOrElse(sys.error(s"invariant violation, unknown type: $name $n")) )
-      })
+      (
+        name,
+        tpack.externalDefs.map { n =>
+          (
+            n,
+            tpack.types
+              .getExternalValue(name, n)
+              .getOrElse(
+                sys.error(s"invariant violation, unknown type: $name $n")
+              )
+          )
+        }
+      )
     }.toMap
 
-  def testValues(
-    implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  def testValues(implicit
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Map[PackageName, Identifier.Bindable] =
     toMap.iterator.flatMap { case (n, pack) =>
       Package.testValue(ev(pack)).iterator.map { case (bn, _, _) =>
@@ -63,8 +72,8 @@ case class PackageMap[A, B, C, +D](
       }
     }.toMap
 
-  def topoSort(
-    implicit ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  def topoSort(implicit
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Toposort.Result[PackageName] = {
 
     val packNames = toMap.keys.iterator.toList.sorted
@@ -114,13 +123,29 @@ object PackageMap {
         ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
     )
   ]
+  type Interface = PackageMap[Nothing, Nothing, Referant[Kind.Arg], Unit]
 
   type SourceMap = Map[PackageName, (LocationMap, String)]
 
   // convenience for type inference
   def toAnyTyped[A](p: Typed[A]): Typed[Any] = p
 
-  def treeShake[A](p: Typed[A], roots: Set[(PackageName, Identifier)]): Typed[A] = {
+  def filterLets[A](
+      p: Typed[A],
+      keep: ((PackageName, Identifier)) => Boolean
+  ): Typed[A] = {
+    val kept = p.toMap.iterator.map { case (_, pack) =>
+      val name = pack.name
+      pack.filterLets(nm => keep((name, nm)))
+    }.toList
+
+    fromIterable(kept)
+  }
+
+  def treeShake[A](
+      p: Typed[A],
+      roots: Set[(PackageName, Identifier)]
+  ): Typed[A] = {
     type Ident = (PackageName, Identifier)
 
     def dependency(a: Ident): Iterable[Ident] = {
@@ -137,19 +162,14 @@ object PackageMap {
     }
 
     val keep = Dag.transitiveSet(roots.toList.sorted)(dependency)
-
-    val kept = p.toMap.iterator.map { case (_, pack) =>
-      pack.filterLets { nm => keep((pack.name, nm)) }
-    }
-    .toList
-
-    fromIterable(kept)
+    filterLets(p, keep)
   }
 
   type Inferred = Typed[Declaration]
 
-  /** This builds a DAG of actual packages where on Import the PackageName have been replaced by the
-    * Either a Package.Interface (which gives exports only) or this same recursive structure.
+  /** This builds a DAG of actual packages where on Import the PackageName have
+    * been replaced by the Either a Package.Interface (which gives exports only)
+    * or this same recursive structure.
     */
   def resolvePackages[A, B, C](
       map: PackageMap[PackageName, A, B, C],
@@ -427,13 +447,15 @@ object PackageMap {
             ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
           ] = {
             // here we just need the interface, not the TypeEnv
-            val rec1 = recurse.andThen { res => IorT(res).map(_._2) }
+            val rec1 = recurse.andThen(res => IorT(res).map(_._2))
 
-            resolvedImports.parTraverse { (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
-              fixpack.importName(nm, item)(rec1(_))
-                .flatMap { either =>
-                  IorT.fromEither(either.left.map(NonEmptyList.one(_)))
-                }
+            resolvedImports.parTraverse {
+              (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
+                fixpack
+                  .importName(nm, item)(rec1(_))
+                  .flatMap { either =>
+                    IorT.fromEither(either.left.map(NonEmptyList.one(_)))
+                  }
             }
           }
 
@@ -451,12 +473,12 @@ object PackageMap {
                 )
               }
 
-          inferBody.flatMap {
-            case (ilist, imap, (fte, program)) =>
-              val ior =
-                PackageCustoms.assemble(nm, ilist, imap, exports, program)
-                  .map((fte, _))
-              IorT.fromIor(ior)
+          inferBody.flatMap { case (ilist, imap, (fte, program)) =>
+            val ior =
+              PackageCustoms
+                .assemble(nm, ilist, imap, exports, program)
+                .map((fte, _))
+            IorT.fromIor(ior)
           }.value
       }
 

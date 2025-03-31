@@ -6,15 +6,22 @@ import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
-import scala.util.{Failure, Success, Try}
 import org.bykn.bosatsu.Parser.argFromParser
-import org.bykn.bosatsu.tool.{CliException, ExitCode, FileKind, GraphOutput, Output, PackageResolver, PathParseError}
+import org.bykn.bosatsu.tool.{
+  CliException,
+  CompilerApi,
+  ExitCode,
+  FileKind,
+  GraphOutput,
+  Output,
+  PackageResolver,
+  PathParseError
+}
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
 
 import Identifier.Bindable
-import IorMethods.IorExtension
 import LocationMap.Colorize
 
 import cats.syntax.all._
@@ -41,7 +48,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     run(args).map(report)
 
   sealed abstract class MainException extends Exception with CliException {
-    def command: MainCommand
     def messageString: String
   }
   object MainException {
@@ -57,7 +63,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     }
 
     case class ParseErrors(
-        command: MainCommand,
         errors: NonEmptyList[PathParseError[Path]],
         color: Colorize
     ) extends MainException {
@@ -92,27 +97,12 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       def stdOutDoc: Doc = Doc.empty
       def exitCode: ExitCode = ExitCode.Error
     }
-    case class PackageErrors(
-        command: MainCommand,
-        sourceMap: PackageMap.SourceMap,
-        errors: NonEmptyList[PackageError],
-        color: Colorize
-    ) extends MainException {
-      def messages: List[String] =
-        errors.toList.distinct
-          .map(_.message(sourceMap, color))
-
-      def messageString: String = messages.mkString("\n")
-      def errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
-      def stdOutDoc: Doc = Doc.empty
-      def exitCode: ExitCode = ExitCode.Error
-    }
   }
 
   def mainExceptionToString(ex: Throwable): Option[String] =
     ex match {
       case me: MainException => Some(me.messageString)
-      case _ => None
+      case _                 => None
     }
 
   sealed abstract class MainCommand(val name: String) {
@@ -121,101 +111,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   }
 
   object MainCommand {
-    /** like typecheck, but a no-op for empty lists
-      */
-    def typeCheck0(
-        cmd: MainCommand,
-        inputs: List[Path],
-        ifs: List[Package.Interface],
-        errColor: Colorize,
-        packRes: PackageResolver[IO, Path]
-    )(implicit
-        ec: Par.EC
-    ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-      NonEmptyList.fromList(inputs) match {
-        case None =>
-          // we should still return the predef
-          // if it is not in ifs
-          val useInternalPredef =
-            !ifs.exists { (p: Package.Interface) =>
-              p.name == PackageName.PredefName
-            }
-
-          if (useInternalPredef) {
-            moduleIOMonad.pure(
-              (PackageMap.fromIterable(PackageMap.predefCompiled :: Nil), Nil)
-            )
-          } else {
-            moduleIOMonad.pure((PackageMap.empty, Nil))
-          }
-        case Some(nel) => typeCheck(cmd, nel, ifs, errColor, packRes)
-      }
-
-    def typeCheck(
-        cmd: MainCommand,
-        inputs: NonEmptyList[Path],
-        ifs: List[Package.Interface],
-        errColor: Colorize,
-        packRes: PackageResolver[IO, Path]
-    )(implicit
-        ec: Par.EC
-    ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-      packRes.parseAllInputs(inputs.toList, ifs.map(_.name).toSet)(platformIO)
-        .flatMap { ins =>
-          moduleIOMonad.fromTry {
-            // Now we have completed all IO, here we do all the checks we need for correctness
-            toTry(cmd, ins, errColor)
-              .flatMap { packs =>
-                // TODO, we could use applicative, to report both duplicate packages and the other
-                // errors
-                NonEmptyList.fromList(packs) match {
-                  case Some(packs) =>
-                    val packsString = packs.map { case ((path, lm), parsed) =>
-                      ((path.toString, lm), parsed)
-                    }
-                    PackageMap
-                      .typeCheckParsed[String](packsString, ifs, "predef")
-                      .strictToValidated match {
-                      case Validated.Valid(p) =>
-                        val pathToName: List[(Path, PackageName)] =
-                          packs.map { case ((path, _), p) =>
-                            (path, p.name)
-                          }.toList
-                        Success((p, pathToName))
-                      case Validated.Invalid(errs) =>
-                        val sourceMap = PackageMap.buildSourceMap(packs)
-                        Failure(
-                          MainException.PackageErrors(
-                            cmd,
-                            sourceMap,
-                            errs,
-                            errColor
-                          )
-                        )
-                    }
-                  case None =>
-                    Success((PackageMap.empty, Nil))
-                }
-              }
-          }
-        }
-
-    def buildPackMap(
-        cmd: MainCommand,
-        srcs: List[Path],
-        deps: List[Path],
-        errColor: Colorize,
-        packRes: PackageResolver[IO, Path]
-    )(implicit
-        ec: Par.EC
-    ): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
-      for {
-        packs <- readPackages(deps)
-        ifaces = packs.map(Package.interfaceOf(_))
-        packsList <- typeCheck0(cmd, srcs, ifaces, errColor, packRes)
-        (thesePacks, lst) = packsList
-        packMap = packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
-      } yield (packMap, lst)
 
     /** This allows us to use either a path or packagename to select the main
       * file
@@ -283,10 +178,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     }
 
     val transOpt: Opts[Transpiler.Optioned[F, Path]] =
-      cats.Alternative[Opts].combineAllK(
-        codegen.python.PythonTranspiler.opts(platformIO) ::
-        codegen.clang.ClangTranspiler.opts(platformIO) ::
-        Nil)
+      cats
+        .Alternative[Opts]
+        .combineAllK(
+          codegen.python.PythonTranspiler.opts(platformIO) ::
+            codegen.clang.ClangTranspiler.opts(platformIO) ::
+            Nil
+        )
 
     sealed abstract class JsonInput {
       def read: IO[String]
@@ -331,19 +229,19 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
         def compile(cmd: MainCommand, errColor: Colorize)(implicit
             ec: Par.EC
-        ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+        ): IO[PackageMap.Inferred] =
           for {
             ifpaths <- ifaces.read
             ifs <- readInterfaces(ifpaths)
             ins <- inNel(cmd)
-            packPath <- typeCheck(
-              cmd,
+            packPath <- CompilerApi.typeCheck(
+              platformIO,
               ins,
               ifs,
               errColor,
               packageResolver
             )
-          } yield packPath
+          } yield packPath._1
       }
 
       class Show(
@@ -352,7 +250,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           includes: PathGen,
           packageResolver: PackageResolver[IO, Path]
       ) extends Inputs {
-        def loadAndCompile(cmd: MainCommand, errColor: Colorize)(implicit
+        def loadAndCompile(errColor: Colorize)(implicit
             ec: Par.EC
         ): IO[(List[Package.Interface], List[Package.Typed[Any]])] =
           (
@@ -366,8 +264,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               case (h :: t, ifaces, packs) =>
                 val packIfs = packs.map(Package.interfaceOf(_))
                 for {
-                  packPath <- typeCheck(
-                    cmd,
+                  packPath <- CompilerApi.typeCheck(
+                    platformIO,
                     NonEmptyList(h, t),
                     ifaces ::: packIfs,
                     errColor,
@@ -423,8 +321,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               if (ds.isEmpty && ins1.isEmpty)
                 moduleIOMonad.raiseError(MainException.NoInputs(cmd))
               else
-                buildPackMap(
-                  cmd,
+                CompilerApi.buildPackMap(
+                  platformIO,
                   srcs = ins1,
                   deps = ds,
                   errColor,
@@ -434,9 +332,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
 
       private val srcs =
-        PathGen.opts("input", help = "input source files", ".bosatsu")(platformIO)
+        PathGen.opts("input", help = "input source files", ".bosatsu")(
+          platformIO
+        )
       private val ifaces =
-        PathGen.opts("interface", help = "interface files", ".bosatsig")(platformIO)
+        PathGen.opts("interface", help = "interface files", ".bosatsig")(
+          platformIO
+        )
       private val includes = PathGen.opts(
         "include",
         help = "compiled packages to include files",
@@ -463,8 +365,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     case class TranspileCommand(
         inputs: Inputs.Runtime,
         errColor: Colorize,
-        generator: Transpiler.Optioned[F, Path],
-        outDir: Path
+        generator: Transpiler.Optioned[F, Path]
     ) extends MainCommand("transpile") {
 
       type Result = Output.TranspileOut[Path]
@@ -474,7 +375,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
-            data <- generator.transpiler.renderAll(outDir, packs, generator.args)
+            data <- generator.renderAll(packs)
           } yield Output.TranspileOut(data)
         }
     }
@@ -698,8 +599,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       def run =
         withEC { implicit ec =>
           for {
-            packPath <- inputs.compile(this, errColor)
-            packs = packPath._1
+            packs <- inputs.compile(this, errColor)
             packList =
               packs.toMap.iterator
                 .map { case (_, p) => p }
@@ -761,7 +661,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       def run = withEC { implicit ec =>
         for {
-          (ifaces, packs0) <- inputs.loadAndCompile(this, errColor)
+          (ifaces, packs0) <- inputs.loadAndCompile(errColor)
           packs = packs0.filterNot(_.name == PackageName.PredefName)
         } yield Output.ShowOutput(packs, ifaces, output)
       }
@@ -781,7 +681,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ): IO[List[(Path, PackageName, FileKind, List[PackageName])]] =
         for {
           maybeParsed <- inputs.packageResolver.parseHeaders(paths)(platformIO)
-          parsed <- moduleIOMonad.fromTry(toTry(this, maybeParsed, errColor))
+          parsed <- liftParseErrors(maybeParsed, errColor)
         } yield parsed.map { case (path, (pn, imps, _)) =>
           (path, pn, FileKind.Source, norm(imps.map(_.pack)))
         }
@@ -826,19 +726,21 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         } yield Output.DepsOutput(sdeps ::: ideps ::: pdeps, output, style)
     }
 
-    case class FromOutput[Out <: Output[Path]](commandName: String, run: IO[Out]) extends MainCommand(commandName) {
+    case class FromOutput[Out <: Output[Path]](
+        commandName: String,
+        run: IO[Out]
+    ) extends MainCommand(commandName) {
       type Result = Out
     }
 
-    def toTry[A](
-        cmd: MainCommand,
+    private def liftParseErrors[A](
         v: ValidatedNel[PathParseError[Path], A],
         color: Colorize
-    ): Try[A] =
+    ): F[A] =
       v match {
-        case Validated.Valid(a) => Success(a)
+        case Validated.Valid(a) => moduleIOMonad.pure(a)
         case Validated.Invalid(errs) =>
-          Failure(MainException.ParseErrors(cmd, errs, color))
+          moduleIOMonad.raiseError(MainException.ParseErrors(errs, color))
       }
 
     val opts: Opts[MainCommand] = {
@@ -852,25 +754,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           "package or package::name",
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
         )
-
-      implicit val argColor: Argument[Colorize] =
-        new Argument[Colorize] {
-          def defaultMetavar: String = "color"
-          def read(str: String): ValidatedNel[String, Colorize] =
-            str.toLowerCase match {
-              case "none" => Validated.valid(Colorize.None)
-              case "ansi" => Validated.valid(Colorize.Console)
-              case "html" => Validated.valid(Colorize.HmtlFont)
-              case other =>
-                Validated.invalidNel(
-                  s"unknown colorize: $other, expected: none, ansi or html"
-                )
-            }
-        }
-
-      val colorOpt = Opts
-        .option[Colorize]("color", help = "colorize mode: none, ansi or html")
-        .orElse(Opts(Colorize.Console))
 
       val mainP =
         MainIdentifier.opts(
@@ -908,7 +791,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       val jsonCommand = {
         def toJsonOpt(modeOpt: Opts[JsonMode]) =
-          (Inputs.runtimeOpts, modeOpt, mainP, outputPath.orNone, colorOpt)
+          (
+            Inputs.runtimeOpts,
+            modeOpt,
+            mainP,
+            outputPath.orNone,
+            Colorize.optsConsoleDefault
+          )
             .mapN(ToJson(_, _, _, _, _))
 
         val input: Opts[JsonInput] =
@@ -946,27 +835,23 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       val transpileOpt = (
         Inputs.runtimeOpts,
-        colorOpt,
-        transOpt,
-        Opts.option[Path](
-          "outdir",
-          help = "directory to write all output into"
-        )
+        Colorize.optsConsoleDefault,
+        transOpt
       )
-      .mapN(TranspileCommand(_, _, _, _))
+        .mapN(TranspileCommand(_, _, _))
 
-      val evalOpt = (Inputs.runtimeOpts, mainP, colorOpt)
+      val evalOpt = (Inputs.runtimeOpts, mainP, Colorize.optsConsoleDefault)
         .mapN(Evaluate(_, _, _))
 
       val typeCheckOpt = (
         Inputs.compileOpts,
         outputPath.orNone,
         interfaceOutputPath.orNone,
-        colorOpt
+        Colorize.optsConsoleDefault
       )
         .mapN(Check(_, _, _, _))
 
-      val testOpt = (Inputs.runtimeOpts, testP, colorOpt)
+      val testOpt = (Inputs.runtimeOpts, testP, Colorize.optsConsoleDefault)
         .mapN(RunTests(_, _, _))
 
       Opts
@@ -990,7 +875,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         )
         .orElse(
           Opts.subcommand("show", "show compiled packages")(
-            (Inputs.showOpts, outputPath.orNone, colorOpt)
+            (Inputs.showOpts, outputPath.orNone, Colorize.optsConsoleDefault)
               .mapN(Show(_, _, _))
           )
         )
@@ -999,7 +884,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             (
               Inputs.depsOpts,
               outputPath.orNone,
-              colorOpt,
+              Colorize.optsConsoleDefault,
               GraphOutput.jsonOrDot
             )
               .mapN(Deps(_, _, _, _))
@@ -1011,7 +896,13 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               case Some(gitVer) =>
                 // We can see at build time if the git version is set, if it isn't set
                 // don't create the option (in practice this will almost never happen)
-                Opts.flag("git", help = s"use the git-sha ($gitVer) the compiler was built at.", "g")
+                Opts
+                  .flag(
+                    "git",
+                    help =
+                      s"use the git-sha ($gitVer) the compiler was built at.",
+                    "g"
+                  )
                   .orFalse
                   .map(if (_) Some(gitVer) else None)
               case None =>
@@ -1019,20 +910,32 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             }
 
           Opts.subcommand("version", "print to stdout the version of the tool")(
-            (gitOpt, Opts.option[Path]("output", "file to write to, if not set, use stdout.", "o").orNone)
-            .mapN { (useGit, outPath) =>
-              val vStr = useGit match {
-                case Some(v) => v
-                case None => BuildInfo.version
-              }
+            (
+              gitOpt,
+              Opts
+                .option[Path](
+                  "output",
+                  "file to write to, if not set, use stdout.",
+                  "o"
+                )
+                .orNone
+            )
+              .mapN { (useGit, outPath) =>
+                val vStr = useGit match {
+                  case Some(v) => v
+                  case None    => BuildInfo.version
+                }
 
-            val out = moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
-            FromOutput("version", out)
-          })
+                val out =
+                  moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
+                FromOutput("version", out)
+              }
+          )
         }
         .orElse {
           Opts.subcommand("lib", "tools for working with bosatsu libraries")(
-            library.Command.opts(platformIO)
+            library.Command
+              .opts(platformIO)
               .map(FromOutput("lib", _))
           )
         }
@@ -1247,7 +1150,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case Output.Many(items) =>
         items.foldM[IO, ExitCode](ExitCode.Success) {
           case (ExitCode.Success, item) => reportOutput(item)
-          case (err, _) => moduleIOMonad.pure(err)
+          case (err, _)                 => moduleIOMonad.pure(err)
         }
     }
 
@@ -1263,7 +1166,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case ce: CliException => ce.report(platformIO)
       case _ =>
         platformIO.errorln("unknown error:\n") *>
-          platformIO.errorln(stackTraceToString(ex))
+          platformIO
+            .errorln(stackTraceToString(ex))
             .as(ExitCode.Error)
     }
 

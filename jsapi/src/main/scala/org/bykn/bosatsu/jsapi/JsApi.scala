@@ -44,10 +44,11 @@ object JsApi {
 
     val filePaths = files.iterator.map { case (k, data) =>
       Chain.fromSeq(splitPath(k)) -> data
-    }
-    .toMap
+    }.toMap
 
-    module.runWith(filePaths)("eval" :: main ::: makeInputArgs(files.keys)) match {
+    module.runWith(filePaths)(
+      "eval" :: main ::: makeInputArgs(files.keys)
+    ) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
       case Right(Output.EvaluationResult(_, tpe, resDoc)) =>
@@ -99,8 +100,7 @@ object JsApi {
 
     val filePaths = files.iterator.map { case (k, data) =>
       Chain.fromSeq(splitPath(k)) -> data
-    }
-    .toMap
+    }.toMap
 
     module.runWith(filePaths)(
       "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(

@@ -149,14 +149,15 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
-              else {
+              else
+                {
 
-                case VOption(None) => Right(Json.JArray(Vector.empty))
-                case VOption(Some(a)) =>
-                  inner(a).map(j => Json.JArray(Vector(j)))
-                case other =>
-                  Left(IllTyped(revPath.reverse, tpe, other))
-              }
+                  case VOption(None) => Right(Json.JArray(Vector.empty))
+                  case VOption(Some(a)) =>
+                    inner(a).map(j => Json.JArray(Vector(j)))
+                  case other =>
+                    Left(IllTyped(revPath.reverse, tpe, other))
+                }
             case Type.ListT(t1) =>
               lazy val inner = loop(t1, tpe :: revPath).value
 

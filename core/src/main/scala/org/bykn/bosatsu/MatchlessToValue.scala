@@ -14,9 +14,9 @@ object MatchlessToValue {
   import Matchless._
 
   // reuse some cache structures across a number of calls
-  def traverse[F[_]: Functor](
-      me: F[Expr]
-  )(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
+  def traverse[F[_]: Functor, A](
+      me: F[Expr[A]]
+  )(resolve: (A, PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
       env.loop(expr)
@@ -28,66 +28,63 @@ object MatchlessToValue {
     }
   }
 
-  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-  private[this] val succNat: Value = {
-    def inc(v: Value): Value = {
-      val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
-      ExternalValue(bi.add(BigInteger.ONE))
-    }
-    FnValue { case NonEmptyList(a, _) => inc(a) }
-  }
-
-  def makeCons(c: ConsExpr): Value =
-    c match {
-      case MakeEnum(variant, arity, _) =>
-        if (arity == 0) SumValue(variant, UnitValue)
-        else if (arity == 1) {
-          FnValue { case NonEmptyList(v, _) =>
-            SumValue(variant, ProductValue.single(v))
-          }
-        } else
-          // arity > 1
-          FnValue { args =>
-            val prod = ProductValue.fromList(args.toList)
-            SumValue(variant, prod)
-          }
-      case MakeStruct(arity) =>
-        if (arity == 0) UnitValue
-        else if (arity == 1) FnValue.identity
-        else
-          FnValue { args =>
-            ProductValue.fromList(args.toList)
-          }
-      case ZeroNat => zeroNat
-      case SuccNat => succNat
-    }
-
   private object Impl {
+
+    private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
+    private[this] val succNat: Value = {
+      def inc(v: Value): Value = {
+        val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
+        ExternalValue(bi.add(BigInteger.ONE))
+      }
+      FnValue { case NonEmptyList(a, _) => inc(a) }
+    }
+
+    def makeCons(c: ConsExpr): Value =
+      c match {
+        case MakeEnum(variant, arity, _) =>
+          if (arity == 0) SumValue(variant, UnitValue)
+          else if (arity == 1) {
+            FnValue { case NonEmptyList(v, _) =>
+              SumValue(variant, ProductValue.single(v))
+            }
+          } else
+            // arity > 1
+            FnValue { args =>
+              val prod = ProductValue.fromList(args.toList)
+              SumValue(variant, prod)
+            }
+        case MakeStruct(arity) =>
+          if (arity == 0) UnitValue
+          else if (arity == 1) FnValue.identity
+          else
+            FnValue { args =>
+              ProductValue.fromList(args.toList)
+            }
+        case ZeroNat => zeroNat
+        case SuccNat => succNat
+      }
+
     case object Uninitialized
     val uninit: Value = ExternalValue(Uninitialized)
 
     class DebugStr(prefix: String = "") {
       private var message: String = ""
-      def set(msg: String): Unit = {
+      def set(msg: String): Unit =
         message = msg;
-      }
 
-      def append(msg: String): Unit = {
+      def append(msg: String): Unit =
         message = message + " :: " + msg
-      }
 
       override def toString = prefix + message
 
-      def scope(outer: String): DebugStr = {
+      def scope(outer: String): DebugStr =
         new DebugStr(prefix + "/" + outer)
-      }
     }
 
     class Cell {
       private var value = uninit
-      def set(v: Value): Unit = {
+      def set(v: Value): Unit =
         value = v
-      }
 
       def get(): Value = value
     }
@@ -135,7 +132,13 @@ object MatchlessToValue {
 
     object Scope {
       def empty(): Scope =
-        Scope(Map.empty, LongMap.empty, LongMap.empty, Vector.empty, new DebugStr)
+        Scope(
+          Map.empty,
+          LongMap.empty,
+          LongMap.empty,
+          Vector.empty,
+          new DebugStr
+        )
 
       def capture(it: Vector[Value], dbg: DebugStr = new DebugStr): Scope =
         Scope(
@@ -204,9 +207,9 @@ object MatchlessToValue {
         }
     }
 
-    class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
+    class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
-      private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
+      private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
           case EqualsLit(expr, lit) =>
             val litAny = lit.unboxToAny
@@ -298,7 +301,7 @@ object MatchlessToValue {
         }
 
       // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr): Scoped[Value] =
+      def loop(me: Expr[F]): Scoped[Value] =
         me match {
           case Lambda(Nil, None, args, res) =>
             val resFn = loop(res)
@@ -352,26 +355,27 @@ object MatchlessToValue {
             // has failed
             Dynamic { (scope: Scope) =>
               var c = condF(scope)
-              while(c) {
+              while (c) {
                 effectF(scope)
                 c = condF(scope)
               }
               scope.muts(result.ident).get()
             }
-          case Global(p, n) =>
-            val res = resolve(p, n)
+          case Global(f, p, n) =>
+            val res = resolve(f, p, n)
 
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)         => Dynamic(_.locals(b).value)
-          case LocalAnon(a)     => Dynamic(_.anon(a))
-          case LocalAnonMut(m)  => Dynamic { s =>
-            s.muts.get(m) match {
-              case Some(v) => v.get()
-              case None => sys.error(s"could not get: $m. ${s.debugString}")
+          case Local(b)     => Dynamic(_.locals(b).value)
+          case LocalAnon(a) => Dynamic(_.anon(a))
+          case LocalAnonMut(m) =>
+            Dynamic { s =>
+              s.muts.get(m) match {
+                case Some(v) => v.get()
+                case None => sys.error(s"could not get: $m. ${s.debugString}")
+              }
             }
-          }
           case ClosureSlot(idx) => Dynamic(_.slots(idx))
           case App(expr, args)  =>
             // TODO: App(lambda(while
@@ -433,9 +437,9 @@ object MatchlessToValue {
 
             Dynamic { scope =>
               values.iterator.foreach { case (m, e) =>
-                val ev = e(scope)  
+                val ev = e(scope)
                 scope.updateMut(m.ident, ev)
-              }               
+              }
 
               exprF(scope)
             }

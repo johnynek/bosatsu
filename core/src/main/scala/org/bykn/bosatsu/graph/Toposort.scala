@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.graph
 
+import cats.Functor
 import cats.data.NonEmptyList
 import cats.syntax.all._
 
@@ -16,8 +17,8 @@ object Toposort {
     // if this is success, return Some with the layers
     def toSuccess: Option[Vector[NonEmptyList[A]]] =
       this match {
-        case Success(res, _) => Some(res)
-        case Failure(_, _)   => None
+        case Success(res)  => Some(res)
+        case Failure(_, _) => None
       }
 
     // true if each layer has exactly one item in it
@@ -26,18 +27,35 @@ object Toposort {
 
     def isSuccess: Boolean =
       this match {
-        case Success(_, _) => true
+        case Success(_)    => true
         case Failure(_, _) => false
       }
 
     def isFailure: Boolean = !isSuccess
   }
+
+  object Result {
+    implicit val resultFunctor: Functor[Result] =
+      new Functor[Result] {
+        def map[A, B](fa: Result[A])(f: A => B): Result[B] =
+          fa match {
+            case Success(layers) =>
+              Success(Functor[Vector].compose[NonEmptyList].map(layers)(f))
+            case Failure(loopNodes, layers) =>
+              Failure(
+                loopNodes.map(f),
+                Functor[Vector].compose[NonEmptyList].map(layers)(f)
+              )
+          }
+      }
+  }
+
   final case class Success[A](
-      layers: Vector[NonEmptyList[A]],
-      nfn: A => List[A]
+      layers: Vector[NonEmptyList[A]]
   ) extends Result[A] {
     def loopNodes = List.empty[A]
   }
+
   final case class Failure[A](
       loopNodes: List[A],
       layers: Vector[NonEmptyList[A]]
@@ -50,7 +68,7 @@ object Toposort {
     * nodes
     */
   def sort[A: Ordering](n: Iterable[A])(fn: A => List[A]): Result[A] =
-    if (n.isEmpty) Success(Vector.empty, fn)
+    if (n.isEmpty) Success(Vector.empty)
     else {
       // save this to avoid some realloations
       val someZero: Option[Int] = Some(0)
@@ -96,6 +114,6 @@ object Toposort {
         }
       }
       if (bad) Failure(res.collect { case Left(n) => n }, goodRes)
-      else Success(goodRes, fn)
+      else Success(goodRes)
     }
 }

@@ -1,5 +1,7 @@
 package org.bykn.bosatsu
 
+import cats.data.{Validated, ValidatedNel}
+import com.monovore.decline.{Argument, Opts}
 import org.typelevel.paiges.Doc
 import cats.parse.{LocationMap => CPLocationMap}
 
@@ -144,6 +146,26 @@ object LocationMap {
           "</font>"
         )
     }
+
+    implicit val argColor: Argument[Colorize] =
+      new Argument[Colorize] {
+        def defaultMetavar: String = "color"
+        def read(str: String): ValidatedNel[String, Colorize] =
+          str.toLowerCase match {
+            case "none" => Validated.valid(Colorize.None)
+            case "ansi" => Validated.valid(Colorize.Console)
+            case "html" => Validated.valid(Colorize.HmtlFont)
+            case other =>
+              Validated.invalidNel(
+                s"unknown colorize: $other, expected: none, ansi or html"
+              )
+          }
+      }
+
+    val opts: Opts[Colorize] =
+      Opts.option[Colorize]("color", help = "colorize mode: none, ansi or html")
+
+    val optsConsoleDefault: Opts[Colorize] = opts.orElse(Opts(Colorize.Console))
   }
 
   /** Provide a string that points with a carat to a given column with 0 based

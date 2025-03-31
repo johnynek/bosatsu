@@ -29,20 +29,29 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def pathToString(p: Path): String = p.toString
 
-  private def systemCmd[A](cmd: String, args: List[String], bldr: java.lang.ProcessBuilder)(fn: java.lang.Process => A): IO[A] = IO.blocking {
+  private def systemCmd[A](
+      cmd: String,
+      args: List[String],
+      bldr: java.lang.ProcessBuilder
+  )(fn: java.lang.Process => A): IO[A] = IO.blocking {
     // Start the process
     val process = bldr.start()
     val result = fn(process)
     // Wait for the process to complete and check the exit value
     val exitCode = process.waitFor()
     if (exitCode != 0) {
-      throw new RuntimeException(s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode")
+      throw new RuntimeException(
+        s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode"
+      )
     }
 
     result
   }
 
-  private def processBldr(cmd: String, args: List[String]): IO[java.lang.ProcessBuilder] = IO {
+  private def processBldr(
+      cmd: String,
+      args: List[String]
+  ): IO[java.lang.ProcessBuilder] = IO {
     val processBuilder = new java.lang.ProcessBuilder()
     val command = new java.util.ArrayList[String]()
     (cmd :: args).foreach(command.add(_))
@@ -52,7 +61,6 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def system(cmd: String, args: List[String]): IO[Unit] =
     processBldr(cmd, args).flatMap { processBuilder =>
-      
       // Redirect output and error streams
       processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
       processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
@@ -62,13 +70,14 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   val gitShaHead: IO[String] = {
     val args = "rev-parse" :: "HEAD" :: Nil
     processBldr("git", args).flatMap { processBuilder =>
-      
       // Combine stdout and stderr, and pipe the combined output for capturing
       processBuilder.redirectErrorStream(true)
       processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
-      systemCmd("git", args, processBuilder) { process => 
+      systemCmd("git", args, processBuilder) { process =>
         // Prepare to read the combined output
-        val reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream))
+        val reader = new java.io.BufferedReader(
+          new java.io.InputStreamReader(process.getInputStream)
+        )
         val output = new StringBuilder
         var line: String = null
 
@@ -88,7 +97,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   override val parallelF: cats.Parallel[IO] = IO.parallelForIO
 
   private val parResource: Resource[IO, Par.EC] =
-    Resource.make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
+    Resource
+      .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
 
   def withEC[A](fn: Par.EC => IO[A]): IO[A] =
@@ -129,8 +139,11 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     }
 
   def readHashed[A <: GeneratedMessage, H](
-    path: Path
-  )(implicit gmc: GeneratedMessageCompanion[A], algo: Algo[H]): IO[Hashed[H, A]] =
+      path: Path
+  )(implicit
+      gmc: GeneratedMessageCompanion[A],
+      algo: Algo[H]
+  ): IO[Hashed[H, A]] =
     IO.blocking {
       val bytes = Files.readAllBytes(path)
       val a = gmc.parseFrom(bytes)
@@ -140,6 +153,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def write(a: GeneratedMessage, path: Path): IO[Unit] =
     IO.blocking {
       val f = path.toFile
+      Option(f.getParentFile).foreach(_.mkdirs())
       val os = new BufferedOutputStream(new FileOutputStream(f))
       try a.writeTo(os)
       finally {
@@ -155,13 +169,13 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
     ).flatMapN { (ifs, packs) =>
-        IO.fromTry(
-          ProtoConverter.packagesFromProto(
-            ifs.flatMap(_.interfaces),
-            packs.flatMap(_.packages)
-          )
+      IO.fromTry(
+        ProtoConverter.packagesFromProto(
+          ifs.flatMap(_.interfaces),
+          packs.flatMap(_.packages)
         )
-      }
+      )
+    }
 
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     readInterfacesAndPackages(paths, Nil).map(_._1)
@@ -172,7 +186,12 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
     readHashed[proto.Library, Algo.Blake3](path)
 
-  def fetchHash[A](algo: Algo[A], hash: HashValue[A], path: Path, uri: String): F[Unit] = {
+  def fetchHash[A](
+      algo: Algo[A],
+      hash: HashValue[A],
+      path: Path,
+      uri: String
+  ): F[Unit] = {
     // Create a Blaze client resource
     import org.http4s._
     import fs2.io.file.{Files, Path => Fs2Path, CopyFlags, CopyFlag}
@@ -201,41 +220,51 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     )
 
     parent.traverse_(p => filesIO.createDirectories(Fs2Path.fromNioPath(p))) *>
-    (clientResource,
-      tempFileRes,
-      Resource.eval(IO(Uri.unsafeFromString(uri)))
-    ).tupled.use { case (client, tempPath, uri) =>
-      // Create an HTTP GET request
-      val request = Request[IO](method = Method.GET, uri = uri)
+      (
+        clientResource,
+        tempFileRes,
+        Resource.eval(IO(Uri.unsafeFromString(uri)))
+      ).tupled.use { case (client, tempPath, uri) =>
+        // Create an HTTP GET request
+        val request = Request[IO](method = Method.GET, uri = uri)
 
-      // Stream the response body and write it to the specified file path
-      client.stream(request)
-        .flatMap { response =>
-          if (response.status.isSuccess) {
-            response.body
-          } else {
-            fs2.Stream.raiseError[IO](new Exception(s"Failed to download from $uri: ${response.status}"))
+        // Stream the response body and write it to the specified file path
+        client
+          .stream(request)
+          .flatMap { response =>
+            if (response.status.isSuccess) {
+              response.body
+            } else {
+              fs2.Stream.raiseError[IO](
+                new Exception(
+                  s"Failed to download from $uri: ${response.status}"
+                )
+              )
+            }
           }
-        }
-        .broadcastThrough(
-          Files[IO].writeAll(tempPath),
-          hashFile
-        )
-        .compile
-        .lastOrError
-        .flatMap { computedHash =>
-          if (computedHash == hash) {
-            // move it atomically to output
-            filesIO.move(
-              source = Fs2Path.fromNioPath(tempPath),
-              target = Fs2Path.fromNioPath(path),
-              CopyFlags(CopyFlag.AtomicMove))
+          .broadcastThrough(
+            Files[IO].writeAll(tempPath),
+            hashFile
+          )
+          .compile
+          .lastOrError
+          .flatMap { computedHash =>
+            if (computedHash == hash) {
+              // move it atomically to output
+              filesIO.move(
+                source = Fs2Path.fromNioPath(tempPath),
+                target = Fs2Path.fromNioPath(path),
+                CopyFlags(CopyFlag.AtomicMove)
+              )
+            } else {
+              IO.raiseError(
+                new Exception(
+                  s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"
+                )
+              )
+            }
           }
-          else {
-            IO.raiseError(new Exception(s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"))
-          }
-        }
-    }
+      }
   }
 
   def writeInterfaces(
