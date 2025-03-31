@@ -13,8 +13,8 @@ sealed abstract class ExportedName[+T] { self: Product =>
   def tag: T
 
   def nameKind: String = self match {
-    case ExportedName.Binding(_, _) => "binding"
-    case ExportedName.TypeName(_, _) => "typename"
+    case ExportedName.Binding(_, _)     => "binding"
+    case ExportedName.TypeName(_, _)    => "typename"
     case ExportedName.Constructor(_, _) => "constructor"
   }
 

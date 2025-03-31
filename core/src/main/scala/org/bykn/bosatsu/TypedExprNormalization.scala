@@ -119,7 +119,12 @@ object TypedExprNormalization {
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
 
-  private def appLambda[A](f1: AnnotatedLambda[A], args: NonEmptyList[TypedExpr[A]], tpe: Type, tag: A): TypedExpr[A] = {
+  private def appLambda[A](
+      f1: AnnotatedLambda[A],
+      args: NonEmptyList[TypedExpr[A]],
+      tpe: Type,
+      tag: A
+  ): TypedExpr[A] = {
     val freesInArgs = TypedExpr.freeVarsSet(args.toList)
     val AnnotatedLambda(lamArgs, expr, _) = f1.unshadow(freesInArgs)
     // Now that we certainly don't shadow we can convert this:
@@ -227,7 +232,9 @@ object TypedExprNormalization {
               // note, e1 is already normalized, so fn is normalized
               Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
-                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(ex) && doesntShadow(arg1)=>
+                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(
+                  ex
+                ) && doesntShadow(arg1) =>
               // x ->
               //   y = z
               //   f(y)
@@ -245,9 +252,13 @@ object TypedExprNormalization {
                 scope,
                 typeEnv
               )
-            case m @ Match(arg1, branches, tag1) if lamArgs.forall {
-                  case (arg, _) => arg1.notFree(arg)
-                } && ((branches.length > 1) || !Impl.isSimple(arg1, lambdaSimple = true)) =>
+            case m @ Match(arg1, branches, tag1)
+                if lamArgs.forall { case (arg, _) =>
+                  arg1.notFree(arg)
+                } && ((branches.length > 1) || !Impl.isSimple(
+                  arg1,
+                  lambdaSimple = true
+                )) =>
               // x -> match z: w
               // convert to match z: x -> w
               // but don't bother if the arg is simple or there is only 1 branch + simple arg
@@ -392,7 +403,9 @@ object TypedExprNormalization {
                   // we don't want to inline a value that is itself a function call
                   // inside of lambdas
                   val inlined =
-                    if (shouldInline) substitute(arg, ex1, in1, enterLambda = isSimp) else None
+                    if (shouldInline)
+                      substitute(arg, ex1, in1, enterLambda = isSimp)
+                    else None
                   inlined match {
                     case Some(il) =>
                       normalize1(namerec, il, scope, typeEnv)
@@ -521,7 +534,7 @@ object TypedExprNormalization {
 
       object ResolveToLambda {
         // this is a parameter that we can tune to change inlining Global Lambdas
-        val MaxSize = 10 
+        val MaxSize = 10
 
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
@@ -562,7 +575,8 @@ object TypedExprNormalization {
               scope.getGlobal(p, n).flatMap {
                 // only inline global lambdas if they are somewhat small, otherwise we will
                 // tend to transitively inline everything into one big function and blow the stack
-                case (RecursionKind.NonRecursive, te, scope1) if te.size < MaxSize =>
+                case (RecursionKind.NonRecursive, te, scope1)
+                    if te.size < MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -610,14 +624,17 @@ object TypedExprNormalization {
       }
     }
 
-    final def isSimpleNotTail[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
+    final def isSimpleNotTail[A](
+        ex: TypedExpr[A],
+        lambdaSimple: Boolean
+    ): Boolean =
       isSimple(ex, lambdaSimple)
 
     @annotation.tailrec
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
-        case App(_, _, _, _) => false
+        case App(_, _, _, _)                                        => false
         case Annotation(t, _)         => isSimple(t, lambdaSimple)
         case Generic(_, t)            => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _) =>
@@ -837,8 +854,8 @@ object TypedExprNormalization {
             p match {
               case Pattern.Named(v, p) =>
                 makeLet(p).map((v, li) :: _)
-              case Pattern.WildCard         => Some(Nil)
-              case Pattern.Var(v)           =>
+              case Pattern.WildCard => Some(Nil)
+              case Pattern.Var(v) =>
                 Some((v, li) :: Nil)
               case Pattern.Annotation(p, _) => makeLet(p)
               case Pattern.Literal(litj) =>
@@ -855,7 +872,7 @@ object TypedExprNormalization {
                 }
 
               case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) =>
-                // 
+                //
                 None
               // $COVERAGE-ON$
             }

@@ -16,7 +16,6 @@ final case class DefinedType[+A](
     constructors: List[ConstructorFn]
 ) {
 
-
   def isOpaque: Boolean = constructors.isEmpty
   def toOpaque: DefinedType[A] = copy(constructors = Nil)
 

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 
-import cats.{MonadError, Show}
+import cats.{MonadError, Parallel, Show}
 import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
@@ -11,10 +11,12 @@ import org.typelevel.paiges.Doc
 import cats.syntax.all._
 import cats.data.Validated.Invalid
 import cats.data.Validated.Valid
-import org.bykn.bosatsu.hashing.{Hashed, Algo}
+import org.bykn.bosatsu.hashing.{Algo, Hashed, HashValue}
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
+  implicit def parallelF: Parallel[F]
+
   implicit def pathArg: Argument[Path]
   implicit def pathOrdering: Ordering[Path]
 
@@ -26,7 +28,8 @@ trait PlatformIO[F[_], Path] {
   def pathF(str: String): F[Path] =
     path(str) match {
       case Valid(a) => moduleIOMonad.pure(a)
-      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
+      case Invalid(e) =>
+        moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
     }
 
   // this must return a parseable String
@@ -52,12 +55,21 @@ trait PlatformIO[F[_], Path] {
   def getOrError[A](oa: Option[A], msg: => String): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
-      case None => moduleIOMonad.raiseError(new Exception(msg))
+      case None    => moduleIOMonad.raiseError(new Exception(msg))
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
+
+  /** Download an object to a given path with a given HashValue
+    */
+  def fetchHash[A](
+      algo: Algo[A],
+      hash: HashValue[A],
+      path: Path,
+      uri: String
+  ): F[Unit]
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
@@ -65,6 +77,12 @@ trait PlatformIO[F[_], Path] {
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
 
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
+
+  def fileExists(p: Path): F[Boolean] =
+    fsDataType(p).map {
+      case Some(PlatformIO.FSDataType.File) => true
+      case _                                => false
+    }
 
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
@@ -75,7 +93,7 @@ trait PlatformIO[F[_], Path] {
     val filePath = resolve(dir, pack.parts.last + ".bosatsu")
     fsDataType(filePath).map {
       case Some(PlatformIO.FSDataType.File) => Some(filePath)
-      case _ => None
+      case _                                => None
     }
   }
 
@@ -98,7 +116,7 @@ trait PlatformIO[F[_], Path] {
   def gitTopLevel: F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) => 
+        case Some(PlatformIO.FSDataType.Dir) =>
           fsDataType(resolve(current, ".git"))
             .map {
               case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
@@ -109,16 +127,18 @@ trait PlatformIO[F[_], Path] {
 
     path(".") match {
       case Valid(a) => moduleIOMonad.tailRecM(a)(searchStep)
-      case Invalid(e) => moduleIOMonad.raiseError(new Exception(s"could not find current directory: $e"))
+      case Invalid(e) =>
+        moduleIOMonad.raiseError(
+          new Exception(s"could not find current directory: $e")
+        )
     }
   }
 
   final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
     out match {
-      case None => writeStdout(doc)
+      case None    => writeStdout(doc)
       case Some(p) => writeDoc(p, doc)
     }
-
 
   def resolve(base: Path, p: List[String]): Path =
     p.foldLeft(base)(resolve(_, _))
@@ -136,11 +156,12 @@ trait PlatformIO[F[_], Path] {
 }
 
 object PlatformIO {
-  def pathPackage[Path](roots: List[Path], packFile: Path)(relativeParts: (Path, Path) => Option[Iterable[String]]): Option[PackageName] = {
+  def pathPackage[Path](roots: List[Path], packFile: Path)(
+      relativeParts: (Path, Path) => Option[Iterable[String]]
+  ): Option[PackageName] = {
     def getP(p: Path): Option[PackageName] =
       relativeParts(p, packFile).flatMap { parts =>
-        val subPath = parts
-          .iterator
+        val subPath = parts.iterator
           .map { part =>
             part.toLowerCase.capitalize
           }

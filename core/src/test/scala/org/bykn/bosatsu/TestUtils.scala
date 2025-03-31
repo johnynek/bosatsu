@@ -102,9 +102,11 @@ object TestUtils {
     }
   }
 
-  def checkMatchless[A](
+  def checkPackageMap[A](
       statement: String
-  )(fn: Map[PackageName, List[(Identifier.Bindable, Matchless.Expr)]] => A): A = {
+  )(
+      fn: PackageMap.Typed[Declaration] => A
+  ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
@@ -119,19 +121,32 @@ object TestUtils {
       case Validated.Valid(program) =>
         // make sure all the TypedExpr are valid
         program.lets.foreach { case (_, _, te) => assertValid(te) }
-        val pack: Package.Typed[Declaration] = Package(testPackage, Nil, Nil, (program, ImportMap.empty))
-        val pm: PackageMap.Typed[Declaration] = PackageMap.empty + pack + PackageMap.predefCompiled
-        val srv = Par.newService()
-        try {
-          implicit val ec = Par.ecFromService(srv)
-          val comp = MatchlessFromTypedExpr.compile(pm)
-          fn(comp)
-        }
-        finally Par.shutdownService(srv)
+        val pack: Package.Typed[Declaration] =
+          Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+        val pm: PackageMap.Typed[Declaration] =
+          PackageMap.empty + pack + PackageMap.predefCompiled
+        fn(pm)
     }
   }
 
-  def compileFile(path: String, rest: String*)(implicit ec: Par.EC): PackageMap.Typed[Any] = {
+  def checkMatchless[A](
+      statement: String
+  )(
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
+  ): A =
+    checkPackageMap(statement) { pm =>
+      Par.withEC { implicit ec =>
+        val comp = MatchlessFromTypedExpr.compile((), pm)
+        fn(comp)
+      }
+    }
+
+  def compileFile(path: String, rest: String*)(implicit
+      ec: Par.EC
+  ): PackageMap.Typed[Any] = {
     def toS(s: String): String =
       new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
 
@@ -152,17 +167,16 @@ object TestUtils {
     res.right.get
   }
 
-
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
-    ("--package_root" :: "" :: Nil) ::: files.flatMap {
-      case (idx, _) => "--input" :: idx.iterator.mkString("/") :: Nil
+    ("--package_root" :: "" :: Nil) ::: files.flatMap { case (idx, _) =>
+      "--input" :: idx.iterator.mkString("/") :: Nil
     }
 
   private val module = MemoryMain[Either[Throwable, *]]
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content 
+      Chain.one(s"Package$idx") -> content
     }
 
     module.runWith(files)(
@@ -190,7 +204,7 @@ object TestUtils {
       expected: Json
   ) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content 
+      Chain.one(s"Package$idx") -> content
     }
 
     module.runWith(files)(
@@ -213,7 +227,7 @@ object TestUtils {
       assertionCount: Int
   ) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content 
+      Chain.one(s"Package$idx") -> content
     }
 
     module.runWith(files)(

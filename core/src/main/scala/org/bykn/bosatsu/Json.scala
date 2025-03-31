@@ -106,7 +106,7 @@ object Json {
     def getOrNull(key: String): Json =
       toMap.get(key) match {
         case Some(value) => value
-        case None => JNull
+        case None        => JNull
       }
 
     def toDoc =
@@ -240,12 +240,12 @@ object Json {
           loop(p, Nil)
         }
       }
-    
+
     val parser: P[Path] = {
       val pIdx = P.char('[') *> Numbers.bigInt.flatMap { bi =>
-          if (bi.isValidInt) P.pure(bi.toInt)
-          else P.failWith(s"$bi cannot fit in Int")
-        }  <* P.char(']')
+        if (bi.isValidInt) P.pure(bi.toInt)
+        else P.failWith(s"$bi cannot fit in Int")
+      } <* P.char(']')
 
       val pKey = P.char('.') *> StringUtil.escapedString('"')
 
@@ -254,8 +254,8 @@ object Json {
       P.char('/') *> part.rep0.map { list =>
         list.foldLeft(Root: Path) {
           case (p, Right(idx)) => Index(p, idx)
-          case (p, Left(key)) => Key(p, key)
-        } 
+          case (p, Left(key))  => Key(p, key)
+        }
       }
     }
   }
@@ -264,15 +264,17 @@ object Json {
     def describe: String
     def read(path: Path, j: Json): Either[(String, Json, Path), A]
 
-    final def mapEither[B](desc: String)(fn: A => Either[String, B]): Reader[B] =
+    final def mapEither[B](
+        desc: String
+    )(fn: A => Either[String, B]): Reader[B] =
       new Reader[B] {
         def describe: String = desc
-        def read(path: Path, j: Json): Either[(String, Json, Path), B] = 
+        def read(path: Path, j: Json): Either[(String, Json, Path), B] =
           self.read(path, j).flatMap { a =>
             fn(a) match {
               case r @ Right(_) => r.leftCast
-              case Left(value) => Left((value, j, path))
-            }  
+              case Left(value)  => Left((value, j, path))
+            }
           }
       }
   }
@@ -287,14 +289,15 @@ object Json {
         Reader[A].read(p1, jv)
       }
 
-      def optional[A: Reader](key: String): Either[(String, Json, Path), Option[A]] = {
+      def optional[A: Reader](
+          key: String
+      ): Either[(String, Json, Path), Option[A]] =
         j.getOrNull(key) match {
           case JNull => Right(None)
           case notNull =>
             val p1 = path.key(key)
             Reader[A].read(p1, notNull).map(Some(_))
         }
-      }
     }
 
     trait Obj[A] extends Reader[A] {
@@ -303,7 +306,7 @@ object Json {
       final def read(path: Path, j: Json): Either[(String, Json, Path), A] =
         j match {
           case jobj: JObject => readObj(FromObj(path, jobj))
-          case _ => Left((s"expected obj with $describe", j, path))
+          case _             => Left((s"expected obj with $describe", j, path))
         }
     }
 
@@ -313,7 +316,7 @@ object Json {
         def read(path: Path, j: Json): Either[(String, Json, Path), String] =
           j match {
             case JString(str) => Right(str)
-            case _ => Left((s"expected to find $describe", j, path))
+            case _            => Left((s"expected to find $describe", j, path))
           }
       }
 
@@ -323,10 +326,11 @@ object Json {
         def read(path: Path, j: Json): Either[(String, Json, Path), List[A]] =
           j match {
             case JArray(items) =>
-              items.traverseWithIndexM { (a, idx) =>
-                Reader[A].read(path.index(idx), a)
-              }
-              .map(_.toList)
+              items
+                .traverseWithIndexM { (a, idx) =>
+                  Reader[A].read(path.index(idx), a)
+                }
+                .map(_.toList)
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
@@ -369,6 +373,6 @@ object Json {
       from(JString(_))
 
     implicit def listWriter[A: Writer]: Writer[List[A]] =
-      from { list => JArray(list.map(write(_)).toVector) }
+      from(list => JArray(list.map(write(_)).toVector))
   }
 }

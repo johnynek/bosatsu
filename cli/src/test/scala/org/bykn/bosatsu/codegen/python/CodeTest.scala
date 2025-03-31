@@ -307,7 +307,9 @@ else:
     forAll(genExpr(4)) { x =>
       val sx = x.simplify
       val res = x.evalAnd(Code.Const.False)
-      assert((res == Code.Const.False) || ((res == sx) && (sx == Code.Const.Zero)))
+      assert(
+        (res == Code.Const.False) || ((res == sx) && (sx == Code.Const.Zero))
+      )
       assert(Code.Const.False.evalAnd(x) == Code.Const.False)
     }
   }
@@ -525,15 +527,20 @@ else:
         case whoKnows =>
           if (tern == whoKnows) {
             (t.simplify, f.simplify) match {
-              case (Code.Const.One | Code.Const.True, Code.Const.False | Code.Const.Zero) =>
+              case (
+                    Code.Const.One | Code.Const.True,
+                    Code.Const.False | Code.Const.Zero
+                  ) =>
                 ()
               case tf =>
                 fail(s"$tern == $whoKnows but (t,f) = $tf")
             }
-          }
-          else {
+          } else {
             (t.simplify, f.simplify) match {
-              case (Code.Const.False | Code.Const.Zero, Code.Const.One | Code.Const.True) =>
+              case (
+                    Code.Const.False | Code.Const.Zero,
+                    Code.Const.One | Code.Const.True
+                  ) =>
                 val not = Code.Not(whoKnows).simplify
                 assert(tern == not)
               case (ts, fs) =>

@@ -43,27 +43,27 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       thisPack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[T])]
   ): List[(Bindable, Eval[Value])] = {
-    val exprs: List[(Bindable, Matchless.Expr)] =
+    val exprs: List[(Bindable, Matchless.Expr[Unit])] =
       rankn.RefSpace.allocCounter
         .flatMap { c =>
           lets
             .traverse { case (name, rec, te) =>
               Matchless
-                .fromLet(name, rec, te, gdr, c)
+                .fromLet((), name, rec, te, gdr, c)
                 .map((name, _))
             }
         }
         .run
         .value
 
-    val evalFn: (PackageName, Identifier) => Eval[Value] = { (p, i) =>
+    val evalFn: (Unit, PackageName, Identifier) => Eval[Value] = { (_, p, i) =>
       if (p == thisPack) Eval.defer(evaluate(p)(i))
       else evaluate(p)(i)
     }
 
     type F[A] = List[(Bindable, A)]
     val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
-    MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
+    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(ffunc)
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =
