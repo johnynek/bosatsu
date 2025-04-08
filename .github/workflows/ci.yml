@@ -3,7 +3,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
         uses: "olafurpg/setup-scala@v14"
         with:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
         uses: "olafurpg/setup-scala@v14"
         with:
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
         uses: "olafurpg/setup-scala@v14"
         with:
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
         uses: "olafurpg/setup-scala@v14"
         with:
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "graalvm setup"
         uses: "olafurpg/setup-scala@v14"
         with:
@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v4"
+      - uses: "coursier/cache-action@v6"
       - name: "graalvm setup"
         uses: "olafurpg/setup-scala@v14"
         with:
