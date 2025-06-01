@@ -42,7 +42,7 @@ object DecodedLibrary {
   ): Either[Throwable, Version] =
     protoLib.arg.descriptor.flatMap(_.version) match {
       case Some(protoV) => Right(Version.fromProto(protoV))
-      case None =>
+      case None         =>
         Left(
           CliException(
             "missing version",

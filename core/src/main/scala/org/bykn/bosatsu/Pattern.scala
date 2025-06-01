@@ -32,7 +32,7 @@ sealed abstract class Pattern[+N, +T] {
         acc: List[Bindable]
     ): List[Bindable] =
       stack match {
-        case Nil => acc.reverse
+        case Nil                                             => acc.reverse
         case (Pattern.WildCard | Pattern.Literal(_)) :: tail =>
           loop(tail, seen, acc)
         case Pattern.Var(v) :: tail =>
@@ -92,7 +92,7 @@ sealed abstract class Pattern[+N, +T] {
   def substitute(table: Map[Bindable, Bindable]): Pattern[N, T] =
     this match {
       case Pattern.WildCard | Pattern.Literal(_) => this
-      case Pattern.Var(b) =>
+      case Pattern.Var(b)                        =>
         table.get(b) match {
           case None     => this
           case Some(b1) => Pattern.Var(b1)
@@ -197,7 +197,7 @@ sealed abstract class Pattern[+N, +T] {
   def filterVars(keep: Bindable => Boolean): Pattern[N, T] =
     this match {
       case Pattern.WildCard | Pattern.Literal(_) => this
-      case p @ Pattern.Var(v) =>
+      case p @ Pattern.Var(v)                    =>
         if (keep(v)) p else Pattern.WildCard
       case Pattern.Named(v, p) =>
         val inner = p.filterVars(keep)
@@ -217,7 +217,7 @@ sealed abstract class Pattern[+N, +T] {
         })
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map {
-          case Pattern.ListPart.WildList => Pattern.ListPart.WildList
+          case Pattern.ListPart.WildList          => Pattern.ListPart.WildList
           case in @ Pattern.ListPart.NamedList(n) =>
             if (keep(n)) in
             else Pattern.ListPart.WildList
@@ -241,7 +241,7 @@ sealed abstract class Pattern[+N, +T] {
       pat match {
         case Pattern.WildCard | Pattern.Literal(_) => (Set.empty, Nil)
         case Pattern.Var(v)                        => (Set(v), Nil)
-        case Pattern.Named(v, p) =>
+        case Pattern.Named(v, p)                   =>
           val (s1, l1) = loop(p)
           if (s1(v)) (s1, v :: l1)
           else (s1 + v, l1)
@@ -262,7 +262,7 @@ sealed abstract class Pattern[+N, +T] {
           }
         case Pattern.ListPat(items) =>
           items.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
-            case (res, Pattern.ListPart.WildList) => res
+            case (res, Pattern.ListPart.WildList)          => res
             case ((s1, l1), Pattern.ListPart.NamedList(v)) =>
               if (s1(v)) (s1, v :: l1)
               else (s1 + v, l1)
@@ -272,7 +272,7 @@ sealed abstract class Pattern[+N, +T] {
               val dups = ((s1 & s2) -- l2) -- l1
               (s1 | s2, dups.toList ::: l2 ::: l1)
           }
-        case Pattern.Annotation(p, _) => loop(p)
+        case Pattern.Annotation(p, _)            => loop(p)
         case Pattern.PositionalStruct(_, params) =>
           params.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
             case ((s1, l1), p) =>
@@ -348,7 +348,7 @@ object Pattern {
     def substitute(table: Map[Bindable, Bindable]): StrPart =
       this match {
         case WildStr | LitStr(_) | WildChar => this
-        case NamedStr(n) =>
+        case NamedStr(n)                    =>
           table.get(n) match {
             case None     => this
             case Some(n1) => NamedStr(n1)
@@ -377,8 +377,8 @@ object Pattern {
 
     def document(q: Char): Document[StrPart] =
       Document.instance {
-        case WildStr  => wildDoc
-        case WildChar => wildCharDoc
+        case WildStr     => wildDoc
+        case WildChar    => wildCharDoc
         case NamedStr(b) =>
           prefix + Document[Bindable].document(b) + Doc.char('}')
         case NamedChar(b) =>
@@ -406,7 +406,7 @@ object Pattern {
         extends AnyVal {
       def substitute(table: Map[Bindable, Bindable]): ListPart[Pattern[N, T]] =
         self match {
-          case WildList => WildList
+          case WildList     => WildList
           case NamedList(n) =>
             table.get(n) match {
               case None     => self
@@ -481,7 +481,7 @@ object Pattern {
           case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
           case Pattern.Var(v)       => Applicative[F].pure(Pattern.Var(v))
           case Pattern.StrPat(s)    => Applicative[F].pure(Pattern.StrPat(s))
-          case Pattern.Named(v, p) =>
+          case Pattern.Named(v, p)  =>
             go(p).map(Pattern.Named(v, _))
           case Pattern.ListPat(items) =>
             type L = ListPart[Pattern[N1, T1]]
@@ -536,7 +536,7 @@ object Pattern {
       parts match {
         case NonEmptyList(StrPart.WildStr, Nil)     => Some(Pattern.WildCard)
         case NonEmptyList(StrPart.NamedStr(n), Nil) => Some(Pattern.Var(n))
-        case _ =>
+        case _                                      =>
           val allStrings = parts.traverse {
             case StrPart.LitStr(s) => Some(s)
             case _                 => None
@@ -658,7 +658,7 @@ object Pattern {
           front: List[ListPart[Pattern[N, T]]]
       ): List[ListPart[Pattern[N, T]]] =
         ps match {
-          case Nil => front.reverse
+          case Nil                    => front.reverse
           case SeqPart.Lit(p) :: tail =>
             loop(tail, ListPart.Item(p) :: front)
           case SeqPart.AnyElem :: tail =>
@@ -683,7 +683,7 @@ object Pattern {
           case ListPart.Item(WildCard) => NamedSeqPattern.Any
           case ListPart.Item(p)        => NamedSeqPattern.fromLit(p)
           case ListPart.WildList       => NamedSeqPattern.Wild
-          case ListPart.NamedList(n) =>
+          case ListPart.NamedList(n)   =>
             NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
         }
 
@@ -693,7 +693,7 @@ object Pattern {
         lp match {
           case Nil      => NamedSeqPattern.NEmpty
           case h :: Nil => partToNsp(h)
-          case h :: t =>
+          case h :: t   =>
             NamedSeqPattern.NCat(partToNsp(h), loop(t))
         }
 
@@ -757,8 +757,8 @@ object Pattern {
             NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
           case StrPart.NamedChar(n) =>
             NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Any)
-          case StrPart.WildStr  => NamedSeqPattern.Wild
-          case StrPart.WildChar => NamedSeqPattern.Any
+          case StrPart.WildStr   => NamedSeqPattern.Wild
+          case StrPart.WildChar  => NamedSeqPattern.Any
           case StrPart.LitStr(s) =>
             StringUtil
               .codePoints(s)
@@ -784,7 +784,7 @@ object Pattern {
       p match {
         case Var(b)                        => Some(b)
         case Annotation(SinglyNamed(b), _) => Some(b)
-        case Named(b, inner) =>
+        case Named(b, inner)               =>
           if (inner.names.isEmpty) Some(b)
           else unapply(inner).filter(_ == b)
         case Union(SinglyNamed(b), r) =>
@@ -806,9 +806,9 @@ object Pattern {
         new Ordering[ListPart[A]] {
           def compare(a: ListPart[A], b: ListPart[A]) =
             (a, b) match {
-              case (ListPart.WildList, ListPart.WildList)     => 0
-              case (ListPart.WildList, _)                     => -1
-              case (ListPart.NamedList(_), ListPart.WildList) => 1
+              case (ListPart.WildList, ListPart.WildList)         => 0
+              case (ListPart.WildList, _)                         => -1
+              case (ListPart.NamedList(_), ListPart.WildList)     => 1
               case (ListPart.NamedList(a), ListPart.NamedList(b)) =>
                 ordBin.compare(a, b)
               case (ListPart.NamedList(_), ListPart.Item(_)) => -1
@@ -854,7 +854,7 @@ object Pattern {
           case (Var(a), Var(b))                => compIdent.compare(a, b)
           case (Var(_), _)                     => -1
           case (Named(_, _), WildCard | Literal(_) | Var(_)) => 1
-          case (Named(n1, p1), Named(n2, p2)) =>
+          case (Named(n1, p1), Named(n2, p2))                =>
             val c = compIdent.compare(n1, n2)
             if (c == 0) compare(p1, p2) else c
           case (Named(_, _), _)                                          => -1
@@ -869,15 +869,15 @@ object Pattern {
           case (ListPat(as), ListPat(bs)) => listE.compare(as, bs)
           case (ListPat(_), _)            => -1
           case (Annotation(_, _), PositionalStruct(_, _) | Union(_, _)) => -1
-          case (Annotation(a0, t0), Annotation(a1, t1)) =>
+          case (Annotation(a0, t0), Annotation(a1, t1))                 =>
             val c = compare(a0, a1)
             if (c == 0) ordT.compare(t0, t1) else c
-          case (Annotation(_, _), _)                 => 1
-          case (PositionalStruct(_, _), Union(_, _)) => -1
+          case (Annotation(_, _), _)                                => 1
+          case (PositionalStruct(_, _), Union(_, _))                => -1
           case (PositionalStruct(n0, a0), PositionalStruct(n1, a1)) =>
             val c = ordN.compare(n0, n1)
             if (c == 0) list.compare(a0, a1) else c
-          case (PositionalStruct(_, _), _) => 1
+          case (PositionalStruct(_, _), _)    => 1
           case (Union(h0, t0), Union(h1, t1)) =>
             list.compare(h0 :: t0.toList, h1 :: t1.toList)
           case (Union(_, _), _) => 1
@@ -913,7 +913,7 @@ object Pattern {
         Doc.char('[') + Doc.intercalate(
           Doc.text(", "),
           items.map {
-            case ListPart.WildList => Doc.text("*_")
+            case ListPart.WildList        => Doc.text("*_")
             case ListPart.NamedList(glob) =>
               Doc.char('*') + Document[Identifier].document(glob)
             case ListPart.Item(p) => document.document(p)
@@ -943,7 +943,7 @@ object Pattern {
         Doc.char('(') + document.document(h) + Doc.text(",)")
       case PositionalStruct(n, nonEmpty) =>
         val prefix = n match {
-          case StructKind.Tuple => Doc.empty
+          case StructKind.Tuple            => Doc.empty
           case named: StructKind.NamedKind =>
             Document[Identifier].document(named.name)
         }
@@ -1031,12 +1031,12 @@ object Pattern {
         ) + Document[Identifier].document(n)
       case Named(n, p) =>
         doc.document(p) + Doc.text(" as ") + Document[Identifier].document(n)
-      case StrPat(items) => document.document(StrPat(items))
+      case StrPat(items)  => document.document(StrPat(items))
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(
           Doc.text(", "),
           items.map {
-            case ListPart.WildList => Doc.text("*_")
+            case ListPart.WildList        => Doc.text("*_")
             case ListPart.NamedList(glob) =>
               Doc.char('*') + Document[Identifier].document(glob)
             case ListPart.Item(p) => doc.document(p)
@@ -1076,7 +1076,7 @@ object Pattern {
 
         untuple(ps) match {
           case Some(tupDocs) => tup(tupDocs)
-          case None =>
+          case None          =>
             val args = a match {
               case Nil => Doc.empty
               case _   => tup(a.map(doc.document(_)))
@@ -1115,9 +1115,9 @@ object Pattern {
       }
     def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
       p0 match {
-        case WildCard   => env
-        case Literal(_) => env
-        case Var(n)     => update(env, n, typeOf)
+        case WildCard     => env
+        case Literal(_)   => env
+        case Var(n)       => update(env, n, typeOf)
         case Named(n, p1) =>
           val e1 = loop(p1, typeOf, env)
           update(e1, n, typeOf)

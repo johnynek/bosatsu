@@ -453,7 +453,7 @@ foo = _ -> 1
   test("after substitution, a variable is no longer free") {
     forAll(genTypedExpr, genNonFree) { (te0, te1) =>
       TypedExpr.freeVars(te0 :: Nil) match {
-        case Nil => ()
+        case Nil    => ()
         case b :: _ =>
           TypedExpr.substitute(b, te1, te0) match {
             case None =>

@@ -36,7 +36,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       // is safe to call .right.get
       successCache.get(tpe) match {
         case Some(fn) => fn
-        case None =>
+        case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
               case ExternalValue(v: BigInteger) =>

@@ -79,7 +79,7 @@ object StrPart {
 
     def loop(offset: Int, pat: List[StrPart], next: Int): Boolean =
       pat match {
-        case Nil => offset == strLen
+        case Nil                    => offset == strLen
         case LitStr(expect) :: tail =>
           val len = expect.length
           str.regionMatches(offset, expect, 0, len) && loop(

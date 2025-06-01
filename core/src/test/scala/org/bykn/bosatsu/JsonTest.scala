@@ -120,7 +120,7 @@ class JsonTest extends AnyFunSuite {
     forAll(withType) { case (te, t) =>
       val jsonCodec = ValueToJson(te.toDefinedType(_))
       jsonCodec.valueFnToJsonFn(t) match {
-        case Left(_) => ()
+        case Left(_)           => ()
         case Right((arity, _)) =>
           val fnUn = Type.Fun.unapply(t)
           assert(arity >= 0)

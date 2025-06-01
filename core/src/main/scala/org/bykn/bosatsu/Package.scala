@@ -92,7 +92,7 @@ final case class Package[A, B, C, +D](
           val dt = exps.head.tag match {
             case Referant.Constructor(dt, _) => dt
             case Referant.DefinedT(dt)       => dt
-            case Referant.Value(_) =>
+            case Referant.Value(_)           =>
               sys.error("impossible since we have Some(tc)")
           }
 
@@ -229,7 +229,7 @@ object Package {
         val p =
           Doc.text("package ") + Document[PackageName].document(name) + Doc.line
         val i = imports match {
-          case Nil => Doc.empty
+          case Nil             => Doc.empty
           case nonEmptyImports =>
             Doc.line +
               Doc.intercalate(
@@ -241,7 +241,7 @@ object Package {
               Doc.line
         }
         val e = exports match {
-          case Nil => Doc.empty
+          case Nil             => Doc.empty
           case nonEmptyExports =>
             Doc.line +
               Doc.text("export ") +

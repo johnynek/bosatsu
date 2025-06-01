@@ -458,7 +458,7 @@ object Parser {
 
   def unsafeParse[A](pa: P0[A], str: String): A =
     pa.parseAll(str) match {
-      case Right(a) => a
+      case Right(a)  => a
       case Left(err) =>
         val idx = err.failedAtOffset
         sys.error(s"failed to parse: $str: at $idx: (${str
@@ -493,7 +493,7 @@ object Parser {
       def read(string: String): ValidatedNel[String, A] =
         p.parseAll(string) match {
           case Right(a) => Validated.valid(a)
-          case _ =>
+          case _        =>
             val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
             Validated.invalidNel(
               s"could not parse $string as a $typeName." + sugSpace

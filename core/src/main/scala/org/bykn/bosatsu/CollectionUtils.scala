@@ -46,7 +46,7 @@ object CollectionUtils {
       l: List[A]
   )(key: A => K, value: A => V, msg: => String): Try[SortedMap[K, V]] =
     NonEmptyList.fromList(l) match {
-      case None => Success(SortedMap.empty[K, V])
+      case None      => Success(SortedMap.empty[K, V])
       case Some(nel) =>
         uniqueByKey(nel)(key) match {
           case Ior.Right(b) =>

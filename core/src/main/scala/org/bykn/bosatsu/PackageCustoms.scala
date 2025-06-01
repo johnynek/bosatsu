@@ -51,7 +51,7 @@ object PackageCustoms {
         // We have to check the "customs" before any normalization
         // or optimization
         PackageCustoms(pack) match {
-          case Validated.Valid(p1) => Ior.right(p1)
+          case Validated.Valid(p1)     => Ior.right(p1)
           case Validated.Invalid(errs) =>
             Ior.both(errs.toNonEmptyList, pack)
         }
@@ -69,7 +69,7 @@ object PackageCustoms {
   ): Package.Typed[A] =
     (vals, types) match {
       case (None, None) => pack
-      case (ov, ot) =>
+      case (ov, ot)     =>
         val unV = ov match {
           case Some(v) => v.toSortedSet
           case None    => SortedSet.empty[(PackageName, Identifier)]
@@ -257,7 +257,7 @@ object PackageCustoms {
           x match {
             case Right(bx) =>
               y match {
-                case Left(_) => 1
+                case Left(_)   => 1
                 case Right(by) =>
                   Ordering[Identifier].compare(bx, by)
               }
@@ -306,7 +306,7 @@ object PackageCustoms {
     }
 
     NonEmptyList.fromList(unused) match {
-      case None => Validated.unit
+      case None        => Validated.unit
       case Some(value) =>
         Validated.invalidNec(
           PackageError.UnusedLets(

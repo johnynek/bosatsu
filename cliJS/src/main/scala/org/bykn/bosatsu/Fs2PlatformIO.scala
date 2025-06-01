@@ -117,7 +117,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .exists(p, followLinks = true)
       .flatMap {
         case false => IO.pure(None)
-        case true =>
+        case true  =>
           FilesIO
             .isDirectory(p, followLinks = true)
             .map {

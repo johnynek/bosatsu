@@ -97,7 +97,7 @@ object Store {
       files = Map(Chain("root", "WebDemo") -> str)
     )(args) match {
       case Right(good) => handler(good)
-      case Left(err) =>
+      case Left(err)   =>
         memoryMain.mainExceptionToString(err) match {
           case Some(e) => e
           case None    => s"unknown error: $err"
@@ -119,7 +119,7 @@ object Store {
       if (init == null) IO.pure(State.Init)
       else
         (State.stringToState(init) match {
-          case Right(s) => IO.pure(s)
+          case Right(s)  => IO.pure(s)
           case Left(err) =>
             IO.println(s"could not deserialize:\n\n$init\n\n$err")
               .as(State.Init)
@@ -135,7 +135,7 @@ object Store {
             state match {
               case State.Init | State.WithText(_) =>
                 (State.WithText(text), IO.unit)
-              case c @ State.Compiling(_) => (c, IO.unit)
+              case c @ State.Compiling(_)         => (c, IO.unit)
               case comp @ State.Compiled(_, _, _) =>
                 (comp.copy(editorText = text), IO.unit)
             }
@@ -144,7 +144,7 @@ object Store {
             state match {
               case State.Init             => (State.Init, IO.unit)
               case c @ State.Compiling(_) => (c, IO.unit)
-              case ht: State.HasText =>
+              case ht: State.HasText      =>
                 val action =
                   for {
                     _ <- stateSetter(ht)

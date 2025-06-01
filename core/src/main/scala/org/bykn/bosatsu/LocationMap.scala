@@ -51,7 +51,7 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
         val lines = lineRange(r - previousLines, r)
 
         val toLineStr = lines match {
-          case Nil => { (i: Int) => Doc.str(i) }
+          case Nil      => { (i: Int) => Doc.str(i) }
           case notEmpty =>
             val maxLine = notEmpty.iterator.map(_._1).max
             LocationMap.lineNumberToString(maxLine)
@@ -78,7 +78,7 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
       .mapN { case ((l0, c0), (l1, c1)) =>
         val lines = lineRange(l0 - previousLines, l1)
         val toLineStr = lines match {
-          case Nil => { (i: Int) => Doc.str(i) }
+          case Nil      => { (i: Int) => Doc.str(i) }
           case notEmpty =>
             val maxLine = notEmpty.iterator.map(_._1).max
             LocationMap.lineNumberToString(maxLine)
@@ -155,7 +155,7 @@ object LocationMap {
             case "none" => Validated.valid(Colorize.None)
             case "ansi" => Validated.valid(Colorize.Console)
             case "html" => Validated.valid(Colorize.HmtlFont)
-            case other =>
+            case other  =>
               Validated.invalidNel(
                 s"unknown colorize: $other, expected: none, ansi or html"
               )

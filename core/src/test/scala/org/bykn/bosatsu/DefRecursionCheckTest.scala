@@ -10,7 +10,7 @@ class DefRecursionCheckTest extends AnyFunSuite {
   def allowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
-      case Validated.Valid(_) => succeed
+      case Validated.Valid(_)      => succeed
       case Validated.Invalid(errs) =>
         fail(s"$errs")
     }

@@ -11,9 +11,9 @@ object Operators {
       val leftDone = left.length <= idx
       val rightDone = right.length <= idx
       (leftDone, rightDone) match {
-        case (true, true)  => 0
-        case (true, false) => 1
-        case (false, true) => -1
+        case (true, true)   => 0
+        case (true, false)  => 1
+        case (false, true)  => -1
         case (false, false) =>
           val lc = left.substring(idx, idx + 1)
           val rc = right.substring(idx, idx + 1)
@@ -68,7 +68,7 @@ object Operators {
   sealed abstract class Formula[+A] {
     override def toString: String =
       this match {
-        case Formula.Sym(a) => a.toString
+        case Formula.Sym(a)       => a.toString
         case Formula.Op(a, op, b) =>
           s"($a $op $b)"
       }

@@ -36,7 +36,7 @@ class ShapeTest extends AnyFunSuite {
 
   def testIllShaped(teStr: String) =
     makeTE(teStr) match {
-      case Left(_) => assert(true)
+      case Left(_)   => assert(true)
       case Right(te) =>
         fail(
           te.allDefinedTypes

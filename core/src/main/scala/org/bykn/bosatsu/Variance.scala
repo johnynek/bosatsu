@@ -65,7 +65,7 @@ object Variance {
     new Order[Variance] {
       def compare(left: Variance, right: Variance): Int =
         left match {
-          case Phantom => if (right == Phantom) 0 else -1
+          case Phantom   => if (right == Phantom) 0 else -1
           case Covariant =>
             right match {
               case Phantom                   => 1

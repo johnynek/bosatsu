@@ -144,7 +144,7 @@ object Matchless {
         false
       case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)             => hasSideEffect(b1) || hasSideEffect(b2)
-      case LetBool(_, x, b) =>
+      case LetBool(_, x, b)        =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMutBool(_, b) => hasSideEffect(b)
     }
@@ -153,7 +153,7 @@ object Matchless {
     bx match {
       case _: CheapExpr[_] => false
       case Always(b, x)    => hasSideEffect(b) || hasSideEffect(x)
-      case App(f, as) =>
+      case App(f, as)      =>
         (f :: as).exists(hasSideEffect(_))
       case If(c, t, f) =>
         hasSideEffect(c) || hasSideEffect(t) || hasSideEffect(f)
@@ -269,7 +269,7 @@ object Matchless {
   )(fn: CheapExpr[A] => F[Expr[A]]): Expr[A] => F[Expr[A]] = { (arg: Expr[A]) =>
     arg match {
       case c: CheapExpr[A] => fn(c)
-      case _ =>
+      case _               =>
         for {
           nm <- tmp
           bound = LocalAnon(nm)
@@ -383,13 +383,13 @@ object Matchless {
     ): BoolExpr[B] =
       e match {
         case SetMut(mut, e) => SetMut(mut, substituteLocals(m, e))
-        case And(b1, b2) =>
+        case And(b1, b2)    =>
           And(substituteLocalsBool(m, b1), substituteLocalsBool(m, b2))
         case EqualsLit(x, l) =>
           EqualsLit(substituteLocalsCheap(m, x), l)
         case EqualsNat(x, n) =>
           EqualsNat(substituteLocalsCheap(m, x), n)
-        case TrueConst => TrueConst
+        case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
         case ms: MatchString[B] =>
@@ -429,7 +429,7 @@ object Matchless {
             case Some(mut) => mut
             case None      => e
           }
-        case PrevNat(n) => PrevNat(substituteLocals(m, n))
+        case PrevNat(n)            => PrevNat(substituteLocals(m, n))
         case ge: GetEnumElement[B] =>
           ge.copy(arg = substituteLocalsCheap(m, ge.arg))
         case gs: GetStructElement[B] =>
@@ -451,7 +451,7 @@ object Matchless {
     ): CheapExpr[B] =
       substituteLocals(m, e) match {
         case ch: CheapExpr[B] => ch
-        case notCheap =>
+        case notCheap         =>
           sys.error(
             s"invariant violation: substitution didn't maintain cheap: $e => $notCheap"
           )
@@ -549,7 +549,7 @@ object Matchless {
 
         loop(bodyTrans) match {
           case Some(expr) => expr
-          case None =>
+          case None       =>
             sys.error(
               "invariant violation: could not find tail calls in:" +
                 s"toWhileBody(name = $name, body = $body)"
@@ -636,8 +636,8 @@ object Matchless {
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
       te match {
-        case TypedExpr.Generic(_, expr)    => loop(expr, slots)
-        case TypedExpr.Annotation(term, _) => loop(term, slots)
+        case TypedExpr.Generic(_, expr)              => loop(expr, slots)
+        case TypedExpr.Annotation(term, _)           => loop(term, slots)
         case TypedExpr.AnnotatedLambda(args, res, _) =>
           val frees = TypedExpr.freeVars(te :: Nil)
           val (slots1, captures) = slots.lambdaFrees(frees)
@@ -671,7 +671,7 @@ object Matchless {
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
             .mapN(Let(a, _, _))
-        case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
+        case TypedExpr.Literal(lit, _, _)      => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (
             loop(arg, slots.unname),
@@ -696,7 +696,7 @@ object Matchless {
         case Pattern.Literal(_) =>
           // Literals are never total
           None
-        case Pattern.Var(v) => Some(Left(v))
+        case Pattern.Var(v)      => Some(Left(v))
         case Pattern.Named(v, p) =>
           maybeSimple(p) match {
             case Some(Right(_)) => Some(Left(v))
@@ -843,7 +843,7 @@ object Matchless {
         case strPat @ Pattern.StrPat(items) =>
           strPat.simplify match {
             case Some(simpler) => doesMatch(arg, simpler, mustMatch)
-            case None =>
+            case None          =>
               val sbinds: List[Bindable] =
                 items.toList
                   .collect {
@@ -1009,7 +1009,7 @@ object Matchless {
                 .traverse { case (pati, i) => operate(pati, i) }
 
             ands.map(NonEmptyList.fromList(_) match {
-              case None => wildMatch
+              case None      => wildMatch
               case Some(nel) =>
                 product(nel) { case ((l1, o1, b1), (l2, o2, b2)) =>
                   (l1 ::: l2, o1 && o2, b1 ::: b2)

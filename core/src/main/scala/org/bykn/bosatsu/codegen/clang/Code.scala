@@ -71,7 +71,7 @@ object Code {
 
     def discardValue: Option[Statement] =
       this match {
-        case _: Expression => None
+        case _: Expression       => None
         case WithValue(stmt, vl) =>
           vl.discardValue match {
             case None      => Some(stmt)
@@ -80,7 +80,7 @@ object Code {
         case IfElseValue(cond, thenC, elseC) =>
           (thenC.discardValue, elseC.discardValue) match {
             case (Some(ts), Some(es)) => Some(ifThenElse(cond, ts, es))
-            case (Some(ts), None) =>
+            case (Some(ts), None)     =>
               Some(IfElse(NonEmptyList.one(cond -> block(ts)), None))
             case (None, Some(es)) =>
               // if (cond) {} else {es} == if (!cond) { es }
@@ -93,7 +93,7 @@ object Code {
         fn: Expression => F[ValueLike]
     )(newLocalName: String => F[Code.Ident]): F[ValueLike] =
       this match {
-        case expr: Expression => fn(expr)
+        case expr: Expression    => fn(expr)
         case WithValue(stmt, vl) =>
           vl.onExpr[F](fn)(newLocalName).map(stmt +: _)
         case branch @ IfElseValue(_, _, _) =>
@@ -114,7 +114,7 @@ object Code {
         fn: Expression => F[Statement]
     )(newLocalName: String => F[Code.Ident]): F[Statement] =
       this match {
-        case expr: Expression => fn(expr)
+        case expr: Expression    => fn(expr)
         case WithValue(stmt, vl) =>
           vl.exprToStatement[F](fn)(newLocalName).map(stmt + _)
         case branch @ IfElseValue(_, _, _) =>
@@ -260,8 +260,8 @@ object Code {
 
     def assign(left: Expression, rhs: ValueLike): Statement =
       rhs match {
-        case expr: Expression   => Assignment(left, expr)
-        case WithValue(stmt, v) => stmt + (left := v)
+        case expr: Expression                => Assignment(left, expr)
+        case WithValue(stmt, v)              => stmt + (left := v)
         case IfElseValue(cond, thenC, elseC) =>
           ifThenElse(cond, left := thenC, left := elseC)
       }
@@ -305,8 +305,8 @@ object Code {
 
   def returnValue(vl: ValueLike): Statement =
     vl match {
-      case expr: Expression   => Return(Some(expr))
-      case WithValue(stmt, v) => stmt + returnValue(v)
+      case expr: Expression                => Return(Some(expr))
+      case WithValue(stmt, v)              => stmt + returnValue(v)
       case IfElseValue(cond, thenC, elseC) =>
         ifThenElse(cond, returnValue(thenC), returnValue(elseC))
     }
@@ -583,8 +583,8 @@ object Code {
 
   def toDoc(c: Code): Doc =
     c match {
-      case Ident(n)       => Doc.text(n)
-      case IntLiteral(bi) => Doc.str(bi)
+      case Ident(n)        => Doc.text(n)
+      case IntLiteral(bi)  => Doc.str(bi)
       case StrLiteral(str) =>
         val result = new java.lang.StringBuilder()
         val bytes = str.getBytes(StandardCharsets.UTF_8)
@@ -750,7 +750,7 @@ object Code {
           case None       => returnSemi
           case Some(expr) => returnSpace + toDoc(expr) + semiDoc
         }
-      case Block(items) => curlyBlock(items.toList)(s => toDoc(s))
+      case Block(items)      => curlyBlock(items.toList)(s => toDoc(s))
       case Statements(items) =>
         Doc.intercalate(Doc.line, items.toNonEmptyList.toList.map(toDoc(_)))
       case IfElse(ifs, els) =>
@@ -758,7 +758,7 @@ object Code {
         val (fcond, fblock) = ifs.head
         val first = ifDoc + par(toDoc(fcond)) + Doc.space + toDoc(fblock)
         val middle = ifs.tail match {
-          case Nil => Doc.empty
+          case Nil      => Doc.empty
           case nonEmpty =>
             Doc.line + Doc.intercalate(
               Doc.line,

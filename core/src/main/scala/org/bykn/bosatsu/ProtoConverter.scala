@@ -21,7 +21,7 @@ object ProtoConverter {
     def get(a1: A1, a2: => A2): Either[(IdAssignment[A1, A2], Int), Int] =
       mapping.get(a1) match {
         case Some(id) => Right(id)
-        case None =>
+        case None     =>
           val id = inOrder.size
           val next =
             copy(mapping = mapping.updated(a1, id), inOrder = inOrder :+ a2)
@@ -98,7 +98,7 @@ object ProtoConverter {
       .get[Try, SerState]
       .flatMap { ss =>
         fn(ss) match {
-          case Right(idx) => StateT.pure(idx + 1)
+          case Right(idx)      => StateT.pure(idx + 1)
           case Left((ss, idx)) =>
             StateT.set[Try, SerState](ss).as(idx + 1)
         }
@@ -338,7 +338,7 @@ object ProtoConverter {
         p.value match {
           case Value.Empty => Failure(new Exception("invalid unset pattern"))
           case Value.WildPat(_) => Success(Pattern.WildCard)
-          case Value.LitPat(l) =>
+          case Value.LitPat(l)  =>
             litFromProto(l).map(Pattern.Literal(_))
           case Value.VarNamePat(sidx) => bindable(sidx).map(Pattern.Var(_))
           case Value.NamedPat(proto.NamedPat(nidx, pidx, _)) =>
@@ -428,7 +428,7 @@ object ProtoConverter {
     rec match {
       case proto.RecursionKind.NotRec => Success(RecursionKind.NonRecursive)
       case proto.RecursionKind.IsRec  => Success(RecursionKind.Recursive)
-      case other =>
+      case other                      =>
         Failure(new Exception(s"invalid recursion kind: $other, in $context"))
     }
 
@@ -614,7 +614,7 @@ object ProtoConverter {
     getProtoTypeTab(p)
       .flatMap {
         case Some(p) => tabPure(p)
-        case None =>
+        case None    =>
           p match {
             case q: Type.Quantified =>
               val foralls = q.forallList
@@ -702,7 +702,7 @@ object ProtoConverter {
       .map(_.patterns.indexOf(p))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
-        case None =>
+        case None      =>
           p match {
             case Pattern.WildCard =>
               writePattern(
@@ -851,7 +851,7 @@ object ProtoConverter {
       .map(_.expressions.indexOf(te))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
-        case None =>
+        case None      =>
           import TypedExpr._
           te match {
             case g @ Generic(quant, expr) =>
@@ -981,10 +981,10 @@ object ProtoConverter {
 
   def varianceFromProto(p: proto.Variance): Try[Variance] =
     p match {
-      case proto.Variance.Phantom       => Success(Variance.Phantom)
-      case proto.Variance.Covariant     => Success(Variance.Covariant)
-      case proto.Variance.Contravariant => Success(Variance.Contravariant)
-      case proto.Variance.Invariant     => Success(Variance.Invariant)
+      case proto.Variance.Phantom             => Success(Variance.Phantom)
+      case proto.Variance.Covariant           => Success(Variance.Covariant)
+      case proto.Variance.Contravariant       => Success(Variance.Contravariant)
+      case proto.Variance.Invariant           => Success(Variance.Invariant)
       case proto.Variance.Unrecognized(value) =>
         Failure(new Exception(s"unrecognized value for variance: $value"))
     }
@@ -1010,7 +1010,7 @@ object ProtoConverter {
       case Some(proto.Kind(proto.Kind.Value.Encoded(idx), _)) =>
         Kind.longToKind(idx) match {
           case Some(k) => Success(k)
-          case None =>
+          case None    =>
             Failure(new Exception(s"could not decode $idx into Kind"))
         }
       case Some(proto.Kind(proto.Kind.Value.Type(proto.TypeKind(_)), _)) =>
@@ -1352,7 +1352,7 @@ object ProtoConverter {
   ): DTab[ExportedName[Referant[Kind.Arg]]] = {
     val tryRef: DTab[Referant[Kind.Arg]] = en.referant match {
       case Some(r) => referantFromProto(loadDT, r)
-      case None =>
+      case None    =>
         ReaderT.liftF(Failure(new Exception(s"missing referant in $en")))
     }
 
@@ -1764,7 +1764,7 @@ object ProtoConverter {
                   ImportMap.Unify.Error
                 ) match {
                   case (Nil, im) => Success(im)
-                  case (nel, _) =>
+                  case (nel, _)  =>
                     Failure(
                       new Exception(s"duplicated imports in package: $nel")
                     )

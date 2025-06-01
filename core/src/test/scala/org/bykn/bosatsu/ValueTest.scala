@@ -38,7 +38,7 @@ class ValueTest extends AnyFunSuite {
 
     forAll(genValue) { v =>
       VOption.unapply(v) match {
-        case None => ()
+        case None       => ()
         case Some(None) =>
           assert(v == VOption.none)
         case Some(Some(v1)) =>
@@ -59,7 +59,7 @@ class ValueTest extends AnyFunSuite {
 
     forAll(genValue) { v =>
       VList.unapply(v) match {
-        case None => ()
+        case None      => ()
         case Some(Nil) =>
           assert(v == VList.VNil)
         case Some(v1) =>
@@ -82,7 +82,7 @@ class ValueTest extends AnyFunSuite {
         case VDict(asMap) =>
           val asList = asMap.toList.map {
             case (ExternalValue(s: String), v) => (s, v)
-            case kv =>
+            case kv                            =>
               sys.error(s"expected a string key, found: $kv")
           }
           assert(asList == svsDedup)

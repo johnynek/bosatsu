@@ -27,7 +27,7 @@ trait PlatformIO[F[_], Path] {
 
   def pathF(str: String): F[Path] =
     path(str) match {
-      case Valid(a) => moduleIOMonad.pure(a)
+      case Valid(a)   => moduleIOMonad.pure(a)
       case Invalid(e) =>
         moduleIOMonad.raiseError(new Exception(s"invalid path $str: $e"))
     }
@@ -45,7 +45,7 @@ trait PlatformIO[F[_], Path] {
       .flatMap { str =>
         p0.parseAll(str) match {
           case Right(a) => moduleIOMonad.pure(a)
-          case Left(e) =>
+          case Left(e)  =>
             moduleIOMonad.raiseError(
               new Exception(show"could not parse ${path}.\n\n${e}")
             )
@@ -126,7 +126,7 @@ trait PlatformIO[F[_], Path] {
       }
 
     path(".") match {
-      case Valid(a) => moduleIOMonad.tailRecM(a)(searchStep)
+      case Valid(a)   => moduleIOMonad.tailRecM(a)(searchStep)
       case Invalid(e) =>
         moduleIOMonad.raiseError(
           new Exception(s"could not find current directory: $e")

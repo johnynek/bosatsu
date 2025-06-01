@@ -14,8 +14,8 @@ class OperatorTest extends ParserTestBase {
   sealed abstract class F {
     def toFormula: Formula[String] =
       this match {
-        case F.Num(s)               => Formula.Sym(s)
-        case F.Form(Formula.Sym(n)) => n.toFormula
+        case F.Num(s)                            => Formula.Sym(s)
+        case F.Form(Formula.Sym(n))              => n.toFormula
         case F.Form(Formula.Op(left, op, right)) =>
           Formula.Op(F.Form(left).toFormula, op, F.Form(right).toFormula)
       }
@@ -36,7 +36,7 @@ class OperatorTest extends ParserTestBase {
 
   implicit val document: Document[Formula[String]] =
     Document.instance[Formula[String]] {
-      case Formula.Sym(n) => Doc.text(n)
+      case Formula.Sym(n)      => Doc.text(n)
       case Formula.Op(l, o, r) =>
         document.document(l) + Doc.text(o) + document.document(r)
     }

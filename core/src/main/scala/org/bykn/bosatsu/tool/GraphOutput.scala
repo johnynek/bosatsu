@@ -14,7 +14,7 @@ object GraphOutput {
       .mapValidated {
         case "json" => Validated.valid(Json)
         case "dot"  => Validated.valid(Dot)
-        case other =>
+        case other  =>
           Validated.invalidNel(s"\"$other\" invalid, expected json or dot")
       }
       .withDefault(Json)

@@ -25,7 +25,7 @@ class TestBench {
     }
 
     val parsedPaths = parsed match {
-      case Validated.Valid(vs) => vs
+      case Validated.Valid(vs)     => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
           val d = p.showContext(LocationMap.Colorize.None)

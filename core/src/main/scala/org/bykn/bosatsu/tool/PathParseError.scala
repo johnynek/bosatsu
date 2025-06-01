@@ -35,7 +35,7 @@ object PathParseError {
       .attempt
       .map {
         case Right(str) => PathParseError.parseString(p, path, str)
-        case Left(err) =>
+        case Left(err)  =>
           Validated.invalidNel(PathParseError.FileError(path, err))
       }
   }

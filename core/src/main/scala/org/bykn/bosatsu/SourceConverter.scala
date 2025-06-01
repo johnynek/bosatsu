@@ -58,7 +58,7 @@ final class SourceConverter(
   ): Result[rankn.Type.Const] =
     typeCache.get(c) match {
       case Some(r) => success(r)
-      case None =>
+      case None    =>
         val tc = TypeName(c)
         if (localTypeNames(c)) {
           val res = Type.Const.Defined(thisPackage, tc)
@@ -132,7 +132,7 @@ final class SourceConverter(
         }
         val lambda = fullType.fold(lambda0)(Expr.Annotation(lambda0, _, t))
         ds.typeArgs match {
-          case None => success(lambda)
+          case None       => success(lambda)
           case Some(args) =>
             val bs = args.map { case (tr, optK) =>
               (
@@ -238,7 +238,7 @@ final class SourceConverter(
       region: Region
   ): Result[Pattern[(PackageName, Constructor), A]] =
     args match {
-      case Nil => unitPat
+      case Nil      => unitPat
       case nonEmpty =>
         val size = nonEmpty.size
         val tupleCons = Type.Tuple.Arity(size)
@@ -359,7 +359,7 @@ final class SourceConverter(
         // let checker to give the best error message.
         val restDecl: OptIndent[Declaration] =
           NonEmptyList.fromList(tail) match {
-            case None => elseCase
+            case None      => elseCase
             case Some(nel) =>
               val restRegion = nel.map(_._2.get.region).reduce[Region](_ + _)
               // keep the OptIndent from the first item
@@ -468,7 +468,7 @@ final class SourceConverter(
 
         decls.map {
           case NonEmptyList(one, Nil) => one
-          case twoOrMore =>
+          case twoOrMore              =>
             def listOf(
                 expr: List[Expr[Declaration]],
                 restDecl: Declaration
@@ -661,7 +661,7 @@ final class SourceConverter(
             )
 
             val resExpr: Result[Expr[Declaration]] = filter match {
-              case None => added
+              case None        => added
               case Some(cond0) =>
                 (added, withBound(cond0, newBound)).mapN { (added, cond) =>
                   Expr.ifExpr(cond, added, init, cond0)
@@ -701,7 +701,7 @@ final class SourceConverter(
             def get(b: Bindable): Result[Expr[Declaration]] =
               mapping.get(b) match {
                 case Some(expr) => expr
-                case None =>
+                case None       =>
                   SourceConverter.failure(
                     SourceConverter.MissingArg(name, rc, present, b, rc.region)
                   )
@@ -721,7 +721,7 @@ final class SourceConverter(
             }
             // Check that the mapping is exactly the right size
             NonEmptyList.fromList(extra) match {
-              case None => res
+              case None        => res
               case Some(extra) =>
                 SourceConverter
                   .addError(
@@ -790,7 +790,7 @@ final class SourceConverter(
         typeParams0: List[Type.Var.Bound]
     ): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
       typeArgs match {
-        case None => success(typeParams0.map((_, None)))
+        case None       => success(typeParams0.map((_, None)))
         case Some(decl) =>
           val neBound = decl.map { case (v, k) => (v.toBoundVar, k) }
           val declSet = neBound.toList.iterator.map(_._1).toSet
@@ -921,7 +921,7 @@ final class SourceConverter(
     @annotation.tailrec
     def loop(as: List[A], acc: List[B]): List[B] =
       as match {
-        case Nil => acc
+        case Nil       => acc
         case a :: tail =>
           loop(tail, fn(a) :: acc)
       }
@@ -936,7 +936,7 @@ final class SourceConverter(
     val nonTupled = unTuplePattern(pat, region)
     val collisions = pat.collisionBinds
     NonEmptyList.fromList(collisions) match {
-      case None => nonTupled
+      case None      => nonTupled
       case Some(nel) =>
         SourceConverter.addError(
           nonTupled,
@@ -968,7 +968,7 @@ final class SourceConverter(
         topLevel: Boolean
     ): Pattern[(PackageName, Constructor), rankn.Type] =
       parts match {
-        case Nil => empty
+        case Nil                              => empty
         case Pattern.ListPart.Item(h) :: tail =>
           val tailPat = loop(tail, false)
           Pattern.PositionalStruct(nonEmpty, h :: tailPat :: Nil)
@@ -1118,7 +1118,7 @@ final class SourceConverter(
                   fs.toList.iterator.map(_.field).filterNot(paramNames).toList
                 // Check that the mapping is exactly the right size
                 NonEmptyList.fromList(extra) match {
-                  case None => mapped
+                  case None        => mapped
                   case Some(extra) =>
                     SourceConverter
                       .addError(
@@ -1168,7 +1168,7 @@ final class SourceConverter(
                   fs.toList.iterator.map(_.field).filterNot(paramNames).toList
                 // Check that the mapping is exactly the right size
                 NonEmptyList.fromList(extra) match {
-                  case None => res0
+                  case None        => res0
                   case Some(extra) =>
                     SourceConverter
                       .addError(
@@ -1269,7 +1269,7 @@ final class SourceConverter(
 
       val dupRes = grouped.toList.traverse_ { case (name, dups) =>
         dups match {
-          case NonEmptyList(_, Nil) => sunit
+          case NonEmptyList(_, Nil)                   => sunit
           case NonEmptyList((_, r1), (_, r2) :: rest) =>
             SourceConverter.partial(
               SourceConverter.Duplication(
@@ -1293,7 +1293,7 @@ final class SourceConverter(
 
       def checkDefBind(s: Statement.ValueStatement): Result[Unit] =
         bindOrDef(s) match {
-          case None => sunit
+          case None         => sunit
           case Some(either) =>
             val names = either.fold(_.names, _.names)
 
@@ -1566,11 +1566,11 @@ final class SourceConverter(
         )
           .flatMapN { (paramTypes, resType) =>
             NonEmptyList.fromList(paramTypes) match {
-              case None => success(resType)
+              case None      => success(resType)
               case Some(nel) =>
                 rankn.Type.Fun.ifValid(nel, resType) match {
                   case Some(t) => success(t)
-                  case None =>
+                  case None    =>
                     val invalid = rankn.Type.Fun(nel, resType)
                     SourceConverter
                       .partial(

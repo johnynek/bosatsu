@@ -51,7 +51,7 @@ object TestUtils {
         case t @ Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
         case Type.TyVar(Type.Var.Bound(_)) => t
-        case t @ Type.TyMeta(_) =>
+        case t @ Type.TyMeta(_)            =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
           Type.TyApply(
@@ -275,7 +275,7 @@ object TestUtils {
     }
 
     val parsedPaths = parsed match {
-      case Validated.Valid(vs) => vs
+      case Validated.Valid(vs)     => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
           System.err.println(
@@ -317,7 +317,7 @@ object TestUtils {
     }
 
     val parsedPaths = parsed match {
-      case Validated.Valid(vs) => vs
+      case Validated.Valid(vs)     => vs
       case Validated.Invalid(errs) =>
         sys.error(s"parse fail: ${errs}")
     }

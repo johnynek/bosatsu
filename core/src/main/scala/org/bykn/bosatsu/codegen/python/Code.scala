@@ -20,9 +20,9 @@ object Code {
   sealed trait ValueLike {
     def returnsBool: Boolean =
       this match {
-        case PyBool(_)       => true
-        case _: Expression   => false
-        case WithValue(_, v) => v.returnsBool
+        case PyBool(_)             => true
+        case _: Expression         => false
+        case WithValue(_, v)       => v.returnsBool
         case IfElse(ifs, elseCond) =>
           elseCond.returnsBool && ifs.forall { case (_, v) => v.returnsBool }
       }
@@ -102,7 +102,7 @@ object Code {
     def +:(stmt: Statement): Statement =
       stmt match {
         case Pass => this
-        case _ =>
+        case _    =>
           if (this == Pass) stmt
           else Block(stmt :: statements)
       }
@@ -110,7 +110,7 @@ object Code {
     def :+(stmt: Statement): Statement =
       stmt match {
         case Pass => this
-        case _ =>
+        case _    =>
           if (this == Pass) stmt
           else Block(statements ::: stmt.statements)
       }
@@ -118,7 +118,7 @@ object Code {
     def withValue(vl: ValueLike): ValueLike =
       this match {
         case Pass => vl
-        case _ =>
+        case _    =>
           vl match {
             case wv @ WithValue(_, _) => this +: wv
             case _                    => WithValue(this, vl)
@@ -154,7 +154,7 @@ object Code {
 
   def exprToDoc(expr: Expression): Doc =
     expr match {
-      case PyInt(bi) => Doc.text(bi.toString)
+      case PyInt(bi)   => Doc.text(bi.toString)
       case PyString(s) =>
         Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
       case PyBool(b) =>
@@ -172,7 +172,7 @@ object Code {
       case o @ Op(_, _, _)           => o.toDoc
       case Parens(inner @ Parens(_)) => exprToDoc(inner)
       case Parens(p)                 => par(exprToDoc(p))
-      case SelectItem(x, i) =>
+      case SelectItem(x, i)          =>
         maybePar(x) + Doc.char('[') + exprToDoc(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
         val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(
@@ -187,8 +187,8 @@ object Code {
         ) + spaceElseSpace + exprToDoc(iff)
       case MakeTuple(items) =>
         items match {
-          case Nil      => unitDoc
-          case h :: Nil => par(exprToDoc(h) + Doc.comma).nested(4)
+          case Nil       => unitDoc
+          case h :: Nil  => par(exprToDoc(h) + Doc.comma).nested(4)
           case twoOrMore =>
             par(
               Doc
@@ -258,8 +258,8 @@ object Code {
 
       case Return(expr) => retSpaceDoc + toDoc(expr)
 
-      case Assign(nm, expr) => toDoc(nm) + spaceEqSpace + toDoc(expr)
-      case Pass             => Doc.text("pass")
+      case Assign(nm, expr)  => toDoc(nm) + spaceEqSpace + toDoc(expr)
+      case Pass              => Doc.text("pass")
       case While(cond, body) =>
         whileDoc + Doc.space + toDoc(cond) + Doc.char(
           ':'
@@ -295,10 +295,10 @@ object Code {
   case class Not(arg: Expression) extends Expression {
     def simplify: Expression =
       arg.simplify match {
-        case Not(a)     => a
-        case PyBool(b)  => PyBool(true ^ b)
-        case Const.Zero => Const.True
-        case Const.One  => Const.False
+        case Not(a)                    => a
+        case PyBool(b)                 => PyBool(true ^ b)
+        case Const.Zero                => Const.True
+        case Const.One                 => Const.False
         case Op(left, Const.Eq, right) =>
           Op(left, Const.Neq, right)
         case Op(left, Const.Neq, right) =>
@@ -454,7 +454,7 @@ object Code {
           }
         case Op(a, Const.Eq, b) if a == b                        => Const.True
         case Op(a, Const.Gt | Const.Lt | Const.Neq, b) if a == b => Const.False
-        case Op(PyInt(a), Const.Gt, PyInt(b)) =>
+        case Op(PyInt(a), Const.Gt, PyInt(b))                    =>
           fromBoolean(a.compareTo(b) > 0)
         case Op(PyInt(a), Const.Lt, PyInt(b)) =>
           fromBoolean(a.compareTo(b) < 0)
@@ -466,7 +466,7 @@ object Code {
           a.simplify match {
             case Const.True                      => b.simplify
             case as @ (Const.False | Const.Zero) => as
-            case a1 =>
+            case a1                              =>
               b.simplify match {
                 case Const.True  => a1
                 case Const.False => Const.False
@@ -589,7 +589,7 @@ object Code {
         // we have to allocate new variables
         def alloc(rename: List[Ident], avoid: Set[Ident]): List[Ident] =
           rename match {
-            case Nil => Nil
+            case Nil                     => Nil
             case (i @ Ident(nm)) :: tail =>
               val nm1 =
                 if (clashIdent(i)) {
@@ -672,7 +672,7 @@ object Code {
           // we can't evaluate now
           e match {
             case IfElse(econds, eelse) => IfElse((c, t) :: econds, eelse)
-            case ex: Expression =>
+            case ex: Expression        =>
               t match {
                 case tx: Expression => Ternary(tx, c, ex).simplify
                 case _              => IfElse(NonEmptyList.one((c, t)), ex)
@@ -726,7 +726,7 @@ object Code {
         case Nil                           => (Nil, Pass)
         case (Code.Const.True, last) :: _  => (Nil, last)
         case (Code.Const.False, _) :: tail => untilTrue(tail)
-        case head :: tail =>
+        case head :: tail                  =>
           val (rest, e) = untilTrue(tail)
           (head :: rest, e)
       }
@@ -785,8 +785,8 @@ object Code {
   def blockFromList(list: List[Statement]): Statement = {
     val all = list.flatMap(flatten)
     all match {
-      case Nil        => Pass
-      case one :: Nil => one
+      case Nil          => Pass
+      case one :: Nil   => one
       case head :: tail =>
         Block(NonEmptyList(head, tail))
     }
@@ -820,7 +820,7 @@ object Code {
     in match {
       case PyInt(_) | PyString(_) | PyBool(_) => in
       case Not(n)                             => Not(substitute(subMap, n))
-      case i @ Ident(_) =>
+      case i @ Ident(_)                       =>
         subMap.get(i) match {
           case Some(value) => value
           case None        => i
@@ -874,11 +874,11 @@ object Code {
       ex match {
         case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
         case Not(e)                             => loop(e, bound)
-        case i @ Ident(n) =>
+        case i @ Ident(n)                       =>
           if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
         case Op(left, _, right) => loop(left, bound) | loop(right, bound)
-        case Parens(expr) =>
+        case Parens(expr)       =>
           loop(expr, bound)
         case SelectItem(arg, position) =>
           loop(arg, bound) | loop(position, bound)
@@ -934,7 +934,7 @@ object Code {
   // that assertion should always be true
   def always(v: ValueLike): Statement =
     v match {
-      case _: Expression => Pass
+      case _: Expression      => Pass
       case WithValue(stmt, v) =>
         stmt +: always(v)
       case IfElse(conds, elseCond) =>

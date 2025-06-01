@@ -27,7 +27,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     */
   lazy val getType: Type =
     this match {
-      case g @ Generic(_, _) => g.quantType
+      case g @ Generic(_, _)  => g.quantType
       case Annotation(_, tpe) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
@@ -35,7 +35,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Local(_, tpe, _)     => tpe
       case Global(_, _, tpe, _) => tpe
       case App(_, _, tpe, _)    => tpe
-      case Let(_, _, in, _, _) =>
+      case Let(_, _, in, _, _)  =>
         in.getType
       case Literal(_, tpe, _) =>
         tpe
@@ -46,13 +46,13 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 
   lazy val size: Int =
     this match {
-      case Generic(_, g)    => g.size
-      case Annotation(a, _) => a.size
+      case Generic(_, g)              => g.size
+      case Annotation(a, _)           => a.size
       case AnnotatedLambda(_, res, _) =>
         res.size
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
-      case App(fn, args, _, _) => fn.size + args.foldMap(_.size)
-      case Let(_, e, in, _, _) => e.size + in.size
+      case App(fn, args, _, _)   => fn.size + args.foldMap(_.size)
+      case Let(_, e, in, _, _)   => e.size + in.size
       case Match(a, branches, _) =>
         a.size + branches.foldMap(_._2.size)
     }
@@ -285,7 +285,7 @@ object TypedExpr {
             } else ident
 
           tail match {
-            case Nil => NonEmptyList.one((ident1, tpe))
+            case Nil    => NonEmptyList.one((ident1, tpe))
             case h :: t =>
               (ident1, tpe) :: alloc(h, t, avoid + ident1)
           }
@@ -423,8 +423,8 @@ object TypedExpr {
       expr: TypedExpr[A]
   ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A])] =
     expr match {
-      case Generic(_, e)    => toArgsBody(arity, e)
-      case Annotation(e, _) => toArgsBody(arity, e)
+      case Generic(_, e)                  => toArgsBody(arity, e)
+      case Annotation(e, _)               => toArgsBody(arity, e)
       case AnnotatedLambda(args, expr, _) =>
         if (args.length == arity) {
           Some((args, expr))
@@ -653,7 +653,7 @@ object TypedExpr {
         rho: TypedExpr[A]
     ): F[TypedExpr[A]] =
       NonEmptyList.fromList(metaList) match {
-        case None => Applicative[F].pure(rho)
+        case None        => Applicative[F].pure(rho)
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = rho.allBound
           val aligned = Type.alignBinders(metas, used)
@@ -709,7 +709,7 @@ object TypedExpr {
         }
 
       val te1 = NonEmptyList.fromList(teSkols) match {
-        case None => te
+        case None      => te
         case Some(nel) =>
           val used: Set[Type.Var.Bound] = tyVars.iterator.collect {
             case b @ Type.Var.Bound(_) => b
@@ -887,7 +887,7 @@ object TypedExpr {
           case AnnotatedLambda(_, e, tag) =>
             val b1 = foldLeft(e, b)(f)
             f(b1, tag)
-          case n: Name[A] => f(b, n.tag)
+          case n: Name[A]            => f(b, n.tag)
           case App(fn, args, _, tag) =>
             val b1 = foldLeft(fn, b)(f)
             val b2 = args.foldLeft(b1)((b1, a) => foldLeft(a, b1)(f))
@@ -916,7 +916,7 @@ object TypedExpr {
         case AnnotatedLambda(_, e, tag) =>
           val lb1 = f(tag, lb)
           foldRight(e, lb1)(f)
-        case n: Name[A] => f(n.tag, lb)
+        case n: Name[A]            => f(n.tag, lb)
         case App(fn, args, _, tag) =>
           val b1 = f(tag, lb)
           val b2 = args.toList.foldRight(b1)((a, b1) => foldRight(a, b1)(f))
@@ -941,12 +941,12 @@ object TypedExpr {
           case Annotation(term, tpe) => Annotation(map(term)(fn), tpe)
           case AnnotatedLambda(args, expr, tag) =>
             AnnotatedLambda(args, map(expr)(fn), fn(tag))
-          case l @ Local(_, _, _)     => l.copy(tag = fn(l.tag))
-          case g @ Global(_, _, _, _) => g.copy(tag = fn(g.tag))
+          case l @ Local(_, _, _)       => l.copy(tag = fn(l.tag))
+          case g @ Global(_, _, _, _)   => g.copy(tag = fn(g.tag))
           case App(fnT, args, tpe, tag) =>
             App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
           case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
-          case lit @ Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
+          case lit @ Literal(_, _, _)    => lit.copy(tag = fn(lit.tag))
           case Match(arg, branches, tag) =>
             Match(
               map(arg)(fn),
@@ -1027,7 +1027,7 @@ object TypedExpr {
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
           state.get(v) match {
-            case None => Some(state.updated(v, right))
+            case None      => Some(state.updated(v, right))
             case Some(tpe) =>
               if (tpe.sameAs(right)) Some(state)
               else None
@@ -1097,7 +1097,7 @@ object TypedExpr {
             subBody.getType
           )
           q match {
-            case _: Type.Rho => subBody
+            case _: Type.Rho         => subBody
             case tq: Type.Quantified =>
               val newGen = Generic(tq.quant, subBody)
               pushGeneric(newGen) match {
@@ -1222,7 +1222,7 @@ object TypedExpr {
               case gen @ Generic(_, _) =>
                 pushGeneric(gen) match {
                   case Some(e1) => self(e1)
-                  case None =>
+                  case None     =>
                     instantiateTo(gen, tpe, kinds)
                 }
               case App(fn, aargs, _, tag) =>
@@ -1321,7 +1321,7 @@ object TypedExpr {
             case None     => Some(in)
           }
         case Global(_, _, _, _) | Literal(_, _, _) => Some(in)
-        case Generic(a, expr) =>
+        case Generic(a, expr)                      =>
           loop(table, expr).map(Generic(a, _))
         case Annotation(t, tpe) =>
           loop(table, t).map(Annotation(_, tpe))
@@ -1491,7 +1491,7 @@ object TypedExpr {
           } else ident
 
         tail match {
-          case Nil => NonEmptyList.one(ident1)
+          case Nil    => NonEmptyList.one(ident1)
           case h :: t =>
             ident1 :: alloc(h, t, avoid + ident1)
         }
@@ -1588,7 +1588,7 @@ object TypedExpr {
         }
       case Local(nm, _, tag) if nm == name => Local(name, tpe, tag)
       case n: Name[A]                      => n
-      case App(fnT, args, tpe, tag) =>
+      case App(fnT, args, tpe, tag)        =>
         App(recur(fnT), args.map(recur), tpe, tag)
       case Let(b, e, in, r, t) =>
         if (b == name) {
@@ -1602,7 +1602,7 @@ object TypedExpr {
             Let(b, recur(e), in, r, t)
           }
         } else Let(b, recur(e), recur(in), r, t)
-      case lit @ Literal(_, _, _) => lit
+      case lit @ Literal(_, _, _)    => lit
       case Match(arg, branches, tag) =>
         Match(recur(arg), branches.map { case (p, t) => (p, recur(t)) }, tag)
     }
@@ -1652,7 +1652,7 @@ object TypedExpr {
           case gen @ Generic(_, _) =>
             pushGeneric(gen) match {
               case Some(e1) => self(e1)
-              case None =>
+              case None     =>
                 instantiateTo(gen, fntpe, kinds)
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
@@ -1727,7 +1727,7 @@ object TypedExpr {
           }.toSet
 
         q.filter(frees) match {
-          case None => expr
+          case None    => expr
           case Some(q) =>
             val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
 

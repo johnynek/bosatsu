@@ -11,7 +11,7 @@ sealed abstract class SelfCallKind {
     this match {
       case NonTailCall => NonTailCall
       case NoCall      => that
-      case TailCall =>
+      case TailCall    =>
         that match {
           case NonTailCall       => NonTailCall
           case TailCall | NoCall => TailCall
@@ -66,7 +66,7 @@ object SelfCallKind {
           apply(n, body)
         }
       case TypedExpr.Global(_, _, _, _) => SelfCallKind.NoCall
-      case TypedExpr.Local(vn, _, _) =>
+      case TypedExpr.Local(vn, _, _)    =>
         if (vn != n) SelfCallKind.NoCall
         else SelfCallKind.NonTailCall
       case TypedExpr.App(fn, args, _, _) =>
@@ -92,7 +92,7 @@ object SelfCallKind {
           apply(n, ex).callNotTail
             .merge(apply(n, in))
         }
-      case TypedExpr.Literal(_, _, _) => SelfCallKind.NoCall
+      case TypedExpr.Literal(_, _, _)        => SelfCallKind.NoCall
       case TypedExpr.Match(arg, branches, _) =>
         apply(n, arg).callNotTail
           .ifNoCallThen {

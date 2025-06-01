@@ -10,7 +10,7 @@ sealed abstract class Test {
     this match {
       case Test.Assertion(true, _)      => None
       case f @ Test.Assertion(false, _) => Some(f)
-      case Test.Suite(nm, ts) => {
+      case Test.Suite(nm, ts)           => {
         val innerFails = ts.flatMap(_.failures.toList)
         if (innerFails.isEmpty) None
         else Some(Test.Suite(nm, innerFails))
@@ -28,7 +28,7 @@ object Test {
     @annotation.tailrec
     def go(ts: List[Test], acc: Int): Int =
       ts match {
-        case Nil => acc
+        case Nil                     => acc
         case Assertion(_, _) :: tail =>
           go(tail, acc + 1)
         case Suite(_, test) :: tail =>
@@ -73,7 +73,7 @@ object Test {
           val sumDoc =
             lastSuite match {
               case Some((p, f)) if (p == passes) && (f == fails) => Doc.empty
-              case _ =>
+              case _                                             =>
                 Doc.line + summary(passes, fails, c)
             }
           Report(passes, fails, front + sumDoc)
@@ -168,7 +168,7 @@ object Test {
           val bool = b match {
             case True  => true
             case False => false
-            case _ =>
+            case _     =>
               sys.error(s"expected test value: $a")
           }
           Test.Assertion(bool, message)

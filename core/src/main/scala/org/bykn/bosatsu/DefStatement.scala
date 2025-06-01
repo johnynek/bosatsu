@@ -29,7 +29,7 @@ object DefStatement {
       import defs._
       val res = retType.fold(Doc.empty)(t => arrow + t.toDoc)
       val taDoc = typeArgs match {
-        case None => Doc.empty
+        case None     => Doc.empty
         case Some(ta) =>
           TypeRef.docTypeArgs(ta.toList) {
             case None    => Doc.empty

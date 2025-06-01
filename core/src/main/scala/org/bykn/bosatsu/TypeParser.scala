@@ -123,18 +123,18 @@ abstract class TypeParser[A] {
      * those first
      */
     unapplyTuple(a) match {
-      case None => ()
+      case None     => ()
       case Some(ts) =>
         return ts match {
-          case Nil      => unitDoc
-          case h :: Nil => Doc.char('(') + toDoc(h) + commaPar
+          case Nil        => unitDoc
+          case h :: Nil   => Doc.char('(') + toDoc(h) + commaPar
           case twoAndMore =>
             p(Doc.intercalate(commaSpace, twoAndMore.map(toDoc)))
         }
     }
 
     unapplyFn(a) match {
-      case None => ()
+      case None             => ()
       case Some((ins, out)) =>
         val args = if (ins.tail.isEmpty) {
           val in0 = ins.head
@@ -160,7 +160,7 @@ abstract class TypeParser[A] {
     }
 
     unapplyTypeApply(a) match {
-      case None => ()
+      case None             => ()
       case Some((of, args)) =>
         val ofDoc0 = toDoc(of)
         val ofDoc = unapplyUniversal(of).orElse(unapplyExistential(of)) match {
@@ -174,7 +174,7 @@ abstract class TypeParser[A] {
     }
 
     unapplyUniversal(a) match {
-      case None => ()
+      case None             => ()
       case Some((vars, in)) =>
         return forAll + Doc.intercalate(
           commaSpace,
@@ -187,7 +187,7 @@ abstract class TypeParser[A] {
     }
 
     unapplyExistential(a) match {
-      case None => ()
+      case None             => ()
       case Some((vars, in)) =>
         return exists + Doc.intercalate(
           commaSpace,

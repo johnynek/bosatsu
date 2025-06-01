@@ -70,9 +70,9 @@ object JsApi {
         catch {
           case (_: NumberFormatException) => str
         }
-      case Json.JBool.True  => true
-      case Json.JBool.False => false
-      case Json.JNull       => null
+      case Json.JBool.True    => true
+      case Json.JBool.False   => false
+      case Json.JNull         => null
       case Json.JArray(items) =>
         val ary = new js.Array[js.Any](items.size)
         items.iterator.zipWithIndex.foreach { case (j, idx) =>

@@ -60,7 +60,7 @@ object Tree {
     @annotation.tailrec
     def remove(seen: Set[B], items: List[A], acc: List[A]): List[A] =
       items match {
-        case Nil => acc.reverse
+        case Nil    => acc.reverse
         case h :: t =>
           val b = fn(h)
           if (seen(b)) remove(seen, t, acc)

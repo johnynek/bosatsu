@@ -49,7 +49,7 @@ class DeclarationTest extends AnyFunSuite {
   test("after substitution, a variable is no longer free") {
     forAll(genDecl, genNonFree) { (d0, d1) =>
       d0.freeVars.toList match {
-        case Nil => ()
+        case Nil    => ()
         case b :: _ =>
           Declaration.substitute(b, d1, d0) match {
             case None =>
@@ -93,7 +93,7 @@ class DeclarationTest extends AnyFunSuite {
         if (subsD0 == Some(d0)) assert(true)
         else {
           subsD0 match {
-            case None => assert(false, "substitute failed")
+            case None      => assert(false, "substitute failed")
             case Some(sub) =>
               val left = sub.toDoc.render(80)
               val right = d0.toDoc.render(80)

@@ -158,9 +158,9 @@ object Generators {
         import TypeRef._
         tr match {
           case TypeVar(_) | TypeName(_) => Stream.empty
-          case TypeArrow(l, r) =>
+          case TypeArrow(l, r)          =>
             r #:: l.toList.toStream
-          case TypeApply(of, args) => of #:: args.toList.toStream
+          case TypeApply(of, args)   => of #:: args.toList.toStream
           case TypeForAll(par, expr) =>
             val rest = NonEmptyList.fromList(par.tail) match {
               case None      => Stream.empty
@@ -176,7 +176,7 @@ object Generators {
           case TypeTuple(ts) =>
             def drop(as: List[TypeRef]): Stream[TypeTuple] =
               as match {
-                case Nil => Stream.empty
+                case Nil       => Stream.empty
                 case h :: tail =>
                   TypeTuple(tail) #:: (drop(tail).map { case TypeTuple(ts) =>
                     TypeTuple(h :: ts)
@@ -302,7 +302,7 @@ object Generators {
       case Declaration.IfElse(_, _)                => false
       case Declaration.Match(_, _, _)              => false
       case Declaration.Lambda(_, body: NonBinding) => filterFn(body)
-      case Declaration.Apply(f, args, _) =>
+      case Declaration.Apply(f, args, _)           =>
         filterFn(f) && args.forall(filterFn)
       case _ => true
     }
@@ -333,7 +333,7 @@ object Generators {
       case Declaration.Match(_, _, _)              => false
       case Declaration.ApplyOp(_, _, _)            => false
       case Declaration.Lambda(_, body: NonBinding) => filterFn(body)
-      case Declaration.Apply(f, args, _) =>
+      case Declaration.Apply(f, args, _)           =>
         filterFn(f) && args.forall(filterFn)
       case _ => true
     }
@@ -938,7 +938,7 @@ object Generators {
 
       def apply(d: Declaration): Stream[Declaration] =
         d match {
-          case Annotation(t, _) => t #:: apply(t)
+          case Annotation(t, _)   => t #:: apply(t)
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
             next.flatMap(apply _)
@@ -974,12 +974,12 @@ object Generators {
             // by removing parens we can make invalid
             // expressions
             Stream.empty
-          case TupleCons(Nil) => Stream.empty
+          case TupleCons(Nil)       => Stream.empty
           case TupleCons(h :: tail) =>
             h #:: TupleCons(tail)(emptyRegion) #:: apply(
               TupleCons(tail)(emptyRegion)
             )
-          case Var(_) => Stream.empty
+          case Var(_)            => Stream.empty
           case StringDecl(parts) =>
             parts.toList.toStream.map {
               case StringDecl.StrExpr(nb)     => nb
@@ -1005,7 +1005,7 @@ object Generators {
                 of: NonEmptyList[RecordArg]
             ): Stream[NonEmptyList[RecordArg]] =
               NonEmptyList.fromList(of.tail) match {
-                case None => Stream.empty
+                case None           => Stream.empty
                 case Some(tailArgs) =>
                   tailArgs #:: tailStream(tailArgs) #::: tailStream(
                     NonEmptyList(of.head, tailArgs.tail)
@@ -1031,7 +1031,7 @@ object Generators {
     ss match {
       case Nil        => Stream.empty
       case one :: Nil => one
-      case twoOrMore =>
+      case twoOrMore  =>
         val (l, r) = twoOrMore.splitAt(twoOrMore.size / 2)
         interleave(interleaveAll(l), interleaveAll(r))
     }
@@ -1049,7 +1049,7 @@ object Generators {
   def dropItemList[A](list: List[A]): Stream[List[A]] =
     list match {
       case Nil | _ :: Nil => Stream.empty
-      case twoOrMore =>
+      case twoOrMore      =>
         (0 until twoOrMore.size).toStream.map { idx =>
           list.take(idx) ::: list.drop(idx + 1)
         }
@@ -1075,7 +1075,7 @@ object Generators {
               implicitly[Shrink[BigInt]]
                 .shrink(BigInt(s))
                 .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
-            case Pattern.Literal(_) => Stream.empty
+            case Pattern.Literal(_)  => Stream.empty
             case Pattern.ListPat(ls) =>
               if (ls.isEmpty) Stream.empty
               else (Pattern.ListPat(ls.tail) #:: Stream.empty)
@@ -1272,7 +1272,7 @@ object Generators {
       .geometric(2.0)
       .flatMap {
         case n if n <= 0 => g.map(NonEmptyList.one)
-        case n =>
+        case n           =>
           Gen
             .zip(g, Gen.listOfN((n - 1) min (maxLen - 1), g))
             .map { case (h, t) => NonEmptyList(h, t) }
@@ -1337,7 +1337,7 @@ object Generators {
           }
 
         dts.filter(_.constructors.nonEmpty) match {
-          case Nil => Gen.oneOf(b, genExpT)
+          case Nil      => Gen.oneOf(b, genExpT)
           case nonEmpty =>
             val c = for {
               dt <- Gen.oneOf(nonEmpty)
@@ -1475,7 +1475,7 @@ object Generators {
   def shuffle[A](as: List[A]): Gen[List[A]] =
     as match {
       case (Nil | (_ :: Nil)) => Gen.const(as)
-      case a :: b :: Nil =>
+      case a :: b :: Nil      =>
         Gen.oneOf(as, b :: a :: Nil)
       case _ =>
         val size = as.size

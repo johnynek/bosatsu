@@ -6,7 +6,7 @@ private[bosatsu] object ListUtil {
   // filter b from a pretty short lst but try to conserve lst if possible
   def filterNot[A](lst: List[A])(b: A => Boolean): List[A] =
     lst match {
-      case Nil => lst
+      case Nil       => lst
       case h :: tail =>
         val t1 = filterNot(tail)(b)
         if (b(h)) t1
@@ -19,7 +19,7 @@ private[bosatsu] object ListUtil {
   )(one: A => G)(combine: (G, A) => Option[G]): NonEmptyList[G] = {
     def loop(g: G, tail: List[A]): NonEmptyList[G] =
       tail match {
-        case Nil => NonEmptyList.one(g)
+        case Nil            => NonEmptyList.one(g)
         case tailh :: tailt =>
           combine(g, tailh) match {
             case None =>
@@ -63,7 +63,7 @@ private[bosatsu] object ListUtil {
     @annotation.tailrec
     def loop(prior: Set[A], tail: List[A], front: ::[A]): NonEmptyList[A] =
       tail match {
-        case Nil => revCons(front, Nil)
+        case Nil          => revCons(front, Nil)
         case head :: next =>
           if (prior(head)) loop(prior, next, front)
           else loop(prior + head, next, ::(head, front))
