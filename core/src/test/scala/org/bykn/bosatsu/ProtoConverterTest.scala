@@ -26,7 +26,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
     val proto = maybeProto.get
 
     val orig = gn(proto) match {
-      case Success(o) => o
+      case Success(o)   => o
       case Failure(err) =>
         err.printStackTrace
         fail(s"expected to deserialize: $err")

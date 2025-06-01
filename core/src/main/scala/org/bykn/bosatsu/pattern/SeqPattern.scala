@@ -59,7 +59,7 @@ sealed trait SeqPattern[+A] {
   // if this is a literal sequence return it
   def toLiteralSeq: Option[List[A]] =
     this match {
-      case Empty => Some(Nil)
+      case Empty          => Some(Nil)
       case Cat(Lit(a), t) =>
         t.toLiteralSeq.map(a :: _)
       case Cat(_, _) => None
@@ -127,9 +127,9 @@ object SeqPattern {
       val ordSeqPart: Ordering[SeqPart[A]] = implicitly[Ordering[SeqPart[A]]]
       def compare(a: SeqPattern[A], b: SeqPattern[A]) =
         (a, b) match {
-          case (Empty, Empty)     => 0
-          case (Empty, Cat(_, _)) => -1
-          case (Cat(_, _), Empty) => 1
+          case (Empty, Empty)             => 0
+          case (Empty, Cat(_, _))         => -1
+          case (Cat(_, _), Empty)         => 1
           case (Cat(h1, t1), Cat(h2, t2)) =>
             val c = ordSeqPart.compare(h1, h2)
             if (c == 0) compare(t1, t2)
@@ -259,7 +259,7 @@ object SeqPattern {
         */
       private def normalize(sp: SeqPattern[A]): SeqPattern[A] =
         sp match {
-          case Empty => Empty
+          case Empty                     => Empty
           case Cat(h: SeqPart1[A], tail) =>
             val nh = if (isAny(h)) AnyElem else h
             Cat(nh, normalize(tail))
@@ -289,9 +289,9 @@ object SeqPattern {
         (p1, p2) match {
           case (Nil, Nil)                   => true
           case (Nil, (_: SeqPart1[A]) :: _) => false
-          case (Nil, Wildcard :: t) =>
+          case (Nil, Wildcard :: t)         =>
             subsetList(Nil, t)
-          case (_ :: _, Nil) => false
+          case (_ :: _, Nil)                                      => false
           case ((h1: SeqPart1[A]) :: t1, (h2: SeqPart1[A]) :: t2) =>
             part1SetOps.subset(h1, h2) && subsetList(t1, t2)
           case (Wildcard :: Wildcard :: t1, _) =>
@@ -405,8 +405,8 @@ object SeqPattern {
           import SeqPart.{Lit, AnyElem, Wildcard}
           def loop(p1: SeqPattern[A], p2: SeqPattern[A]): SeqPattern[A] =
             (p1, p2) match {
-              case (Empty, Empty)               => Empty
-              case (Cat(AnyElem, _), Cat(_, _)) => p1
+              case (Empty, Empty)                               => Empty
+              case (Cat(AnyElem, _), Cat(_, _))                 => p1
               case (Cat(h1 @ Lit(_), t1), Cat(h2 @ Lit(_), t2)) =>
                 if (part1SetOps.equiv(h1, h2)) Cat(h1, loop(t1, t2))
                 else {

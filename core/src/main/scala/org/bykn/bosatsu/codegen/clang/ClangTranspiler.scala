@@ -54,7 +54,7 @@ case object ClangTranspiler extends Transpiler {
           string match {
             case "shake" => Validated.valid(Shake)
             case "all"   => Validated.valid(All)
-            case other =>
+            case other   =>
               Validated.invalidNel(s"expected (shake|all) got $other")
           }
       }
@@ -146,7 +146,7 @@ case object ClangTranspiler extends Transpiler {
         for {
           json <- platformIO.parseUtf8(confPath, Json.parserFile)
           ccConf <- CcConf.parse(json) match {
-            case Right(cc) => moduleIOMonad.pure(cc)
+            case Right(cc)            => moduleIOMonad.pure(cc)
             case Left((str, j, path)) =>
               moduleIOMonad.raiseError(
                 CliException.Basic(
@@ -339,7 +339,7 @@ case object ClangTranspiler extends Transpiler {
     // we have to render the code in sorted order
     NonEmptyList.fromList(ns.topoSort.loopNodes) match {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
-      case None =>
+      case None       =>
         val doc = args.mode match {
           case Mode.Main(fp) =>
             fp.flatMap { p =>

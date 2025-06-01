@@ -101,7 +101,7 @@ object DecodedLibraryWithDeps {
     def fetchDep(dep: proto.LibDependency): Cached[Value] = {
       val fV = dep.desc.flatMap(_.version) match {
         case Some(v) => F.pure(Version.fromProto(v))
-        case None =>
+        case None    =>
           F.raiseError[Version](
             CliException(
               "missing version",
@@ -117,7 +117,7 @@ object DecodedLibraryWithDeps {
         cached <- get((Name(dep.name), v))
         res <- cached match {
           case Some(d) => StateT.pure[F, S, Value](d)
-          case None =>
+          case None    =>
             StateT
               .liftF(load(dep).flatMap(DecodedLibrary.decode(_)))
               .flatMap(decodeAndStore(_))

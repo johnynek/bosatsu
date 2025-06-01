@@ -74,7 +74,7 @@ object Toposort {
       val someZero: Option[Int] = Some(0)
       val depth = Memoize.memoizeSorted[A, Int] { (n, rec) =>
         fn(n) match {
-          case Nil => someZero
+          case Nil      => someZero
           case nonEmpty =>
             nonEmpty.traverse(rec).map(_.max + 1)
         }

@@ -66,7 +66,7 @@ object State {
   // Decoders for the State trait and its implementations
   implicit val decodeState: Decoder[State] = Decoder.instance { cursor =>
     cursor.downField("type").as[String].flatMap {
-      case "Init" => Right(Init)
+      case "Init"      => Right(Init)
       case "Compiling" =>
         cursor.downField("previousState").as[HasText].map(Compiling(_))
       case _ => decodeHasText(cursor)

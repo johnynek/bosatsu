@@ -128,7 +128,7 @@ class RankNInferTest extends munit.FunSuite {
         Map.empty
       )
       .runFully(withBools, boolTypes, Type.builtInKinds) match {
-      case Left(err) => assert(false, err)
+      case Left(err)   => assert(false, err)
       case Right(tpes) =>
         assert(tpes.size == terms.size)
         terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
@@ -219,7 +219,7 @@ class RankNInferTest extends munit.FunSuite {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts) match {
       case Ior.Left(_) | Ior.Both(_, _) => assert(true)
-      case Ior.Right(program) =>
+      case Ior.Right(program)           =>
         fail(
           "expected an invalid program, but got:\n\n" + program.lets
             .map { case (b, r, t) =>
@@ -449,7 +449,7 @@ class RankNInferTest extends munit.FunSuite {
           definedOption ++ boolTypes,
           kinds
         ) match {
-        case Left(_) => assert(true)
+        case Left(_)    => assert(true)
         case Right(tpe) =>
           assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -532,7 +532,7 @@ class RankNInferTest extends munit.FunSuite {
           definedOptionGen ++ boolTypes,
           kinds
         ) match {
-        case Left(_) => assert(true)
+        case Left(_)    => assert(true)
         case Right(tpe) =>
           assert(false, s"expected to fail, but inferred type $tpe")
       }

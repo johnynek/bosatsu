@@ -31,7 +31,7 @@ object PathGen {
 
       def step(path: Path): IO[List[Path]] =
         unfold(path).flatMap {
-          case None => pureEmpty
+          case None          => pureEmpty
           case Some(listDir) =>
             for {
               children <- listDir

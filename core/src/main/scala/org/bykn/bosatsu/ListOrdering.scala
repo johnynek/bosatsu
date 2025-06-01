@@ -10,7 +10,7 @@ object ListOrdering {
       val ordA = implicitly[Ordering[A]]
       def compare(a: List[A], b: List[A]): Int =
         (a, b) match {
-          case (Nil, Nil) => 0
+          case (Nil, Nil)           => 0
           case (h0 :: t0, h1 :: t1) =>
             val c = ordA.compare(h0, h1)
             if (c != 0) c else compare(t0, t1)

@@ -193,7 +193,7 @@ object MatchlessToValue {
           ): Scoped[C] =
             (aa, ab) match {
               case (Static(a), Static(b)) => Static(fn(a, b))
-              case (Static(a), db) =>
+              case (Static(a), db)        =>
                 db.map(fn(a, _))
               case (da, Static(b)) =>
                 da.map(fn(_, b))
@@ -230,7 +230,7 @@ object MatchlessToValue {
                 v.asExternal.toAny != BigInteger.ZERO
               }
 
-          case TrueConst => Static(true)
+          case TrueConst     => Static(true)
           case And(ix1, ix2) =>
             boolExpr(ix1).and(boolExpr(ix2))
 
@@ -367,8 +367,8 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)     => Dynamic(_.locals(b).value)
-          case LocalAnon(a) => Dynamic(_.anon(a))
+          case Local(b)        => Dynamic(_.locals(b).value)
+          case LocalAnon(a)    => Dynamic(_.anon(a))
           case LocalAnonMut(m) =>
             Dynamic { s =>
               s.muts.get(m) match {

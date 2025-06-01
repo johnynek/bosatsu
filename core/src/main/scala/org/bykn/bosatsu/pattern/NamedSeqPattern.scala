@@ -9,8 +9,8 @@ sealed trait NamedSeqPattern[+A] {
   def unname: SeqPattern[A] = {
     def loop(n: NamedSeqPattern[A], right: List[SeqPart[A]]): List[SeqPart[A]] =
       n match {
-        case Bind(_, n) => loop(n, right)
-        case NEmpty     => right
+        case Bind(_, n)          => loop(n, right)
+        case NEmpty              => right
         case NCat(first, second) =>
           val r2 = loop(second, right)
           loop(first, r2)
@@ -33,7 +33,7 @@ sealed trait NamedSeqPattern[+A] {
       case Bind(_, _)       => true
       case NSeqPart(Lit(_)) => true
       case NSeqPart(_)      => false
-      case NCat(l, r) =>
+      case NCat(l, r)       =>
         l.isRenderable && r.isRenderable
     }
 
@@ -51,7 +51,7 @@ sealed trait NamedSeqPattern[+A] {
             .orElse(loop(r, right))
         case NSeqPart(SeqPart.Lit(c)) => Some(ms.combine(fn(c), right))
         case NSeqPart(_)              => None
-        case NCat(l, r) =>
+        case NCat(l, r)               =>
           loop(r, right)
             .flatMap { right =>
               loop(l, right)
@@ -105,11 +105,11 @@ object NamedSeqPattern {
         right: List[Machine[A]]
     ): List[Machine[A]] =
       n match {
-        case NEmpty => right
+        case NEmpty        => right
         case Bind(name, n) =>
           StartName(name) :: toMachine(n, EndName :: right)
         case NSeqPart(p) => MSeqPart(p) :: right
-        case NCat(l, r) =>
+        case NCat(l, r)  =>
           toMachine(l, toMachine(r, right))
       }
 
@@ -166,7 +166,7 @@ object NamedSeqPattern {
               val e = split.emptySeq
               matches(split, tail, cap)
                 .andThen {
-                  case None => None
+                  case None         => None
                   case Some((r, m)) =>
                     Some {
                       val m1 = if (m.contains(n)) m else m.updated(n, e)
@@ -187,7 +187,7 @@ object NamedSeqPattern {
                   // now merge the prefix result
                   val resMatched = capturing.foldLeft(rightBind) { (st, n) =>
                     st.get(n) match {
-                      case None => st.updated(n, prefix)
+                      case None        => st.updated(n, prefix)
                       case Some(right) =>
                         st.updated(n, split.catSeqs(prefix :: right :: Nil))
                     }

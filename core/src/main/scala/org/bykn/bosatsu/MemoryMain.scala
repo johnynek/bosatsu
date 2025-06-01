@@ -52,10 +52,10 @@ object MemoryMain {
   ) {
     def get(path: Chain[String]): Option[Either[State, FileContent]] =
       path.uncons match {
-        case None => Some(Left(this))
+        case None               => Some(Left(this))
         case Some((head, tail)) =>
           children.get(head).flatMap {
-            case Left(s) => s.get(tail)
+            case Left(s)   => s.get(tail)
             case Right(fc) =>
               if (tail.isEmpty) Some(Right(fc))
               else None
@@ -64,7 +64,7 @@ object MemoryMain {
 
     def withDir(path: Chain[String]): Option[State] =
       path.uncons match {
-        case None => Some(this)
+        case None         => Some(this)
         case Some((h, t)) =>
           children.get(h) match {
             case Some(Right(_)) =>
@@ -123,7 +123,7 @@ object MemoryMain {
           files.toList.foldM(MemoryMain.State.empty) { case (st, (k, str)) =>
             st.withFile(k, MemoryMain.FileContent.Str(str)) match {
               case Some(s1) => G.pure(s1)
-              case None =>
+              case None     =>
                 G.raiseError[MemoryMain.State](
                   new Exception(s"couldn't add file: $k to state = $st")
                 )
@@ -132,7 +132,7 @@ object MemoryMain {
         state1 <- packages.toList.foldM(state0) { case (st, (k, packs)) =>
           st.withFile(k, MemoryMain.FileContent.Packages(packs)) match {
             case Some(s1) => G.pure(s1)
-            case None =>
+            case None     =>
               G.raiseError[MemoryMain.State](
                 new Exception(s"couldn't add file: $k to state = $st")
               )
@@ -141,7 +141,7 @@ object MemoryMain {
         state2 <- interfaces.toList.foldM(state1) { case (st, (k, ifs)) =>
           st.withFile(k, MemoryMain.FileContent.Interfaces(ifs)) match {
             case Some(s1) => G.pure(s1)
-            case None =>
+            case None     =>
               G.raiseError[MemoryMain.State](
                 new Exception(s"couldn't add file: $k to state = $st")
               )
@@ -340,7 +340,7 @@ object MemoryMain {
         StateT.modifyF { state =>
           state.withFile(p, fc) match {
             case Some(newState) => innerMonad.pure(newState)
-            case None =>
+            case None           =>
               innerMonad.raiseError(
                 new Exception(
                   s"couldn't write to $p because it is already a directory."

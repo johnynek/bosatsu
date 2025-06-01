@@ -25,7 +25,7 @@ sealed abstract class TypeRef {
   def normalizeForAll: TypeRef =
     this match {
       case TypeVar(_) | TypeName(_) => this
-      case TypeArrow(a, b) =>
+      case TypeArrow(a, b)          =>
         TypeArrow(a.map(_.normalizeForAll), b.normalizeForAll)
       case TypeApply(a, bs) =>
         TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
@@ -112,7 +112,7 @@ object TypeRef {
             if (c == 0) compare(b0, b1) else c
           case (TypeArrow(_, _), TypeVar(_) | TypeName(_)) => 1
           case (TypeArrow(_, _), _)                        => -1
-          case (TypeApply(o0, a0), TypeApply(o1, a1)) =>
+          case (TypeApply(o0, a0), TypeApply(o1, a1))      =>
             val c = compare(o0, o1)
             if (c != 0) c
             else list.compare(a0.toList, a1.toList)
@@ -223,7 +223,7 @@ object TypeRef {
 
   def docTypeArgs[A](targs: List[(TypeRef.TypeVar, A)])(aDoc: A => Doc): Doc =
     targs match {
-      case Nil => Doc.empty
+      case Nil      => Doc.empty
       case nonEmpty =>
         val params = nonEmpty.map { case (TypeRef.TypeVar(v), a) =>
           Doc.text(v) + aDoc(a)

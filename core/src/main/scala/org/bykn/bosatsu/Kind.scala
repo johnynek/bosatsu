@@ -13,7 +13,7 @@ sealed abstract class Kind {
     @tailrec
     def loop(k: Kind, acc: List[Kind.Arg]): List[Kind.Arg] =
       k match {
-        case Kind.Type => acc.reverse
+        case Kind.Type            => acc.reverse
         case Kind.Cons(arg, rest) =>
           loop(rest, arg :: acc)
       }
@@ -36,7 +36,7 @@ sealed abstract class Kind {
   @tailrec
   final def isOrder1: Boolean =
     this match {
-      case Kind.Type => false
+      case Kind.Type                        => false
       case Kind.Cons(Kind.Arg(_, in), rest) =>
         in.isType && (rest.isType || rest.isOrder1)
     }
@@ -44,14 +44,14 @@ sealed abstract class Kind {
   @tailrec
   final def isHigherOrder: Boolean =
     this match {
-      case Kind.Type => false
+      case Kind.Type                        => false
       case Kind.Cons(Kind.Arg(_, in), rest) =>
         (!in.isType) || rest.isHigherOrder
     }
 
   def order: Int =
     this match {
-      case Kind.Type => 0
+      case Kind.Type                    => 0
       case Kind.Cons(Kind.Arg(_, i), o) =>
         scala.math.max(i.order + 1, o.order)
     }
@@ -81,7 +81,7 @@ object Kind {
     */
   def shapeMatch(k1: Kind, k2: Kind): Boolean =
     (k1, k2) match {
-      case (Type, Type) => true
+      case (Type, Type)                             => true
       case (Cons(Arg(_, a), b), Cons(Arg(_, c), d)) =>
         shapeMatch(a, c) && shapeMatch(b, d)
       case _ => false
@@ -220,7 +220,7 @@ object Kind {
       sub: Boolean
   ): LazyList[Kind] =
     k match {
-      case Type => Type #:: LazyList.empty[Kind]
+      case Type               => Type #:: LazyList.empty[Kind]
       case Cons(Arg(v, a), b) =>
         val ord = kindSizeOrder(sub)
         def sortCombine(
@@ -269,7 +269,7 @@ object Kind {
 
   private def kindSize(k: Kind, sub: Boolean): Long =
     k match {
-      case Type => 1L
+      case Type               => 1L
       case Cons(Arg(v, a), b) =>
         varsSize(v, sub) *
           kindSize(a, !sub) *
@@ -348,7 +348,7 @@ object Kind {
   private val some0 = Some(0L)
   def kindToLong(k: Kind): Option[Long] =
     k match {
-      case Type => some0
+      case Type                    => some0
       case Cons(Arg(v, k), result) =>
         (kindToLong(k), kindToLong(result))
           .flatMapN { (kL, rL) =>
@@ -476,9 +476,9 @@ object Kind {
       val ordVar = Order[Variance]
       def compare(left: Kind, right: Kind): Int =
         (left, right) match {
-          case (Type, Type)       => 0
-          case (Type, _)          => -1
-          case (Cons(_, _), Type) => 1
+          case (Type, Type)                 => 0
+          case (Type, _)                    => -1
+          case (Cons(_, _), Type)           => 1
           case (Cons(al, kl), Cons(ar, kr)) =>
             val cv = ordVar.compare(al.variance, ar.variance)
             if (cv != 0) cv

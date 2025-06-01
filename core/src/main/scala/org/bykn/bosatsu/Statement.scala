@@ -60,7 +60,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
     */
   def constructors: List[Constructor] =
     this match {
-      case Struct(nm, _, _) => nm :: Nil
+      case Struct(nm, _, _)  => nm :: Nil
       case Enum(_, _, items) =>
         items.get.toList.map { case (nm, _) => nm }
       case ExternalStruct(_, _) => Nil
@@ -99,7 +99,7 @@ object Statement {
     def freeVars: SortedSet[Bindable] =
       this match {
         case Bind(BindingStatement(_, decl, _)) => decl.freeVars
-        case Def(defstatement) =>
+        case Def(defstatement)                  =>
           val innerFrees = defstatement.result.get.freeVars
           // but the def name and, args shadow
           (innerFrees - defstatement.name) -- defstatement.args.toList.flatMap(
@@ -113,7 +113,7 @@ object Statement {
     def allNames: SortedSet[Bindable] =
       this match {
         case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
-        case Def(defstatement) =>
+        case Def(defstatement)                    =>
           (defstatement.result.get.allNames + defstatement.name) ++ defstatement.args.toList
             .flatMap(_.patternNames)
         case ExternalDef(name, _, _, _) => SortedSet(name)
@@ -409,7 +409,7 @@ object Statement {
         ) + res.toDoc + Doc.line
       case ExternalDef(name, tps, args, res) =>
         val taDoc = tps match {
-          case None => Doc.empty
+          case None     => Doc.empty
           case Some(ta) =>
             TypeRef.docTypeArgs(ta.toList) {
               case None    => Doc.empty

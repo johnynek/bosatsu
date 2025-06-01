@@ -135,7 +135,7 @@ sealed abstract class Declaration {
             ) + Doc.char(')')
         }
         argDoc + Doc.text(" -> ") + body.toDoc
-      case Literal(lit) => Document[Lit].document(lit)
+      case Literal(lit)                => Document[Lit].document(lit)
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
@@ -234,7 +234,7 @@ sealed abstract class Declaration {
     ): SortedSet[Bindable] =
       decl match {
         case Annotation(term, _) => loop(term, bound, acc)
-        case Apply(fn, args, _) =>
+        case Apply(fn, args, _)  =>
           (fn :: args).foldLeft(acc)((acc0, d) => loop(d, bound, acc0))
         case ao @ ApplyOp(left, _, right) =>
           val acc0 = loop(left, bound, acc)
@@ -246,7 +246,7 @@ sealed abstract class Declaration {
           loop(in.padded, bound1, acc0)
         case Comment(c)   => loop(c.on.padded, bound, acc)
         case CommentNB(c) => loop(c.on.padded, bound, acc)
-        case DefFn(d) =>
+        case DefFn(d)     =>
           val (body, rest) = d.result
           // def sets up a binding to itself, which
           // may or may not be recursive
@@ -271,7 +271,7 @@ sealed abstract class Declaration {
           loop(body, bound1, acc)
         case la @ LeftApply(_, _, _, _) =>
           loop(la.rewrite, bound, acc)
-        case Literal(_) => acc
+        case Literal(_)               => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -280,12 +280,12 @@ sealed abstract class Declaration {
           }
         case Matches(a, _) =>
           loop(a, bound, acc)
-        case Parens(p) => loop(p, bound, acc)
+        case Parens(p)        => loop(p, bound, acc)
         case TupleCons(items) =>
           items.foldLeft(acc)((acc0, d) => loop(d, bound, acc0))
         case Var(name: Bindable) if !bound(name) => acc + name
         case Var(_)                              => acc
-        case StringDecl(items) =>
+        case StringDecl(items)                   =>
           items.foldLeft(acc) {
             case (acc, StringDecl.StrExpr(nb))  => loop(nb, bound, acc)
             case (acc, StringDecl.CharExpr(nb)) => loop(nb, bound, acc)
@@ -351,7 +351,7 @@ sealed abstract class Declaration {
     def loop(decl: Declaration, acc: SortedSet[Bindable]): SortedSet[Bindable] =
       decl match {
         case Annotation(term, _) => loop(term, acc)
-        case Apply(fn, args, _) =>
+        case Apply(fn, args, _)  =>
           (fn :: args).foldLeft(acc)((acc0, d) => loop(d, acc0))
         case ApplyOp(left, op, right) =>
           val acc0 = loop(left, acc)
@@ -383,7 +383,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val acc1 = acc ++ args.patternNames
           loop(body, acc1)
-        case Literal(_) => acc
+        case Literal(_)               => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -391,12 +391,12 @@ sealed abstract class Declaration {
           }
         case Matches(a, p) =>
           loop(a, acc ++ p.names)
-        case Parens(p) => loop(p, acc)
+        case Parens(p)        => loop(p, acc)
         case TupleCons(items) =>
           items.foldLeft(acc)((acc0, d) => loop(d, acc0))
         case Var(name: Bindable) => acc + name
         case Var(_)              => acc
-        case StringDecl(nel) =>
+        case StringDecl(nel)     =>
           nel.foldLeft(acc) {
             case (acc0, StringDecl.StrExpr(decl))  => loop(decl, acc0)
             case (acc0, StringDecl.CharExpr(decl)) => loop(decl, acc0)
@@ -567,7 +567,7 @@ object Declaration {
           if (pnames.exists(masks)) None
           else if (pnames.exists(shadows)) Some(decl)
           else loopDec(body).map(Lambda(args, _)(decl.region))
-        case l @ Literal(_) => Some(l)
+        case l @ Literal(_)       => Some(l)
         case Match(k, arg, cases) =>
           val caseRes =
             cases
@@ -592,7 +592,7 @@ object Declaration {
         case Var(name: Bindable) if name === ident =>
           // here is the substition
           Some(ex.replaceRegionsNB(decl.region))
-        case Var(_) => Some(decl)
+        case Var(_)          => Some(decl)
         case StringDecl(nel) =>
           nel
             .traverse {
@@ -716,7 +716,7 @@ object Declaration {
     def replaceRegionsNB(r: Region): NonBinding =
       this match {
         case Annotation(term, t) => Annotation(term.replaceRegionsNB(r), t)(r)
-        case Apply(fn, args, s) =>
+        case Apply(fn, args, s)  =>
           Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
         case ApplyOp(left, op, right) =>
           ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
@@ -737,7 +737,7 @@ object Declaration {
           )
         case Lambda(args, body) =>
           Lambda(args, body.replaceRegions(r))(r)
-        case Literal(lit) => Literal(lit)(r)
+        case Literal(lit)              => Literal(lit)(r)
         case Match(rec, arg, branches) =>
           Match(
             rec,
@@ -748,14 +748,14 @@ object Declaration {
           )(r)
         case Matches(a, p) =>
           Matches(a.replaceRegionsNB(r), p)(r)
-        case Parens(p) => Parens(p.replaceRegions(r))(r)
+        case Parens(p)        => Parens(p.replaceRegions(r))(r)
         case TupleCons(items) =>
           TupleCons(items.map(_.replaceRegionsNB(r)))(r)
-        case Var(b) => Var(b)(r)
+        case Var(b)          => Var(b)(r)
         case StringDecl(nel) =>
           val ne1 = nel.map {
             case StringDecl.Literal(_, s) => StringDecl.Literal(r, s)
-            case StringDecl.CharExpr(e) =>
+            case StringDecl.CharExpr(e)   =>
               StringDecl.CharExpr(e.replaceRegionsNB(r))
             case StringDecl.StrExpr(e) =>
               StringDecl.StrExpr(e.replaceRegionsNB(r))
@@ -787,7 +787,7 @@ object Declaration {
           )(r)
         case RecordConstructor(c, args) =>
           val args1 = args.map {
-            case RecordArg.Simple(b) => RecordArg.Simple(b)
+            case RecordArg.Simple(b)  => RecordArg.Simple(b)
             case RecordArg.Pair(k, v) =>
               RecordArg.Pair(k, v.replaceRegionsNB(r))
           }
@@ -993,11 +993,11 @@ object Declaration {
         ps.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
-      case Parens(p: NonBinding) => toPattern(p)
+      case Parens(p: NonBinding)         => toPattern(p)
       case RecordConstructor(cons, args) =>
         args
           .traverse {
-            case RecordArg.Simple(b) => Some(Left(b))
+            case RecordArg.Simple(b)  => Some(Left(b))
             case RecordArg.Pair(k, v) =>
               toPattern(v).map { vpat =>
                 Right((k, vpat))
@@ -1082,7 +1082,7 @@ object Declaration {
       .map { case (region, (ifcase, (optElses, elseBody))) =>
         val elses =
           optElses match {
-            case None => Nil
+            case None    => Nil
             case Some(s) =>
               s.toList // type inference works better than fold sadly
           }
@@ -1481,7 +1481,7 @@ object Declaration {
 
           def convert(form: Operators.Formula[NonBinding]): NonBinding =
             form match {
-              case Operators.Formula.Sym(r) => r
+              case Operators.Formula.Sym(r)              => r
               case Operators.Formula.Op(left, op, right) =>
                 val leftD = convert(left)
                 val rightD = convert(right)

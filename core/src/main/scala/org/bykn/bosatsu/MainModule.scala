@@ -142,7 +142,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         ): IO[(PackageName, Option[Bindable])] =
           ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
             case Some(p) => moduleIOMonad.pure((p, None))
-            case None =>
+            case None    =>
               moduleIOMonad.raiseError(
                 new Exception(
                   s"could not find file $mainFile in parsed sources"
@@ -222,7 +222,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           srcs.read.flatMap { ins =>
             NonEmptyList.fromList(ins) match {
               case Some(nel) => moduleIOMonad.pure(nel)
-              case None =>
+              case None      =>
                 moduleIOMonad.raiseError(MainException.NoInputs(cmd))
             }
           }
@@ -464,7 +464,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       private def ioJson(io: IO[String]): IO[Json] =
         io.flatMap { jsonString =>
           Json.parserFile.parseAll(jsonString) match {
-            case Right(j) => moduleIOMonad.pure(j)
+            case Right(j)  => moduleIOMonad.pure(j)
             case Left(err) =>
               val idx = err.failedAtOffset
               showError("could not parse a JSON record", jsonString, idx)
@@ -481,7 +481,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               val path = j.path.init
               val badType = j.path.last
               val pathMsg = path match {
-                case Nil => Doc.empty
+                case Nil  => Doc.empty
                 case nonE =>
                   val sep =
                     Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
@@ -509,7 +509,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 inject: G[Json] => Json
             ): IO[Output.JsonOutput[Path]] =
               v2j.valueFnToJsonFn(res.tpe) match {
-                case Left(unsup) => unsupported(unsup)
+                case Left(unsup)           => unsupported(unsup)
                 case Right((arity, fnGen)) =>
                   fnGen(res.value.value) match {
                     case Right(fn) =>
@@ -552,7 +552,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               case JsonMode.Write =>
                 v2j.toJson(res.tpe) match {
                   case Left(unsup) => unsupported(unsup)
-                  case Right(fn) =>
+                  case Right(fn)   =>
                     fn(res.value.value) match {
                       case Left(valueError) =>
                         moduleIOMonad.raiseError(
@@ -574,7 +574,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                   in.read,
                   {
                     case Json.JArray(items) => moduleIOMonad.pure(items)
-                    case other =>
+                    case other              =>
                       moduleIOMonad.raiseError(
                         new Exception(
                           s"require an array or arrays for traverse, found: ${other.getClass}"
@@ -738,7 +738,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         color: Colorize
     ): F[A] =
       v match {
-        case Validated.Valid(a) => moduleIOMonad.pure(a)
+        case Validated.Valid(a)      => moduleIOMonad.pure(a)
         case Validated.Invalid(errs) =>
           moduleIOMonad.raiseError(MainException.ParseErrors(errs, color))
       }
@@ -991,7 +991,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
-          case None => moduleIOMonad.unit
+          case None            => moduleIOMonad.unit
           case Some(ifacePath) =>
             val ifs = packList.map(Package.interfaceOf(_))
             writeInterfaces(ifs, ifacePath)
@@ -1164,7 +1164,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   def reportException(ex: Throwable): IO[ExitCode] =
     ex match {
       case ce: CliException => ce.report(platformIO)
-      case _ =>
+      case _                =>
         platformIO.errorln("unknown error:\n") *>
           platformIO
             .errorln(stackTraceToString(ex))

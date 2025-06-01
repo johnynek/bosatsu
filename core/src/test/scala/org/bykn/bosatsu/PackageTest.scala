@@ -31,7 +31,7 @@ class PackageTest extends AnyFunSuite with ParTest {
 
   def invalid[B](v: Validated[NonEmptyList[PackageError], B]) =
     v match {
-      case Validated.Valid(err) => fail(err.toString)
+      case Validated.Valid(err)   => fail(err.toString)
       case Validated.Invalid(err) =>
         err.toList.foreach(_.message(Map.empty, LocationMap.Colorize.None))
         succeed

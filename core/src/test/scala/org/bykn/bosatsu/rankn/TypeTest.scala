@@ -19,7 +19,7 @@ class TypeTest extends AnyFunSuite {
 
   def parse(s: String): Type =
     Type.fullyResolvedParser.parseAll(s) match {
-      case Right(t) => t
+      case Right(t)  => t
       case Left(err) =>
         sys.error(
           s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err"
@@ -658,7 +658,7 @@ class TypeTest extends AnyFunSuite {
           }
         case _ =>
           expect match {
-            case None => succeed
+            case None        => succeed
             case Some(exTpe) =>
               fail(s"$fn is not SimpleUniversal but expected: $exTpe")
           }

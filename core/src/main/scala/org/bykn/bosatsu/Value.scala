@@ -240,7 +240,7 @@ object Value {
 
     def unapply(v: Value): Option[List[Value]] =
       v match {
-        case VNil => Some(Nil)
+        case VNil             => Some(Nil)
         case Cons(head, rest) =>
           unapply(rest).map(head :: _)
         case _ => None

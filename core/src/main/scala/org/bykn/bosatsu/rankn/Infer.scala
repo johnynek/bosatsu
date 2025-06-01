@@ -404,7 +404,7 @@ object Infer {
       GetEnv.mapEither { env =>
         env.typeCons.get(fqn) match {
           case Some(res) => Right(res)
-          case None =>
+          case None      =>
             Left(Error.UnknownConstructor(fqn, reg, env))
         }
       }
@@ -451,7 +451,7 @@ object Infer {
     ): Infer[Variance] =
       k match {
         case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
-        case Kind.Type =>
+        case Kind.Type                    =>
           fail(Error.KindCannotTyApply(ta, region))
       }
 
@@ -1029,7 +1029,7 @@ object Infer {
             unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2     => unit
-        case (Type.TyVar(b @ Type.Var.Bound(_)), _) =>
+        case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
           fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
@@ -1119,7 +1119,7 @@ object Infer {
         fn: (A, NonEmptyList[Type.Var.Skolem]) => A
     ): Infer[A] =
       skols match {
-        case Nil => pure(a)
+        case Nil            => pure(a)
         case nel @ (h :: t) =>
           envTpes
             .flatMap(tail => getFreeTyVars(declared :: tail))
@@ -1145,7 +1145,7 @@ object Infer {
         fn: (A, NonEmptyList[Type.TyMeta]) => Infer[A]
     ): Infer[A] =
       metas match {
-        case Nil => pure(a)
+        case Nil            => pure(a)
         case nel @ (h :: t) =>
           envTpes
             .flatMap(tail => getExistentialMetas(declared :: tail))
@@ -1966,7 +1966,7 @@ object Infer {
           gteq: (B, B) => M[Boolean]
       ): M[B] =
         tail match {
-          case Nil => Monad[M].pure(head)
+          case Nil       => Monad[M].pure(head)
           case h :: tail =>
             gteq(head, h)
               .flatMap { keep =>
@@ -2065,7 +2065,7 @@ object Infer {
         reg: Region
     ): Infer[(Pattern, List[(Bindable, Type)])] = {
       pat match {
-        case GenPattern.WildCard => Infer.pure((pat, Nil))
+        case GenPattern.WildCard     => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
           val tpe = Type.getTypeOf(lit)
           val check = sigma match {
@@ -2367,7 +2367,7 @@ object Infer {
     ): Infer[TypedExpr[A]] = {
       def unifySelf(tpe: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
-          case None => getEnv
+          case None             => getEnv
           case Some((nm, m, r)) =>
             (unify(tpe, m, region(e), r) *> getEnv).map { envTys =>
               // we have to remove the recursive binding from the environment
@@ -2559,7 +2559,7 @@ object Infer {
       skols: List[Type.Var.Skolem]
   ): TypedExpr.Coerce =
     NonEmptyList.fromList(skols) match {
-      case None => FunctionK.id[TypedExpr]
+      case None        => FunctionK.id[TypedExpr]
       case Some(skols) =>
         new FunctionK[TypedExpr, TypedExpr] {
           def apply[A](te: TypedExpr[A]) = {
@@ -2596,7 +2596,7 @@ object Infer {
     }
 
     optSkols match {
-      case None => run(t)
+      case None          => run(t)
       case Some(replace) =>
         for {
           mt <- replace
@@ -2647,7 +2647,7 @@ object Infer {
         groups: List[G]
     ): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
       groups match {
-        case Nil => Infer.pure(Nil)
+        case Nil           => Infer.pure(Nil)
         case group :: tail =>
           for {
             groupChain <- group.parTraverse { case (name, rec, expr) =>
@@ -2684,7 +2684,7 @@ object Infer {
           .sortBy { case (_, (_, region)) => region }
           .parTraverse_ { case (_, (t, region)) =>
             env.getKind(t, region) match {
-              case Right(Kind.Type) => unit
+              case Right(Kind.Type)              => unit
               case Right(cons @ Kind.Cons(_, _)) =>
                 fail(Error.KindExpectedType(t, cons, region))
               case Left(err) => fail(err)

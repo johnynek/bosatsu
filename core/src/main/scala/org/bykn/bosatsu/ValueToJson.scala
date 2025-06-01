@@ -44,16 +44,16 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Type.DictT(Type.StrType, inner) => loop(inner, t :: working)
         case Type.ForAll(_, _)               => bad
         case Type.TyVar(_) | Type.TyMeta(_)  => bad
-        case Type.Tuple(ts) =>
+        case Type.Tuple(ts)                  =>
           val w1 = t :: working
           ts.traverse_(loop(_, w1))
         case consOrApply =>
           val w1 = consOrApply :: working
           Type.rootConst(consOrApply) match {
-            case None => bad
+            case None                      => bad
             case Some(Type.TyConst(const)) =>
               getDefinedType(const) match {
-                case None => bad
+                case None     => bad
                 case Some(dt) =>
                   val cons = dt.constructors
                   val (_, targs) = Type.unapplyAll(consOrApply)
@@ -103,7 +103,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       // is safe to call .right.get
       successCache.get(tpe) match {
         case Some(fn) => fn
-        case None =>
+        case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
               case ExternalValue(v: BigInteger) =>
@@ -146,13 +146,13 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
                 case VOption(None)    => Right(Json.JNull)
                 case VOption(Some(a)) => inner(a)
-                case other =>
+                case other            =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
               else
                 {
 
-                  case VOption(None) => Right(Json.JArray(Vector.empty))
+                  case VOption(None)    => Right(Json.JArray(Vector.empty))
                   case VOption(Some(a)) =>
                     inner(a).map(j => Json.JArray(Vector(j)))
                   case other =>
@@ -222,7 +222,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case Some(Type.TyConst(const)) =>
                     getDefinedType(const) match {
                       case Some(dt) => Right(dt)
-                      case None =>
+                      case None     =>
                         Left(
                           UnsupportedType(NonEmptyList(tpe, revPath).reverse)
                         )
@@ -338,7 +338,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       successCache.get(tpe) match {
         case Some(res) => res
-        case None =>
+        case None      =>
           val res: Eval[Json => Either[IllTypedJson, Value]] =
             Eval.later(tpe match {
               case Type.IntType => {
@@ -456,7 +456,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case Some(Type.TyConst(const)) =>
                       getDefinedType(const) match {
                         case Some(dt) => Right(dt)
-                        case None =>
+                        case None     =>
                           Left(
                             UnsupportedType(NonEmptyList(tpe, revPath).reverse)
                           )

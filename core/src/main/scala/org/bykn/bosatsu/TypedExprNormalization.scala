@@ -517,7 +517,7 @@ object TypedExprNormalization {
     ): Boolean =
       names.forall { b =>
         (scope.getLocal(b), scope1.getLocal(b)) match {
-          case (None, None) => true
+          case (None, None)                             => true
           case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
             (r1 == r2) &&
             (t1.void == t2.void) &&
@@ -676,7 +676,7 @@ object TypedExprNormalization {
     def evaluate[A](te: TypedExpr[A], scope: Scope[A]): Option[EvalResult[A]] =
       te match {
         case Literal(lit, _, _) => Some(EvalResult.Constant(lit))
-        case Local(b, _, _) =>
+        case Local(b, _, _)     =>
           scope.getLocal(b).flatMap {
             case (RecursionKind.NonRecursive, t, s) =>
               // local values may have free values defined in
@@ -782,7 +782,7 @@ object TypedExprNormalization {
                 case Pattern.PositionalStruct(_, pats) =>
                   Some((Nil, pats))
                 case Pattern.WildCard => Some((Nil, args.as(Pattern.WildCard)))
-                case Pattern.Var(n) =>
+                case Pattern.Var(n)   =>
                   Some((n :: Nil, args.as(Pattern.WildCard)))
                 case _ =>
                   None
@@ -817,7 +817,7 @@ object TypedExprNormalization {
                       ]
                   ): TypedExpr[A] =
                     argPat match {
-                      case Nil => r
+                      case Nil            => r
                       case (a, p) :: tail =>
                         val tr = matchAll(tail)
                         p match {
@@ -855,10 +855,10 @@ object TypedExprNormalization {
               case Pattern.Named(v, p) =>
                 makeLet(p).map((v, li) :: _)
               case Pattern.WildCard => Some(Nil)
-              case Pattern.Var(v) =>
+              case Pattern.Var(v)   =>
                 Some((v, li) :: Nil)
               case Pattern.Annotation(p, _) => makeLet(p)
-              case Pattern.Literal(litj) =>
+              case Pattern.Literal(litj)    =>
                 if (li == litj) Some(Nil)
                 else None
               case Pattern.Union(h, t) =>
