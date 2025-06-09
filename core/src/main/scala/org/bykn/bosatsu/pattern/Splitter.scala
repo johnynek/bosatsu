@@ -109,7 +109,7 @@ object Splitter {
             acc: List[V]
         ): LazyList[(List[V], V, R, List[V])] =
           tail match {
-            case Nil => LazyList.empty
+            case Nil    => LazyList.empty
             case h :: t =>
               matchFn(h) match {
                 case None    => loop(t, h :: acc)
@@ -124,7 +124,7 @@ object Splitter {
     final def anySplits(str: List[V]): LazyList[(List[V], V, R, List[V])] = {
       def loop(str: List[V], acc: List[V]): LazyList[(List[V], V, R, List[V])] =
         str match {
-          case Nil => LazyList.empty
+          case Nil    => LazyList.empty
           case h :: t =>
             (acc.reverse, h, monoidResult.empty, t) #:: loop(t, h :: acc)
         }

@@ -56,7 +56,7 @@ object PythonGen {
         def current: Code.Ident =
           stack match {
             case h :: _ => h
-            case Nil =>
+            case Nil    =>
               sys.error(
                 s"invariant violation: $binding, count = $count has no bindings."
               )
@@ -71,7 +71,7 @@ object PythonGen {
         def pop: BindState =
           stack match {
             case _ :: tail => copy(stack = tail)
-            case Nil =>
+            case Nil       =>
               sys.error(
                 s"invariant violation: $binding, count = $count has no bindings to pop"
               )
@@ -134,7 +134,7 @@ object PythonGen {
         def addImport(mod: Module): (EnvState, Code.Ident) =
           imports.get(mod) match {
             case Some(alias) => (this, alias)
-            case None =>
+            case None        =>
               val impNumber = imports.size
               val alias = Code.Ident(
                 Idents.escape("___i", mod.last.name + impNumber.toString)
@@ -233,7 +233,7 @@ object PythonGen {
           case Nil =>
             val res = fn(args.reverse)
             NonEmptyList.fromList(setup) match {
-              case None => res
+              case None      => res
               case Some(nel) =>
                 val stmts = nel.reverse
                 val stmt = Code.block(stmts.head, stmts.tail: _*)
@@ -343,7 +343,7 @@ object PythonGen {
         elseS: Statement
     ): Env[Statement] =
       cond match {
-        case x: Expression => Env.pure(Code.ifElseS(x, thenS, elseS))
+        case x: Expression       => Env.pure(Code.ifElseS(x, thenS, elseS))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
         case ife @ IfElse(ifs, elseCond) if ife.returnsBool =>
@@ -618,7 +618,7 @@ object PythonGen {
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] = {
       (p, b) =>
         externals.get((p, b)) match {
-          case None => Env.pure(None)
+          case None         => Env.pure(None)
           case Some((m, i)) =>
             Env
               .importLiteral(m)
@@ -986,7 +986,7 @@ object PythonGen {
               { input =>
                 Env.onLast(input.head) {
                   case Code.PyInt(i) => Code.PyString(i.toString)
-                  case i =>
+                  case i             =>
                     Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
                 }
               },
@@ -1226,7 +1226,7 @@ object PythonGen {
             else
               natF.flatMap(Env.onLast(_)(_ :> 0))
 
-          case TrueConst => Env.pure(Code.Const.True)
+          case TrueConst     => Env.pure(Code.Const.True)
           case And(ix1, ix2) =>
             (boolExpr(ix1, slotName), boolExpr(ix2, slotName))
               .flatMapN(Env.andCode(_, _))
@@ -1763,7 +1763,7 @@ object PythonGen {
             remap(p, n)
               .flatMap {
                 case Some(v) => Env.pure(v)
-                case None =>
+                case None    =>
                   if (p == packName) {
                     // This is just a name in the local package
                     Env.topLevelName(n)
@@ -1773,9 +1773,9 @@ object PythonGen {
                       .mapN(Code.DotSelect(_, _))
                   }
               }
-          case Local(b)        => Env.deref(b)
-          case LocalAnon(a)    => Env.nameForAnon(a)
-          case LocalAnonMut(m) => Env.nameForAnon(m)
+          case Local(b)         => Env.deref(b)
+          case LocalAnon(a)     => Env.nameForAnon(a)
+          case LocalAnonMut(m)  => Env.nameForAnon(m)
           case ClosureSlot(idx) =>
             slotName match {
               case Some(ident) => Env.pure(ident.get(idx))
@@ -1838,7 +1838,7 @@ object PythonGen {
             // we could delete this name, but
             // there is no need to
             loop(in, slotName)
-          case Literal(lit) => Env.pure(Code.litToExpr(lit))
+          case Literal(lit)         => Env.pure(Code.litToExpr(lit))
           case ifExpr @ If(_, _, _) =>
             val (ifs, last) = ifExpr.flatten
 

@@ -77,7 +77,7 @@ object SeqPart {
             setOpsA
               .difference(c1, c2)
               .map(toPart1(_))
-          case (_, AnyElem) => Nil
+          case (_, AnyElem)       => Nil
           case (AnyElem, Lit(a2)) =>
             if (setOpsA.isTop(a2)) Nil
             else anyDiff(a2)

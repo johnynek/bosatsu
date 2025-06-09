@@ -334,7 +334,7 @@ object Version {
               }
             case Some(xvalue) =>
               y match {
-                case None => -1
+                case None         => -1
                 case Some(yvalue) =>
                   ord.compare(xvalue, yvalue)
               }
@@ -405,7 +405,7 @@ object Version {
           case JString(str) =>
             parser.parseAll(str) match {
               case right @ Right(_) => right.leftCast
-              case Left(value) =>
+              case Left(value)      =>
                 Left((show"couldn't parse semver: $value", j, path))
             }
           case notStr =>

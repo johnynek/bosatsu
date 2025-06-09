@@ -39,7 +39,7 @@ object UnusedLetCheck {
     e match {
       case Annotation(expr, _, _) =>
         loop(expr)
-      case Generic(_, in) => loop(in)
+      case Generic(_, in)        => loop(in)
       case Lambda(args, expr, _) =>
         args.toList.foldRight(loop(expr)) { (arg, res) =>
           checkArg(arg._1, HasRegion.region(e), res)
@@ -66,7 +66,7 @@ object UnusedLetCheck {
         // this is a free variable:
         ap.pure(Set(name))
       case Global(_, _, _) | Literal(_, _) => empty
-      case App(fn, args, _) =>
+      case App(fn, args, _)                =>
         (loop(fn), args.traverse(loop(_))).mapN(_ ++ _.reduce)
       case Match(arg, branches, _) =>
         val argCheck = loop(arg)

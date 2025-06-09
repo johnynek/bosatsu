@@ -162,7 +162,7 @@ class MatchlessTest extends AnyFunSuite {
             elseX: Matchless.Expr[A]
         ): Matchless.If[A] =
           ifs.tail match {
-            case Nil => Matchless.If(ifs.head._1, ifs.head._2, elseX)
+            case Nil          => Matchless.If(ifs.head._1, ifs.head._2, elseX)
             case head :: next =>
               val end = unflatten(NonEmptyList(head, next), elseX)
               Matchless.If(ifs.head._1, ifs.head._2, end)

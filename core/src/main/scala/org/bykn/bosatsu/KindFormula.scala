@@ -271,7 +271,7 @@ object KindFormula {
           Ior.Right(st)
         } else {
           solveKind((imports, acc), dt) match {
-            case Validated.Valid(good) => Ior.Right((good :: acc, failed))
+            case Validated.Valid(good)   => Ior.Right((good :: acc, failed))
             case Validated.Invalid(errs) =>
               Ior.Both(errs, (acc, failed + dt.toTypeTyConst))
           }
@@ -288,7 +288,7 @@ object KindFormula {
     (for {
       state <- Impl.newState(imports, dt)
       dtFormula <- dt.zipWithIndex.traverse {
-        case (Left(ks), _) => state.shapeToArg(Direction.PhantomUp, ks)
+        case (Left(ks), _)    => state.shapeToArg(Direction.PhantomUp, ks)
         case (Right(ka), idx) =>
           state.kindArgToArg(ka) { ka =>
             Constraint.DeclaredParam(idx, ka)
@@ -397,7 +397,7 @@ object KindFormula {
         // excluding the existing variances
         def allVariances(lst: List[Long]): LazyList[LongMap[Variance]] =
           lst match {
-            case Nil => LongMap.empty[Variance] #:: LazyList.empty
+            case Nil       => LongMap.empty[Variance] #:: LazyList.empty
             case h :: tail =>
               val hvs = varsFor(h)
               val tails = allVariances(tail)
@@ -430,7 +430,7 @@ object KindFormula {
 
         NonEmptyLazyList.fromLazyList(validVariances) match {
           case Some(nel) => Validated.valid(nel)
-          case None =>
+          case None      =>
             Validated.invalidNec(
               Error.Unsatisfiable(dt, cons, existing, subgraph)
             )
@@ -523,7 +523,7 @@ object KindFormula {
           ks: KnownShape
       ): RefSpace[KindFormula] =
         ks match {
-          case Shape.Type => RefSpace.pure(Type)
+          case Shape.Type            => RefSpace.pure(Type)
           case Shape.KnownCons(a, b) =>
             (shapeToArg(dir.reverse, a), shapeToFormula(dir, b))
               .mapN(Cons(_, _))
@@ -553,7 +553,7 @@ object KindFormula {
           kind: Kind
       )(fn: Kind.Arg => Constraint): RefSpace[KindFormula] =
         kind match {
-          case Kind.Type => RefSpace.pure(Type)
+          case Kind.Type        => RefSpace.pure(Type)
           case Kind.Cons(ka, b) =>
             for {
               a1 <- kindArgToArg(ka)(fn)
@@ -601,7 +601,7 @@ object KindFormula {
           right: KindFormula
       ): RefSpace[Unit] =
         (left, right) match {
-          case (a, b) if a == b => RefSpace.unit
+          case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             val vs = if (vl != vr) {
               addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
@@ -682,7 +682,7 @@ object KindFormula {
               constFormulas.get.flatMap { consts =>
                 consts.get(c) match {
                   case Some(kf) => RefSpace.pure(kf)
-                  case None =>
+                  case None     =>
                     val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
                       case Some(thisDt) => thisDt.kindOf
                       case None         =>
@@ -716,8 +716,8 @@ object KindFormula {
             }
           case rankn.Type.TyVar(b @ rankn.Type.Var.Bound(_)) =>
             kinds.get(b) match {
-              case Some(BoundState.IsArg(a))     => RefSpace.pure(a.kind)
-              case Some(BoundState.IsFormula(f)) => RefSpace.pure(f)
+              case Some(BoundState.IsArg(a))         => RefSpace.pure(a.kind)
+              case Some(BoundState.IsFormula(f))     => RefSpace.pure(f)
               case Some(BoundState.IsKind(k, fa, b)) =>
                 kindToFormula(k)(
                   Constraint.DeclaredType(cfn, idx, fa, b, _)

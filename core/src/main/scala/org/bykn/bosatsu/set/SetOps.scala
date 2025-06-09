@@ -63,7 +63,7 @@ trait SetOps[A] extends Relatable[A] {
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
     def clearSubs(branches: List[A], front: List[A]): List[A] =
       branches match {
-        case Nil => Nil
+        case Nil       => Nil
         case h :: tail =>
           if (
             tail.exists(relate(h, _).isSubtype) || front.exists(
@@ -111,7 +111,7 @@ trait SetOps[A] extends Relatable[A] {
   private def unreachableBranches(init: List[A], branches: List[A]): List[A] = {
     def withPrev(bs: List[A], prev: List[A]): List[(A, List[A])] =
       bs match {
-        case Nil => Nil
+        case Nil       => Nil
         case h :: tail =>
           (h, prev.reverse) :: withPrev(tail, h :: prev)
       }
@@ -151,7 +151,7 @@ object SetOps {
   )(fn: (A, List[B]) => A): A =
     diffs match {
       case Nil => union
-      case _ =>
+      case _   =>
         val peek = diffs.take(lookahead)
         val trials = SetOps.allPerms(peek).map { peeks =>
           val u1 = fn(union, peeks)
@@ -189,7 +189,7 @@ object SetOps {
 
         def nub(u: List[A]): List[A] =
           u match {
-            case Nil | _ :: Nil => u
+            case Nil | _ :: Nil         => u
             case h1 :: (t1 @ (h2 :: _)) =>
               if (ordA.equiv(h1, h2)) nub(t1)
               else h1 :: nub(t1)

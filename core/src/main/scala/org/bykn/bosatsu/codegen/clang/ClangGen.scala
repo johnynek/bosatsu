@@ -433,7 +433,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
-          case TrueConst => pv(Code.TrueLit)
+          case TrueConst               => pv(Code.TrueLit)
           case LetBool(name, argV, in) =>
             handleLet(name, argV, boolToValue(in))
           case LetMutBool(LocalAnonMut(m), span) =>
@@ -1027,10 +1027,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn: FnExpr[K] => innerFn(fn)
+          case fn: FnExpr[K]       => innerFn(fn)
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
-          case app @ App(_, _) => innerApp(app)
+          case app @ App(_, _)       => innerApp(app)
           case Global(k, pack, name) =>
             directFn(k, pack, name)
               .flatMap {
@@ -1056,8 +1056,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case ClosureSlot(idx) =>
             // we must be inside a closure function, so we should have a slots argument to access
             pv(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
-          case LocalAnon(ident)    => getAnon(ident).widen
-          case LocalAnonMut(ident) => getAnon(ident).widen
+          case LocalAnon(ident)              => getAnon(ident).widen
+          case LocalAnonMut(ident)           => getAnon(ident).widen
           case LetMut(LocalAnonMut(m), span) =>
             bindAnon(m) {
               for {
@@ -1066,7 +1066,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 res <- innerToValue(span)
               } yield decl +: res
             }
-          case Literal(lit) => literal(lit)
+          case Literal(lit)                 => literal(lit)
           case If(cond, thenExpr, elseExpr) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>
@@ -1192,7 +1192,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
-              case None => body
+              case None      => body
               case Some(rec) =>
                 recursiveName(
                   fnName,
@@ -1724,7 +1724,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             StateT { s =>
               s.identCache.get(key) match {
                 case Some(ident) => result(s, ident)
-                case None =>
+                case None        =>
                   for {
                     s1Ident <- value.run(s)
                     (s1, ident) = s1Ident

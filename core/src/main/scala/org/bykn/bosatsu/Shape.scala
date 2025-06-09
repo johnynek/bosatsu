@@ -49,12 +49,12 @@ object Shape {
     s match {
       case Type           => Doc.char('*')
       case Cons(Type, s2) => Doc.text("* -> ") + shapeDoc(s2)
-      case Cons(s1, s2) =>
+      case Cons(s1, s2)   =>
         Doc.char('(') + shapeDoc(s1) + Doc.char(')') + Doc.text(
           " -> "
         ) + shapeDoc(s2)
       case KnownCons(Type, s2) => Doc.text("* -> ") + shapeDoc(s2)
-      case KnownCons(s1, s2) =>
+      case KnownCons(s1, s2)   =>
         Doc.char('(') + shapeDoc(s1) + Doc.char(')') + Doc.text(
           " -> "
         ) + shapeDoc(s2)
@@ -112,7 +112,7 @@ object Shape {
 
   def shapeOf(k: Kind): KnownShape =
     k match {
-      case Kind.Type => Type
+      case Kind.Type                    => Type
       case Kind.Cons(Kind.Arg(_, a), b) =>
         KnownCons(shapeOf(a), shapeOf(b))
     }
@@ -239,7 +239,7 @@ object Shape {
           t,
           t match {
             case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
-            case rankn.Type.TyConst(const) =>
+            case rankn.Type.TyConst(const)                     =>
               if (const == dt.toTypeConst) Some(thisShape)
               else IsShapeEnv[E].getShape(imports, const)
             case _ =>
@@ -270,7 +270,7 @@ object Shape {
           checked: Set[Shape]
       ): RefSpace[Option[KnownShape]] =
         s match {
-          case h :: tail if checked(h) => maybeKnown(tail, checked)
+          case h :: tail if checked(h)     => maybeKnown(tail, checked)
           case (cons @ Cons(a, s)) :: tail =>
             val c1 = checked + cons
             (maybeKnownShape(a, c1), maybeKnownShape(s, c1))
@@ -283,7 +283,7 @@ object Shape {
             ref.get.flatMap {
               case UnknownState.Free =>
                 RefSpace.pure(Some(Type))
-              case UnknownState.Fixed(f) => RefSpace.pure(Some(f))
+              case UnknownState.Fixed(f)   => RefSpace.pure(Some(f))
               case UnknownState.Linked(ls) =>
                 maybeKnown(ls.toList ::: rest, checked + u)
             }
@@ -402,12 +402,12 @@ object Shape {
               s2 match {
                 case Type                         => pureUnit
                 case Cons(_, _) | KnownCons(_, _) => error
-                case u @ Unknown(_, _) =>
+                case u @ Unknown(_, _)            =>
                   unifyKnown(Type, u, visited)
               }
             case kc @ KnownCons(a, b) =>
               s2 match {
-                case Type => error
+                case Type       => error
                 case Cons(c, d) =>
                   unifyCons(a, b, c, d, visited)
                 case KnownCons(c, d) =>
@@ -417,7 +417,7 @@ object Shape {
               }
             case c @ Cons(a, b) =>
               s2 match {
-                case Type => error
+                case Type       => error
                 case Cons(c, d) =>
                   unifyCons(a, b, c, d, visited)
                 case KnownCons(c, d) =>

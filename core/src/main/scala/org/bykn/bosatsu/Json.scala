@@ -135,10 +135,10 @@ object Json {
     new Eq[Json] {
       def eqv(a: Json, b: Json) =
         (a, b) match {
-          case (JNull, JNull)             => true
-          case (JBool.True, JBool.True)   => true
-          case (JBool.False, JBool.False) => true
-          case (JString(sa), JString(sb)) => sa == sb
+          case (JNull, JNull)                   => true
+          case (JBool.True, JBool.True)         => true
+          case (JBool.False, JBool.False)       => true
+          case (JString(sa), JString(sb))       => sa == sb
           case (JNumberStr(sa), JNumberStr(sb)) =>
             new BigDecimal(sa).compareTo(new BigDecimal(sb)) == 0
           case (JArray(itemsa), JArray(itemsb)) =>
@@ -230,7 +230,7 @@ object Json {
           @annotation.tailrec
           def loop(p: Path, rhs: List[String]): String =
             p match {
-              case Root => rhs.mkString("/", "", "")
+              case Root           => rhs.mkString("/", "", "")
               case Index(of, idx) =>
                 loop(of, s"[$idx]" :: rhs)
               case Key(of, key) =>
@@ -293,7 +293,7 @@ object Json {
           key: String
       ): Either[(String, Json, Path), Option[A]] =
         j.getOrNull(key) match {
-          case JNull => Right(None)
+          case JNull   => Right(None)
           case notNull =>
             val p1 = path.key(key)
             Reader[A].read(p1, notNull).map(Some(_))
@@ -343,7 +343,7 @@ object Json {
             case JString(str) =>
               p0.parseAll(str) match {
                 case Right(value) => Right(value)
-                case Left(value) =>
+                case Left(value)  =>
                   Left((show"string parser error: $value", j, path))
               }
             case _ => Left((s"expected to find $describe", j, path))

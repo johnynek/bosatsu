@@ -173,7 +173,7 @@ object PackageResolver {
   ) extends PackageResolver[IO, Path] {
     def pathFor(name: PackageName)(io: PlatformIO[IO, Path]): IO[Option[Path]] =
       optResolvePath match {
-        case None => io.moduleIOMonad.pure(Option.empty[Path])
+        case None              => io.moduleIOMonad.pure(Option.empty[Path])
         case Some(resolvePath) =>
           import io.moduleIOMonad
 
@@ -183,7 +183,7 @@ object PackageResolver {
                 io.moduleIOMonad.pure(Right[List[Path], Option[Path]](None))
               case phead :: ptail =>
                 resolvePath(phead, name).map {
-                  case None => Left[List[Path], Option[Path]](ptail)
+                  case None           => Left[List[Path], Option[Path]](ptail)
                   case some @ Some(_) =>
                     Right[List[Path], Option[Path]](some)
                 }

@@ -104,7 +104,7 @@ class TreeTest extends AnyFunSuite {
       val nel0 = NonEmptyList(h0, tail0)
       // filter all items in nel1 that are in nel0
       NonEmptyList.fromList(l1.filterNot(nel0.toList.toSet)) match {
-        case None => succeed
+        case None        => succeed
         case Some(diffs) =>
           val got =
             Tree.distinctBy(nel0)(identity) ::: Tree.distinctBy(diffs)(identity)

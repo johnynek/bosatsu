@@ -73,7 +73,7 @@ object GenJson {
           case JNumberStr(_)            => Stream.empty
           case JNull                    => Stream.empty
           case JBool.True | JBool.False => Stream.empty
-          case JArray(js) =>
+          case JArray(js)               =>
             (0 until js.size).toStream.map { sz =>
               JArray(js.take(sz))
             }

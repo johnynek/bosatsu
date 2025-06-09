@@ -104,7 +104,7 @@ class PathModuleTest extends AnyFunSuite {
 
   def run(args: String*): Output[Path] =
     PathModule.run(args.toList) match {
-      case Left(h) => fail(s"got help: $h on command: ${args.toList}")
+      case Left(h)   => fail(s"got help: $h on command: ${args.toList}")
       case Right(io) =>
         io.attempt
           .flatMap {
@@ -217,7 +217,7 @@ class PathModuleTest extends AnyFunSuite {
   test("error coverage on json command") {
     def fails(str: String, suffix: String*) =
       PathModule.run(str.split("\\s+").toList ::: suffix.toList) match {
-        case Left(h) => fail(s"got help: $h, expected a non-help command")
+        case Left(h)   => fail(s"got help: $h, expected a non-help command")
         case Right(io) =>
           Try(io.unsafeRunSync()) match {
             case Success(s) => fail(s"got Success($s) expected to fail")

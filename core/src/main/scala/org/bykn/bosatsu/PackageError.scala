@@ -596,7 +596,7 @@ object PackageError {
       }
 
       val finalDoc = tpeErr match {
-        case s: Infer.Error.Single => singleToDoc(s)
+        case s: Infer.Error.Single         => singleToDoc(s)
         case c @ Infer.Error.Combine(_, _) =>
           val twoLines = Doc.hardLine + Doc.hardLine
           c.flatten.iterator

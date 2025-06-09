@@ -375,7 +375,7 @@ else:
 
   def runAll(op: Code.Expression): Option[Code.PyInt] =
     op match {
-      case pi @ Code.PyInt(_) => Some(pi)
+      case pi @ Code.PyInt(_)                   => Some(pi)
       case Code.Op(left, op: Code.IntOp, right) =>
         for {
           l <- runAll(left)

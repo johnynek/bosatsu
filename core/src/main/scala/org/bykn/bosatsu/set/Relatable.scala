@@ -132,16 +132,16 @@ object Relatable {
       case Same =>
         ac match { // a=b, so b|c = a|c, so a <= b|c
           case Sub => Right(Sub) // (a=b) then b|c = a|c, which == a, if c == a.
-          case Same  => Right(Same) // a = b = c
-          case Super => Right(Same) // (a=b), a > c. So, b|c = a|c = a
+          case Same       => Right(Same) // a = b = c
+          case Super      => Right(Same) // (a=b), a > c. So, b|c = a|c = a
           case Intersects =>
             Right(Sub) // a=b, a n c. b|c = a|c which is bigger than a
           case Disjoint => Right(Sub) // a=b, so b|c = a|c
         }
       case Super =>
         ac match {
-          case Sub  => Right(Sub) // a < c, so a < (b|c)
-          case Same => Right(Same) // a = c, a > b. b|c = b|a, and a > b
+          case Sub   => Right(Sub) // a < c, so a < (b|c)
+          case Same  => Right(Same) // a = c, a > b. b|c = b|a, and a > b
           case Super =>
             Left(SuperSame) // if a > b, a > c, then a > (b|c) or a = (b|c)
           case Intersects =>
@@ -200,8 +200,8 @@ object Relatable {
 
     private def subIntersectsCase(ab: A, a1: A, a2: A): Rel =
       unionRelCompare1(ab, a1, a2)(relatable) match {
-        case Right(Sub)  => Intersects
-        case Right(Same) => Sub
+        case Right(Sub)          => Intersects
+        case Right(Same)         => Sub
         case Left(SubIntersects) =>
           Intersects // we know a <:> b is < or n, so a&b <:> a is < implies this
         case Left(SuperSame) => Sub

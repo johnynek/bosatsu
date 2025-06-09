@@ -168,7 +168,7 @@ class ParserTest extends ParserTestBase {
       try {
         Parser.unescape(str1) match {
           case Right(str2) => assert(str2 == str)
-          case Left(idx) =>
+          case Left(idx)   =>
             fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
         }
       } catch {
@@ -444,7 +444,7 @@ class ParserTest extends ParserTestBase {
       val str =
         ls match {
           case h :: Nil => s"($h,$pad)"
-          case _ =>
+          case _        =>
             ls.mkString("(", "," + pad, ")")
         }
       parseTestAll(
@@ -1011,7 +1011,7 @@ x"""
       (Declaration.toPattern(dec), parsePat) match {
         case (None, None)         => succeed
         case (Some(p0), Some(p1)) => assert(p0 == p1)
-        case (None, Some(_)) =>
+        case (None, Some(_))      =>
           fail(s"toPattern failed, but parsed $decStr to: $parsePat")
         case (Some(p), None) =>
           fail(s"toPattern succeeded: $p but pattern parse failed")

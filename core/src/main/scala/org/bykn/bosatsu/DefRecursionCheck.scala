@@ -136,7 +136,7 @@ object DefRecursionCheck {
     sealed abstract class State {
       final def outerDefNames: Set[Bindable] =
         this match {
-          case TopLevel => Set.empty
+          case TopLevel        => Set.empty
           case ids: InDefState =>
             val InDef(outer, n, _, _) = ids.inDef
             outer.outerDefNames + n
@@ -145,7 +145,7 @@ object DefRecursionCheck {
       @annotation.tailrec
       final def defNamesContain(n: Bindable): Boolean =
         this match {
-          case TopLevel => false
+          case TopLevel        => false
           case ids: InDefState =>
             val InDef(outer, dn, _, _) = ids.inDef
             (dn == n) || outer.defNamesContain(n)
@@ -379,7 +379,7 @@ object DefRecursionCheck {
         groups: NonEmptyList[NonEmptyList[Declaration]]
     ): Option[(Bindable, NonEmptyList[NonEmptyList[Declaration]])] =
       fn match {
-        case Declaration.Var(nm: Bindable) => Some((nm, groups))
+        case Declaration.Var(nm: Bindable)   => Some((nm, groups))
         case Declaration.Apply(fn1, args, _) =>
           argsOnDefName(fn1, args :: groups)
         case _ => None
@@ -483,7 +483,7 @@ object DefRecursionCheck {
     def checkDecl(decl: Declaration): St[Unit] = {
       import Declaration._
       decl match {
-        case Annotation(t, _) => checkDecl(t)
+        case Annotation(t, _)   => checkDecl(t)
         case Apply(fn, args, _) =>
           checkApply(fn, args, decl.region)
         case ApplyOp(left, op, right) =>

@@ -36,11 +36,11 @@ object Command {
         .orNone
         .map {
           case Some(value) => moduleIOMonad.pure(value)
-          case None =>
+          case None        =>
             platformIO.gitTopLevel
               .flatMap {
                 case Some(value) => moduleIOMonad.pure(value)
-                case None =>
+                case None        =>
                   moduleIOMonad.raiseError(
                     CliException
                       .Basic("could not find .git directory in parents.")
@@ -52,13 +52,13 @@ object Command {
 
     def readJson[A: Json.Reader](path: P, onEmpty: => F[A]): F[A] =
       platformIO.fsDataType(path).flatMap {
-        case None => onEmpty
+        case None                             => onEmpty
         case Some(PlatformIO.FSDataType.File) =>
           platformIO
             .parseUtf8(path, Json.parserFile)
             .flatMap { json =>
               Json.Reader[A].read(Json.Path.Root, json) match {
-                case Right(a) => moduleIOMonad.pure(a)
+                case Right(a)          => moduleIOMonad.pure(a)
                 case Left((msg, j, p)) =>
                   moduleIOMonad.raiseError[A](
                     CliException.Basic(show"$msg: from json = $j at $p")
@@ -117,7 +117,7 @@ object Command {
                 lib0 <- readLibs(path)
                 relDir <- platformIO.relativize(gitRoot, rootDir) match {
                   case Some(value) => moduleIOMonad.pure(value)
-                  case None =>
+                  case None        =>
                     moduleIOMonad.raiseError(
                       CliException.Basic(
                         show"$rootDir is not a subdir of $gitRoot"
@@ -270,7 +270,7 @@ object Command {
             )
             .flatMap {
               case Some(a) => DecodedLibrary.decode(a)
-              case None =>
+              case None    =>
                 moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
                   CliException(
                     "previous not in cas",
@@ -385,10 +385,10 @@ object Command {
               .fold(Version.zero)(Version.fromProto(_))
             allDeps.get((dep.name, version)) match {
               case Some(lib) => moduleIOMonad.pure(lib)
-              case None =>
+              case None      =>
                 cas.libFromCas(dep).flatMap {
                   case Some(lib) => moduleIOMonad.pure(lib)
-                  case None =>
+                  case None      =>
                     moduleIOMonad
                       .raiseError[Hashed[Algo.Blake3, proto.Library]](
                         CliException(
@@ -484,7 +484,7 @@ object Command {
               conf <- readLibConf(name, confPath)
               outPath <- optOut match {
                 case Some(p) => moduleIOMonad.pure(p)
-                case None =>
+                case None    =>
                   platformIO.pathF(libraryFileName(name, conf.nextVersion))
               }
               prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
@@ -562,7 +562,7 @@ object Command {
                 fcc.flatMap { cc =>
                   cc.conf.defaultMain match {
                     case Some(m) => moduleIOMonad.pure(m)
-                    case None =>
+                    case None    =>
                       moduleIOMonad.raiseError(
                         CliException(
                           "no main defined",
@@ -672,7 +672,7 @@ object Command {
             // and mutate those
             confOuts = allLibs.values.iterator.map { case (hashedLib, _, cc) =>
               val uris = uriBaseOpt match {
-                case None => Nil
+                case None          => Nil
                 case Some(uriBase) =>
                   val uriBase1 =
                     if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
@@ -856,7 +856,7 @@ object Command {
         platformIO
           .fileExists(path)
           .flatMap {
-            case true => Monad[F].pure(Right(false)).widen[DownloadRes]
+            case true  => Monad[F].pure(Right(false)).widen[DownloadRes]
             case false =>
               {
                 // We need to download
@@ -958,7 +958,7 @@ object Command {
                 msg match {
                   case Right(true)  => Doc.text(show"fetched $ident")
                   case Right(false) => Doc.text(show"cached $ident")
-                  case Left(err) =>
+                  case Left(err)    =>
                     Doc.text(show"failed: $ident ${err.getMessage}")
                 }
               }

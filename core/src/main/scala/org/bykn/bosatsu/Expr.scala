@@ -84,11 +84,11 @@ sealed abstract class Expr[T] {
       case Local(_, _)         => Set.empty
       case g @ Global(_, _, _) => Set.empty + g
       case Lambda(_, res, _)   => res.globals
-      case App(fn, args, _) =>
+      case App(fn, args, _)    =>
         fn.globals | args.reduceMap(_.globals)
       case Let(_, argE, in, _, _) =>
         argE.globals | in.globals
-      case Literal(_, _) => Set.empty
+      case Literal(_, _)           => Set.empty
       case Match(arg, branches, _) =>
         arg.globals | branches.reduceMap { case (_, b) => b.globals }
     }
@@ -169,7 +169,7 @@ object Expr {
       in: Expr[T]
   ): Expr[T] =
     binds match {
-      case Nil => in
+      case Nil                  => in
       case (b, r, e, t) :: tail =>
         val res = lets(tail, in)
         Let(b, e, res, r, t)
@@ -178,7 +178,7 @@ object Expr {
   object Annotated {
     def unapply[A](expr: Expr[A]): Option[Type] =
       expr match {
-        case Annotation(_, tpe, _) => Some(tpe)
+        case Annotation(_, tpe, _)           => Some(tpe)
         case Lambda(args, Annotated(res), _) =>
           args
             .traverse { case (_, ot) => ot }
@@ -187,7 +187,7 @@ object Expr {
             }
         case Literal(lit, _)               => Some(Type.getTypeOf(lit))
         case Let(_, _, Annotated(t), _, _) => Some(t)
-        case Match(_, branches, _) =>
+        case Match(_, branches, _)         =>
           branches
             .traverse { case (_, expr) => unapply(expr) }
             .flatMap { allAnnotated =>
@@ -201,7 +201,7 @@ object Expr {
 
   def forAll[A](tpeArgs: List[(Type.Var.Bound, Kind)], expr: Expr[A]): Expr[A] =
     NonEmptyList.fromList(tpeArgs) match {
-      case None => expr
+      case None      => expr
       case Some(nel) =>
         expr match {
           case Annotation(expr, tpe, tag) =>
@@ -228,12 +228,12 @@ object Expr {
       case Local(name, _)      => SortedSet(name)
       case Generic(_, in)      => allNames(in)
       case Global(_, _, _)     => SortedSet.empty
-      case App(fn, args, _) =>
+      case App(fn, args, _)    =>
         args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
       case Lambda(args, e, _) => allNames(e) ++ args.toList.iterator.map(_._1)
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _)            => SortedSet.empty
-      case Match(exp, branches, _) =>
+      case Match(exp, branches, _)  =>
         allNames(exp) | branches.foldMap { case (pat, res) =>
           allNames(res) ++ pat.names
         }
@@ -279,7 +279,7 @@ object Expr {
     expr match {
       case Annotation(e, tpe, a) =>
         (traverseType(e, bound)(fn), fn(tpe, bound)).mapN(Annotation(_, _, a))
-      case v: Name[T] => F.pure(v)
+      case v: Name[T]      => F.pure(v)
       case App(f, args, t) =>
         (traverseType(f, bound)(fn), args.traverse(traverseType(_, bound)(fn)))
           .mapN(App(_, _, t))
@@ -298,7 +298,7 @@ object Expr {
       case Let(arg, exp, in, rec, tag) =>
         (traverseType(exp, bound)(fn), traverseType(in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
-      case l @ Literal(_, _) => F.pure(l)
+      case l @ Literal(_, _)         => F.pure(l)
       case Match(arg, branches, tag) =>
         val argB = traverseType(arg, bound)(fn)
         type B = (Pattern[(PackageName, Constructor), Type], Expr[T])
@@ -409,7 +409,7 @@ object Expr {
     val bindArgsWithP = args.map(patToArg)
     val justArgs = bindArgsWithP.map(_._1)
     val lambdaResult = bindArgsWithP.toList.foldRight(body) {
-      case (((_, _), None), body) => body
+      case (((_, _), None), body)              => body
       case (((name, _), Some(matchPat)), body) =>
         Match(Local(name, outer), NonEmptyList.of((matchPat, body)), outer)
     }

@@ -22,7 +22,7 @@ class JsonJawnTest extends AnyFunSuite {
       case JNull            => assert(j2.isNull); ()
       case JBool.True       => assert(j2.asBoolean); ()
       case JBool.False      => assert(!j2.asBoolean); ()
-      case JArray(js) =>
+      case JArray(js)       =>
         js.zipWithIndex.foreach { case (j, idx) =>
           matches(j, j2.get(idx))
         }

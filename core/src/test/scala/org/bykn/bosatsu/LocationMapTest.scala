@@ -58,7 +58,7 @@ class LocationMapTest extends AnyFunSuite {
             assert(offset < 0 || offset > s.length)
           case Some((row, col)) =>
             lm.getLine(row) match {
-              case None => assert(offset == s.length)
+              case None       => assert(offset == s.length)
               case Some(line) =>
                 assert(line.length >= col)
                 if (line.length == col)

@@ -80,7 +80,7 @@ case class PackageMap[A, B, C, +D](
 
     def nfn(p: PackageName): List[PackageName] =
       toMap.get(p) match {
-        case None => Nil
+        case None       => Nil
         case Some(pack) =>
           val tpack = ev(pack)
           tpack.imports.map(_.pack.name).sorted
@@ -186,7 +186,7 @@ object PackageMap {
     ]] =
       map.toMap.get(i.pack) match {
         case Some(pack) => Validated.valid(Import(Right(pack), i.items))
-        case None =>
+        case None       =>
           interfaceMap.get(i.pack) match {
             case Some(iface) =>
               Validated.valid(Import(Left(iface), i.items))
@@ -374,14 +374,14 @@ object PackageMap {
     // combine the import errors now:
     val check: Ior[NonEmptyList[PackageError], Unit] =
       errs match {
-        case Nil => Ior.right(())
+        case Nil       => Ior.right(())
         case h :: tail =>
           Ior.left(NonEmptyList(h, tail))
       }
     // keep all the errors
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
       NonEmptyMap.fromMap(nonUnique) match {
-        case None => Ior.right(())
+        case None       => Ior.right(())
         case Some(nenu) =>
           val paths = nenu.map { case ((a, _), rest) =>
             (a.show, rest.map(_._1.show))

@@ -84,7 +84,7 @@ case class LibConfig(
 
     val matchesPrev =
       (previous, this.previous) match {
-        case (None, None) => Validated.unit
+        case (None, None)            => Validated.unit
         case (Some(dec), Some(desc)) =>
           val decV = dec.protoLib.version
           val expectedV = desc.version.map(Version.fromProto(_))
@@ -449,7 +449,7 @@ case class LibConfig(
     }
 
     val thisHistory = previous match {
-      case None => proto.LibHistory()
+      case None      => proto.LibHistory()
       case Some(dec) =>
         val desc = proto.LibDescriptor(
           version = Some(dec.version.toProto),
@@ -663,7 +663,7 @@ object LibConfig {
 
     def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
       vnec match {
-        case Validated.Valid(a) => Success(a)
+        case Validated.Valid(a)      => Success(a)
         case Validated.Invalid(errs) =>
           val stderr = errorsToDoc(errs)
           Failure(CliException(show"library errors: ${errs}", err = stderr))
@@ -692,7 +692,7 @@ object LibConfig {
     def fromString(str: String): Either[String, PackageFilter] =
       PackageName.parse(str) match {
         case Some(value) => Right(Name(value))
-        case None =>
+        case None        =>
           try Right(Regex(Pattern.compile(str)))
           catch {
             case pse: PatternSyntaxException =>
@@ -761,7 +761,7 @@ object LibConfig {
               deps.find(dep => dep.desc.flatMap(_.parsedVersion) === Some(v))
             selectedDep match {
               case Some(dep) => Validated.valid(dep)
-              case None =>
+              case None      =>
                 sys.error(
                   s"invariant violation: selected a version that isn't there: $deps"
                 )

@@ -69,7 +69,7 @@ object NTypeGen {
   def genRootType(genC: Option[Gen[Type.Const]]): Gen[Type.Leaf] = {
     val b = genBound.map(Type.TyVar(_))
     genC match {
-      case None => b
+      case None     => b
       case Some(gc) =>
         Gen.oneOf(gc.map(Type.TyConst(_)), b)
     }
@@ -94,7 +94,7 @@ object NTypeGen {
   implicit val shrinkKind: Shrink[Kind] = {
     def shrink(k: Kind): Stream[Kind] =
       k match {
-        case Kind.Type => Stream.empty
+        case Kind.Type                    => Stream.empty
         case Kind.Cons(Kind.Arg(_, a), b) =>
           a #:: b #:: Stream.empty
       }
@@ -110,7 +110,7 @@ object NTypeGen {
           shrink(in).map(Type.forAll(items.tail, _))
         case Exists(items, in) =>
           shrink(in).map(Type.exists(items.tail, _))
-        case _: Leaf => Stream.empty
+        case _: Leaf          => Stream.empty
         case TyApply(on, arg) =>
           on #:: arg #:: shrink(on).collect { case r: Type.Rho =>
             TyApply(r, arg)

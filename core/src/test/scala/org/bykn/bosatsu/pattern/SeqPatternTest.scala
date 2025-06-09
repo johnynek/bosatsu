@@ -53,7 +53,7 @@ object StringSeqPatternGen {
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Int]] =
     Shrink {
-      case Empty => Empty #:: Stream.empty
+      case Empty            => Empty #:: Stream.empty
       case Cat(Wildcard, t) =>
         (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
       case Cat(_, t) =>
@@ -106,7 +106,7 @@ object StringSeqPatternGen {
 
   implicit val shrinkNamedSeqPattern: Shrink[NamedSeqPattern[Int]] =
     Shrink {
-      case NamedSeqPattern.NEmpty => Stream.Empty
+      case NamedSeqPattern.NEmpty     => Stream.Empty
       case NamedSeqPattern.Bind(n, p) =>
         val sp = shrinkNamedSeqPattern.shrink(p)
         val binded = sp.map(NamedSeqPattern.Bind(n, _))
@@ -428,7 +428,7 @@ class BoolSeqPatternTest
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
     Shrink {
-      case Empty => Empty #:: Stream.empty
+      case Empty            => Empty #:: Stream.empty
       case Cat(Wildcard, t) =>
         (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
       case Cat(AnyElem, t) =>
@@ -570,7 +570,7 @@ class BoolSeqPatternTest
       val max = 7
       val p1 = Pattern.fromList(p10.toList.take(max))
       enumerate(p1) match {
-        case None => ()
+        case None     => ()
         case Some(ms) =>
           val p2 = Pattern.fromList(p20.toList.take(max))
           val diff = setOps.difference(p1, p2)
@@ -602,7 +602,7 @@ class BoolSeqPatternTest
       val max = 6
       val p = Pattern.fromList(p0.toList.take(max))
       enumerate(p) match {
-        case None => ()
+        case None     => ()
         case Some(ms) =>
           assert(ms.nonEmpty)
           val mslist = ms.toList

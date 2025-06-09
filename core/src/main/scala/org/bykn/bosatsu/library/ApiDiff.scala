@@ -241,8 +241,8 @@ object ApiDiff {
         .align(current)
         .transform { (pack, ior) =>
           ior match {
-            case Ior.Left(es)  => RemovedPackage(pack, es) :: Nil
-            case Ior.Right(es) => AddedPackage(pack, es) :: Nil
+            case Ior.Left(es)         => RemovedPackage(pack, es) :: Nil
+            case Ior.Right(es)        => AddedPackage(pack, es) :: Nil
             case Ior.Both(oldE, newE) =>
               apply(pack, oldE, prevEnv, newE, curEnv)
           }
@@ -434,7 +434,7 @@ object ApiDiff {
 
                 (typesOf(oldExp), typesOf(newExp)) match {
                   case (oldDt :: Nil, newDt :: Nil) => diffDT(oldDt, newDt)
-                  case diff =>
+                  case diff                         =>
                     sys.error(
                       s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff"
                     )

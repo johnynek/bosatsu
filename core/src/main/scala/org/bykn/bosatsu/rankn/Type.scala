@@ -39,15 +39,15 @@ object Type {
           (a, b) match {
             case (TyConst(a), TyConst(b)) =>
               Ordering[Const].compare(a, b)
-            case (TyConst(_), _) => -1
+            case (TyConst(_), _)        => -1
             case (TyVar(v0), TyVar(v1)) =>
               Ordering[Var].compare(v0, v1)
-            case (TyVar(_), TyConst(_)) => 1
-            case (TyVar(_), _)          => -1
+            case (TyVar(_), TyConst(_))   => 1
+            case (TyVar(_), _)            => -1
             case (TyMeta(m0), TyMeta(m1)) =>
               Meta.orderingMeta.compare(m0, m1)
-            case (TyMeta(_), TyApply(_, _)) => -1
-            case (TyMeta(_), _)             => 1
+            case (TyMeta(_), TyApply(_, _))         => -1
+            case (TyMeta(_), _)                     => 1
             case (TyApply(a0, b0), TyApply(a1, b1)) =>
               val c = Type.typeOrder.compare(a0, a1)
               if (c == 0) Type.typeOrder.compare(b0, b1) else c
@@ -172,11 +172,11 @@ object Type {
 
         def compare(a: Quantification, b: Quantification): Int =
           (a, b) match {
-            case (ForAll(v0), ForAll(v1)) => nelist.compare(v0, v1)
-            case (ForAll(_), _)           => -1
-            case (Exists(_), ForAll(_))   => 1
-            case (Exists(v0), Exists(v1)) => nelist.compare(v0, v1)
-            case (Exists(_), _)           => -1
+            case (ForAll(v0), ForAll(v1))         => nelist.compare(v0, v1)
+            case (ForAll(_), _)                   => -1
+            case (Exists(_), ForAll(_))           => 1
+            case (Exists(v0), Exists(v1))         => nelist.compare(v0, v1)
+            case (Exists(_), _)                   => -1
             case (Dual(fa0, ex0), Dual(fa1, ex1)) =>
               val c1 = nelist.compare(fa0, fa1)
               if (c1 != 0) c1
@@ -194,7 +194,7 @@ object Type {
           NonEmptyList.fromList(existList).map(Exists(_))
         case head :: tail =>
           Some(existList match {
-            case Nil => ForAll(NonEmptyList(head, tail))
+            case Nil      => ForAll(NonEmptyList(head, tail))
             case eh :: et =>
               Dual(NonEmptyList(head, tail), NonEmptyList(eh, et))
           })
@@ -248,7 +248,7 @@ object Type {
         (a, b) match {
           case (arho: Rho, brho: Rho) =>
             Rho.orderRho.compare(arho, brho)
-          case (_: Rho, _) => -1
+          case (_: Rho, _)                      => -1
           case (aq: Quantified, bq: Quantified) =>
             Quantified.quantifiedOrder.compare(aq, bq)
           case (_: Quantified, _) => 1
@@ -272,7 +272,7 @@ object Type {
 
   def applyAll(fn: Type, args: List[Type]): Type =
     fn match {
-      case rho: Rho => applyAllRho(rho, args)
+      case rho: Rho           => applyAllRho(rho, args)
       case Quantified(q, rho) =>
         val freeBound = freeBoundTyVars(fn :: args)
         if (freeBound.isEmpty) {
@@ -322,10 +322,10 @@ object Type {
   object ForAll {
     def unapply(t: Type): Option[(NonEmptyList[(Type.Var.Bound, Kind)], Type)] =
       t match {
-        case _: Rho => None
+        case _: Rho        => None
         case q: Quantified =>
           q.quant match {
-            case Quantification.ForAll(vars) => Some((vars, q.in))
+            case Quantification.ForAll(vars)             => Some((vars, q.in))
             case Quantification.Dual(foralls, existsNel) =>
               Some((foralls, exists(existsNel, q.in)))
             case _ => None
@@ -336,10 +336,10 @@ object Type {
   object Exists {
     def unapply(t: Type): Option[(NonEmptyList[(Type.Var.Bound, Kind)], Type)] =
       t match {
-        case _: Rho => None
+        case _: Rho        => None
         case q: Quantified =>
           q.quant match {
-            case Quantification.Exists(vars) => Some((vars, q.in))
+            case Quantification.Exists(vars)             => Some((vars, q.in))
             case Quantification.Dual(foralls, existsNel) =>
               Some((existsNel, forAll(foralls, q.in)))
             case _ => None
@@ -369,7 +369,7 @@ object Type {
         case TyVar(b: Var.Bound) => bound(b)
         case _: Leaf             => true
         case TyApply(on, arg)    => loop(on, bound) && loop(arg, bound)
-        case q: Quantified =>
+        case q: Quantified       =>
           loop(q.in, bound ++ q.vars.iterator.map(_._1))
       }
 
@@ -520,7 +520,7 @@ object Type {
           }
         case m @ TyMeta(_)  => m
         case c @ TyConst(_) => c
-        case q: Quantified =>
+        case q: Quantified  =>
           val boundSet = q.vars.iterator.map(_._1).toSet[Type.Var]
           val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
           val subin = substituteVar(q.in, env1)
@@ -721,7 +721,7 @@ object Type {
           else go(rest, bound, tv :: acc)
         case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
-        case (q: Quantified) :: rest =>
+        case (q: Quantified) :: rest                    =>
           val acc1 =
             cheat(q.in :: Nil, bound ++ q.vars.toList.iterator.map(_._1), acc)
           // note, q.vars ARE NOT bound in rest
@@ -836,7 +836,7 @@ object Type {
         case Type.TyVar(Type.Var.Skolem(_, kind, _, _)) => Right(kind)
         case Type.TyMeta(Type.Meta(kind, _, _, _))      => Right(kind)
         case tc @ Type.TyConst(_)                       => cons(tc)
-        case ap @ Type.TyApply(left, right) =>
+        case ap @ Type.TyApply(left, right)             =>
           rec((left, locals))
             .product(rec((right, locals)))
             .flatMap { case (leftKind, rhs) =>
@@ -1250,7 +1250,7 @@ object Type {
     @annotation.tailrec
     def loop(tpes: List[Type], acc: Set[Type.Var.Bound]): Set[Type.Var.Bound] =
       tpes match {
-        case Nil => acc
+        case Nil                     => acc
         case (q: Quantified) :: rest =>
           loop(rest, acc ++ q.vars.iterator.map(_._1))
         case Type.TyApply(arg, res) :: rest =>
@@ -1303,7 +1303,7 @@ object Type {
       t: Type
   )(m: Meta => F[Option[Type.Rho]]): F[Type] =
     t match {
-      case rho: Rho => zonkRhoMeta(rho)(m).widen
+      case rho: Rho      => zonkRhoMeta(rho)(m).widen
       case q: Quantified =>
         zonkRhoMeta(q.in)(m).map { tpe =>
           quantify(q.quant, tpe)
@@ -1423,7 +1423,7 @@ object Type {
         a: Type
     ): Option[(List[(String, Option[Kind])], Type)] =
       a match {
-        case _: Rho => None
+        case _: Rho        => None
         case q: Quantified =>
           q.quant match {
             case Quantification.ForAll(vs) =>
@@ -1452,7 +1452,7 @@ object Type {
         a: Type
     ): Option[(List[(String, Option[Kind])], Type)] =
       a match {
-        case _: Rho => None
+        case _: Rho        => None
         case q: Quantified =>
           q.quant match {
             case Quantification.Exists(vs) =>
