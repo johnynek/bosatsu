@@ -20,8 +20,9 @@ object FfiCall {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
-      FnValue { case NonEmptyList(e1, e2 :: _) =>
-        fn(e1, e2)
+      FnValue {
+        case NonEmptyList(e1, e2 :: _) => fn(e1, e2)
+        case badShape => sys.error(s"expected two arguments, found: $badShape")
       }
 
     def call(t: rankn.Type): Value = evalFn
@@ -30,8 +31,10 @@ object FfiCall {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
-      FnValue { case NonEmptyList(e1, e2 :: e3 :: _) =>
-        fn(e1, e2, e3)
+      FnValue {
+        case NonEmptyList(e1, e2 :: e3 :: _) => fn(e1, e2, e3)
+        case badShape                        =>
+          sys.error(s"expected three arguments, found: $badShape")
       }
 
     def call(t: rankn.Type): Value = evalFn

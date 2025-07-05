@@ -303,18 +303,16 @@ object Value {
       }
 
     val strOrdFn: FnValue =
-      FnValue { case NonEmptyList(tup1, tup2 :: Nil) =>
-        (tup1, tup2) match {
-          case (
-                Tuple(ExternalValue(k1: String) :: _),
-                Tuple(ExternalValue(k2: String) :: _)
-              ) =>
-            Comparison.fromInt(k1.compareTo(k2))
-          case _ =>
-            // $COVERAGE-OFF$
-            sys.error(s"ill-typed in String Dict order: $tup1, $tup2")
-          // $COVERAGE-ON$
-        }
+      FnValue {
+        case NonEmptyList(
+              Tuple(ExternalValue(k1: String) :: _),
+              Tuple(ExternalValue(k2: String) :: _) :: _
+            ) =>
+          Comparison.fromInt(k1.compareTo(k2))
+        case badShape =>
+          // $COVERAGE-OFF$
+          sys.error(s"ill-typed in String Dict order: $badShape")
+        // $COVERAGE-ON$
       }
 
     def fromStringKeys(kvs: List[(String, Value)]): Value = {
