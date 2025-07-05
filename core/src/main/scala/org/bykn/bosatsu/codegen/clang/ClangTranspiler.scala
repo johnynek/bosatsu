@@ -340,54 +340,61 @@ case object ClangTranspiler extends Transpiler {
     NonEmptyList.fromList(ns.topoSort.loopNodes) match {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
       case None       =>
-        val doc = args.mode match {
-          case Mode.Main(fp) =>
-            fp.flatMap { p =>
-              (ns.mainValues(validMain(_).isRight).get(p) match {
-                case Some((b, t)) =>
-                  validMain(t) match {
-                    case Right(mainRun) =>
-                      val ns1 = args.emit(ns, Set((p, b)))
-                      val clangGen = new ClangGen(ns1)
-                      moduleIOMonad.pure(clangGen.renderMain(p, b, mainRun))
-                    case Left(invalid) =>
-                      moduleIOMonad.raiseError[Either[ClangGen.Error, Doc]](
-                        InvalidMainValue(p, invalid)
+        val docAndEffect: F[Either[ClangGen.Error, (Doc, F[Unit])]] =
+          args.mode match {
+            case Mode.Main(fp) =>
+              fp.flatMap { p =>
+                (ns.mainValues(validMain(_).isRight).get(p) match {
+                  case Some((b, t)) =>
+                    validMain(t) match {
+                      case Right(mainRun) =>
+                        val ns1 = args.emit(ns, Set((p, b)))
+                        val clangGen = new ClangGen(ns1)
+                        moduleIOMonad.pure(
+                          clangGen
+                            .renderMain(p, b, mainRun)
+                            .map((_, moduleIOMonad.unit))
+                        )
+                      case Left(invalid) =>
+                        moduleIOMonad
+                          .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
+                            InvalidMainValue(p, invalid)
+                          )
+                    }
+                  case None =>
+                    moduleIOMonad
+                      .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
+                        InvalidMainValue(p, "empty package")
                       )
-                  }
-                case None =>
-                  moduleIOMonad.raiseError[Either[ClangGen.Error, Doc]](
-                    InvalidMainValue(p, "empty package")
-                  )
-              })
-            }
-          case test @ Mode.Test(_, re, execute) =>
-            val tvs = test.values(ns)
-            (if (tvs.isEmpty) {
-               moduleIOMonad.raiseError(
-                 NoTestsFound(ns.rootPackages.toList, re)
-               )
-             } else {
-               val ns1 = args.emit(ns, tvs.toSet)
-               val clangGen = new ClangGen(ns1)
-               val r = clangGen.renderTests(values = tvs.toList.sorted)
+                })
+              }
+            case test @ Mode.Test(_, re, execute) =>
+              val tvs = test.values(ns)
+              (if (tvs.isEmpty) {
+                 moduleIOMonad.raiseError(
+                   NoTestsFound(ns.rootPackages.toList, re)
+                 )
+               } else {
+                 val ns1 = args.emit(ns, tvs.toSet)
+                 val clangGen = new ClangGen(ns1)
+                 val r = clangGen.renderTests(values = tvs.toList.sorted)
 
-               val exeIO = args.output match {
-                 case Output(_, Some((exeName, _))) if execute =>
-                   val exePath = args.platformIO.resolve(args.outDir, exeName)
-                   args.platformIO.system(
-                     args.platformIO.showPath.show(exePath),
-                     Nil
-                   )
-                 case _ =>
-                   moduleIOMonad.unit
-               }
+                 val exeIO = args.output match {
+                   case Output(_, Some((exeName, _))) if execute =>
+                     val exePath = args.platformIO.resolve(args.outDir, exeName)
+                     args.platformIO.system(
+                       args.platformIO.showPath.show(exePath),
+                       Nil
+                     )
+                   case _ =>
+                     moduleIOMonad.unit
+                 }
 
-               exeIO.as(r)
-             })
-        }
+                 moduleIOMonad.pure(r.map((_, exeIO)))
+               })
+          }
 
-        doc.flatMap {
+        docAndEffect.flatMap {
           case Left(err) =>
             moduleIOMonad.raiseError(
               CliException(
@@ -396,7 +403,7 @@ case object ClangTranspiler extends Transpiler {
               )
             )
 
-          case Right(doc) =>
+          case Right((doc, effect)) =>
             val outputName = resolve(args.outDir, args.output.cOut)
             val externalHeaders =
               if (args.generateExternals.generate) {
@@ -419,6 +426,8 @@ case object ClangTranspiler extends Transpiler {
                   _ <- ccConf.compile(outputName, resolve(args.outDir, exe))(
                     args.platformIO
                   )
+                  _ <-
+                    effect // now that we have compiled, we can run the effect
                 } yield externalHeaders
             }
         }
