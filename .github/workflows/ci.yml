@@ -159,6 +159,10 @@ jobs:
         run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe"
       - name: "run generated c code"
         run: ./c_out/test_exe
+      - name: "run lib test"
+        run: |
+          mkdir c_out_lib
+          ./bosatsuj lib test --outdir c_out_lib
     timeout-minutes: 30
 name: ci
 on:
