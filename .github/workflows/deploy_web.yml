@@ -16,10 +16,10 @@ jobs:
       BOSATSU_CI: "true"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: "actions/checkout@v2"
-      - uses: "coursier/cache-action@v2"
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v6"
       - name: "java 11 setup"
-        uses: "olafurpg/setup-scala@v13"
+        uses: "olafurpg/setup-scala@v14"
         with:
           java-version: "11"
       - name: "build app"
