@@ -5,7 +5,7 @@ object Dependencies {
   lazy val blake3 = Def.setting("pt.kcry" %%% "blake3" % "3.1.2")
   lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.13.0")
   lazy val catsEffect =
-    Def.setting("org.typelevel" %%% "cats-effect" % "3.6.1")
+    Def.setting("org.typelevel" %%% "cats-effect" % "3.6.2")
   lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "1.1.0")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.5.0")
   lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.25.0")
