@@ -201,12 +201,12 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
 
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.18" % "provided"
+        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.19" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.18"),
+    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.19"),
     scalacOptions += "-P:acyclic:force"
   ).dependsOn(base, proto)
     .jsSettings(
