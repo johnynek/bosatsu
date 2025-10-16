@@ -19,9 +19,9 @@ object Dependencies {
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.32")
   lazy val http4sEmber =
     Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.32")
-  lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.1.1")
+  lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.2.1")
   lazy val munitScalaCheck =
-    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.1.0")
+    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.2.0")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.19.0")
