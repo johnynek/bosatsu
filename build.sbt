@@ -1,7 +1,7 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
 
-lazy val versionString = "2.13.16"
+lazy val versionString = "2.13.17"
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
