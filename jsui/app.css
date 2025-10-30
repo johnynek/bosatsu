@@ -1,0 +1,45 @@
+/* --- your existing styles (moved out of <style>) --- */
+.grid-container {
+  display: grid;
+  grid-template-columns: 60% 40%;      /* 60/40 split */
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "code-title out-title"
+    "code       out";
+  gap: 10px;
+}
+
+textarea.codein {
+  width: 100%;
+  height: 50em;
+}
+
+textarea.short {
+  width: 100%;
+  height: 10em;
+}
+
+.grid-item {
+  padding: 10px;
+  border: 1px solid #ccc;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+/* map items to grid areas (use these classes in your Scala view) */
+.above-code { grid-area: code-title; }
+.above-out  { grid-area: out-title;  }
+.code-col   { grid-area: code;       }
+.out-col    { grid-area: out;        }
+
+/* Optional: responsiveness */
+@media (max-width: 800px) {
+  .grid-container {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "code-title"
+      "code"
+      "out-title"
+      "out";
+  }
+}

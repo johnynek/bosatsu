@@ -9,10 +9,10 @@ trait View { dsl: Dsl[State, Action] =>
     import html._
 
     val aboveCode =
-      div(cls := "grid-item", "Bosatsu Code")
+      div(cls := "grid-item above-code", "Bosatsu Code")
 
     val aboveOut =
-      div(cls := "grid-item", "Output")
+      div(cls := "grid-item above-out", "Output")
 
     val codeBox = dsl.useState { state =>
       val text = state match {
@@ -20,7 +20,7 @@ trait View { dsl: Dsl[State, Action] =>
         case _                 => ""
       }
       div(
-        cls := "grid-item",
+        cls := "grid-item code-col",
         button("evaluate", onClick := (_ => Some(Action.Run(Action.Cmd.Eval)))),
         button("test", onClick := (_ => Some(Action.Run(Action.Cmd.Test)))),
         button("show", onClick := (_ => Some(Action.Run(Action.Cmd.Show)))),
@@ -42,7 +42,7 @@ trait View { dsl: Dsl[State, Action] =>
     val outBox = dsl.useState {
       case Compiled(_, output, dur) =>
         div(
-          cls := "grid-item",
+          cls := "grid-item out-col",
           literal(s"<pre>$output</pre>"),
           br(),
           "completed in ",
@@ -50,7 +50,7 @@ trait View { dsl: Dsl[State, Action] =>
           " ms"
         )
       case _ =>
-        div(cls := "grid-item")
+        div(cls := "grid-item out-col")
     }
 
     div(cls := "grid-container", aboveCode, aboveOut, codeBox, outBox)

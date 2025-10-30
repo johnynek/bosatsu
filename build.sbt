@@ -269,7 +269,6 @@ lazy val jsui =
       commonSettings,
       commonJsSettings,
       name := "bosatsu-jsui",
-      scalaJSUseMainModuleInitializer := true,
       libraryDependencies ++=
         Seq(
           cats.value,
@@ -278,6 +277,9 @@ lazy val jsui =
           munit.value % Test,
           munitScalaCheck.value % Test
         )
+    )
+    .jsSettings(
+      scalaJSUseMainModuleInitializer := true,
     )
     .enablePlugins(ScalaJSPlugin)
     .enablePlugins(ScalaJSBundlerPlugin)
