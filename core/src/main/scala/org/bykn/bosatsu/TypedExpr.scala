@@ -18,7 +18,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
-    MurmurHash3.productHash(this)
+    MurmurHash3.caseClassHash(this)
 
   def tag: T
 
@@ -625,7 +625,7 @@ object TypedExpr {
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(
       fn: Type.Meta => F[Option[Type.Rho]]
   ): F[TypedExpr[A]] =
-    te.traverseType(Type.zonkMeta(_)(fn))
+    te.traverseType(Type.zonkMeta[F](_)(fn))
 
   /** quantify every meta variable that is not escaped into the outer
     * environment.
@@ -644,7 +644,7 @@ object TypedExpr {
     // we need to zonk before so any known metas are removed
     // some of the meta-variables may point to the same values
     def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] =
-      tpes.traverse(Type.zonkMeta(_)(zFn)).map { zonked =>
+      tpes.traverse(Type.zonkMeta[F](_)(zFn)).map { zonked =>
         Type.metaTvs(zonked)
       }
 
@@ -669,7 +669,7 @@ object TypedExpr {
             readFn,
             writeFn
           )
-          (bound, zonkMeta(rho)(zFn))
+          (bound, zonkMeta[F, A](rho)(zFn))
             .mapN { (typeArgs, r) =>
               val forAlls = typeArgs.collect { case (nk, false) => nk }
               val exists = typeArgs.collect { case (nk, true) => nk }

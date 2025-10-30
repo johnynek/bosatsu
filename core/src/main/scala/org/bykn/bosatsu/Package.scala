@@ -25,7 +25,7 @@ final case class Package[A, B, C, +D](
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
-    MurmurHash3.productHash(this)
+    MurmurHash3.caseClassHash(this)
 
   override def equals(that: Any): Boolean =
     that match {

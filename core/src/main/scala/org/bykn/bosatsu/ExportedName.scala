@@ -21,7 +21,7 @@ sealed abstract class ExportedName[+T] { self: Product =>
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
-    MurmurHash3.productHash(this)
+    MurmurHash3.caseClassHash(this)
 
   /** Given name, in the current type environment and fully typed lets what does
     * it correspond to?
