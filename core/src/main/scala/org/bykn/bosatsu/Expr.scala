@@ -278,36 +278,40 @@ object Expr {
   )(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
-        (traverseType(e, bound)(fn), fn(tpe, bound)).mapN(Annotation(_, _, a))
+        (traverseType[T, F](e, bound)(fn), fn(tpe, bound))
+          .mapN(Annotation(_, _, a))
       case v: Name[T]      => F.pure(v)
       case App(f, args, t) =>
-        (traverseType(f, bound)(fn), args.traverse(traverseType(_, bound)(fn)))
+        (
+          traverseType[T, F](f, bound)(fn),
+          args.traverse(traverseType[T, F](_, bound)(fn))
+        )
           .mapN(App(_, _, t))
       case Generic(bs, in) =>
         // Seems dangerous since we are hiding from fn that the Type.TyVar inside
         // matching these are not unbound
         val bound1 = bound ++ bs.toList.iterator.map(_._1)
-        traverseType(in, bound1)(fn).map(Generic(bs, _))
+        traverseType[T, F](in, bound1)(fn).map(Generic(bs, _))
       case Lambda(args, expr, t) =>
         (
           args.traverse { case (n, optT) =>
             optT.traverse(fn(_, bound)).map((n, _))
           },
-          traverseType(expr, bound)(fn)
+          traverseType[T, F](expr, bound)(fn)
         ).mapN(Lambda(_, _, t))
       case Let(arg, exp, in, rec, tag) =>
-        (traverseType(exp, bound)(fn), traverseType(in, bound)(fn))
+        (traverseType[T, F](exp, bound)(fn), traverseType[T, F](in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
       case l @ Literal(_, _)         => F.pure(l)
       case Match(arg, branches, tag) =>
-        val argB = traverseType(arg, bound)(fn)
+        val argB = traverseType[T, F](arg, bound)(fn)
         type B = (Pattern[(PackageName, Constructor), Type], Expr[T])
         def branchFn(b: B): F[B] =
           b match {
             case (pat, expr) =>
               pat
                 .traverseType(fn(_, bound))
-                .product(traverseType(expr, bound)(fn))
+                .product(traverseType[T, F](expr, bound)(fn))
           }
         val branchB = branches.traverse(branchFn _)
         (argB, branchB).mapN(Match(_, _, tag))
