@@ -374,6 +374,12 @@ foo = _ -> 1
   def varTE(n: String, tpe: Type): TypedExpr[Unit] =
     TypedExpr.Local(Identifier.Name(n), tpe, ())
 
+  val PredefAdd: TypedExpr[Unit] =
+    TypedExpr.Global(PackageName.PredefName, Identifier.Name("add"), Type.FnType(2), ())
+
+  val PredefTimes: TypedExpr[Unit] =
+    TypedExpr.Global(PackageName.PredefName, Identifier.Name("times"), Type.FnType(2), ())
+
   def let(
       n: String,
       ex1: TypedExpr[Unit],
@@ -502,6 +508,30 @@ foo = _ -> 1
         let("x", varTE("y", intTpe), varTE("x", intTpe))
       ) ==
         Some(varTE("y", intTpe))
+    )
+  }
+
+  test("we can normalize addition") {
+    val three = TypedExpr.App(PredefAdd, NonEmptyList.of(int(1), int(2)), Type.IntType, ())
+    assert(
+      TypedExprNormalization.normalize(three) == Some(int(3))
+    )
+  }
+
+  test("we can normalize multiplication") {
+    val six = TypedExpr.App(PredefTimes, NonEmptyList.of(int(2), int(3)), Type.IntType, ())
+    assert(
+      TypedExprNormalization.normalize(six) == Some(int(6))
+    )
+
+    val zeroR = TypedExpr.App(PredefTimes, NonEmptyList.of(varTE("x", intTpe), int(0)), Type.IntType, ())
+    assert(
+      TypedExprNormalization.normalize(zeroR) == Some(int(0))
+    )
+
+    val zeroL = TypedExpr.App(PredefTimes, NonEmptyList.of(int(0), varTE("x", intTpe)), Type.IntType, ())
+    assert(
+      TypedExprNormalization.normalize(zeroL) == Some(int(0))
     )
   }
 
