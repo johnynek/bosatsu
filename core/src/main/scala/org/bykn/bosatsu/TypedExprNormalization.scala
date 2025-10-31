@@ -8,6 +8,7 @@ import org.bykn.bosatsu.pattern.StrPart
 import Identifier.{Bindable, Constructor}
 
 import cats.syntax.all._
+import java.math.BigInteger
 
 object TypedExprNormalization {
   import TypedExpr._
@@ -309,6 +310,35 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
+      case App(
+            Global(PackageName.PredefName, Identifier.Name("add"), _, _),
+            NonEmptyList(
+              Literal(Lit.Integer(a), _, _),
+              Literal(Lit.Integer(b), _, _) :: _
+            ),
+            tpe,
+            tag
+          ) =>
+        Some(Literal(Lit.Integer(a.add(b)), tpe, tag))
+      case App(
+            Global(PackageName.PredefName, Identifier.Name("times"), _, _),
+            NonEmptyList(
+              Literal(Lit.Integer(a), _, _),
+              Literal(Lit.Integer(b), _, _) :: _
+            ),
+            tpe,
+            tag
+          ) =>
+        Some(Literal(Lit.Integer(a.multiply(b)), tpe, tag))
+      case App(
+            Global(PackageName.PredefName, Identifier.Name("times"), _, _),
+            NonEmptyList(Literal(Lit.Integer(BigInteger.ZERO), _, _), _) |
+            NonEmptyList(_, Literal(Lit.Integer(BigInteger.ZERO), _, _) :: _),
+            tpe,
+            tag
+          ) =>
+        Some(Literal(Lit.Integer(0L), tpe, tag))
+      // TODO: we could factor this out and implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
         val f1 = normalize1(None, fn, scope, typeEnv).get
