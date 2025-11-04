@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Prop.forAll
-import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.{Arbitrary, Gen, Shrink}
 
 class RingOptLaws extends munit.ScalaCheckSuite {
 
@@ -33,6 +33,16 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   implicit def arbExpr[A: Arbitrary]: Arbitrary[Expr[A]] =
     Arbitrary(genExpr(Arbitrary.arbitrary[A]))
+
+  implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
+    Shrink[Expr[A]] {
+      case Add(a, b) => a #:: b #:: Stream.empty
+      case Mult(a, b) => a #:: b #:: Stream.empty
+      case Neg(x) => x #:: Stream.empty
+      case Symbol(a) => Shrink.shrink(a).map(Symbol(_))
+      case Integer(n) => Shrink.shrink(n).map(Integer(_))
+      case Zero | One => Stream.empty
+    }
 
   implicit val arbCost: Arbitrary[Weights] =
     Arbitrary(for {
@@ -70,7 +80,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll { (expr: Expr[BigInt]) =>
       val (n, c) = expr.unproduct
       assert(c.forall {
-        case Integer(_) | One => false
+        case Integer(_) | One | Neg(_) => false
         case _ => true
       }, s"n = $n, c = $c")
 
@@ -93,6 +103,22 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val cost2 = w.cost(norm2)
       assertEquals(norm2, normE, s"normE = $normE (c1 = $c1), norm2 = $norm2 (cost2 = $cost2)")
 
+    }
+  }
+
+  property("left factorization") {
+    import Expr.ExprOps
+
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      val expr = a*b + a*c
+      val better = a * (b + c)
+      val norm = normalize(expr)
+      val c0 = w.cost(expr)
+      val c1 = w.cost(norm)
+      val c2 = w.cost(better)
+      // we have to able to do at least as well as better
+      assert(c2 < c0)
+      assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
     }
   }
 }

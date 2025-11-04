@@ -60,6 +60,8 @@ object RingOpt {
       case other               => Neg(other)
     }
 
+    // This returns all the trivially signed and scaled numbers in the front
+    // and no Neg(_), Integer(_), or One items in the second item
     def unproduct: (BigInt, List[Expr[A]]) = {
       val (c, base) = coeffAndBase
       val fs = base match {
@@ -143,6 +145,12 @@ object RingOpt {
   }
 
   object Expr {
+    implicit class ExprOps[A](val expr: Expr[A]) extends AnyVal {
+      def *(that: Expr[A]): Expr[A] = Mult(expr, that)
+      def +(that: Expr[A]): Expr[A] = Add(expr, that)
+      def unary_- : Expr[A] = Neg(expr)
+    }
+
     // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
     private def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
@@ -187,6 +195,47 @@ object RingOpt {
 
       loop(e, Nil)
     }
+
+    def flattenAddSub[A](e: List[Expr[A]]): (List[Expr[A]], List[Expr[A]]) = {
+      @annotation.tailrec
+      def loop(
+          inPos: List[Expr[A]],
+          inNeg: List[Expr[A]],
+          resultPos: List[Expr[A]],
+          resultNeg: List[Expr[A]]
+      ): (List[Expr[A]], List[Expr[A]]) =
+        inPos match {
+          case Add(x, y) :: tail =>
+            loop(x :: y :: tail, inNeg, resultPos, resultNeg)
+          case Neg(Neg(x)) :: tail =>
+            loop(x :: tail, inNeg, resultPos, resultNeg)
+          case Neg(Integer(n)) :: tail =>
+            loop(Integer(-n) :: tail, inNeg, resultPos, resultNeg)
+          case Neg(x) :: tail =>
+            loop(tail, x :: inNeg, resultPos, resultNeg)
+          case other :: tail =>
+            val r2 = if (other.isZero) resultPos else (other :: resultPos)
+            loop(tail, inNeg, r2, resultNeg)
+          case Nil =>
+            inNeg match {
+              case Nil               => (resultPos, resultNeg)
+              case Add(x, y) :: tail =>
+                loop(Nil, x :: y :: tail, resultPos, resultNeg)
+              case Integer(n) :: tail =>
+                // prefer positive values
+                loop(Integer(-n) :: Nil, tail, resultPos, resultNeg)
+              case Neg(Neg(x)) :: tail =>
+                loop(Nil, x :: tail, resultPos, resultNeg)
+              case Neg(x) :: tail =>
+                loop(x :: Nil, tail, resultPos, resultNeg)
+              case other :: tail =>
+                val r2 = if (other.isZero) resultNeg else (other :: resultNeg)
+                loop(Nil, tail, resultPos, r2)
+            }
+        }
+
+      loop(e, Nil, Nil, Nil)
+    }
     // invariant: no One or Mult items returned in the list
     def flattenMult[A](e: List[Expr[A]]): List[Expr[A]] = {
       @annotation.tailrec
@@ -196,7 +245,10 @@ object RingOpt {
           sign: Boolean
       ): List[Expr[A]] =
         in match {
-          case Neg(x) :: tail     => loop(x :: tail, result, !sign)
+          case Neg(x) :: tail           => loop(x :: tail, result, !sign)
+          case (i @ Integer(n)) :: tail =>
+            if (n < 0) loop(Integer(-n) :: tail, result, !sign)
+            else loop(tail, i :: result, sign)
           case Mult(x, y) :: tail => loop(x :: y :: tail, result, sign)
           case other :: tail      =>
             if (other.isZero) (Zero :: Nil)
@@ -211,15 +263,58 @@ object RingOpt {
       loop(e, Nil, true)
     }
 
-    def multAll[A](items: List[Expr[A]]): Expr[A] =
-      sortExpr(flattenMult(items)).foldLeft[Expr[A]](One) { case (x, y) =>
-        if (x.isOne) y else if (y.isOne) x else Mult(x, y)
-      }
+    def multAll[A](items: List[Expr[A]]): Expr[A] = {
+      @annotation.tailrec
+      def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
+        stack match {
+          case Nil =>
+            if (ints == 1) acc
+            else {
+              val ix = Integer(ints)
+              if (acc.isOne) ix
+              else Mult(ix, acc)
+            }
+          case Integer(n) :: tail => loop(tail, ints * n, acc)
+          case Neg(n) :: tail     =>
+            loop(n :: tail, -ints, acc)
+          case Mult(_, _) :: _ =>
+            sys.error(s"invariant violation: flattenMult returned Mult")
+          case (others @ (Symbol(_) | Add(_, _) | Zero | One)) :: tail =>
+            if (others.isZero) Zero
+            else if (others.isOne) loop(tail, ints, acc)
+            else loop(tail, ints, Mult(others, acc))
+        }
 
-    def addAll[A](items: List[Expr[A]]): Expr[A] =
-      sortExpr(flattenAdd(items)).foldLeft[Expr[A]](Zero) { case (x, y) =>
-        if (x.isZero) y else if (y.isZero) x else Add(x, y)
-      }
+      val flat = sortExpr(flattenMult(items))
+      loop(flat, BigInt(1), One)
+    }
+
+    def addAll[A](items: List[Expr[A]]): Expr[A] = {
+      @annotation.tailrec
+      def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
+        stack match {
+          case Nil =>
+            if (ints == 0) acc
+            else {
+              val ix = Integer(ints)
+              if (acc.isZero) ix
+              else Add(ix, acc)
+            }
+          case Integer(n) :: tail => loop(tail, ints + n, acc)
+          case (others @ (Symbol(_) | Mult(_, _) | One)) :: tail =>
+            if (others.isZero) loop(tail, ints, acc)
+            else loop(tail, ints, Add(others, acc))
+          case (err @ (Add(_, _) | Neg(_) | Zero)) :: _ =>
+            sys.error(s"invariant violation: unexpected Add/Neg/Zero: $err")
+        }
+
+      val (pos, neg) = flattenAddSub(items)
+      val posPart = loop(sortExpr(pos), BigInt(0), Zero)
+      val negPart = loop(sortExpr(neg), BigInt(0), Zero)
+      if (negPart.isZero) posPart
+      else if (posPart.isZero) Neg(negPart)
+      else Add(posPart, Neg(negPart))
+    }
 
     // Canonical structural key to enforce determinism (commutativity handled by sorting)
     def key[A](e: Expr[A]): String = e match {
@@ -331,44 +426,53 @@ object RingOpt {
       // Normalize and push negation into integers when possible
       norm(x, W).normalizeNeg
 
-    case Add(a, b) =>
-      normAdd(Expr.flattenAdd(a :: b :: Nil), W)
+    case add @ Add(_, _) =>
+      normAdd(add, W)
 
     case Mult(a, b) =>
       normMult(Expr.flattenMult(a :: b :: Nil), W)
   }
 
   // Normalize addition list: combine integer coefficients per base, sort, optional factoring
-  private def normAdd[A](terms0: List[Expr[A]], W: Weights): Expr[A] =
-    if (terms0.isEmpty) Zero
-    else {
-      // Fully normalize each term and drop zeros
-      val terms =
-        for {
-          term0 <- terms0
-          norm0 = norm(term0, W)
-          term1 <- Expr.flattenAdd(norm0 :: Nil)
-          if !term1.isZero
-          (c, base) = term1.coeffAndBase
-          flatBase <- Expr.flattenAdd(base :: Nil)
-          // now none of flatBase are Add(_, _)
-        } yield (c, flatBase)
+  private def normAdd[A](add: Add[A], W: Weights): Expr[A] = {
+    val (pos, neg) = Expr.flattenAddSub(add :: Nil)
+    // Fully normalize each term and drop zeros
+    val posTerms =
+      for {
+        p <- pos
+        term = norm(p, W)
+        if !term.isZero
+        (c, base) = term.coeffAndBase
+        flatBase <- Expr.flattenAdd(base :: Nil)
+        // now none of flatBase are Add(_, _)
+      } yield (c, flatBase)
 
-      // Sum integer coefficients for identical bases
-      val tallied: Map[Expr[A], BigInt] =
-        terms.foldLeft(Map.empty[Expr[A], BigInt]) { case (acc, (c, base)) =>
-          val c2 = acc.getOrElse(base, BigInt(0)) + c
-          if (c2 == 0) acc - base else acc.updated(base, c2)
-        }
+    val negTerms =
+      for {
+        n <- neg
+        term = norm(n, W)
+        if !term.isZero
+        (c, base) = term.coeffAndBase
+        flatBase <- Expr.flattenAdd(base :: Nil)
+        // now none of flatBase are Add(_, _)
+      } yield (-c, flatBase)
 
-      // Rebuild terms from (base -> coeff)
-      val collapsed: List[Expr[A]] =
-        tallied.iterator.map { case (base, c) =>
-          buildScaled(c, base, W)
-        }.toList
+    val terms = posTerms ::: negTerms
+    // Sum integer coefficients for identical bases
+    val tallied: Map[Expr[A], BigInt] =
+      terms.foldLeft(Map.empty[Expr[A], BigInt]) { case (acc, (c, base)) =>
+        val c2 = acc.getOrElse(base, BigInt(0)) + c
+        if (c2 == 0) acc - base else acc.updated(base, c2)
+      }
 
-      factorize(collapsed, W)
-    }
+    // Rebuild terms from (base -> coeff)
+    val collapsed: List[Expr[A]] =
+      tallied.iterator.map { case (base, c) =>
+        buildScaled(c, base, W)
+      }.toList
+
+    factorize(collapsed, W)
+  }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
   private def normMult[A](factors0: List[Expr[A]], W: Weights): Expr[A] =
