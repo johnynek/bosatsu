@@ -196,6 +196,8 @@ object RingOpt {
       loop(e, Nil)
     }
 
+    // return all the positive and negative additive terms from this list
+    // invariant: return no top level Add(_, _) or Neg(_)
     def flattenAddSub[A](e: List[Expr[A]]): (List[Expr[A]], List[Expr[A]]) = {
       @annotation.tailrec
       def loop(
@@ -207,8 +209,6 @@ object RingOpt {
         inPos match {
           case Add(x, y) :: tail =>
             loop(x :: y :: tail, inNeg, resultPos, resultNeg)
-          case Neg(Neg(x)) :: tail =>
-            loop(x :: tail, inNeg, resultPos, resultNeg)
           case Neg(Integer(n)) :: tail =>
             loop(Integer(-n) :: tail, inNeg, resultPos, resultNeg)
           case Neg(x) :: tail =>
@@ -224,8 +224,6 @@ object RingOpt {
               case Integer(n) :: tail =>
                 // prefer positive values
                 loop(Integer(-n) :: Nil, tail, resultPos, resultNeg)
-              case Neg(Neg(x)) :: tail =>
-                loop(Nil, x :: tail, resultPos, resultNeg)
               case Neg(x) :: tail =>
                 loop(x :: Nil, tail, resultPos, resultNeg)
               case other :: tail =>

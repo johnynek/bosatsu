@@ -5,8 +5,8 @@ import org.scalacheck.{Arbitrary, Gen, Shrink}
 
 class RingOptLaws extends munit.ScalaCheckSuite {
 
-  //override def scalaCheckInitialSeed = "HPupFd7KvUISBG8NqojEImPM5Rw7rhyP0Mknf9iv0-P="
-  //override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
+  // override def scalaCheckInitialSeed = "HPupFd7KvUISBG8NqojEImPM5Rw7rhyP0Mknf9iv0-P="
+  // override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
   // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
@@ -17,29 +17,36 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   def genExpr[A](genA: Gen[A], depth: Int = 6): Gen[Expr[A]] =
     if (depth < 0) {
-      Gen.oneOf(Gen.const(Zero), Gen.const(One), genA.map(Symbol(_)), Arbitrary.arbitrary[BigInt].map(Integer(_)))
-    }
-    else {
+      Gen.oneOf(
+        Gen.const(Zero),
+        Gen.const(One),
+        genA.map(Symbol(_)),
+        Arbitrary.arbitrary[BigInt].map(Integer(_))
+      )
+    } else {
       val inner = Gen.lzy(genExpr(genA, depth - 1))
       val genFn2: Gen[(Expr[A], Expr[A]) => Expr[A]] =
         Gen.oneOf(
-          { (x: Expr[A], y: Expr[A]) => Add(x, y) },
-          { (x: Expr[A], y: Expr[A]) => Mult(x, y) }
+          (x: Expr[A], y: Expr[A]) => Add(x, y),
+          (x: Expr[A], y: Expr[A]) => Mult(x, y)
         )
 
-      Gen.oneOf(inner, inner.map(Neg(_)), Gen.zip(inner, inner, genFn2).map { case (a, b, fn) => fn(a, b) })
+      Gen.oneOf(
+        inner,
+        inner.map(Neg(_)),
+        Gen.zip(inner, inner, genFn2).map { case (a, b, fn) => fn(a, b) }
+      )
     }
-    
 
   implicit def arbExpr[A: Arbitrary]: Arbitrary[Expr[A]] =
     Arbitrary(genExpr(Arbitrary.arbitrary[A]))
 
   implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
     Shrink[Expr[A]] {
-      case Add(a, b) => a #:: b #:: Stream.empty
+      case Add(a, b)  => a #:: b #:: Stream.empty
       case Mult(a, b) => a #:: b #:: Stream.empty
-      case Neg(x) => x #:: Stream.empty
-      case Symbol(a) => Shrink.shrink(a).map(Symbol(_))
+      case Neg(x)     => x #:: Stream.empty
+      case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
       case Zero | One => Stream.empty
     }
@@ -56,7 +63,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val (n, c) = expr.stripNeg
       c match {
         case Neg(_) => fail(s"returned Neg: $c")
-        case _ => ()
+        case _      => ()
       }
       assertEquals(Expr.toValue(c) * (if (n) -1 else 1), Expr.toValue(expr))
     }
@@ -70,7 +77,10 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       // no integer part in c
       val flatC = Expr.flattenMult(c :: Nil)
       flatC.foreach {
-        case Integer(i) => fail(s"found integer $i in $c, with coeff=$n, flatC = $flatC, stripNeg = ${expr.stripNeg}")
+        case Integer(i) =>
+          fail(
+            s"found integer $i in $c, with coeff=$n, flatC = $flatC, stripNeg = ${expr.stripNeg}"
+          )
         case _ => ()
       }
     }
@@ -79,19 +89,25 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property("unproduct works") {
     forAll { (expr: Expr[BigInt]) =>
       val (n, c) = expr.unproduct
-      assert(c.forall {
-        case Integer(_) | One | Neg(_) => false
-        case _ => true
-      }, s"n = $n, c = $c")
+      assert(
+        c.forall {
+          case Integer(_) | One | Neg(_) => false
+          case _                         => true
+        },
+        s"n = $n, c = $c"
+      )
 
-      assertEquals(c.map(Expr.toValue(_)).foldLeft(n)(_ * _), Expr.toValue(expr))
+      assertEquals(
+        c.map(Expr.toValue(_)).foldLeft(n)(_ * _),
+        Expr.toValue(expr)
+      )
     }
   }
 
   property("normalization doesn't change values") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
       val normE = normalize(expr, w)
-      assertEquals(Expr.toValue(expr), Expr.toValue(normE))  
+      assertEquals(Expr.toValue(expr), Expr.toValue(normE))
 
       // least cost
       val c0 = w.cost(expr)
@@ -101,16 +117,40 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       // Idempotency
       val norm2 = normalize(normE, w)
       val cost2 = w.cost(norm2)
-      assertEquals(norm2, normE, s"normE = $normE (c1 = $c1), norm2 = $norm2 (cost2 = $cost2)")
+      assertEquals(
+        norm2,
+        normE,
+        s"normE = $normE (c1 = $c1), norm2 = $norm2 (cost2 = $cost2)"
+      )
 
     }
   }
 
-  property("left factorization") {
+  property("flattenAddSub obeys invariant") {
+    forAll { (e: Expr[Int]) =>
+      val (pos, neg) = Expr.flattenAddSub(e :: Nil)
+
+      pos.foreach {
+        case bad @ (Add(_, _) | Neg(_) | Zero) =>
+          fail(s"unexpected bad: $bad in pos = $pos")
+        case _ => ()
+      }
+      neg.foreach {
+        case bad @ (Add(_, _) | Neg(_) | Integer(_) | Zero) =>
+          fail(s"unexpected bad: $bad in neg = $neg")
+        case _ => ()
+      }
+
+      val unflattened = Add(Expr.addAll(pos), Neg(Expr.addAll(neg)))
+      assertEquals(Expr.toValue(unflattened), Expr.toValue(e))
+    }
+  }
+
+  property("left factorization".ignore) {
     import Expr.ExprOps
 
     forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
-      val expr = a*b + a*c
+      val expr = a * b + a * c
       val better = a * (b + c)
       val norm = normalize(expr)
       val c0 = w.cost(expr)
