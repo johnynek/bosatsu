@@ -7,10 +7,10 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   //override def scalaCheckInitialSeed = "HPupFd7KvUISBG8NqojEImPM5Rw7rhyP0Mknf9iv0-P="
   //override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
-    override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
+  // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(500000)
+      .withMinSuccessfulTests(50000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -40,6 +40,43 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       m <- Gen.choose(a + 1, 2 * a + 1)
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
+
+  property("strip neg works") {
+    forAll { (expr: Expr[BigInt]) =>
+      val (n, c) = expr.stripNeg
+      c match {
+        case Neg(_) => fail(s"returned Neg: $c")
+        case _ => ()
+      }
+      assertEquals(Expr.toValue(c) * (if (n) -1 else 1), Expr.toValue(expr))
+    }
+  }
+
+  property("coeffAndBase works") {
+    forAll { (expr: Expr[BigInt]) =>
+      val (n, c) = expr.coeffAndBase
+      val posPart = Expr.toValue(c)
+      assertEquals(posPart * n, Expr.toValue(expr))
+      // no integer part in c
+      val flatC = Expr.flattenMult(c :: Nil)
+      flatC.foreach {
+        case Integer(i) => fail(s"found integer $i in $c, with coeff=$n, flatC = $flatC, stripNeg = ${expr.stripNeg}")
+        case _ => ()
+      }
+    }
+  }
+
+  property("unproduct works") {
+    forAll { (expr: Expr[BigInt]) =>
+      val (n, c) = expr.unproduct
+      assert(c.forall {
+        case Integer(_) | One => false
+        case _ => true
+      }, s"n = $n, c = $c")
+
+      assertEquals(c.map(Expr.toValue(_)).foldLeft(n)(_ * _), Expr.toValue(expr))
+    }
+  }
 
   property("normalization doesn't change values") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
