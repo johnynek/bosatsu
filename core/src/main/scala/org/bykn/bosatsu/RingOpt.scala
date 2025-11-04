@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import scala.math.Numeric
+import cats.syntax.all._
 
 object RingOpt {
 
@@ -16,21 +17,40 @@ object RingOpt {
         case Neg(x)     => Neg(x.map(fn))
       }
 
+    def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] =
+      expr match {
+        case Symbol(s)  => onSym(s)
+        case Zero       => Some(BigInt(0))
+        case One        => Some(BigInt(1))
+        case Integer(n) => Some(n)
+        case Add(x, y)  =>
+          (x.maybeBigInt(onSym), y.maybeBigInt(onSym)).mapN(_ + _)
+        case Mult(x, y) =>
+          (x.maybeBigInt(onSym), y.maybeBigInt(onSym)).mapN(_ * _)
+        case Neg(n) =>
+          n.maybeBigInt(onSym).map(n => -n)
+      }
+
+    // Return true if we are definitely (and cheaply) zero
+    // doesn't fully evaluate complex expressions or know what Symbols mean
     def isZero: Boolean =
       expr match {
         case Zero            => true
         case One | Symbol(_) => false
         case Integer(n)      => n == 0
-        case Add(x, y)       => x.isZero && y.isZero
-        case Mult(x, y)      => x.isZero || y.isZero
-        case Neg(n)          => n.isZero
+        case Add(x, y)       =>
+          x.isZero && y.isZero
+        case Mult(x, y) => x.isZero || y.isZero
+        case Neg(n)     => n.isZero
       }
 
+    // Return true if we are definitely (and cheaply) one
+    // doesn't fully evaluate complex expressions or know what Symbols mean
     def isOne: Boolean =
       expr match {
         case One                                   => true
         case Neg(Integer(n1)) if n1 == -1          => true
-        case Zero | Symbol(_) | Add(_, _) | Neg(_) => false
+        case Zero | Symbol(_) | Neg(_) | Add(_, _) => false
         case Integer(n)                            => n == 1
         case Mult(x, y)                            => x.isOne && y.isOne
       }
@@ -47,18 +67,37 @@ object RingOpt {
         case _         => true
       }
 
-    def normalizeNeg: Expr[A] = expr match {
-      case Zero                => Zero
-      case One                 => Integer(-1)
-      case Integer(n)          => canonInt[A](-n)
-      case Neg(y)              => y
-      case Add(Neg(x), Neg(y)) => Add(x, y)
-      case Add(x, Neg(y))      => Add(x.normalizeNeg, y)
-      case Add(Neg(x), y)      => Add(x, y.normalizeNeg)
-      case Mult(Neg(x), y)     => Mult(x, y)
-      case Mult(x, Neg(y))     => Mult(x, y)
-      case other               => Neg(other)
+    // Do neg if it is as cheap or cheaper (only <= number of Neg nodes)
+    def cheapNeg: Option[Expr[A]] = expr match {
+      case Zero                => Some(Zero)
+      case One                 => Some(Integer(-1))
+      case Integer(n)          => Some(canonInt[A](-n))
+      case Neg(y)              => Some(y)
+      case Add(Neg(x), Neg(y)) => Some(Add(x, y))
+      // these next two are allowed because normalizeNeg adds at most 1 node
+      // so, the total Neg nodes is the same on both sides, satisfying <=
+      case Add(x, Neg(y)) => Some(Add(x.normalizeNeg, y))
+      case Add(Neg(x), y) => Some(Add(x, y.normalizeNeg))
+      case Add(x, y)      =>
+        for {
+          nx <- x.cheapNeg
+          ny <- y.cheapNeg
+        } yield Add(nx, ny)
+      case Mult(x, y) =>
+        x.cheapNeg
+          .map(Mult(_, y))
+          .orElse {
+            y.cheapNeg.map(Mult(x, _))
+          }
+      case _ => None
     }
+
+    // At most add 1 Neg node
+    def normalizeNeg: Expr[A] =
+      cheapNeg match {
+        case None        => Neg(expr)
+        case Some(cheap) => cheap
+      }
 
     // This returns all the trivially signed and scaled numbers in the front
     // and no Neg(_), Integer(_), or One items in the second item

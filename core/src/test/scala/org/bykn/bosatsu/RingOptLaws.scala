@@ -69,6 +69,32 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("isOne works") {
+    forAll { (e: Expr[Int]) =>
+      if (e.isOne) {
+        assertEquals(Expr.toValue(e), 1)
+      }
+    }
+  }
+
+  property("isZero works") {
+    forAll { (e: Expr[Int]) =>
+      if (e.isZero) {
+        assertEquals(Expr.toValue(e), 0)
+      }
+    }
+  }
+
+  property("maybeBigInt works") {
+    forAll { (e: Expr[BigInt]) =>
+      e.maybeBigInt(bi => Some(bi)) match {
+        case None     => fail("should always work")
+        case Some(bi) =>
+          assertEquals(bi, Expr.toValue(e))
+      }
+    }
+  }
+
   property("coeffAndBase works") {
     forAll { (expr: Expr[BigInt]) =>
       val (n, c) = expr.coeffAndBase
