@@ -120,7 +120,7 @@ object RingOpt {
         val (inner, c) = x.stripNeg
         (!inner, c)
       case i @ Integer(n) =>
-        if (n.signum < 0) (true, Integer(-n))
+        if (n.signum < 0) (true, canonInt(-n))
         else (false, i)
 
       case add @ Add(x, y) =>
@@ -181,15 +181,13 @@ object RingOpt {
       }
     }
 
+    def *[A1 >: A](that: Expr[A1]): Expr[A1] = Mult(expr, that)
+    def +[A1 >: A](that: Expr[A1]): Expr[A1] = Add(expr, that)
+    def -[A1 >: A](that: Expr[A1]): Expr[A1] = Add(expr, Neg(that))
+    def unary_- : Expr[A] = Neg(expr)
   }
 
   object Expr {
-    implicit class ExprOps[A](val expr: Expr[A]) extends AnyVal {
-      def *(that: Expr[A]): Expr[A] = Mult(expr, that)
-      def +(that: Expr[A]): Expr[A] = Add(expr, that)
-      def unary_- : Expr[A] = Neg(expr)
-    }
-
     // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
     private def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
@@ -243,61 +241,75 @@ object RingOpt {
           inPos: List[Expr[A]],
           inNeg: List[Expr[A]],
           resultPos: List[Expr[A]],
-          resultNeg: List[Expr[A]]
+          resultNeg: List[Expr[A]],
+          intRes: BigInt
       ): (List[Expr[A]], List[Expr[A]]) =
         inPos match {
           case Add(x, y) :: tail =>
-            loop(x :: y :: tail, inNeg, resultPos, resultNeg)
-          case Neg(Integer(n)) :: tail =>
-            loop(Integer(-n) :: tail, inNeg, resultPos, resultNeg)
+            loop(x :: y :: tail, inNeg, resultPos, resultNeg, intRes)
           case Neg(x) :: tail =>
-            loop(tail, x :: inNeg, resultPos, resultNeg)
+            loop(tail, x :: inNeg, resultPos, resultNeg, intRes)
+          case Integer(n) :: tail =>
+            loop(tail, inNeg, resultPos, resultNeg, intRes + n)
+          case One :: tail =>
+            loop(tail, inNeg, resultPos, resultNeg, intRes + 1)
           case other :: tail =>
             val r2 = if (other.isZero) resultPos else (other :: resultPos)
-            loop(tail, inNeg, r2, resultNeg)
+            loop(tail, inNeg, r2, resultNeg, intRes)
           case Nil =>
             inNeg match {
-              case Nil               => (resultPos, resultNeg)
+              case Nil =>
+                if (intRes == 0) (resultPos, resultNeg)
+                else (canonInt(intRes) :: resultPos, resultNeg)
               case Add(x, y) :: tail =>
-                loop(Nil, x :: y :: tail, resultPos, resultNeg)
+                loop(Nil, x :: y :: tail, resultPos, resultNeg, intRes)
               case Integer(n) :: tail =>
-                // prefer positive values
-                loop(Integer(-n) :: Nil, tail, resultPos, resultNeg)
+                loop(Nil, tail, resultPos, resultNeg, intRes - n)
+              case One :: tail =>
+                loop(Nil, tail, resultPos, resultNeg, intRes - 1)
               case Neg(x) :: tail =>
-                loop(x :: Nil, tail, resultPos, resultNeg)
+                loop(x :: Nil, tail, resultPos, resultNeg, intRes)
               case other :: tail =>
                 val r2 = if (other.isZero) resultNeg else (other :: resultNeg)
-                loop(Nil, tail, resultPos, r2)
+                loop(Nil, tail, resultPos, r2, intRes)
             }
         }
 
-      loop(e, Nil, Nil, Nil)
+      loop(e, Nil, Nil, Nil, BigInt(0))
     }
-    // invariant: no One or Mult items returned in the list
+    // invariant: no One or Mult items, and at most one Integer returned in the list
     def flattenMult[A](e: List[Expr[A]]): List[Expr[A]] = {
       @annotation.tailrec
       def loop(
           in: List[Expr[A]],
           result: List[Expr[A]],
-          sign: Boolean
+          ints: BigInt,
+          pos: Boolean
       ): List[Expr[A]] =
         in match {
-          case Neg(x) :: tail           => loop(x :: tail, result, !sign)
-          case (i @ Integer(n)) :: tail =>
-            if (n < 0) loop(Integer(-n) :: tail, result, !sign)
-            else loop(tail, i :: result, sign)
-          case Mult(x, y) :: tail => loop(x :: y :: tail, result, sign)
+          case Neg(x) :: tail =>
+            loop(x :: tail, result, ints, !pos)
+          case Integer(n) :: tail =>
+            if (n == 0) (Zero :: Nil)
+            else if (n == -1) loop(tail, result, ints, !pos)
+            else loop(tail, result, ints * n, pos)
+          case Mult(x, y) :: tail => loop(x :: y :: tail, result, ints, pos)
           case other :: tail      =>
             if (other.isZero) (Zero :: Nil)
             else {
               val r2 = if (other.isOne) result else (other :: result)
-              loop(tail, r2, sign)
+              loop(tail, r2, ints, pos)
             }
           case Nil =>
-            if (sign) result else (Neg(One) :: result)
+            if (ints == 1) {
+              if (pos) result else (Neg(One) :: result)
+            } else {
+              val i = if (pos) ints else (-ints)
+              Integer(i) :: result
+            }
         }
 
-      loop(e, Nil, true)
+      loop(e, Nil, BigInt(1), true)
     }
 
     def multAll[A](items: List[Expr[A]]): Expr[A] = {
@@ -335,7 +347,7 @@ object RingOpt {
             else {
               val ix = Integer(ints)
               if (acc.isZero) ix
-              else Add(ix, acc)
+              else Add(acc, ix)
             }
           case Integer(n) :: tail => loop(tail, ints + n, acc)
           case (others @ (Symbol(_) | Mult(_, _) | One)) :: tail =>
@@ -464,14 +476,75 @@ object RingOpt {
       norm(x, W).normalizeNeg
 
     case add @ Add(_, _) =>
-      normAdd(add, W)
+      normAdd1(add, W)
 
     case Mult(a, b) =>
       normMult(Expr.flattenMult(a :: b :: Nil), W)
   }
 
+  private def normAdd1[A](add: Add[A], W: Weights): Expr[A] = {
+    val (pos, neg) = Expr.flattenAddSub(add :: Nil)
+    def toProd(term: Expr[A]): List[Expr[A]] =
+      Expr.flattenMult(term :: Nil)
+
+    val sumProd = pos.map(toProd) ::: neg.map(t => toProd(Neg(t)))
+
+    def optSumProd(sumProd: List[List[Expr[A]]]): Expr[A] = {
+      // we are going to factor the terms into: a(a_part) + not_a
+      // for all atoms in the sum. Then, choose the one with the least cost.
+      // then we will recurse on the least cost.
+      val atoms: List[Expr[A]] = sumProd.flatten.distinct.filterNot(_.isOne)
+
+      def divTerm(prod: List[Expr[A]], term: Expr[A]): List[Expr[A]] = {
+        val idx = prod.indexWhere(_ == term)
+        // delete idx
+        prod.take(idx) ::: prod.drop(idx + 1)
+      }
+
+      def sumProdOf(es: List[List[Expr[A]]]): Expr[A] =
+        Expr.addAll(es.map(Expr.multAll))
+
+      def affine(
+          atom: Expr[A],
+          withAtom: Expr[A],
+          withoutAtom: Expr[A]
+      ): Expr[A] = {
+        val atom1 = if (withAtom.isOne) atom else (atom * withAtom)
+        if (withoutAtom.isZero) atom1 else (atom1 + withoutAtom)
+      }
+
+      val currentCost = W.cost(sumProdOf(sumProd))
+      val factored
+          : List[(Expr[A], List[List[Expr[A]]], List[List[Expr[A]]], Int)] =
+        atoms
+          .map { atom =>
+            val (hasAtom, doesNot) = sumProd.partition(l => l.exists(_ == atom))
+            val divAtom = hasAtom.map(divTerm(_, atom))
+            val cost =
+              W.cost(affine(atom, sumProdOf(divAtom), sumProdOf(doesNot)))
+            (atom, divAtom, doesNot, cost)
+          }
+          .filter { case (_, _, _, cost) => cost <= currentCost }
+
+      if (factored.isEmpty) {
+        // we don't seem to improve by any greedy step, recurse where we are:
+        sumProdOf(sumProd.map(_.map(norm(_, W))))
+      } else {
+        // we have at least one factorization that is better, try that:
+        val (atom, divAtom, notAtom, _) = factored.minBy {
+          case (expr, _, _, cost) => (cost, Expr.key(expr))
+        }
+        val withAtom = optSumProd(divAtom)
+        val withoutAtom = optSumProd(notAtom)
+        val normAtom = norm(atom, W)
+        affine(normAtom, withAtom, withoutAtom)
+      }
+    }
+
+    optSumProd(sumProd)
+  }
   // Normalize addition list: combine integer coefficients per base, sort, optional factoring
-  private def normAdd[A](add: Add[A], W: Weights): Expr[A] = {
+  private def normAdd0[A](add: Add[A], W: Weights): Expr[A] = {
     val (pos, neg) = Expr.flattenAddSub(add :: Nil)
     // Fully normalize each term and drop zeros
     val posTerms =
@@ -502,13 +575,7 @@ object RingOpt {
         if (c2 == 0) acc - base else acc.updated(base, c2)
       }
 
-    // Rebuild terms from (base -> coeff)
-    val collapsed: List[Expr[A]] =
-      tallied.iterator.map { case (base, c) =>
-        buildScaled(c, base, W)
-      }.toList
-
-    factorize(collapsed, W)
+    factorize(tallied, W)
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
@@ -535,7 +602,16 @@ object RingOpt {
     }
 
   // Given the sum of terms, return the best factorization of it we can efficiently find
-  def factorize[A](terms: List[Expr[A]], weights: Weights): Expr[A] =
+  private def factorize[A](
+      tallied: Map[Expr[A], BigInt],
+      weights: Weights
+  ): Expr[A] = {
+    // Rebuild terms from (base -> coeff)
+    val terms: List[Expr[A]] =
+      tallied.iterator.map { case (base, c) =>
+        buildScaled(c, base, weights)
+      }.toList
+
     if (terms.isEmpty) Zero
     else {
       val canon = Expr.sortExpr(terms)
@@ -545,6 +621,7 @@ object RingOpt {
         case Some(fs) => chooseBest(summed, fs, weights)
       }
     }
+  }
 
   // === Local factoring across sums ===
   // If all terms are product-like (Symbol/Neg/Mult/One/Integer), factor common non-integer

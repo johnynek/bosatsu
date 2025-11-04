@@ -130,6 +130,30 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("flattenMult => multAll identity") {
+    forAll { (expr: Expr[BigInt]) =>
+      val terms = Expr.flattenMult(expr :: Nil)
+      val prod = Expr.multAll(terms)
+      assertEquals(Expr.toValue(prod), Expr.toValue(expr))
+    }
+  }
+
+  property("flattenAddSub => addAll identity") {
+    forAll { (expr: Expr[BigInt]) =>
+      val (pos, neg) = Expr.flattenAddSub(expr :: Nil)
+      val sum = Expr.addAll(pos) - Expr.addAll(neg)
+      assertEquals(Expr.toValue(sum), Expr.toValue(expr))
+    }
+  }
+
+  property("flattenAdd => addAll identity") {
+    forAll { (expr: Expr[BigInt]) =>
+      val terms = Expr.flattenAdd(expr :: Nil)
+      val sum = Expr.addAll(terms)
+      assertEquals(Expr.toValue(sum), Expr.toValue(expr))
+    }
+  }
+
   property("normalization doesn't change values") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
       val normE = normalize(expr, w)
@@ -172,9 +196,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("left factorization".ignore) {
-    import Expr.ExprOps
-
+  property("left factorization") {
     forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
       val expr = a * b + a * c
       val better = a * (b + c)
