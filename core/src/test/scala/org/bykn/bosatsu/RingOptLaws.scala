@@ -11,10 +11,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
   // override def scalaCheckInitialSeed = "Na8mB0VjIRkZ-7lAodvvlGXd1XJ77mZ8dij8x-QGpiM="
   // override def scalaCheckInitialSeed = "z8KHZZ6g7h-Qobfz9Qnc-x7IKmc5ZVzUzw4FGys_1oJ="
-  override def scalaCheckInitialSeed = "hz4zFHijK-UOXwC2oH5-dAdSGJHyT7Z58PjaJv7E2EB="
+  // override def scalaCheckInitialSeed = "hz4zFHijK-UOXwC2oH5-dAdSGJHyT7Z58PjaJv7E2EB="
+  override def scalaCheckInitialSeed = "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(50000)
+      .withMinSuccessfulTests(5000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._

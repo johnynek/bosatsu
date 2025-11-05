@@ -282,21 +282,10 @@ object RingOpt {
                   res.nonZeroIterator.foldLeft((e, e)) {
                     case ((pos, neg), (expr, cnt)) =>
                       if (cnt > 0) {
-                        // todo: for small values, depending on the cost,
-                        // addition is cheaper than multiplication
-                        // maybe just always use addition here since this
-                        // came from addition
-                        (checkMult(expr, canonInt(cnt)) :: pos, neg)
+                        (List.fill(cnt.toInt)(expr) ::: pos, neg)
                       } else {
                         // cnt < 0, exactly zero we don't see
-                        val negEx = checkMult(expr, canonInt(-cnt))
-                        negEx match {
-                          case Integer(n) =>
-                            // put this on the positive side
-                            (canonInt(-n) :: pos, neg)
-                          case notInt =>
-                            (pos, notInt :: neg)
-                        }
+                        (pos, List.fill((-cnt).toInt)(expr) ::: neg)
                       }
                   }
                 if (intRes == 0) resTup
@@ -342,8 +331,7 @@ object RingOpt {
             }
           case Nil =>
             if (ints == 1) {
-              // if (pos) result else (canonInt(-1) :: result)
-              if (pos) result else (Neg(One) :: result)
+              if (pos) result else (canonInt(-1) :: result)
             } else {
               val i = if (pos) ints else (-ints)
               canonInt(i) :: result
@@ -408,11 +396,12 @@ object RingOpt {
     def key[A](e: Expr[A]): String = e match {
       case Zero       => "0"
       case One        => "1"
-      case Integer(n) => s"I($n)"
-      case Symbol(n)  => s"S($n)"
-      case Neg(x)     => s"N(${key(x)})"
       case Add(a, b)  => s"A(${key(a)},${key(b)})"
+      case Neg(x)     => s"N(${key(x)})"
       case Mult(a, b) => s"M(${key(a)},${key(b)})"
+      // put the constants last
+      case Symbol(n)  => s"S($n)"
+      case Integer(n) => s"Z($n)"
     }
 
     // Sort a list of Expr[A]s by key (used for commutativity)
@@ -595,10 +584,6 @@ object RingOpt {
   // Normalize multiplication list: fold integer factors and signs; sort other factors
   private def normMult[A: Hash](factors: List[Expr[A]], W: Weights): Expr[A] = {
     val nfact = factors.map(norm(_, W))
-    if (nfact.isEmpty) One
-    else if (nfact.exists(_.isZero)) Zero
-    else {
-      Expr.multAll(Expr.sortExpr(nfact))
-    }
+    Expr.multAll(nfact)
   }
 }
