@@ -1,10 +1,73 @@
 package org.bykn.bosatsu
 
-import scala.math.Numeric
-import cats.Show
+import cats.{Hash, Show}
+import cats.collections.HashMap
 import cats.syntax.all._
+import scala.math.Numeric
+import scala.util.hashing.MurmurHash3
 
 object RingOpt {
+
+  sealed trait MultiSet[A, B] {
+    def hash: Hash[A]
+    def numeric: Numeric[B]
+
+    def add(a: A, count: B): MultiSet[A, B]
+    def +(a: A): MultiSet[A, B] = add(a, numeric.one)
+    def count(a: A): B
+    def remove(a: A, count: B): MultiSet[A, B]
+    def -(a: A): MultiSet[A, B] = remove(a, numeric.one)
+    def --(that: MultiSet[A, B]): MultiSet[A, B]
+    def nonZeroIterator: Iterator[(A, B)]
+  }
+
+  object MultiSet {
+    private case class Impl[A, B](
+        hashMap: HashMap[A, B],
+        val numeric: Numeric[B]
+    ) extends MultiSet[A, B] {
+      def hash = hashMap.hashKey
+
+      def add(a: A, count: B): MultiSet[A, B] =
+        if (numeric.equiv(count, numeric.zero)) this
+        else
+          hashMap.get(a) match {
+            case Some(b) =>
+              val b1 = numeric.plus(b, count)
+              if (numeric.equiv(b1, numeric.zero))
+                Impl(hashMap.removed(a), numeric)
+              else Impl(hashMap.updated(a, b1), numeric)
+            case None =>
+              Impl(hashMap.updated(a, count), numeric)
+          }
+
+      def count(a: A): B = hashMap.getOrElse(a, numeric.zero)
+      def remove(a: A, count: B): MultiSet[A, B] =
+        if (numeric.equiv(count, numeric.zero)) this
+        else
+          hashMap.get(a) match {
+            case Some(b) =>
+              val b1 = numeric.minus(b, count)
+              if (numeric.equiv(b1, numeric.zero))
+                Impl(hashMap.removed(a), numeric)
+              else Impl(hashMap.updated(a, b1), numeric)
+            case None =>
+              Impl(hashMap.updated(a, numeric.negate(count)), numeric)
+          }
+      def nonZeroIterator: Iterator[(A, B)] = hashMap.iterator
+      def --(that: MultiSet[A, B]): MultiSet[A, B] =
+        that.nonZeroIterator.foldLeft(this: MultiSet[A, B]) {
+          case (ms, (k, v)) =>
+            ms.remove(k, v)
+        }
+    }
+
+    def empty[A, B](implicit h: Hash[A], n: Numeric[B]): MultiSet[A, B] =
+      Impl(HashMap.empty[A, B], n)
+
+    def fromList[A: Hash, B: Numeric](as: List[A]): MultiSet[A, B] =
+      as.foldLeft(empty[A, B])((ms, a) => ms + a)
+  }
 
   sealed trait Expr[+A] { expr =>
     def map[B](fn: A => B): Expr[B] =
@@ -119,6 +182,44 @@ object RingOpt {
             case Neg(x)     => show"-($x)"
           }
       }
+
+    implicit def hashExpr[A: Hash]: Hash[Expr[A]] =
+      new Hash[Expr[A]] {
+        def hash(a: Expr[A]): Int =
+          a match {
+            case Symbol(a)      => 1 + 31 * Hash[A].hash(a)
+            case One            => 2 + 31 * MurmurHash3.caseClassHash(One)
+            case Zero           => 3 + 31 * MurmurHash3.caseClassHash(Zero)
+            case i @ Integer(_) => 4 + 31 * MurmurHash3.caseClassHash(i)
+            case Add(x, y)      => 5 + 31 * (hash(x) + 31 * hash(y))
+            case Mult(x, y)     => 6 + 31 * (hash(x) + 31 * hash(y))
+            case Neg(x)         => 7 + 31 * (hash(x))
+          }
+        def eqv(a: Expr[A], b: Expr[A]): Boolean =
+          a match {
+            case Symbol(a) =>
+              b match {
+                case Symbol(b) => Hash[A].eqv(a, b)
+                case _         => false
+              }
+            case (One | Zero | Integer(_)) => a == b
+            case Add(x, y)                 =>
+              b match {
+                case Add(z, w) => eqv(x, z) && eqv(y, w)
+                case _         => false
+              }
+            case Mult(x, y) =>
+              b match {
+                case Mult(z, w) => eqv(x, z) && eqv(y, w)
+                case _          => false
+              }
+            case Neg(x) =>
+              b match {
+                case Neg(y) => eqv(x, y)
+                case _      => false
+              }
+          }
+      }
     // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
     private def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
@@ -150,47 +251,71 @@ object RingOpt {
 
     // return all the positive and negative additive terms from this list
     // invariant: return no top level Add(_, _) or Neg(_)
-    def flattenAddSub[A](e: List[Expr[A]]): (List[Expr[A]], List[Expr[A]]) = {
+    def flattenAddSub[A: Hash](
+        e: List[Expr[A]]
+    ): (List[Expr[A]], List[Expr[A]]) = {
       @annotation.tailrec
       def loop(
           inPos: List[Expr[A]],
           inNeg: List[Expr[A]],
-          resultPos: List[Expr[A]],
-          resultNeg: List[Expr[A]],
+          res: MultiSet[Expr[A], BigInt],
           intRes: BigInt
       ): (List[Expr[A]], List[Expr[A]]) =
         inPos match {
           case Add(x, y) :: tail =>
-            loop(x :: y :: tail, inNeg, resultPos, resultNeg, intRes)
+            loop(x :: y :: tail, inNeg, res, intRes)
           case Neg(x) :: tail =>
-            loop(tail, x :: inNeg, resultPos, resultNeg, intRes)
+            loop(tail, x :: inNeg, res, intRes)
           case Integer(n) :: tail =>
-            loop(tail, inNeg, resultPos, resultNeg, intRes + n)
+            loop(tail, inNeg, res, intRes + n)
           case One :: tail =>
-            loop(tail, inNeg, resultPos, resultNeg, intRes + 1)
+            loop(tail, inNeg, res, intRes + 1)
           case other :: tail =>
-            val r2 = if (other.isZero) resultPos else (other :: resultPos)
-            loop(tail, inNeg, r2, resultNeg, intRes)
+            val r2 = if (other.isZero) res else (res + other)
+            loop(tail, inNeg, r2, intRes)
           case Nil =>
             inNeg match {
               case Nil =>
-                if (intRes == 0) (resultPos, resultNeg)
+                // flatten out the results
+                val e = List.empty[Expr[A]]
+                val resTup @ (resultPos, resultNeg) =
+                  res.nonZeroIterator.foldLeft((e, e)) {
+                    case ((pos, neg), (expr, cnt)) =>
+                      if (cnt > 0) {
+                        // todo: for small values, depending on the cost,
+                        // addition is cheaper than multiplication
+                        // maybe just always use addition here since this
+                        // came from addition
+                        (checkMult(expr, canonInt(cnt)) :: pos, neg)
+                      } else {
+                        // cnt < 0, exactly zero we don't see
+                        val negEx = checkMult(expr, canonInt(-cnt))
+                        negEx match {
+                          case Integer(n) =>
+                            // put this on the positive side
+                            (canonInt(-n) :: pos, neg)
+                          case notInt =>
+                            (pos, notInt :: neg)
+                        }
+                      }
+                  }
+                if (intRes == 0) resTup
                 else (canonInt(intRes) :: resultPos, resultNeg)
               case Add(x, y) :: tail =>
-                loop(Nil, x :: y :: tail, resultPos, resultNeg, intRes)
+                loop(Nil, x :: y :: tail, res, intRes)
               case Integer(n) :: tail =>
-                loop(Nil, tail, resultPos, resultNeg, intRes - n)
+                loop(Nil, tail, res, intRes - n)
               case One :: tail =>
-                loop(Nil, tail, resultPos, resultNeg, intRes - 1)
+                loop(Nil, tail, res, intRes - 1)
               case Neg(x) :: tail =>
-                loop(x :: Nil, tail, resultPos, resultNeg, intRes)
+                loop(x :: Nil, tail, res, intRes)
               case other :: tail =>
-                val r2 = if (other.isZero) resultNeg else (other :: resultNeg)
-                loop(Nil, tail, resultPos, r2, intRes)
+                val r2 = if (other.isZero) res else (res - other)
+                loop(Nil, tail, r2, intRes)
             }
         }
 
-      loop(e, Nil, Nil, Nil, BigInt(0))
+      loop(e, Nil, MultiSet.empty[Expr[A], BigInt], BigInt(0))
     }
     // invariant: no One or Mult items, and at most one Integer returned in the list
     def flattenMult[A](e: List[Expr[A]]): List[Expr[A]] = {
@@ -255,7 +380,7 @@ object RingOpt {
       loop(flat, BigInt(1), One)
     }
 
-    def addAll[A](items: List[Expr[A]]): Expr[A] = {
+    def addAll[A: Hash](items: List[Expr[A]]): Expr[A] = {
       @annotation.tailrec
       def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
         stack match {
@@ -335,7 +460,7 @@ object RingOpt {
   }
 
   // === Public API ===
-  def normalize[A](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
+  def normalize[A: Hash](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
     @annotation.tailrec
     def loop(e: Expr[A], cost: Int): Expr[A] = {
       val ne = norm(e, W)
@@ -364,7 +489,7 @@ object RingOpt {
 
   // === Core normalization ===
 
-  private def norm[A](e: Expr[A], W: Weights): Expr[A] = e match {
+  private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] = e match {
     case Zero | One | Symbol(_) => e
 
     case Integer(n) => canonInt[A](n)
@@ -373,16 +498,20 @@ object RingOpt {
       // Normalize and push negation into integers when possible
       norm(x, W).normalizeNeg
 
-    case add @ Add(_, _) =>
-      normAdd(add, W)
+    case Add(left, right) =>
+      normAdd(left, right, W)
 
     case Mult(a, b) =>
       val factors = Expr.flattenMult(a :: b :: Nil)
       normMult(factors, W)
   }
 
-  private def normAdd[A](add: Add[A], W: Weights): Expr[A] = {
-    val (pos, neg) = Expr.flattenAddSub(add.left :: add.right :: Nil)
+  private def normAdd[A: Hash](
+      left: Expr[A],
+      right: Expr[A],
+      W: Weights
+  ): Expr[A] = {
+    val (pos, neg) = Expr.flattenAddSub(left :: right :: Nil)
 
     def toProd(term: Expr[A]): List[Expr[A]] =
       Expr.flattenMult(term :: Nil)
@@ -464,7 +593,7 @@ object RingOpt {
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
-  private def normMult[A](factors: List[Expr[A]], W: Weights): Expr[A] = {
+  private def normMult[A: Hash](factors: List[Expr[A]], W: Weights): Expr[A] = {
     val nfact = factors.map(norm(_, W))
     if (nfact.isEmpty) One
     else if (nfact.exists(_.isZero)) Zero

@@ -10,9 +10,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
   // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
   // override def scalaCheckInitialSeed = "Na8mB0VjIRkZ-7lAodvvlGXd1XJ77mZ8dij8x-QGpiM="
+  // override def scalaCheckInitialSeed = "z8KHZZ6g7h-Qobfz9Qnc-x7IKmc5ZVzUzw4FGys_1oJ="
+  override def scalaCheckInitialSeed = "hz4zFHijK-UOXwC2oH5-dAdSGJHyT7Z58PjaJv7E2EB="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(5000)
+      .withMinSuccessfulTests(50000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -230,7 +232,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   // this one is too hard now
-  property("a - a is normalized to zero".ignore) {
+  property("a - a is normalized to zero") {
     forAll { (a: Expr[BigInt], w: Weights) =>
       val expr = a - a
       val better = Zero
