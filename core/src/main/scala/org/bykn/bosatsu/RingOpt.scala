@@ -305,7 +305,7 @@ object RingOpt {
               if (pos) result else (Neg(One) :: result)
             } else {
               val i = if (pos) ints else (-ints)
-              Integer(i) :: result
+              canonInt(i) :: result
             }
         }
 
@@ -318,19 +318,23 @@ object RingOpt {
         stack match {
           case Nil =>
             if (ints == 1) acc
+            else if (ints == -1) Neg(acc)
             else {
-              val ix = Integer(ints)
+              val ix = canonInt(ints)
               if (acc.isOne) ix
               else Mult(ix, acc)
             }
-          case Integer(n) :: tail => loop(tail, ints * n, acc)
-          case Neg(n) :: tail     =>
+          case Integer(n) :: tail =>
+            if (n == 0) Zero
+            else loop(tail, ints * n, acc)
+          case Neg(n) :: tail =>
             loop(n :: tail, -ints, acc)
           case Mult(_, _) :: _ =>
             sys.error(s"invariant violation: flattenMult returned Mult")
           case (others @ (Symbol(_) | Add(_, _) | Zero | One)) :: tail =>
             if (others.isZero) Zero
             else if (others.isOne) loop(tail, ints, acc)
+            else if (acc.isOne) loop(tail, ints, others)
             else loop(tail, ints, Mult(others, acc))
         }
 
@@ -345,13 +349,14 @@ object RingOpt {
           case Nil =>
             if (ints == 0) acc
             else {
-              val ix = Integer(ints)
+              val ix = canonInt(ints)
               if (acc.isZero) ix
               else Add(acc, ix)
             }
           case Integer(n) :: tail => loop(tail, ints + n, acc)
           case (others @ (Symbol(_) | Mult(_, _) | One)) :: tail =>
             if (others.isZero) loop(tail, ints, acc)
+            else if (others.isOne) loop(tail, ints + 1, acc)
             else loop(tail, ints, Add(others, acc))
           case (err @ (Add(_, _) | Neg(_) | Zero)) :: _ =>
             sys.error(s"invariant violation: unexpected Add/Neg/Zero: $err")
@@ -409,19 +414,28 @@ object RingOpt {
 
   // === Public API ===
   def normalize[A](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
-    val ne = norm(e, W)
-    val cost = W.cost(ne)
-    if (cost < W.cost(e)) {
-      // maybe we can refine
-      // this is obviously suboptimal... it would be better to not have to check this
-      // but this requires that the value we return has gone through one cycle and gotten
-      // the same cost at the end.
-      normalize(ne, W)
-    } else e // we couldn't improve cost, just return the input
+    @annotation.tailrec
+    def loop(e: Expr[A], cost: Int): Expr[A] = {
+      val ne = norm(e, W)
+      val costNE = W.cost(ne)
+      if (costNE < cost) {
+        loop(ne, costNE)
+      } else if (costNE == cost) {
+        // couldn't improve things, but maybe normalized them
+        ne
+      } else {
+        // costNE > cost
+        sys.error(
+          s"normalize increased cost: e = $e, cost = $cost, ne = $ne, costNE = $costNE"
+        )
+      }
+    }
+
+    loop(e, W.cost(e))
   }
 
   // Small helper: canonical integer literal
-  private def canonInt[A](n: BigInt): Expr[A] =
+  def canonInt[A](n: BigInt): Expr[A] =
     if (n == 0) Zero
     else if (n == 1) One
     else Integer(n)
@@ -442,7 +456,8 @@ object RingOpt {
             val bcost = w.cost(base)
             val multCost = w.mult + bcost
             val addCost = coeff * bcost + (coeff - 1) * w.add
-            if (multCost <= addCost) Expr.multAll(Integer(coeff) :: base :: Nil)
+            if (multCost <= addCost)
+              Expr.multAll(canonInt(coeff) :: base :: Nil)
             else {
               // add instead
               Expr.addAll(List.fill(coeff.toInt)(base))
@@ -455,7 +470,8 @@ object RingOpt {
             val negCoeff = -coeff
             val multCost = w.mult + bcost
             val addCost = negCoeff * bcost + (negCoeff - 1) * w.add + w.neg
-            if (multCost <= addCost) Expr.multAll(Integer(coeff) :: base :: Nil)
+            if (multCost <= addCost)
+              Expr.multAll(canonInt(coeff) :: base :: Nil)
             else {
               // add instead
               Neg(Expr.addAll(List.fill(negCoeff.toInt)(base)))
@@ -478,71 +494,78 @@ object RingOpt {
     case add @ Add(_, _) =>
       normAdd1(add, W)
 
-    case Mult(a, b) =>
-      normMult(Expr.flattenMult(a :: b :: Nil), W)
+    case mult @ Mult(_, _) =>
+      normMult(mult, W)
   }
 
   private def normAdd1[A](add: Add[A], W: Weights): Expr[A] = {
-    val (pos, neg) = Expr.flattenAddSub(add :: Nil)
+    val (pos, neg) = Expr.flattenAddSub(add.left :: add.right :: Nil)
     def toProd(term: Expr[A]): List[Expr[A]] =
       Expr.flattenMult(term :: Nil)
 
     val sumProd = pos.map(toProd) ::: neg.map(t => toProd(Neg(t)))
 
-    def optSumProd(sumProd: List[List[Expr[A]]]): Expr[A] = {
-      // we are going to factor the terms into: a(a_part) + not_a
-      // for all atoms in the sum. Then, choose the one with the least cost.
-      // then we will recurse on the least cost.
-      val atoms: List[Expr[A]] = sumProd.flatten.distinct.filterNot(_.isOne)
+    def optSumProd(sumProd: List[List[Expr[A]]]): Expr[A] =
+      sumProd match {
+        case Nil         => Zero
+        case prod :: Nil => Expr.multAll(prod.map(norm(_, W)))
+        case _           => {
+          // we are going to factor the terms into: a(a_part) + not_a
+          // for all atoms in the sum. Then, choose the one with the least cost.
+          // then we will recurse on the least cost.
+          val atoms: List[Expr[A]] = sumProd.flatten.distinct.filterNot(_.isOne)
 
-      def divTerm(prod: List[Expr[A]], term: Expr[A]): List[Expr[A]] = {
-        val idx = prod.indexWhere(_ == term)
-        // delete idx
-        prod.take(idx) ::: prod.drop(idx + 1)
-      }
-
-      def sumProdOf(es: List[List[Expr[A]]]): Expr[A] =
-        Expr.addAll(es.map(Expr.multAll))
-
-      def affine(
-          atom: Expr[A],
-          withAtom: Expr[A],
-          withoutAtom: Expr[A]
-      ): Expr[A] = {
-        val atom1 = if (withAtom.isOne) atom else (atom * withAtom)
-        if (withoutAtom.isZero) atom1 else (atom1 + withoutAtom)
-      }
-
-      val currentCost = W.cost(sumProdOf(sumProd))
-      val factored
-          : List[(Expr[A], List[List[Expr[A]]], List[List[Expr[A]]], Int)] =
-        atoms
-          .map { atom =>
-            val (hasAtom, doesNot) = sumProd.partition(l => l.exists(_ == atom))
-            val divAtom = hasAtom.map(divTerm(_, atom))
-            val cost =
-              W.cost(affine(atom, sumProdOf(divAtom), sumProdOf(doesNot)))
-            (atom, divAtom, doesNot, cost)
+          def divTerm(prod: List[Expr[A]], term: Expr[A]): List[Expr[A]] = {
+            val idx = prod.indexWhere(_ == term)
+            // delete idx
+            prod.take(idx) ::: prod.drop(idx + 1)
           }
-          .filter { case (_, _, _, cost) => cost <= currentCost }
 
-      if (factored.isEmpty) {
-        // we don't seem to improve by any greedy step, recurse where we are:
-        sumProdOf(sumProd.map(_.map(norm(_, W))))
-      } else {
-        // we have at least one factorization that is better, try that:
-        val (atom, divAtom, notAtom, _) = factored.minBy {
-          case (expr, _, _, cost) => (cost, Expr.key(expr))
+          def sumProdOf(es: List[List[Expr[A]]]): Expr[A] =
+            Expr.addAll(es.map(Expr.multAll))
+
+          def affine(
+              atom: Expr[A],
+              withAtom: Expr[A],
+              withoutAtom: Expr[A]
+          ): Expr[A] = {
+            val atom1 = Expr.multAll(atom :: withAtom :: Nil)
+            Expr.addAll(atom1 :: withoutAtom :: Nil)
+          }
+
+          val currentCost = W.cost(sumProdOf(sumProd))
+          val factored
+              : List[(Expr[A], List[List[Expr[A]]], List[List[Expr[A]]], Int)] =
+            atoms
+              .map { atom =>
+                val (hasAtom, doesNot) =
+                  sumProd.partition(l => l.exists(_ == atom))
+                val divAtom = hasAtom.map(divTerm(_, atom))
+                val cost =
+                  W.cost(affine(atom, sumProdOf(divAtom), sumProdOf(doesNot)))
+                (atom, divAtom, doesNot, cost)
+              }
+              .filter { case (_, _, _, cost) => cost <= currentCost }
+
+          if (factored.isEmpty) {
+            // we don't seem to improve by any greedy step, recurse where we are:
+            sumProdOf(sumProd.map(_.map(norm(_, W))))
+          } else {
+            // we have at least one factorization that is better, try that:
+            val (atom, divAtom, notAtom, _) = factored.minBy {
+              case (expr, _, _, cost) => (cost, Expr.key(expr))
+            }
+            val withAtom = optSumProd(divAtom)
+            val withoutAtom = optSumProd(notAtom)
+            val normAtom = norm(atom, W)
+            affine(normAtom, withAtom, withoutAtom)
+          }
         }
-        val withAtom = optSumProd(divAtom)
-        val withoutAtom = optSumProd(notAtom)
-        val normAtom = norm(atom, W)
-        affine(normAtom, withAtom, withoutAtom)
       }
-    }
 
     optSumProd(sumProd)
   }
+
   // Normalize addition list: combine integer coefficients per base, sort, optional factoring
   private def normAdd0[A](add: Add[A], W: Weights): Expr[A] = {
     val (pos, neg) = Expr.flattenAddSub(add :: Nil)
@@ -579,27 +602,14 @@ object RingOpt {
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
-  private def normMult[A](factors0: List[Expr[A]], W: Weights): Expr[A] =
-    if (factors0.isEmpty) One
-    else if (factors0.exists(_ == Zero)) Zero
+  private def normMult[A](mult: Mult[A], W: Weights): Expr[A] = {
+    val factors = Expr.flattenMult(mult.left :: mult.right :: Nil)
+    if (factors.isEmpty) One
+    else if (factors.exists(_.isZero)) Zero
     else {
-      val normed = factors0.flatMap(e => Expr.flattenMult(norm(e, W) :: Nil))
-      // Accumulate integer coefficient and collect non-integer factors
-      var coeff = BigInt(1)
-      val bodies = scala.collection.mutable.ListBuffer.empty[Expr[A]]
-      normed.foreach {
-        case Zero       => coeff = 0
-        case One        => ()
-        case Integer(n) => coeff *= n
-        case Neg(x)     => coeff = -coeff; bodies += x
-        case x          => bodies += x
-      }
-      if (coeff == 0) Zero
-      else {
-        val base = Expr.multAll(bodies.toList)
-        buildScaled(coeff, base, W)
-      }
+      Expr.multAll(factors.map(norm(_, W)))
     }
+  }
 
   // Given the sum of terms, return the best factorization of it we can efficiently find
   private def factorize[A](
@@ -658,7 +668,7 @@ object RingOpt {
         val inner = Expr.addAll(residuals)
         val outer =
           if (gcdCoeff > 1)
-            Expr.multAll(Integer(gcdCoeff) :: inner :: commonNonInt)
+            Expr.multAll(canonInt(gcdCoeff) :: inner :: commonNonInt)
           else Expr.multAll(inner :: commonNonInt)
 
         // Only accept factoring if it reduces cost (or ties and is canonical-smaller)

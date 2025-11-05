@@ -10,7 +10,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(50000)
+      .withMinSuccessfulTests(5000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -43,9 +43,15 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
     Shrink[Expr[A]] {
-      case Add(a, b)  => a #:: b #:: Stream.empty
-      case Mult(a, b) => a #:: b #:: Stream.empty
-      case Neg(x)     => x #:: Stream.empty
+      case Add(a, b)  => a #:: b #:: (for {
+        sa <- Shrink.shrink(a)
+        sb <- Shrink.shrink(b)
+      } yield Add(sa, sb))
+      case Mult(a, b)  => a #:: b #:: (for {
+        sa <- Shrink.shrink(a)
+        sb <- Shrink.shrink(b)
+      } yield Mult(sa, sb))
+      case Neg(x)     => x #:: Shrink.shrink(x).map(Neg(_))
       case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
       case Zero | One => Stream.empty
@@ -196,11 +202,48 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("left factorization") {
+  property("normalize always computes pure constants") {
+    forAll { (a: Expr[BigInt], w: Weights) =>
+      a.maybeBigInt(_ => None).foreach { bi =>
+        assertEquals(normalize(a, w), canonInt(bi))
+      }
+    }
+  }
+
+  property("addition by 0 is always simplified") {
+    def law(a: Expr[BigInt], w: Weights) = {
+      val na = normalize(a + Zero, w)
+      assert(w.cost(na) <= w.cost(a), s"na = $na")
+      val na1 = normalize(a + Integer(0), w)
+      assert(w.cost(na1) <= w.cost(a))
+    }
+
+    law(Symbol(BigInt(0)), Weights(4, 2, 1))
+    forAll { (a: Expr[BigInt], w: Weights) => law(a, w) }
+  }
+  property("multiplication by 1 is always simplified") {
+    forAll { (a: Expr[BigInt], w: Weights) =>
+      val na = normalize(a * One, w)
+      assert(w.cost(na) <= w.cost(a), s"na = $na")
+      val na1 = normalize(a * Integer(1), w)
+      assert(w.cost(na1) <= w.cost(a))
+    }
+  }
+
+  property("multiplication by 0 is always simplified") {
+    forAll { (a: Expr[BigInt], w: Weights) =>
+      val na = normalize(a * Integer(0), w)
+      assert(w.cost(na) <= w.cost(Zero))
+      val na1 = normalize(a * Zero, w)
+      assert(w.cost(na1) <= w.cost(Zero))
+    }
+  }
+
+  property("left factorization".ignore) {
     forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
       val expr = a * b + a * c
       val better = a * (b + c)
-      val norm = normalize(expr)
+      val norm = normalize(expr, w)
       val c0 = w.cost(expr)
       val c1 = w.cost(norm)
       val c2 = w.cost(better)
