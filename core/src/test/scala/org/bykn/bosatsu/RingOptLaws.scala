@@ -2,12 +2,14 @@ package org.bykn.bosatsu
 
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Shrink}
+import cats.syntax.all._
 
 class RingOptLaws extends munit.ScalaCheckSuite {
 
   // override def scalaCheckInitialSeed = "HPupFd7KvUISBG8NqojEImPM5Rw7rhyP0Mknf9iv0-P="
   // override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
   // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
+  // override def scalaCheckInitialSeed = "Na8mB0VjIRkZ-7lAodvvlGXd1XJ77mZ8dij8x-QGpiM="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(5000)
@@ -43,17 +45,17 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
     Shrink[Expr[A]] {
-      case Add(a, b)  => a #:: b #:: (for {
-        sa <- Shrink.shrink(a)
-        sb <- Shrink.shrink(b)
-      } yield Add(sa, sb))
-      case Mult(a, b)  => a #:: b #:: (for {
-        sa <- Shrink.shrink(a)
-        sb <- Shrink.shrink(b)
-      } yield Mult(sa, sb))
       case Neg(x)     => x #:: Shrink.shrink(x).map(Neg(_))
       case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
+      case Add(a, b)  =>
+        a #:: b #:: (Shrink.shrink(a).zip(Shrink.shrink(b)).map {
+          case (sa, sb) => Add(sa, sb)
+        })
+      case Mult(a, b) =>
+        a #:: b #:: (Shrink.shrink(a).zip(Shrink.shrink(b)).map {
+          case (sa, sb) => Mult(sa, sb)
+        })
       case Zero | One => Stream.empty
     }
 
@@ -63,17 +65,6 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       m <- Gen.choose(a + 1, 2 * a + 1)
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
-
-  property("strip neg works") {
-    forAll { (expr: Expr[BigInt]) =>
-      val (n, c) = expr.stripNeg
-      c match {
-        case Neg(_) => fail(s"returned Neg: $c")
-        case _      => ()
-      }
-      assertEquals(Expr.toValue(c) * (if (n) -1 else 1), Expr.toValue(expr))
-    }
-  }
 
   property("isOne works") {
     forAll { (e: Expr[Int]) =>
@@ -101,41 +92,6 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("coeffAndBase works") {
-    forAll { (expr: Expr[BigInt]) =>
-      val (n, c) = expr.coeffAndBase
-      val posPart = Expr.toValue(c)
-      assertEquals(posPart * n, Expr.toValue(expr))
-      // no integer part in c
-      val flatC = Expr.flattenMult(c :: Nil)
-      flatC.foreach {
-        case Integer(i) =>
-          fail(
-            s"found integer $i in $c, with coeff=$n, flatC = $flatC, stripNeg = ${expr.stripNeg}"
-          )
-        case _ => ()
-      }
-    }
-  }
-
-  property("unproduct works") {
-    forAll { (expr: Expr[BigInt]) =>
-      val (n, c) = expr.unproduct
-      assert(
-        c.forall {
-          case Integer(_) | One | Neg(_) => false
-          case _                         => true
-        },
-        s"n = $n, c = $c"
-      )
-
-      assertEquals(
-        c.map(Expr.toValue(_)).foldLeft(n)(_ * _),
-        Expr.toValue(expr)
-      )
-    }
-  }
-
   property("flattenMult => multAll identity") {
     forAll { (expr: Expr[BigInt]) =>
       val terms = Expr.flattenMult(expr :: Nil)
@@ -148,14 +104,6 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll { (expr: Expr[BigInt]) =>
       val (pos, neg) = Expr.flattenAddSub(expr :: Nil)
       val sum = Expr.addAll(pos) - Expr.addAll(neg)
-      assertEquals(Expr.toValue(sum), Expr.toValue(expr))
-    }
-  }
-
-  property("flattenAdd => addAll identity") {
-    forAll { (expr: Expr[BigInt]) =>
-      val terms = Expr.flattenAdd(expr :: Nil)
-      val sum = Expr.addAll(terms)
       assertEquals(Expr.toValue(sum), Expr.toValue(expr))
     }
   }
@@ -219,7 +167,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
 
     law(Symbol(BigInt(0)), Weights(4, 2, 1))
-    forAll { (a: Expr[BigInt], w: Weights) => law(a, w) }
+    forAll((a: Expr[BigInt], w: Weights) => law(a, w))
   }
   property("multiplication by 1 is always simplified") {
     forAll { (a: Expr[BigInt], w: Weights) =>
@@ -239,7 +187,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("left factorization".ignore) {
+  property("left factorization") {
     forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
       val expr = a * b + a * c
       val better = a * (b + c)
@@ -250,6 +198,49 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       // we have to able to do at least as well as better
       assert(c2 < c0)
       assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
+    }
+  }
+
+  property("right factorization") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      val expr = b * a + c * a
+      val better = (b + c) * a
+      val norm = normalize(expr, w)
+      val c0 = w.cost(expr)
+      val c1 = w.cost(norm)
+      val c2 = w.cost(better)
+      // we have to able to do at least as well as better
+      assert(c2 < c0)
+      assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
+    }
+  }
+
+  property("left/right factorization") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      val expr = a * b + c * a
+      val better = a * (b + c)
+      val norm = normalize(expr, w)
+      val c0 = w.cost(expr)
+      val c1 = w.cost(norm)
+      val c2 = w.cost(better)
+      // we have to able to do at least as well as better
+      assert(c2 < c0)
+      assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
+    }
+  }
+
+  // this one is too hard now
+  property("a - a is normalized to zero".ignore) {
+    forAll { (a: Expr[BigInt], w: Weights) =>
+      val expr = a - a
+      val better = Zero
+      val norm = normalize(expr, w)
+      val c0 = w.cost(expr)
+      val c1 = w.cost(norm)
+      val c2 = w.cost(better)
+      // we have to able to do at least as well as better
+      assert(c2 < c0)
+      assert(c1 <= c2, show"c0 = $c0, c1 = $c1, c2 = $c2, a=$a, norm=$norm")
     }
   }
 }
