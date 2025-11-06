@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Hash, Show}
+import cats.data.NonEmptyList
 import cats.collections.HashMap
 import cats.syntax.all._
 import scala.math.Numeric
@@ -144,9 +145,9 @@ object RingOpt {
     def saveNeg: Option[Expr[A]] = expr match {
       case Zero | One | Integer(_) | Symbol(_) => None
       case Neg(y)                              => Some(y)
-      // these next two are allowed because normalizeNeg adds at most 1 node
-      // so, the total Neg nodes is the same on both sides, satisfying <=
-      case Add(x, y) =>
+      case Add(x, y)                           =>
+        // these next two are allowed because normalizeNeg adds at most 1 node
+        // so, the total Neg nodes is the same on both sides, satisfying <=
         (for {
           nx <- x.saveNeg
           ny <- y.cheapNeg
@@ -259,7 +260,7 @@ object RingOpt {
           }
       }
     // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
-    private def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
+    def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
       if (n == 0) zero
       else {
@@ -384,13 +385,48 @@ object RingOpt {
           case Mult(x, y) :: tail => loop(x :: y :: tail, result, ints, pos)
           case other :: tail      =>
             if (other.isZero) (Zero :: Nil)
-            else {
-              val r2 = if (other.isOne) result else (other :: result)
-              loop(tail, r2, ints, pos)
+            else if (other.isOne) {
+              loop(tail, result, ints, pos)
+            } else {
+              other.saveNeg match {
+                case Some(n) =>
+                  // we can save by negating
+                  loop(tail, n :: result, ints, !pos)
+                case None =>
+                  // we can't negate
+                  loop(tail, other :: result, ints, pos)
+              }
             }
           case Nil =>
             if (ints == 1) {
-              if (pos) result else (canonInt(-1) :: result)
+              if (pos) result
+              else {
+                // we need to negate the result as cheaply as possible
+                result match {
+                  case Nil      => canonInt(-1) :: Nil
+                  case h :: Nil => h.normalizeNeg :: Nil
+                  case h :: t   =>
+                    @annotation.tailrec
+                    def loop(
+                        nel: NonEmptyList[Expr[A]],
+                        prepend: List[Expr[A]]
+                    ): NonEmptyList[Expr[A]] =
+                      nel.head.cheapNeg match {
+                        case Some(h) =>
+                          NonEmptyList(h, nel.tail).prependList(prepend.reverse)
+                        case None =>
+                          NonEmptyList.fromList(nel.tail) match {
+                            case Some(tailNE) =>
+                              loop(tailNE, nel.head :: prepend)
+                            case None =>
+                              // we can't find anything to the far right, so just negate the first item
+                              val all = nel.prependList(prepend.reverse)
+                              NonEmptyList(all.head.normalizeNeg, all.tail)
+                          }
+                      }
+                    loop(NonEmptyList(h, t), Nil).toList
+                }
+              }
             } else {
               val i = if (pos) ints else (-ints)
               canonInt(i) :: result

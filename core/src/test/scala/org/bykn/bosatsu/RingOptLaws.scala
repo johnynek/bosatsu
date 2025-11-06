@@ -70,6 +70,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
 
+  implicit def arbMultiSet[A: Arbitrary: Hash, B: Arbitrary: Numeric]
+      : Arbitrary[MultiSet[A, B]] =
+    Arbitrary(
+      Gen
+        .listOf(Gen.zip(Arbitrary.arbitrary[A], Arbitrary.arbitrary[B]))
+        .map { kvs =>
+          kvs.foldLeft(MultiSet.empty[A, B]) { case (ms, (k, v)) =>
+            ms.add(k, v)
+          }
+        }
+    )
+
   property("isOne works") {
     forAll { (e: Expr[Int]) =>
       if (e.isOne) {
@@ -151,6 +163,52 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("flattenMult doesn't increase cost") {
+    forAll { (expr: Expr[BigInt], w: Weights) =>
+      val terms = Expr.flattenMult(expr :: Nil)
+      val flatCost = terms.map(w.cost(_)).intercalate(w.mult)
+      val orig = w.cost(expr)
+      assert(
+        flatCost <= orig,
+        show"orig = $orig, flatCost = $flatCost, flat=$terms, expr=$expr"
+      )
+    }
+  }
+
+  property(
+    "flattenMult invariant: no One or Mult items, and at most one Integer returned in the list"
+  ) {
+    forAll { (expr: Expr[BigInt]) =>
+      val terms = Expr.flattenMult(expr :: Nil)
+
+      terms.foreach {
+        case bad @ (One | Mult(_, _)) =>
+          fail(show"found bad node: $bad in terms=$terms, expr=$expr")
+        case _ => ()
+      }
+
+      val ints = terms.collect { case Integer(n) =>
+        n
+      }
+
+      assert(ints.length <= 1, show"ints: $ints, terms=$terms")
+    }
+  }
+
+  property("multAll never increases cost") {
+    forAll { (expr: Expr[BigInt], w: Weights) =>
+      val m = Expr.multAll(expr :: Nil)
+      assert(w.cost(m) <= w.cost(expr))
+    }
+  }
+
+  property("addAll never increases cost") {
+    forAll { (expr: Expr[BigInt], w: Weights) =>
+      val a = Expr.addAll(expr :: Nil)
+      assert(w.cost(a) <= w.cost(expr))
+    }
+  }
+
   property("flattenAddSub => addAll identity") {
     forAll { (expr: Expr[BigInt]) =>
       val (pos, neg) = Expr.flattenAddSub(expr :: Nil)
@@ -189,7 +247,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalization doesn't change values") {
-    forAll { (expr: Expr[BigInt], w: Weights) =>
+    def law[A: Hash: Show: Numeric](expr: Expr[A], w: Weights) = {
       val normE = normalize(expr, w)
       assertEquals(Expr.toValue(expr), Expr.toValue(normE))
 
@@ -204,10 +262,22 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assertEquals(
         norm2,
         normE,
-        s"normE = $normE (c1 = $c1), norm2 = $norm2 (cost2 = $cost2)"
+        show"normE = $normE (c1 = $c1), norm2 = $norm2 (cost2 = $cost2)"
       )
-
     }
+
+    val regressions: List[(Expr[Int], Weights)] =
+      (
+        Add(
+          Neg(Mult(Add(One, One), Symbol(-1))),
+          Neg(Mult(Integer(-4000), Add(Zero, Integer(-60))))
+        ),
+        Weights(4, 2, 2)
+      ) ::
+        Nil
+    // regressions.foreach { case (e, w) => law(e, w) }
+
+    forAll((expr: Expr[BigInt], w: Weights) => law(expr, w))
   }
 
   property("normalize always computes pure constants") {
@@ -270,6 +340,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Neg(Neg(Neg(Neg(Symbol(1))))),
         Weights(18, 10, 1)
       ) ::
+        (
+          Add(Mult(Symbol(-9), Symbol(8)), Neg(One)),
+          Symbol(0),
+          Neg(Neg(Neg(One))),
+          Weights(11, 9, 1)
+        ) ::
         Nil
 
     // TODO: this suffers the same issue as repeatedAdds below
@@ -281,7 +357,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("right factorization") {
-    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+    def law[A: Hash](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = b * a + c * a
       val better = (b + c) * a
       val norm = normalize(expr, w)
@@ -292,10 +368,24 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(c2 < c0)
       assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
     }
+
+    val regressions: List[(Expr[Int], Expr[Int], Expr[Int], Weights)] =
+      (
+        Add(Neg(One), Mult(Symbol(-9), Integer(-386941742))),
+        Neg(Neg(Neg(Symbol(0)))),
+        Integer(1),
+        Weights(9, 7, 2)
+      ) ::
+        Nil
+
+    regressions.foreach { case (a, b, c, w) => law(a, b, c, w) }
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      law(a, b, c, w)
+    }
   }
 
   property("left/right factorization") {
-    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+    def law[A: Hash](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = a * b + c * a
       val better = a * (b + c)
       val norm = normalize(expr, w)
@@ -306,9 +396,24 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(c2 < c0)
       assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
     }
+    val regressions: List[(Expr[Int], Expr[Int], Expr[Int], Weights)] =
+      (
+        Add(
+          Mult(Symbol(1), Mult(Symbol(-503), Symbol(519))),
+          Mult(Symbol(107), Symbol(922))
+        ),
+        Neg(Neg(One)),
+        Neg(Neg(Neg(Symbol(0)))),
+        Weights(9, 7, 1)
+      ) ::
+        Nil
+    regressions.foreach { case (a, b, c, w) => law(a, b, c, w) }
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      law(a, b, c, w)
+    }
   }
   property("right/left factorization") {
-    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+    def law[A: Hash: Show](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = b * a + a * c
       val better = a * (b + c)
       val norm = normalize(expr, w)
@@ -317,7 +422,24 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val c2 = w.cost(better)
       // we have to able to do at least as well as better
       assert(c2 < c0)
-      assert(c1 <= c2, s"c0 = $c0, c1 = $c1, c2 = $c2, norm=$norm")
+      assert(
+        c1 <= c2,
+        show"c0 = $c0, c1 = $c1, c2 = $c2, expr=$expr norm=$norm"
+      )
+    }
+    val regressions =
+      (
+        Integer(3),
+        Neg(Neg(Neg(Neg(Symbol(0))))),
+        Neg(Symbol(-1)),
+        Weights(21, 10, 1)
+      ) ::
+        Nil
+
+    // regressions.foreach { case (a, b, c, w) => law(a, b, c, w) }
+
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt], w: Weights) =>
+      law(a, b, c, w)
     }
   }
 
@@ -333,6 +455,35 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(c2 < c0)
       assert(c1 <= c2, show"c0 = $c0, c1 = $c1, c2 = $c2, a=$a, norm=$norm")
     }
+  }
+
+  property("normalize is commutative for Add") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], w: Weights) =>
+      assertEquals(normalize(a + b, w), normalize(b + a, w))
+    }
+  }
+
+  property("normalize is commutative for Mult") {
+    def law[A: Hash: Show: Numeric](a: Expr[A], b: Expr[A], w: Weights) = {
+      val direct = normalize(a * b, w)
+      val reverse = normalize(b * a, w)
+      assertEquals(Expr.toValue(direct), Expr.toValue(reverse))
+      assertEquals(
+        w.cost(direct),
+        w.cost(reverse),
+        show"direct = $direct, reverse = $reverse"
+      )
+    }
+    val regressions: List[(Expr[Int], Expr[Int], Weights)] =
+      (
+        Neg(Neg(Add(Integer(1030), One))),
+        Neg(Neg(Neg(Add(Mult(One, Symbol(-4)), Mult(One, Integer(104)))))),
+        Weights(20, 10, 9)
+      ) ::
+        Nil
+
+    regressions.foreach { case (a, b, w) => law(a, b, w) }
+    forAll((a: Expr[BigInt], b: Expr[BigInt], w: Weights) => law(a, b, w))
   }
 
   property("repeated adds are optimized if better".ignore) {
@@ -425,5 +576,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     assertEquals(ms3.count(2), 0)
     // Check that zero-count keys are removed from iterator
     assertEquals(ms3.nonZeroIterator.map(_._1).toSet, Set(1))
+  }
+
+  property("MultiSet add/remove identity") {
+    forAll { (ms: MultiSet[Int, BigInt], k: Int, v: BigInt) =>
+      assertEquals(ms.add(k, v).remove(k, v).count(k), ms.count(k))
+    }
+  }
+
+  property("MultiSet subtraction") {
+    forAll { (ms1: MultiSet[Int, BigInt], ms2: MultiSet[Int, BigInt], k: Int) =>
+      assertEquals((ms1 -- ms2).count(k), ms1.count(k) - ms2.count(k))
+    }
+  }
+
+  property("Expr.fromBigInt is correct for BigInt") {
+    forAll { (n: BigInt) =>
+      assertEquals(Expr.fromBigInt[BigInt](n), n)
+    }
+  }
+
+// In RingOptLaws
+  property("replicateAdd computes correct value") {
+    forAll(genExpr(Gen.choose(0, 10), 2), Gen.choose(0, 100)) {
+      (e: Expr[Int], n: Int) =>
+        val cnt = BigInt(n)
+        val rep = Expr.replicateAdd(cnt, e)
+        assertEquals(Expr.toValue(rep), Expr.toValue(e) * n)
+    }
   }
 }
