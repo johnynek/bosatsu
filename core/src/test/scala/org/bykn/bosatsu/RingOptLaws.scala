@@ -12,7 +12,8 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "Na8mB0VjIRkZ-7lAodvvlGXd1XJ77mZ8dij8x-QGpiM="
   // override def scalaCheckInitialSeed = "z8KHZZ6g7h-Qobfz9Qnc-x7IKmc5ZVzUzw4FGys_1oJ="
   // override def scalaCheckInitialSeed = "hz4zFHijK-UOXwC2oH5-dAdSGJHyT7Z58PjaJv7E2EB="
-  override def scalaCheckInitialSeed = "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
+  override def scalaCheckInitialSeed =
+    "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(5000)
@@ -68,18 +69,6 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       m <- Gen.choose(a + 1, 2 * a + 1)
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
-
-  property("repeatedAddCost is correct") {
-    forAll(arbExpr[BigInt].arbitrary, arbCost.arbitrary, Gen.choose(0, 100)) { (e: Expr[BigInt], w: Weights, adds: Int) =>
-      val ecost = w.cost(e)
-      val c1 = w.costRepeatedAdd(ecost, adds)
-      val c2 =
-        if (adds == 0) 0
-        else w.cost(List.fill(adds)(e).reduceLeft(Add(_, _)))
-
-      assertEquals(c1, c2)
-    }
-  }
 
   property("isOne works") {
     forAll { (e: Expr[Int]) =>
@@ -257,5 +246,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(c2 < c0)
       assert(c1 <= c2, show"c0 = $c0, c1 = $c1, c2 = $c2, a=$a, norm=$norm")
     }
+  }
+
+  test("regression test cases") {
+    val reg1 = Add(One, Neg(Add(Symbol(10), Add(Symbol(-1), Symbol(-1)))))
+    val flat = Expr.flattenAddSub(reg1 :: Nil)
+    println(s"flat=$flat")
+    val w1 = Weights(2, 1, 1)
+    val c0 = w1.cost(reg1)
+    val norm1 = normalize(reg1, w1)
+    val c1 = w1.cost(norm1)
+
+    assert(c1 <= c0, show"c1=$c1, norm1=$norm1, c0=$c0, reg1=$reg1")
+
   }
 }

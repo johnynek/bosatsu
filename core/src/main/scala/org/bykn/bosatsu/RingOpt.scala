@@ -294,7 +294,14 @@ object RingOpt {
                         (List.fill(cnt.toInt)(expr) ::: pos, neg)
                       } else {
                         // cnt < 0, exactly zero we don't see
-                        (pos, List.fill((-cnt).toInt)(expr) ::: neg)
+                        val posCnt = (-cnt).toInt
+                        // try to negate
+                        expr.cheapNeg match {
+                          case Some(negExpr) =>
+                            (List.fill(posCnt)(negExpr) ::: pos, neg)
+                          case None =>
+                            (pos, List.fill(posCnt)(expr) ::: neg)
+                        }
                       }
                   }
                 if (intRes == 0) resTup
@@ -452,18 +459,39 @@ object RingOpt {
       case Mult(a, b)                          => mult + cost(a) + cost(b)
     }
 
-    // cost of (e + e + ... + e) with bi terms
-    // this is i * cost(e) + (i - 1) * add
-    // cost of multiplication would be cost(e) + mult
-    // so it's better to multiply when:
-    // cost(e) + mult <= i * cost(e) + (i - 1) * add
-    // mult <= (i - 1) * (cost(e) + add)
-    def costRepeatedAdd(costE: Int, i: Int): Int =
-      if (i <= 0) 0
-      else { i * costE + (i - 1) * add }
-    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
-      // TODO be smarter
-      Expr.multAll(expr :: Integer(const) :: Nil)
+    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] = {
+      // cost of (e + e + ... + e) with bi terms
+      // this is i * cost(e) + (i - 1) * add
+      // cost of multiplication would be cost(e) + mult
+      // so it's better to multiply when:
+      // cost(e) + mult <= i * cost(e) + (i - 1) * add
+      // mult <= (i - 1) * (cost(e) + add)
+      // with negation, we need:
+      // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
+      // which is
+      // mult <= (i - 1) * (cost(e) + add) + neg
+      val costE = BigInt(cost(expr))
+      if (const > 0) {
+        if (BigInt(mult) < (const - 1) * (costE + add)) {
+          // multiplication wins
+          Expr.multAll(expr :: Integer(const) :: Nil)
+        } else {
+          // println(s"repeated add wins: costE = $costE, const = $const")
+          List.fill(const.toInt)(expr).reduceLeft(Add(_, _))
+        }
+      } else if (const < 0) {
+        if (BigInt(mult) < ((-const - 1) * (costE + add) + neg)) {
+          // multiplication wins
+          Expr.multAll(expr :: Integer(const) :: Nil)
+        } else {
+          // println(s"repeated add wins: costE = $costE, const = $const")
+          List.fill((-const).toInt)(expr).reduceLeft(Add(_, _)).normalizeNeg
+        }
+      } else {
+        // const == 0
+        canonInt(0)
+      }
+    }
   }
 
   object Weights {
@@ -527,8 +555,23 @@ object RingOpt {
     def toProd(term: Expr[A]): List[Expr[A]] =
       Expr.flattenMult(term :: Nil)
 
-    val sumProd = (pos.iterator.map(toProd) ++
-      neg.iterator.map(t => toProd(t.normalizeNeg))).toList
+    // if more are negative than positive, we are better off negating
+    // the whole thing
+
+    val (outerNeg, sumProd) =
+      if (pos.length < neg.length) {
+        (
+          true,
+          (pos.iterator.map(t => toProd(t.normalizeNeg)) ++
+            neg.iterator.map(toProd)).toList
+        )
+      } else {
+        (
+          false,
+          (pos.iterator.map(toProd) ++
+            neg.iterator.map(t => toProd(t.normalizeNeg))).toList
+        )
+      }
 
     def optSumProd(sumProd: List[List[Expr[A]]]): Expr[A] =
       sumProd match {
@@ -568,7 +611,10 @@ object RingOpt {
                     Expr.multAll(atom :: withAtom :: Nil)
                 }
             }
-            Expr.addAll(atom1 :: withoutAtom :: Nil)
+            val res = Expr.addAll(atom1 :: withoutAtom :: Nil)
+            // implicit val showA: Show[A] = Show.fromToString
+            // println(show"affine($atom, $withAtom, $withoutAtom) = $res")
+            res
           }
 
           val factored
@@ -610,7 +656,9 @@ object RingOpt {
         }
       }
 
-    optSumProd(sumProd)
+    val res0 = optSumProd(sumProd)
+    if (outerNeg) res0.normalizeNeg
+    else res0
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
