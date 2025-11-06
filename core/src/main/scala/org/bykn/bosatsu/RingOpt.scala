@@ -140,21 +140,50 @@ object RingOpt {
         case _         => true
       }
 
+    // Do neg if it is cheaper (only < number of Neg nodes)
+    def saveNeg: Option[Expr[A]] = expr match {
+      case Zero | One | Integer(_) | Symbol(_) => None
+      case Neg(y)                              => Some(y)
+      // these next two are allowed because normalizeNeg adds at most 1 node
+      // so, the total Neg nodes is the same on both sides, satisfying <=
+      case Add(x, y) =>
+        (for {
+          nx <- x.saveNeg
+          ny <- y.cheapNeg
+        } yield Add(nx, ny)).orElse {
+          for {
+            ny <- y.saveNeg
+            nx <- x.cheapNeg
+          } yield Add(nx, ny)
+        }
+      case Mult(x, y) =>
+        x.saveNeg
+          .map(Mult(_, y))
+          .orElse {
+            y.saveNeg.map(Mult(x, _))
+          }
+    }
     // Do neg if it is as cheap or cheaper (only <= number of Neg nodes)
     def cheapNeg: Option[Expr[A]] = expr match {
       case Zero       => Some(Zero)
       case One        => Some(Integer(-1))
       case Integer(n) => Some(canonInt[A](-n))
       case Neg(y)     => Some(y)
-      // these next two are allowed because normalizeNeg adds at most 1 node
-      // so, the total Neg nodes is the same on both sides, satisfying <=
-      case Add(x, Neg(y)) => Some(Add(x.normalizeNeg, y))
-      case Add(Neg(x), y) => Some(Add(x, y.normalizeNeg))
-      case Add(x, y)      =>
-        for {
-          nx <- x.cheapNeg
-          ny <- y.cheapNeg
-        } yield Add(nx, ny)
+      case Add(x, y)  =>
+        // these first two are allowed because normalizeNeg adds at most 1 node and saveNeg saves one
+        // so, the total Neg nodes is the same on both sides, satisfying <=
+        x.saveNeg
+          .map(Add(_, y.normalizeNeg))
+          .orElse(
+            y.saveNeg.map(Add(x.normalizeNeg, _))
+          )
+          .orElse(
+            // both cheap
+            for {
+              nx <- x.cheapNeg
+              ny <- y.cheapNeg
+            } yield Add(nx, ny)
+          )
       case Mult(x, y) =>
         x.cheapNeg
           .map(Mult(_, y))
@@ -285,22 +314,36 @@ object RingOpt {
           case Nil =>
             inNeg match {
               case Nil =>
+                @annotation.tailrec
+                def bigFill(
+                    bi: BigInt,
+                    expr: Expr[A],
+                    acc: List[Expr[A]]
+                ): List[Expr[A]] =
+                  if (bi.isValidInt) {
+                    val listFill = List.fill(bi.toInt)(expr)
+                    if (acc.isEmpty) listFill
+                    else (listFill reverse_::: acc)
+                  } else {
+                    // too big
+                    bigFill(bi - 1, expr, expr :: acc)
+                  }
+
                 // flatten out the results
                 val e = List.empty[Expr[A]]
                 val resTup @ (resultPos, resultNeg) =
                   res.nonZeroIterator.foldLeft((e, e)) {
                     case ((pos, neg), (expr, cnt)) =>
                       if (cnt > 0) {
-                        (List.fill(cnt.toInt)(expr) ::: pos, neg)
+                        (bigFill(cnt, expr, pos), neg)
                       } else {
                         // cnt < 0, exactly zero we don't see
-                        val posCnt = (-cnt).toInt
                         // try to negate
                         expr.cheapNeg match {
                           case Some(negExpr) =>
-                            (List.fill(posCnt)(negExpr) ::: pos, neg)
+                            (bigFill(-cnt, negExpr, pos), neg)
                           case None =>
-                            (pos, List.fill(posCnt)(expr) ::: neg)
+                            (pos, bigFill(-cnt, expr, neg))
                         }
                       }
                   }
@@ -436,6 +479,27 @@ object RingOpt {
       if (a.isZero) b
       else if (b.isZero) a
       else Add(a, b)
+
+    def replicateAdd[A](cnt: BigInt, expr: Expr[A]): Expr[A] = {
+      def loop(cnt: BigInt): Expr[A] =
+        if (cnt <= 0) Zero
+        else if (cnt == 1) expr
+        else {
+          // for all x > 1
+          // x * expr = (2n + 1) * expr, or (2n) expr
+          val half = loop(cnt >> 1)
+          val twiceHalf = checkAdd(half, half)
+          val lowPart = if (cnt.testBit(0)) {
+            // this is odd:
+            expr
+          } else {
+            Zero
+          }
+          checkAdd(twiceHalf, lowPart)
+        }
+
+      loop(cnt)
+    }
   }
 
   case object Zero extends Expr[Nothing]
@@ -476,16 +540,14 @@ object RingOpt {
           // multiplication wins
           Expr.multAll(expr :: Integer(const) :: Nil)
         } else {
-          // println(s"repeated add wins: costE = $costE, const = $const")
-          List.fill(const.toInt)(expr).reduceLeft(Add(_, _))
+          Expr.replicateAdd(const, expr)
         }
       } else if (const < 0) {
         if (BigInt(mult) < ((-const - 1) * (costE + add) + neg)) {
           // multiplication wins
           Expr.multAll(expr :: Integer(const) :: Nil)
         } else {
-          // println(s"repeated add wins: costE = $costE, const = $const")
-          List.fill((-const).toInt)(expr).reduceLeft(Add(_, _)).normalizeNeg
+          Expr.replicateAdd(-const, expr).normalizeNeg
         }
       } else {
         // const == 0
@@ -500,6 +562,7 @@ object RingOpt {
 
   // === Public API ===
   def normalize[A: Hash](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
+    val eInit = e
     @annotation.tailrec
     def loop(e: Expr[A], cost: Int): Expr[A] = {
       val ne = norm(e, W)
@@ -511,8 +574,11 @@ object RingOpt {
         ne
       } else {
         // costNE > cost
+        implicit val showA: Show[A] = Show.fromToString
+        val (pos, neg) = Expr.flattenAddSub(e :: Nil)
         sys.error(
-          s"normalize increased cost: e = $e, cost = $cost, ne = $ne, costNE = $costNE"
+          show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
+            else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg"
         )
       }
     }
@@ -545,21 +611,144 @@ object RingOpt {
       normMult(factors, W)
   }
 
+  def optSumProd[A: Hash](sumProd: List[List[Expr[A]]], W: Weights): Expr[A] =
+    sumProd match {
+      case Nil         => Zero
+      case prod :: Nil => normMult(prod, W)
+      case _           => {
+        // we are going to factor the terms into: a(a_part) + not_a
+        // for all atoms in the sum. Then, choose the one with the least cost.
+        // then we will recurse on the least cost.
+        val atoms: List[Expr[A]] = sumProd.flatten.distinct.filterNot(_.isOne)
+
+        def divTerm(prod: List[Expr[A]], term: Expr[A]): List[Expr[A]] = {
+          // uses Expr.equals
+          val idx = prod.indexWhere(_ == term)
+          // the term should be in the list
+          assert(idx >= 0)
+          // delete idx
+          prod.take(idx) ::: prod.drop(idx + 1)
+        }
+
+        def sumProdOf(es: List[List[Expr[A]]]): Expr[A] =
+          Expr.addAll(es.map(Expr.multAll))
+
+        def affine(
+            atom: Expr[A],
+            withAtom: Expr[A],
+            withoutAtom: Expr[A]
+        ): Expr[A] = {
+          val atom1 = atom.isInt match {
+            case Some(aInt) =>
+              W.constMult(withAtom, aInt)
+            case None =>
+              withAtom.isInt match {
+                case Some(waInt) =>
+                  W.constMult(atom, waInt)
+                case None =>
+                  Expr.multAll(atom :: withAtom :: Nil)
+              }
+          }
+          Expr.addAll(atom1 :: withoutAtom :: Nil)
+        }
+
+        val factored
+            : List[(Expr[A], List[List[Expr[A]]], List[List[Expr[A]]], Int)] =
+          if (atoms.isEmpty) Nil
+          else {
+            val currentCost = W.cost(sumProdOf(sumProd))
+            atoms
+              .map { atom =>
+                val (hasAtom, doesNot) =
+                  sumProd.partition(l => l.exists(_ == atom))
+                val divAtom = hasAtom.map(divTerm(_, atom))
+                // note, this is not the real cost because
+                // we have not normalized atom, divAtom or doesNot
+                // we are trying to get a cheaper estimate of the best path.
+                // this is a heuristic
+                val cost =
+                  W.cost(affine(atom, sumProdOf(divAtom), sumProdOf(doesNot)))
+                (atom, divAtom, doesNot, cost)
+              }
+              .filter { case (_, _, _, cost) => cost <= currentCost }
+          }
+
+        if (factored.isEmpty) {
+          // we don't seem to improve by any greedy step, recurse where we are:
+          Expr.addAll(Expr.sortExpr(sumProd.map { prod =>
+            normMult(prod, W)
+          }))
+        } else {
+          // we have at least one factorization that is better, try that:
+          val (atom, divAtom, notAtom, _) = factored.minBy {
+            case (expr, _, _, cost) => (cost, Expr.key(expr))
+          }
+          val withAtom = optSumProd(divAtom, W)
+          val withoutAtom = optSumProd(notAtom, W)
+          val normAtom = norm(atom, W)
+          affine(normAtom, withAtom, withoutAtom)
+        }
+      }
+    }
+
   private def normAdd[A: Hash](
       left: Expr[A],
       right: Expr[A],
       W: Weights
   ): Expr[A] = {
     val (pos, neg) = Expr.flattenAddSub(left :: right :: Nil)
+    // we could represent this as Add(pos, Neg(neg))
+    // if there is only one neg term we can just add the negative
+    // in and keep going, else we have to normalize + and - separately
 
     def toProd(term: Expr[A]): List[Expr[A]] =
       Expr.flattenMult(term :: Nil)
 
+    if (neg.lengthCompare(1) <= 0) {
+      // there is at most one negative
+      val sumProd = (pos.iterator.map(toProd) ++
+        neg.iterator.map(t => toProd(t.normalizeNeg))).toList
+
+      optSumProd(sumProd, W)
+    } else {
+      // there are 2 or more negative terms
+      // if there is exactly one positive term and we can negate it for free:
+      val justCheap = pos match {
+        case p :: Nil => p.cheapNeg
+        case _        => None
+      }
+
+      justCheap
+        .map { negp =>
+          optSumProd(toProd(negp) :: neg.map(toProd), W).normalizeNeg
+        }
+        .getOrElse {
+          // otherwise there are 2 or more positive and negative terms
+          val optPos = optSumProd(pos.map(toProd), W)
+          val optNeg = optSumProd(neg.map(toProd), W)
+          Expr.addAll(optPos :: optNeg.normalizeNeg :: Nil)
+        }
+    }
+
+    /*
     // if more are negative than positive, we are better off negating
     // the whole thing
+    @annotation.tailrec
+    def leftShorter(left: List[Any], right: List[Any]): Boolean =
+      left match {
+        case Nil        => right.nonEmpty
+        case _ :: ltail =>
+          right match {
+            case Nil        => false
+            case _ :: rtail => leftShorter(ltail, rtail)
+          }
+      }
 
+    // This step is problematic. We can take terms like: Add(x, Neg(y))
+    // and add as many Negs as there are additive terms in y. This step
+    // can increase costs and break the invariant that we always improve things
     val (outerNeg, sumProd) =
-      if (pos.length < neg.length) {
+      if (leftShorter(pos, neg)) {
         (
           true,
           (pos.iterator.map(t => toProd(t.normalizeNeg)) ++
@@ -573,92 +762,10 @@ object RingOpt {
         )
       }
 
-    def optSumProd(sumProd: List[List[Expr[A]]]): Expr[A] =
-      sumProd match {
-        case Nil         => Zero
-        case prod :: Nil => normMult(prod, W)
-        case _           => {
-          // we are going to factor the terms into: a(a_part) + not_a
-          // for all atoms in the sum. Then, choose the one with the least cost.
-          // then we will recurse on the least cost.
-          val atoms: List[Expr[A]] = sumProd.flatten.distinct.filterNot(_.isOne)
-
-          def divTerm(prod: List[Expr[A]], term: Expr[A]): List[Expr[A]] = {
-            // uses Expr.equals
-            val idx = prod.indexWhere(_ == term)
-            // the term should be in the list
-            assert(idx >= 0)
-            // delete idx
-            prod.take(idx) ::: prod.drop(idx + 1)
-          }
-
-          def sumProdOf(es: List[List[Expr[A]]]): Expr[A] =
-            Expr.addAll(es.map(Expr.multAll))
-
-          def affine(
-              atom: Expr[A],
-              withAtom: Expr[A],
-              withoutAtom: Expr[A]
-          ): Expr[A] = {
-            val atom1 = atom.isInt match {
-              case Some(aInt) =>
-                W.constMult(withAtom, aInt)
-              case None =>
-                withAtom.isInt match {
-                  case Some(waInt) =>
-                    W.constMult(atom, waInt)
-                  case None =>
-                    Expr.multAll(atom :: withAtom :: Nil)
-                }
-            }
-            val res = Expr.addAll(atom1 :: withoutAtom :: Nil)
-            // implicit val showA: Show[A] = Show.fromToString
-            // println(show"affine($atom, $withAtom, $withoutAtom) = $res")
-            res
-          }
-
-          val factored
-              : List[(Expr[A], List[List[Expr[A]]], List[List[Expr[A]]], Int)] =
-            if (atoms.isEmpty) Nil
-            else {
-              val currentCost = W.cost(sumProdOf(sumProd))
-              atoms
-                .map { atom =>
-                  val (hasAtom, doesNot) =
-                    sumProd.partition(l => l.exists(_ == atom))
-                  val divAtom = hasAtom.map(divTerm(_, atom))
-                  // note, this is not the real cost because
-                  // we have not normalized atom, divAtom or doesNot
-                  // we are trying to get a cheaper estimate of the best path.
-                  // this is a heuristic
-                  val cost =
-                    W.cost(affine(atom, sumProdOf(divAtom), sumProdOf(doesNot)))
-                  (atom, divAtom, doesNot, cost)
-                }
-                .filter { case (_, _, _, cost) => cost <= currentCost }
-            }
-
-          if (factored.isEmpty) {
-            // we don't seem to improve by any greedy step, recurse where we are:
-            Expr.addAll(Expr.sortExpr(sumProd.map { prod =>
-              normMult(prod, W)
-            }))
-          } else {
-            // we have at least one factorization that is better, try that:
-            val (atom, divAtom, notAtom, _) = factored.minBy {
-              case (expr, _, _, cost) => (cost, Expr.key(expr))
-            }
-            val withAtom = optSumProd(divAtom)
-            val withoutAtom = optSumProd(notAtom)
-            val normAtom = norm(atom, W)
-            affine(normAtom, withAtom, withoutAtom)
-          }
-        }
-      }
-
-    val res0 = optSumProd(sumProd)
+    val res0 = optSumProd(sumProd, W)
     if (outerNeg) res0.normalizeNeg
     else res0
+     */
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
