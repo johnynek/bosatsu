@@ -69,6 +69,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
 
+  property("repeatedAddCost is correct") {
+    forAll(arbExpr[BigInt].arbitrary, arbCost.arbitrary, Gen.choose(0, 100)) { (e: Expr[BigInt], w: Weights, adds: Int) =>
+      val ecost = w.cost(e)
+      val c1 = w.costRepeatedAdd(ecost, adds)
+      val c2 =
+        if (adds == 0) 0
+        else w.cost(List.fill(adds)(e).reduceLeft(Add(_, _)))
+
+      assertEquals(c1, c2)
+    }
+  }
+
   property("isOne works") {
     forAll { (e: Expr[Int]) =>
       if (e.isOne) {

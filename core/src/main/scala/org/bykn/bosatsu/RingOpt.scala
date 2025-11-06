@@ -81,6 +81,15 @@ object RingOpt {
         case Neg(x)     => Neg(x.map(fn))
       }
 
+    // If this is a single integer node
+    def isInt: Option[BigInt] =
+      expr match {
+        case Zero       => Some(BigInt(0))
+        case One        => Some(BigInt(1))
+        case Integer(n) => Some(n)
+        case _          => None
+      }
+
     def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] =
       expr match {
         case Symbol(s)  => onSym(s)
@@ -442,6 +451,19 @@ object RingOpt {
       case Add(a, b)                           => add + cost(a) + cost(b)
       case Mult(a, b)                          => mult + cost(a) + cost(b)
     }
+
+    // cost of (e + e + ... + e) with bi terms
+    // this is i * cost(e) + (i - 1) * add
+    // cost of multiplication would be cost(e) + mult
+    // so it's better to multiply when:
+    // cost(e) + mult <= i * cost(e) + (i - 1) * add
+    // mult <= (i - 1) * (cost(e) + add)
+    def costRepeatedAdd(costE: Int, i: Int): Int =
+      if (i <= 0) 0
+      else { i * costE + (i - 1) * add }
+    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
+      // TODO be smarter
+      Expr.multAll(expr :: Integer(const) :: Nil)
   }
 
   object Weights {
@@ -535,7 +557,17 @@ object RingOpt {
               withAtom: Expr[A],
               withoutAtom: Expr[A]
           ): Expr[A] = {
-            val atom1 = Expr.multAll(atom :: withAtom :: Nil)
+            val atom1 = atom.isInt match {
+              case Some(aInt) =>
+                W.constMult(withAtom, aInt)
+              case None =>
+                withAtom.isInt match {
+                  case Some(waInt) =>
+                    W.constMult(atom, waInt)
+                  case None =>
+                    Expr.multAll(atom :: withAtom :: Nil)
+                }
+            }
             Expr.addAll(atom1 :: withoutAtom :: Nil)
           }
 
