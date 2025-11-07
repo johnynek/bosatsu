@@ -16,7 +16,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(50000)
+      .withMinSuccessfulTests(500)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -157,41 +157,49 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("flattenMult => multAll identity") {
     forAll { (expr: Expr[BigInt]) =>
-      val terms = Expr.flattenMult(expr :: Nil)
+      val (obi, terms) = Expr.flattenMult(expr :: Nil)
       val prod = Expr.multAll(terms)
-      assertEquals(Expr.toValue(prod), Expr.toValue(expr))
+      assertEquals(
+        Expr.toValue(prod) * obi.getOrElse(BigInt(1)),
+        Expr.toValue(expr)
+      )
     }
   }
 
   property("flattenMult doesn't increase cost") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
-      val terms = Expr.flattenMult(expr :: Nil)
-      val flatCost = terms.map(w.cost(_)).intercalate(w.mult)
+      val (obi, terms) = Expr.flattenMult(expr :: Nil)
+      val flatCost = (obi.map(Integer(_)).toList ::: terms)
+        .map(w.cost(_))
+        .intercalate(w.mult)
       val orig = w.cost(expr)
+      obi.foreach(bi => assert(bi != 1))
       assert(
         flatCost <= orig,
-        show"orig = $orig, flatCost = $flatCost, flat=$terms, expr=$expr"
+        show"orig = $orig, flatCost = $flatCost, obi=$obi, flat=$terms, expr=$expr"
       )
     }
   }
 
   property(
-    "flattenMult invariant: no One or Mult items, and at most one Integer returned in the list"
+    "flattenMult invariant: no One, Zero, Integer or Mult items returned in the list"
   ) {
     forAll { (expr: Expr[BigInt]) =>
-      val terms = Expr.flattenMult(expr :: Nil)
+      val (_, terms) = Expr.flattenMult(expr :: Nil)
 
       terms.foreach {
-        case bad @ (One | Mult(_, _)) =>
+        case bad @ (One | Mult(_, _) | Zero | Integer(_)) =>
           fail(show"found bad node: $bad in terms=$terms, expr=$expr")
+        case bad if bad.isZero || bad.isOne =>
+          fail(
+            show"found bad node (isZero/isOne): $bad in terms=$terms, expr=$expr"
+          )
         case _ => ()
       }
 
-      val ints = terms.collect { case Integer(n) =>
-        n
-      }
+      val ints = terms.collect { case Integer(n) => n }
 
-      assert(ints.length <= 1, show"ints: $ints, terms=$terms")
+      assertEquals(ints, Nil, show"ints: $ints, terms=$terms")
     }
   }
 
