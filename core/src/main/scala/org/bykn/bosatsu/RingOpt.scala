@@ -201,6 +201,30 @@ object RingOpt {
         case Some(cheap) => cheap
       }
 
+    // if we can implement this by absorbing a multiplication by a constant
+    // do it. The cost of the returned expression is <= original
+    def absorbMultConst(c: BigInt): Option[Expr[A]] =
+      if ((c == 0) || isZero) Some(Zero)
+      else
+        expr match {
+          case One        => Some(Integer(c))
+          case Zero       => Some(Zero)
+          case Symbol(_)  => None
+          case Neg(n)     => n.absorbMultConst(-c)
+          case Integer(n) => Some(canonInt(n * c))
+          case Add(x, y)  =>
+            // (x + y)*c == (x*c + y*c)
+            for {
+              xc <- x.absorbMultConst(c)
+              yc <- y.absorbMultConst(c)
+            } yield Expr.checkAdd(xc, yc)
+          case Mult(x, y) =>
+            // x*y*c == x * (y*c) or (x*c) *y
+            x.absorbMultConst(c)
+              .map(Expr.checkMult(_, y))
+              .orElse(y.absorbMultConst(c).map(Expr.checkMult(x, _)))
+        }
+
     def *[A1 >: A](that: Expr[A1]): Expr[A1] = Mult(expr, that)
     def +[A1 >: A](that: Expr[A1]): Expr[A1] = Add(expr, that)
     def -[A1 >: A](that: Expr[A1]): Expr[A1] = Add(expr, Neg(that))
@@ -534,7 +558,8 @@ object RingOpt {
           checkAdd(twiceHalf, lowPart)
         }
 
-      loop(cnt)
+      if (cnt >= 0) loop(cnt)
+      else loop(-cnt).normalizeNeg
     }
   }
 
@@ -559,37 +584,38 @@ object RingOpt {
       case Mult(a, b)                          => mult + cost(a) + cost(b)
     }
 
-    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] = {
-      // cost of (e + e + ... + e) with bi terms
-      // this is i * cost(e) + (i - 1) * add
-      // cost of multiplication would be cost(e) + mult
-      // so it's better to multiply when:
-      // cost(e) + mult <= i * cost(e) + (i - 1) * add
-      // mult <= (i - 1) * (cost(e) + add)
-      // with negation, we need:
-      // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
-      // which is
-      // mult <= (i - 1) * (cost(e) + add) + neg
-      val costE = BigInt(cost(expr))
-      if (const > 0) {
-        if (BigInt(mult) < (const - 1) * (costE + add)) {
-          // multiplication wins
-          Expr.multAll(expr :: Integer(const) :: Nil)
+    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
+      expr.absorbMultConst(const).getOrElse {
+        // cost of (e + e + ... + e) with bi terms
+        // this is i * cost(e) + (i - 1) * add
+        // cost of multiplication would be cost(e) + mult
+        // so it's better to multiply when:
+        // cost(e) + mult <= i * cost(e) + (i - 1) * add
+        // mult <= (i - 1) * (cost(e) + add)
+        // with negation, we need:
+        // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
+        // which is
+        // mult <= (i - 1) * (cost(e) + add) + neg
+        val costE = BigInt(cost(expr))
+        if (const > 0) {
+          if (BigInt(mult) < (const - 1) * (costE + add)) {
+            // multiplication wins
+            Expr.multAll(expr :: Integer(const) :: Nil)
+          } else {
+            Expr.replicateAdd(const, expr)
+          }
+        } else if (const < 0) {
+          if (BigInt(mult) < ((-const - 1) * (costE + add) + neg)) {
+            // multiplication wins
+            Expr.multAll(expr :: Integer(const) :: Nil)
+          } else {
+            Expr.replicateAdd(const, expr)
+          }
         } else {
-          Expr.replicateAdd(const, expr)
+          // const == 0
+          canonInt(0)
         }
-      } else if (const < 0) {
-        if (BigInt(mult) < ((-const - 1) * (costE + add) + neg)) {
-          // multiplication wins
-          Expr.multAll(expr :: Integer(const) :: Nil)
-        } else {
-          Expr.replicateAdd(-const, expr).normalizeNeg
-        }
-      } else {
-        // const == 0
-        canonInt(0)
       }
-    }
   }
 
   object Weights {

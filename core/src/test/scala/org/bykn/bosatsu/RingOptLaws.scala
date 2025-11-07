@@ -16,7 +16,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   // override def scalaCheckInitialSeed = "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(5000)
+      .withMinSuccessfulTests(50000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -192,6 +192,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       }
 
       assert(ints.length <= 1, show"ints: $ints, terms=$terms")
+    }
+  }
+
+  property("constMult <= add or mult") {
+    forAll { (expr: Expr[BigInt], const0: Int, w: Weights) =>
+      // make sure the const isn't too big
+      val const = BigInt(const0 & 0xfff) * BigInt(const0).signum
+      val cm = w.constMult(expr, const)
+      val cmCost = w.cost(cm)
+      val mult = expr * Integer(const)
+      val add = Expr.replicateAdd(const, expr)
+      assert(
+        cmCost <= w.cost(mult),
+        show"cmCost = $cmCost, cm = $cm, mult=$mult, expr=$expr"
+      )
+      assert(
+        cmCost <= w.cost(add),
+        show"cmCost = $cmCost, cm = $cm, add=$add, expr=$expr"
+      )
+    }
+  }
+
+  property("absorbMultConst is lawful") {
+    forAll { (expr: Expr[BigInt], const: BigInt) =>
+      expr.absorbMultConst(const).foreach { xc =>
+        assertEquals(Expr.toValue(xc), Expr.toValue(expr * Integer(const)))
+      }
     }
   }
 
