@@ -165,6 +165,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       }
     }
   }
+  property("maybeDivInt handles ±1 and 0 correctly") {
+    forAll { (e: Expr[BigInt]) =>
+      assertEquals(e.maybeDivInt(0), None)
+      assertEquals(e.maybeDivInt(1), Some(e))
+      assertEquals(e.maybeDivInt(-1), Some(e.normalizeNeg))
+    }
+  }
 
   property("flattenMult => multAll identity") {
     forAll { (expr: Expr[BigInt]) =>
@@ -182,7 +189,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val (obi, terms) = Expr.flattenMult(expr :: Nil)
       val flatCost = (obi.map(Integer(_)).toList ::: terms)
         .map(w.cost(_))
-        .intercalate(w.mult)
+        .intercalate(w.mult.toLong)
       val orig = w.cost(expr)
       obi.foreach(bi => assert(bi != 1))
       assert(
@@ -214,6 +221,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("constMult(One,c) returns canonInt(c)") {
+    forAll { (bi: BigInt, w: Weights) =>
+      val res = w.constMult(One, bi)
+      assertEquals(res, canonInt(bi))
+    }
+  }
   property("constMult <= add or mult") {
     forAll { (expr: Expr[BigInt], const0: Int, w: Weights) =>
       // make sure the const isn't too big
@@ -728,5 +741,27 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         assert(w.cost(mult) <= w.cost(rep))
       }
     }
+  }
+  test("checkMult(-1, -1) == One") {
+    val e = Expr.checkMult(Integer(-1), Integer(-1))
+    assertEquals(e, One)
+  }
+  test("constMult(One,c) returns canonInt(c)") {
+    forAll { (c: Int) =>
+      val w = Weights.default
+      val bi = BigInt(c)
+      val res = w.constMult(One, bi)
+      assertEquals(res, canonInt(bi))
+    }
+  }
+  test("normalize does not throw on very deep trees") {
+    val depth = 50000
+    val leaf = Symbol(1)
+    val deep =
+      (1 to depth).foldLeft(leaf: Expr[Int])((acc, _) => Add(acc, leaf))
+    val w = Weights(mult = 5, add = 1, neg = 1)
+    // Should terminate; before fix may overflow cost
+    val n = normalize(deep, w)
+    assertEquals(Expr.toValue(n), Expr.toValue(deep))
   }
 }

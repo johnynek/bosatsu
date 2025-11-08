@@ -157,6 +157,8 @@ object RingOpt {
             (x.maybeDivInt(bi), y.maybeDivInt(bi)).mapN(Add(_, _))
           case Mult(x, y) =>
             // (x*y)/n == (x/n) * y or x * (y/n)
+            // TODO: we could factor n = n1n2 then write
+            // (x*y)/n as (x/n1) * (y/n2)
             x.maybeDivInt(bi)
               .map(Expr.checkMult(_, y))
               .orElse(y.maybeDivInt(bi).map(Expr.checkMult(x, _)))
@@ -240,7 +242,7 @@ object RingOpt {
       if ((c == 0) || isZero) Some(Zero)
       else
         expr match {
-          case One        => Some(Integer(c))
+          case One        => Some(canonInt(c))
           case Zero       => Some(Zero)
           case Symbol(_)  => None
           case Neg(n)     => n.absorbMultConst(-c)
@@ -281,15 +283,47 @@ object RingOpt {
 
     implicit def hashExpr[A: Hash]: Hash[Expr[A]] =
       new Hash[Expr[A]] {
+        @annotation.tailrec
+        def simpleFlatAdd(e: List[Expr[A]], acc: List[Expr[A]]): List[Expr[A]] =
+          e match {
+            case Nil               => acc
+            case Add(x, y) :: tail =>
+              simpleFlatAdd(x :: y :: tail, acc)
+            case notAdd :: tail =>
+              simpleFlatAdd(tail, notAdd :: acc)
+          }
+        @annotation.tailrec
+        def simpleFlatMult(
+            e: List[Expr[A]],
+            acc: List[Expr[A]]
+        ): List[Expr[A]] =
+          e match {
+            case Nil                => acc
+            case Mult(x, y) :: tail =>
+              simpleFlatMult(x :: y :: tail, acc)
+            case notMult :: tail =>
+              simpleFlatMult(tail, notMult :: acc)
+          }
+
+        // TODO: this isn't strictly tail recursive though we deal with long chains of
+        // adds or mults, but not mutually nested ones
         def hash(a: Expr[A]): Int =
           a match {
             case Symbol(a)      => 1 + 31 * Hash[A].hash(a)
             case One            => 2 + 31 * MurmurHash3.caseClassHash(One)
             case Zero           => 3 + 31 * MurmurHash3.caseClassHash(Zero)
             case i @ Integer(_) => 4 + 31 * MurmurHash3.caseClassHash(i)
-            case Add(x, y)      => 5 + 31 * (hash(x) + 31 * hash(y))
-            case Mult(x, y)     => 6 + 31 * (hash(x) + 31 * hash(y))
-            case Neg(x)         => 7 + 31 * (hash(x))
+            case Add(x, y)      =>
+              val flatAdd = simpleFlatAdd(x :: y :: Nil, Nil)
+              5 + flatAdd.foldLeft(0) { (acc, x) =>
+                31 * acc + hash(x)
+              }
+            case Mult(x, y) =>
+              val flatMult = simpleFlatMult(x :: y :: Nil, Nil)
+              6 + flatMult.foldLeft(0) { (acc, x) =>
+                31 * acc + hash(x)
+              }
+            case Neg(x) => 7 + 31 * (hash(x))
           }
         def eqv(a: Expr[A], b: Expr[A]): Boolean =
           a match {
@@ -334,16 +368,34 @@ object RingOpt {
       }
     }
 
-    def toValue[A](expr: Expr[A])(implicit num: Numeric[A]): A =
-      expr match {
-        case Zero       => num.zero
-        case One        => num.one
-        case Integer(n) => fromBigInt[A](n)
-        case Symbol(a)  => a
-        case Add(x, y)  => num.plus(toValue(x), toValue(y))
-        case Mult(x, y) => num.times(toValue(x), toValue(y))
-        case Neg(x)     => num.negate(toValue(x))
-      }
+    def toValue[A](expr: Expr[A])(implicit num: Numeric[A]): A = {
+      // very deep chains of multiplications produce astronomically
+      // large numbers so we assume those aren't deep but maybe add is
+      // also, large chains of Neg don't make much sense, so are very
+      // unlikely to appear in natural code
+      @annotation.tailrec
+      def loop(es: List[Expr[A]], sum: A): A =
+        es match {
+          case Nil          => sum
+          case expr :: tail =>
+            expr match {
+              case Zero       => loop(tail, sum)
+              case One        => loop(tail, num.plus(sum, num.one))
+              case Integer(n) => loop(tail, num.plus(sum, fromBigInt[A](n)))
+              case Symbol(a)  => loop(tail, num.plus(sum, a))
+              case Add(x, y)  => loop(x :: y :: tail, sum)
+              // handle chains of Neg
+              case Neg(Neg(x)) => loop(x :: tail, sum)
+              // these last two we cheat and use toValue directly
+              case Mult(x, y) =>
+                loop(tail, num.plus(sum, num.times(toValue(x), toValue(y))))
+              case Neg(x) =>
+                loop(tail, num.plus(sum, num.negate(toValue(x))))
+            }
+        }
+
+      loop(expr :: Nil, num.zero)
+    }
 
     // return all the positive and negative additive terms from this list
     // invariant: return no top level Add(_, _) or Neg(_)
@@ -569,8 +621,8 @@ object RingOpt {
       else if (a.isOne) b
       else if (b.isOne) a
       // Negation is always cheaper than mult by -1
-      else if (a.isNegOne) Neg(b)
-      else if (b.isNegOne) Neg(a)
+      else if (a.isNegOne) b.normalizeNeg
+      else if (b.isNegOne) a.normalizeNeg
       else Mult(a, b)
 
     // check if either arg is zero before adding
@@ -621,11 +673,23 @@ object RingOpt {
     require(mult > 0, s"mult = $mult must be > 0")
     require(neg > 0, s"neg = $neg must be > 0")
 
-    def cost[A](e: Expr[A]): Int = e match {
-      case Zero | One | Integer(_) | Symbol(_) => 0
-      case Neg(x)                              => neg + cost(x)
-      case Add(a, b)                           => add + cost(a) + cost(b)
-      case Mult(a, b)                          => mult + cost(a) + cost(b)
+    def cost[A](e: Expr[A]): Long = {
+      @annotation.tailrec
+      def loop(stack: List[Expr[A]], acc: Long): Long =
+        stack match {
+          case e :: tail =>
+            e match {
+              case Zero | One | Integer(_) | Symbol(_) => loop(tail, acc)
+              case Neg(x)    => loop(x :: tail, neg + acc)
+              case Add(a, b) =>
+                loop(a :: b :: tail, acc + add)
+              case Mult(a, b) =>
+                loop(a :: b :: tail, acc + mult)
+            }
+          case Nil => acc
+        }
+
+      loop(e :: Nil, 0L)
     }
 
     /** is it better to do x + x + ... + x (n times) or n * x we can statically
@@ -720,34 +784,45 @@ object RingOpt {
   // === Public API ===
   def normalize[A: Hash](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
     val eInit = e
+    // if we can't reduce the cost but keep producing different items stop
+    // at 10000 so we don't loop forever or blow up memory
+    val MaxCount = 10000
     @annotation.tailrec
-    def loop(e: Expr[A], cost: Int, reached: HashSet[Expr[A]]): Expr[A] = {
-      val ne = norm(e, W)
-      val costNE = W.cost(ne)
-      if (costNE < cost) {
-        // we improved matters
-        loop(ne, costNE, HashSet.empty[Expr[A]].add(ne))
-      } else if (costNE == cost) {
-        // couldn't improve things, but maybe normalized them
-        if (reached.contains(ne)) {
-          // we have reached this, return the minimum in the set:
-          reached.iterator.minBy(Expr.key(_))
-        } else {
-          // we haven't seen this before, add it, and normalize again
-          loop(ne, costNE, reached.add(ne))
-        }
+    def loop(
+        e: Expr[A],
+        cost: Long,
+        reached: HashSet[Expr[A]],
+        cnt: Int
+    ): Expr[A] =
+      if (cnt >= MaxCount) {
+        reached.iterator.minBy(Expr.key(_))
       } else {
-        // costNE > cost
-        implicit val showA: Show[A] = Show.fromToString
-        val (pos, neg) = Expr.flattenAddSub(e :: Nil)
-        sys.error(
-          show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
-            else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg"
-        )
+        val ne = norm(e, W)
+        val costNE = W.cost(ne)
+        if (costNE < cost) {
+          // we improved matters
+          loop(ne, costNE, HashSet.empty[Expr[A]].add(ne), 0)
+        } else if (costNE == cost) {
+          // couldn't improve things, but maybe normalized them
+          if (reached.contains(ne)) {
+            // we have reached this, return the minimum in the set:
+            reached.iterator.minBy(Expr.key(_))
+          } else {
+            // we haven't seen this before, add it, and normalize again
+            loop(ne, costNE, reached.add(ne), cnt + 1)
+          }
+        } else {
+          // costNE > cost
+          implicit val showA: Show[A] = Show.fromToString
+          val (pos, neg) = Expr.flattenAddSub(e :: Nil)
+          sys.error(
+            show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
+              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg"
+          )
+        }
       }
-    }
 
-    loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e))
+    loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 
   // Small helper: canonical integer literal
@@ -855,7 +930,7 @@ object RingOpt {
               Expr[A],
               List[(Option[BigInt], List[Expr[A]])],
               List[(Option[BigInt], List[Expr[A]])],
-              Int
+              Long
           )
         ] =
           if (atoms.isEmpty) Nil
