@@ -159,7 +159,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property("maybeDivInt works") {
     forAll { (e: Expr[BigInt], div: BigInt) =>
       e.maybeDivInt(div) match {
-        case None      => ()
+        case None => ()
+        /*
+        We wish something like the following were true,
+        but it is not because in Add(x, y) we require dividing
+        both sides, but we don't check if we only divide the combination
+        we could check if both sides are integers, and do the addition
+        but that's a bit expensive
+          e.maybeBigInt(_ => None).foreach { i =>
+            // i should not be able to be divided by div
+            assert((i % div) != BigInt(0), show"i = $i")
+          }
+         */
         case Some(res) =>
           assertEquals(Expr.toValue(e) /% div, (Expr.toValue(res), BigInt(0)))
       }
@@ -768,9 +779,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property("unConstMult is the opposite of constMult") {
     forAll { (e: Expr[BigInt], w: Weights) =>
       e.unConstMult.foreach { case (bi, x) =>
-        assertEquals(Expr.toValue(w.constMult(x, bi)), Expr.toValue(e))
+        val bix = Expr.toValue(x)
+        assertEquals(
+          Expr.toValue(w.constMult(x, bi)),
+          bix * bi,
+          show"e=$e, bi=$bi, x=$x, bix=$bix"
+        )
       }
-
     }
   }
 }

@@ -156,12 +156,31 @@ object RingOpt {
             // (x + y)/n == (x/n + y/n)
             (x.maybeDivInt(bi), y.maybeDivInt(bi)).mapN(Add(_, _))
           case Mult(x, y) =>
-            // (x*y)/n == (x/n) * y or x * (y/n)
-            // TODO: we could factor n = n1n2 then write
-            // (x*y)/n as (x/n1) * (y/n2)
-            x.maybeDivInt(bi)
-              .map(Expr.checkMult(_, y))
-              .orElse(y.maybeDivInt(bi).map(Expr.checkMult(x, _)))
+            x.unConstMult
+              .flatMap { case (bix, x1) =>
+                val (d, m) = bix /% bi
+                if (m == 0)
+                  Some(Expr.checkMult(Integer(d), Expr.checkMult(x1, y)))
+                else {
+                  // we can't divide just using the left
+                  y.unConstMult.flatMap { case (biy, y1) =>
+                    val biXY = bix * biy
+                    val (d, m) = biXY /% bi
+                    if (m == 0)
+                      Some(Expr.checkMult(Integer(d), Expr.checkMult(x1, y1)))
+                    else None
+                  }
+                }
+              }
+              .orElse {
+                // we can't divide just using the left
+                y.unConstMult.flatMap { case (biy, y1) =>
+                  val (d, m) = biy /% bi
+                  if (m == 0)
+                    Some(Expr.checkMult(Integer(d), Expr.checkMult(x, y1)))
+                  else None
+                }
+              }
         }
 
     def nonNeg: Boolean =
@@ -238,22 +257,34 @@ object RingOpt {
 
     def unConstMult: Option[(BigInt, Expr[A])] =
       expr match {
-        case One | Zero | Symbol(_) => None
-        case Integer(n)             => Some((n, One))
-        case Add(x, y)              =>
+        case One | Symbol(_) => None
+        case Zero            => Some((BigInt(0), One))
+        case Integer(n)      => Some((n, One))
+        case Add(x, y)       =>
           // (n1 * x1 + n2 * y1) = (g := gcd(n1, n2))((n1/g)*x1 + (n2/g)*y1)
-          for {
-            (n1, x1) <- x.unConstMult
-            (n2, y1) <- y.unConstMult
-            g = n1.gcd(n2)
-            if g != 1
-          } yield (
-            g,
-            Expr.checkAdd(
-              Expr.checkMult(Integer(n1 / g), x1),
-              Expr.checkMult(Integer(n2 / g), y1)
-            )
-          )
+          x.unConstMult.flatMap { case xres @ (n1, x1) =>
+            if (n1 == 0) y.unConstMult
+            else {
+              y.unConstMult.flatMap { case (n2, y1) =>
+                if (n2 == 0) Some(xres)
+                else {
+                  val g = n1.gcd(n2)
+                  if (g != 1) {
+                    Some(
+                      (
+                        g,
+                        Expr.checkAdd(
+                          Expr.checkMult(Integer(n1 / g), x1),
+                          Expr.checkMult(Integer(n2 / g), y1)
+                        )
+                      )
+                    )
+                  } else None
+                }
+
+              }
+            }
+          }
         case Mult(x, y) =>
           (x.unConstMult, y.unConstMult) match {
             case (None, None)           => None
@@ -264,7 +295,8 @@ object RingOpt {
             case (Some((n1, x1)), Some((n2, y1))) =>
               Some((n1 * n2, Expr.checkMult(x1, y1)))
           }
-        case Neg(x) =>
+        case Neg(One) => Some((BigInt(-1), One))
+        case Neg(x)   =>
           x.unConstMult.map { case (n, x) => (-n, x) }
       }
     // if we can implement this by absorbing a multiplication by a constant
