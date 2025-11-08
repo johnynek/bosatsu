@@ -7,13 +7,6 @@ import cats.syntax.all._
 
 class RingOptLaws extends munit.ScalaCheckSuite {
 
-  // override def scalaCheckInitialSeed = "HPupFd7KvUISBG8NqojEImPM5Rw7rhyP0Mknf9iv0-P="
-  // override def scalaCheckInitialSeed = "QNSEpXo3Wd33vrtjCPm_X8ZvcxNm2oLGeMEBC0m9DcF="
-  // override def scalaCheckInitialSeed = "7njzS7m8JI3YbQGsE4WAosfS03suEYbMZdipEOhNISA="
-  // override def scalaCheckInitialSeed = "Na8mB0VjIRkZ-7lAodvvlGXd1XJ77mZ8dij8x-QGpiM="
-  // override def scalaCheckInitialSeed = "z8KHZZ6g7h-Qobfz9Qnc-x7IKmc5ZVzUzw4FGys_1oJ="
-  // override def scalaCheckInitialSeed = "hz4zFHijK-UOXwC2oH5-dAdSGJHyT7Z58PjaJv7E2EB="
-  // override def scalaCheckInitialSeed = "GEQ98HharP10F4WeQcSp8uWetJ7sxik0ZLCJVaOeUmK="
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(5000)
@@ -718,6 +711,22 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         val cnt = BigInt(n)
         val rep = Expr.replicateAdd(cnt, e)
         assertEquals(Expr.toValue(rep), Expr.toValue(e) * n)
+    }
+  }
+
+  property("multThreshold works") {
+    forAll(
+      genExpr(Gen.choose(-10, 10), 5),
+      Gen.choose(-100, 100),
+      Arbitrary.arbitrary[Weights]
+    ) { (e: Expr[Int], n: Int, w: Weights) =>
+      val cnt = BigInt(n)
+      if (w.multThreshold <= cnt.abs) {
+        // multiplication is always lower cost
+        val rep = Expr.replicateAdd(cnt, e)
+        val mult = Expr.multAll(e :: Integer(cnt) :: Nil)
+        assert(w.cost(mult) <= w.cost(rep))
+      }
     }
   }
 }

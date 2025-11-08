@@ -580,25 +580,30 @@ object RingOpt {
       else Add(a, b)
 
     def replicateAdd[A](cnt: BigInt, expr: Expr[A]): Expr[A] = {
+      // invariant: cnt >= 1 and expr != 0
       def loop(cnt: BigInt): Expr[A] =
-        if (cnt <= 0) Zero
-        else if (cnt == 1) expr
+        if (cnt == 1) expr
         else {
+          // cnt >= 2, so (cnt >> 1) >= 1
           // for all x > 1
           // x * expr = (2n + 1) * expr, or (2n) expr
           val half = loop(cnt >> 1)
           val twiceHalf = checkAdd(half, half)
-          val lowPart = if (cnt.testBit(0)) {
+          if (cnt.testBit(0)) {
             // this is odd:
-            expr
+            Add(twiceHalf, expr)
           } else {
-            Zero
+            twiceHalf
           }
-          checkAdd(twiceHalf, lowPart)
         }
 
-      if (cnt >= 0) loop(cnt)
-      else loop(-cnt).normalizeNeg
+      if (expr.isZero || cnt == 0) Zero
+      else if (cnt > 0) loop(cnt)
+      else
+        (expr.cheapNeg match {
+          case Some(negExpr) => replicateAdd(-cnt, negExpr)
+          case None          => loop(-cnt).normalizeNeg
+        })
     }
   }
 
@@ -623,36 +628,87 @@ object RingOpt {
       case Mult(a, b)                          => mult + cost(a) + cost(b)
     }
 
+    /** is it better to do x + x + ... + x (n times) or n * x we can statically
+      * compute a number such that if n >= it is always better to multiply.
+      */
+    val multThreshold: BigInt = {
+      // cost of (e + e + ... + e) with bi terms
+      // this is i * cost(e) + (i - 1) * add
+      // cost of multiplication would be cost(e) + mult
+      // so it's better to multiply when:
+      // cost(e) + mult <= i * cost(e) + (i - 1) * add
+      // mult <= (i - 1) * (cost(e) + add)
+      // cost(e) >= 0, so we need the smallest i such that
+      // (mult - (i - 1) * add) <= 0
+      // mult/add <= (i - 1)
+      // mult/add + 1 <= i
+
+      // consider negative multiplications:
+
+      // cost of -(+e + e + ... + e) with bi terms
+      // this is i * cost(e) + (i - 1) * add + neg
+      // cost of multiplication would be cost(e) + mult
+      // so it's better to multiply when:
+      // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
+      // mult <= (i - 1) * (cost(e) + add) + neg
+      // cost(e) >= 0, so we need the smalled i such that
+      // (mult - (i - 1) * add - neg) <= 0
+      // (mult - neg)/add - n <= (i - 1)
+      // (mult - neg)/add + 1 <= i
+      // but, the e could have an outer Neg(_) which
+      // can easily be removed, so actually
+      // we need to resort to using the above in the pessimistic case
+
+      val (d, m) = BigInt(mult) /% BigInt(add)
+      if (m == 0) (d + 1)
+      else (d + 2)
+    }
+
     def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
       expr.absorbMultConst(const).getOrElse {
-        // cost of (e + e + ... + e) with bi terms
-        // this is i * cost(e) + (i - 1) * add
-        // cost of multiplication would be cost(e) + mult
-        // so it's better to multiply when:
-        // cost(e) + mult <= i * cost(e) + (i - 1) * add
-        // mult <= (i - 1) * (cost(e) + add)
-        // with negation, we need:
-        // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
-        // which is
-        // mult <= (i - 1) * (cost(e) + add) + neg
-        val costE = BigInt(cost(expr))
-        if (const > 0) {
-          if (BigInt(mult) < (const - 1) * (costE + add)) {
-            // multiplication wins
-            Expr.multAll(expr :: Integer(const) :: Nil)
-          } else {
-            Expr.replicateAdd(const, expr)
-          }
-        } else if (const < 0) {
-          if (BigInt(mult) < ((-const - 1) * (costE + add) + neg)) {
-            // multiplication wins
-            Expr.multAll(expr :: Integer(const) :: Nil)
-          } else {
-            Expr.replicateAdd(const, expr)
-          }
+        // we know const != 0, 1, -1 because those can be absorbed
+        val cAbs = const.abs
+        if (multThreshold <= cAbs) {
+          // it's always better to multiply
+          Expr.multAll(expr :: Integer(const) :: Nil)
         } else {
-          // const == 0
-          canonInt(0)
+          val maybeNegated = if (const < 0) {
+            expr.cheapNeg.map(constMult(_, -const))
+          } else {
+            None
+          }
+
+          maybeNegated match {
+            case Some(res) => res
+            case None      =>
+
+              // cost of (e + e + ... + e) with bi terms
+              // this is i * cost(e) + (i - 1) * add
+              // cost of multiplication would be cost(e) + mult
+              // so it's better to multiply when:
+              // cost(e) + mult <= i * cost(e) + (i - 1) * add
+              // mult <= (i - 1) * (cost(e) + add)
+              // with negation, we need:
+              // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
+              // which is
+              // mult <= (i - 1) * (cost(e) + add) + neg
+              val constMinus1 = cAbs - 1
+              val lhsNum = if (const > 0) {
+                // if (mult - (i - 1) * add)/(i - 1) <= cost(e)
+                // we are better off with mult. But note, cost(e) >=0
+                // so, if the lhs is negative, we don't need to compute the cost
+                BigInt(mult) - constMinus1 * add
+              } else {
+                // if (mult - neg - (i - 1) * add)/(i - 1) <= cost(e)
+                BigInt(mult - neg) - constMinus1 * add
+              }
+
+              if (lhsNum <= constMinus1 * cost(expr)) {
+                Expr.multAll(expr :: Integer(const) :: Nil)
+              } else {
+                Expr.replicateAdd(const, expr)
+              }
+          }
         }
       }
   }
