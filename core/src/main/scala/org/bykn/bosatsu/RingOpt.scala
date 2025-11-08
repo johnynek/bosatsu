@@ -236,6 +236,37 @@ object RingOpt {
         case Some(cheap) => cheap
       }
 
+    def unConstMult: Option[(BigInt, Expr[A])] =
+      expr match {
+        case One | Zero | Symbol(_) => None
+        case Integer(n)             => Some((n, One))
+        case Add(x, y)              =>
+          // (n1 * x1 + n2 * y1) = (g := gcd(n1, n2))((n1/g)*x1 + (n2/g)*y1)
+          for {
+            (n1, x1) <- x.unConstMult
+            (n2, y1) <- y.unConstMult
+            g = n1.gcd(n2)
+            if g != 1
+          } yield (
+            g,
+            Expr.checkAdd(
+              Expr.checkMult(Integer(n1 / g), x1),
+              Expr.checkMult(Integer(n2 / g), y1)
+            )
+          )
+        case Mult(x, y) =>
+          (x.unConstMult, y.unConstMult) match {
+            case (None, None)           => None
+            case (Some((n1, x1)), None) =>
+              Some((n1, Expr.checkMult(x1, y)))
+            case (None, Some((n1, y1))) =>
+              Some((n1, Expr.checkMult(x, y1)))
+            case (Some((n1, x1)), Some((n2, y1))) =>
+              Some((n1 * n2, Expr.checkMult(x1, y1)))
+          }
+        case Neg(x) =>
+          x.unConstMult.map { case (n, x) => (-n, x) }
+      }
     // if we can implement this by absorbing a multiplication by a constant
     // do it. The cost of the returned expression is <= original
     def absorbMultConst(c: BigInt): Option[Expr[A]] =

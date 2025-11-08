@@ -764,4 +764,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     val n = normalize(deep, w)
     assertEquals(Expr.toValue(n), Expr.toValue(deep))
   }
+
+  property("unConstMult is the opposite of constMult") {
+    forAll { (e: Expr[BigInt], w: Weights) =>
+      e.unConstMult.foreach { case (bi, x) =>
+        assertEquals(Expr.toValue(w.constMult(x, bi)), Expr.toValue(e))
+      }
+
+    }
+  }
 }
