@@ -460,18 +460,23 @@ object RingOpt {
       loop(expr :: Nil, num.zero)
     }
 
-    // return all the positive and negative additive terms from this list
-    // invariant: return no top level Add(_, _) or Neg(_)
-    def flattenAddSub[A: Hash](
+    // return the sum such that all non-sum terms get a coefficient and we also
+    // return any integer parts fully added up (as the first item in the tuple)
+    // so: val (const, terms) = groupSum(es)
+    // then terms.iterator.foldLeft(const) { case (acc, (e, n)) =>
+    //   acc + n * e
+    // }
+    // is the same as the original sum
+    def groupSum[A: Hash](
         e: List[Expr[A]]
-    ): (List[Expr[A]], List[Expr[A]]) = {
+    ): (BigInt, MultiSet[Expr[A], BigInt]) = {
       @annotation.tailrec
       def loop(
           inPos: List[Expr[A]],
           inNeg: List[Expr[A]],
           res: MultiSet[Expr[A], BigInt],
           intRes: BigInt
-      ): (List[Expr[A]], List[Expr[A]]) =
+      ): (BigInt, MultiSet[Expr[A], BigInt]) =
         inPos match {
           case Add(x, y) :: tail =>
             loop(x :: y :: tail, inNeg, res, intRes)
@@ -487,45 +492,7 @@ object RingOpt {
           case Nil =>
             inNeg match {
               case Nil =>
-                @annotation.tailrec
-                def bigFill(
-                    bi: BigInt,
-                    expr: Expr[A],
-                    acc: List[Expr[A]]
-                ): List[Expr[A]] =
-                  if (bi.isValidInt) {
-                    val listFill = List.fill(bi.toInt)(expr)
-                    if (acc.isEmpty) listFill
-                    else (listFill reverse_::: acc)
-                  } else {
-                    // too big
-                    bigFill(bi - 1, expr, expr :: acc)
-                  }
-
-                // flatten out the results
-                val e = List.empty[Expr[A]]
-                // Put the values in a canonical order
-                // we reverse so after the foldLeft will return the right order
-                val nonZeros = res.nonZeroIterator.toList.reverse.sortBy {
-                  case (e, _) => Expr.key(e)
-                }
-                val resTup @ (resultPos, resultNeg) =
-                  nonZeros.foldLeft((e, e)) { case ((pos, neg), (expr, cnt)) =>
-                    if (cnt > 0) {
-                      (bigFill(cnt, expr, pos), neg)
-                    } else {
-                      // cnt < 0, exactly zero we don't see
-                      // try to negate
-                      expr.cheapNeg match {
-                        case Some(negExpr) =>
-                          (bigFill(-cnt, negExpr, pos), neg)
-                        case None =>
-                          (pos, bigFill(-cnt, expr, neg))
-                      }
-                    }
-                  }
-                if (intRes == 0) resTup
-                else (canonInt(intRes) :: resultPos, resultNeg)
+                (intRes, res)
               case Add(x, y) :: tail =>
                 loop(Nil, x :: y :: tail, res, intRes)
               case Integer(n) :: tail =>
@@ -541,6 +508,54 @@ object RingOpt {
         }
 
       loop(e, Nil, MultiSet.empty[Expr[A], BigInt], BigInt(0))
+    }
+
+    // return all the positive and negative additive terms from this list
+    // invariant: return no top level Add(_, _) or Neg(_)
+    def flattenAddSub[A: Hash](
+        e: List[Expr[A]]
+    ): (List[Expr[A]], List[Expr[A]]) = {
+      val (intRes, res) = groupSum(e)
+
+      @annotation.tailrec
+      def bigFill(
+          bi: BigInt,
+          expr: Expr[A],
+          acc: List[Expr[A]]
+      ): List[Expr[A]] =
+        if (bi.isValidInt) {
+          val listFill = List.fill(bi.toInt)(expr)
+          if (acc.isEmpty) listFill
+          else (listFill reverse_::: acc)
+        } else {
+          // too big
+          bigFill(bi - 1, expr, expr :: acc)
+        }
+
+      // flatten out the results
+      // Put the values in a canonical order
+      // we reverse so after the foldLeft will return the right order
+      val nonZeros = res.nonZeroIterator.toList.reverse.sortBy { case (e, _) =>
+        Expr.key(e)
+      }
+      val empty = List.empty[Expr[A]]
+      val resTup @ (resultPos, resultNeg) =
+        nonZeros.foldLeft((empty, empty)) { case ((pos, neg), (expr, cnt)) =>
+          if (cnt > 0) {
+            (bigFill(cnt, expr, pos), neg)
+          } else {
+            // cnt < 0, exactly zero we don't see
+            // try to negate
+            expr.cheapNeg match {
+              case Some(negExpr) =>
+                (bigFill(-cnt, negExpr, pos), neg)
+              case None =>
+                (pos, bigFill(-cnt, expr, neg))
+            }
+          }
+        }
+      if (intRes == 0) resTup
+      else (canonInt(intRes) :: resultPos, resultNeg)
     }
 
     def negateProduct[A](head: Expr[A], tail: List[Expr[A]]): List[Expr[A]] =
@@ -916,7 +931,7 @@ object RingOpt {
       normMult(optConst, factors, W)
   }
 
-  def optSumProd[A: Hash](
+  private def optSumProd[A: Hash](
       sumProd: List[(Option[BigInt], List[Expr[A]])],
       W: Weights
   ): Expr[A] =
@@ -1061,12 +1076,6 @@ object RingOpt {
       W: Weights,
       negate: Boolean
   ): Expr[A] = {
-    val pn @ (pos0, neg0) = Expr.flattenAddSub(left :: right :: Nil)
-    val (pos, neg) = if (negate) (neg0, pos0) else pn
-    // we could represent this as Add(pos, Neg(neg))
-    // if there is only one neg term we can just add the negative
-    // in and keep going, else we have to normalize + and - separately
-
     def toProd(term: Expr[A]): (Option[BigInt], List[Expr[A]]) =
       Expr.flattenMult(term :: Nil)
 
@@ -1077,6 +1086,12 @@ object RingOpt {
         case (Some(bi), _) => bi != 0
         case (None, _)     => true
       }
+
+    val pn @ (pos0, neg0) = Expr.flattenAddSub(left :: right :: Nil)
+    val (pos, neg) = if (negate) (neg0, pos0) else pn
+    // we could represent this as Add(pos, Neg(neg))
+    // if there is only one neg term we can just add the negative
+    // in and keep going, else we have to normalize + and - separately
 
     if (neg.lengthCompare(1) <= 0) {
       // there is at most one negative

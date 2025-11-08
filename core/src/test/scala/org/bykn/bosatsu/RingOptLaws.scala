@@ -104,7 +104,10 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val normNeg = e.normalizeNeg
       assertEquals(-Expr.toValue(e), Expr.toValue(normNeg))
       // we add at most 1 neg node
-      assert(w.cost(normNeg) <= (w.cost(e) + w.neg))
+      val costE = w.cost(e)
+      assert(w.cost(normNeg) <= (costE + w.neg))
+      // if we normalizeNeg twice, cost is the same
+      assert(w.cost(normNeg.normalizeNeg) <= costE)
     }
   }
 
@@ -767,9 +770,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
   test("normalize does not throw on very deep trees") {
     val depth = 50000
-    val leaf = Symbol(1)
+    val leaf = Symbol(BigInt(1))
     val deep =
-      (1 to depth).foldLeft(leaf: Expr[Int])((acc, _) => Add(acc, leaf))
+      (1 to depth).foldLeft(leaf: Expr[BigInt])((acc, _) => Add(acc, leaf))
     val w = Weights(mult = 5, add = 1, neg = 1)
     // Should terminate; before fix may overflow cost
     val n = normalize(deep, w)
@@ -786,6 +789,22 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           show"e=$e, bi=$bi, x=$x, bix=$bix"
         )
       }
+    }
+  }
+
+  property("groupSum law") {
+    forAll { (es: List[Expr[BigInt]]) =>
+      val (const, terms) = Expr.groupSum(es)
+      val combined =
+        terms.nonZeroIterator.foldLeft(Integer(const): Expr[BigInt]) {
+          case (acc, (e, n)) =>
+            acc + (e * Integer(n))
+        }
+
+      assertEquals(
+        Expr.toValue(combined),
+        Expr.toValue(es.foldLeft(Zero: Expr[BigInt])(_ + _))
+      )
     }
   }
 }
