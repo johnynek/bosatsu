@@ -251,11 +251,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val add = Expr.replicateAdd(const, expr)
       assert(
         cmCost <= w.cost(mult),
-        show"cmCost = $cmCost, cm = $cm, mult=$mult, expr=$expr"
+        show"cmCost = $cmCost, const = $const, cm = $cm, mult=$mult, expr=$expr"
       )
       assert(
         cmCost <= w.cost(add),
-        show"cmCost = $cmCost, cm = $cm, add=$add, expr=$expr"
+        show"cmCost = $cmCost, const = $const, cm = $cm, mult=$mult, expr=$expr"
       )
     }
   }
@@ -287,41 +287,37 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("addAll never increases cost") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
-      val a = Expr.addAll(expr :: Nil)
+      val a = Expr.addAll(expr :: Nil, w)
       assert(w.cost(a) <= w.cost(expr))
     }
   }
 
   property("addAll is order independent") {
-    forAll { (exprs: List[Expr[BigInt]], seed: Long) =>
+    forAll { (exprs: List[Expr[BigInt]], seed: Long, w: Weights) =>
       val rand = new scala.util.Random(seed)
       val exprs2 = rand.shuffle(exprs)
-      val m = Expr.addAll(exprs)
-      val m2 = Expr.addAll(exprs2)
+      val m = Expr.addAll(exprs, w)
+      val m2 = Expr.addAll(exprs2, w)
       assertEquals(m2, m)
     }
   }
 
   property("flattenAddSub => addAll identity") {
-    forAll { (expr: Expr[BigInt]) =>
-      val (pos, neg) = Expr.flattenAddSub(expr :: Nil)
-      val sum = Expr.addAll(pos) - Expr.addAll(neg)
-      assertEquals(Expr.toValue(sum), Expr.toValue(expr))
-    }
-  }
-
-  property("flattenAddSub => addAll doesn't increase cost") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
-      val (pos, neg) = Expr.flattenAddSub(expr :: Nil)
-      val negSum = Expr.addAll(neg).normalizeNeg
-      val sum = Expr.addAll(negSum :: pos)
-      assert(w.cost(sum) <= w.cost(expr))
+      val (pos, neg) = Expr.flattenAddSub(expr :: Nil, w)
+      val sum = Expr.addAll(pos, w) - Expr.addAll(neg, w)
+      val groupSumRes = Expr.groupSum(expr :: Nil)
+      assertEquals(
+        Expr.toValue(sum),
+        Expr.toValue(expr),
+        show"pos=$pos, neg=$neg, sum=$sum, expr=$expr, groupSumRes=$groupSumRes"
+      )
     }
   }
 
   property("flattenAddSub obeys invariant") {
-    forAll { (e: Expr[Int]) =>
-      val (pos, neg) = Expr.flattenAddSub(e :: Nil)
+    forAll { (e: Expr[Int], w: Weights) =>
+      val (pos, neg) = Expr.flattenAddSub(e :: Nil, w)
 
       pos.foreach {
         case bad @ (Add(_, _) | Neg(_) | Zero) =>
@@ -329,13 +325,31 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         case _ => ()
       }
       neg.foreach {
-        case bad @ (Add(_, _) | Neg(_) | Integer(_) | Zero) =>
+        case bad @ (Add(_, _) | Neg(_) | Zero) =>
           fail(s"unexpected bad: $bad in neg = $neg")
+        case Integer(_) =>
+          // this should only happen if pos is empty
+          assert(pos.isEmpty)
         case _ => ()
       }
 
-      val unflattened = Add(Expr.addAll(pos), Neg(Expr.addAll(neg)))
+      val unflattened = Add(Expr.addAll(pos, w), Neg(Expr.addAll(neg, w)))
       assertEquals(Expr.toValue(unflattened), Expr.toValue(e))
+    }
+  }
+
+  property("flattenAddSub => addAll doesn't increase cost") {
+    forAll { (expr: Expr[BigInt], w: Weights) =>
+      val (pos, neg) = Expr.flattenAddSub(expr :: Nil, w)
+      val negSum = Expr.addAll(neg, w).normalizeNeg
+      val sum = Expr.addAll(negSum :: pos, w)
+      val sumCost = w.cost(sum)
+      val cost0 = w.cost(expr)
+      assertEquals(Expr.toValue(sum), Expr.toValue(expr))
+      assert(
+        sumCost <= cost0,
+        show"sum($sumCost) = $sum, expr($cost0) = $expr, pos=$pos, neg=$neg"
+      )
     }
   }
 
@@ -361,9 +375,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Weights)] =
       (
-        Neg(Add(Neg(Symbol(7)), Symbol(1))),
-        Weights(13, 8, 5)
+        Neg(Add(Add(Symbol(-1), Symbol(0)), Symbol(-1))),
+        Weights(3, 2, 2)
       ) ::
+        (
+          Neg(Add(Neg(Symbol(7)), Symbol(1))),
+          Weights(13, 8, 5)
+        ) ::
         (
           Add(
             Neg(Mult(Add(One, One), Symbol(-1))),
@@ -666,7 +684,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Nil
 
     cases.foreach { case (reg, w) =>
-      val flat = Expr.flattenAddSub(reg :: Nil)
+      val flat = Expr.flattenAddSub(reg :: Nil, w)
       val c0 = w.cost(reg)
       // println(show"c0=$c0, reg=$reg, flat=$flat")
       val norm = normalize(reg, w)
@@ -798,7 +816,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val combined =
         terms.nonZeroIterator.foldLeft(Integer(const): Expr[BigInt]) {
           case (acc, (e, n)) =>
-            acc + (e * Integer(n))
+            // we never have zeros here
+            assert(n != 0)
+            acc + (e.toExpr * Integer(n))
         }
 
       assertEquals(
