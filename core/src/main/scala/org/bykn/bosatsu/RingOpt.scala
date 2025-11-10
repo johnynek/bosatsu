@@ -644,66 +644,6 @@ object RingOpt {
       loop(expr :: Nil, num.zero)
     }
 
-    // return the sum such that all non-sum terms get a coefficient and we also
-    // return any integer parts fully added up (as the first item in the tuple)
-    // so: val (const, terms) = groupSum(es)
-    // then terms.iterator.foldLeft(const) { case (acc, (e, n)) =>
-    //   acc + n * e
-    // }
-    // is the same as the original sum
-    def groupSum[A: Hash](
-        e: List[Expr[A]]
-    ): (BigInt, MultiSet[AddTerm[A], BigInt]) = {
-      @annotation.tailrec
-      def loop(
-          in: List[(BigInt, Expr[A])],
-          res: MultiSet[AddTerm[A], BigInt],
-          intRes: BigInt
-      ): (BigInt, MultiSet[AddTerm[A], BigInt]) =
-        in match {
-          case (c, Add(x, y)) :: tail =>
-            loop((c, x) :: (c, y) :: tail, res, intRes)
-          case (c, Neg(x)) :: tail =>
-            loop((-c, x) :: tail, res, intRes)
-          case (n1, Integer(n)) :: tail =>
-            loop(tail, res, intRes + (n1 * n))
-          case (n1, One) :: tail =>
-            loop(tail, res, intRes + n1)
-          case (_, Zero) :: tail =>
-            loop(tail, res, intRes)
-          case (n1, sym @ Symbol(_)) :: tail =>
-            loop(tail, res.add(sym, n1), intRes)
-          case (c, m @ Mult(_, _)) :: tail =>
-            if (m.isZero) loop(tail, res, intRes)
-            else {
-              /*
-                We have some choices here: we could try to avoid
-                negation with cheapNeg, but also we could pull
-                integers out with unConstMult. But also,
-                how many times do different factors show up?
-                If we go too crazy now, that defeats the purpose
-                of optSumProd...
-
-                one challenge with using unConstMult here is that
-                it frustrates the flattenAddSub + addAll not increasing
-                costs law... since multiplying can be worse than adding
-                for small adds. We need to have a way to unroll that correctly
-                if we are going to use unConstMult
-              m.unConstMult match {
-                case Some((bi, inner)) =>
-                  loop((c * bi, inner) :: tail, res, intRes)
-                case None =>
-                  loop(tail, res.add(m, c), intRes)
-              }
-               */
-              loop(tail, res.add(m, c), intRes)
-            }
-          case Nil => (intRes, res)
-        }
-
-      loop(e.map((BigInt(1), _)), MultiSet.empty[AddTerm[A], BigInt], BigInt(0))
-    }
-
     // return all the positive and negative additive terms from this list
     // invariant: return no top level Add(_, _) or Neg(_)
     def flattenAddSub[A: Hash](
@@ -740,7 +680,7 @@ object RingOpt {
           lst
         }
 
-      val (intRes, res) = groupSum(e)
+      val GroupSum(intRes, res) = GroupSum(e)
       // flatten out the results
       // Put the values in a canonical order
       // we reverse so after the foldLeft will return the right order
@@ -798,78 +738,56 @@ object RingOpt {
       }
 
     // invariant: no One (or .isOne), Zero (or items that .isZero is true), Integer Mult items in list
-    def flattenMult[A](e: List[Expr[A]]): (Option[BigInt], List[Expr[A]]) = {
+    def flattenMult[A](e: List[Expr[A]]): (BigInt, List[MultTerm[A]]) = {
       @annotation.tailrec
       def loop(
           in: List[Expr[A]],
-          result: List[Expr[A]],
-          ints: BigInt,
-          pos: Boolean
-      ): (Option[BigInt], List[Expr[A]]) =
+          result: List[MultTerm[A]],
+          ints: BigInt
+      ): (BigInt, List[MultTerm[A]]) =
         in match {
-          case Zero :: _      => (Some(BigInt(0)), Nil)
-          case One :: tail    => loop(tail, result, ints, pos)
+          case Zero :: _      => (BigInt(0), Nil)
+          case One :: tail    => loop(tail, result, ints)
           case Neg(x) :: tail =>
-            loop(x :: tail, result, ints, !pos)
+            loop(x :: tail, result, -ints)
           case Integer(n) :: tail =>
-            if (n == 0) (Some(BigInt(0)), Nil)
-            else if (n == -1) loop(tail, result, ints, !pos)
-            else loop(tail, result, ints * n, pos)
+            if (n == 0) (BigInt(0), Nil)
+            else loop(tail, result, ints * n)
           case (sym @ Symbol(_)) :: tail =>
             // symbol is totally opaque
-            loop(tail, sym :: result, ints, pos)
-          case Mult(x, y) :: tail => loop(x :: y :: tail, result, ints, pos)
+            loop(tail, sym :: result, ints)
+          case Mult(x, y) :: tail        => loop(x :: y :: tail, result, ints)
           case (add @ Add(_, _)) :: tail =>
-            if (add.isZero) (Some(BigInt(0)), Nil)
+            if (add.isZero) (BigInt(0), Nil)
             else {
               add.saveNeg match {
                 case Some(n) =>
                   // we can save by negating
-                  loop(tail, n :: result, ints, !pos)
+                  loop(n :: tail, result, -ints)
                 case None =>
                   // we can't negate
-                  loop(tail, add :: result, ints, pos)
+                  loop(tail, add :: result, ints)
               }
             }
-          case Nil =>
-            if (ints == 1) {
-              if (pos) (None, result)
-              else {
-                // we need to negate the result as cheaply as possible
-                result match {
-                  case Nil       => (Some(BigInt(-1)), Nil)
-                  case h :: tail => (None, negateProduct(h, tail))
-                }
-              }
-            } else {
-              val i = if (pos) ints else (-ints)
-              (Some(i), result)
-            }
+          case Nil => (ints, result)
         }
 
-      loop(e, Nil, BigInt(1), true)
+      loop(e, Nil, BigInt(1))
     }
 
     def multAll[A](items: List[Expr[A]]): Expr[A] = {
       @annotation.tailrec
-      def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
+      def loop(stack: List[MultTerm[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
         stack match {
           case Nil =>
             val ix = canonInt(ints)
             checkMult(ix, acc)
-          case Integer(n) :: tail =>
-            if (n == 0) Zero
-            else loop(tail, ints * n, acc)
-          case Neg(n) :: tail =>
-            loop(n :: tail, -ints, acc)
           case (others @ (Symbol(_) | Add(_, _))) :: tail =>
-            loop(tail, ints, checkMult(others, acc))
-          case (unexpect @ (Mult(_, _) | One | Zero)) :: _ =>
-            sys.error(s"invariant violation: flattenMult returned $unexpect")
+            loop(tail, ints, checkMult(others.toExpr, acc))
         }
 
       val (optInt, flat) = flattenMult(sortExpr(items))
-      loop(flat, optInt.getOrElse(BigInt(1)), One)
+      loop(flat, optInt, One)
     }
 
     def addAll[A: Hash](items: List[Expr[A]], w: Weights): Expr[A] = {
@@ -968,13 +886,32 @@ object RingOpt {
       Show[Expr[A]].contramap[AddTerm[A]](_.toExpr)
   }
 
+  // These are Symbol(_) or Add(_, _)
+  sealed trait MultTerm[+A] {
+    def toExpr: Expr[A]
+  }
+  object MultTerm {
+    implicit def hashMultTerm[A: Hash]: Hash[MultTerm[A]] =
+      Hash[Expr[A]].contramap[MultTerm[A]](_.toExpr)
+
+    implicit def showMultTerm[A: Show]: Show[MultTerm[A]] =
+      Show[Expr[A]].contramap[MultTerm[A]](_.toExpr)
+  }
+
   case object Zero extends Expr[Nothing]
   case object One extends Expr[Nothing]
   final case class Integer(toBigInt: BigInt) extends Expr[Nothing]
-  final case class Symbol[A](item: A) extends Expr[A] with AddTerm[A] {
+  final case class Symbol[A](item: A)
+      extends Expr[A]
+      with AddTerm[A]
+      with MultTerm[A] {
     def toExpr: Expr[A] = this
   }
-  final case class Add[A](left: Expr[A], right: Expr[A]) extends Expr[A]
+  final case class Add[A](left: Expr[A], right: Expr[A])
+      extends Expr[A]
+      with MultTerm[A] {
+    def toExpr: Expr[A] = this
+  }
   final case class Mult[A](left: Expr[A], right: Expr[A])
       extends Expr[A]
       with AddTerm[A] {
@@ -1169,6 +1106,75 @@ object RingOpt {
     else if (n == 1) One
     else Integer(n)
 
+  case class GroupSum[A](const: BigInt, terms: MultiSet[AddTerm[A], BigInt])
+
+  object GroupSum {
+    implicit def showGroupSum[A: Show]: Show[GroupSum[A]] =
+      new Show[GroupSum[A]] {
+        def show(a: GroupSum[A]): String =
+          show"GroupSum(${a.const}, ${a.terms})"
+      }
+    // return the sum such that all non-sum terms get a coefficient and we also
+    // return any integer parts fully added up (as the first item in the tuple)
+    // so: val (const, terms) = groupSum(es)
+    // then terms.iterator.foldLeft(const) { case (acc, (e, n)) =>
+    //   acc + n * e
+    // }
+    // is the same as the original sum
+    def apply[A: Hash](
+        e: List[Expr[A]]
+    ): GroupSum[A] = {
+      @annotation.tailrec
+      def loop(
+          in: List[(BigInt, Expr[A])],
+          res: MultiSet[AddTerm[A], BigInt],
+          intRes: BigInt
+      ): GroupSum[A] =
+        in match {
+          case (c, Add(x, y)) :: tail =>
+            loop((c, x) :: (c, y) :: tail, res, intRes)
+          case (c, Neg(x)) :: tail =>
+            loop((-c, x) :: tail, res, intRes)
+          case (n1, Integer(n)) :: tail =>
+            loop(tail, res, intRes + (n1 * n))
+          case (n1, One) :: tail =>
+            loop(tail, res, intRes + n1)
+          case (_, Zero) :: tail =>
+            loop(tail, res, intRes)
+          case (n1, sym @ Symbol(_)) :: tail =>
+            loop(tail, res.add(sym, n1), intRes)
+          case (c, m @ Mult(_, _)) :: tail =>
+            if (m.isZero) loop(tail, res, intRes)
+            else {
+              /*
+                We have some choices here: we could try to avoid
+                negation with cheapNeg, but also we could pull
+                integers out with unConstMult. But also,
+                how many times do different factors show up?
+                If we go too crazy now, that defeats the purpose
+                of optSumProd...
+
+                one challenge with using unConstMult here is that
+                it frustrates the flattenAddSub + addAll not increasing
+                costs law... since multiplying can be worse than adding
+                for small adds. We need to have a way to unroll that correctly
+                if we are going to use unConstMult
+              m.unConstMult match {
+                case Some((bi, inner)) =>
+                  loop((c * bi, inner) :: tail, res, intRes)
+                case None =>
+                  loop(tail, res.add(m, c), intRes)
+              }
+               */
+              loop(tail, res.add(m, c), intRes)
+            }
+          case Nil => GroupSum(intRes, res)
+        }
+
+      loop(e.map((BigInt(1), _)), MultiSet.empty[AddTerm[A], BigInt], BigInt(0))
+    }
+  }
+
   // === Core normalization ===
 
   private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] = e match {
@@ -1178,7 +1184,7 @@ object RingOpt {
 
     case Neg(Neg(x))           => norm(x, W)
     case Neg(Add(left, right)) =>
-      val (const, terms) = Expr.groupSum(left :: right :: Nil)
+      val GroupSum(const, terms) = GroupSum(left :: right :: Nil)
       val opt = normAdd(terms.negate, W)
       opt match {
         case Integer(bi) => Integer(bi - const)
@@ -1191,7 +1197,7 @@ object RingOpt {
     case Neg(Integer(n))        => canonInt(-n)
 
     case Add(left, right) =>
-      val (const, terms) = Expr.groupSum(left :: right :: Nil)
+      val GroupSum(const, terms) = GroupSum(left :: right :: Nil)
       val opt = normAdd(terms, W)
       opt match {
         case Integer(bi) => Integer(bi + const)
@@ -1204,7 +1210,7 @@ object RingOpt {
   }
 
   private def optSumProd[A: Hash](
-      sumProd: List[(Option[BigInt], List[Expr[A]])],
+      sumProd: List[(BigInt, List[MultTerm[A]])],
       W: Weights
   ): Expr[A] =
     sumProd match {
@@ -1215,46 +1221,47 @@ object RingOpt {
         // we are going to factor the terms into: a(a_part) + not_a
         // for all atoms in the sum. Then, choose the one with the least cost.
         // then we will recurse on the least cost.
-        val atoms: List[Expr[A]] = sumProd.flatMap { case (obi, l) =>
+        val atoms: List[Expr[A]] = sumProd.flatMap { case (bi, l) =>
           // TODO: we need better handling of the constant products
-          obi.flatMap { bi =>
+          val front = if (bi != 1) {
             val biPos = bi.abs
-            if ((biPos != 1) && (biPos != 0)) Some(Integer(biPos))
-            else None
-          }.toList ::: l
+            if ((biPos != 1) && (biPos != 0)) (Integer(biPos) :: Nil)
+            else Nil
+          } else Nil
+
+          front ::: l.map(_.toExpr)
         }.distinct
 
         def divTerm(
-            biProd: (Option[BigInt], List[Expr[A]]),
+            biProd: (BigInt, List[MultTerm[A]]),
             term: Expr[A]
-        ): (Option[BigInt], List[Expr[A]]) = {
-          val (obi, prod) = biProd
+        ): (BigInt, List[MultTerm[A]]) = {
+          val (bi, prod) = biProd
           term match {
             case Integer(termBi) =>
-              assert(obi.isDefined)
               implicit val showA: Show[A] = Show.fromToString
               assert(
                 (termBi != 1) && (termBi != -1),
                 show"biProd = $biProd, term = $term, sumProd = $sumProd"
               )
-              (Some(obi.get / termBi), prod)
+              (bi / termBi, prod)
             case _ =>
-              val idx = prod.indexWhere(Hash[Expr[A]].eqv(_, term))
+              val idx =
+                prod.indexWhere(mt => Hash[Expr[A]].eqv(mt.toExpr, term))
               // the term should be in the list
               assert(idx >= 0)
               // delete idx
-              (obi, prod.take(idx) ::: prod.drop(idx + 1))
+              (bi, prod.take(idx) ::: prod.drop(idx + 1))
           }
         }
 
-        def sumProdOf(es: List[(Option[BigInt], List[Expr[A]])]): Expr[A] =
+        def sumProdOf(es: List[(BigInt, List[MultTerm[A]])]): Expr[A] =
           Expr.addAll(
-            es.map { case (obi, es) =>
-              val ePart = Expr.multAll(es)
-              obi match {
-                case Some(bi) => W.constMult(ePart, bi)
-                case None     => ePart
-              }
+            es.map { case (bi, es) =>
+              val ePart = es.foldLeft(One: Expr[A])((acc, mt) =>
+                Expr.checkMult(acc, mt.toExpr)
+              )
+              W.constMult(ePart, bi)
             },
             W
           )
@@ -1281,8 +1288,8 @@ object RingOpt {
         val factored: List[
           (
               Expr[A],
-              List[(Option[BigInt], List[Expr[A]])],
-              List[(Option[BigInt], List[Expr[A]])],
+              List[(BigInt, List[MultTerm[A]])],
+              List[(BigInt, List[MultTerm[A]])],
               Long
           )
         ] =
@@ -1292,11 +1299,12 @@ object RingOpt {
             atoms
               .map { atom =>
                 val (hasAtom, doesNot) =
-                  sumProd.partition { case (obi, l) =>
+                  sumProd.partition { case (bi, l) =>
                     atom match {
-                      case Integer(atomI) =>
-                        obi.exists(_ % atomI == 0)
-                      case _ => l.exists(Hash[Expr[A]].eqv(atom, _))
+                      case Integer(atomI) => bi % atomI == 0
+                      case _              =>
+                        // actually we know atom: MultTerm[A]
+                        l.exists(mt => Hash[Expr[A]].eqv(atom, mt.toExpr))
                     }
                   }
 
@@ -1363,23 +1371,18 @@ object RingOpt {
 
     val sumProd = sum1.nonZeroIterator.flatMap { case (e, c) =>
       val eExpr = e.toExpr
-      val (flatC, flatMult) = Expr.flattenMult(eExpr :: Nil)
-      val c1 = flatC match {
-        case None     => c
-        case Some(c0) => c0 * c
-      }
+      val (c0, flatMult) = Expr.flattenMult(eExpr :: Nil)
+      val c1 = c0 * c
       // TODO: here we are mixing multiplication from duplicates in Add
       // and also from inside Mults. But small multiplications are often
       // suboptimal
       if ((c1 < 0) || (W.multThreshold <= c1)) {
         // multiplication should be better
-        val c2 = if (c1 == 1) None else Some(c1)
-
-        (c2, flatMult) :: Nil
+        (c1, flatMult) :: Nil
       } else {
         // repeated adds are better
         // this toInt is safe because multThresh is always <= Int.MaxValue
-        List.fill(c1.toInt)((None, flatMult))
+        List.fill(c1.toInt)((BigInt(1), flatMult))
       }
 
     }.toList
@@ -1390,14 +1393,11 @@ object RingOpt {
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors
   private def normMult[A: Hash](
-      optConst: Option[BigInt],
-      factors: List[Expr[A]],
+      const: BigInt,
+      factors: List[MultTerm[A]],
       W: Weights
   ): Expr[A] = {
-    val normFactors = Expr.multAll(factors.map(norm(_, W)))
-    optConst match {
-      case Some(const) => W.constMult(normFactors, const)
-      case None        => normFactors
-    }
+    val normFactors = Expr.multAll(factors.map(mt => norm(mt.toExpr, W)))
+    W.constMult(normFactors, const)
   }
 }

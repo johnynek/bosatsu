@@ -307,49 +307,28 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("flattenMult => multAll identity") {
     forAll { (expr: Expr[BigInt]) =>
-      val (obi, terms) = Expr.flattenMult(expr :: Nil)
-      val prod = Expr.multAll(terms)
+      val (bi, terms) = Expr.flattenMult(expr :: Nil)
+      val prod = Expr.multAll(terms.map(_.toExpr))
       assertEquals(
-        Expr.toValue(prod) * obi.getOrElse(BigInt(1)),
-        Expr.toValue(expr)
+        Expr.toValue(prod) * bi,
+        Expr.toValue(expr),
+        show"bi=$bi, terms=$terms"
       )
     }
   }
 
   property("flattenMult doesn't increase cost") {
     forAll { (expr: Expr[BigInt], w: Weights) =>
-      val (obi, terms) = Expr.flattenMult(expr :: Nil)
-      val flatCost = (obi.map(Integer(_)).toList ::: terms)
-        .map(w.cost(_))
-        .intercalate(w.mult.toLong)
+      val (bi, terms) = Expr.flattenMult(expr :: Nil)
+      val flatExpr = (Integer(bi) :: terms.map(_.toExpr))
+        .foldLeft(One: Expr[BigInt])(Expr.checkMult(_, _))
+
+      val flatCost = w.cost(flatExpr)
       val orig = w.cost(expr)
-      obi.foreach(bi => assert(bi != 1))
       assert(
         flatCost <= orig,
-        show"orig = $orig, flatCost = $flatCost, obi=$obi, flat=$terms, expr=$expr"
+        show"orig = $orig, flatCost = $flatCost, bi=$bi, flat=$terms, expr=$expr"
       )
-    }
-  }
-
-  property(
-    "flattenMult invariant: no One, Zero, Integer or Mult items returned in the list"
-  ) {
-    forAll { (expr: Expr[BigInt]) =>
-      val (_, terms) = Expr.flattenMult(expr :: Nil)
-
-      terms.foreach {
-        case bad @ (One | Mult(_, _) | Zero | Integer(_)) =>
-          fail(show"found bad node: $bad in terms=$terms, expr=$expr")
-        case bad if bad.isZero || bad.isOne =>
-          fail(
-            show"found bad node (isZero/isOne): $bad in terms=$terms, expr=$expr"
-          )
-        case _ => ()
-      }
-
-      val ints = terms.collect { case Integer(n) => n }
-
-      assertEquals(ints, Nil, show"ints: $ints, terms=$terms")
     }
   }
 
@@ -426,7 +405,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll { (expr: Expr[BigInt], w: Weights) =>
       val (pos, neg) = Expr.flattenAddSub(expr :: Nil, w)
       val sum = Expr.addAll(pos, w) - Expr.addAll(neg, w)
-      val groupSumRes = Expr.groupSum(expr :: Nil)
+      val groupSumRes = GroupSum(expr :: Nil)
       assertEquals(
         Expr.toValue(sum),
         Expr.toValue(expr),
@@ -1016,7 +995,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("groupSum law") {
     forAll { (es: List[Expr[BigInt]]) =>
-      val (const, terms) = Expr.groupSum(es)
+      val GroupSum(const, terms) = GroupSum(es)
       val combined =
         terms.nonZeroIterator.foldLeft(Integer(const): Expr[BigInt]) {
           case (acc, (e, n)) =>
