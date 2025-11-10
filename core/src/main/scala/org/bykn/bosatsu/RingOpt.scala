@@ -116,7 +116,22 @@ object RingOpt {
         case Add(x, y)  =>
           (x.maybeBigInt(onSym), y.maybeBigInt(onSym)).mapN(_ + _)
         case Mult(x, y) =>
-          (x.maybeBigInt(onSym), y.maybeBigInt(onSym)).mapN(_ * _)
+          // multiplication by zero can shield unknown symbols
+          x.maybeBigInt(onSym) match {
+            case sx @ Some(bx) =>
+              if (bx == 0) sx
+              else {
+                y.maybeBigInt(onSym) match {
+                  case Some(by) => Some(bx * by)
+                  case None     => None
+                }
+              }
+            case None =>
+              y.maybeBigInt(onSym) match {
+                case s @ Some(by) if by == 0 => s
+                case _                       => None
+              }
+          }
         case Neg(n) =>
           n.maybeBigInt(onSym).map(n => -n)
       }
@@ -154,12 +169,14 @@ object RingOpt {
           (x.isNegOne && y.isOne) || (x.isOne && y.isNegOne)
       }
 
-    // TODO: how this is allowed to change cost isn't clear
-    // probably unbounded change is bad
+    /** divide by an integer returning an expression with cost <= current cost
+      * additionally, we can recombine the bi without increasing cost with:
+      * res.bestEffortConstMult(div)
+      */
     def maybeDivInt(bi: BigInt): Option[Expr[A]] =
       if (bi == 0) None
       else if (bi == 1) Some(this)
-      else if (bi == -1) Some(normalizeNeg)
+      else if (bi == -1) cheapNeg
       else
         expr match {
           case Zero            => Some(Zero)
@@ -172,32 +189,36 @@ object RingOpt {
             if (m == 0) Some(canonInt(d))
             else None
           case Add(x, y) =>
-            // (x + y)/n == (x/n + y/n)
-            (x.maybeDivInt(bi), y.maybeDivInt(bi)).mapN(Add(_, _))
-          case Mult(x, y) =>
-            x.unConstMult
-              .flatMap { case (bix, x1) =>
-                val (d, m) = bix /% bi
-                if (m == 0)
-                  Some(Expr.checkMult(Integer(d), Expr.checkMult(x1, y)))
-                else {
-                  // we can't divide just using the left
-                  y.unConstMult.flatMap { case (biy, y1) =>
-                    val biXY = bix * biy
-                    val (d, m) = biXY /% bi
-                    if (m == 0)
-                      Some(Expr.checkMult(Integer(d), Expr.checkMult(x1, y1)))
-                    else None
-                  }
-                }
+            // (x + y)/n == (x/n +y/n)
+            // NOTE: this isn't exact, Add could have common factors,
+            // like Add(2, 4) / 6 == 1. This isn't full normalization, but local inspection
+            // of the graph
+            (x.maybeDivInt(bi), y.maybeDivInt(bi)).mapN(Expr.checkAdd(_, _))
+          case mul @ Mult(a, b) =>
+            a.maybeDivInt(bi)
+              .map(Expr.checkMult(_, b))
+              .orElse {
+                b.maybeDivInt(bi).map(Expr.checkMult(a, _))
               }
               .orElse {
-                // we can't divide just using the left
-                y.unConstMult.flatMap { case (biy, y1) =>
-                  val (d, m) = biy /% bi
-                  if (m == 0)
-                    Some(Expr.checkMult(Integer(d), Expr.checkMult(x, y1)))
-                  else None
+                // we can't take fully from either side, let's try both sides
+
+                // Note: unConstMult can't find all constants, for instance
+                // (10 * Symbol(a) + 2 * Symbol(a)) doesn't return (12, Symbol(a))
+                // since that would require a normalizing equivalance between two formulas
+                // which we don't currently (cheaply) have.
+                mul.unConstMult match {
+                  case Some((coeff, rest)) =>
+                    val (d, m) = coeff /% bi
+                    if (m == 0)
+                      rest.absorbMultConst(d) match {
+                        case s @ Some(_) => s
+                        case _           => Some(rest.bestEffortConstMult(d))
+                      }
+                    else
+                      None
+
+                  case _ => None
                 }
               }
         }
@@ -274,59 +295,200 @@ object RingOpt {
         case Some(cheap) => cheap
       }
 
-    def unConstMult: Option[(BigInt, Expr[A])] =
-      expr match {
-        case One | Symbol(_) => None
-        case Zero            => Some((BigInt(0), One))
-        case Integer(n)      => Some((n, One))
-        case Add(x, y)       =>
-          // (n1 * x1 + n2 * y1) = (g := gcd(n1, n2))((n1/g)*x1 + (n2/g)*y1)
-          x.unConstMult.flatMap { case xres @ (n1, x1) =>
-            if (n1 == 0) y.unConstMult
-            else {
-              y.unConstMult.flatMap { case (n2, y1) =>
-                if (n2 == 0) Some(xres)
-                else {
-                  val g = n1.gcd(n2)
-                  if (g != 1) {
+    /** the laws here are:
+      *   1. Mult(Integer(i), x) == this
+      *   2. cost(Mult(Integer(i), x)) <= cost(this) || x.isOne
+      *   3. this.unConstMult.flatMap { case (_, e) => e.unConstMult } == None ||
+      *      (this.isZero) (we pull all the ints out once)
+      *   4. if we return zero, both the integer and the Expr are zero.
+      *   5. we never return 1 or -1 as the multiplier
+      *   6. the expression returned is never Integer(_) or Neg(_)
+      */
+    def unConstMult: Option[(BigInt, Expr[A])] = {
+      def loop(expr: Expr[A], insideMult: Boolean): Option[(BigInt, Expr[A])] =
+        expr match {
+          case Symbol(_) => None
+          case One       =>
+            // we pull out -1 insideMult so we can group all the signs if possible
+            if (insideMult) Some((BigInt(1), One))
+            else None
+          case Integer(n) =>
+            if (n == 0) {
+              // Zero is caught by checkAdd and checkMult so okay to return
+              Some((BigInt(0), Zero))
+            } else if ((n == 1) || (n == -1)) {
+              if (insideMult) Some((n, One))
+              else None
+            } else Some((n, One))
+          case Zero =>
+            // Zero is caught by checkAdd and checkMult so okay to return
+            Some((BigInt(0), Zero))
+          case Neg(x) =>
+            loop(x, insideMult) match {
+              case Some((n, x)) => Some((-n, x))
+              case None         =>
+                if (insideMult) Some((BigInt(-1), x))
+                else None
+            }
+          case Add(x, y) =>
+            // to save, we need to pull one or the other all the way out:
+            // (n1 * x1 + n2 * y1) = n1 * (x1 + (n2/n1) * y1) or
+            // (n1 * x1 + n2 * y1) = n2 * ((n1/n2) * x1 + y1)
+            (loop(x, insideMult), loop(y, insideMult))
+              .flatMapN { case (xres @ (n1, x1), yres @ (n2, x2)) =>
+                if (n1 == 0) {
+                  // x == 0
+                  Some(yres)
+                } else if (n2 == 0) {
+                  // y == 0
+                  Some(xres)
+                } else if (x1.isOne && x2.isOne) {
+                  // if we have (n1*x + n2*x) we can just evaluate the sum directly
+                  // = (n1 + n2, x)
+                  Some((n1 + n2, One))
+                } else {
+                  val (d21, m21) = n2 /% n1
+                  if (m21 == 0) {
+                    // we can pull n1 out
                     Some(
                       (
-                        g,
-                        Expr.checkAdd(
-                          Expr.checkMult(Integer(n1 / g), x1),
-                          Expr.checkMult(Integer(n2 / g), y1)
-                        )
+                        n1,
+                        Expr.checkAdd(x1, x2.bestEffortConstMult(d21))
                       )
                     )
-                  } else None
-                }
+                  } else {
+                    val (d12, m12) = n1 /% n2
+                    if (m12 == 0) {
+                      // we can pull n2 out
+                      Some(
+                        (
+                          n2,
+                          Expr.checkAdd(x1.bestEffortConstMult(d12), x2)
+                        )
+                      )
+                    } else {
+                      // (n1 * x1 + n2 * x2) but neither n1 | n2 nor n2 | n1
+                      // if we have g = gcd(n1, n2) and g != 1, -1
+                      // we could write g * ((n1/g) * x1 + (n2/g) * x2)
+                      // if the cost is lower. And that's where absorbMultConst
+                      // comes in. If we can absorb at least one of them, we
+                      // save <= the number of multiplications
+                      val g = n1.gcd(n2)
+                      if ((g != 1) && (g != -1)) {
+                        val n1g = n1 / g
+                        val n2g = n2 / g
 
+                        x1.absorbMultConst(n1g)
+                          .map { n11 =>
+                            (
+                              g,
+                              Expr.checkAdd(
+                                n11,
+                                x2.bestEffortConstMult(n2g)
+                              )
+                            )
+                          }
+                          .orElse {
+                            x2.absorbMultConst(n2g).map { n22 =>
+                              (
+                                g,
+                                Expr.checkAdd(
+                                  x1.bestEffortConstMult(n1g),
+                                  n22
+                                )
+                              )
+                            }
+                          }
+                      } else None
+                    }
+                  }
+                }
+              }
+          case Mult(x, y) =>
+            // Inside Mult we are more permissive to allow integers to bubble up
+            // but we need to be sure not to return 1 in the end
+            @inline def lx = loop(x, insideMult = true)
+            @inline def ly = loop(y, insideMult = true)
+
+            val res =
+              (lx, ly) match {
+                case (None, None)           => None
+                case (Some((n1, x1)), None) =>
+                  val m = Expr.checkMult(x1, y)
+                  val i = if (m == Zero) BigInt(0) else n1
+                  Some((i, m))
+                case (None, Some((n1, y1))) =>
+                  val m = Expr.checkMult(x, y1)
+                  val i = if (m == Zero) BigInt(0) else n1
+                  Some((i, m))
+                case (Some((n1, x1)), Some((n2, y1))) =>
+                  Some((n1 * n2, Expr.checkMult(x1, y1)))
+              }
+
+            if (insideMult) res
+            else {
+              // we aren't double nested, so make sure not to return 1
+              res match {
+                case s @ Some((n, _)) if (n != 1) && (n != -1) => s
+                case _                                         => None
               }
             }
+        }
+
+      @annotation.tailrec
+      def fix(prod: BigInt, e: Expr[A]): Option[(BigInt, Expr[A])] =
+        loop(e, false) match {
+          case res @ Some((bi, inner)) =>
+            if (bi == 0) res
+            else {
+              /*
+              implicit val showA: Show[A] = Show.fromToString
+              println(show"e=$e, bi=$bi, inner=$inner")
+              assert((bi != 1) && (bi != -1))
+               */
+              fix(bi * prod, inner)
+            }
+          case None =>
+            if (prod == 1) None
+            else Some((prod, e))
+        }
+
+      fix(BigInt(1), expr)
+    }
+
+    // try first to absorb, then to negate, only then do we use Mult
+    def bestEffortConstMult(c: BigInt): Expr[A] =
+      absorbMultConst(c) match {
+        case Some(res) => res
+        case None      =>
+          // negation should always be cheaper than multiplication
+          if (c == -1) normalizeNeg
+          else {
+            // we know c != 1, 0, -1
+            // we know that this is not 1, 0, -1 because absorbMultConst handles those
+            if (c < 0) {
+              // see if we can remove a Neg
+              cheapNeg match {
+                case Some(n) => Mult(n, Integer(-c))
+                case None    => Mult(this, Integer(c))
+              }
+            } else {
+              Mult(this, Integer(c))
+            }
           }
-        case Mult(x, y) =>
-          (x.unConstMult, y.unConstMult) match {
-            case (None, None)           => None
-            case (Some((n1, x1)), None) =>
-              Some((n1, Expr.checkMult(x1, y)))
-            case (None, Some((n1, y1))) =>
-              Some((n1, Expr.checkMult(x, y1)))
-            case (Some((n1, x1)), Some((n2, y1))) =>
-              Some((n1 * n2, Expr.checkMult(x1, y1)))
-          }
-        case Neg(One) => Some((BigInt(-1), One))
-        case Neg(x)   =>
-          x.unConstMult.map { case (n, x) => (-n, x) }
       }
     // if we can implement this by absorbing a multiplication by a constant
     // do it. The cost of the returned expression is <= original
     def absorbMultConst(c: BigInt): Option[Expr[A]] =
-      if ((c == 0) || isZero) Some(Zero)
+      // check zeros first
+      if (c == 0) Some(Zero)
+      else if (isZero) Some(Zero)
+      else if (c == 1) Some(this)
+      else if (c == -1) cheapNeg
+      else if (isOne) Some(canonInt(c))
+      else if (isNegOne) Some(canonInt(-c))
       else
         expr match {
-          case One        => Some(canonInt(c))
-          case Zero       => Some(Zero)
-          case Symbol(_)  => None
           case Neg(n)     => n.absorbMultConst(-c)
           case Integer(n) => Some(canonInt(n * c))
           case Add(x, y)  =>
@@ -340,6 +502,9 @@ object RingOpt {
             x.absorbMultConst(c)
               .map(Expr.checkMult(_, y))
               .orElse(y.absorbMultConst(c).map(Expr.checkMult(x, _)))
+          case _ =>
+            // Zero, One, -1 are handled above
+            None
         }
 
     def *[A1 >: A](that: Expr[A1]): Expr[A1] = Mult(expr, that)
@@ -544,7 +709,7 @@ object RingOpt {
         else if (bi == 1) (expr :: acc)
         else if (w.multIsBetter(expr, bi)) {
           // Expr.multAll(expr :: Integer(bi) :: Nil) :: acc
-          Expr.checkMult(expr, Integer(bi)) :: acc
+          expr.bestEffortConstMult(bi) :: acc
         } else if (bi.isValidInt) {
           val listFill = List.fill(bi.toInt)(expr)
           if (acc.isEmpty) listFill
@@ -938,7 +1103,7 @@ object RingOpt {
 
   // === Public API ===
   def normalize[A: Hash](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
-    val eInit = e
+    // val eInit = e
     // if we can't reduce the cost but keep producing different items stop
     // at 10000 so we don't loop forever or blow up memory
     val MaxCount = 10000

@@ -42,18 +42,19 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
     Shrink[Expr[A]] {
-      case Neg(x)     => x #:: Shrink.shrink(x).map(Neg(_))
+      case Zero       => Stream.empty
+      case One        => Zero #:: Stream.empty
       case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
+      case Neg(x)     => x #:: Shrink.shrink(x).map(Neg(_))
       case Add(a, b)  =>
-        a #:: b #:: (Shrink.shrink(a).zip(Shrink.shrink(b)).map {
-          case (sa, sb) => Add(sa, sb)
-        })
+        a #:: b #:: Shrink.shrink((a, b)).map { case (sa, sb) =>
+          Add(sa, sb)
+        }
       case Mult(a, b) =>
-        a #:: b #:: (Shrink.shrink(a).zip(Shrink.shrink(b)).map {
-          case (sa, sb) => Mult(sa, sb)
-        })
-      case Zero | One => Stream.empty
+        a #:: b #:: Shrink.shrink((a, b)).map { case (sa, sb) =>
+          Mult(sa, sb)
+        }
     }
 
   implicit val arbCost: Arbitrary[Weights] =
@@ -159,8 +160,8 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("maybeDivInt works") {
-    forAll { (e: Expr[BigInt], div: BigInt) =>
+  property("maybeDivInt works and never increases cost") {
+    forAll { (e: Expr[BigInt], div: BigInt, w: Weights) =>
       e.maybeDivInt(div) match {
         case None => ()
         /*
@@ -175,15 +176,132 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           }
          */
         case Some(res) =>
+          assert(w.cost(res) <= w.cost(e), show"res=$res")
+          val remult = res.bestEffortConstMult(div)
+          assertEquals(Expr.toValue(remult), Expr.toValue(e))
+          assert(w.cost(remult) <= w.cost(e), show"remult=$remult")
           assertEquals(Expr.toValue(e) /% div, (Expr.toValue(res), BigInt(0)))
       }
     }
   }
+  property("unConstMult <=> maybeDivInt relationship") {
+    // if unConstMult works, we could divide by the same const using maybeDivInt
+    forAll { (e: Expr[BigInt]) =>
+      e.unConstMult.foreach { case (coeff, e1) =>
+        if (coeff != 0)
+          assertEquals(
+            e.maybeDivInt(coeff).map(Expr.toValue(_)),
+            Some(Expr.toValue(e1))
+          )
+      }
+    }
+
+    // if maybeDivInt works then unConstMult works and div divides the constant
+    def law2[A: Numeric](e: Expr[A], div: BigInt, w: Weights) =
+      e.maybeDivInt(div).foreach { _ => // eDiv =>
+        e.unConstMult match {
+          case None =>
+            // use w to hide a warning
+            assert(w != null)
+          /*
+            We wish that if (e/div) == e1, then e.unConstMult should be defined and the big int should be divisible by div.
+            Then, we could have some laws maybe like the below.
+
+            The problem is, (x*y + x*z) for some integer x, is easy to run maybeDivInt(x) on. But
+            unConstMult requires seeing that y is equivalent to z, which we can't (easily yet) see.
+            If we had some normalizing equivalence, then we could possibly tighten this law down. But
+            in the mean time, it means unConstMult is generally weaker than maybeDivInt. It's not so surprising
+            since maybeDivInt has more information: it has the divisor we are trying to remove, not trying to compute
+            the largest divisor we could pull out.
+
+            val isInt = e.maybeBigInt(_ => None).isDefined
+
+            val prod = e1 * Integer(div)
+            val prodCost = w.cost(prod)
+            val eCost = w.cost(e)
+            val checkMultIsExpensive = prodCost > eCost
+            assert(
+              (div == 1) || (div == -1) || isInt || checkMultIsExpensive,
+              show"expected unConstMult to work:\n\te($eCost) = $e\n\te1 = $e1\n\tprod($prodCost) = $prod"
+            )
+           */
+          case Some((bi, rest)) =>
+            // bi mod (div) == 0
+            assertEquals(
+              Expr.toValue(rest.bestEffortConstMult(bi)),
+              Expr.toValue(e)
+            )
+          /* we would like something like this law to be true, but it's not
+            consider a * b. maybeDivInt might pull out of a, and unConstMult may
+            only pull out of b, and they have no relationship to each other because
+            we can't guarantee we can unConstMult and totally normalize
+            assert(
+              (bi == 0) || ((div % bi) == 0) || ((bi % div) == 0),
+              show"e=$e, div=$div, eDiv=$eDiv, bi=$bi, rest=$rest"
+            )
+           */
+        }
+      }
+
+    val regressions: List[(Expr[Int], BigInt, Weights)] =
+      (
+        Mult(
+          Add(
+            Mult(Integer(-4294967296L), Symbol(0)),
+            Mult(Integer(-2147483649L), Mult(Symbol(0), Integer(2147483648L)))
+          ),
+          Integer(-2)
+        ),
+        BigInt(4),
+        Weights(9, 5, 5)
+      ) ::
+        (
+          Add(
+            Mult(
+              Mult(Symbol(-343), Integer(BigInt("214"))),
+              Integer(BigInt("214"))
+            ),
+            Integer(BigInt("214748364700"))
+          ),
+          BigInt(2),
+          Weights(9, 4, 3)
+        ) :: (
+          Add(
+            Mult(Symbol(0), Add(Integer(4294967295L), One)),
+            Mult(Integer(3), Mult(Symbol(0), Integer(2147483648L)))
+          ),
+          BigInt(2),
+          Weights(6, 3, 2)
+        ) ::
+        /*
+      (
+        Add(Neg(Mult(Mult(Neg(Add(Integer(BigInt("-4385718503068389691520991546287788452979461469253396545456509071335915520")),One)),Neg(Neg(Neg(Symbol(603))))),
+                     Neg(Neg(Mult(Symbol(-343),Integer(BigInt("2147483648"))))))),
+          Mult(Mult(Add(Integer(BigInt("7862135616769890340")),Integer(BigInt("-2259103778483541779407378567421224468"))),Neg(One)),Add(Neg(Mult(One,One)),Neg(Integer(BigInt("-2147483649")))))),
+        BigInt(2),
+        Weights(9,4,3)
+      ) ::
+         */
+        Nil
+
+    regressions.foreach { case (e, div, w) => law2(e, div, w) }
+    forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
+  }
+
   property("maybeDivInt handles ±1 and 0 correctly") {
     forAll { (e: Expr[BigInt]) =>
       assertEquals(e.maybeDivInt(0), None)
       assertEquals(e.maybeDivInt(1), Some(e))
-      assertEquals(e.maybeDivInt(-1), Some(e.normalizeNeg))
+      assertEquals(e.maybeDivInt(-1), e.cheapNeg)
+    }
+  }
+
+  property("maybeDivInt can always remove * div") {
+    forAll { (e: Expr[BigInt], div: BigInt) =>
+      if (div != 0) {
+        assert((e * Integer(div)).maybeDivInt(div).isDefined)
+        assert((Integer(div) * e).maybeDivInt(div).isDefined)
+      }
     }
   }
 
@@ -249,13 +367,15 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val cmCost = w.cost(cm)
       val mult = expr * Integer(const)
       val add = Expr.replicateAdd(const, expr)
+      val cMult = w.cost(mult)
       assert(
-        cmCost <= w.cost(mult),
-        show"cmCost = $cmCost, const = $const, cm = $cm, mult=$mult, expr=$expr"
+        cmCost <= cMult,
+        show"const = $const, cm($cmCost) = $cm, mult($cMult)=$mult, expr=$expr"
       )
+      val cAdd = w.cost(add)
       assert(
-        cmCost <= w.cost(add),
-        show"cmCost = $cmCost, const = $const, cm = $cm, mult=$mult, expr=$expr"
+        cmCost <= cAdd,
+        show"const = $const, cm($cmCost) = $cm, add($cAdd)=$add, expr=$expr"
       )
     }
   }
@@ -797,15 +917,99 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     assertEquals(Expr.toValue(n), Expr.toValue(deep))
   }
 
-  property("unConstMult is the opposite of constMult") {
-    forAll { (e: Expr[BigInt], w: Weights) =>
+  property(
+    "check the unConstMult laws"
+  ) {
+    def law[A: Numeric: Show](e: Expr[A], w: Weights) =
       e.unConstMult.foreach { case (bi, x) =>
         val bix = Expr.toValue(x)
+        val biE = Expr.toValue(e)
+        assertEquals(
+          implicitly[Numeric[A]].times(bix, Expr.fromBigInt(bi)),
+          biE
+        )
+
+        // law1:  Mult(Integer(i), x) == this
+        val biInt = Integer(bi)
+        assertEquals(Expr.toValue(biInt * x), biE)
+        val checkMult = Expr.checkMult(biInt, x)
+        assertEquals(Expr.toValue(checkMult), biE)
+
+        // law2: cost(Expr.checkMult(Integer(i), x)) <= cost(this)
+        val costE = w.cost(e)
+        val checkCost = w.cost(Mult(biInt, x))
+        assert(
+          checkCost <= costE || (x.isOne),
+          show"bi=$bi, x=$x, checkCost=$checkCost, costE=$costE"
+        )
+        // law3: e.unConstMult.flatMap { case (_, e) => e.unConstMult } == None || e.isZero (we pull all the ints out once)
+        if (!x.isZero) {
+          val uc = x.unConstMult
+          assertEquals(uc, None, show"e=$e, bi=$bi, x=$x, uc=$uc")
+        } else {
+          assertEquals(x, Zero)
+          assertEquals(bi, BigInt(0))
+        }
+        // law4: if we return zero, both are zero
+        if (bi == 0) {
+          // note the other side is tested above in the else branch of if (!x.isZero)
+          assertEquals(x, Zero)
+        }
+
+        // law5: we never return 1, -1
+        assert((bi != 1) && (bi != -1))
+
+        // law6: the expression returned is never Integer(_) or Neg(_)
+        x match {
+          case bad @ (Integer(_) | Neg(_)) =>
+            fail(s"bad returned expression: $bad, e=$e, bi=$bi")
+          case _ => ()
+        }
+
+        // this is really just exercising constMult, but why not
         assertEquals(
           Expr.toValue(w.constMult(x, bi)),
-          bix * bi,
+          biE,
           show"e=$e, bi=$bi, x=$x, bix=$bix"
         )
+      }
+
+    val regressions: List[(Expr[Int], Weights)] =
+      (
+        Mult(Neg(Symbol(3)), Add(Integer(2), Integer(2))),
+        Weights(11, 5, 2)
+      ) ::
+        Nil
+
+    regressions.foreach { case (e, w) => law(e, w) }
+    forAll((e: Expr[BigInt], w: Weights) => law(e, w))
+
+    // some examples we can handle
+    val examples: List[(Expr[Int], BigInt)] =
+      (
+        // 32 + (((-32 * 9) * One) * -(-(32))
+        Add(
+          Integer(32),
+          Mult(Mult(Mult(Integer(-32), Symbol(-9)), One), Neg(Neg(Integer(32))))
+        ),
+        BigInt(32)
+      ) :: (
+        // ((-32 * 9) * One) * -(-(32))
+        Mult(Mult(Mult(Integer(-32), Symbol(-9)), One), Neg(Neg(Integer(32)))),
+        BigInt(-1024)
+      ) ::
+        Nil
+
+    examples.foreach { case (e, bi) =>
+      assertEquals(e.unConstMult.map(_._1), Some(bi), show"e=$e")
+    }
+  }
+
+  property("unConstMult can always remove * const") {
+    forAll { (e: Expr[BigInt], const: BigInt) =>
+      if ((const != 0) && (const != 1) && (const != -1)) {
+        assert((e * Integer(const)).unConstMult.isDefined)
+        assert((Integer(const) * e).unConstMult.isDefined)
       }
     }
   }
