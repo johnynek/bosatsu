@@ -656,7 +656,7 @@ object RingOpt {
     ): (BigInt, MultiSet[AddTerm[A], BigInt]) = {
       @annotation.tailrec
       def loop(
-          in: List[(Boolean, Expr[A])],
+          in: List[(BigInt, Expr[A])],
           res: MultiSet[AddTerm[A], BigInt],
           intRes: BigInt
       ): (BigInt, MultiSet[AddTerm[A], BigInt]) =
@@ -664,32 +664,44 @@ object RingOpt {
           case (c, Add(x, y)) :: tail =>
             loop((c, x) :: (c, y) :: tail, res, intRes)
           case (c, Neg(x)) :: tail =>
-            loop((!c, x) :: tail, res, intRes)
+            loop((-c, x) :: tail, res, intRes)
           case (n1, Integer(n)) :: tail =>
-            loop(tail, res, intRes + (if (n1) n else (-n)))
+            loop(tail, res, intRes + (n1 * n))
           case (n1, One) :: tail =>
-            loop(tail, res, intRes + (if (n1) 1 else -1))
+            loop(tail, res, intRes + n1)
           case (_, Zero) :: tail =>
             loop(tail, res, intRes)
           case (n1, sym @ Symbol(_)) :: tail =>
-            loop(tail, res.add(sym, if (n1) 1 else -1), intRes)
+            loop(tail, res.add(sym, n1), intRes)
           case (c, m @ Mult(_, _)) :: tail =>
-            /*
-            We have some choices here: we could try to avoid
-            negation with cheapNeg, but also we could pull
-            integers out with unConstMult. But also,
-            how many times do different factors show up?
-            If we go too crazy now, that defeats the purpose
-            of optSumProd...
-             */
-            val r2 =
-              if (m.isZero) res
-              else res.add(m, if (c) 1 else -1)
-            loop(tail, r2, intRes)
+            if (m.isZero) loop(tail, res, intRes)
+            else {
+              /*
+                We have some choices here: we could try to avoid
+                negation with cheapNeg, but also we could pull
+                integers out with unConstMult. But also,
+                how many times do different factors show up?
+                If we go too crazy now, that defeats the purpose
+                of optSumProd...
+
+                one challenge with using unConstMult here is that
+                it frustrates the flattenAddSub + addAll not increasing
+                costs law... since multiplying can be worse than adding
+                for small adds. We need to have a way to unroll that correctly
+                if we are going to use unConstMult
+              m.unConstMult match {
+                case Some((bi, inner)) =>
+                  loop((c * bi, inner) :: tail, res, intRes)
+                case None =>
+                  loop(tail, res.add(m, c), intRes)
+              }
+               */
+              loop(tail, res.add(m, c), intRes)
+            }
           case Nil => (intRes, res)
         }
 
-      loop(e.map((true, _)), MultiSet.empty[AddTerm[A], BigInt], BigInt(0))
+      loop(e.map((BigInt(1), _)), MultiSet.empty[AddTerm[A], BigInt], BigInt(0))
     }
 
     // return all the positive and negative additive terms from this list
