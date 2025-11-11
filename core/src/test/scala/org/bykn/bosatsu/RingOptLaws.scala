@@ -9,7 +9,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(60)
+      .withMinSuccessfulTests(600)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -46,15 +46,26 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       case One        => Zero #:: Stream.empty
       case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
-      case Neg(x)     => x #:: Shrink.shrink(x).map(Neg(_))
-      case Add(a, b)  =>
-        a #:: b #:: Shrink.shrink((a, b)).map { case (sa, sb) =>
-          Add(sa, sb)
-        }
+      case Neg(x)     =>
+        Generators.interleave(Shrink.shrink(x), Shrink.shrink(x).map(Neg(_)))
+      case Add(a, b) =>
+        val shrinkAdd =
+          Shrink.shrink((a, b)).map { case (sa, sb) => Add(sa, sb) }
+        Generators.interleaveAll(
+          Shrink.shrink(a) ::
+            Shrink.shrink(b) ::
+            shrinkAdd ::
+            Nil
+        )
       case Mult(a, b) =>
-        a #:: b #:: Shrink.shrink((a, b)).map { case (sa, sb) =>
-          Mult(sa, sb)
-        }
+        val shrinkMult =
+          Shrink.shrink((a, b)).map { case (sa, sb) => Mult(sa, sb) }
+        Generators.interleaveAll(
+          Shrink.shrink(a) ::
+            Shrink.shrink(b) ::
+            shrinkMult ::
+            Nil
+        )
     }
 
   implicit val arbCost: Arbitrary[Weights] =
@@ -163,6 +174,23 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll { (e: Expr[BigInt]) =>
       val normE = e.basicNorm
       assertEquals(Expr.toValue(normE), Expr.toValue(e))
+    }
+  }
+
+  property("basicNorm is idempotent") {
+    forAll { (e: Expr[BigInt]) =>
+      val normE = e.basicNorm
+      val norm2 = normE.basicNorm
+      assertEquals(norm2, normE, show"normE=$normE, norm2=$norm2")
+    }
+  }
+
+  property("basicNorm doesn't increase cost") {
+    forAll { (e: Expr[BigInt], w: Weights) =>
+      val normE = e.basicNorm
+      val cost0 = w.cost(e)
+      val cost1 = w.cost(normE)
+      assert(cost1 <= cost0, show"normE($cost1) = $normE, e($cost0) = $e")
     }
   }
 

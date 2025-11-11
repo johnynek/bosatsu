@@ -107,22 +107,36 @@ object RingOpt {
     // This does basic normalization, like ordering Add(_, _) and Mult(_, _)
     // and collapsing constants, we do this before doing harder optimizations
     // since we have better equality at that point
-    def basicNorm: Expr[A] =
+    def basicNorm: Expr[A] = {
+      def add(a: Expr[A], b: Expr[A]) =
+        if (a == Zero) b
+        else if (b == Zero) a
+        else if (Expr.key(a) <= Expr.key(b)) Add(a, b)
+        else Add(b, a)
+
+      def mult(a: Expr[A], b: Expr[A]) =
+        if (Expr.key(a) <= Expr.key(b)) Mult(a, b)
+        else Mult(b, a)
+
+      def simpleNeg(e: Expr[A]): Expr[A] =
+        // normalizeNeg isn't idempotent
+        e.normalizeNeg match {
+          case Neg(x) => Neg(x.basicNorm)
+          case notNeg =>
+            // the negative was pushed down, normalize again
+            notNeg.basicNorm
+        }
+
       expr match {
         case Zero | One | Symbol(_) => expr
         case Integer(i)             => canonInt(i)
         case Neg(Neg(x))            => x.basicNorm
-        case Neg(x)                 =>
-          x.basicNorm.normalizeNeg
-        case Add(x, y) =>
+        case Neg(x)                 => simpleNeg(x.basicNorm)
+        case Add(x, y)              =>
           // TODO: if we move this to object Expr and take Hash[A]
           // we could normalize x + -(x) into 0, but that should be
           // handled in the groupSum so maybe that's not needed
-          def step(nx: Expr[A], ny: Expr[A]): Expr[A] = {
-            def add(a: Expr[A], b: Expr[A]) =
-              if (Expr.key(a) <= Expr.key(b)) Add(a, b)
-              else Add(b, a)
-
+          def step(nx: Expr[A], ny: Expr[A]): Expr[A] =
             nx match {
               case Integer(ix) =>
                 if (ix == 0) ny
@@ -131,10 +145,7 @@ object RingOpt {
                     case Integer(iy) => canonInt(ix + iy)
                     case Zero        => nx
                     case One         => canonInt(ix + 1)
-                    case Neg(negY)   =>
-                      // -y + x == -(y - x)
-                      Neg(add(negY, canonInt(-ix)))
-                    case _ => add(nx, ny)
+                    case _           => add(nx, ny)
                   }
               case Zero => ny
               case One  =>
@@ -142,84 +153,116 @@ object RingOpt {
                   case Integer(iy) => canonInt(iy + 1)
                   case Zero        => nx
                   case One         => canonInt(2)
-                  case Neg(negY)   =>
-                    // -y + 1 == -(y + (-1))
-                    Neg(add(negY, canonInt(-1)))
-                  case _ => add(nx, ny)
+                  case _           => add(nx, ny)
                 }
-              case Neg(negX) =>
+              case _ =>
                 ny match {
-                  case Neg(negY) =>
-                    Neg(add(negX, negY))
                   case Zero => nx
-                  case One  =>
-                    Neg(add(negX, canonInt(-1)))
-                  case Integer(iy) =>
-                    Neg(add(negX, canonInt(-iy)))
-                  case _ => add(nx, ny)
+                  case _    => add(nx, ny)
                 }
-              case _ => add(nx, ny)
             }
-          }
-          def flatAdd(es: List[Expr[A]], acc: List[Expr[A]]): Expr[A] =
+          def flatAdd(
+              es: List[Expr[A]],
+              const: BigInt,
+              acc: List[Expr[A]]
+          ): Expr[A] =
             es match {
               case Add(x, y) :: tail =>
-                flatAdd(x :: y :: tail, acc)
-              case notAdd :: tail =>
-                flatAdd(tail, notAdd.basicNorm :: acc)
+                flatAdd(x :: y :: tail, const, acc)
+              case Zero :: tail =>
+                flatAdd(tail, const, acc)
+              case One :: tail =>
+                flatAdd(tail, const + 1, acc)
+              case Integer(i) :: tail =>
+                flatAdd(tail, const + i, acc)
+              case (other @ (Symbol(_) | Mult(_, _) | Neg(_))) :: tail =>
+                flatAdd(tail, const, other :: acc)
               case Nil =>
-                acc.sortBy(Expr.key(_)).reduceRight(step(_, _))
+                if (acc.isEmpty) canonInt(const)
+                else
+                  step(
+                    acc.sortBy(Expr.key(_)).reduceRight(step(_, _)),
+                    canonInt(const)
+                  )
             }
 
-          flatAdd(x :: y :: Nil, Nil)
+          flatAdd(x.basicNorm :: y.basicNorm :: Nil, BigInt(0), Nil)
         case Mult(x, y) =>
-          def step(nx: Expr[A], ny: Expr[A]) = {
-            def mult(a: Expr[A], b: Expr[A]) =
-              if (Expr.key(a) <= Expr.key(b)) Mult(a, b)
-              else Mult(b, a)
-
+          def step(nx: Expr[A], ny: Expr[A]) =
             nx match {
               case Integer(ix) =>
                 if (ix == 0) canonInt(0)
+                else if (ix == -1) simpleNeg(ny)
                 else
                   ny match {
                     case Integer(iy) => canonInt(ix * iy)
                     case Zero        => canonInt(0)
                     case One         => nx
-                    case Neg(negY)   => mult(canonInt(-ix), negY)
-                    case _           => mult(nx, ny)
+                    case Neg(negY)   =>
+                      if (ix == -1) negY
+                      else mult(canonInt(-ix), negY)
+                    case _ => mult(nx, ny)
                   }
               case Zero      => canonInt(0)
               case One       => ny
               case Neg(negX) =>
                 ny match {
-                  case Zero                  => Zero
-                  case One                   => nx
-                  case Neg(negY)             => mult(negX, negY)
-                  case Integer(iy) if iy < 0 =>
-                    mult(negX, Integer(-iy))
+                  case Zero        => Zero
+                  case One         => nx
+                  case Neg(negY)   => mult(negX, negY)
+                  case Integer(iy) =>
+                    if (iy == -1) negX
+                    else mult(negX, canonInt(-iy))
                   case _ =>
-                    Neg(mult(negX, ny))
+                    simpleNeg(mult(negX, ny))
                 }
               case _ =>
                 ny match {
-                  case Zero => Zero
-                  case _    => mult(nx, ny)
+                  case Zero                      => Zero
+                  case One                       => nx
+                  case Integer(iy) if (iy == -1) => simpleNeg(nx)
+                  case Neg(negy)                 =>
+                    simpleNeg(mult(nx, negy))
+                  case _ => mult(nx, ny)
                 }
             }
-          }
-          def flatMult(es: List[Expr[A]], acc: List[Expr[A]]): Expr[A] =
+          def flatMult(
+              es: List[Expr[A]],
+              coeff: BigInt,
+              acc: List[Expr[A]]
+          ): Expr[A] =
             es match {
               case Mult(x, y) :: tail =>
-                flatMult(x :: y :: tail, acc)
-              case notMult :: tail =>
-                flatMult(tail, notMult.basicNorm :: acc)
+                flatMult(x :: y :: tail, coeff, acc)
+              case One :: tail =>
+                flatMult(tail, coeff, acc)
+              case Zero :: _           => Zero
+              case Integer(ix) :: tail =>
+                flatMult(tail, coeff * ix, acc)
+              case Neg(nx) :: tail =>
+                flatMult(nx :: tail, coeff * -1, acc)
+              case (sym @ Symbol(_)) :: tail =>
+                flatMult(tail, coeff, sym :: acc)
+              case (add @ Add(_, _)) :: tail =>
+                add.saveNeg match {
+                  case Some(negAdd) =>
+                    // saveNeg isn't normalized
+                    flatMult(negAdd.basicNorm :: tail, -coeff, acc)
+                  case None =>
+                    flatMult(tail, coeff, add :: acc)
+                }
               case Nil =>
-                acc.sortBy(Expr.key(_)).reduceRight(step(_, _))
+                if (acc.isEmpty) canonInt(coeff)
+                else
+                  step(
+                    acc.sortBy(Expr.key(_)).reduceRight(step(_, _)),
+                    canonInt(coeff)
+                  )
             }
 
-          flatMult(x :: y :: Nil, Nil)
+          flatMult(x.basicNorm :: y.basicNorm :: Nil, BigInt(1), Nil)
       }
+    }
 
     // If this is a single integer node
     def isInt: Option[BigInt] =
