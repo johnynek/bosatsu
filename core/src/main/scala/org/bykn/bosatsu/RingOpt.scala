@@ -9,6 +9,10 @@ import scala.util.hashing.MurmurHash3
 
 object RingOpt {
 
+  // This is somehow not found in cats...
+  implicit private def hashNEL[A: Hash]: Hash[NonEmptyList[A]] =
+    Hash[List[A]].contramap[NonEmptyList[A]](_.toList)
+
   sealed trait MultiSet[A, B] {
     def hash: Hash[A]
     def numeric: Numeric[B]
@@ -91,6 +95,9 @@ object RingOpt {
 
     def fromList[A: Hash, B: Numeric](as: List[A]): MultiSet[A, B] =
       as.foldLeft(empty[A, B])((ms, a) => ms + a)
+
+    def fromListCount[A: Hash, B: Numeric](as: List[(A, B)]): MultiSet[A, B] =
+      as.foldLeft(empty[A, B]) { case (ms, (a, b)) => ms.add(a, b) }
   }
 
   sealed trait Expr[+A] { expr =>
@@ -111,8 +118,25 @@ object RingOpt {
       def add(a: Expr[A], b: Expr[A]) =
         if (a == Zero) b
         else if (b == Zero) a
-        else if (Expr.key(a) <= Expr.key(b)) Add(a, b)
-        else Add(b, a)
+        else {
+          def isAdd(e: Expr[A]): Boolean =
+            e match {
+              case Add(_, _) => true
+              case _         => false
+            }
+
+          val aAdd = isAdd(a)
+          val bAdd = isAdd(b)
+          if (bAdd && !aAdd) {
+            // just associate directly
+            Add(a, b)
+          } else if (aAdd && !bAdd) {
+            Add(b, a)
+          }
+          // both or neither are Add
+          else if (Expr.key(a) <= Expr.key(b)) Add(a, b)
+          else Add(b, a)
+        }
 
       def mult(a: Expr[A], b: Expr[A]) =
         if (Expr.key(a) <= Expr.key(b)) Mult(a, b)
@@ -169,14 +193,19 @@ object RingOpt {
             es match {
               case Add(x, y) :: tail =>
                 flatAdd(x :: y :: tail, const, acc)
-              case Zero :: tail =>
-                flatAdd(tail, const, acc)
-              case One :: tail =>
-                flatAdd(tail, const + 1, acc)
-              case Integer(i) :: tail =>
-                flatAdd(tail, const + i, acc)
-              case (other @ (Symbol(_) | Mult(_, _) | Neg(_))) :: tail =>
-                flatAdd(tail, const, other :: acc)
+              case notAdd :: tail =>
+                notAdd.basicNorm match {
+                  case Add(x, y) =>
+                    flatAdd(x :: y :: tail, const, acc)
+                  case Zero =>
+                    flatAdd(tail, const, acc)
+                  case One =>
+                    flatAdd(tail, const + 1, acc)
+                  case Integer(i) =>
+                    flatAdd(tail, const + i, acc)
+                  case (other @ (Symbol(_) | Mult(_, _) | Neg(_))) =>
+                    flatAdd(tail, const, other :: acc)
+                }
               case Nil =>
                 if (acc.isEmpty) canonInt(const)
                 else
@@ -186,7 +215,7 @@ object RingOpt {
                   )
             }
 
-          flatAdd(x.basicNorm :: y.basicNorm :: Nil, BigInt(0), Nil)
+          flatAdd(x :: y :: Nil, BigInt(0), Nil)
         case Mult(x, y) =>
           def step(nx: Expr[A], ny: Expr[A]) =
             nx match {
@@ -415,7 +444,8 @@ object RingOpt {
           for {
             ny <- y.saveNeg
             nx <- x.cheapNeg
-          } yield Add(nx, ny)
+            // put the cheapNeg last, which may lead to a subtraction
+          } yield Add(ny, nx)
         }
       case Mult(x, y) =>
         x.saveNeg
@@ -433,10 +463,11 @@ object RingOpt {
       case Add(x, y)  =>
         // these first two are allowed because normalizeNeg adds at most 1 node and saveNeg saves one
         // so, the total Neg nodes is the same on both sides, satisfying <=
+        // try to put the negative item second to preserve a subtraction
         x.saveNeg
           .map(Add(_, y.normalizeNeg))
           .orElse(
-            y.saveNeg.map(Add(x.normalizeNeg, _))
+            y.saveNeg.map(Add(_, x.normalizeNeg))
           )
           .orElse(
             // both cheap
@@ -931,8 +962,16 @@ object RingOpt {
                   // we can save by negating
                   loop(n :: tail, result, -ints)
                 case None =>
-                  // we can't negate
-                  loop(tail, add :: result, ints)
+                  // we can't save but maybe still 0 cost negate
+                  add.cheapNeg match {
+                    case Some(n) if Expr.key(n) < Expr.key(add) =>
+                      // x + (-y) and y + (-x) may have the same cost
+                      // and we can flip them back and forth with zero cost
+                      // if so, choose the one with the smaller key
+                      loop(n :: tail, result, -ints)
+                    case _ =>
+                      loop(tail, add :: result, ints)
+                  }
               }
             }
           case Nil => (ints, result.sortBy(e => Expr.key(e.toExpr)))
@@ -1227,7 +1266,7 @@ object RingOpt {
     val MaxCount = 100
     @annotation.tailrec
     def loop(
-        e: Expr[A],
+        e0: Expr[A],
         cost: Long,
         reached: HashSet[Expr[A]],
         cnt: Int
@@ -1235,6 +1274,7 @@ object RingOpt {
       if (cnt >= MaxCount) {
         reached.iterator.minBy(Expr.key(_))
       } else {
+        val e = e0.basicNorm
         val ne = norm(e, W)
         val costNE = W.cost(ne)
         if (costNE < cost) {
@@ -1266,12 +1306,7 @@ object RingOpt {
         }
       }
 
-    // first we run basic norm to try to get things closer so equality
-    // can have a better chance
-    // TODO: This change seems to cause some test to run for a long time (or forever)
-    // val e0 = e.basicNorm
-    val e0 = e
-    loop(e0, W.cost(e0), HashSet.empty[Expr[A]].add(e0), 0)
+    loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0).basicNorm
   }
 
   // Small helper: canonical integer literal
@@ -1408,11 +1443,29 @@ object RingOpt {
           tail.nonEmpty
         }
         .map { case (mt, keys) =>
+          val newTermsList =
+            terms.nonZeroIterator
+              .filter { case (k, _) =>
+                keys.exists(htK.eqv(k, _))
+              }
+              .map { case (k, b) =>
+                // we have to remove the term from the NonEmptyList
+                val ks = k.toList
+                val idx = ks.indexWhere(kMt => Hash[MultTerm[A]].eqv(mt, kMt))
+                (
+                  NonEmptyList
+                    .fromList(ks.take(idx) ::: ks.drop(idx + 1)),
+                  b
+                )
+              }
+              .toList
+          val divConst = newTermsList.collect { case (None, b) => b }.sum
+          val divTerms = MultiSet.fromListCount(newTermsList.collect {
+            case (Some(k), b) => (k, b)
+          })
           val div = SumProd(
-            BigInt(0),
-            terms.filter { case (k, _) =>
-              keys.exists(htK.eqv(k, _))
-            }
+            divConst,
+            divTerms
           )
           val mod = SumProd(
             const,
@@ -1514,11 +1567,15 @@ object RingOpt {
 
           (left, div, mod, e1, w.cost(e1))
       }
+      // implicit val showA: Show[A] = Show.fromToString
+      // println(show"this=$this")
+      // println(show"thisCost = $thisCost, withCost=$withCost")
       val nextSteps = withCost
         .filter { case (_, _, _, _, c) => c <= thisCost }
 
       if (nextSteps.isEmpty) {
         // None of the steps are as good as the current state
+        // println(show"nextSteps is empty: $this")
 
         val (biFn, trans) =
           if (morePositive) {
@@ -1555,6 +1612,7 @@ object RingOpt {
         }
         val normDiv = div.normalize(w)
         val normMod = mod.normalize(w)
+        // println(show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
         // e * div + mod
         // but just because e does not divide mod, doesn't mean there
         // are no terms in mod that could divide div
@@ -1574,10 +1632,11 @@ object RingOpt {
         def show(sp: SumProd[A]): String =
           show"SumProd(${sp.const}, ${sp.terms})"
       }
-    def fromGroupSum[A: Hash](gs: GroupSum[A]): SumProd[A] = {
-      implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
-        Hash[List[MultTerm[A]]].contramap[NonEmptyList[MultTerm[A]]](_.toList)
 
+    def apply[A: Hash](lst: List[Expr[A]]): SumProd[A] =
+      fromGroupSum(GroupSum(lst))
+
+    def fromGroupSum[A: Hash](gs: GroupSum[A]): SumProd[A] = {
       val terms0 = MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]
       val (c1, t1) = gs.terms.nonZeroIterator.foldLeft((gs.const, terms0)) {
         case ((accConst, acc), (e, c)) =>
