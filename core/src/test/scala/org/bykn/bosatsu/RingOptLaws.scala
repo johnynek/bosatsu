@@ -527,6 +527,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll((expr: Expr[BigInt], w: Weights) => law(expr, w))
   }
 
+  property("x - x is normalized to zero for symbols") {
+    forAll { (bi: BigInt, w: Weights) =>
+      val n = normalize(Symbol(bi) + (-Symbol(bi)), w)
+      assertEquals(n, Zero)
+    }
+  }
+
   property("normalize always computes pure constants") {
     forAll { (a: Expr[BigInt], w: Weights) =>
       a.maybeBigInt(_ => None).foreach { bi =>

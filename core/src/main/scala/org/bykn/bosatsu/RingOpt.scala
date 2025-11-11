@@ -115,7 +115,9 @@ object RingOpt {
         case Neg(x)                 =>
           x.basicNorm.normalizeNeg
         case Add(x, y) =>
-
+          // TODO: if we move this to object Expr and take Hash[A]
+          // we could normalize x + -(x) into 0, but that should be
+          // handled in the groupSum so maybe that's not needed
           def step(nx: Expr[A], ny: Expr[A]): Expr[A] = {
             def add(a: Expr[A], b: Expr[A]) =
               if (Expr.key(a) <= Expr.key(b)) Add(a, b)
