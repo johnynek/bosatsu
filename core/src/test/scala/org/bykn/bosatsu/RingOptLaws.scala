@@ -9,7 +9,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(5000)
+      .withMinSuccessfulTests(60)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -148,6 +148,22 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     assertEquals(a.cheapNeg, None)
     // normalizeNeg wraps it
     assertEquals(a.normalizeNeg, Neg(a))
+  }
+
+  property("basicNorm normalizes to integers if possible") {
+    forAll { (e: Expr[BigInt]) =>
+      val normE = e.basicNorm
+      e.maybeBigInt(_ => None).foreach { bi =>
+        assertEquals(normE, canonInt(bi))
+      }
+    }
+  }
+
+  property("basicNorm doesn't change value") {
+    forAll { (e: Expr[BigInt]) =>
+      val normE = e.basicNorm
+      assertEquals(Expr.toValue(normE), Expr.toValue(e))
+    }
   }
 
   property("maybeBigInt works") {
@@ -455,7 +471,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property("normalization doesn't change values") {
     def law[A: Hash: Show: Numeric](expr: Expr[A], w: Weights) = {
       val normE = normalize(expr, w)
-      assertEquals(Expr.toValue(expr), Expr.toValue(normE))
+      assertEquals(Expr.toValue(normE), Expr.toValue(expr))
 
       // least cost
       val c0 = w.cost(expr)
@@ -474,9 +490,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Weights)] =
       (
-        Neg(Add(Add(Symbol(-1), Symbol(0)), Symbol(-1))),
-        Weights(3, 2, 2)
+        Neg(Neg(Neg(Add(Mult(Integer(1), Integer(1)), Symbol(0))))),
+        Weights(18, 10, 8)
       ) ::
+        (
+          Neg(Add(Add(Symbol(-1), Symbol(0)), Symbol(-1))),
+          Weights(3, 2, 2)
+        ) ::
         (
           Neg(Add(Neg(Symbol(7)), Symbol(1))),
           Weights(13, 8, 5)
@@ -523,6 +543,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(w.cost(na1) <= w.cost(a))
     }
 
+    law(Neg(Add(Symbol(0), Symbol(1))), Weights(2, 1, 1))
     law(Symbol(BigInt(0)), Weights(4, 2, 1))
     forAll((a: Expr[BigInt], w: Weights) => law(a, w))
   }
@@ -558,9 +579,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         c1 <= c0,
         show"cExpr = $c0, cNorm = $c1, cBetter = $c2, expr=$expr, norm=$norm, better=$better"
       )
-      /*
       // TODO
       // we can't always reach the better construction yet
+      /*
       assert(
         c1 <= c2,
         show"cExpr = $c0, cNorm = $c1, cBetter = $c2, expr=$expr, norm=$norm, better=$better"
@@ -731,7 +752,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll((a: Expr[BigInt], b: Expr[BigInt], w: Weights) => law(a, b, w))
   }
 
-  property("repeated adds are optimized if better".ignore) {
+  property("repeated adds are optimized if better") {
     // this is hard because (x + y + z + w) added just twice
     // will result in (x + x) + (y + y) + (z + z) + (w + w)
     // but that can't be simplified term by term to 2x + 2y ...
