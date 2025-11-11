@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Hash, Show}
 import cats.collections.{HashMap, HashSet}
+import cats.data.NonEmptyList
 import cats.syntax.all._
 import scala.math.Numeric
 import scala.util.hashing.MurmurHash3
@@ -22,6 +23,8 @@ object RingOpt {
     def nonZeroIterator: Iterator[(A, B)]
 
     def hashMap: HashMap[A, B]
+
+    def filter(fn: ((A, B)) => Boolean): MultiSet[A, B]
   }
 
   object MultiSet {
@@ -77,6 +80,10 @@ object RingOpt {
           case (ms, (k, v)) =>
             ms.remove(k, v)
         }
+      def filter(fn: ((A, B)) => Boolean): MultiSet[A, B] = {
+        import hashMap.hashKey
+        Impl(HashMap.fromIterableOnce(hashMap.iterator.filter(fn)), numeric)
+      }
     }
 
     def empty[A, B](implicit h: Hash[A], n: Numeric[B]): MultiSet[A, B] =
@@ -769,7 +776,7 @@ object RingOpt {
                   loop(tail, add :: result, ints)
               }
             }
-          case Nil => (ints, result)
+          case Nil => (ints, result.sortBy(e => Expr.key(e.toExpr)))
         }
 
       loop(e, Nil, BigInt(1))
@@ -1172,6 +1179,196 @@ object RingOpt {
         }
 
       loop(e.map((BigInt(1), _)), MultiSet.empty[AddTerm[A], BigInt], BigInt(0))
+    }
+  }
+
+  // this represents a sum of products
+  // const + sum_i(bi * pi)
+  case class SumProd[A](
+      const: BigInt,
+      terms: MultiSet[NonEmptyList[MultTerm[A]], BigInt]
+  ) {
+    // what are all the ways we can factor by
+    // an Integer or a MultTerm such that
+    // (expr * a + b) == this
+    // invariant: ((a == 1) && (b == 0)) == false and a != this, b != this
+    def splits(implicit
+        h: Hash[A]
+    ): List[(Either[BigInt, MultTerm[A]], SumProd[A], SumProd[A])] = {
+
+      val termSrcs
+          : HashMap[MultTerm[A], NonEmptyList[NonEmptyList[MultTerm[A]]]] =
+        HashMap.empty
+
+      val allMts = terms.nonZeroIterator.foldLeft(termSrcs) {
+        case (acc, (mts, _)) =>
+          mts.foldLeft(acc) { case (acc, mt) =>
+            acc.get(mt) match {
+              case Some(existing) =>
+                acc.updated(mt, mts :: existing)
+              case None =>
+                acc.updated(mt, NonEmptyList(mts, Nil))
+            }
+          }
+      }
+      val htK = terms.hashMap.hashKey
+
+      val mtSplits = allMts.iterator
+        .filter { case (_, NonEmptyList(_, tail)) =>
+          // only consider terms that appear in two or more places
+          tail.nonEmpty
+        }
+        .map { case (mt, keys) =>
+          val div = SumProd(
+            BigInt(0),
+            terms.filter { case (k, _) =>
+              keys.exists(htK.eqv(k, _))
+            }
+          )
+          val mod = SumProd(
+            const,
+            terms.filter { case (k, _) =>
+              !keys.exists(htK.eqv(k, _))
+            }
+          )
+          (Right(mt), div, mod)
+        }
+        .toList
+
+      val biSrcs
+          : HashMap[BigInt, NonEmptyList[NonEmptyList[MultTerm[A]]]] =
+        HashMap.empty
+
+      val allBis = terms.nonZeroIterator.foldLeft(biSrcs) {
+        case (acc, (mts, bi)) =>
+          // add the positive and negative because Neg is generally very cheap
+          (bi :: -bi :: Nil).foldLeft(acc) { case (acc, bi) =>
+              
+            acc.get(bi) match {
+              case Some(existing) =>
+                acc.updated(bi, mts :: existing)
+              case None =>
+                acc.updated(bi, NonEmptyList(mts, Nil))
+            }
+          }
+      }
+
+      val biSplits = allBis.iterator
+        .filter { case (_, NonEmptyList(_, tail)) =>
+          // only consider terms that appear in two or more places
+          tail.nonEmpty
+        }
+        .map { case (bi, _) =>
+          val (cd, cm) = const /% bi
+          val div = SumProd(
+            cd,
+            {
+              implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
+                Hash[List[MultTerm[A]]].contramap[NonEmptyList[MultTerm[A]]](_.toList)
+
+              terms.nonZeroIterator.flatMap { case (k, v) =>
+                val (d, m) = v /% bi
+                if (m == 0) ((k, d) :: Nil)
+                else Nil
+              }
+              .foldLeft(MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]) { case (acc, (k, v)) =>
+                acc.add(k, v)  
+              }
+            }
+          )
+          val mod = SumProd(
+            cm,
+            terms.filter { case (_, v) => (v % bi) != 0 }
+          )
+          (Left(bi), div, mod)
+        }
+        .toList
+
+      biSplits ::: mtSplits
+    }
+
+    // This is *not* normalized and just the direct conversion of the current
+    // expression into an Expr
+    def directToExpr(w: Weights): Expr[A] = {
+      val e0: Expr[A] = canonInt(const)
+      terms.nonZeroIterator.foldLeft(e0) { case (acc, (ms, c)) =>
+        val prod =
+          ms.map(_.toExpr).reduce[Expr[A]]((acc, m) => Expr.checkMult(acc, m))
+
+        val prodC = w.constMult(prod, c)
+        Expr.checkAdd(acc, prodC)
+      }
+    }
+
+    def normalize(w: Weights)(implicit h: Hash[A]): Expr[A] = {
+      // if splits is empty, we never use this
+      lazy val thisExpr = directToExpr(w)
+      lazy val thisCost = w.cost(thisExpr)
+
+      val withCost = splits.map {
+        case (right @ Right(mt), div, mod) =>
+          val e1 =
+            Expr.checkAdd(
+              Expr.checkMult(mt.toExpr, div.directToExpr(w)),
+              mod.directToExpr(w)
+            )
+
+          (right, div, mod, e1, w.cost(e1))
+        case (left @ Left(bi), div, mod) =>
+          val e1 =
+            Expr.checkAdd(
+              w.constMult(div.directToExpr(w), bi),
+              mod.directToExpr(w)
+            )
+
+          (left, div, mod, e1, w.cost(e1))
+      }
+      val nextSteps = withCost
+        .filter { case (_, _, _, _, c) => c <= thisCost }
+
+      val constE: Expr[A] = canonInt(const)
+      if (nextSteps.isEmpty) {
+        // None of the steps are as good as the current state
+        val mults = terms.nonZeroIterator.map { case (mult, bi) =>
+          normMult(bi, mult.toList, w)
+        }.toList
+
+        mults.sortBy(Expr.key(_)).foldLeft(constE)(Expr.checkAdd(_, _))
+      } else {
+        val (e, div, mod, _, _) = nextSteps.minBy { case (_, _, _, e1, c) =>
+          (c, Expr.key(e1))
+        }
+        val normDiv = div.normalize(w)
+        val normMod = mod.normalize(w)
+        e match {
+          case Right(e) =>
+            Expr.checkAdd(Expr.checkMult(norm(e.toExpr, w), normDiv), normMod)
+          case Left(bi) =>
+            Expr.checkAdd(w.constMult(normDiv, bi), normMod)
+        }
+      }
+    }
+  }
+
+  object SumProd {
+    def fromGroupSum[A: Hash](gs: GroupSum[A]): SumProd[A] = {
+      implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
+        Hash[List[MultTerm[A]]].contramap[NonEmptyList[MultTerm[A]]](_.toList)
+
+      val terms0 = MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]
+      val (c1, t1) = gs.terms.nonZeroIterator.foldLeft((gs.const, terms0)) {
+        case ((accConst, acc), (e, c)) =>
+          val (c0, flatMult) = Expr.flattenMult(e.toExpr :: Nil)
+          NonEmptyList.fromList(flatMult) match {
+            case None =>
+              // this is another constant 1
+              (accConst + c0, acc)
+            case Some(nel) =>
+              // this is a product of Symbol and Add(_, _) nodes
+              (accConst, acc.add(nel, c0 * c))
+          }
+      }
+      SumProd(c1, t1)
     }
   }
 
