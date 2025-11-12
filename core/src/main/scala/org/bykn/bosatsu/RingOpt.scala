@@ -1259,14 +1259,14 @@ object RingOpt {
   }
 
   // === Public API ===
-  def normalize[A: Hash](e: Expr[A], W: Weights = Weights.default): Expr[A] = {
-    // val eInit = e
+  def normalize[A: Hash](e0: Expr[A], W: Weights = Weights.default): Expr[A] = {
+    val eInit = e0
     // if we can't reduce the cost but keep producing different items stop
     // at 100 so we don't loop forever or blow up memory
     val MaxCount = 100
     @annotation.tailrec
     def loop(
-        e0: Expr[A],
+        e: Expr[A],
         cost: Long,
         reached: HashSet[Expr[A]],
         cnt: Int
@@ -1274,8 +1274,7 @@ object RingOpt {
       if (cnt >= MaxCount) {
         reached.iterator.minBy(Expr.key(_))
       } else {
-        val e = e0.basicNorm
-        val ne = norm(e, W)
+        val ne = norm(e, W).basicNorm
         val costNE = W.cost(ne)
         if (costNE < cost) {
           // we improved matters
@@ -1302,11 +1301,13 @@ object RingOpt {
           // TODO: we should never get here, increasing cost by normalization
           // means we probably are pretty far from optimal and we need to improve
           // our algorithm
+          assert(eInit != null) // silence unused eInit warning
           reached.iterator.minBy(Expr.key(_))
         }
       }
 
-    loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0).basicNorm
+    val e = e0.basicNorm
+    loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 
   // Small helper: canonical integer literal

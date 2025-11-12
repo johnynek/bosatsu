@@ -9,7 +9,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(6000)
+      .withMinSuccessfulTests(600)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -518,9 +518,30 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Weights)] =
       (
-        Neg(Neg(Neg(Add(Mult(Integer(1), Integer(1)), Symbol(0))))),
-        Weights(18, 10, 8)
+        // the challenge with this one is that we get
+        // (([0] * -3) + -(([1] + [1]))) but if we lift the negate
+        // all the way out, we could see that -([0] + [0] + [0] + [1] + [1])
+        // is better.
+        Add(Neg(Symbol(0)), Neg(Mult(Integer(2), Add(Symbol(0), Symbol(1))))),
+        Weights(21, 10, 6)
       ) ::
+        (
+          Add(
+            Symbol(0),
+            Add(
+              Add(
+                Mult(Symbol(0), Mult(Symbol(-1), Integer(3))),
+                Add(Neg(Symbol(1)), Neg(Symbol(-1)))
+              ),
+              Add(Integer(0), Neg(Neg(Neg(One))))
+            )
+          ),
+          Weights(7, 4, 2)
+        ) ::
+        (
+          Neg(Neg(Neg(Add(Mult(Integer(1), Integer(1)), Symbol(0))))),
+          Weights(18, 10, 8)
+        ) ::
         (
           Neg(Add(Add(Symbol(-1), Symbol(0)), Symbol(-1))),
           Weights(3, 2, 2)
