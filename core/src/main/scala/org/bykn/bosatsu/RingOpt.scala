@@ -1185,52 +1185,52 @@ object RingOpt {
       else (d + 2)
     }
 
-    // invariant: const != 0, 1, -1
-    private[RingOpt] def multIsBetter[A](
+    def multIsBetter[A](
         expr: Expr[A],
         const: BigInt
-    ): Boolean = {
-      // we know const != 0, 1, -1 because those can be absorbed
-      val cAbs = const.abs
-      if (multThreshold <= cAbs) {
-        // it's always better to multiply
-        true
-      } else {
-        val maybeNegated = if (const < 0) {
-          expr.cheapNeg.map(multIsBetter(_, -const))
+    ): Boolean =
+      if ((const == 0) || (const == 1) || (const == -1)) false
+      else {
+        val cAbs = const.abs
+        if (multThreshold <= cAbs) {
+          // it's always better to multiply
+          true
         } else {
-          None
-        }
+          val maybeNegated = if (const < 0) {
+            expr.cheapNeg.map(multIsBetter(_, -const))
+          } else {
+            None
+          }
 
-        maybeNegated match {
-          case Some(res) => res
-          case None      =>
+          maybeNegated match {
+            case Some(res) => res
+            case None      =>
 
-            // cost of (e + e + ... + e) with bi terms
-            // this is i * cost(e) + (i - 1) * add
-            // cost of multiplication would be cost(e) + mult
-            // so it's better to multiply when:
-            // cost(e) + mult <= i * cost(e) + (i - 1) * add
-            // mult <= (i - 1) * (cost(e) + add)
-            // with negation, we need:
-            // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
-            // which is
-            // mult <= (i - 1) * (cost(e) + add) + neg
-            val constMinus1 = cAbs - 1
-            val lhsNum = if (const > 0) {
-              // if (mult - (i - 1) * add)/(i - 1) <= cost(e)
-              // we are better off with mult. But note, cost(e) >=0
-              // so, if the lhs is negative, we don't need to compute the cost
-              BigInt(mult) - constMinus1 * add
-            } else {
-              // if (mult - neg - (i - 1) * add)/(i - 1) <= cost(e)
-              BigInt(mult - neg) - constMinus1 * add
-            }
+              // cost of (e + e + ... + e) with bi terms
+              // this is i * cost(e) + (i - 1) * add
+              // cost of multiplication would be cost(e) + mult
+              // so it's better to multiply when:
+              // cost(e) + mult <= i * cost(e) + (i - 1) * add
+              // mult <= (i - 1) * (cost(e) + add)
+              // with negation, we need:
+              // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
+              // which is
+              // mult <= (i - 1) * (cost(e) + add) + neg
+              val constMinus1 = cAbs - 1
+              val lhsNum = if (const > 0) {
+                // if (mult - (i - 1) * add)/(i - 1) <= cost(e)
+                // we are better off with mult. But note, cost(e) >=0
+                // so, if the lhs is negative, we don't need to compute the cost
+                BigInt(mult) - constMinus1 * add
+              } else {
+                // if (mult - neg - (i - 1) * add)/(i - 1) <= cost(e)
+                BigInt(mult - neg) - constMinus1 * add
+              }
 
-            lhsNum <= constMinus1 * cost(expr)
+              lhsNum <= constMinus1 * cost(expr)
+          }
         }
       }
-    }
 
     def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
       expr.absorbMultConst(const).getOrElse {
@@ -1290,14 +1290,12 @@ object RingOpt {
           }
         } else {
           // costNE > cost
-          /*
           implicit val showA: Show[A] = Show.fromToString
           val (pos, neg) = Expr.flattenAddSub(e :: Nil, W)
           sys.error(
             show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
               else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg"
           )
-           */
           // TODO: we should never get here, increasing cost by normalization
           // means we probably are pretty far from optimal and we need to improve
           // our algorithm

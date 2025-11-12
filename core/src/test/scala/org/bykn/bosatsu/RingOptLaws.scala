@@ -1132,4 +1132,20 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       }
     }
   }
+
+  property("multIsBetter law") {
+    forAll { (e: Expr[Int], c0: Short, w: Weights) =>
+      // don't let replicateAdd get giant
+      val c = BigInt(c0.toInt)
+      if (w.multIsBetter(e, c)) {
+        assert(
+          w.cost(e.bestEffortConstMult(c)) <= w.cost(Expr.replicateAdd(c, e))
+        )
+      } else {
+        assert(
+          w.cost(e.bestEffortConstMult(c)) >= w.cost(Expr.replicateAdd(c, e))
+        )
+      }
+    }
+  }
 }
