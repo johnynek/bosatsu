@@ -744,7 +744,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("a - a is normalized to zero".ignore) {
+  property("a - a is normalized to zero") {
     def law[A: Hash: Show](a: Expr[A], w: Weights) = {
       val expr = a - a
       val better = Zero
@@ -758,7 +758,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assert(c2 < c0)
       assert(
         c1 <= c2,
-        show"c0 = $c0, c1 = $c1, c2 = $c2, a=$a, norm=$norm basicNorm(a) = ${a.basicNorm}, basicNorm(expr)=${expr.basicNorm}, sumProd(expr) = ${sumProd}"
+        show"c1=$c1, c2=$c2, a=$a\n\texpr($c0)=$expr\n\tnorm($c1)=$norm\n\tbasicNorm(a) = ${a.basicNorm}, basicNorm(expr)=${expr.basicNorm}\n\tsumProd(expr) = ${sumProd}"
       )
 
     }

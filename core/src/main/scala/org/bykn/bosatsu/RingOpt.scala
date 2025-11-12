@@ -1460,9 +1460,39 @@ object RingOpt {
               }
               .toList
           val divConst = newTermsList.collect { case (None, b) => b }.sum
-          val divTerms = MultiSet.fromListCount(newTermsList.collect {
-            case (Some(k), b) => (k, b)
-          })
+          val divTermsList0 =
+            newTermsList.collect {
+              case (Some(k @ NonEmptyList(_, tail)), b) if tail.nonEmpty =>
+                (k, b)
+            }
+          // All the singleton terms should be combined into a single add
+          val divTermsCombine =
+            newTermsList.collect { case (Some(NonEmptyList(k, Nil)), b) =>
+              (k, b)
+            }
+          val arg = divTermsCombine match {
+            case Nil           => divTermsList0
+            case (k, b) :: Nil =>
+              // just one
+              (NonEmptyList(k, Nil), b) :: divTermsList0
+            case twoOrMore =>
+              // we can combine this into a single MultTerm
+              val coeff = twoOrMore.map(_._2).reduce(_.gcd(_))
+              val (k, c) = twoOrMore.iterator
+                .map { case (k, b) => (k, b / coeff) }
+                .reduce[(MultTerm[A], BigInt)] { case ((k1, b1), (k2, b2)) =>
+                  (
+                    Add(
+                      k1.toExpr.bestEffortConstMult(b1),
+                      k2.toExpr.bestEffortConstMult(b2)
+                    ),
+                    BigInt(1)
+                  )
+                }
+
+              (NonEmptyList(k, Nil), c * coeff) :: divTermsList0
+          }
+          val divTerms = MultiSet.fromListCount(arg)
           val div = SumProd(
             divConst,
             divTerms
