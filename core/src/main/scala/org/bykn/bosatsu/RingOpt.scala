@@ -27,6 +27,7 @@ object RingOpt {
     def nonZeroIterator: Iterator[(A, B)]
 
     def hashMap: HashMap[A, B]
+    def size: Int = hashMap.size
 
     def filter(fn: ((A, B)) => Boolean): MultiSet[A, B]
   }
@@ -995,7 +996,7 @@ object RingOpt {
       loop(flat, optInt, One)
     }
 
-    def addAll[A: Hash](items: List[Expr[A]], w: Weights): Expr[A] = {
+    def addAll0[A: Hash](items: List[Expr[A]], w: Weights): Expr[A] = {
       @annotation.tailrec
       def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
         stack match {
@@ -1017,6 +1018,45 @@ object RingOpt {
       val posPart = loop(sortExpr(pos), BigInt(0), Zero)
       val negPart = loop(sortExpr(neg), BigInt(0), Zero)
       checkAdd(posPart, negPart.normalizeNeg)
+    }
+
+    def addAll[A](items: List[Expr[A]], w: Weights): Expr[A] = {
+      @annotation.tailrec
+      def loop(stack: List[(Boolean, Expr[A])], ints: BigInt, pos: List[Expr[A]], neg: List[Expr[A]]): Expr[A] =
+        stack match {
+          case Nil =>
+              val ix = canonInt[A](ints)
+              val p = pos.foldLeft(ix)(checkAdd(_, _))
+              val n = neg.foldLeft(Zero: Expr[A])(checkAdd(_, _)).normalizeNeg
+              checkAdd(p, n)
+          case (isPos, Integer(n)) :: tail =>
+            val n1 = if (isPos) n else -n
+            loop(tail, ints + n1, pos, neg)
+          case (isPos, sym @ Symbol(_)) :: tail =>
+            if (isPos) loop(tail, ints, sym :: pos, neg)
+            else loop(tail, ints, pos, sym :: neg)
+          case (isPos, mult @ Mult(_, _)) :: tail =>
+            // we can potentially save by negating a mult
+            mult.saveNeg match {
+              case Some(negMult) =>
+                val isPos1 = !isPos
+                if (isPos1) loop(tail, ints, negMult :: pos, neg)
+                else loop(tail, ints, pos, negMult :: neg)
+              case None =>
+                if (isPos) loop(tail, ints, mult :: pos, neg)
+                else loop(tail, ints, pos, mult :: neg)
+            }
+          case (isPos, Neg(x)) :: tail =>
+            loop((!isPos, x) :: tail, ints, pos, neg)
+          case (isPos, Add(a, b)) :: tail =>
+            loop((isPos, a) :: (isPos, b) :: tail, ints, pos, neg)
+          case (_, Zero) :: tail =>
+            loop(tail, ints, pos, neg)
+          case (isPos, One) :: tail =>
+            val n1 = if (isPos) 1 else -1
+            loop(tail, ints + n1, pos, neg)
+        }
+      loop(items.map(x => (true, x)), BigInt(0), Nil, Nil)
     }
 
     // Canonical structural key to enforce determinism (commutativity handled by sorting)
@@ -1256,6 +1296,7 @@ object RingOpt {
 
   object Weights {
     val default: Weights = Weights(mult = 5, add = 1, neg = 1)
+    implicit val showWeights: Show[Weights] = Show.fromToString
   }
 
   // === Public API ===
@@ -1294,7 +1335,7 @@ object RingOpt {
           val (pos, neg) = Expr.flattenAddSub(e :: Nil, W)
           sys.error(
             show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
-              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg"
+              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg\n\tsumProd=${SumProd(e :: Nil)}\n\tsplits=${SumProd(e :: Nil).splits}"
           )
           // TODO: we should never get here, increasing cost by normalization
           // means we probably are pretty far from optimal and we need to improve
@@ -1396,21 +1437,37 @@ object RingOpt {
       const: BigInt,
       terms: MultiSet[NonEmptyList[MultTerm[A]], BigInt]
   ) {
-    def morePositive: Boolean = {
-      val it = terms.nonZeroIterator
-      var pos = 0
-      var neg = 0
-      while (it.hasNext) {
-        val (_, cnt) = it.next()
-        if (cnt == 1) {
-          pos = pos + 1
-        } else if (cnt == -1) {
-          neg = neg + 1
+
+    private def signOf(x: Expr[A], b: BigInt, w: Weights): Int = {
+      
+      implicit val showA: Show[A] = Show.fromToString
+      val costPos = w.cost(w.constMult(x, b))
+      val costNeg = w.cost(w.constMult(x, -b))
+      val res = if (costPos < costNeg) 1 else if (costNeg < costPos) -1 else 0
+      /*
+      val res = if (b == 1) 1
+      else if (w.multThreshold <= b.abs) {
+        // multiplication is always better, so this is not signed
+        0
+      }
+      else {
+        // if we have Neg(_) or a few negatives, we may want to add, in which =
+        // case adding 1 or more then negate is better
+        val simple = mt.map(_.toExpr).reduce[Expr[A]](Mult(_, _))
+        if (w.multIsBetter(simple, b)) {
+          println(show"w.multIsBetter($simple, $b) == true")
+          0
+        }
+        else {
+          println(show"w.multIsBetter($simple, $b) == false")
+          b.signum
         }
       }
-
-      return (pos >= neg)
+      */
+      //println(show"signOf($x, $b, $w) = $res, w.multThreshold=${w.multThreshold}")
+      res
     }
+
     // what are all the ways we can factor by
     // an Integer or a MultTerm such that
     // (expr * a + b) == this
@@ -1482,6 +1539,9 @@ object RingOpt {
                 .reduce[(MultTerm[A], BigInt)] { case ((k1, b1), (k2, b2)) =>
                   (
                     Add(
+                      // TODO: this seems fishy not using w.constMult(b1, k.toExpr)
+                      // here, but even then it may not solve the issues due
+                      // to the choice of negation issue
                       k1.toExpr.bestEffortConstMult(b1),
                       k2.toExpr.bestEffortConstMult(b2)
                     ),
@@ -1581,17 +1641,21 @@ object RingOpt {
       val withCost = splits.map {
         case (right @ Right(mt), div, mod) =>
           val e1 =
-            Expr.checkAdd(
-              Expr.checkMult(mt.toExpr, div.directToExpr(w)),
-              mod.directToExpr(w)
+            Expr.addAll(
+              Expr.checkMult(mt.toExpr, div.directToExpr(w)) ::
+              mod.directToExpr(w) ::
+              Nil,
+              w
             )
 
           (right, div, mod, e1, w.cost(e1))
         case (left @ Left(bi), div, mod) =>
           val e1 =
-            Expr.checkAdd(
-              w.constMult(div.directToExpr(w), bi),
-              mod.directToExpr(w)
+            Expr.addAll(
+              w.constMult(div.directToExpr(w), bi) ::
+              mod.directToExpr(w) ::
+              Nil,
+              w
             )
 
           (left, div, mod, e1, w.cost(e1))
@@ -1602,42 +1666,89 @@ object RingOpt {
       val nextSteps = withCost
         .filter { case (_, _, _, _, c) => c <= thisCost }
 
+      implicit val showA: Show[A] = Show.fromToString
       if (nextSteps.isEmpty) {
         // None of the steps are as good as the current state
         // println(show"nextSteps is empty: $this")
 
-        val (biFn, trans) =
-          if (morePositive) {
-            ({ (bi: BigInt) => bi }, { (e: Expr[A]) => e })
-          } else {
-            ({ (bi: BigInt) => -bi }, { (e: Expr[A]) => e.normalizeNeg })
-          }
 
-        val constE: Expr[A] = Integer(biFn(const))
-        val nonNeg = terms.nonZeroIterator
-          .map { case (k, bi) => (k, biFn(bi)) }
-          .collect {
-            case (mult, bi) if bi != -1 => normMult(bi, mult.toList, w)
+
+        val (neg0, unsigned, pos0) = {
+          val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
+            val normFactors = Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
+            (normFactors, bi)
           }
           .toList
-          .sortBy(Expr.key(_))
 
-        val negatives = terms.nonZeroIterator
-          .map { case (k, bi) => (k, biFn(bi)) }
-          .collect {
-            case (mult, bi) if bi == -1 => normMult(BigInt(1), mult.toList, w)
-          }
-          .toList
-          .sortBy(Expr.key(_))
+          val label = termsList.map { case kb @ (k, bi) => (kb, signOf(k, bi, w)) }
+          (
+            label.collect { case (kb, x) if x < 0 => kb },
+            label.collect { case (kb, x) if x == 0 => kb },
+            label.collect { case (kb, x) if x > 0 => kb }
+          )
+        }
+        //println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
 
-        val pos = nonNeg.foldLeft(constE)(Expr.checkAdd(_, _))
-        val neg =
-          negatives.foldLeft(Zero: Expr[A])(Expr.checkAdd(_, _)).normalizeNeg
+        // Helper to build a sum from a list of terms.
+        // If signFlip is true, it builds Sum( k*(-b) ) for each (k,b)
+        // If signFlip is false, it builds Sum( k*b ) for each (k,b)
+        def buildSum(termList: List[(Expr[A], BigInt)], signFlip: Boolean): Expr[A] =
+          Expr.addAll(termList
+            .map { case (mult, bi) =>
+              val coeff = if (signFlip) -bi else bi
+              w.constMult(mult, coeff)
+            }, w)
 
-        trans(Expr.checkAdd(pos, neg))
+        // --- Option 1: Positive-dominant form: (Const + Pos + Unsigned) - (Neg) ---
+        // 'pos0' and 'unsigned' terms are built as (k*b)
+        val posSum1 = buildSum(pos0 ::: unsigned, signFlip = false)
+        // 'neg0' terms are built as (k*(-b))
+        val negSum1 = buildSum(neg0, signFlip = true)
+        
+        val finalExprPos = Expr.addAll(
+          canonInt(const) ::
+          posSum1 ::
+          negSum1.normalizeNeg :: // This creates the subtraction
+          Nil,
+          w
+        )
+        val costPos = w.cost(finalExprPos)
+
+        // --- Option 2: Negative-dominant form: -(( -Const + Neg + Unsigned) - (Pos)) ---
+        // 'neg0' and 'unsigned' terms are built as (k*(-b))
+        val negSum2 = buildSum(neg0 ::: unsigned, signFlip = true)
+        // 'pos0' terms are built as (k*b)
+        val posSum2 = buildSum(pos0, signFlip = false)
+
+        val finalExprNeg = Expr.addAll(
+          canonInt(-const) ::
+          negSum2 ::
+          posSum2.normalizeNeg :: // This creates the subtraction
+          Nil,
+          w
+        ).normalizeNeg // The outer negation
+        val costNeg = w.cost(finalExprNeg)
+
+        // --- Option 3: Don't flip any signs
+        val finalDefault = Expr.addAll(
+          canonInt(const) ::
+          buildSum(pos0 ::: unsigned ::: neg0, signFlip = false) ::
+          Nil,
+          w)
+        val costDefault = w.cost(finalDefault)
+        
+        //println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
+        val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (costDefault, finalDefault) :: Nil
+        println(show"all=$all")
+        val minCost = all.iterator.map(_._1).min
+        val (_, best) = all.filter { case (c, _) => c == minCost }.minBy { case (_, e) => Expr.key(e) }
+        best
+
       } else {
-        val (e, div, mod, _, _) = nextSteps.minBy { case (_, _, _, e1, c) =>
-          (c, Expr.key(e1))
+        val (e, div, mod, _, _) = nextSteps.minBy { case (_, _, mod, e1, c) =>
+          // try to choose the smallest cost, breaking ties with the smallest
+          // left over set, then just the usual sorting
+          (c, mod.terms.size, Expr.key(e1))
         }
         val normDiv = div.normalize(w)
         val normMod = mod.normalize(w)
@@ -1645,12 +1756,35 @@ object RingOpt {
         // e * div + mod
         // but just because e does not divide mod, doesn't mean there
         // are no terms in mod that could divide div
-        e match {
+        val added = e match {
           case Right(e) =>
-            Expr.checkAdd(Expr.checkMult(norm(e.toExpr, w), normDiv), normMod)
+            val left = Expr.checkMult(norm(e.toExpr, w), normDiv)
+            Expr.addAll(left :: normMod :: Nil, w)
           case Left(bi) =>
-            Expr.checkAdd(w.constMult(normDiv, bi), normMod)
+            // num * normDiv + normMod
+            // but we could do:
+            // Neg((-num) * normDiv + (-normMod))
+            // if it is better
+            val pos = 
+              Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil, w)
+            val neg = 
+              Expr.addAll(w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil, w).normalizeNeg
+
+            if (w.cost(pos) > w.cost(neg)) neg
+            else pos
         }
+        // after we add, we could have negatives on both sides, if so, we
+        // could save by doing saveNeg and then adding back a negative at the top:
+        val res = added/*added.saveNeg match {
+          case None =>
+            println(show"($added).saveNeg = None")
+            added
+          case Some(negAdd) =>
+            println(show"($added).saveNeg = Some($negAdd)")
+            negAdd.normalizeNeg
+        }*/
+        println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
+        res
       }
     }
   }
@@ -1712,8 +1846,9 @@ object RingOpt {
       res
 
     case Mult(a, b) =>
-      val (optConst, factors) = Expr.flattenMult(a :: b :: Nil)
-      normMult(optConst, factors, W)
+      val (const, factors) = Expr.flattenMult(a :: b :: Nil)
+      val normFactors = Expr.multAll(factors.map(mt => norm(mt.toExpr, W)))
+      W.constMult(normFactors, const)
   }
 
   // Normalize multiplication list: fold integer factors and signs; sort other factors

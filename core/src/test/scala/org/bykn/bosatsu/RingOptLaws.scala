@@ -9,7 +9,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(600)
+      .withMinSuccessfulTests(600000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -47,11 +47,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
       case Neg(x)     =>
-        Generators.interleave(Shrink.shrink(x), Shrink.shrink(x).map(Neg(_)))
+        x #:: Generators.interleave(Shrink.shrink(x), Shrink.shrink(x).map(Neg(_)))
       case Add(a, b) =>
         val shrinkAdd =
           Shrink.shrink((a, b)).map { case (sa, sb) => Add(sa, sb) }
-        Generators.interleaveAll(
+        a #:: b #:: Generators.interleaveAll(
           Shrink.shrink(a) ::
             Shrink.shrink(b) ::
             shrinkAdd ::
@@ -60,7 +60,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       case Mult(a, b) =>
         val shrinkMult =
           Shrink.shrink((a, b)).map { case (sa, sb) => Mult(sa, sb) }
-        Generators.interleaveAll(
+        a #:: b #:: Generators.interleaveAll(
           Shrink.shrink(a) ::
             Shrink.shrink(b) ::
             shrinkMult ::
@@ -496,7 +496,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("normalization doesn't change values") {
+  property("normalization doesn't change values".only) {
     def law[A: Hash: Show: Numeric](expr: Expr[A], w: Weights) = {
       val normE = normalize(expr, w)
       assertEquals(Expr.toValue(normE), Expr.toValue(expr))
@@ -518,11 +518,20 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Weights)] =
       (
+        Mult(Add(Mult(Integer(-4),Symbol(0)),Mult(Symbol(1),Add(One,One))),Neg(Symbol(0))),
+        Weights(18,10,9)
+      ) ::
+      (
+        // -[0] + -([-1] * [1] * 2)
+        Add(Neg(Symbol(0)),Neg(Mult(Add(Symbol(-1),Symbol(1)),Integer(2)))),
+        Weights(21,10,9)
+      ) ::
+      (
         // the challenge with this one is that we get
         // (([0] * -3) + -(([1] + [1]))) but if we lift the negate
         // all the way out, we could see that -([0] + [0] + [0] + [1] + [1])
         // is better.
-        Add(Neg(Symbol(0)), Neg(Mult(Integer(2), Add(Symbol(0), Symbol(1))))),
+        Add(Neg(Symbol(3)), Neg(Mult(Integer(2), Add(Symbol(3), Symbol(1))))),
         Weights(21, 10, 6)
       ) ::
         (
@@ -541,6 +550,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         (
           Neg(Neg(Neg(Add(Mult(Integer(1), Integer(1)), Symbol(0))))),
           Weights(18, 10, 8)
+        ) ::
+        (
+          Add(Neg(Add(Mult(Symbol(0),Symbol(0)),Symbol(1))),Symbol(-1)),
+          Weights(6,4,1)
+        ) ::
+        (
+          Neg(Add(Symbol(0),Add(Mult(Symbol(9),Symbol(9)),Zero))),
+          Weights(7,3,1)
+        ) ::
+        (
+          Add(Integer(-1),Neg(Mult(Symbol(0),Add(One,One)))),
+          Weights(11,10,8)
         ) ::
         (
           Neg(Add(Add(Symbol(-1), Symbol(0)), Symbol(-1))),
@@ -974,8 +995,13 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       if (w.multThreshold <= cnt.abs) {
         // multiplication is always lower cost
         val rep = Expr.replicateAdd(cnt, e)
-        val mult = Expr.multAll(e :: Integer(cnt) :: Nil)
-        assert(w.cost(mult) <= w.cost(rep))
+        val costRep = w.cost(rep)
+        val mult0 = Expr.multAll(e :: Integer(cnt) :: Nil)
+        val mult1 = w.constMult(e, cnt)
+        val mult2 = e.bestEffortConstMult(cnt)
+        assert(w.cost(mult0) <= costRep)
+        assert(w.cost(mult1) <= costRep)
+        assert(w.cost(mult2) <= costRep)
       }
     }
   }
@@ -1140,6 +1166,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       if (w.multIsBetter(e, c)) {
         assert(
           w.cost(e.bestEffortConstMult(c)) <= w.cost(Expr.replicateAdd(c, e))
+        )
+        assert(
+          w.cost(Expr.checkMult(e, Integer(c))) <= w.cost(Expr.replicateAdd(c, e))
         )
       } else {
         assert(
