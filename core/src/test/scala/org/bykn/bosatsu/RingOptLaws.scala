@@ -48,24 +48,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       case Integer(n) => Shrink.shrink(n).map(Integer(_))
       case Neg(x)     =>
         x #:: Generators.interleave(Shrink.shrink(x), Shrink.shrink(x).map(Neg(_)))
-      case Add(a, b) =>
+      case add @ Add(a, b) =>
         val shrinkAdd =
           Shrink.shrink((a, b)).map { case (sa, sb) => Add(sa, sb) }
-        a #:: b #:: Generators.interleaveAll(
+
+        val tail = a #:: b #:: Generators.interleaveAll(
           Shrink.shrink(a) ::
             Shrink.shrink(b) ::
             shrinkAdd ::
             Nil
         )
-      case Mult(a, b) =>
+
+        val normAdd = add.basicNorm
+        if (normAdd != add) (normAdd #:: tail)
+        else tail
+
+      case mult @ Mult(a, b) =>
         val shrinkMult =
           Shrink.shrink((a, b)).map { case (sa, sb) => Mult(sa, sb) }
-        a #:: b #:: Generators.interleaveAll(
+        val tail = a #:: b #:: Generators.interleaveAll(
           Shrink.shrink(a) ::
             Shrink.shrink(b) ::
             shrinkMult ::
             Nil
         )
+        val normMult = mult.basicNorm
+        if (normMult != mult) (normMult #:: tail)
+        else tail
     }
 
   implicit val arbCost: Arbitrary[Weights] =
@@ -74,6 +83,25 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       m <- Gen.choose(a + 1, 2 * a + 1)
       n <- Gen.choose(1, a)
     } yield Weights(mult = m, add = a, neg = n))
+
+  implicit val shrinkWeights: Shrink[Weights] =
+    Shrink[Weights] {
+      case Weights(m, a, n) =>
+        Shrink.shrink((m, a, n)).map { case (m0, a0, n0) =>
+          val n = if (n0 < 1) 1 else n0  
+          val a = if (a0 < n) n else a0
+          val m = if (m0 < a) a else m0
+          (m, a, n)
+        }
+        .sliding(2)
+        .takeWhile {
+          case Seq((m0, a0, n0), (m1, a1, n1)) => (m1 < m0) || (a1 < a0) || (n1 < n0)  
+          case _ => false
+        }
+        .map(_(0))
+        .map { case (m, a, n) => Weights(m, a, n) }
+        .toStream
+    }
 
   implicit def arbMultiSet[A: Arbitrary: Hash, B: Arbitrary: Numeric]
       : Arbitrary[MultiSet[A, B]] =
@@ -123,12 +151,40 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("cheapNeg works") {
+  property("cheapNeg applys negation and doesn't increase cost".only) {
     forAll { (e: Expr[Int], w: Weights) =>
       e.cheapNeg.foreach { neg =>
         assertEquals(-Expr.toValue(e), Expr.toValue(neg))
         // we add no cost
         assert(w.cost(neg) <= w.cost(e))
+      }
+    }
+  }
+property("saveNeg on normalized terms, doesn't de-normalize".only) {
+    forAll { (e0: Expr[Int], w: Weights) =>
+      val e = normalize(e0, w)
+      e.saveNeg.foreach { neg =>
+        assertEquals(-Expr.toValue(e0), Expr.toValue(neg))
+        // we add no cost
+        val optNeg = normalize(neg, w)
+        // we are still optimized
+        val costNeg = w.cost(neg)
+        val costOptNeg = w.cost(optNeg)
+        assert(costNeg <= costOptNeg, show"neg($costNeg)=$neg, optNeg($costOptNeg)=$optNeg")
+      }
+    }
+  }
+  property("cheapNeg on normalized terms, doesn't de-normalize") {
+    forAll { (e0: Expr[Int], w: Weights) =>
+      val e = normalize(e0, w)
+      e.cheapNeg.foreach { neg =>
+        assertEquals(-Expr.toValue(e0), Expr.toValue(neg))
+        // we add no cost
+        val optNeg = normalize(neg, w)
+        // we are still optimized
+        val costNeg = w.cost(neg)
+        val costOptNeg = w.cost(optNeg)
+        assert(costNeg <= costOptNeg, show"neg($costNeg)=$neg, optNeg($costOptNeg)=$optNeg")
       }
     }
   }
@@ -496,7 +552,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("normalization doesn't change values".only) {
+  property("normalization doesn't change values") {
     def law[A: Hash: Show: Numeric](expr: Expr[A], w: Weights) = {
       val normE = normalize(expr, w)
       assertEquals(Expr.toValue(normE), Expr.toValue(expr))
@@ -663,7 +719,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         c1 <= c2,
         show"cExpr = $c0, cNorm = $c1, cBetter = $c2, expr=$expr, norm=$norm, better=$better"
       )
-       */
+      */
     }
 
     val regressions: List[(Expr[Int], Expr[Int], Expr[Int], Weights)] =

@@ -477,6 +477,15 @@ object RingOpt {
               ny <- y.cheapNeg
             } yield Add(nx, ny)
           )
+          /*
+      case Mult(Integer(x), Integer(y)) => Some(canonInt(-(x * y)))
+      case Mult(_, Integer(_)) | Mult(Integer(_), _) =>
+        // just because we can cheaply negate a multiplication
+        // argument, doesn't mean that the cost is less after mult
+        // consider x * (-2). That can be cheaper than -(x + x)
+        // but x * 2 is very often more expensive than x + x.
+        // 
+        None*/
       case Mult(x, y) =>
         x.cheapNeg
           .map(Mult(_, y))
@@ -1333,7 +1342,8 @@ object RingOpt {
           // costNE > cost
           implicit val showA: Show[A] = Show.fromToString
           val (pos, neg) = Expr.flattenAddSub(e :: Nil, W)
-          sys.error(
+          //sys.error(
+          println(
             show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
               else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg\n\tsumProd=${SumProd(e :: Nil)}\n\tsplits=${SumProd(e :: Nil).splits}"
           )
@@ -1671,8 +1681,6 @@ object RingOpt {
         // None of the steps are as good as the current state
         // println(show"nextSteps is empty: $this")
 
-
-
         val (neg0, unsigned, pos0) = {
           val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
             val normFactors = Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
@@ -1739,7 +1747,7 @@ object RingOpt {
         
         //println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
         val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (costDefault, finalDefault) :: Nil
-        println(show"all=$all")
+        //println(show"all=$all")
         val minCost = all.iterator.map(_._1).min
         val (_, best) = all.filter { case (c, _) => c == minCost }.minBy { case (_, e) => Expr.key(e) }
         best
@@ -1750,6 +1758,9 @@ object RingOpt {
           // left over set, then just the usual sorting
           (c, mod.terms.size, Expr.key(e1))
         }
+        // thes assertions should never fail
+        assert(this != div, show"div==this: $this")
+        assert(this != mod, show"mod==this: $this")
         val normDiv = div.normalize(w)
         val normMod = mod.normalize(w)
         // println(show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
@@ -1783,7 +1794,7 @@ object RingOpt {
             println(show"($added).saveNeg = Some($negAdd)")
             negAdd.normalizeNeg
         }*/
-        println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
+        //println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
         res
       }
     }
