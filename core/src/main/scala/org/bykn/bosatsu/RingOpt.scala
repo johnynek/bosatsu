@@ -477,14 +477,14 @@ object RingOpt {
               ny <- y.cheapNeg
             } yield Add(nx, ny)
           )
-          /*
+      /*
       case Mult(Integer(x), Integer(y)) => Some(canonInt(-(x * y)))
       case Mult(_, Integer(_)) | Mult(Integer(_), _) =>
         // just because we can cheaply negate a multiplication
         // argument, doesn't mean that the cost is less after mult
         // consider x * (-2). That can be cheaper than -(x + x)
         // but x * 2 is very often more expensive than x + x.
-        // 
+        //
         None*/
       case Mult(x, y) =>
         x.cheapNeg
@@ -851,99 +851,6 @@ object RingOpt {
       loop(expr :: Nil, num.zero)
     }
 
-    // return all the positive and negative additive terms from this list
-    // invariant: return no top level Add(_, _) or Neg(_)
-    def flattenAddSub[A: Hash](
-        e: List[Expr[A]],
-        w: Weights
-    ): (List[Expr[A]], List[Expr[A]]) = {
-
-      def bigFill(
-          bi: BigInt,
-          expr: Expr[A],
-          acc: List[Expr[A]]
-      ): List[Expr[A]] =
-        if (bi == -1) sys.error(s"invariant violation: bi=$bi, expr=$expr")
-        else if (bi == 0) acc
-        else if (bi == 1) (expr :: acc)
-        else if (w.multIsBetter(expr, bi)) {
-          // Expr.multAll(expr :: Integer(bi) :: Nil) :: acc
-          expr.bestEffortConstMult(bi) :: acc
-        } else if (bi.isValidInt) {
-          val listFill = List.fill(bi.toInt)(expr)
-          if (acc.isEmpty) listFill
-          else (listFill reverse_::: acc)
-        } else {
-          // this should basically never happen, it means
-          // that somehow multiplication is basically infinitely expensive
-          // and even adding something together IntMax times is better than
-          // multiplying once
-          var lst: List[Expr[A]] = acc
-          var size = bi
-          while (size > 0) {
-            size = size - 1
-            lst = expr :: lst
-          }
-          lst
-        }
-
-      val GroupSum(intRes, res) = GroupSum(e)
-      // flatten out the results
-      // Put the values in a canonical order
-      // we reverse so after the foldLeft will return the right order
-      val nonZeros = res.nonZeroIterator
-        .map { case (e, b) => (e.toExpr, b) }
-        .toList
-        .reverse
-        .sortBy { case (e, _) =>
-          Expr.key(e)
-        }
-      val empty = List.empty[Expr[A]]
-      val resTup @ (resultPos, resultNeg) =
-        nonZeros.foldLeft((empty, empty)) { case ((pos, neg), (expr, cnt)) =>
-          if (cnt > 0) {
-            (bigFill(cnt, expr, pos), neg)
-          } else {
-            // cnt < 0, exactly zero we don't see
-            // try to negate
-            expr.cheapNeg match {
-              case Some(negExpr) =>
-                (bigFill(-cnt, negExpr, pos), neg)
-              case None =>
-                (pos, bigFill(-cnt, expr, neg))
-            }
-          }
-        }
-      if (intRes == 0) resTup
-      else {
-        if (resultPos.isEmpty && resultNeg.nonEmpty && (intRes < 0)) {
-          (resultPos, canonInt(-intRes) :: resultNeg)
-        } else {
-          (canonInt(intRes) :: resultPos, resultNeg)
-        }
-      }
-    }
-
-    def negateProduct[A](head: Expr[A], tail: List[Expr[A]]): List[Expr[A]] =
-      tail match {
-        case Nil => head.normalizeNeg :: Nil
-        case _   =>
-          val all = head :: tail
-          val allIdx = all.zipWithIndex
-          val cheaps = allIdx.flatMap { case (e, idx) =>
-            e.cheapNeg.map((_, idx))
-          }
-          if (cheaps.nonEmpty) {
-            // we can select a cheap negation
-            val (e, idx) = cheaps.minBy { case (e, _) => Expr.key(e) }
-            all.updated(idx, e)
-          } else {
-            // just pick the minimum of none are cheap
-            val (e, idx) = allIdx.minBy { case (e, _) => Expr.key(e) }
-            all.updated(idx, e.normalizeNeg)
-          }
-      }
-
     // invariant: no One (or .isOne), Zero (or items that .isZero is true), Integer Mult items in list
     def flattenMult[A](e: List[Expr[A]]): (BigInt, List[MultTerm[A]]) = {
       @annotation.tailrec
@@ -1005,39 +912,20 @@ object RingOpt {
       loop(flat, optInt, One)
     }
 
-    def addAll0[A: Hash](items: List[Expr[A]], w: Weights): Expr[A] = {
+    def addAll[A](items: List[Expr[A]]): Expr[A] = {
       @annotation.tailrec
-      def loop(stack: List[Expr[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
+      def loop(
+          stack: List[(Boolean, Expr[A])],
+          ints: BigInt,
+          pos: List[Expr[A]],
+          neg: List[Expr[A]]
+      ): Expr[A] =
         stack match {
           case Nil =>
-            if (ints == 0) acc
-            else {
-              val ix = canonInt(ints)
-              checkAdd(acc, ix)
-            }
-          case Integer(n) :: tail => loop(tail, ints + n, acc)
-          case (others @ (Symbol(_) | Mult(_, _) | One)) :: tail =>
-            if (others.isOne) loop(tail, ints + 1, acc)
-            else loop(tail, ints, checkAdd(others, acc))
-          case (err @ (Add(_, _) | Neg(_) | Zero)) :: _ =>
-            sys.error(s"invariant violation: unexpected Add/Neg/Zero: $err")
-        }
-
-      val (pos, neg) = flattenAddSub(items, w)
-      val posPart = loop(sortExpr(pos), BigInt(0), Zero)
-      val negPart = loop(sortExpr(neg), BigInt(0), Zero)
-      checkAdd(posPart, negPart.normalizeNeg)
-    }
-
-    def addAll[A](items: List[Expr[A]], w: Weights): Expr[A] = {
-      @annotation.tailrec
-      def loop(stack: List[(Boolean, Expr[A])], ints: BigInt, pos: List[Expr[A]], neg: List[Expr[A]]): Expr[A] =
-        stack match {
-          case Nil =>
-              val ix = canonInt[A](ints)
-              val p = pos.foldLeft(ix)(checkAdd(_, _))
-              val n = neg.foldLeft(Zero: Expr[A])(checkAdd(_, _)).normalizeNeg
-              checkAdd(p, n)
+            val ix = canonInt[A](ints)
+            val p = pos.foldLeft(ix)(checkAdd(_, _))
+            val n = neg.foldLeft(Zero: Expr[A])(checkAdd(_, _)).normalizeNeg
+            checkAdd(p, n)
           case (isPos, Integer(n)) :: tail =>
             val n1 = if (isPos) n else -n
             loop(tail, ints + n1, pos, neg)
@@ -1065,7 +953,7 @@ object RingOpt {
             val n1 = if (isPos) 1 else -1
             loop(tail, ints + n1, pos, neg)
         }
-      loop(items.map(x => (true, x)), BigInt(0), Nil, Nil)
+      loop(sortExpr(items).map(x => (true, x)), BigInt(0), Nil, Nil)
     }
 
     // Canonical structural key to enforce determinism (commutativity handled by sorting)
@@ -1340,16 +1228,17 @@ object RingOpt {
           }
         } else {
           // costNE > cost
+          /*
           implicit val showA: Show[A] = Show.fromToString
-          val (pos, neg) = Expr.flattenAddSub(e :: Nil, W)
-          //sys.error(
+          // sys.error(
           println(
             show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
-              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE, e_pos = $pos, e_neg = $neg\n\tsumProd=${SumProd(e :: Nil)}\n\tsplits=${SumProd(e :: Nil).splits}"
+              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE\n\tsumProd=${SumProd(e :: Nil)}\n\tsplits=${SumProd(e :: Nil).splits}"
           )
           // TODO: we should never get here, increasing cost by normalization
           // means we probably are pretty far from optimal and we need to improve
           // our algorithm
+           */
           assert(eInit != null) // silence unused eInit warning
           reached.iterator.minBy(Expr.key(_))
         }
@@ -1417,13 +1306,8 @@ object RingOpt {
                 integers out with unConstMult. But also,
                 how many times do different factors show up?
                 If we go too crazy now, that defeats the purpose
-                of optSumProd...
+                of SumProd...
 
-                one challenge with using unConstMult here is that
-                it frustrates the flattenAddSub + addAll not increasing
-                costs law... since multiplying can be worse than adding
-                for small adds. We need to have a way to unroll that correctly
-                if we are going to use unConstMult
               m.unConstMult match {
                 case Some((bi, inner)) =>
                   loop((c * bi, inner) :: tail, res, intRes)
@@ -1449,7 +1333,7 @@ object RingOpt {
   ) {
 
     private def signOf(x: Expr[A], b: BigInt, w: Weights): Int = {
-      
+
       implicit val showA: Show[A] = Show.fromToString
       val costPos = w.cost(w.constMult(x, b))
       val costNeg = w.cost(w.constMult(x, -b))
@@ -1473,8 +1357,8 @@ object RingOpt {
           b.signum
         }
       }
-      */
-      //println(show"signOf($x, $b, $w) = $res, w.multThreshold=${w.multThreshold}")
+       */
+      // println(show"signOf($x, $b, $w) = $res, w.multThreshold=${w.multThreshold}")
       res
     }
 
@@ -1653,9 +1537,8 @@ object RingOpt {
           val e1 =
             Expr.addAll(
               Expr.checkMult(mt.toExpr, div.directToExpr(w)) ::
-              mod.directToExpr(w) ::
-              Nil,
-              w
+                mod.directToExpr(w) ::
+                Nil
             )
 
           (right, div, mod, e1, w.cost(e1))
@@ -1663,9 +1546,8 @@ object RingOpt {
           val e1 =
             Expr.addAll(
               w.constMult(div.directToExpr(w), bi) ::
-              mod.directToExpr(w) ::
-              Nil,
-              w
+                mod.directToExpr(w) ::
+                Nil
             )
 
           (left, div, mod, e1, w.cost(e1))
@@ -1683,42 +1565,48 @@ object RingOpt {
 
         val (neg0, unsigned, pos0) = {
           val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
-            val normFactors = Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
+            val normFactors =
+              Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
             (normFactors, bi)
-          }
-          .toList
+          }.toList
 
-          val label = termsList.map { case kb @ (k, bi) => (kb, signOf(k, bi, w)) }
+          val label = termsList.map { case kb @ (k, bi) =>
+            (kb, signOf(k, bi, w))
+          }
           (
             label.collect { case (kb, x) if x < 0 => kb },
             label.collect { case (kb, x) if x == 0 => kb },
             label.collect { case (kb, x) if x > 0 => kb }
           )
         }
-        //println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
+        // println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
 
         // Helper to build a sum from a list of terms.
         // If signFlip is true, it builds Sum( k*(-b) ) for each (k,b)
         // If signFlip is false, it builds Sum( k*b ) for each (k,b)
-        def buildSum(termList: List[(Expr[A], BigInt)], signFlip: Boolean): Expr[A] =
-          Expr.addAll(termList
-            .map { case (mult, bi) =>
-              val coeff = if (signFlip) -bi else bi
-              w.constMult(mult, coeff)
-            }, w)
+        def buildSum(
+            termList: List[(Expr[A], BigInt)],
+            signFlip: Boolean
+        ): Expr[A] =
+          Expr.addAll(
+            termList
+              .map { case (mult, bi) =>
+                val coeff = if (signFlip) -bi else bi
+                w.constMult(mult, coeff)
+              }
+          )
 
         // --- Option 1: Positive-dominant form: (Const + Pos + Unsigned) - (Neg) ---
         // 'pos0' and 'unsigned' terms are built as (k*b)
         val posSum1 = buildSum(pos0 ::: unsigned, signFlip = false)
         // 'neg0' terms are built as (k*(-b))
         val negSum1 = buildSum(neg0, signFlip = true)
-        
+
         val finalExprPos = Expr.addAll(
           canonInt(const) ::
-          posSum1 ::
-          negSum1.normalizeNeg :: // This creates the subtraction
-          Nil,
-          w
+            posSum1 ::
+            negSum1.normalizeNeg :: // This creates the subtraction
+            Nil
         )
         val costPos = w.cost(finalExprPos)
 
@@ -1728,28 +1616,34 @@ object RingOpt {
         // 'pos0' terms are built as (k*b)
         val posSum2 = buildSum(pos0, signFlip = false)
 
-        val finalExprNeg = Expr.addAll(
-          canonInt(-const) ::
-          negSum2 ::
-          posSum2.normalizeNeg :: // This creates the subtraction
-          Nil,
-          w
-        ).normalizeNeg // The outer negation
+        val finalExprNeg = Expr
+          .addAll(
+            canonInt(-const) ::
+              negSum2 ::
+              posSum2.normalizeNeg :: // This creates the subtraction
+              Nil
+          )
+          .normalizeNeg // The outer negation
         val costNeg = w.cost(finalExprNeg)
 
         // --- Option 3: Don't flip any signs
         val finalDefault = Expr.addAll(
           canonInt(const) ::
-          buildSum(pos0 ::: unsigned ::: neg0, signFlip = false) ::
-          Nil,
-          w)
+            buildSum(pos0 ::: unsigned ::: neg0, signFlip = false) ::
+            Nil
+        )
         val costDefault = w.cost(finalDefault)
-        
-        //println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
-        val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (costDefault, finalDefault) :: Nil
-        //println(show"all=$all")
+
+        // println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
+        val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (
+          costDefault,
+          finalDefault
+        ) :: Nil
+        // println(show"all=$all")
         val minCost = all.iterator.map(_._1).min
-        val (_, best) = all.filter { case (c, _) => c == minCost }.minBy { case (_, e) => Expr.key(e) }
+        val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
+          case (_, e) => Expr.key(e)
+        }
         best
 
       } else {
@@ -1770,23 +1664,27 @@ object RingOpt {
         val added = e match {
           case Right(e) =>
             val left = Expr.checkMult(norm(e.toExpr, w), normDiv)
-            Expr.addAll(left :: normMod :: Nil, w)
+            Expr.addAll(left :: normMod :: Nil)
           case Left(bi) =>
             // num * normDiv + normMod
             // but we could do:
             // Neg((-num) * normDiv + (-normMod))
             // if it is better
-            val pos = 
-              Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil, w)
-            val neg = 
-              Expr.addAll(w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil, w).normalizeNeg
+            val pos =
+              Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil)
+            val neg =
+              Expr
+                .addAll(
+                  w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil
+                )
+                .normalizeNeg
 
             if (w.cost(pos) > w.cost(neg)) neg
             else pos
         }
         // after we add, we could have negatives on both sides, if so, we
         // could save by doing saveNeg and then adding back a negative at the top:
-        val res = added/*added.saveNeg match {
+        val res = added /*added.saveNeg match {
           case None =>
             println(show"($added).saveNeg = None")
             added
@@ -1794,7 +1692,7 @@ object RingOpt {
             println(show"($added).saveNeg = Some($negAdd)")
             negAdd.normalizeNeg
         }*/
-        //println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
+        // println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
         res
       }
     }
@@ -1860,15 +1758,5 @@ object RingOpt {
       val (const, factors) = Expr.flattenMult(a :: b :: Nil)
       val normFactors = Expr.multAll(factors.map(mt => norm(mt.toExpr, W)))
       W.constMult(normFactors, const)
-  }
-
-  // Normalize multiplication list: fold integer factors and signs; sort other factors
-  private def normMult[A: Hash](
-      const: BigInt,
-      factors: List[MultTerm[A]],
-      W: Weights
-  ): Expr[A] = {
-    val normFactors = Expr.multAll(factors.map(mt => norm(mt.toExpr, W)))
-    W.constMult(normFactors, const)
   }
 }
