@@ -5,7 +5,6 @@ import cats.collections.{HashMap, HashSet}
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import scala.math.Numeric
-import scala.util.hashing.MurmurHash3
 
 object RingOpt {
 
@@ -305,33 +304,8 @@ object RingOpt {
       }
 
     def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] =
-      expr match {
-        case Symbol(s)  => onSym(s)
-        case Zero       => Some(BigInt(0))
-        case One        => Some(BigInt(1))
-        case Integer(n) => Some(n)
-        case Add(x, y)  =>
-          (x.maybeBigInt(onSym), y.maybeBigInt(onSym)).mapN(_ + _)
-        case Mult(x, y) =>
-          // multiplication by zero can shield unknown symbols
-          x.maybeBigInt(onSym) match {
-            case sx @ Some(bx) =>
-              if (bx == 0) sx
-              else {
-                y.maybeBigInt(onSym) match {
-                  case Some(by) => Some(bx * by)
-                  case None     => None
-                }
-              }
-            case None =>
-              y.maybeBigInt(onSym) match {
-                case s @ Some(by) if by == 0 => s
-                case _                       => None
-              }
-          }
-        case Neg(n) =>
-          n.maybeBigInt(onSym).map(n => -n)
-      }
+      // Stack makes this stack safe
+      Stack.fromExpr(this).maybeBigInt(onSym)
 
     // Return true if we are definitely (and cheaply) zero
     // doesn't fully evaluate complex expressions or know what Symbols mean
@@ -797,74 +771,8 @@ object RingOpt {
       }
 
     implicit def hashExpr[A: Hash]: Hash[Expr[A]] =
-      new Hash[Expr[A]] {
-        @annotation.tailrec
-        def simpleFlatAdd(e: List[Expr[A]], acc: List[Expr[A]]): List[Expr[A]] =
-          e match {
-            case Nil               => acc
-            case Add(x, y) :: tail =>
-              simpleFlatAdd(x :: y :: tail, acc)
-            case notAdd :: tail =>
-              simpleFlatAdd(tail, notAdd :: acc)
-          }
-        @annotation.tailrec
-        def simpleFlatMult(
-            e: List[Expr[A]],
-            acc: List[Expr[A]]
-        ): List[Expr[A]] =
-          e match {
-            case Nil                => acc
-            case Mult(x, y) :: tail =>
-              simpleFlatMult(x :: y :: tail, acc)
-            case notMult :: tail =>
-              simpleFlatMult(tail, notMult :: acc)
-          }
+      Hash[Stack[A]].contramap[Expr[A]](Stack.fromExpr)
 
-        // TODO: this isn't strictly tail recursive though we deal with long chains of
-        // adds or mults, but not mutually nested ones
-        def hash(a: Expr[A]): Int =
-          a match {
-            case Symbol(a)      => 1 + 31 * Hash[A].hash(a)
-            case One            => 2 + 31 * MurmurHash3.caseClassHash(One)
-            case Zero           => 3 + 31 * MurmurHash3.caseClassHash(Zero)
-            case i @ Integer(_) => 4 + 31 * MurmurHash3.caseClassHash(i)
-            case Add(x, y)      =>
-              val flatAdd = simpleFlatAdd(x :: y :: Nil, Nil)
-              5 + flatAdd.foldLeft(0) { (acc, x) =>
-                31 * acc + hash(x)
-              }
-            case Mult(x, y) =>
-              val flatMult = simpleFlatMult(x :: y :: Nil, Nil)
-              6 + flatMult.foldLeft(0) { (acc, x) =>
-                31 * acc + hash(x)
-              }
-            case Neg(x) => 7 + 31 * (hash(x))
-          }
-        def eqv(a: Expr[A], b: Expr[A]): Boolean =
-          a match {
-            case Symbol(a) =>
-              b match {
-                case Symbol(b) => Hash[A].eqv(a, b)
-                case _         => false
-              }
-            case (One | Zero | Integer(_)) => a == b
-            case Add(x, y)                 =>
-              b match {
-                case Add(z, w) => eqv(x, z) && eqv(y, w)
-                case _         => false
-              }
-            case Mult(x, y) =>
-              b match {
-                case Mult(z, w) => eqv(x, z) && eqv(y, w)
-                case _          => false
-              }
-            case Neg(x) =>
-              b match {
-                case Neg(y) => eqv(x, y)
-                case _      => false
-              }
-          }
-      }
     // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
     def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
@@ -883,34 +791,15 @@ object RingOpt {
       }
     }
 
-    def toValue[A](expr: Expr[A])(implicit num: Numeric[A]): A = {
-      // very deep chains of multiplications produce astronomically
-      // large numbers so we assume those aren't deep but maybe add is
-      // also, large chains of Neg don't make much sense, so are very
-      // unlikely to appear in natural code
-      @annotation.tailrec
-      def loop(es: List[Expr[A]], sum: A): A =
-        es match {
-          case Nil          => sum
-          case expr :: tail =>
-            expr match {
-              case Zero       => loop(tail, sum)
-              case One        => loop(tail, num.plus(sum, num.one))
-              case Integer(n) => loop(tail, num.plus(sum, fromBigInt[A](n)))
-              case Symbol(a)  => loop(tail, num.plus(sum, a))
-              case Add(x, y)  => loop(x :: y :: tail, sum)
-              // handle chains of Neg
-              case Neg(Neg(x)) => loop(x :: tail, sum)
-              // these last two we cheat and use toValue directly
-              case Mult(x, y) =>
-                loop(tail, num.plus(sum, num.times(toValue(x), toValue(y))))
-              case Neg(x) =>
-                loop(tail, num.plus(sum, num.negate(toValue(x))))
-            }
-        }
-
-      loop(expr :: Nil, num.zero)
-    }
+    def toValue[A](expr: Expr[A])(implicit num: Numeric[A]): A =
+      // Stack is stack safe, as the name suggests
+      Stack.toValue(Stack.fromExpr(expr)) match {
+        case Right(a)  => a
+        case Left(err) =>
+          sys.error(
+            s"invariant violation, well formed Expr couldn't be evaluated: $err"
+          )
+      }
 
     // invariant: no One (or .isOne), Zero (or items that .isZero is true), Integer Mult items in list
     def flattenMult[A](e: List[Expr[A]]): (BigInt, List[MultTerm[A]]) = {
@@ -1097,41 +986,35 @@ object RingOpt {
           val l = undistribute(l0)
           val r = undistribute(r0)
 
-          if (isEq(l, r)) {
-            l.maybeBigInt(_ => None) match {
-              case Some(bi) => Integer(bi * 2)
-              case None     => Mult(Integer(2), l)
-            }
-          } else
-            (l, r) match {
-              case (Mult(a, b), Mult(c, d)) =>
-                if (notInt(a)) {
-                  if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
-                  else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
-                  else Add(l, r)
-                } else if (notInt(b)) {
-                  if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
-                  else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
-                  else Add(l, r)
-                } else Add(l, r)
-              case (Mult(a, b), Neg(c)) =>
-                if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
-                else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
+          (l, r) match {
+            case (Mult(a, b), Mult(c, d)) =>
+              if (notInt(a)) {
+                if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
+                else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
                 else Add(l, r)
-              case (Mult(a, b), c) =>
-                if (isEq(a, c)) Mult(a, Add(b, One))
-                else if (isEq(b, c)) Mult(b, Add(a, One))
+              } else if (notInt(b)) {
+                if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
+                else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
                 else Add(l, r)
-              case (Neg(c), Mult(a, b)) =>
-                if (isEq(a, c)) Mult(a, Add(Neg(One), b))
-                else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
-                else Add(l, r)
-              case (c, Mult(a, b)) =>
-                if (isEq(a, c)) Mult(a, Add(One, b))
-                else if (isEq(b, c)) Mult(b, Add(One, a))
-                else Add(l, r)
-              case _ => Add(l, r)
-            }
+              } else Add(l, r)
+            case (Mult(a, b), Neg(c)) =>
+              if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
+              else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
+              else Add(l, r)
+            case (Mult(a, b), c) =>
+              if (isEq(a, c)) Mult(a, Add(b, One))
+              else if (isEq(b, c)) Mult(b, Add(a, One))
+              else Add(l, r)
+            case (Neg(c), Mult(a, b)) =>
+              if (isEq(a, c)) Mult(a, Add(Neg(One), b))
+              else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
+              else Add(l, r)
+            case (c, Mult(a, b)) =>
+              if (isEq(a, c)) Mult(a, Add(One, b))
+              else if (isEq(b, c)) Mult(b, Add(One, a))
+              else Add(l, r)
+            case _ => Add(l, r)
+          }
         case Neg(x)     => Neg(undistribute(x))
         case Mult(x, y) => Mult(undistribute(x), undistribute(y))
         case One | Zero | Symbol(_) | Integer(_) => e
@@ -1193,13 +1076,123 @@ object RingOpt {
     case object Neg extends Op
     case object Add extends Op
     case object Mult extends Op
+
+    implicit val hashOp: Hash[Op] = Hash.fromUniversalHashCode
   }
 
-  sealed trait Stack[+A]
+  sealed trait Stack[+A] {
+    def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] = {
+      import Stack._
+
+      def toI(l: Leaf[A]): Option[BigInt] =
+        l match {
+          case Symbol(a)  => onSym(a)
+          case Integer(a) => Some(a)
+          case One        => Some(BigInt(1))
+          case Zero       => Some(BigInt(0))
+        }
+
+      @annotation.tailrec
+      def loop(s: Stack[A], alist: List[BigInt]): Option[BigInt] =
+        s match {
+          case Empty =>
+            alist match {
+              case a :: Nil => Some(a)
+              case _        => None
+            }
+          case Push(leaf, rest) =>
+            toI(leaf) match {
+              case Some(a) => loop(rest, a :: alist)
+              case None    => None
+            }
+          case Operate(op, rest) =>
+            op match {
+              case Op.Add =>
+                alist match {
+                  case a :: b :: tail => loop(rest, (a + b) :: tail)
+                  case _              => None
+                }
+              case Op.Mult =>
+                alist match {
+                  case a :: b :: tail => loop(rest, (a * b) :: tail)
+                  case _              => None
+                }
+              case Op.Neg =>
+                alist match {
+                  case a :: tail => loop(rest, (-a) :: tail)
+                  case Nil       => None
+                }
+            }
+        }
+
+      loop(this, Nil)
+    }
+  }
+
   object Stack {
     case object Empty extends Stack[Nothing]
     case class Push[A](leaf: Leaf[A], onto: Stack[A]) extends Stack[A]
     case class Operate[A](op: Op, on: Stack[A]) extends Stack[A]
+
+    implicit def hashStack[A: Hash]: Hash[Stack[A]] =
+      new Hash[Stack[A]] {
+        private val hashA: Hash[A] = Hash[A]
+
+        def hash(s: Stack[A]): Int = {
+          var stack = s
+          var hash = 1
+          while (true) {
+            stack match {
+              case Empty            => return hash
+              case Push(leaf, onto) =>
+                // hash leaf, and add in an id for push
+                val leafHash: Int = (leaf match {
+                  case notA @ (Zero | One | Integer(_)) => notA.hashCode
+                  case Symbol(a)                        => hashA.hash(a)
+                }) * 8191 // 8191 = 2^13 - 1, a mersenne prime
+                hash = 31 * hash + leafHash
+                stack = onto
+              case Operate(op, on) =>
+                // hash op, and add in an id for Operate
+                val opHash: Int =
+                  op.hashCode * 131071 // 2^17 - 1, a mersenne prime
+                hash = 31 * hash + opHash
+                stack = on
+            }
+          }
+
+          hash
+        }
+
+        @annotation.tailrec
+        final def eqv(left: Stack[A], right: Stack[A]): Boolean =
+          left match {
+            case Empty              => right == Empty
+            case Push(lleaf, lonto) =>
+              right match {
+                case Push(rleaf, ronto) =>
+                  lleaf match {
+                    case One | Zero | Integer(_) =>
+                      (lleaf == rleaf) && eqv(lonto, ronto)
+                    case Symbol(la) =>
+                      rleaf match {
+                        case Symbol(ra) =>
+                          hashA.eqv(la, ra) && eqv(lonto, ronto)
+                        case _ => false
+                      }
+                  }
+                case _ => false
+              }
+            case Operate(lop, lon) =>
+              right match {
+                case Operate(ror, ron) =>
+                  if (lop == ror) {
+                    eqv(lon, ron)
+                  } else false
+                case _ => false
+              }
+          }
+      }
 
     sealed trait Error[A]
     object Error {

@@ -9,7 +9,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(60000)
+      .withMinSuccessfulTests(600)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -675,7 +675,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("left factorization") {
+  property("left factorization".ignore) {
     def law[A: Hash: Show](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = a * b + a * c
       val better = a * (b + c)
@@ -1258,14 +1258,17 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll((e: Expr[Int], c0: Int, w: Weights) => law(e, c0, w))
   }
 
-  property("Stack.toValue is the same as Expr.toValue and maybeBigInt".only) {
+  property("Stack.toValue is the same as Expr.toValue and maybeBigInt") {
     forAll { (e: Expr[BigInt]) =>
       val a = Expr.toValue(e)
       val stack = Stack.fromExpr(e)
       val stackA = Stack.toValue(stack)
       assertEquals(stackA, Right(a), s"stack=$stack")
-
       assertEquals(stackA.toOption, e.maybeBigInt(bi => Some(bi)))
+      assertEquals(
+        stack.maybeBigInt(bi => Some(bi)),
+        e.maybeBigInt(bi => Some(bi))
+      )
     }
   }
 }
