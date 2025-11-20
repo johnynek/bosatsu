@@ -852,17 +852,9 @@ object RingOpt {
                 .orElse {
                   // see if we can factor out a constant from the add
                   add.unConstMult.map { case (n, expr) =>
-                    (expr :: tail, result, n * ints)
+                    if (n == 0) (Nil, Nil, BigInt(0))
+                    else (expr :: tail, result, n * ints)
                   }
-                }
-                .orElse {
-                  // x + (-y) and y + (-x) may have the same cost
-                  // and we can flip them back and forth with zero cost
-                  // if so, choose the one with the smaller key
-                  for {
-                    n <- add.cheapNeg
-                    if Expr.key(n) < Expr.key(add)
-                  } yield (n :: tail, result, -ints)
                 }
                 .getOrElse {
                   (tail, add :: result, ints)
@@ -1492,7 +1484,8 @@ object RingOpt {
     // but doesn't seem to frustrate undistribute much for the a*b + a*c
     // cases we want to work (although, probably some nesting of those doesn't)
     // work well, I would imagine
-    val e = e0.basicNorm
+    // val e = e0.basicNorm
+    val e = e0
     loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 
@@ -1505,7 +1498,7 @@ object RingOpt {
   /** Possibly rewrite terms like 2*x into x + x, if it is better This is a
     * phase after factorization, but before sorting Mult/Add nodes
     */
-  private def normConstMult[A](e: Expr[A], w: Weights): Expr[A] = {
+  def normConstMult[A](e: Expr[A], w: Weights): Expr[A] = {
     implicit val showA: Show[A] = Show.fromToString
     log(show"normConstMult($e): ") {
       e match {

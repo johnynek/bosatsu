@@ -417,18 +417,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("flattenMult doesn't increase cost") {
-    forAll { (expr: Expr[BigInt], w: Weights) =>
+    def law[A: Show](expr: Expr[A], w: Weights) = {
       val (bi, terms) = Expr.flattenMult(expr :: Nil)
-      val flatExpr = (Integer(bi) :: terms.map(_.toExpr))
-        .foldLeft(One: Expr[BigInt])(Expr.checkMult(_, _))
+      val flatExpr = normConstMult(
+        (Integer(bi) :: terms.map(_.toExpr))
+          .foldLeft(One: Expr[A])(Expr.checkMult(_, _)),
+        w
+      )
 
       val flatCost = w.cost(flatExpr)
       val orig = w.cost(expr)
       assert(
         flatCost <= orig,
-        show"orig = $orig, flatCost = $flatCost, bi=$bi, flat=$terms, expr=$expr"
+        show"orig = $orig, flatCost = $flatCost, bi=$bi, flat=$terms, flatExpr=$flatExpr, expr=$expr"
       )
     }
+    val regressions: List[(Expr[Int], Weights)] =
+      (
+        Mult(
+          Add(Zero, Symbol(0)),
+          Add(Mult(Symbol(0), Integer(-1)), Integer(0))
+        ),
+        Weights(3, 2, 1)
+      ) ::
+        Nil
+
+    regressions.foreach { case (e, w) => law(e, w) }
+    forAll((e: Expr[BigInt], w: Weights) => law(e, w))
   }
 
   property("constMult(One,c) returns canonInt(c)") {
@@ -701,11 +716,17 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Expr[Int], Expr[Int], Weights)] =
       (
-        Add(Mult(Symbol(0), Symbol(0)), Add(Symbol(0), Symbol(1))),
-        Symbol(1),
-        One,
-        Weights(11, 5, 1)
+        Add(One, Add(Mult(Symbol(-1), Symbol(1)), Mult(Symbol(0), Integer(5)))),
+        Integer(-1),
+        Neg(Symbol(0)),
+        Weights(18, 10, 4)
       ) ::
+        (
+          Add(Mult(Symbol(0), Symbol(0)), Add(Symbol(0), Symbol(1))),
+          Symbol(1),
+          One,
+          Weights(11, 5, 1)
+        ) ::
         (
           Integer(-3),
           Neg(Neg(Neg(Neg(Neg(Symbol(0)))))),
