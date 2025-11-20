@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Hash, Show}
+import cats.{Hash, Order, Show}
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import org.scalacheck.Prop.forAll
@@ -41,7 +41,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   implicit def arbExpr[A: Arbitrary]: Arbitrary[Expr[A]] =
     Arbitrary(genExpr(Arbitrary.arbitrary[A]))
 
-  implicit def shrinkExpr[A: Shrink]: Shrink[Expr[A]] =
+  implicit def shrinkExpr[A: Shrink: Order]: Shrink[Expr[A]] =
     Shrink[Expr[A]] {
       case Zero       => Stream.empty
       case One        => Zero #:: Stream.empty
@@ -63,7 +63,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             Nil
         )
 
-        val normAdd = add.basicNorm
+        val normAdd = (add: Expr[A]).basicNorm
         if (normAdd != add) (normAdd #:: tail)
         else tail
 
@@ -76,7 +76,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             shrinkMult ::
             Nil
         )
-        val normMult = mult.basicNorm
+        val normMult = (mult: Expr[A]).basicNorm
         if (normMult != mult) (normMult #:: tail)
         else tail
     }
@@ -250,6 +250,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll { (e: Expr[BigInt]) =>
       val normE = e.basicNorm
       val norm2 = normE.basicNorm
+      if (normE != norm2) sys.error(show"normE=$normE, norm2=$norm2")
       assertEquals(norm2, normE, show"normE=$normE, norm2=$norm2")
     }
   }
@@ -452,7 +453,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("flattenMult doesn't increase cost") {
-    def law[A: Show](expr: Expr[A], w: Weights) = {
+    def law[A: Show: Order](expr: Expr[A], w: Weights) = {
       val (bi, terms) = Expr.flattenMult(expr :: Nil)
       val flatExpr = normConstMult(
         (Integer(bi) :: terms.map(_.toExpr))
@@ -483,7 +484,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("constMult(One,c) returns canonInt(c)") {
     forAll { (bi: BigInt, w: Weights) =>
-      val res = w.constMult(One, bi)
+      val res = w.constMult[BigInt](One, bi)
       assertEquals(res, canonInt(bi))
     }
   }
@@ -575,7 +576,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalization doesn't change values") {
-    def law[A: Hash: Show: Numeric](expr: Expr[A], w: Weights) = {
+    def law[A: Hash: Show: Numeric: Order](expr: Expr[A], w: Weights) = {
       val normE = normalize(expr, w)
       assertEquals(Expr.toValue(normE), Expr.toValue(expr))
 
@@ -727,7 +728,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("left factorization") {
-    def law[A: Hash: Show](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
+    def law[A: Hash: Show: Order](
+        a: Expr[A],
+        b: Expr[A],
+        c: Expr[A],
+        w: Weights
+    ) = {
       val expr = a * b + a * c
       val better = a * (b + c)
       val norm = normalize(expr, w)
@@ -784,7 +790,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("right factorization") {
-    def law[A: Hash](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
+    def law[A: Hash: Order](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = b * a + c * a
       val better = (b + c) * a
       val norm = normalize(expr, w)
@@ -814,7 +820,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("left/right factorization") {
-    def law[A: Hash](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
+    def law[A: Hash: Order](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = a * b + c * a
       val better = a * (b + c)
       val norm = normalize(expr, w)
@@ -844,7 +850,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
   property("right/left factorization") {
-    def law[A: Hash: Show](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
+    def law[A: Hash: Show: Order](
+        a: Expr[A],
+        b: Expr[A],
+        c: Expr[A],
+        w: Weights
+    ) = {
       val expr = b * a + a * c
       val better = a * (b + c)
       val norm = normalize(expr, w)
@@ -882,7 +893,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("a - a is normalized to zero") {
-    def law[A: Hash: Show](a: Expr[A], w: Weights) = {
+    def law[A: Hash: Show: Order](a: Expr[A], w: Weights) = {
       val expr = a - a
       val better = Zero
       val norm = normalize(expr, w)
@@ -931,7 +942,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalize is commutative for Mult") {
-    def law[A: Hash: Show: Numeric](a: Expr[A], b: Expr[A], w: Weights) = {
+    def law[A: Hash: Show: Numeric: Order](
+        a: Expr[A],
+        b: Expr[A],
+        w: Weights
+    ) = {
       val direct = normalize(a * b, w)
       val reverse = normalize(b * a, w)
       assertEquals(Expr.toValue(direct), Expr.toValue(reverse))
@@ -965,7 +980,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     // This fails because of cases like: a + -(b).
     // we wind up returning 4*a + (-4)*b, but that is two mult and one add
     // but 4*(a + -(b)) is one mult, one add, and one neg, and as long as neg < mult (common), this is better
-    def law[A: Show: Hash](a: Expr[A], cnt0: Int, w: Weights) = {
+    def law[A: Show: Hash: Order](a: Expr[A], cnt0: Int, w: Weights) = {
       val cnt = if (cnt0 <= 1) 1 else cnt0
 
       val adds = List.fill(cnt)(a).reduceLeft(Add(_, _))
@@ -1122,6 +1137,18 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       assertEquals((ms1 -- ms2).count(k), ms1.count(k) - ms2.count(k))
     }
   }
+  property("MultiSet scalar multiplication distributes over ++") {
+    forAll {
+      (ms1: MultiSet[Int, BigInt], ms2: MultiSet[Int, BigInt], k: BigInt) =>
+        val lhs = (ms1 ++ ms2) * k
+        val rhs = (ms1 * k) ++ (ms2 * k)
+        // and check counts
+        assertEquals(
+          lhs.nonZeroIterator.toList.sorted,
+          rhs.nonZeroIterator.toList.sorted
+        )
+    }
+  }
 
   property("Expr.fromBigInt is correct for BigInt") {
     forAll { (n: BigInt) =>
@@ -1163,14 +1190,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     val e = Expr.checkMult(Integer(-1), Integer(-1))
     assertEquals(e, One)
   }
-  test("constMult(One,c) returns canonInt(c)") {
-    forAll { (c: Int) =>
-      val w = Weights.default
-      val bi = BigInt(c)
-      val res = w.constMult(One, bi)
-      assertEquals(res, canonInt(bi))
-    }
-  }
+
   // TODO: this test doesn't work well with basicNorm which is still unsafe
   // for deep stacks. undistribute fails here
   test("normalize does not throw on very deep trees".ignore) {
@@ -1186,7 +1206,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property(
     "check the unConstMult laws"
   ) {
-    def law[A: Numeric: Show](e: Expr[A], w: Weights) =
+    def law[A: Numeric: Show: Order](e: Expr[A], w: Weights) =
       e.unConstMult.foreach { case (bi, x) =>
         val bix = Expr.toValue(x)
         val biE = Expr.toValue(e)
@@ -1402,6 +1422,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         case Left(err) =>
           fail(err.toString)
       }
+    }
+  }
+
+  property("Expr Order is lawful") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt], c: Expr[BigInt]) =>
+      OrderingLaws.forOrder(a, b, c)
     }
   }
 }

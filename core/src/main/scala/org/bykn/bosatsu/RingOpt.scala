@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
-import cats.{Hash, Show}
+import cats.{Hash, Order, Show}
+import cats.Order.catsKernelOrderingForOrder
 import cats.collections.{HashMap, HashSet}
 import cats.data.NonEmptyList
 import cats.syntax.all._
@@ -130,200 +131,10 @@ object RingOpt {
         case Mult(x, y) => Mult(x.map(fn), y.map(fn))
         case Neg(x)     => Neg(x.map(fn))
       }
-    // This does basic normalization, like ordering Add(_, _) and Mult(_, _)
-    // and collapsing constants, we do this before doing harder optimizations
-    // since we have better equality at that point
-    def basicNorm: Expr[A] = {
-      def add(a: Expr[A], b: Expr[A]) =
-        if (a == Zero) b
-        else if (b == Zero) a
-        else {
-          def isAdd(e: Expr[A]): Boolean =
-            e match {
-              case Add(_, _) => true
-              case _         => false
-            }
-
-          val aAdd = isAdd(a)
-          val bAdd = isAdd(b)
-          if (bAdd && !aAdd) {
-            // just associate directly
-            Add(a, b)
-          } else if (aAdd && !bAdd) {
-            Add(b, a)
-          }
-          // both or neither are Add
-          else if (Expr.key(a) <= Expr.key(b)) Add(a, b)
-          else Add(b, a)
-        }
-
-      def mult(a: Expr[A], b: Expr[A]) =
-        if (Expr.key(a) <= Expr.key(b)) Mult(a, b)
-        else Mult(b, a)
-
-      def simpleNeg(e: Expr[A]): Expr[A] =
-        // normalizeNeg isn't idempotent
-        e.normalizeNeg match {
-          case Neg(x) => Neg(x.basicNorm)
-          case notNeg =>
-            // the negative was pushed down, normalize again
-            notNeg.basicNorm
-        }
-
-      expr match {
-        case Zero | One | Symbol(_) => expr
-        case Integer(i)             => canonInt(i)
-        case Neg(Neg(x))            => x.basicNorm
-        case Neg(x)                 => simpleNeg(x.basicNorm)
-        case Add(x, y)              =>
-          // TODO: if we move this to object Expr and take Hash[A]
-          // we could normalize x + -(x) into 0, but that should be
-          // handled in the groupSum so maybe that's not needed
-          def step(nx: Expr[A], ny: Expr[A]): Expr[A] =
-            nx match {
-              case Integer(ix) =>
-                if (ix == 0) ny
-                else
-                  ny match {
-                    case Integer(iy) => canonInt(ix + iy)
-                    case Zero        => nx
-                    case One         => canonInt(ix + 1)
-                    case _           => add(nx, ny)
-                  }
-              case Zero => ny
-              case One  =>
-                ny match {
-                  case Integer(iy) => canonInt(iy + 1)
-                  case Zero        => nx
-                  case One         => canonInt(2)
-                  case _           => add(nx, ny)
-                }
-              case _ =>
-                ny match {
-                  case Zero => nx
-                  case _    => add(nx, ny)
-                }
-            }
-          def flatAdd(
-              es: List[Expr[A]],
-              const: BigInt,
-              acc: List[Expr[A]]
-          ): Expr[A] =
-            es match {
-              case Add(x, y) :: tail =>
-                flatAdd(x :: y :: tail, const, acc)
-              case notAdd :: tail =>
-                notAdd.basicNorm match {
-                  case Add(x, y) =>
-                    flatAdd(x :: y :: tail, const, acc)
-                  case Zero =>
-                    flatAdd(tail, const, acc)
-                  case One =>
-                    flatAdd(tail, const + 1, acc)
-                  case Integer(i) =>
-                    flatAdd(tail, const + i, acc)
-                  case (other @ (Symbol(_) | Mult(_, _) | Neg(_))) =>
-                    flatAdd(tail, const, other :: acc)
-                }
-              case Nil =>
-                if (acc.isEmpty) canonInt(const)
-                else
-                  step(
-                    acc.sortBy(Expr.key(_)).reduceRight(step(_, _)),
-                    canonInt(const)
-                  )
-            }
-
-          flatAdd(x :: y :: Nil, BigInt(0), Nil)
-        case Mult(x, y) =>
-          def step(nx: Expr[A], ny: Expr[A]) =
-            nx match {
-              case Integer(ix) =>
-                if (ix == 0) canonInt(0)
-                else if (ix == -1) simpleNeg(ny)
-                else
-                  ny match {
-                    case Integer(iy) => canonInt(ix * iy)
-                    case Zero        => canonInt(0)
-                    case One         => nx
-                    case Neg(negY)   =>
-                      if (ix == -1) negY
-                      else mult(canonInt(-ix), negY)
-                    case _ => mult(nx, ny)
-                  }
-              case Zero      => canonInt(0)
-              case One       => ny
-              case Neg(negX) =>
-                ny match {
-                  case Zero        => Zero
-                  case One         => nx
-                  case Neg(negY)   => mult(negX, negY)
-                  case Integer(iy) =>
-                    if (iy == -1) negX
-                    else mult(negX, canonInt(-iy))
-                  case _ =>
-                    simpleNeg(mult(negX, ny))
-                }
-              case _ =>
-                ny match {
-                  case Zero                      => Zero
-                  case One                       => nx
-                  case Integer(iy) if (iy == -1) => simpleNeg(nx)
-                  case Neg(negy)                 =>
-                    simpleNeg(mult(nx, negy))
-                  case _ => mult(nx, ny)
-                }
-            }
-          def flatMult(
-              es: List[Expr[A]],
-              coeff: BigInt,
-              acc: List[Expr[A]]
-          ): Expr[A] =
-            es match {
-              case Mult(x, y) :: tail =>
-                flatMult(x :: y :: tail, coeff, acc)
-              case One :: tail =>
-                flatMult(tail, coeff, acc)
-              case Zero :: _           => Zero
-              case Integer(ix) :: tail =>
-                flatMult(tail, coeff * ix, acc)
-              case Neg(nx) :: tail =>
-                flatMult(nx :: tail, coeff * -1, acc)
-              case (sym @ Symbol(_)) :: tail =>
-                flatMult(tail, coeff, sym :: acc)
-              case (add @ Add(_, _)) :: tail =>
-                add.saveNeg match {
-                  case Some(negAdd) =>
-                    // saveNeg isn't normalized
-                    flatMult(negAdd.basicNorm :: tail, -coeff, acc)
-                  case None =>
-                    flatMult(tail, coeff, add :: acc)
-                }
-              case Nil =>
-                if (acc.isEmpty) canonInt(coeff)
-                else
-                  step(
-                    acc.sortBy(Expr.key(_)).reduceRight(step(_, _)),
-                    canonInt(coeff)
-                  )
-            }
-
-          flatMult(x.basicNorm :: y.basicNorm :: Nil, BigInt(1), Nil)
-      }
-    }
-
-    // If this is a single integer node
-    def isInt: Option[BigInt] =
-      expr match {
-        case Zero       => Some(BigInt(0))
-        case One        => Some(BigInt(1))
-        case Integer(n) => Some(n)
-        case _          => None
-      }
 
     def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] =
       // Stack makes this stack safe
-      Stack.fromExpr(this).maybeBigInt(onSym)
+      toStack.maybeBigInt(onSym)
 
     // Return true if we are definitely (and cheaply) zero
     // doesn't fully evaluate complex expressions or know what Symbols mean
@@ -411,18 +222,6 @@ object RingOpt {
                 }
               }
         }
-
-    def nonNeg: Boolean =
-      expr match {
-        case Neg(_) => false
-        case _      => true
-      }
-
-    def noTopLevelAdd: Boolean =
-      expr match {
-        case Add(_, _) => false
-        case _         => true
-      }
 
     // Do neg if it is cheaper (only < number of Neg nodes)
     def saveNeg: Option[Expr[A]] = expr match {
@@ -742,9 +541,197 @@ object RingOpt {
       loop(expr :: Nil, 0L)
 
     }
+
+    private[RingOpt] lazy val toStack: Stack[A] =
+      Stack.fromExpr(this)
   }
 
   object Expr {
+    implicit class ExprOps[A](private val expr: Expr[A]) extends AnyVal {
+      // This does basic normalization, like ordering Add(_, _) and Mult(_, _)
+      // and collapsing constants, we do this before doing harder optimizations
+      // since we have better equality at that point
+      def basicNorm(implicit o: Order[A]): Expr[A] = {
+        def add(a: Expr[A], b: Expr[A]) =
+          if (a == Zero) b
+          else if (b == Zero) a
+          else {
+            def isAdd(e: Expr[A]): Boolean =
+              e match {
+                case Add(_, _) => true
+                case _         => false
+              }
+
+            val aAdd = isAdd(a)
+            val bAdd = isAdd(b)
+            if (bAdd && !aAdd) {
+              // just associate directly
+              Add(a, b)
+            } else if (aAdd && !bAdd) {
+              Add(b, a)
+            }
+            // both or neither are Add
+            else if (Order[Expr[A]].lteqv(a, b)) Add(a, b)
+            else Add(b, a)
+          }
+
+        def mult(a: Expr[A], b: Expr[A]) =
+          if (Order[Expr[A]].lteqv(a, b)) Mult(a, b)
+          else Mult(b, a)
+
+        def simpleNeg(e: Expr[A]): Expr[A] =
+          // normalizeNeg isn't idempotent
+          e.normalizeNeg match {
+            case Neg(x) => Neg(x.basicNorm)
+            case notNeg =>
+              // the negative was pushed down, normalize again
+              notNeg.basicNorm
+          }
+
+        expr match {
+          case Zero | One | Symbol(_) => expr
+          case Integer(i)             => canonInt(i)
+          case Neg(Neg(x))            => x.basicNorm
+          case Neg(x)                 => simpleNeg(x.basicNorm)
+          case Add(x, y)              =>
+            // TODO: if we move this to object Expr and take Hash[A]
+            // we could normalize x + -(x) into 0, but that should be
+            // handled in the groupSum so maybe that's not needed
+            def step(nx: Expr[A], ny: Expr[A]): Expr[A] =
+              nx match {
+                case Integer(ix) =>
+                  if (ix == 0) ny
+                  else
+                    ny match {
+                      case Integer(iy) => canonInt(ix + iy)
+                      case Zero        => nx
+                      case One         => canonInt(ix + 1)
+                      case _           => add(nx, ny)
+                    }
+                case Zero => ny
+                case One  =>
+                  ny match {
+                    case Integer(iy) => canonInt(iy + 1)
+                    case Zero        => nx
+                    case One         => canonInt(2)
+                    case _           => add(nx, ny)
+                  }
+                case _ =>
+                  ny match {
+                    case Zero => nx
+                    case _    => add(nx, ny)
+                  }
+              }
+            def flatAdd(
+                es: List[Expr[A]],
+                const: BigInt,
+                acc: List[Expr[A]]
+            ): Expr[A] =
+              es match {
+                case Add(x, y) :: tail =>
+                  flatAdd(x :: y :: tail, const, acc)
+                case notAdd :: tail =>
+                  notAdd.basicNorm match {
+                    case Add(x, y) =>
+                      flatAdd(x :: y :: tail, const, acc)
+                    case Zero =>
+                      flatAdd(tail, const, acc)
+                    case One =>
+                      flatAdd(tail, const + 1, acc)
+                    case Integer(i) =>
+                      flatAdd(tail, const + i, acc)
+                    case (other @ (Symbol(_) | Mult(_, _) | Neg(_))) =>
+                      flatAdd(tail, const, other :: acc)
+                  }
+                case Nil =>
+                  if (acc.isEmpty) canonInt(const)
+                  else
+                    step(
+                      acc.sorted.reduceRight(step(_, _)),
+                      canonInt(const)
+                    )
+              }
+
+            flatAdd(x :: y :: Nil, BigInt(0), Nil)
+          case Mult(x, y) =>
+            def step(nx: Expr[A], ny: Expr[A]) =
+              nx match {
+                case Integer(ix) =>
+                  if (ix == 0) canonInt(0)
+                  else if (ix == -1) simpleNeg(ny)
+                  else
+                    ny match {
+                      case Integer(iy) => canonInt(ix * iy)
+                      case Zero        => canonInt(0)
+                      case One         => nx
+                      case Neg(negY)   =>
+                        if (ix == -1) negY
+                        else mult(canonInt(-ix), negY)
+                      case _ => mult(nx, ny)
+                    }
+                case Zero      => canonInt(0)
+                case One       => ny
+                case Neg(negX) =>
+                  ny match {
+                    case Zero        => Zero
+                    case One         => nx
+                    case Neg(negY)   => mult(negX, negY)
+                    case Integer(iy) =>
+                      if (iy == -1) negX
+                      else mult(negX, canonInt(-iy))
+                    case _ =>
+                      simpleNeg(mult(negX, ny))
+                  }
+                case _ =>
+                  ny match {
+                    case Zero                      => Zero
+                    case One                       => nx
+                    case Integer(iy) if (iy == -1) => simpleNeg(nx)
+                    case Neg(negy)                 =>
+                      simpleNeg(mult(nx, negy))
+                    case _ => mult(nx, ny)
+                  }
+              }
+            def flatMult(
+                es: List[Expr[A]],
+                coeff: BigInt,
+                acc: List[Expr[A]]
+            ): Expr[A] =
+              es match {
+                case Mult(x, y) :: tail =>
+                  flatMult(x :: y :: tail, coeff, acc)
+                case One :: tail =>
+                  flatMult(tail, coeff, acc)
+                case Zero :: _           => Zero
+                case Integer(ix) :: tail =>
+                  flatMult(tail, coeff * ix, acc)
+                case Neg(nx) :: tail =>
+                  flatMult(nx :: tail, coeff * -1, acc)
+                case (sym @ Symbol(_)) :: tail =>
+                  flatMult(tail, coeff, sym :: acc)
+                case (add @ Add(_, _)) :: tail =>
+                  add.saveNeg match {
+                    case Some(negAdd) =>
+                      // saveNeg isn't normalized
+                      flatMult(negAdd.basicNorm :: tail, -coeff, acc)
+                    case None =>
+                      flatMult(tail, coeff, add :: acc)
+                  }
+                case Nil =>
+                  if (acc.isEmpty) canonInt(coeff)
+                  else
+                    step(
+                      acc.sorted.reduceRight(step(_, _)),
+                      canonInt(coeff)
+                    )
+              }
+
+            flatMult(x.basicNorm :: y.basicNorm :: Nil, BigInt(1), Nil)
+        }
+      }
+
+    }
+
     implicit def showExpr[A: Show]: Show[Expr[A]] =
       new Show[Expr[A]] {
         def show(e: Expr[A]): String =
@@ -759,8 +746,11 @@ object RingOpt {
           }
       }
 
-    implicit def numericExpr[A]: Numeric[Expr[A]] =
+    // This is also an Ordering[Expr[A]]
+    implicit def numericExpr[A: Ordering]: Numeric[Expr[A]] =
       new Numeric[Expr[A]] {
+        val ordExpr = orderExpr[A](Order.fromOrdering[A])
+
         override val zero: Expr[A] = Zero
         override val one: Expr[A] = One
 
@@ -797,11 +787,17 @@ object RingOpt {
             case None     => 0
           }
 
-        def compare(a: Expr[A], b: Expr[A]): Int = ???
+        def compare(a: Expr[A], b: Expr[A]): Int =
+          ordExpr.compare(a, b)
       }
 
     implicit def hashExpr[A: Hash]: Hash[Expr[A]] =
-      Hash[Stack[A]].contramap[Expr[A]](Stack.fromExpr)
+      // we use the private lazy val to prevent converting to stack repeatedly
+      Hash[Stack[A]].contramap[Expr[A]](_.toStack)
+
+    implicit def orderExpr[A: Order]: Order[Expr[A]] =
+      // we use the private lazy val to prevent converting to stack repeatedly
+      Order[Stack[A]].contramap[Expr[A]](_.toStack)
 
     // Efficiently embed a BigInt into any Numeric[A]
     def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
@@ -830,16 +826,18 @@ object RingOpt {
 
     def toValue[A](expr: Expr[A])(implicit num: Numeric[A]): A =
       // Stack is stack safe, as the name suggests
-      Stack.toValue(Stack.fromExpr(expr)) match {
+      Stack.toValue(expr.toStack) match {
         case Right(a)  => a
         case Left(err) =>
+          // This cannot happen because all stacks from Exprs
+          // are valid and can be converted toValue
           sys.error(
             s"invariant violation, well formed Expr couldn't be evaluated: $err"
           )
       }
 
     // invariant: no One (or .isOne), Zero (or items that .isZero is true), Integer Mult items in list
-    def flattenMult[A](e: List[Expr[A]]): (BigInt, List[MultTerm[A]]) = {
+    def flattenMult[A: Order](e: List[Expr[A]]): (BigInt, List[MultTerm[A]]) = {
       @annotation.tailrec
       def loop(
           in: List[Expr[A]],
@@ -879,28 +877,21 @@ object RingOpt {
 
               loop(x, y, z)
             }
-          case Nil => (ints, result.sortBy(e => Expr.key(e.toExpr)))
+          case Nil => (ints, result.sortBy(_.toExpr))
         }
 
       loop(e, Nil, BigInt(1))
     }
 
-    def multAll[A](items: List[Expr[A]]): Expr[A] = {
-      @annotation.tailrec
-      def loop(stack: List[MultTerm[A]], ints: BigInt, acc: Expr[A]): Expr[A] =
-        stack match {
-          case Nil =>
-            val ix = canonInt(ints)
-            checkMult(ix, acc)
-          case (others @ (Symbol(_) | Add(_, _))) :: tail =>
-            loop(tail, ints, checkMult(others.toExpr, acc))
-        }
-
-      val (optInt, flat) = flattenMult(sortExpr(items))
-      loop(flat, optInt, One)
+    def multAll[A: Order](items: List[Expr[A]]): Expr[A] = {
+      val (coeff, flat) = flattenMult(items.sorted)
+      // foldRight so the rhs is shallow in the Mult
+      val base =
+        flat.foldRight(One: Expr[A])((t, acc) => checkMult(t.toExpr, acc))
+      checkMult(canonInt(coeff), base)
     }
 
-    def addAll[A](items: List[Expr[A]]): Expr[A] = {
+    def addAll[A: Order](items: List[Expr[A]]): Expr[A] = {
       @annotation.tailrec
       def loop(
           stack: List[(Boolean, Expr[A])],
@@ -941,24 +932,8 @@ object RingOpt {
             val n1 = if (isPos) 1 else -1
             loop(tail, ints + n1, pos, neg)
         }
-      loop(sortExpr(items).map(x => (true, x)), BigInt(0), Nil, Nil)
+      loop(items.sorted.map(x => (true, x)), BigInt(0), Nil, Nil)
     }
-
-    // Canonical structural key to enforce determinism (commutativity handled by sorting)
-    def key[A](e: Expr[A]): String = e match {
-      case Zero       => "0"
-      case One        => "1"
-      case Add(a, b)  => s"A(${key(a)},${key(b)})"
-      case Neg(x)     => s"N(${key(x)})"
-      case Mult(a, b) => s"M(${key(a)},${key(b)})"
-      // put the constants last
-      case Symbol(n)  => s"S($n)"
-      case Integer(n) => s"Z($n)"
-    }
-
-    // Sort a list of Expr[A]s by key (used for commutativity)
-    def sortExpr[A](es: List[Expr[A]]): List[Expr[A]] =
-      es.sortBy(key)
 
     // check if either arg is zero or one before multiplying
     def checkMult[A](a: Expr[A], b: Expr[A]): Expr[A] =
@@ -1103,11 +1078,11 @@ object RingOpt {
   }
   final case class Neg[A](arg: Expr[A]) extends Expr[A]
 
-  sealed trait Op
+  sealed abstract class Op(val opId: Int)
   object Op {
-    case object Neg extends Op
-    case object Add extends Op
-    case object Mult extends Op
+    case object Neg extends Op(0)
+    case object Add extends Op(1)
+    case object Mult extends Op(2)
 
     implicit val hashOp: Hash[Op] = Hash.fromUniversalHashCode
   }
@@ -1250,30 +1225,21 @@ object RingOpt {
       new Hash[Stack[A]] {
         private val hashA: Hash[A] = Hash[A]
 
-        def hash(s: Stack[A]): Int = {
-          var stack = s
-          var hash = 1
-          while (true) {
-            stack match {
-              case Empty            => return hash
-              case Push(leaf, onto) =>
-                // hash leaf, and add in an id for push
-                val leafHash: Int = (leaf match {
-                  case notA @ (Zero | One | Integer(_)) => notA.hashCode
-                  case Symbol(a)                        => hashA.hash(a)
-                }) * 8191 // 8191 = 2^13 - 1, a mersenne prime
-                hash = 31 * hash + leafHash
-                stack = onto
-              case Operate(op, on) =>
-                // hash op, and add in an id for Operate
-                val opHash: Int =
-                  op.hashCode * 131071 // 2^17 - 1, a mersenne prime
-                hash = 31 * hash + opHash
-                stack = on
-            }
+        override def hash(s: Stack[A]): Int = {
+          @annotation.tailrec
+          def loop(current: Stack[A], acc: Int): Int = current match {
+            case Empty            => acc
+            case Push(leaf, onto) =>
+              val leafHash = leaf match {
+                case (Zero | One) => leaf.hashCode
+                case Integer(bi)  => bi.hashCode // Still relies on BigInt hash
+                case Symbol(a)    => hashA.hash(a)
+              }
+              loop(onto, 31 * acc + leafHash)
+            case Operate(op, on) =>
+              loop(on, 31 * acc + op.hashCode)
           }
-
-          hash
+          loop(s, 1)
         }
 
         @annotation.tailrec
@@ -1302,6 +1268,53 @@ object RingOpt {
                     eqv(lon, ron)
                   } else false
                 case _ => false
+              }
+          }
+      }
+
+    implicit def stackOrder[A: Order]: Order[Stack[A]] =
+      new Order[Stack[A]] {
+        @annotation.tailrec
+        final def compare(a: Stack[A], b: Stack[A]): Int =
+          a match {
+            case Empty           => if (b == Empty) 0 else -1
+            case Push(al, arest) =>
+              b match {
+                case Push(bl, brest) =>
+                  val c0 = al match {
+                    case Zero => if (bl == Zero) 0 else -1
+                    case One  =>
+                      bl match {
+                        case Zero => 1
+                        case One  => 0
+                        case _    => -1
+                      }
+                    case Integer(ai) =>
+                      bl match {
+                        case Zero | One  => 1
+                        case Integer(bi) => ai.compare(bi)
+                        case _           => -1
+                      }
+                    case Symbol(aa) =>
+                      bl match {
+                        case Symbol(ba) => Order[A].compare(aa, ba)
+                        case _          => 1
+                      }
+                  }
+
+                  if (c0 == 0) compare(arest, brest)
+                  else c0
+                case Empty         => 1
+                case Operate(_, _) => -1
+              }
+            case Operate(ao, arest) =>
+              b match {
+                case Operate(bo, brest) =>
+                  val c0 = java.lang.Integer.compare(ao.opId, bo.opId)
+                  if (c0 == 0) compare(arest, brest)
+                  else c0
+                case Empty      => 1
+                case Push(_, _) => 1
               }
           }
       }
@@ -1490,7 +1503,7 @@ object RingOpt {
         }
       }
 
-    def constMult[A](expr: Expr[A], const: BigInt): Expr[A] =
+    def constMult[A: Order](expr: Expr[A], const: BigInt): Expr[A] =
       expr.absorbMultConst(const).getOrElse {
         if (multIsBetter(expr, const)) {
           if (const < 0) {
@@ -1518,7 +1531,10 @@ object RingOpt {
   }
 
   // === Public API ===
-  def normalize[A: Hash](e0: Expr[A], W: Weights = Weights.default): Expr[A] = {
+  def normalize[A: Hash: Order](
+      e0: Expr[A],
+      W: Weights = Weights.default
+  ): Expr[A] = {
     val eInit = e0
     // if we can't reduce the cost but keep producing different items stop
     // at 100 so we don't loop forever or blow up memory
@@ -1531,7 +1547,7 @@ object RingOpt {
         cnt: Int
     ): Expr[A] =
       if (cnt >= MaxCount) {
-        reached.iterator.minBy(Expr.key(_))
+        reached.iterator.min
       } else {
         val ne = normConstMult(norm(e, W), W).basicNorm
         val costNE = W.cost(ne)
@@ -1542,7 +1558,7 @@ object RingOpt {
           // couldn't improve things, but maybe normalized them
           if (reached.contains(ne)) {
             // we have reached this, return the minimum in the set:
-            reached.iterator.minBy(Expr.key(_))
+            reached.iterator.min
           } else {
             // we haven't seen this before, add it, and normalize again
             loop(ne, costNE, reached.add(ne), cnt + 1)
@@ -1561,7 +1577,7 @@ object RingOpt {
           // our algorithm
            */
           assert(eInit != null) // silence unused eInit warning
-          reached.iterator.minBy(Expr.key(_))
+          reached.iterator.min
         }
       }
 
@@ -1585,75 +1601,71 @@ object RingOpt {
   /** Possibly rewrite terms like 2*x into x + x, if it is better This is a
     * phase after factorization, but before sorting Mult/Add nodes
     */
-  def normConstMult[A](e: Expr[A], w: Weights): Expr[A] = {
-    implicit val showA: Show[A] = Show.fromToString
-    log(show"normConstMult($e): ") {
-      e match {
-        case Symbol(_) | One | Zero | Integer(_) => e
-        case Neg(n)                              => Neg(normConstMult(n, w))
-        case Add(x, y)                           =>
-          Add(normConstMult(x, w), normConstMult(y, w))
-        case Mult(Integer(n), Neg(e)) =>
-          normConstMult(Mult(Integer(-n), e), w)
-        case Mult(Neg(e), Integer(n)) =>
-          normConstMult(Mult(Integer(-n), e), w)
-        case Mult(Integer(n), leaf @ (Symbol(_) | One | Zero | Integer(_))) =>
-          w.constMult(leaf, n)
-        case Mult(leaf @ (Symbol(_) | One | Zero | Integer(_)), Integer(n)) =>
-          w.constMult(leaf, n)
-        case Mult(i @ Integer(n), add @ Add(x, y)) =>
-          // we could do n * x + n * y
-          val distribute = normConstMult(Add(Mult(i, x), Mult(i, y)), w)
-          val costD = w.cost(distribute)
-          // or we could treat the add as an atom
-          val atom = w.constMult(normConstMult(add, w), n)
-          val costA = w.cost(atom)
-          if (costD < costA) distribute
-          else if (costD >= costA) atom
-          else {
-            // they are the same... sort
-            if (Expr.key(distribute) < Expr.key(atom)) distribute
-            else atom
-          }
+  def normConstMult[A: Order](e: Expr[A], w: Weights): Expr[A] =
+    e match {
+      case Symbol(_) | One | Zero | Integer(_) => e
+      case Neg(n)                              => Neg(normConstMult(n, w))
+      case Add(x, y)                           =>
+        Add(normConstMult(x, w), normConstMult(y, w))
+      case Mult(Integer(n), Neg(e)) =>
+        normConstMult(Mult(Integer(-n), e), w)
+      case Mult(Neg(e), Integer(n)) =>
+        normConstMult(Mult(Integer(-n), e), w)
+      case Mult(Integer(n), leaf @ (Symbol(_) | One | Zero | Integer(_))) =>
+        w.constMult(leaf, n)
+      case Mult(leaf @ (Symbol(_) | One | Zero | Integer(_)), Integer(n)) =>
+        w.constMult(leaf, n)
+      case Mult(i @ Integer(n), add @ Add(x, y)) =>
+        // we could do n * x + n * y
+        val distribute = normConstMult[A](Add(Mult(i, x), Mult(i, y)), w)
+        val costD = w.cost(distribute)
+        // or we could treat the add as an atom
+        val atom = w.constMult(normConstMult[A](add, w), n)
+        val costA = w.cost(atom)
+        if (costD < costA) distribute
+        else if (costD >= costA) atom
+        else {
+          // they are the same... sort
+          if (Order[Expr[A]].lt(distribute, atom)) distribute
+          else atom
+        }
 
-        case Mult(add @ Add(_, _), i @ Integer(_)) =>
-          // reverse and loop
-          normConstMult(Mult(i, add), w)
-        case Mult(x, y) =>
-          val (const, factors) = Expr.flattenMult(x :: y :: Nil)
-          if (factors.isEmpty) Integer(const)
-          else {
-            // we know factors isn't empty now
-            def oneAndRest[T](ls: List[T]): List[(T, List[T])] =
-              ls match {
-                case Nil       => Nil
-                case a :: tail =>
-                  (a, tail) :: oneAndRest(tail).map { case (o, r) =>
-                    (o, a :: r)
-                  }
-              }
-            // recurse exactly once on each factor
-            val normFactors = factors.map(e => (e, normConstMult(e.toExpr, w)))
-            // find the best one to push into
-            val all = oneAndRest(normFactors).map { case ((target, _), rest) =>
-              val normed =
-                normConstMult(w.constMult(target.toExpr, const), w) :: rest.map(
-                  _._2
-                )
-              val prod = Expr.multAll(normed)
-              val costProd = w.cost(prod)
-              (costProd, prod)
+      case Mult(add @ Add(_, _), i @ Integer(_)) =>
+        // reverse and loop
+        normConstMult[A](Mult(i, add), w)
+      case Mult(x, y) =>
+        val (const, factors) = Expr.flattenMult(x :: y :: Nil)
+        if (factors.isEmpty) Integer(const)
+        else {
+          // we know factors isn't empty now
+          def oneAndRest[T](ls: List[T]): List[(T, List[T])] =
+            ls match {
+              case Nil       => Nil
+              case a :: tail =>
+                (a, tail) :: oneAndRest(tail).map { case (o, r) =>
+                  (o, a :: r)
+                }
             }
-            val (minCost, _) = all.minBy(_._1)
-            all
-              .filter { case (c, _) => c == minCost }
-              .minBy { case (_, p) => (p.graphSize, Expr.key(p)) }
-              ._2
+          // recurse exactly once on each factor
+          val normFactors = factors.map(e => (e, normConstMult(e.toExpr, w)))
+          // find the best one to push into
+          val all = oneAndRest(normFactors).map { case ((target, _), rest) =>
+            val normed =
+              normConstMult(w.constMult(target.toExpr, const), w) :: rest.map(
+                _._2
+              )
+            val prod = Expr.multAll(normed)
+            val costProd = w.cost(prod)
+            (costProd, prod)
           }
+          val (minCost, _) = all.minBy(_._1)
+          all
+            .filter { case (c, _) => c == minCost }
+            .minBy { case (_, p) => (p.graphSize, p) }
+            ._2
+        }
 
-      }
     }
-  }
 
   case class GroupSum[A](const: BigInt, terms: MultiSet[AddTerm[A], BigInt])
 
@@ -1670,7 +1682,7 @@ object RingOpt {
     //   acc + n * e
     // }
     // is the same as the original sum
-    def apply[A: Hash](
+    def apply[A: Hash: Order](
         e: List[Expr[A]]
     ): GroupSum[A] = {
       @annotation.tailrec
@@ -1785,7 +1797,8 @@ object RingOpt {
     // (expr * a + b) == this
     // invariant: ((a == 1) && (b == 0)) == false and a != this, b != this
     def splits(implicit
-        h: Hash[A]
+        h: Hash[A],
+        o: Order[A]
     ): List[(Either[BigInt, MultTerm[A]], SumProd[A], SumProd[A])] = if (
       terms.isZero
     ) Nil
@@ -1931,7 +1944,7 @@ object RingOpt {
       }
     }
 
-    def normalize(w: Weights)(implicit h: Hash[A]): Expr[A] =
+    def normalize(w: Weights)(implicit h: Hash[A], o: Order[A]): Expr[A] =
       toMult match {
         case Some(m) =>
           // Sometimes we can reduce SumProd into just a product,
@@ -2051,7 +2064,7 @@ object RingOpt {
             // println(show"all=$all")
             val minCost = all.iterator.map(_._1).min
             val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
-              case (_, e) => Expr.key(e)
+              case (_, e) => e
             }
             best
 
@@ -2060,7 +2073,7 @@ object RingOpt {
               case (_, _, mod, e1, c) =>
                 // try to choose the smallest cost, breaking ties with the smallest
                 // left over set, then just the usual sorting
-                (c, mod.terms.size, Expr.key(e1))
+                (c, mod.terms.size, e1)
             }
             // thes assertions should never fail
             assert(this != div, show"div==this: $this")
@@ -2106,10 +2119,10 @@ object RingOpt {
           show"SumProd(${sp.const}, ${sp.terms})"
       }
 
-    def apply[A: Hash](lst: List[Expr[A]]): SumProd[A] =
+    def apply[A: Hash: Order](lst: List[Expr[A]]): SumProd[A] =
       fromGroupSum(GroupSum(lst))
 
-    def fromGroupSum[A: Hash](gs: GroupSum[A]): SumProd[A] = {
+    def fromGroupSum[A: Hash: Order](gs: GroupSum[A]): SumProd[A] = {
       val terms0 = MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]
       val (c1, t1) = gs.terms.nonZeroIterator.foldLeft((gs.const, terms0)) {
         case ((accConst, acc), (e, c)) =>
@@ -2129,13 +2142,8 @@ object RingOpt {
 
   // === Core normalization ===
 
-  private def log[A: Show](msg: String)(a: A): A =
-    // println(show"$msg: $a")
-    a
-
-  private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] = {
-    implicit val showA: Show[A] = Show.fromToString
-    log(show"norm of $e")(Expr.undistribute(e) match {
+  private def norm[A: Hash: Order](e: Expr[A], W: Weights): Expr[A] =
+    Expr.undistribute(e) match {
       case Zero | One | Symbol(_) => e
 
       case Integer(n) => canonInt[A](n)
@@ -2164,6 +2172,5 @@ object RingOpt {
         val (const, factors) = Expr.flattenMult(a :: b :: Nil)
         val normFactors = Expr.multAll(factors.map(e => norm(e.toExpr, W)))
         normFactors.bestEffortConstMult(const)
-    })
-  }
+    }
 }
