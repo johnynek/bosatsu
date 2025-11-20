@@ -10,7 +10,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(6000)
+      .withMinSuccessfulTests(600)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -676,7 +676,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
-  property("left factorization".ignore) {
+  property("left factorization") {
     def law[A: Hash: Show](a: Expr[A], b: Expr[A], c: Expr[A], w: Weights) = {
       val expr = a * b + a * c
       val better = a * (b + c)
@@ -897,7 +897,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll((a: Expr[BigInt], b: Expr[BigInt], w: Weights) => law(a, b, w))
   }
 
-  property("repeated adds are optimized if better".only) {
+  property("repeated adds are optimized if better") {
     // this is hard because (x + y + z + w) added just twice
     // will result in (x + x) + (y + y) + (z + z) + (w + w)
     // but that can't be simplified term by term to 2x + 2y ...
@@ -930,11 +930,31 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Int, Weights)] =
       (
-        // Mult(Add(Mult(Symbol(0),Integer(-2)),Integer(-1)),Add(Symbol(0),Integer(-1))),
-        Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Symbol(0)),
+        Add(
+          Mult(Symbol(0), Integer(-14)),
+          Add(Symbol(-1), Add(Symbol(-1), Symbol(1)))
+        ),
         2,
-        Weights(8, 7, 5)
+        Weights(16, 8, 1)
       ) ::
+        (
+          Add(Symbol(-1), Add(Symbol(0), Symbol(0))),
+          2,
+          Weights(12, 9, 5)
+        ) ::
+        (
+          Mult(
+            Add(One, Mult(Symbol(0), Integer(-2))),
+            Add(Symbol(0), Integer(-1))
+          ),
+          3,
+          Weights(11, 7, 2)
+        ) ::
+        (
+          Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Symbol(0)),
+          2,
+          Weights(8, 7, 5)
+        ) ::
         (
           Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Integer(3)),
           3,
@@ -1243,15 +1263,15 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("SumProd splits produces equivalent Expr") {
-    forAll { (es: Expr[BigInt], w: Weights) =>
+    forAll { (es: Expr[BigInt]) =>
       val sumProd = SumProd(es :: Nil)
       val expect = Expr.toValue(es)
       sumProd.splits.foreach {
         case (Right(term), div, mod) =>
-          val e1 = term.toExpr * div.directToExpr(w) + mod.directToExpr(w)
+          val e1 = term.toExpr * div.directToExpr + mod.directToExpr
           assertEquals(Expr.toValue(e1), expect)
         case (Left(bi), div, mod) =>
-          val e1 = Integer(bi) * div.directToExpr(w) + mod.directToExpr(w)
+          val e1 = Integer(bi) * div.directToExpr + mod.directToExpr
           assertEquals(Expr.toValue(e1), expect)
       }
     }

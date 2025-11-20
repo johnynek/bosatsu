@@ -844,22 +844,31 @@ object RingOpt {
           case (add @ Add(_, _)) :: tail =>
             if (add.isZero) (BigInt(0), Nil)
             else {
-              add.saveNeg match {
-                case Some(n) =>
+              val (x, y, z) = add.saveNeg
+                .map { n =>
                   // we can save by negating
-                  loop(n :: tail, result, -ints)
-                case None =>
-                  // we can't save but maybe still 0 cost negate
-                  add.cheapNeg match {
-                    case Some(n) if Expr.key(n) < Expr.key(add) =>
-                      // x + (-y) and y + (-x) may have the same cost
-                      // and we can flip them back and forth with zero cost
-                      // if so, choose the one with the smaller key
-                      loop(n :: tail, result, -ints)
-                    case _ =>
-                      loop(tail, add :: result, ints)
+                  (n :: tail, result, -ints)
+                }
+                .orElse {
+                  // see if we can factor out a constant from the add
+                  add.unConstMult.map { case (n, expr) =>
+                    (expr :: tail, result, n * ints)
                   }
-              }
+                }
+                .orElse {
+                  // x + (-y) and y + (-x) may have the same cost
+                  // and we can flip them back and forth with zero cost
+                  // if so, choose the one with the smaller key
+                  for {
+                    n <- add.cheapNeg
+                    if Expr.key(n) < Expr.key(add)
+                  } yield (n :: tail, result, -ints)
+                }
+                .getOrElse {
+                  (tail, add :: result, ints)
+                }
+
+              loop(x, y, z)
             }
           case Nil => (ints, result.sortBy(e => Expr.key(e.toExpr)))
         }
@@ -1113,34 +1122,44 @@ object RingOpt {
         }
 
       @annotation.tailrec
-      def loop(s: Stack[A], alist: List[BigInt]): Option[BigInt] =
+      def loop(s: Stack[A], alist: List[Option[BigInt]]): Option[BigInt] =
         s match {
           case Empty =>
             alist match {
-              case a :: Nil => Some(a)
-              case _        => None
+              case optA :: Nil => optA
+              case _           => None
             }
           case Push(leaf, rest) =>
-            toI(leaf) match {
-              case Some(a) => loop(rest, a :: alist)
-              case None    => None
-            }
+            loop(rest, toI(leaf) :: alist)
           case Operate(op, rest) =>
             op match {
               case Op.Add =>
                 alist match {
-                  case a :: b :: tail => loop(rest, (a + b) :: tail)
-                  case _              => None
+                  case Some(a) :: Some(b) :: tail =>
+                    loop(rest, Some(a + b) :: tail)
+                  case _ :: _ :: tail => loop(rest, None :: tail)
+                  case _              =>
+                    // this is an error
+                    None
                 }
               case Op.Mult =>
                 alist match {
-                  case a :: b :: tail => loop(rest, (a * b) :: tail)
-                  case _              => None
+                  case Some(a) :: Some(b) :: tail =>
+                    loop(rest, Some(a * b) :: tail)
+                  case (sz @ Some(z)) :: None :: tail if z == BigInt(0) =>
+                    loop(rest, sz :: tail)
+                  case None :: (sz @ Some(z)) :: tail if z == BigInt(0) =>
+                    loop(rest, sz :: tail)
+                  case _ :: _ :: tail =>
+                    // we don't know what it is
+                    loop(rest, None :: tail)
+                  case _ => None
                 }
               case Op.Neg =>
                 alist match {
-                  case a :: tail => loop(rest, (-a) :: tail)
-                  case Nil       => None
+                  case Some(a) :: tail => loop(rest, Some(-a) :: tail)
+                  case None :: tail    => loop(rest, None :: tail)
+                  case Nil             => None
                 }
             }
         }
@@ -1441,7 +1460,7 @@ object RingOpt {
       if (cnt >= MaxCount) {
         reached.iterator.minBy(Expr.key(_))
       } else {
-        val ne = norm(e, W).basicNorm
+        val ne = normConstMult(norm(e, W), W).basicNorm
         val costNE = W.cost(ne)
         if (costNE < cost) {
           // we improved matters
@@ -1488,6 +1507,79 @@ object RingOpt {
     if (n == 0) Zero
     else if (n == 1) One
     else Integer(n)
+
+  /** Possibly rewrite terms like 2*x into x + x, if it is better This is a
+    * phase after factorization, but before sorting Mult/Add nodes
+    */
+  private def normConstMult[A](e: Expr[A], w: Weights): Expr[A] = {
+    implicit val showA: Show[A] = Show.fromToString
+    log(show"normConstMult($e): ") {
+      e match {
+        case Symbol(_) | One | Zero | Integer(_) => e
+        case Neg(n)                              => Neg(normConstMult(n, w))
+        case Add(x, y)                           =>
+          Add(normConstMult(x, w), normConstMult(y, w))
+        case Mult(Integer(n), Neg(e)) =>
+          normConstMult(Mult(Integer(-n), e), w)
+        case Mult(Neg(e), Integer(n)) =>
+          normConstMult(Mult(Integer(-n), e), w)
+        case Mult(Integer(n), leaf @ (Symbol(_) | One | Zero | Integer(_))) =>
+          w.constMult(leaf, n)
+        case Mult(leaf @ (Symbol(_) | One | Zero | Integer(_)), Integer(n)) =>
+          w.constMult(leaf, n)
+        case Mult(i @ Integer(n), add @ Add(x, y)) =>
+          // we could do n * x + n * y
+          val distribute = normConstMult(Add(Mult(i, x), Mult(i, y)), w)
+          val costD = w.cost(distribute)
+          // or we could treat the add as an atom
+          val atom = w.constMult(normConstMult(add, w), n)
+          val costA = w.cost(atom)
+          if (costD < costA) distribute
+          else if (costD >= costA) atom
+          else {
+            // they are the same... sort
+            if (Expr.key(distribute) < Expr.key(atom)) distribute
+            else atom
+          }
+
+        case Mult(add @ Add(_, _), i @ Integer(_)) =>
+          // reverse and loop
+          normConstMult(Mult(i, add), w)
+        case Mult(x, y) =>
+          val (const, factors) = Expr.flattenMult(x :: y :: Nil)
+          if (factors.isEmpty) Integer(const)
+          else {
+            // we know factors isn't empty now
+            def oneAndRest[T](ls: List[T]): List[(T, List[T])] =
+              ls match {
+                case Nil       => Nil
+                case a :: tail =>
+                  (a, tail) :: oneAndRest(tail).map { case (o, r) =>
+                    (o, a :: r)
+                  }
+              }
+            // recurse exactly once on each factor
+            val normFactors = factors.map(e => (e, normConstMult(e.toExpr, w)))
+            // find the best one to push into
+            val all = oneAndRest(normFactors).map { case ((target, _), rest) =>
+              val normed =
+                normConstMult(w.constMult(target.toExpr, const), w) :: rest.map(
+                  _._2
+                )
+              val prod = Expr.multAll(normed)
+              val costProd = w.cost(prod)
+              (costProd, prod)
+            }
+            val (minCost, _) = all.minBy(_._1)
+            all
+              .filter { case (c, _) => c == minCost }
+              .minBy { case (_, p) => (p.graphSize, Expr.key(p)) }
+              ._2
+          }
+
+      }
+    }
+  }
 
   case class GroupSum[A](const: BigInt, terms: MultiSet[AddTerm[A], BigInt])
 
@@ -1587,8 +1679,8 @@ object RingOpt {
     private def signOf(x: Expr[A], b: BigInt, w: Weights): Int = {
 
       // implicit val showA: Show[A] = Show.fromToString
-      val costPos = w.cost(w.constMult(x, b))
-      val costNeg = w.cost(w.constMult(x, -b))
+      val costPos = w.cost(x.bestEffortConstMult(b))
+      val costNeg = w.cost(x.bestEffortConstMult(-b))
       val res = if (costPos < costNeg) 1 else if (costNeg < costPos) -1 else 0
       /*
       val res = if (b == 1) 1
@@ -1754,13 +1846,13 @@ object RingOpt {
 
     // This is *not* normalized and just the direct conversion of the current
     // expression into an Expr
-    def directToExpr(w: Weights): Expr[A] = {
+    val directToExpr: Expr[A] = {
       val e0: Expr[A] = canonInt(const)
       terms.nonZeroIterator.foldLeft(e0) { case (acc, (ms, c)) =>
         val prod =
           ms.map(_.toExpr).reduce[Expr[A]]((acc, m) => Expr.checkMult(acc, m))
 
-        val prodC = w.constMult(prod, c)
+        val prodC = prod.bestEffortConstMult(c)
         Expr.checkAdd(acc, prodC)
       }
     }
@@ -1773,15 +1865,15 @@ object RingOpt {
           RingOpt.norm(m, w)
         case None => {
           // if splits is empty, we never use this
-          lazy val thisExpr = directToExpr(w)
+          lazy val thisExpr = directToExpr
           lazy val thisCost = w.cost(thisExpr)
 
           val withCost = splits.map {
             case (right @ Right(mt), div, mod) =>
               val e1 =
                 Expr.addAll(
-                  Expr.checkMult(mt.toExpr, div.directToExpr(w)) ::
-                    mod.directToExpr(w) ::
+                  Expr.checkMult(mt.toExpr, div.directToExpr) ::
+                    mod.directToExpr ::
                     Nil
                 )
 
@@ -1789,22 +1881,22 @@ object RingOpt {
             case (left @ Left(bi), div, mod) =>
               val e1 =
                 Expr.addAll(
-                  w.constMult(div.directToExpr(w), bi) ::
-                    mod.directToExpr(w) ::
+                  div.directToExpr.bestEffortConstMult(bi) ::
+                    mod.directToExpr ::
                     Nil
                 )
 
               (left, div, mod, e1, w.cost(e1))
           }
           implicit val showA: Show[A] = Show.fromToString
-          println(show"this=$this")
-          println(show"thisCost = $thisCost, withCost=$withCost")
+          // println(show"this=$this")
+          // println(show"thisCost = $thisCost, withCost=$withCost")
           val nextSteps = withCost
             .filter { case (_, _, _, _, c) => c <= thisCost }
 
           if (nextSteps.isEmpty) {
             // None of the steps are as good as the current state
-            println(show"nextSteps is empty: $this")
+            // println(show"nextSteps is empty: $this")
 
             val (neg0, unsigned, pos0) = {
               val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
@@ -1835,7 +1927,7 @@ object RingOpt {
                 termList
                   .map { case (mult, bi) =>
                     val coeff = if (signFlip) -bi else bi
-                    w.constMult(mult, coeff)
+                    mult.bestEffortConstMult(coeff)
                   }
               )
 
@@ -1877,12 +1969,12 @@ object RingOpt {
             )
             val costDefault = w.cost(finalDefault)
 
-            //println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
+            // println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
             val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (
               costDefault,
               finalDefault
             ) :: Nil
-            println(show"all=$all")
+            // println(show"all=$all")
             val minCost = all.iterator.map(_._1).min
             val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
               case (_, e) => Expr.key(e)
@@ -1899,7 +1991,7 @@ object RingOpt {
             // thes assertions should never fail
             assert(this != div, show"div==this: $this")
             assert(this != mod, show"mod==this: $this")
-            println( show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
+            // println( show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
             val normDiv = div.normalize(w)
             val normMod = mod.normalize(w)
             // e * div + mod
@@ -1915,11 +2007,13 @@ object RingOpt {
                 // Neg((-num) * normDiv + (-normMod))
                 // if it is better
                 val pos =
-                  Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil)
+                  Expr.addAll(normDiv.bestEffortConstMult(bi) :: normMod :: Nil)
                 val neg =
                   Expr
                     .addAll(
-                      w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil
+                      normDiv.bestEffortConstMult(
+                        -bi
+                      ) :: normMod.normalizeNeg :: Nil
                     )
                     .normalizeNeg
 
@@ -1961,10 +2055,9 @@ object RingOpt {
 
   // === Core normalization ===
 
-  private def log[A: Show](msg: String)(a: A): A = {
-    println(show"$msg: $a")
+  private def log[A: Show](msg: String)(a: A): A =
+    // println(show"$msg: $a")
     a
-  }
 
   private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] = {
     implicit val showA: Show[A] = Show.fromToString
@@ -1995,30 +2088,8 @@ object RingOpt {
 
       case Mult(a, b) =>
         val (const, factors) = Expr.flattenMult(a :: b :: Nil)
-        val (symbols, adds) = factors.partitionMap {
-          case s @ Symbol(_) => Left(s)
-          case a @ Add(_, _) => Right(a)
-        }
-        adds match {
-          case Nil =>
-            // we can't optimize symbols
-            val normFactors = Expr.multAll(symbols)
-            W.constMult(normFactors, const)
-          case neAdds =>
-            // we need to push down multiplications into Add(_, _) nodes
-            // because it can make 2*(x + x) can be worse than 4*x, but 1*(x + x)
-            // may be better than 2*x. If there are multliple additions to push into
-            // it isn't clear which would be better, so we as a hueristic choose the bigger one
-            val (_, idx) = neAdds.zipWithIndex.maxBy { case (a, _) =>
-              a.graphSize
-            }
-            val adds1 = adds.take(idx) ::: adds.drop(idx + 1)
-            val pushed = adds(idx)
-            val normPushed =
-              SumProd[A](Mult(pushed, Integer(const)) :: Nil).normalize(W)
-            val normAdds1 = adds1.map(norm[A](_, W))
-            Expr.multAll(normPushed :: normAdds1)
-        }
+        val normFactors = Expr.multAll(factors.map(e => norm(e.toExpr, W)))
+        normFactors.bestEffortConstMult(const)
     })
   }
 }
