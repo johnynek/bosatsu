@@ -1007,8 +1007,6 @@ object RingOpt {
     def undistribute[A: Hash](e: Expr[A]): Expr[A] = {
       // helper to check equality
       def isEq(x: Expr[A], y: Expr[A]): Boolean = Hash[Expr[A]].eqv(x, y)
-      def notInt(x: Expr[A]): Boolean =
-        x.maybeBigInt(_ => None).isEmpty
 
       e match {
         case Add(l0, r0) =>
@@ -1017,15 +1015,11 @@ object RingOpt {
 
           (l, r) match {
             case (Mult(a, b), Mult(c, d)) =>
-              if (notInt(a)) {
-                if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
-                else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
-                else Add(l, r)
-              } else if (notInt(b)) {
-                if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
-                else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
-                else Add(l, r)
-              } else Add(l, r)
+              if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
+              else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
+              else if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
+              else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
+              else Add(l, r)
             case (Mult(a, b), Neg(c)) =>
               if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
               else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))

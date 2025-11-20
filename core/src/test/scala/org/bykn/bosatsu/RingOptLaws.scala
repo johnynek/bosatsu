@@ -10,7 +10,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(600)
+      .withMinSuccessfulTests(6000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
