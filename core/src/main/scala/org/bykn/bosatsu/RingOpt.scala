@@ -717,37 +717,6 @@ object RingOpt {
     def -[A1 >: A](that: Expr[A1]): Expr[A1] = Add(expr, Neg(that))
     def unary_- : Expr[A] = Neg(expr)
 
-    def shallowDistribute: Expr[A] = {
-      def loop(e: Expr[A]): Expr[A] =
-        e match {
-          case Add(x, y) =>
-            Add(loop(x), loop(y))
-
-          case Neg(x) =>
-            Neg(loop(x))
-
-          case Mult(x, y) =>
-            val sx = loop(x)
-            val sy = loop(y)
-            (sx, sy) match {
-              case (Add(a, b), z) =>
-                // (a + b) * z => a*z + b*z
-                Add(Mult(a, z), Mult(b, z))
-
-              case (z, Add(a, b)) =>
-                // z * (a + b) => z*a + z*b
-                Add(Mult(z, a), Mult(z, b))
-
-              case _ =>
-                Mult(sx, sy)
-            }
-
-          case other => other
-        }
-
-      loop(expr)
-    }
-
     def graphSize: Long = {
       @annotation.tailrec
       def loop(stack: List[Expr[A]], acc: Long): Long =
