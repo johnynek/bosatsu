@@ -145,6 +145,41 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  property("add homomorphism") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt]) =>
+      assertEquals(Expr.toValue(a + b), Expr.toValue(a) + Expr.toValue(b))
+    }
+  }
+  property("mult homomorphism") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt]) =>
+      assertEquals(Expr.toValue(a * b), Expr.toValue(a) * Expr.toValue(b))
+    }
+  }
+
+  property("sub homomorphism") {
+    forAll { (a: Expr[BigInt], b: Expr[BigInt]) =>
+      assertEquals(Expr.toValue(a - b), Expr.toValue(a) - Expr.toValue(b))
+    }
+  }
+
+  property("neg homomorphism") {
+    forAll { (a: Expr[BigInt]) =>
+      assertEquals(Expr.toValue(-a), -Expr.toValue(a))
+    }
+  }
+
+  property("Integer homomorphism") {
+    forAll { (i: BigInt) =>
+      assertEquals(Expr.toValue[BigInt](Integer(i)), i)
+    }
+  }
+
+  property("Symbol homomorphism") {
+    forAll { (i: BigInt) =>
+      assertEquals(Expr.toValue(Symbol(i)), i)
+    }
+  }
+
   property("normalizeNeg works") {
     forAll { (e: Expr[Int], w: Weights) =>
       val normNeg = e.normalizeNeg
@@ -1347,6 +1382,26 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         stack.maybeBigInt(bi => Some(bi)),
         e.maybeBigInt(bi => Some(bi))
       )
+    }
+  }
+
+  property("Stack.map(identity)") {
+    forAll { (e: Expr[BigInt]) =>
+      val stack = Stack.fromExpr(e)
+      val stack1 = stack.map(x => x)
+      assertEquals(stack1, stack)
+    }
+  }
+  property("Stack.fromExpr / toExpr round trip") {
+    forAll { (e: Expr[BigInt]) =>
+      val stack = Stack.fromExpr(e)
+      stack.toExpr match {
+        case Right(e1) =>
+          assert(Hash[Expr[BigInt]].eqv(e, e1), show"e1=$e1")
+          assertEquals(e1, e)
+        case Left(err) =>
+          fail(err.toString)
+      }
     }
   }
 }

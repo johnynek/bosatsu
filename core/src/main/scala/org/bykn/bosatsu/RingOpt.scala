@@ -759,23 +759,71 @@ object RingOpt {
           }
       }
 
+    implicit def numericExpr[A]: Numeric[Expr[A]] =
+      new Numeric[Expr[A]] {
+        override val zero: Expr[A] = Zero
+        override val one: Expr[A] = One
+
+        def fromInt(x: Int): Expr[A] =
+          canonInt(BigInt(x))
+
+        def minus(a: Expr[A], b: Expr[A]): Expr[A] =
+          Add(a, Neg(b))
+
+        def negate(a: Expr[A]): Expr[A] = Neg(a)
+
+        def parseString(str: String): Option[Expr[A]] =
+          None // we could do this if we could parse A
+
+        def plus(a: Expr[A], b: Expr[A]): Expr[A] = Add(a, b)
+
+        def times(a: Expr[A], b: Expr[A]): Expr[A] = Mult(a, b)
+
+        def toDouble(e: Expr[A]): Double =
+          e.maybeBigInt(_ => None) match {
+            case Some(bi) => bi.toDouble
+            case None     => java.lang.Double.NaN
+          }
+
+        def toFloat(e: Expr[A]): Float = toDouble(e).toFloat
+        def toLong(e: Expr[A]): Long =
+          e.maybeBigInt(_ => None) match {
+            case Some(bi) => bi.toLong
+            case None     => 0L
+          }
+        def toInt(e: Expr[A]): Int =
+          e.maybeBigInt(_ => None) match {
+            case Some(bi) => bi.toInt
+            case None     => 0
+          }
+
+        def compare(a: Expr[A], b: Expr[A]): Int = ???
+      }
+
     implicit def hashExpr[A: Hash]: Hash[Expr[A]] =
       Hash[Stack[A]].contramap[Expr[A]](Stack.fromExpr)
 
-    // Efficiently embed a BigInt into any Numeric[A] by double-and-add of `one`
+    // Efficiently embed a BigInt into any Numeric[A]
     def fromBigInt[A](n: BigInt)(implicit num: Numeric[A]): A = {
       import num._
-      if (n == 0) zero
+      if (n.isValidInt) fromInt(n.toInt)
       else {
+        // We want a large positive int, 2^31 is negative
+        val BaseBits = 30
+        val BaseMask = (1 << BaseBits) - 1
+        val Base = fromInt(1 << BaseBits)
         val abs = n.abs
         @annotation.tailrec
-        def loop(k: BigInt, acc: A, addend: A): A =
+        def loop(k: BigInt, thisBase: A, acc: A): A =
+          // k = Base * k1 + k0 = Base * (Base * k11 + k10) + k0
           if (k == 0) acc
           else {
-            val acc1 = if ((k & 1) == 1) plus(acc, addend) else acc
-            loop(k >> 1, acc1, plus(addend, addend))
+            val k0 = fromInt(k.toInt & BaseMask)
+            val k1 = k >> BaseBits
+            val nextBase = times(thisBase, Base)
+            loop(k1, nextBase, plus(times(k0, thisBase), acc))
           }
-        val base = loop(abs, zero, one)
+        val base = loop(abs, one, zero)
         if (n.signum < 0) negate(base) else base
       }
     }
@@ -1115,6 +1163,76 @@ object RingOpt {
                   case Some(a) :: tail => loop(rest, Some(-a) :: tail)
                   case None :: tail    => loop(rest, None :: tail)
                   case Nil             => None
+                }
+            }
+        }
+
+      loop(this, Nil)
+    }
+
+    def map[B](fn: A => B): Stack[B] = {
+      import Stack._
+      @annotation.tailrec
+      def opList(s: Stack[A], items: List[Either[Op, Leaf[B]]]): Stack[B] =
+        s match {
+          case Empty =>
+            items.foldLeft(Empty: Stack[B]) {
+              case (s, Right(l)) => Push(l, s)
+              case (s, Left(o))  => Operate(o, s)
+            }
+          case Push(Symbol(a), onto) =>
+            opList(onto, Right(Symbol(fn(a))) :: items)
+          case Push(One, onto) =>
+            opList(onto, Right(One) :: items)
+          case Push(Zero, onto) =>
+            opList(onto, Right(Zero) :: items)
+          case Push(i @ Integer(_), onto) =>
+            opList(onto, Right(i) :: items)
+          case Operate(op, on) =>
+            opList(on, Left(op) :: items)
+        }
+
+      opList(this, Nil)
+    }
+
+    /** If this stack was constructed from an Expr it will always return Right
+      */
+    def toExpr: Either[Stack.Error[_ <: Expr[A]], Expr[A]] = {
+      import Stack._
+      // This is duplicative with toValue, but
+      // I can't see a way to reuse and get exact equality
+      @annotation.tailrec
+      def loop(
+          s: Stack[A],
+          alist: List[Expr[A]]
+      ): Either[Error[_ <: Expr[A]], Expr[A]] =
+        s match {
+          case Empty =>
+            alist match {
+              case a :: Nil  => Right(a)
+              case notSingle => Left(Error.ResultStackNotSingleton(notSingle))
+            }
+          case Push(leaf, rest) =>
+            loop(rest, leaf :: alist)
+          case Operate(op, rest) =>
+            op match {
+              case Op.Add =>
+                alist match {
+                  case a :: b :: tail => loop(rest, Add(b, a) :: tail)
+                  case zeroOrOne @ (Nil | (_ :: Nil)) =>
+                    Left(Error.ExpectedTwoOps(Op.Add, zeroOrOne.headOption))
+                }
+              case Op.Mult =>
+                alist match {
+                  case a :: b :: tail => loop(rest, Mult(b, a) :: tail)
+                  case zeroOrOne @ (Nil | (_ :: Nil)) =>
+                    Left(Error.ExpectedTwoOps(Op.Mult, zeroOrOne.headOption))
+                }
+              case Op.Neg =>
+                alist match {
+                  case a :: tail => loop(rest, Neg(a) :: tail)
+                  case Nil       =>
+                    Left(Error.ExpectedOneOp(Op.Neg))
                 }
             }
         }
