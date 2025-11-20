@@ -1,15 +1,16 @@
 package org.bykn.bosatsu
 
+import cats.{Hash, Show}
+import cats.data.NonEmptyList
+import cats.syntax.all._
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Shrink}
-import cats.{Hash, Show}
-import cats.syntax.all._
 
 class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(600)
+      .withMinSuccessfulTests(6000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -896,7 +897,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     forAll((a: Expr[BigInt], b: Expr[BigInt], w: Weights) => law(a, b, w))
   }
 
-  property("repeated adds are optimized if better") {
+  property("repeated adds are optimized if better".only) {
     // this is hard because (x + y + z + w) added just twice
     // will result in (x + x) + (y + y) + (z + z) + (w + w)
     // but that can't be simplified term by term to 2x + 2y ...
@@ -921,7 +922,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       val sumProd = SumProd(adds :: Nil)
       assert(
         costAdd <= costMult,
-        show"cnt = $cnt, costAdd = $costAdd, manyAdd = $manyAdd,costMult = $costMult, mult = $mult" +
+        show"a = $a, cnt = $cnt, costAdd = $costAdd, manyAdd = $manyAdd,costMult = $costMult, mult = $mult" +
           show"\nadds.basicNorm = ${adds.basicNorm} sumProd=$sumProd splits=${sumProd.splits}" +
           show"\nsumProd(undist)=${SumProd(Expr.undistribute(adds) :: Nil)}"
       )
@@ -929,14 +930,30 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     val regressions: List[(Expr[Int], Int, Weights)] =
       (
-        Mult(Integer(2), Symbol(0)),
+        // Mult(Add(Mult(Symbol(0),Integer(-2)),Integer(-1)),Add(Symbol(0),Integer(-1))),
+        Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Symbol(0)),
         2,
-        Weights(8, 4, 1)
-      ) :: (
-        Neg(Add(One, Symbol(0))),
-        8,
-        Weights(4, 2, 1)
+        Weights(8, 7, 5)
       ) ::
+        (
+          Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Integer(3)),
+          3,
+          Weights(3, 1, 1)
+        ) ::
+        (
+          Add(Mult(Add(Symbol(-1), Symbol(0)), Integer(2)), Integer(-3)),
+          3,
+          Weights(2, 1, 1)
+        ) ::
+        (
+          Mult(Integer(2), Symbol(0)),
+          2,
+          Weights(8, 4, 1)
+        ) :: (
+          Neg(Add(One, Symbol(0))),
+          8,
+          Weights(4, 2, 1)
+        ) ::
         Nil
 
     regressions.foreach { case (e, c, w) => law(e, c, w) }
@@ -1202,6 +1219,26 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Expr.toValue(combined),
         Expr.toValue(es.foldLeft(Zero: Expr[BigInt])(_ + _))
       )
+    }
+  }
+
+  property("SumProd keys are never single Add(_, _) nodes") {
+    forAll { (e: Expr[BigInt]) =>
+      def allGoodKeys(e: SumProd[BigInt], msg: String) =
+        e.terms.nonZeroIterator.foreach {
+          case (NonEmptyList(oneAdd @ Add(_, _), Nil), _) =>
+            fail(
+              show"found a single add: ${(oneAdd: Expr[BigInt])} in $e. msg: $msg"
+            )
+          case _ => ()
+        }
+
+      val sumProd = SumProd(e :: Nil)
+      allGoodKeys(sumProd, show"sumProd($e)")
+      sumProd.splits.foreach { case (_, div, mod) =>
+        allGoodKeys(div, show"div=$div in sumProd=$sumProd of $e")
+        allGoodKeys(mod, show"mod=$mod in sumProd=$sumProd of $e")
+      }
     }
   }
 

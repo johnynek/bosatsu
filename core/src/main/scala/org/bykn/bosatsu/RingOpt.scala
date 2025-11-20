@@ -16,12 +16,21 @@ object RingOpt {
     def hash: Hash[A]
     def numeric: Numeric[B]
 
+    def *(that: B): MultiSet[A, B]
     def add(a: A, count: B): MultiSet[A, B]
     def +(a: A): MultiSet[A, B] = add(a, numeric.one)
+    def ++(that: MultiSet[A, B]): MultiSet[A, B] =
+      that.nonZeroIterator.foldLeft(this: MultiSet[A, B]) { case (ms, (k, v)) =>
+        ms.add(k, v)
+      }
+
     def count(a: A): B
     def remove(a: A, count: B): MultiSet[A, B]
     def -(a: A): MultiSet[A, B] = remove(a, numeric.one)
-    def --(that: MultiSet[A, B]): MultiSet[A, B]
+    def --(that: MultiSet[A, B]): MultiSet[A, B] =
+      that.nonZeroIterator.foldLeft(this: MultiSet[A, B]) { case (ms, (k, v)) =>
+        ms.remove(k, v)
+      }
     def negate: MultiSet[A, B]
     def nonZeroIterator: Iterator[(A, B)]
 
@@ -41,6 +50,20 @@ object RingOpt {
         val numeric: Numeric[B]
     ) extends MultiSet[A, B] {
       def hash = hashMap.hashKey
+
+      def *(that: B): MultiSet[A, B] = {
+        import hashMap.hashKey
+        if (numeric.equiv(numeric.zero, that))
+          Impl[A, B](HashMap.empty, numeric)
+        else if (numeric.equiv(numeric.one, that)) this
+        else
+          Impl(
+            HashMap.fromIterableOnce(hashMap.iterator.map { case (a, b) =>
+              (a, numeric.times(b, that))
+            }),
+            numeric
+          )
+      }
 
       def add(a: A, count: B): MultiSet[A, B] =
         if (numeric.equiv(count, numeric.zero)) this
@@ -80,11 +103,6 @@ object RingOpt {
       }
 
       def nonZeroIterator: Iterator[(A, B)] = hashMap.iterator
-      def --(that: MultiSet[A, B]): MultiSet[A, B] =
-        that.nonZeroIterator.foldLeft(this: MultiSet[A, B]) {
-          case (ms, (k, v)) =>
-            ms.remove(k, v)
-        }
       def filter(fn: ((A, B)) => Boolean): MultiSet[A, B] = {
         import hashMap.hashKey
         Impl(HashMap.fromIterableOnce(hashMap.iterator.filter(fn)), numeric)
@@ -477,7 +495,7 @@ object RingOpt {
         case Some(cheap) => cheap
       }
 
-    /** the laws here are:
+    /** if we return Some((i, x)) the laws here are:
       *   1. Mult(Integer(i), x) == this
       *   2. cost(Mult(Integer(i), x)) <= cost(this) || x.isOne
       *   3. this.unConstMult.flatMap { case (_, e) => e.unConstMult } == None ||
@@ -489,8 +507,10 @@ object RingOpt {
     def unConstMult: Option[(BigInt, Expr[A])] = {
       def loop(expr: Expr[A], insideMult: Boolean): Option[(BigInt, Expr[A])] =
         expr match {
-          case Symbol(_) => None
-          case One       =>
+          case s @ Symbol(_) =>
+            if (insideMult) Some((BigInt(1), s))
+            else None
+          case One =>
             // we pull out -1 insideMult so we can group all the signs if possible
             if (insideMult) Some((BigInt(1), One))
             else None
@@ -1506,7 +1526,7 @@ object RingOpt {
             loop(tail, res, intRes)
           case (n1, sym @ Symbol(_)) :: tail =>
             loop(tail, res.add(sym, n1), intRes)
-          case (c, m @ Mult(_, _)) :: tail =>
+          case (c, m @ Mult(l, r)) :: tail =>
             if (m.isZero) loop(tail, res, intRes)
             else {
               m.saveNeg match {
@@ -1515,20 +1535,19 @@ object RingOpt {
                   // and bubble up the signs into c
                   loop((-c, cn) :: tail, res, intRes)
                 case None =>
-                  /*
-                We have some choices here: we could try to avoid
-                negation with cheapNeg, but also we could pull
-                integers out with unConstMult. But also,
-                how many times do different factors show up?
-                If we go too crazy now, that defeats the purpose
-                of SumProd...
-                   */
-
                   m.unConstMult match {
                     case Some((bi, inner)) =>
                       loop((c * bi, inner) :: tail, res, intRes)
                     case None =>
-                      loop(tail, res.add(m, c), intRes)
+                      val (c1, prodTerms) = Expr.flattenMult(l :: r :: Nil)
+                      prodTerms match {
+                        case Add(a1, a2) :: Nil =>
+                          // make sure we never add singleton Add(_, _)
+                          val c2 = c * c1
+                          loop((c2, a1) :: (c2, a2) :: tail, res, intRes)
+                        case _ =>
+                          loop(tail, res.add(m, c), intRes)
+                      }
                   }
                 /*
                   loop(tail, res.add(m, c), intRes)
@@ -1544,10 +1563,24 @@ object RingOpt {
 
   // this represents a sum of products
   // const + sum_i(bi * pi)
+  // Invariant: we never have just one Add(_, _) as a key
   case class SumProd[A](
       const: BigInt,
       terms: MultiSet[NonEmptyList[MultTerm[A]], BigInt]
   ) {
+
+    // If the constant is zero, and there is only one item in terms, this is actually a Mult Node
+    def toMult: Option[Mult[A]] =
+      if ((const == BigInt(0)) && (terms.hashMap.size == 1)) {
+        val (mults, coeff) = terms.nonZeroIterator.next()
+        mults match {
+          case NonEmptyList(Add(_, _), Nil) =>
+            sys.error(s"invariant violation toMult: $mults")
+          case _ => ()
+        }
+        val m = mults.iterator.map(_.toExpr).reduce(Mult(_, _))
+        Some(Mult(m, Integer(coeff)))
+      } else None
 
     def isZero: Boolean = (const == 0) && terms.isZero
 
@@ -1587,7 +1620,10 @@ object RingOpt {
     // invariant: ((a == 1) && (b == 0)) == false and a != this, b != this
     def splits(implicit
         h: Hash[A]
-    ): List[(Either[BigInt, MultTerm[A]], SumProd[A], SumProd[A])] = {
+    ): List[(Either[BigInt, MultTerm[A]], SumProd[A], SumProd[A])] = if (
+      terms.isZero
+    ) Nil
+    else {
 
       val termSrcs
           : HashMap[MultTerm[A], NonEmptyList[NonEmptyList[MultTerm[A]]]] =
@@ -1621,54 +1657,31 @@ object RingOpt {
                 // we have to remove the term from the NonEmptyList
                 val ks = k.toList
                 val idx = ks.indexWhere(kMt => Hash[MultTerm[A]].eqv(mt, kMt))
-                (
-                  NonEmptyList
-                    .fromList(ks.take(idx) ::: ks.drop(idx + 1)),
-                  b
-                )
+                val divList = ks.take(idx) ::: ks.drop(idx + 1)
+                (NonEmptyList.fromList(divList), b)
               }
               .toList
           val divConst = newTermsList.collect { case (None, b) => b }.sum
           val divTermsList0 =
-            newTermsList.collect {
-              case (Some(k @ NonEmptyList(_, tail)), b) if tail.nonEmpty =>
+            MultiSet.fromListCount(newTermsList.collect {
+              case (Some(k @ NonEmptyList(Symbol(_), _)), b) => (k, b)
+              case (Some(k @ NonEmptyList(Add(_, _), tail)), b)
+                  if tail.nonEmpty =>
+                // we don't keep singleton Add nodes
                 (k, b)
-            }
+            })
           // All the singleton terms should be combined into a single add
           val divTermsCombine =
-            newTermsList.collect { case (Some(NonEmptyList(k, Nil)), b) =>
-              (k, b)
+            newTermsList.collect {
+              case (Some(NonEmptyList(add @ Add(_, _), Nil)), b) =>
+                Mult(add, Integer(b))
             }
-          val arg = divTermsCombine match {
-            case Nil           => divTermsList0
-            case (k, b) :: Nil =>
-              // just one
-              (NonEmptyList(k, Nil), b) :: divTermsList0
-            case twoOrMore =>
-              // we can combine this into a single MultTerm
-              val coeff = twoOrMore.map(_._2).reduce(_.gcd(_))
-              val (k, c) = twoOrMore.iterator
-                .map { case (k, b) => (k, b / coeff) }
-                .reduce[(MultTerm[A], BigInt)] { case ((k1, b1), (k2, b2)) =>
-                  (
-                    Add(
-                      // TODO: this seems fishy not using w.constMult(b1, k.toExpr)
-                      // here, but even then it may not solve the issues due
-                      // to the choice of negation issue
-                      k1.toExpr.bestEffortConstMult(b1),
-                      k2.toExpr.bestEffortConstMult(b2)
-                    ),
-                    BigInt(1)
-                  )
-                }
-
-              (NonEmptyList(k, Nil), c * coeff) :: divTermsList0
+          val div = divTermsCombine match {
+            case Nil      => SumProd(divConst, divTermsList0)
+            case notEmpty =>
+              val SumProd(cAdd, tAdd) = SumProd(notEmpty)
+              SumProd(divConst + cAdd, divTermsList0 ++ tAdd)
           }
-          val divTerms = MultiSet.fromListCount(arg)
-          val div = SumProd(
-            divConst,
-            divTerms
-          )
           val mod = SumProd(
             const,
             terms.filter { case (k, _) =>
@@ -1704,31 +1717,36 @@ object RingOpt {
           }
       }
 
-      val biSplits = allBis.iterator.map { case (bi, _) =>
-        val (cd, cm) = const /% bi
-        val div = SumProd(
-          cd, {
-            implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
-              Hash[List[MultTerm[A]]]
-                .contramap[NonEmptyList[MultTerm[A]]](_.toList)
+      val biSplits = allBis.iterator.flatMap { case (bi, _) =>
+        val divTerms = {
+          implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
+            Hash[List[MultTerm[A]]]
+              .contramap[NonEmptyList[MultTerm[A]]](_.toList)
 
-            terms.nonZeroIterator
-              .flatMap { case (k, v) =>
-                val (d, m) = v /% bi
-                if (m == 0) ((k, d) :: Nil)
-                else Nil
-              }
-              .foldLeft(MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]) {
-                case (acc, (k, v)) =>
-                  acc.add(k, v)
-              }
-          }
-        )
-        val mod = SumProd(
-          cm,
-          terms.filter { case (_, v) => (v % bi) != 0 }
-        )
-        (Left(bi), div, mod)
+          terms.nonZeroIterator
+            .flatMap { case (k, v) =>
+              val (d, m) = v /% bi
+              if (m == 0) ((k, d) :: Nil)
+              else Nil
+            }
+            .foldLeft(MultiSet.empty[NonEmptyList[MultTerm[A]], BigInt]) {
+              case (acc, (k, v)) =>
+                acc.add(k, v)
+            }
+        }
+
+        if (divTerms.isZero) Nil
+        else {
+          val modTerms = terms.filter { case (_, v) => (v % bi) != 0 }
+          val (cd, cm) =
+            // if (modTerms.hashMap.nonEmpty) (const /% bi)
+            // else (BigInt(0), const)
+            (BigInt(0), const)
+
+          val div = SumProd(cd, divTerms)
+          val mod = SumProd(cm, modTerms)
+          (Left(bi), div, mod) :: Nil
+        }
       }.toList
 
       biSplits ::: mtSplits
@@ -1747,174 +1765,170 @@ object RingOpt {
       }
     }
 
-    def normalize(w: Weights)(implicit h: Hash[A]): Expr[A] = {
-      // if splits is empty, we never use this
-      lazy val thisExpr = directToExpr(w)
-      lazy val thisCost = w.cost(thisExpr)
+    def normalize(w: Weights)(implicit h: Hash[A]): Expr[A] =
+      toMult match {
+        case Some(m) =>
+          // Sometimes we can reduce SumProd into just a product,
+          // so to normalize it, use the normal path
+          RingOpt.norm(m, w)
+        case None => {
+          // if splits is empty, we never use this
+          lazy val thisExpr = directToExpr(w)
+          lazy val thisCost = w.cost(thisExpr)
 
-      val withCost = splits.map {
-        case (right @ Right(mt), div, mod) =>
-          val e1 =
-            Expr.addAll(
-              Expr.checkMult(mt.toExpr, div.directToExpr(w)) ::
-                mod.directToExpr(w) ::
-                Nil
-            )
-
-          (right, div, mod, e1, w.cost(e1))
-        case (left @ Left(bi), div, mod) =>
-          val e1 =
-            Expr.addAll(
-              w.constMult(div.directToExpr(w), bi) ::
-                mod.directToExpr(w) ::
-                Nil
-            )
-
-          (left, div, mod, e1, w.cost(e1))
-      }
-      implicit val showA: Show[A] = Show.fromToString
-      // println(show"this=$this")
-      // println(show"thisCost = $thisCost, withCost=$withCost")
-      val nextSteps = withCost
-        .filter { case (_, _, _, _, c) => c <= thisCost }
-
-      if (nextSteps.isEmpty) {
-        // None of the steps are as good as the current state
-        // println(show"nextSteps is empty: $this")
-
-        val (neg0, unsigned, pos0) = {
-          val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
-            val normFactors =
-              Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
-            (normFactors, bi)
-          }.toList
-
-          val label = termsList.map { case kb @ (k, bi) =>
-            (kb, signOf(k, bi, w))
-          }
-          (
-            label.collect { case (kb, x) if x < 0 => kb },
-            label.collect { case (kb, x) if x == 0 => kb },
-            label.collect { case (kb, x) if x > 0 => kb }
-          )
-        }
-        // println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
-
-        // Helper to build a sum from a list of terms.
-        // If signFlip is true, it builds Sum( k*(-b) ) for each (k,b)
-        // If signFlip is false, it builds Sum( k*b ) for each (k,b)
-        def buildSum(
-            termList: List[(Expr[A], BigInt)],
-            signFlip: Boolean
-        ): Expr[A] =
-          Expr.addAll(
-            termList
-              .map { case (mult, bi) =>
-                val coeff = if (signFlip) -bi else bi
-                w.constMult(mult, coeff)
-              }
-          )
-
-        // --- Option 1: Positive-dominant form: (Const + Pos + Unsigned) - (Neg) ---
-        // 'pos0' and 'unsigned' terms are built as (k*b)
-        val posSum1 = buildSum(pos0 ::: unsigned, signFlip = false)
-        // 'neg0' terms are built as (k*(-b))
-        val negSum1 = buildSum(neg0, signFlip = true)
-
-        val finalExprPos = Expr.addAll(
-          canonInt(const) ::
-            posSum1 ::
-            negSum1.normalizeNeg :: // This creates the subtraction
-            Nil
-        )
-        val costPos = w.cost(finalExprPos)
-
-        // --- Option 2: Negative-dominant form: -(( -Const + Neg + Unsigned) - (Pos)) ---
-        // 'neg0' and 'unsigned' terms are built as (k*(-b))
-        val negSum2 = buildSum(neg0 ::: unsigned, signFlip = true)
-        // 'pos0' terms are built as (k*b)
-        val posSum2 = buildSum(pos0, signFlip = false)
-
-        val finalExprNeg = Expr
-          .addAll(
-            canonInt(-const) ::
-              negSum2 ::
-              posSum2.normalizeNeg :: // This creates the subtraction
-              Nil
-          )
-          .normalizeNeg // The outer negation
-        val costNeg = w.cost(finalExprNeg)
-
-        // --- Option 3: Don't flip any signs
-        val finalDefault = Expr.addAll(
-          canonInt(const) ::
-            buildSum(pos0 ::: unsigned ::: neg0, signFlip = false) ::
-            Nil
-        )
-        val costDefault = w.cost(finalDefault)
-
-        // println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
-        val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (
-          costDefault,
-          finalDefault
-        ) :: Nil
-        // println(show"all=$all")
-        val minCost = all.iterator.map(_._1).min
-        val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
-          case (_, e) => Expr.key(e)
-        }
-        best
-
-      } else {
-        val (e, div, mod, _, _) = nextSteps.minBy { case (_, _, mod, e1, c) =>
-          // try to choose the smallest cost, breaking ties with the smallest
-          // left over set, then just the usual sorting
-          (c, mod.terms.size, Expr.key(e1))
-        }
-        // thes assertions should never fail
-        assert(this != div, show"div==this: $this")
-        assert(this != mod, show"mod==this: $this")
-        // println( show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
-        val normDiv = div.normalize(w)
-        val normMod = mod.normalize(w)
-        // e * div + mod
-        // but just because e does not divide mod, doesn't mean there
-        // are no terms in mod that could divide div
-        val added = e match {
-          case Right(e) =>
-            val left = Expr.checkMult(norm(e.toExpr, w), normDiv)
-            Expr.addAll(left :: normMod :: Nil)
-          case Left(bi) =>
-            // num * normDiv + normMod
-            // but we could do:
-            // Neg((-num) * normDiv + (-normMod))
-            // if it is better
-            val pos =
-              Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil)
-            val neg =
-              Expr
-                .addAll(
-                  w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil
+          val withCost = splits.map {
+            case (right @ Right(mt), div, mod) =>
+              val e1 =
+                Expr.addAll(
+                  Expr.checkMult(mt.toExpr, div.directToExpr(w)) ::
+                    mod.directToExpr(w) ::
+                    Nil
                 )
-                .normalizeNeg
 
-            if (w.cost(pos) > w.cost(neg)) neg
-            else pos
+              (right, div, mod, e1, w.cost(e1))
+            case (left @ Left(bi), div, mod) =>
+              val e1 =
+                Expr.addAll(
+                  w.constMult(div.directToExpr(w), bi) ::
+                    mod.directToExpr(w) ::
+                    Nil
+                )
+
+              (left, div, mod, e1, w.cost(e1))
+          }
+          implicit val showA: Show[A] = Show.fromToString
+          println(show"this=$this")
+          println(show"thisCost = $thisCost, withCost=$withCost")
+          val nextSteps = withCost
+            .filter { case (_, _, _, _, c) => c <= thisCost }
+
+          if (nextSteps.isEmpty) {
+            // None of the steps are as good as the current state
+            println(show"nextSteps is empty: $this")
+
+            val (neg0, unsigned, pos0) = {
+              val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
+                val normFactors =
+                  Expr.multAll(factors.toList.map(mt => norm(mt.toExpr, w)))
+                (normFactors, bi)
+              }.toList
+
+              val label = termsList.map { case kb @ (k, bi) =>
+                (kb, signOf(k, bi, w))
+              }
+              (
+                label.collect { case (kb, x) if x < 0 => kb },
+                label.collect { case (kb, x) if x == 0 => kb },
+                label.collect { case (kb, x) if x > 0 => kb }
+              )
+            }
+            // println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
+
+            // Helper to build a sum from a list of terms.
+            // If signFlip is true, it builds Sum( k*(-b) ) for each (k,b)
+            // If signFlip is false, it builds Sum( k*b ) for each (k,b)
+            def buildSum(
+                termList: List[(Expr[A], BigInt)],
+                signFlip: Boolean
+            ): Expr[A] =
+              Expr.addAll(
+                termList
+                  .map { case (mult, bi) =>
+                    val coeff = if (signFlip) -bi else bi
+                    w.constMult(mult, coeff)
+                  }
+              )
+
+            // --- Option 1: Positive-dominant form: (Const + Pos + Unsigned) - (Neg) ---
+            // 'pos0' and 'unsigned' terms are built as (k*b)
+            val posSum1 = buildSum(pos0 ::: unsigned, signFlip = false)
+            // 'neg0' terms are built as (k*(-b))
+            val negSum1 = buildSum(neg0, signFlip = true)
+
+            val finalExprPos = Expr.addAll(
+              canonInt(const) ::
+                posSum1 ::
+                negSum1.normalizeNeg :: // This creates the subtraction
+                Nil
+            )
+            val costPos = w.cost(finalExprPos)
+
+            // --- Option 2: Negative-dominant form: -(( -Const + Neg + Unsigned) - (Pos)) ---
+            // 'neg0' and 'unsigned' terms are built as (k*(-b))
+            val negSum2 = buildSum(neg0 ::: unsigned, signFlip = true)
+            // 'pos0' terms are built as (k*b)
+            val posSum2 = buildSum(pos0, signFlip = false)
+
+            val finalExprNeg = Expr
+              .addAll(
+                canonInt(-const) ::
+                  negSum2 ::
+                  posSum2.normalizeNeg :: // This creates the subtraction
+                  Nil
+              )
+              .normalizeNeg // The outer negation
+            val costNeg = w.cost(finalExprNeg)
+
+            // --- Option 3: Don't flip any signs
+            val finalDefault = Expr.addAll(
+              canonInt(const) ::
+                buildSum(pos0 ::: unsigned ::: neg0, signFlip = false) ::
+                Nil
+            )
+            val costDefault = w.cost(finalDefault)
+
+            //println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
+            val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (
+              costDefault,
+              finalDefault
+            ) :: Nil
+            println(show"all=$all")
+            val minCost = all.iterator.map(_._1).min
+            val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
+              case (_, e) => Expr.key(e)
+            }
+            best
+
+          } else {
+            val (e, div, mod, _, _) = nextSteps.minBy {
+              case (_, _, mod, e1, c) =>
+                // try to choose the smallest cost, breaking ties with the smallest
+                // left over set, then just the usual sorting
+                (c, mod.terms.size, Expr.key(e1))
+            }
+            // thes assertions should never fail
+            assert(this != div, show"div==this: $this")
+            assert(this != mod, show"mod==this: $this")
+            println( show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
+            val normDiv = div.normalize(w)
+            val normMod = mod.normalize(w)
+            // e * div + mod
+            // but just because e does not divide mod, doesn't mean there
+            // are no terms in mod that could divide div
+            e match {
+              case Right(e) =>
+                val left = Expr.checkMult(norm(e.toExpr, w), normDiv)
+                Expr.addAll(left :: normMod :: Nil)
+              case Left(bi) =>
+                // num * normDiv + normMod
+                // but we could do:
+                // Neg((-num) * normDiv + (-normMod))
+                // if it is better
+                val pos =
+                  Expr.addAll(w.constMult(normDiv, bi) :: normMod :: Nil)
+                val neg =
+                  Expr
+                    .addAll(
+                      w.constMult(normDiv, -bi) :: normMod.normalizeNeg :: Nil
+                    )
+                    .normalizeNeg
+
+                if (w.cost(pos) > w.cost(neg)) neg
+                else pos
+            }
+          }
         }
-        // after we add, we could have negatives on both sides, if so, we
-        // could save by doing saveNeg and then adding back a negative at the top:
-        val res = added /*added.saveNeg match {
-          case None =>
-            println(show"($added).saveNeg = None")
-            added
-          case Some(negAdd) =>
-            println(show"($added).saveNeg = Some($negAdd)")
-            negAdd.normalizeNeg
-        }*/
-        // println(show"added=$added, res=$res, e=$e, normDiv = $normDiv, normMod = $normMod")
-        res
       }
-    }
   }
 
   object SumProd {
@@ -1947,8 +1961,14 @@ object RingOpt {
 
   // === Core normalization ===
 
-  private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] =
-    Expr.undistribute(e) match {
+  private def log[A: Show](msg: String)(a: A): A = {
+    println(show"$msg: $a")
+    a
+  }
+
+  private def norm[A: Hash](e: Expr[A], W: Weights): Expr[A] = {
+    implicit val showA: Show[A] = Show.fromToString
+    log(show"norm of $e")(Expr.undistribute(e) match {
       case Zero | One | Symbol(_) => e
 
       case Integer(n) => canonInt[A](n)
@@ -1975,7 +1995,30 @@ object RingOpt {
 
       case Mult(a, b) =>
         val (const, factors) = Expr.flattenMult(a :: b :: Nil)
-        val normFactors = Expr.multAll(factors.map(mt => norm(mt.toExpr, W)))
-        W.constMult(normFactors, const)
-    }
+        val (symbols, adds) = factors.partitionMap {
+          case s @ Symbol(_) => Left(s)
+          case a @ Add(_, _) => Right(a)
+        }
+        adds match {
+          case Nil =>
+            // we can't optimize symbols
+            val normFactors = Expr.multAll(symbols)
+            W.constMult(normFactors, const)
+          case neAdds =>
+            // we need to push down multiplications into Add(_, _) nodes
+            // because it can make 2*(x + x) can be worse than 4*x, but 1*(x + x)
+            // may be better than 2*x. If there are multliple additions to push into
+            // it isn't clear which would be better, so we as a hueristic choose the bigger one
+            val (_, idx) = neAdds.zipWithIndex.maxBy { case (a, _) =>
+              a.graphSize
+            }
+            val adds1 = adds.take(idx) ::: adds.drop(idx + 1)
+            val pushed = adds(idx)
+            val normPushed =
+              SumProd[A](Mult(pushed, Integer(const)) :: Nil).normalize(W)
+            val normAdds1 = adds1.map(norm[A](_, W))
+            Expr.multAll(normPushed :: normAdds1)
+        }
+    })
+  }
 }
