@@ -1884,32 +1884,22 @@ object RingOpt {
         }
         .toList
 
-      val biSrcs
-          : HashMap[BigInt, NonEmptyList[Option[NonEmptyList[MultTerm[A]]]]] = {
-        val e =
-          HashMap.empty[BigInt, NonEmptyList[Option[NonEmptyList[MultTerm[A]]]]]
-        if (const != 0 && const != -1 && const != 1)
-          e.updated(const, NonEmptyList.one(None))
-        else
-          e
+      val biSrcs: Set[BigInt] = {
+        val e = Set.empty[BigInt]
+        if (const != 0 && const != -1 && const != 1) (e + const)
+        else e
       }
 
       val allBis = terms.nonZeroIterator.foldLeft(biSrcs) {
-        case (acc, (_, bi)) if (bi == 1) || (bi == -1) => acc
-        case (acc, (mts, bi))                          =>
-          // add the positive and negative because Neg is generally very cheap
-          (bi :: -bi :: Nil).foldLeft(acc) { case (acc, bi) =>
-
-            acc.get(bi) match {
-              case Some(existing) =>
-                acc.updated(bi, Some(mts) :: existing)
-              case None =>
-                acc.updated(bi, NonEmptyList.one(Some(mts)))
-            }
+        case (acc, (_, bi)) =>
+          if ((bi == 1) || (bi == -1)) acc
+          else {
+            // add the positive and negative because Neg is generally very cheap
+            acc + bi + (-bi)
           }
       }
 
-      val biSplits = allBis.iterator.flatMap { case (bi, _) =>
+      val biSplits = allBis.iterator.flatMap { case bi =>
         val divTerms = {
           implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
             Hash[List[MultTerm[A]]]
@@ -2146,9 +2136,10 @@ object RingOpt {
 
   // === Core normalization ===
 
-  private def norm[A: Hash: Order](e: Expr[A], W: Weights): Expr[A] =
-    Expr.undistribute(e) match {
-      case Zero | One | Symbol(_) => e
+  private def norm[A: Hash: Order](e: Expr[A], W: Weights): Expr[A] = {
+    val u = Expr.undistribute(e)
+    u match {
+      case Zero | One | Symbol(_) => u
 
       case Integer(n) => canonInt[A](n)
 
@@ -2174,4 +2165,5 @@ object RingOpt {
         val normFactors = Expr.multAll(factors.map(e => norm(e.toExpr, W)))
         normFactors.bestEffortConstMult(const)
     }
+  }
 }
