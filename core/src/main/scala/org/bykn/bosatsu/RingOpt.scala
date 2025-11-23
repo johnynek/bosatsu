@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Hash, Order, Show}
+import cats.{Applicative, Hash, Order, Show}
 import cats.Order.catsKernelOrderingForOrder
 import cats.collections.{HashMap, HashSet}
 import cats.data.NonEmptyList
@@ -122,15 +122,20 @@ object RingOpt {
 
   sealed trait Expr[+A] { expr =>
     def map[B](fn: A => B): Expr[B] =
-      expr match {
-        case Zero       => Zero
-        case One        => One
-        case Integer(n) => Integer(n)
-        case Symbol(a)  => Symbol(fn(a))
-        case Add(x, y)  => Add(x.map(fn), y.map(fn))
-        case Mult(x, y) => Mult(x.map(fn), y.map(fn))
-        case Neg(x)     => Neg(x.map(fn))
+      toStack.map(fn).toExpr match {
+        case Right(exprB) => exprB
+        case Left(err)    =>
+          sys.error(s"invariant violation: toExpr returned Left($err)")
       }
+
+    def traverse[F[_]: Applicative, B](fn: A => F[B]): F[Expr[B]] =
+      toStack
+        .traverse(fn)
+        .map(_.toExpr match {
+          case Right(exprB) => exprB
+          case Left(err)    =>
+            sys.error(s"invariant violation: toExpr returned Left($err)")
+        })
 
     def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] =
       // Stack makes this stack safe
@@ -442,11 +447,6 @@ object RingOpt {
           case res @ Some((bi, inner)) =>
             if (bi == 0) res
             else {
-              /*
-              implicit val showA: Show[A] = Show.fromToString
-              println(show"e=$e, bi=$bi, inner=$inner")
-              assert((bi != 1) && (bi != -1))
-               */
               fix(bi * prod, inner)
             }
           case None =>
@@ -547,6 +547,9 @@ object RingOpt {
   }
 
   object Expr {
+    def symbol[A](a: A): Expr[A] = Symbol(a)
+    def int(i: BigInt): Expr[Nothing] = Integer(i)
+
     implicit class ExprOps[A](private val expr: Expr[A]) extends AnyVal {
       // This does basic normalization, like ordering Add(_, _) and Mult(_, _)
       // and collapsing constants, we do this before doing harder optimizations
@@ -1170,6 +1173,42 @@ object RingOpt {
       opList(this, Nil)
     }
 
+    def traverse[F[_], B](
+        fn: A => F[B]
+    )(implicit F: Applicative[F]): F[Stack[B]] = {
+      import Stack._
+      val r0: F[Leaf[B]] = F.pure(Zero)
+      val r1: F[Leaf[B]] = F.pure(One)
+
+      @annotation.tailrec
+      def opList(s: Stack[A], items: List[Either[Op, Leaf[A]]]): F[Stack[B]] =
+        s match {
+          case Empty =>
+            // Now we traverse the list and turn it back into Stack
+            items
+              .traverse { either =>
+                either.traverse {
+                  case Symbol(a)  => fn(a).map(b => Symbol(b): Leaf[B])
+                  case Zero       => r0
+                  case One        => r1
+                  case Integer(i) => F.pure(Integer(i): Leaf[B])
+                }
+              }
+              .map { items =>
+                items.foldLeft(Empty: Stack[B]) {
+                  case (s, Right(l)) => Push(l, s)
+                  case (s, Left(o))  => Operate(o, s)
+                }
+              }
+          case Push(leaf, onto) =>
+            opList(onto, Right(leaf) :: items)
+          case Operate(op, on) =>
+            opList(on, Left(op) :: items)
+        }
+
+      opList(this, Nil)
+    }
+
     /** If this stack was constructed from an Expr it will always return Right
       */
     def toExpr: Either[Stack.Error[_ <: Expr[A]], Expr[A]] = {
@@ -1535,7 +1574,6 @@ object RingOpt {
       e0: Expr[A],
       W: Weights = Weights.default
   ): Expr[A] = {
-    val eInit = e0
     // if we can't reduce the cost but keep producing different items stop
     // at 100 so we don't loop forever or blow up memory
     val MaxCount = 100
@@ -1565,18 +1603,9 @@ object RingOpt {
           }
         } else {
           // costNE > cost
-          /*
-          implicit val showA: Show[A] = Show.fromToString
-          // sys.error(
-          println(
-            show"normalize increased cost: ${if (eInit != e) show"eInit = $eInit, "
-              else ""}e = $e, cost = $cost, ne = $ne, costNE = $costNE\n\tsumProd=${SumProd(e :: Nil)}\n\tsplits=${SumProd(e :: Nil).splits}"
-          )
           // TODO: we should never get here, increasing cost by normalization
           // means we probably are pretty far from optimal and we need to improve
           // our algorithm
-           */
-          assert(eInit != null) // silence unused eInit warning
           reached.iterator.min
         }
       }
@@ -1751,11 +1780,17 @@ object RingOpt {
     def toMult: Option[Mult[A]] =
       if ((const == BigInt(0)) && (terms.hashMap.size == 1)) {
         val (mults, coeff) = terms.nonZeroIterator.next()
+        /*
+        we don't check this (but we do in property checks), but we never
+        have a single Add(_, _) node by construction. This is maintained in Splits
+        and in construction of SumProd
+
         mults match {
           case NonEmptyList(Add(_, _), Nil) =>
             sys.error(s"invariant violation toMult: $mults")
           case _ => ()
         }
+         */
         val m = mults.iterator.map(_.toExpr).reduce(Mult(_, _))
         Some(Mult(m, Integer(coeff)))
       } else None
@@ -1763,33 +1798,9 @@ object RingOpt {
     def isZero: Boolean = (const == 0) && terms.isZero
 
     private def signOf(x: Expr[A], b: BigInt, w: Weights): Int = {
-
-      // implicit val showA: Show[A] = Show.fromToString
       val costPos = w.cost(x.bestEffortConstMult(b))
       val costNeg = w.cost(x.bestEffortConstMult(-b))
-      val res = if (costPos < costNeg) 1 else if (costNeg < costPos) -1 else 0
-      /*
-      val res = if (b == 1) 1
-      else if (w.multThreshold <= b.abs) {
-        // multiplication is always better, so this is not signed
-        0
-      }
-      else {
-        // if we have Neg(_) or a few negatives, we may want to add, in which =
-        // case adding 1 or more then negate is better
-        val simple = mt.map(_.toExpr).reduce[Expr[A]](Mult(_, _))
-        if (w.multIsBetter(simple, b)) {
-          println(show"w.multIsBetter($simple, $b) == true")
-          0
-        }
-        else {
-          println(show"w.multIsBetter($simple, $b) == false")
-          b.signum
-        }
-      }
-       */
-      // println(show"signOf($x, $b, $w) = $res, w.multThreshold=${w.multThreshold}")
-      res
+      if (costPos < costNeg) 1 else if (costNeg < costPos) -1 else 0
     }
 
     // what are all the ways we can factor by
@@ -1858,6 +1869,8 @@ object RingOpt {
           val div = divTermsCombine match {
             case Nil      => SumProd(divConst, divTermsList0)
             case notEmpty =>
+              // We want to lift all the Add(_, _) nodes out
+              // so they allow factorizations across the adds
               val SumProd(cAdd, tAdd) = SumProd(notEmpty)
               SumProd(divConst + cAdd, divTermsList0 ++ tAdd)
           }
@@ -1951,10 +1964,6 @@ object RingOpt {
           // so to normalize it, use the normal path
           RingOpt.norm(m, w)
         case None => {
-          // if splits is empty, we never use this
-          lazy val thisExpr = directToExpr
-          lazy val thisCost = w.cost(thisExpr)
-
           val withCost = splits.map {
             case (right @ Right(mt), div, mod) =>
               val e1 =
@@ -1975,16 +1984,17 @@ object RingOpt {
 
               (left, div, mod, e1, w.cost(e1))
           }
-          implicit val showA: Show[A] = Show.fromToString
-          // println(show"this=$this")
-          // println(show"thisCost = $thisCost, withCost=$withCost")
-          val nextSteps = withCost
-            .filter { case (_, _, _, _, c) => c <= thisCost }
+
+          val nextSteps =
+            if (withCost.isEmpty) Nil
+            else {
+              val thisCost = w.cost(directToExpr)
+              withCost
+                .filter { case (_, _, _, _, c) => c <= thisCost }
+            }
 
           if (nextSteps.isEmpty) {
             // None of the steps are as good as the current state
-            // println(show"nextSteps is empty: $this")
-
             val (neg0, unsigned, pos0) = {
               val termsList = terms.nonZeroIterator.map { case (factors, bi) =>
                 val normFactors =
@@ -2001,8 +2011,6 @@ object RingOpt {
                 label.collect { case (kb, x) if x > 0 => kb }
               )
             }
-            // println(show"neg0=$neg0, unsigned=$unsigned, pos0=$pos0")
-
             // Helper to build a sum from a list of terms.
             // If signFlip is true, it builds Sum( k*(-b) ) for each (k,b)
             // If signFlip is false, it builds Sum( k*b ) for each (k,b)
@@ -2056,12 +2064,11 @@ object RingOpt {
             )
             val costDefault = w.cost(finalDefault)
 
-            // println(show"finalExprPos($costPos) = $finalExprPos, finalExprNeg($costNeg) = $finalExprNeg, finalDefault($costDefault) = $finalDefault")
             val all = (costPos, finalExprPos) :: (costNeg, finalExprNeg) :: (
               costDefault,
               finalDefault
             ) :: Nil
-            // println(show"all=$all")
+
             val minCost = all.iterator.map(_._1).min
             val (_, best) = all.filter { case (c, _) => c == minCost }.minBy {
               case (_, e) => e
@@ -2075,10 +2082,7 @@ object RingOpt {
                 // left over set, then just the usual sorting
                 (c, mod.terms.size, e1)
             }
-            // thes assertions should never fail
-            assert(this != div, show"div==this: $this")
-            assert(this != mod, show"mod==this: $this")
-            // println( show"nextSteps not empty: $this\n\te=$e, div = $div, mod = $mod")
+
             val normDiv = div.normalize(w)
             val normMod = mod.normalize(w)
             // e * div + mod
@@ -2163,10 +2167,7 @@ object RingOpt {
 
       case Add(left, right) =>
         val sumProd = SumProd(left :: right :: Nil)
-        val res = sumProd.normalize(W)
-        // implicit val showA: Show[A] = Show.fromToString
-        // println(show"e = $e, gs = $gs, sumProd = $sumProd, res = $res")
-        res
+        sumProd.normalize(W)
 
       case Mult(a, b) =>
         val (const, factors) = Expr.flattenMult(a :: b :: Nil)

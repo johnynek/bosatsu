@@ -1430,4 +1430,16 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       OrderingLaws.forOrder(a, b, c)
     }
   }
+
+  test("use traverse on Expr to evaluate") {
+    val x = Expr.symbol("x")
+    val y = Expr.symbol("y")
+
+    val formula = (x + Expr.int(1)) * (x + Expr.int(2)) + y
+    val subs = Map("x" -> 1, "y" -> 10)
+    val toInt = formula.traverse(subs.get(_)).flatMap { exp =>
+      exp.maybeBigInt(i => Some(BigInt(i)))
+    }
+    assertEquals(toInt, Some((BigInt(1) + 1) * (BigInt(1) + 2) + BigInt(10)))
+  }
 }
