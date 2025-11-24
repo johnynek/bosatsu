@@ -190,6 +190,7 @@ lazy val core =
       Seq(
         blake3.value,
         cats.value,
+        catsCol.value,
         catsParse.value,
         decline.value,
         paiges.value,
@@ -201,12 +202,12 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
 
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.19" % "provided"
+        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.20" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.19"),
+    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.20"),
     scalacOptions += "-P:acyclic:force"
   ).dependsOn(base, proto)
     .jsSettings(
@@ -279,7 +280,7 @@ lazy val jsui =
         )
     )
     .jsSettings(
-      scalaJSUseMainModuleInitializer := true,
+      scalaJSUseMainModuleInitializer := true
     )
     .enablePlugins(ScalaJSPlugin)
     .enablePlugins(ScalaJSBundlerPlugin)

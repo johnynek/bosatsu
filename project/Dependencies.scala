@@ -4,6 +4,7 @@ import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 object Dependencies {
   lazy val blake3 = Def.setting("pt.kcry" %%% "blake3" % "3.1.2")
   lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.13.0")
+  lazy val catsCol = Def.setting("org.typelevel" %%% "cats-collections-core" % "0.9.10")
   lazy val catsEffect =
     Def.setting("org.typelevel" %%% "cats-effect" % "3.6.3")
   lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "1.1.0")
