@@ -190,6 +190,7 @@ lazy val core =
       Seq(
         blake3.value,
         cats.value,
+        catsCol.value,
         catsParse.value,
         decline.value,
         paiges.value,
