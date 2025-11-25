@@ -417,9 +417,6 @@ object TypedExprNormalization {
                       if ((in1 eq in) && (ex1 eq ex)) None
                       else {
                         val step = Let(arg, ex1, in1, rec, tag)
-                        if (step == te) {
-                          sys.error(s"infinite loop on: ${te.reprString}")
-                        }
                         normalize1(namerec, step, scope, typeEnv)
                       }
                   }
