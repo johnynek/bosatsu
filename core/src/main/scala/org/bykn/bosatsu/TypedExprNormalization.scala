@@ -1062,6 +1062,7 @@ object TypedExprNormalization {
             case RingOpt.Symbol(idx) =>
               OpaqueInt(table.typeExpr(idx))
             case RingOpt.Add(pos, RingOpt.Neg(neg)) =>
+              // pos + (-neg) == pos - neg
               val untaggedFn = Global(
                 PackageName.PredefName,
                 Identifier.Name("sub"),
@@ -1076,6 +1077,7 @@ object TypedExprNormalization {
               val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
               Sub(posIA, negIA, subFn, realTag)
             case RingOpt.Add(RingOpt.Neg(neg), pos) =>
+              // (-neg) + pos == pos - neg
               val untaggedFn = Global(
                 PackageName.PredefName,
                 Identifier.Name("sub"),
