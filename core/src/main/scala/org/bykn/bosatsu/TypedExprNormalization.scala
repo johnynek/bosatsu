@@ -1131,12 +1131,16 @@ object TypedExprNormalization {
         } else {
           val ia1 = toAlg(norm, table)
           if (ia1.toTypedExpr.void == root.toTypedExpr.void) {
-            // somehow the expr's weren't equal but the result is:
-            sys.error(
-              s"norm($norm) != expr($expr) but ${ia1.toTypedExpr.reprString} == ${root.toTypedExpr.reprString}"
-            )
-          }
-          Some(ia1)
+            // since the AST of RingOpt isn't the same as TypedExpr
+            // we can improve the RingOpt AST but the resulting TypedExpr
+            // AST may be exactly the same. Unfortunately, this check
+            // is safer to do.
+            // for instance: 0 - x can be optimized to -x in RingOpt
+            // but currently, the predef doesn't have negate, and just
+            // uses sub to do this (which at codegen time we can always)
+            // optimize into a negate at the top level as needed.
+            None
+          } else Some(ia1)
         }
       }
 
