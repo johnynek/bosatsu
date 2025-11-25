@@ -310,7 +310,7 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
-      case Impl.IntAlgebraic(Impl.IntAlgebraic.Optimized(optIA)) =>
+      case Impl.IntAlgebraic.Optimized(optIA) =>
         Some(optIA.toTypedExpr)
       // TODO: we could implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
@@ -417,6 +417,9 @@ object TypedExprNormalization {
                       if ((in1 eq in) && (ex1 eq ex)) None
                       else {
                         val step = Let(arg, ex1, in1, rec, tag)
+                        if (step == te) {
+                          sys.error(s"infinite loop on: ${te.reprString}")
+                        }
                         normalize1(namerec, step, scope, typeEnv)
                       }
                   }
@@ -951,7 +954,15 @@ object TypedExprNormalization {
         def tag: A = intValue.tag
       }
 
-      def optimize[A](root: IntAlgebraic[A]): Option[IntAlgebraic[A]] = {
+      private val Fn2Int = Type.Fun(
+        NonEmptyList(Type.IntType, Type.IntType :: Nil),
+        Type.IntType
+      )
+
+      def optimize[A](
+          root: IntAlgebraic[A],
+          te: TypedExpr[A]
+      ): Option[IntAlgebraic[A]] = {
 
         case class Table(
             invert: Vector[TypedExpr[Unit]],
@@ -988,18 +999,23 @@ object TypedExprNormalization {
           def tagForBi(bi: BigInteger): A =
             litTags.get(bi) match {
               case Some(a) => a
-              case None    => root.tag
+              case None    => te.tag
             }
           def tagFromUntagged(teu: TypedExpr[Unit]): A =
             toMap.get(teu) match {
               case Some((_, nel)) => nel.last.tag
               case None           =>
                 // just use the root tag
-                root.tag
+                te.tag
             }
         }
 
-        val EmptyTable: Table = Table(Vector.empty, Map.empty, Map.empty)
+        val EmptyTable: Table = {
+          val t0 = Table(Vector.empty, Map.empty, Map.empty)
+          // insert the root TypedExpr into the table
+          val (t1, _) = t0.idOf(te)
+          t1
+        }
 
         def toExpr(
             ia: IntAlgebraic[A],
@@ -1025,16 +1041,11 @@ object TypedExprNormalization {
               val (te3, r) = toExpr(right, te2)
               (te3, l - r)
             case LiteralInt(bi, tag) =>
-              (table.biTag(bi, tag), RingOpt.Integer(BigInt(bi)))
+              (table.biTag(bi, tag), RingOpt.canonInt(BigInt(bi)))
             case OpaqueInt(intValue) =>
               val (te1, idx) = table.idOf(intValue)
               (te1, RingOpt.Symbol(idx))
           }
-
-        val Fn2 = Type.Fun(
-          NonEmptyList(Type.IntType, Type.IntType :: Nil),
-          Type.IntType
-        )
 
         def toAlg(
             e: RingOpt.Expr[Int],
@@ -1050,25 +1061,39 @@ object TypedExprNormalization {
               LiteralInt(bi, table.tagForBi(bi))
             case RingOpt.Symbol(idx) =>
               OpaqueInt(table.typeExpr(idx))
-            case RingOpt.Add(left, RingOpt.Neg(right)) =>
+            case RingOpt.Add(pos, RingOpt.Neg(neg)) =>
               val untaggedFn = Global(
                 PackageName.PredefName,
                 Identifier.Name("sub"),
-                Fn2,
+                Fn2Int,
                 ()
               )
-              val leftIA = toAlg(left, table)
-              val rightIA = toAlg(right, table)
+              val posIA = toAlg(pos, table)
+              val negIA = toAlg(neg, table)
               val subTag = table.tagFromUntagged(untaggedFn)
               val subFn = untaggedFn.copy(tag = subTag)
-              val fakeTagged = Add(leftIA, rightIA, subFn, subTag)
+              val fakeTagged = Sub(posIA, negIA, subFn, subTag)
               val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
-              Sub(leftIA, rightIA, subFn, realTag)
+              Sub(posIA, negIA, subFn, realTag)
+            case RingOpt.Add(RingOpt.Neg(neg), pos) =>
+              val untaggedFn = Global(
+                PackageName.PredefName,
+                Identifier.Name("sub"),
+                Fn2Int,
+                ()
+              )
+              val posIA = toAlg(pos, table)
+              val negIA = toAlg(neg, table)
+              val subTag = table.tagFromUntagged(untaggedFn)
+              val subFn = untaggedFn.copy(tag = subTag)
+              val fakeTagged = Sub(posIA, negIA, subFn, subTag)
+              val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
+              Sub(posIA, negIA, subFn, realTag)
             case RingOpt.Add(left, right) =>
               val untaggedFn = Global(
                 PackageName.PredefName,
                 Identifier.Name("add"),
-                Fn2,
+                Fn2Int,
                 ()
               )
               val leftIA = toAlg(left, table)
@@ -1082,7 +1107,7 @@ object TypedExprNormalization {
               val untaggedFn = Global(
                 PackageName.PredefName,
                 Identifier.Name("times"),
-                Fn2,
+                Fn2Int,
                 ()
               )
               val leftIA = toAlg(left, table)
@@ -1104,13 +1129,23 @@ object TypedExprNormalization {
           // the expression is exactly the same
           None
         } else {
-          Some(toAlg(norm, table))
+          val ia1 = toAlg(norm, table)
+          if (ia1.toTypedExpr.void == root.toTypedExpr.void) {
+            // somehow the expr's weren't equal but the result is:
+            sys.error(
+              s"norm($norm) != expr($expr) but ${ia1.toTypedExpr.reprString} == ${root.toTypedExpr.reprString}"
+            )
+          }
+          Some(ia1)
         }
       }
 
       object Optimized {
-        def unapply[A](ia: IntAlgebraic[A]): Option[IntAlgebraic[A]] =
-          optimize(ia)
+        def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
+          Impl.IntAlgebraic.unapply(te) match {
+            case Some(ia) => optimize(ia, te)
+            case None     => None
+          }
       }
 
       def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
@@ -1120,7 +1155,7 @@ object TypedExprNormalization {
                 addFn @ Global(
                   PackageName.PredefName,
                   Identifier.Name("add"),
-                  _,
+                  Fn2Int,
                   _
                 ),
                 NonEmptyList(left, right :: _),
@@ -1134,7 +1169,7 @@ object TypedExprNormalization {
                 timesFn @ Global(
                   PackageName.PredefName,
                   Identifier.Name("times"),
-                  _,
+                  Fn2Int,
                   _
                 ),
                 NonEmptyList(left, right :: _),
@@ -1148,7 +1183,7 @@ object TypedExprNormalization {
                 subFn @ Global(
                   PackageName.PredefName,
                   Identifier.Name("sub"),
-                  _,
+                  Fn2Int,
                   _
                 ),
                 NonEmptyList(left, right :: _),

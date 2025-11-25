@@ -378,7 +378,7 @@ foo = _ -> 1
     TypedExpr.Global(
       PackageName.PredefName,
       Identifier.Name("add"),
-      Type.FnType(2),
+      Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), Type.IntType),
       ()
     )
 
@@ -386,7 +386,7 @@ foo = _ -> 1
     TypedExpr.Global(
       PackageName.PredefName,
       Identifier.Name("times"),
-      Type.FnType(2),
+      Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), Type.IntType),
       ()
     )
 

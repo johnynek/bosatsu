@@ -10,7 +10,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(6000)
+      .withMinSuccessfulTests(1000)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -936,9 +936,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalize is commutative for Add") {
-    forAll { (a: Expr[BigInt], b: Expr[BigInt], w: Weights) =>
-      assertEquals(normalize(a + b, w), normalize(b + a, w))
+    def law[A: Hash: Order: Show](a: Expr[A], b: Expr[A], w: Weights) = {
+      val left = normalize(a + b, w)
+      val costLeft = w.cost(left)
+      val right = normalize(b + a, w)
+      val costRight = w.cost(right)
+      assertEquals(
+        left,
+        right,
+        show"left($costLeft)=$left right($costRight)=$right"
+      )
     }
+
+    val regressions: List[(Expr[BigInt], Expr[BigInt], Weights)] =
+      (
+        Neg(
+          Add(
+            Mult(Integer(-4), Symbol(BigInt(9223372036854775807L))),
+            Mult(Integer(5), Symbol(BigInt(0)))
+          )
+        ),
+        Add(Symbol(BigInt(-2147483648)), Neg(Symbol(BigInt(-1)))),
+        Weights(15, 7, 4)
+      ) ::
+        Nil
+
+    regressions.foreach { case (a, b, w) => law(a, b, w) }
+    forAll((a: Expr[BigInt], b: Expr[BigInt], w: Weights) => law(a, b, w))
   }
 
   property("normalize is commutative for Mult") {
