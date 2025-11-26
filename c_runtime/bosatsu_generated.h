@@ -3,6 +3,10 @@ DEFINE_BSTS_OBJ(Struct2,BValue _0;BValue _1;);
 
 BValue alloc_struct2(BValue b0, BValue b1) {
     Struct2* rc = GC_malloc(sizeof(Struct2));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct2");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     return (BValue)rc;
@@ -12,6 +16,10 @@ DEFINE_BSTS_OBJ(Struct3,BValue _0;BValue _1;BValue _2;);
 
 BValue alloc_struct3(BValue b0, BValue b1, BValue b2) {
     Struct3* rc = GC_malloc(sizeof(Struct3));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct3");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -22,6 +30,10 @@ DEFINE_BSTS_OBJ(Struct4,BValue _0;BValue _1;BValue _2;BValue _3;);
 
 BValue alloc_struct4(BValue b0, BValue b1, BValue b2, BValue b3) {
     Struct4* rc = GC_malloc(sizeof(Struct4));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct4");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -33,6 +45,10 @@ DEFINE_BSTS_OBJ(Struct5,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;);
 
 BValue alloc_struct5(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4) {
     Struct5* rc = GC_malloc(sizeof(Struct5));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct5");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -45,6 +61,10 @@ DEFINE_BSTS_OBJ(Struct6,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_struct6(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5) {
     Struct6* rc = GC_malloc(sizeof(Struct6));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct6");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -58,6 +78,10 @@ DEFINE_BSTS_OBJ(Struct7,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_struct7(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6) {
     Struct7* rc = GC_malloc(sizeof(Struct7));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct7");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -72,6 +96,10 @@ DEFINE_BSTS_OBJ(Struct8,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_struct8(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7) {
     Struct8* rc = GC_malloc(sizeof(Struct8));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct8");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -87,6 +115,10 @@ DEFINE_BSTS_OBJ(Struct9,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_struct9(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8) {
     Struct9* rc = GC_malloc(sizeof(Struct9));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct9");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -103,6 +135,10 @@ DEFINE_BSTS_OBJ(Struct10,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct10(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9) {
     Struct10* rc = GC_malloc(sizeof(Struct10));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct10");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -120,6 +156,10 @@ DEFINE_BSTS_OBJ(Struct11,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct11(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10) {
     Struct11* rc = GC_malloc(sizeof(Struct11));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct11");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -138,6 +178,10 @@ DEFINE_BSTS_OBJ(Struct12,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct12(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11) {
     Struct12* rc = GC_malloc(sizeof(Struct12));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct12");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -157,6 +201,10 @@ DEFINE_BSTS_OBJ(Struct13,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct13(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12) {
     Struct13* rc = GC_malloc(sizeof(Struct13));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct13");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -177,6 +225,10 @@ DEFINE_BSTS_OBJ(Struct14,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct14(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13) {
     Struct14* rc = GC_malloc(sizeof(Struct14));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct14");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -198,6 +250,10 @@ DEFINE_BSTS_OBJ(Struct15,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct15(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14) {
     Struct15* rc = GC_malloc(sizeof(Struct15));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct15");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -220,6 +276,10 @@ DEFINE_BSTS_OBJ(Struct16,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct16(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15) {
     Struct16* rc = GC_malloc(sizeof(Struct16));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct16");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -243,6 +303,10 @@ DEFINE_BSTS_OBJ(Struct17,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct17(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16) {
     Struct17* rc = GC_malloc(sizeof(Struct17));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct17");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -267,6 +331,10 @@ DEFINE_BSTS_OBJ(Struct18,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct18(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17) {
     Struct18* rc = GC_malloc(sizeof(Struct18));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct18");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -292,6 +360,10 @@ DEFINE_BSTS_OBJ(Struct19,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct19(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18) {
     Struct19* rc = GC_malloc(sizeof(Struct19));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct19");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -318,6 +390,10 @@ DEFINE_BSTS_OBJ(Struct20,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct20(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19) {
     Struct20* rc = GC_malloc(sizeof(Struct20));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct20");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -345,6 +421,10 @@ DEFINE_BSTS_OBJ(Struct21,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct21(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20) {
     Struct21* rc = GC_malloc(sizeof(Struct21));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct21");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -373,6 +453,10 @@ DEFINE_BSTS_OBJ(Struct22,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct22(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21) {
     Struct22* rc = GC_malloc(sizeof(Struct22));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct22");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -402,6 +486,10 @@ DEFINE_BSTS_OBJ(Struct23,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct23(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22) {
     Struct23* rc = GC_malloc(sizeof(Struct23));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct23");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -432,6 +520,10 @@ DEFINE_BSTS_OBJ(Struct24,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct24(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23) {
     Struct24* rc = GC_malloc(sizeof(Struct24));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct24");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -463,6 +555,10 @@ DEFINE_BSTS_OBJ(Struct25,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct25(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24) {
     Struct25* rc = GC_malloc(sizeof(Struct25));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct25");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -495,6 +591,10 @@ DEFINE_BSTS_OBJ(Struct26,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct26(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25) {
     Struct26* rc = GC_malloc(sizeof(Struct26));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct26");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -528,6 +628,10 @@ DEFINE_BSTS_OBJ(Struct27,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct27(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26) {
     Struct27* rc = GC_malloc(sizeof(Struct27));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct27");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -562,6 +666,10 @@ DEFINE_BSTS_OBJ(Struct28,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct28(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27) {
     Struct28* rc = GC_malloc(sizeof(Struct28));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct28");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -597,6 +705,10 @@ DEFINE_BSTS_OBJ(Struct29,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct29(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28) {
     Struct29* rc = GC_malloc(sizeof(Struct29));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct29");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -633,6 +745,10 @@ DEFINE_BSTS_OBJ(Struct30,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct30(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29) {
     Struct30* rc = GC_malloc(sizeof(Struct30));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct30");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -670,6 +786,10 @@ DEFINE_BSTS_OBJ(Struct31,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct31(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30) {
     Struct31* rc = GC_malloc(sizeof(Struct31));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct31");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -708,6 +828,10 @@ DEFINE_BSTS_OBJ(Struct32,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValu
 
 BValue alloc_struct32(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30, BValue b31) {
     Struct32* rc = GC_malloc(sizeof(Struct32));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_struct32");
+        abort();
+    }
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
@@ -748,6 +872,10 @@ DEFINE_BSTS_ENUM(Enum1,BValue _0;);
 
 BValue alloc_enum1(ENUM_TAG tag, BValue b0) {
     Enum1* rc = GC_malloc(sizeof(Enum1));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum1");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     return (BValue)rc;
@@ -757,6 +885,10 @@ DEFINE_BSTS_ENUM(Enum2,BValue _0;BValue _1;);
 
 BValue alloc_enum2(ENUM_TAG tag, BValue b0, BValue b1) {
     Enum2* rc = GC_malloc(sizeof(Enum2));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum2");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -767,6 +899,10 @@ DEFINE_BSTS_ENUM(Enum3,BValue _0;BValue _1;BValue _2;);
 
 BValue alloc_enum3(ENUM_TAG tag, BValue b0, BValue b1, BValue b2) {
     Enum3* rc = GC_malloc(sizeof(Enum3));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum3");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -778,6 +914,10 @@ DEFINE_BSTS_ENUM(Enum4,BValue _0;BValue _1;BValue _2;BValue _3;);
 
 BValue alloc_enum4(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3) {
     Enum4* rc = GC_malloc(sizeof(Enum4));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum4");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -790,6 +930,10 @@ DEFINE_BSTS_ENUM(Enum5,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;);
 
 BValue alloc_enum5(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4) {
     Enum5* rc = GC_malloc(sizeof(Enum5));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum5");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -803,6 +947,10 @@ DEFINE_BSTS_ENUM(Enum6,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue 
 
 BValue alloc_enum6(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5) {
     Enum6* rc = GC_malloc(sizeof(Enum6));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum6");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -817,6 +965,10 @@ DEFINE_BSTS_ENUM(Enum7,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue 
 
 BValue alloc_enum7(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6) {
     Enum7* rc = GC_malloc(sizeof(Enum7));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum7");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -832,6 +984,10 @@ DEFINE_BSTS_ENUM(Enum8,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue 
 
 BValue alloc_enum8(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7) {
     Enum8* rc = GC_malloc(sizeof(Enum8));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum8");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -848,6 +1004,10 @@ DEFINE_BSTS_ENUM(Enum9,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue 
 
 BValue alloc_enum9(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8) {
     Enum9* rc = GC_malloc(sizeof(Enum9));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum9");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -865,6 +1025,10 @@ DEFINE_BSTS_ENUM(Enum10,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum10(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9) {
     Enum10* rc = GC_malloc(sizeof(Enum10));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum10");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -883,6 +1047,10 @@ DEFINE_BSTS_ENUM(Enum11,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum11(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10) {
     Enum11* rc = GC_malloc(sizeof(Enum11));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum11");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -902,6 +1070,10 @@ DEFINE_BSTS_ENUM(Enum12,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum12(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11) {
     Enum12* rc = GC_malloc(sizeof(Enum12));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum12");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -922,6 +1094,10 @@ DEFINE_BSTS_ENUM(Enum13,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum13(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12) {
     Enum13* rc = GC_malloc(sizeof(Enum13));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum13");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -943,6 +1119,10 @@ DEFINE_BSTS_ENUM(Enum14,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum14(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13) {
     Enum14* rc = GC_malloc(sizeof(Enum14));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum14");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -965,6 +1145,10 @@ DEFINE_BSTS_ENUM(Enum15,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum15(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14) {
     Enum15* rc = GC_malloc(sizeof(Enum15));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum15");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -988,6 +1172,10 @@ DEFINE_BSTS_ENUM(Enum16,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum16(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15) {
     Enum16* rc = GC_malloc(sizeof(Enum16));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum16");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1012,6 +1200,10 @@ DEFINE_BSTS_ENUM(Enum17,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum17(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16) {
     Enum17* rc = GC_malloc(sizeof(Enum17));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum17");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1037,6 +1229,10 @@ DEFINE_BSTS_ENUM(Enum18,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum18(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17) {
     Enum18* rc = GC_malloc(sizeof(Enum18));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum18");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1063,6 +1259,10 @@ DEFINE_BSTS_ENUM(Enum19,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum19(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18) {
     Enum19* rc = GC_malloc(sizeof(Enum19));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum19");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1090,6 +1290,10 @@ DEFINE_BSTS_ENUM(Enum20,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum20(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19) {
     Enum20* rc = GC_malloc(sizeof(Enum20));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum20");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1118,6 +1322,10 @@ DEFINE_BSTS_ENUM(Enum21,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum21(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20) {
     Enum21* rc = GC_malloc(sizeof(Enum21));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum21");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1147,6 +1355,10 @@ DEFINE_BSTS_ENUM(Enum22,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum22(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21) {
     Enum22* rc = GC_malloc(sizeof(Enum22));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum22");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1177,6 +1389,10 @@ DEFINE_BSTS_ENUM(Enum23,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum23(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22) {
     Enum23* rc = GC_malloc(sizeof(Enum23));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum23");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1208,6 +1424,10 @@ DEFINE_BSTS_ENUM(Enum24,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum24(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23) {
     Enum24* rc = GC_malloc(sizeof(Enum24));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum24");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1240,6 +1460,10 @@ DEFINE_BSTS_ENUM(Enum25,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum25(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24) {
     Enum25* rc = GC_malloc(sizeof(Enum25));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum25");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1273,6 +1497,10 @@ DEFINE_BSTS_ENUM(Enum26,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum26(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25) {
     Enum26* rc = GC_malloc(sizeof(Enum26));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum26");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1307,6 +1535,10 @@ DEFINE_BSTS_ENUM(Enum27,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum27(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26) {
     Enum27* rc = GC_malloc(sizeof(Enum27));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum27");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1342,6 +1574,10 @@ DEFINE_BSTS_ENUM(Enum28,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum28(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27) {
     Enum28* rc = GC_malloc(sizeof(Enum28));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum28");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1378,6 +1614,10 @@ DEFINE_BSTS_ENUM(Enum29,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum29(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28) {
     Enum29* rc = GC_malloc(sizeof(Enum29));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum29");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1415,6 +1655,10 @@ DEFINE_BSTS_ENUM(Enum30,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum30(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29) {
     Enum30* rc = GC_malloc(sizeof(Enum30));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum30");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1453,6 +1697,10 @@ DEFINE_BSTS_ENUM(Enum31,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum31(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30) {
     Enum31* rc = GC_malloc(sizeof(Enum31));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum31");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1492,6 +1740,10 @@ DEFINE_BSTS_ENUM(Enum32,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue
 
 BValue alloc_enum32(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BValue b5, BValue b6, BValue b7, BValue b8, BValue b9, BValue b10, BValue b11, BValue b12, BValue b13, BValue b14, BValue b15, BValue b16, BValue b17, BValue b18, BValue b19, BValue b20, BValue b21, BValue b22, BValue b23, BValue b24, BValue b25, BValue b26, BValue b27, BValue b28, BValue b29, BValue b30, BValue b31) {
     Enum32* rc = GC_malloc(sizeof(Enum32));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_enum32");
+        abort();
+    }
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
@@ -1534,6 +1786,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn1, BPureFn1 fn; size_t slot_len;);
 
 BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
     Closure1Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure1");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of(rc);
@@ -1549,6 +1805,10 @@ BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn1* rc = (BoxedPureFn1*)GC_malloc(sizeof(BoxedPureFn1));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn1");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1579,6 +1839,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn2, BPureFn2 fn; size_t slot_len;);
 
 BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
     Closure2Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure2");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1594,6 +1858,10 @@ BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn2* rc = (BoxedPureFn2*)GC_malloc(sizeof(BoxedPureFn2));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn2");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1624,6 +1892,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn3, BPureFn3 fn; size_t slot_len;);
 
 BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
     Closure3Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure3");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1639,6 +1911,10 @@ BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn3* rc = (BoxedPureFn3*)GC_malloc(sizeof(BoxedPureFn3));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn3");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1669,6 +1945,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn4, BPureFn4 fn; size_t slot_len;);
 
 BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
     Closure4Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure4");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1684,6 +1964,10 @@ BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn4* rc = (BoxedPureFn4*)GC_malloc(sizeof(BoxedPureFn4));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn4");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1714,6 +1998,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn5, BPureFn5 fn; size_t slot_len;);
 
 BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
     Closure5Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure5");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1729,6 +2017,10 @@ BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn5* rc = (BoxedPureFn5*)GC_malloc(sizeof(BoxedPureFn5));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn5");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1759,6 +2051,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn6, BPureFn6 fn; size_t slot_len;);
 
 BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
     Closure6Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure6");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1774,6 +2070,10 @@ BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn6* rc = (BoxedPureFn6*)GC_malloc(sizeof(BoxedPureFn6));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn6");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1804,6 +2104,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn7, BPureFn7 fn; size_t slot_len;);
 
 BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
     Closure7Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure7");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1819,6 +2123,10 @@ BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn7* rc = (BoxedPureFn7*)GC_malloc(sizeof(BoxedPureFn7));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn7");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1849,6 +2157,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn8, BPureFn8 fn; size_t slot_len;);
 
 BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
     Closure8Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure8");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1864,6 +2176,10 @@ BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn8* rc = (BoxedPureFn8*)GC_malloc(sizeof(BoxedPureFn8));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn8");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1894,6 +2210,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn9, BPureFn9 fn; size_t slot_len;);
 
 BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
     Closure9Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure9");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1909,6 +2229,10 @@ BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn9* rc = (BoxedPureFn9*)GC_malloc(sizeof(BoxedPureFn9));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn9");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1939,6 +2263,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn10, BPureFn10 fn; size_t slot_len;);
 
 BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
     Closure10Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure10");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1954,6 +2282,10 @@ BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn10* rc = (BoxedPureFn10*)GC_malloc(sizeof(BoxedPureFn10));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn10");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -1984,6 +2316,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn11, BPureFn11 fn; size_t slot_len;);
 
 BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
     Closure11Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure11");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -1999,6 +2335,10 @@ BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn11* rc = (BoxedPureFn11*)GC_malloc(sizeof(BoxedPureFn11));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn11");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2029,6 +2369,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn12, BPureFn12 fn; size_t slot_len;);
 
 BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
     Closure12Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure12");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2044,6 +2388,10 @@ BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn12* rc = (BoxedPureFn12*)GC_malloc(sizeof(BoxedPureFn12));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn12");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2074,6 +2422,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn13, BPureFn13 fn; size_t slot_len;);
 
 BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
     Closure13Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure13");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2089,6 +2441,10 @@ BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn13* rc = (BoxedPureFn13*)GC_malloc(sizeof(BoxedPureFn13));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn13");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2119,6 +2475,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn14, BPureFn14 fn; size_t slot_len;);
 
 BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
     Closure14Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure14");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2134,6 +2494,10 @@ BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn14* rc = (BoxedPureFn14*)GC_malloc(sizeof(BoxedPureFn14));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn14");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2164,6 +2528,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn15, BPureFn15 fn; size_t slot_len;);
 
 BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
     Closure15Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure15");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2179,6 +2547,10 @@ BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn15* rc = (BoxedPureFn15*)GC_malloc(sizeof(BoxedPureFn15));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn15");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2209,6 +2581,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn16, BPureFn16 fn; size_t slot_len;);
 
 BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
     Closure16Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure16");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2224,6 +2600,10 @@ BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn16* rc = (BoxedPureFn16*)GC_malloc(sizeof(BoxedPureFn16));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn16");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2254,6 +2634,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn17, BPureFn17 fn; size_t slot_len;);
 
 BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
     Closure17Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure17");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2269,6 +2653,10 @@ BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn17* rc = (BoxedPureFn17*)GC_malloc(sizeof(BoxedPureFn17));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn17");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2299,6 +2687,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn18, BPureFn18 fn; size_t slot_len;);
 
 BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
     Closure18Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure18");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2314,6 +2706,10 @@ BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn18* rc = (BoxedPureFn18*)GC_malloc(sizeof(BoxedPureFn18));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn18");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2344,6 +2740,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn19, BPureFn19 fn; size_t slot_len;);
 
 BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
     Closure19Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure19");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2359,6 +2759,10 @@ BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn19* rc = (BoxedPureFn19*)GC_malloc(sizeof(BoxedPureFn19));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn19");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2389,6 +2793,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn20, BPureFn20 fn; size_t slot_len;);
 
 BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
     Closure20Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure20");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2404,6 +2812,10 @@ BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn20* rc = (BoxedPureFn20*)GC_malloc(sizeof(BoxedPureFn20));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn20");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2434,6 +2846,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn21, BPureFn21 fn; size_t slot_len;);
 
 BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
     Closure21Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure21");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2449,6 +2865,10 @@ BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn21* rc = (BoxedPureFn21*)GC_malloc(sizeof(BoxedPureFn21));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn21");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2479,6 +2899,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn22, BPureFn22 fn; size_t slot_len;);
 
 BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
     Closure22Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure22");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2494,6 +2918,10 @@ BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn22* rc = (BoxedPureFn22*)GC_malloc(sizeof(BoxedPureFn22));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn22");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2524,6 +2952,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn23, BPureFn23 fn; size_t slot_len;);
 
 BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
     Closure23Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure23");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2539,6 +2971,10 @@ BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn23* rc = (BoxedPureFn23*)GC_malloc(sizeof(BoxedPureFn23));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn23");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2569,6 +3005,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn24, BPureFn24 fn; size_t slot_len;);
 
 BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
     Closure24Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure24");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2584,6 +3024,10 @@ BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn24* rc = (BoxedPureFn24*)GC_malloc(sizeof(BoxedPureFn24));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn24");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2614,6 +3058,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn25, BPureFn25 fn; size_t slot_len;);
 
 BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
     Closure25Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure25");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2629,6 +3077,10 @@ BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn25* rc = (BoxedPureFn25*)GC_malloc(sizeof(BoxedPureFn25));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn25");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2659,6 +3111,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn26, BPureFn26 fn; size_t slot_len;);
 
 BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
     Closure26Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure26");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2674,6 +3130,10 @@ BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn26* rc = (BoxedPureFn26*)GC_malloc(sizeof(BoxedPureFn26));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn26");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2704,6 +3164,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn27, BPureFn27 fn; size_t slot_len;);
 
 BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
     Closure27Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure27");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2719,6 +3183,10 @@ BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn27* rc = (BoxedPureFn27*)GC_malloc(sizeof(BoxedPureFn27));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn27");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2749,6 +3217,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn28, BPureFn28 fn; size_t slot_len;);
 
 BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
     Closure28Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure28");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2764,6 +3236,10 @@ BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn28* rc = (BoxedPureFn28*)GC_malloc(sizeof(BoxedPureFn28));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn28");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2794,6 +3270,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn29, BPureFn29 fn; size_t slot_len;);
 
 BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
     Closure29Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure29");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2809,6 +3289,10 @@ BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn29* rc = (BoxedPureFn29*)GC_malloc(sizeof(BoxedPureFn29));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn29");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2839,6 +3323,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn30, BPureFn30 fn; size_t slot_len;);
 
 BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
     Closure30Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure30");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2854,6 +3342,10 @@ BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn30* rc = (BoxedPureFn30*)GC_malloc(sizeof(BoxedPureFn30));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn30");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2884,6 +3376,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn31, BPureFn31 fn; size_t slot_len;);
 
 BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
     Closure31Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure31");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2899,6 +3395,10 @@ BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn31* rc = (BoxedPureFn31*)GC_malloc(sizeof(BoxedPureFn31));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn31");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
@@ -2929,6 +3429,10 @@ DEFINE_BSTS_OBJ(BoxedPureFn32, BPureFn32 fn; size_t slot_len;);
 
 BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
     Closure32Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_closure32");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
@@ -2944,6 +3448,10 @@ BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
       return (BValue)(TO_PURE_VALUE(fn));
     }
     BoxedPureFn32* rc = (BoxedPureFn32*)GC_malloc(sizeof(BoxedPureFn32));
+    if (rc == NULL) {
+        perror("GC_malloc failure in alloc_boxed_pure_fn32");
+        abort();
+    }
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
