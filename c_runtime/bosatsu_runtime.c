@@ -820,6 +820,10 @@ BValue bsts_integer_add(BValue l, BValue r) {
         int64_t l_int = (int64_t)GET_SMALL_INT(l);
         int64_t r_int = (int64_t)GET_SMALL_INT(r);
         return bsts_integer_from_int64(l_int + r_int);
+    } else if (((uintptr_t)l) == PURE_VALUE_TAG) {
+        // sub(x, y) is encoded as add(x, negate(y)), and in Bosatsu code
+        // -y is encoded as 0 - y. We should have a negate in Predef, but don't currently.
+        return r;
     } else {
         // At least one operand is a big integer
 
