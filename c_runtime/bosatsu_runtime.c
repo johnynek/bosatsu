@@ -7,6 +7,11 @@
 #include <limits.h>
 #include "gc.h"
 
+#include <assert.h>
+
+_Static_assert(sizeof(void*) == 8, "Bosatsu runtime currently requires 64-bit pointers");
+_Static_assert(sizeof(uintptr_t) == 8, "Bosatsu runtime assumes 64-bit uintptr_t");
+
 /*
 There are a few kinds of values:
 
