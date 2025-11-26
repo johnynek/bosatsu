@@ -369,23 +369,16 @@ char* bsts_string_utf8_bytes(BValue str) {
   return strptr->bytes;
 }
 
-/**
- * return the number of bytes at this position, 1, 2, 3, 4 or -1 on error
- * TODO: the runtime maybe should assume everything is safe, which the
- * compiler should have guaranteed, so doing error checks here is probably
- * wasteful once we debug the compiler.
- */
-int bsts_string_code_point_bytes(BValue value, int offset) {
-    BSTS_String* str = GET_STRING(value);
-    if (str == NULL || offset < 0 || offset >= str->len) {
+int bsts_utf8_code_point_bytes(char* utf8data, int offset, int len) {
+    if (utf8data == NULL || offset < 0 || offset >= len) {
         // Invalid input
         return -1;
     }
 
     // cast to an unsigned char for the math below
-    unsigned char *s = (unsigned char*)(str->bytes + offset);
+    unsigned char *s = (unsigned char*)(utf8data + offset);
     unsigned char c = s[0];
-    int remaining = str->len - offset;
+    int remaining = len - offset;
     int bytes = -1;
 
     if (c <= 0x7F) {
@@ -425,6 +418,20 @@ int bsts_string_code_point_bytes(BValue value, int offset) {
 
     // Return the code point value
     return bytes;
+}
+
+/**
+ * return the number of bytes at this position, 1, 2, 3, 4 or -1 on error
+ * TODO: the runtime maybe should assume everything is safe, which the
+ * compiler should have guaranteed, so doing error checks here is probably
+ * wasteful once we debug the compiler.
+ */
+int bsts_string_code_point_bytes(BValue value, int offset) {
+    BSTS_String* str = GET_STRING(value);
+    if (str == NULL) {
+        return -1;
+    }
+    return bsts_utf8_code_point_bytes(str->bytes, offset, str->len);
 }
 
 /**
