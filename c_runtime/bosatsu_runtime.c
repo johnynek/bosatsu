@@ -23,7 +23,7 @@ when it comes to functions there are two types, PureFn and closures. We have to 
   if we have a static boxed value, it ends in 1, else 0.
 
 Nat-like values are represented by positive integers encoded as PURE_VALUE such that
-NAT(x) = (x << 1) | 1, since we don't have enough time to increment through 2^{63} values
+NAT(x) = (x << 2) | 1, since we don't have enough time to increment through 2^{62} values
 this is a safe encoding.
 
 Char values are stored as unicode code points with a trailing 1.
@@ -493,8 +493,7 @@ BValue bsts_string_substring(BValue value, int start, int end) {
 // this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
 // (String, int) -> String
 BValue bsts_string_substring_tail(BValue value, int byte_offset) {
-  BSTS_String* str = GET_STRING(value);
-  return bsts_string_substring(str, byte_offset, str->len);
+  return bsts_string_substring(value, byte_offset, (int)bsts_string_utf8_len(value));
 }
 
 int bsts_string_find(BValue haystack, BValue needle, int start) {
@@ -536,43 +535,37 @@ int bsts_string_find(BValue haystack, BValue needle, int start) {
 }
 
 int bsts_string_rfind(BValue haystack, BValue needle, int start) {
-    BSTS_String* haystack_str = GET_STRING(haystack);
-    BSTS_String* needle_str = GET_STRING(needle);
+    BSTS_String* h = GET_STRING(haystack);
+    BSTS_String* n = GET_STRING(needle);
 
-    size_t haystack_len = haystack_str->len;
-    size_t needle_len = needle_str->len;
-    if (needle_len == 0) {
-        // Empty needle matches at end
-        if (haystack_len == 0) {
-          return 0;
-        }
-        return (start < (int)haystack_len) ? start : -1;
+    size_t hlen = h->len;
+    size_t nlen = n->len;
+
+    if (nlen == 0) {
+        if (hlen == 0) return 0;
+        if (start < 0) start = (int)(hlen - 1);
+        if (start >= (int)hlen) return -1;
+        return start;
     }
 
-    if (start < 0 || start > (int)(haystack_len - needle_len)) {
-        // Start position is out of bounds
-        return -1;
-    }
+    if (hlen < nlen) return -1;
 
+    // Clamp start to last possible position where needle fits
+    size_t max_pos = hlen - nlen;
+    size_t i = (start < 0) ? max_pos
+                           : (start > (int)max_pos ? max_pos : (size_t)start);
 
-    // The maximum valid start index is haystack_len - needle_len
-    for (size_t i = (size_t)start; 0 <= i; i--) {
-        if (haystack_str->bytes[i] == needle_str->bytes[0]) {
-            // Potential match found, check the rest of the needle
-            size_t j;
-            for (j = 1; j < needle_len; j++) {
-                if (haystack_str->bytes[i + j] != needle_str->bytes[j]) {
-                    break;
-                }
+    for (;; ) {
+        if (h->bytes[i] == n->bytes[0]) {
+            size_t j = 1;
+            for (; j < nlen; j++) {
+                if (h->bytes[i + j] != n->bytes[j]) break;
             }
-            if (j == needle_len) {
-                // Full match found
-                return (int)i;
-            }
+            if (j == nlen) return (int)i;
         }
+        if (i == 0) break;
+        i--;
     }
-
-    // No match found
     return -1;
 }
 
@@ -595,17 +588,28 @@ BValue bsts_integer_from_int(int32_t small_int) {
 }
 
 int32_t bsts_integer_to_int32(BValue bint) {
-  if (IS_SMALL(bint)) {
-    return GET_SMALL_INT(bint);
-  }
-  else {
+    if (IS_SMALL(bint)) {
+        return GET_SMALL_INT(bint);
+    }
+
     BSTS_Integer* bi = GET_BIG_INT(bint);
-    int64_t bottom = (int64_t)(bi->words[bi->len - 1]);
-    int64_t signed_bottom = (bi->sign) ? -bottom : bottom;
-    
-    return (int32_t)(signed_bottom);
-  }
+    if (bi->len == 0) return 0;
+
+    uint32_t low = bi->words[0];
+    if (bi->sign == 0) { // positive
+        return (int32_t)low;  // truncation
+    } else {
+        uint64_t mag = low;
+        if (bi->len > 1 || mag > (uint64_t)INT32_MAX + 1) {
+            // out of range
+            return INT32_MIN;
+
+        }
+        int64_t val = -(int64_t)mag;
+        return (int32_t)val;
+    }
 }
+
 
 BSTS_Integer* bsts_integer_alloc(size_t size) {
     // chatgpt authored this
@@ -649,8 +653,8 @@ BValue bsts_integer_from_int64(int64_t result) {
       // Promote to big integer
       _Bool is_positive = result >= 0;
       uint64_t abs_result = is_positive ? result : -result;
-      uint32_t low = (u_int32_t)(abs_result & 0xFFFFFFFF);
-      uint32_t high = (u_int32_t)((abs_result >> 32) & 0xFFFFFFFF);
+      uint32_t low = (uint32_t)(abs_result & 0xFFFFFFFF);
+      uint32_t high = (uint32_t)((abs_result >> 32) & 0xFFFFFFFF);
       if (high == 0) {
         BSTS_Integer* result = bsts_integer_alloc(1);
         result->sign = !is_positive;
@@ -774,7 +778,10 @@ _Bool bsts_integer_equals(BValue left, BValue right) {
           return small_int_value == 0;
         }
         // else len == 1
-        return big_int->words[0] == (uint32_t)small_int_value;
+        int64_t small64 = (int64_t)small_int_value;
+        int64_t big64 = big_int_sign ? -(int64_t)big_int->words[0] : (int64_t)big_int->words[0];
+
+        return big64 == small64;
     }
 }
 
@@ -1220,7 +1227,7 @@ void twos_complement_to_sign_magnitude(size_t len, uint32_t* words, _Bool* sign,
     }
 }
 
-void bsts_interger_small_to_twos(int32_t value, uint32_t* target, size_t max_len) {
+void bsts_integer_small_to_twos(int32_t value, uint32_t* target, size_t max_len) {
   memcpy(target, &value, sizeof(int32_t));
   if (value < 0) {
     // fill with -1 all the rest
@@ -1230,7 +1237,7 @@ void bsts_interger_small_to_twos(int32_t value, uint32_t* target, size_t max_len
   }
 }
 
-BValue bsts_integer_from_twos(size_t max_len, u_int32_t* result_twos) {
+BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     // Convert result from two's complement to sign-magnitude
     _Bool result_sign;
     size_t result_len = max_len;
@@ -1286,7 +1293,7 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1294,7 +1301,7 @@ BValue bsts_integer_and(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1414,7 +1421,7 @@ BValue bsts_integer_or(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1422,7 +1429,7 @@ BValue bsts_integer_or(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1438,6 +1445,9 @@ BValue bsts_integer_or(BValue l, BValue r) {
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] | r_twos[i];
     }
+
+    free(l_twos);
+    free(r_twos);
 
     return bsts_integer_from_twos(max_len, result_twos);
 }
@@ -1472,7 +1482,7 @@ BValue bsts_integer_xor(BValue l, BValue r) {
 
     // Convert left operand to two's complement
     if (l_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(l), l_twos, max_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, max_len);
@@ -1480,7 +1490,7 @@ BValue bsts_integer_xor(BValue l, BValue r) {
 
     // Convert right operand to two's complement
     if (r_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(r), r_twos, max_len);
     } else {
         BSTS_Integer* r_big = GET_BIG_INT(r);
         sign_magnitude_to_twos_complement(r_big->sign, r_big->len, r_big->words, r_twos, max_len);
@@ -1631,7 +1641,7 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     uint32_t* l_twos = (uint32_t*)calloc(l_len, sizeof(uint32_t));
     // Convert left operand to two's complement
     if (l_is_small) {
-        bsts_interger_small_to_twos(GET_SMALL_INT(l), l_twos, l_len);
+        bsts_integer_small_to_twos(GET_SMALL_INT(l), l_twos, l_len);
     } else {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         sign_magnitude_to_twos_complement(l_big->sign, l_big->len, l_big->words, l_twos, l_len);
@@ -1864,6 +1874,22 @@ BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand
   }
 }
 
+_Bool bsts_integer_is_zero(BValue v) {
+  _Bool is_zero;
+  if (IS_SMALL(v)) {
+      // zero is encoded as just the pure value tag
+      is_zero = (((uintptr_t)v) == PURE_VALUE_TAG);
+  } else {
+      BSTS_Integer* m_big = GET_BIG_INT(v);
+      is_zero = 1;
+      for (size_t i = 0; i < m_big->len; i++) {
+          if (m_big->words[i] != 0) { is_zero = 0; break; }
+      }
+  }
+
+  return is_zero;
+}
+
 // (&Integer, &Integer) -> (Integer, Integer)
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r) {
@@ -1900,6 +1926,10 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
         return alloc_struct2(bsts_integer_from_int(div), bsts_integer_from_int(mod));
       }
     }
+    if (bsts_integer_is_zero(r)) {
+        // we define division by zero as (0, l)
+        return alloc_struct2(bsts_integer_from_int(0), l);
+    }
     // TODO: we could handle the special case of r = 2^n with bit shifting
 
     // the general case is below
@@ -1922,7 +1952,7 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
     // now we need to 
     BValue div = divmod.div;
     BValue mod = divmod.mod;
-    if (GET_SMALL_INT(mod) != 0) {
+    if (!bsts_integer_is_zero(mod)) {
       if (!left_neg) {
         if (!right_neg) {
           // l = d r + m
@@ -1970,6 +2000,11 @@ void free_statics() {
   } while(1);
 }
 
+/**
+ * This may build twice in concurrency situations but recall Bosatsu is a statically typed
+ * and pure language, so running a constructor twice is never a problem, it just creates
+ * some extra garbage to collect.
+ */
 BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
     BValue result = atomic_load(target);
     if (result == NULL) {
