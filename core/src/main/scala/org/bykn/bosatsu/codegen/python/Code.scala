@@ -417,15 +417,33 @@ object Code {
             r1 match {
               case Op(rl, io: IntOp, rr) =>
                 io match {
-                  case Const.Plus =>
-                    // right associate
-                    rl.evalPlus(rr.evalPlus(i))
                   case Const.Minus =>
-                    // i - (rl - rr)
                     rr match {
                       case ri @ PyInt(_) =>
+                        // i - (rl - rr) == (i + rr) - rl
                         Op(i.evalPlus(ri), Const.Minus, rl)
-                      case _ => this
+                      case _ =>
+                        rl match {
+                          case ri @ PyInt(_) =>
+                            // i - (rl - rr) == (i - ri) + rl
+                            // combine the integers
+                            Op(i.evalMinus(ri), Const.Plus, rr)
+                          case _ => this
+                        }
+                    }
+                  case Const.Plus =>
+                    rr match {
+                      case ri @ PyInt(_) =>
+                        // i - (rl + rr) == (i - rr) - rl
+                        Op(i.evalMinus(ri), Const.Minus, rl)
+                      case _ =>
+                        rl match {
+                          case ri @ PyInt(_) =>
+                            // i - (rl + rr) == (i - rl) - rr
+                            // combine the integers
+                            Op(i.evalMinus(ri), Const.Minus, rr)
+                          case _ => this
+                        }
                     }
                   case _ => this
                 }

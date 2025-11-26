@@ -8,6 +8,7 @@ import org.bykn.bosatsu.pattern.StrPart
 import Identifier.{Bindable, Constructor}
 
 import cats.syntax.all._
+import java.math.BigInteger
 
 object TypedExprNormalization {
   import TypedExpr._
@@ -309,6 +310,9 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
+      case Impl.IntAlgebraic.Optimized(optIA) =>
+        Some(optIA.toTypedExpr)
+      // TODO: we could implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
         val f1 = normalize1(None, fn, scope, typeEnv).get
@@ -888,6 +892,314 @@ object TypedExprNormalization {
                 }
             }
       }
+
+    sealed abstract class IntAlgebraic[A] {
+      lazy val toTypedExpr: TypedExpr[A] = {
+        import IntAlgebraic._
+
+        this match {
+          case Add(left, right, addFn, tag) =>
+            App(
+              addFn,
+              NonEmptyList(left.toTypedExpr, right.toTypedExpr :: Nil),
+              Type.IntType,
+              tag
+            )
+          case Times(left, right, timesFn, tag) =>
+            App(
+              timesFn,
+              NonEmptyList(left.toTypedExpr, right.toTypedExpr :: Nil),
+              Type.IntType,
+              tag
+            )
+          case Sub(left, right, subFn, tag) =>
+            App(
+              subFn,
+              NonEmptyList(left.toTypedExpr, right.toTypedExpr :: Nil),
+              Type.IntType,
+              tag
+            )
+          case LiteralInt(bi, tag) =>
+            Literal(Lit.Integer(bi), Type.IntType, tag)
+          case OpaqueInt(intValue) => intValue
+        }
+      }
+
+      def tag: A
+    }
+    object IntAlgebraic {
+      case class Add[A](
+          left: IntAlgebraic[A],
+          right: IntAlgebraic[A],
+          addFn: TypedExpr[A],
+          tag: A
+      ) extends IntAlgebraic[A]
+      case class Times[A](
+          left: IntAlgebraic[A],
+          right: IntAlgebraic[A],
+          timesFn: TypedExpr[A],
+          tag: A
+      ) extends IntAlgebraic[A]
+      case class Sub[A](
+          left: IntAlgebraic[A],
+          right: IntAlgebraic[A],
+          subFn: TypedExpr[A],
+          tag: A
+      ) extends IntAlgebraic[A]
+      case class LiteralInt[A](bi: BigInteger, tag: A) extends IntAlgebraic[A]
+      case class OpaqueInt[A](intValue: TypedExpr[A]) extends IntAlgebraic[A] {
+        def tag: A = intValue.tag
+      }
+
+      private val Fn2Int = Type.Fun(
+        NonEmptyList(Type.IntType, Type.IntType :: Nil),
+        Type.IntType
+      )
+
+      def optimize[A](
+          root: IntAlgebraic[A],
+          te: TypedExpr[A]
+      ): Option[IntAlgebraic[A]] = {
+
+        case class Table(
+            invert: Vector[TypedExpr[Unit]],
+            toMap: Map[TypedExpr[Unit], (Int, NonEmptyList[TypedExpr[A]])],
+            litTags: Map[BigInteger, A]
+        ) {
+
+          def idOf(te: TypedExpr[A]): (Table, Int) = {
+            val teVoid = te.void
+            toMap.get(teVoid) match {
+              case Some((idx, nel)) =>
+                // just add this one to the list
+                val nel1 = te :: nel
+                (copy(toMap = toMap.updated(teVoid, (idx, nel1))), idx)
+              case None =>
+                val invert1 = invert :+ teVoid
+                val idx = invert.length
+                val toMap1 = toMap.updated(teVoid, (idx, NonEmptyList(te, Nil)))
+                (Table(invert1, toMap1, litTags), idx)
+            }
+          }
+          def typeExpr(idx: Int): TypedExpr[A] =
+            // we should only call this for ids we have assigned. We could enforce this
+            // by using an abstract type and provide the Hash[Idx] and Order[Idx] but it's
+            // not needed
+            toMap(invert(idx))._2.last
+
+          def biTag(bi: BigInteger, tag: A): Table =
+            // keep only the first tag we find, this is lossy
+            copy(litTags =
+              if (litTags.contains(bi)) litTags else (litTags.updated(bi, tag))
+            )
+
+          def tagForBi(bi: BigInteger): A =
+            litTags.get(bi) match {
+              case Some(a) => a
+              case None    => te.tag
+            }
+          def tagFromUntagged(teu: TypedExpr[Unit]): A =
+            toMap.get(teu) match {
+              case Some((_, nel)) => nel.last.tag
+              case None           =>
+                // just use the root tag
+                te.tag
+            }
+        }
+
+        val EmptyTable: Table = {
+          val t0 = Table(Vector.empty, Map.empty, Map.empty)
+          // insert the root TypedExpr into the table
+          val (t1, _) = t0.idOf(te)
+          t1
+        }
+
+        def toExpr(
+            ia: IntAlgebraic[A],
+            table: Table
+        ): (Table, RingOpt.Expr[Int]) =
+          ia match {
+            case Add(left, right, addFn, tag) =>
+              val (te0, _) = table.idOf(addFn)
+              val (te1, _) = te0.idOf(ia.toTypedExpr)
+              val (te2, l) = toExpr(left, te1)
+              val (te3, r) = toExpr(right, te2)
+              (te3, l + r)
+            case Times(left, right, timesFn, tag) =>
+              val (te0, _) = table.idOf(timesFn)
+              val (te1, _) = te0.idOf(ia.toTypedExpr)
+              val (te2, l) = toExpr(left, te1)
+              val (te3, r) = toExpr(right, te2)
+              (te3, l * r)
+            case Sub(left, right, subFn, tag) =>
+              val (te0, _) = table.idOf(subFn)
+              val (te1, _) = te0.idOf(ia.toTypedExpr)
+              val (te2, l) = toExpr(left, te1)
+              val (te3, r) = toExpr(right, te2)
+              (te3, l - r)
+            case LiteralInt(bi, tag) =>
+              (table.biTag(bi, tag), RingOpt.canonInt(BigInt(bi)))
+            case OpaqueInt(intValue) =>
+              val (te1, idx) = table.idOf(intValue)
+              (te1, RingOpt.Symbol(idx))
+          }
+
+        def toAlg(
+            e: RingOpt.Expr[Int],
+            table: Table
+        ): IntAlgebraic[A] =
+          e match {
+            case RingOpt.Zero =>
+              LiteralInt(BigInteger.ZERO, table.tagForBi(BigInteger.ZERO))
+            case RingOpt.One =>
+              LiteralInt(BigInteger.ONE, table.tagForBi(BigInteger.ONE))
+            case RingOpt.Integer(toBigInt) =>
+              val bi = toBigInt.bigInteger
+              LiteralInt(bi, table.tagForBi(bi))
+            case RingOpt.Symbol(idx) =>
+              OpaqueInt(table.typeExpr(idx))
+            case RingOpt.Add(pos, RingOpt.Neg(neg)) =>
+              // pos + (-neg) == pos - neg
+              val untaggedFn = Global(
+                PackageName.PredefName,
+                Identifier.Name("sub"),
+                Fn2Int,
+                ()
+              )
+              val posIA = toAlg(pos, table)
+              val negIA = toAlg(neg, table)
+              val subTag = table.tagFromUntagged(untaggedFn)
+              val subFn = untaggedFn.copy(tag = subTag)
+              val fakeTagged = Sub(posIA, negIA, subFn, subTag)
+              val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
+              Sub(posIA, negIA, subFn, realTag)
+            case RingOpt.Add(RingOpt.Neg(neg), pos) =>
+              // (-neg) + pos == pos - neg
+              val untaggedFn = Global(
+                PackageName.PredefName,
+                Identifier.Name("sub"),
+                Fn2Int,
+                ()
+              )
+              val posIA = toAlg(pos, table)
+              val negIA = toAlg(neg, table)
+              val subTag = table.tagFromUntagged(untaggedFn)
+              val subFn = untaggedFn.copy(tag = subTag)
+              val fakeTagged = Sub(posIA, negIA, subFn, subTag)
+              val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
+              Sub(posIA, negIA, subFn, realTag)
+            case RingOpt.Add(left, right) =>
+              val untaggedFn = Global(
+                PackageName.PredefName,
+                Identifier.Name("add"),
+                Fn2Int,
+                ()
+              )
+              val leftIA = toAlg(left, table)
+              val rightIA = toAlg(right, table)
+              val addTag = table.tagFromUntagged(untaggedFn)
+              val addFn = untaggedFn.copy(tag = addTag)
+              val fakeTagged = Add(leftIA, rightIA, addFn, addTag)
+              val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
+              Add(leftIA, rightIA, addFn, realTag)
+            case RingOpt.Mult(left, right) =>
+              val untaggedFn = Global(
+                PackageName.PredefName,
+                Identifier.Name("times"),
+                Fn2Int,
+                ()
+              )
+              val leftIA = toAlg(left, table)
+              val rightIA = toAlg(right, table)
+              val timesTag = table.tagFromUntagged(untaggedFn)
+              val timesFn = untaggedFn.copy(tag = timesTag)
+              val fakeTagged = Times(leftIA, rightIA, timesFn, timesTag)
+              val realTag = table.tagFromUntagged(fakeTagged.toTypedExpr.void)
+              Times(leftIA, rightIA, timesFn, realTag)
+            case neg @ RingOpt.Neg(_) =>
+              toAlg(RingOpt.Add(RingOpt.Zero, neg), table)
+          }
+
+        val (table, expr) = toExpr(root, EmptyTable)
+        val w = RingOpt.Weights(mult = 20, add = 1, neg = 1)
+        val norm = RingOpt.normalize(expr, w)
+
+        if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
+          // the expression is exactly the same
+          None
+        } else {
+          val ia1 = toAlg(norm, table)
+          if (ia1.toTypedExpr.void == root.toTypedExpr.void) {
+            // since the AST of RingOpt isn't the same as TypedExpr
+            // we can improve the RingOpt AST but the resulting TypedExpr
+            // AST may be exactly the same. Unfortunately, this check
+            // is safer to do.
+            // for instance: 0 - x can be optimized to -x in RingOpt
+            // but currently, the predef doesn't have negate, and just
+            // uses sub to do this (which at codegen time we can always)
+            // optimize into a negate at the top level as needed.
+            None
+          } else Some(ia1)
+        }
+      }
+
+      object Optimized {
+        def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
+          Impl.IntAlgebraic.unapply(te) match {
+            case Some(ia) => optimize(ia, te)
+            case None     => None
+          }
+      }
+
+      def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
+        te match {
+
+          case App(
+                addFn @ Global(
+                  PackageName.PredefName,
+                  Identifier.Name("add"),
+                  Fn2Int,
+                  _
+                ),
+                NonEmptyList(left, right :: _),
+                _,
+                tag
+              ) =>
+            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            Some(Add(leftArg, rightArg, addFn, tag))
+          case App(
+                timesFn @ Global(
+                  PackageName.PredefName,
+                  Identifier.Name("times"),
+                  Fn2Int,
+                  _
+                ),
+                NonEmptyList(left, right :: _),
+                _,
+                tag
+              ) =>
+            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            Some(Times(leftArg, rightArg, timesFn, tag))
+          case App(
+                subFn @ Global(
+                  PackageName.PredefName,
+                  Identifier.Name("sub"),
+                  Fn2Int,
+                  _
+                ),
+                NonEmptyList(left, right :: _),
+                _,
+                tag
+              ) =>
+            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            Some(Sub(leftArg, rightArg, subFn, tag))
+          case Literal(Lit.Integer(bi), _, tag) => Some(LiteralInt(bi, tag))
+          case _                                => None
+        }
+    }
   }
 
 }

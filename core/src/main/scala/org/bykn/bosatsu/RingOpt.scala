@@ -1053,6 +1053,9 @@ object RingOpt {
     implicit def hashMultTerm[A: Hash]: Hash[MultTerm[A]] =
       Hash[Expr[A]].contramap[MultTerm[A]](_.toExpr)
 
+    implicit def orderMultTerm[A: Order]: Order[MultTerm[A]] =
+      Order[Expr[A]].contramap[MultTerm[A]](_.toExpr)
+
     implicit def showMultTerm[A: Show]: Show[MultTerm[A]] =
       Show[Expr[A]].contramap[MultTerm[A]](_.toExpr)
   }
@@ -1774,7 +1777,7 @@ object RingOpt {
   case class SumProd[A](
       const: BigInt,
       terms: MultiSet[NonEmptyList[MultTerm[A]], BigInt]
-  ) {
+  )(implicit ordA: Order[A]) {
 
     // If the constant is zero, and there is only one item in terms, this is actually a Mult Node
     def toMult: Option[Mult[A]] =
@@ -1808,8 +1811,7 @@ object RingOpt {
     // (expr * a + b) == this
     // invariant: ((a == 1) && (b == 0)) == false and a != this, b != this
     def splits(implicit
-        h: Hash[A],
-        o: Order[A]
+        h: Hash[A]
     ): List[(Either[BigInt, MultTerm[A]], SumProd[A], SumProd[A])] = if (
       terms.isZero
     ) Nil
@@ -1900,11 +1902,7 @@ object RingOpt {
       }
 
       val biSplits = allBis.iterator.flatMap { case bi =>
-        val divTerms = {
-          implicit val hashNEL: Hash[NonEmptyList[MultTerm[A]]] =
-            Hash[List[MultTerm[A]]]
-              .contramap[NonEmptyList[MultTerm[A]]](_.toList)
-
+        val divTerms =
           terms.nonZeroIterator
             .flatMap { case (k, v) =>
               val (d, m) = v /% bi
@@ -1915,7 +1913,6 @@ object RingOpt {
               case (acc, (k, v)) =>
                 acc.add(k, v)
             }
-        }
 
         if (divTerms.isZero) Nil
         else {
@@ -1938,7 +1935,10 @@ object RingOpt {
     // expression into an Expr
     val directToExpr: Expr[A] = {
       val e0: Expr[A] = canonInt(const)
-      terms.nonZeroIterator.foldLeft(e0) { case (acc, (ms, c)) =>
+      // We sometimes return this term directly so we need to make
+      // sure it is ordered
+      val orderedTerms = terms.nonZeroIterator.toList.sorted
+      orderedTerms.foldLeft(e0) { case (acc, (ms, c)) =>
         val prod =
           ms.map(_.toExpr).reduce[Expr[A]]((acc, m) => Expr.checkMult(acc, m))
 
@@ -1947,7 +1947,7 @@ object RingOpt {
       }
     }
 
-    def normalize(w: Weights)(implicit h: Hash[A], o: Order[A]): Expr[A] =
+    def normalize(w: Weights)(implicit h: Hash[A]): Expr[A] =
       toMult match {
         case Some(m) =>
           // Sometimes we can reduce SumProd into just a product,
