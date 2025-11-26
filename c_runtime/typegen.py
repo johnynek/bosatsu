@@ -23,6 +23,10 @@ def struct_impl(size):
 
 BValue alloc_struct{size}({arg_params}) {{
     Struct{size}* rc = GC_malloc(sizeof(Struct{size}));
+    if (rc == NULL) {{
+        perror("GC_malloc failure in alloc_struct{size}");
+        abort();
+    }}
     {assigns}
     return (BValue)rc;
 }}"""
@@ -37,6 +41,10 @@ def enum_impl(size):
 
 BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
     Enum{size}* rc = GC_malloc(sizeof(Enum{size}));
+    if (rc == NULL) {{
+        perror("GC_malloc failure in alloc_enum{size}");
+        abort();
+    }}
     rc->tag = tag;
     {assigns}
     return (BValue)rc;
@@ -57,6 +65,10 @@ def function_impl(size):
 
 BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     Closure{size}Data* rc = GC_malloc(closure_data_size(size));
+    if (rc == NULL) {{
+        perror("GC_malloc failure in alloc_closure{size}");
+        abort();
+    }}
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of({cast_to_1}rc);
@@ -72,6 +84,10 @@ BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
       return (BValue)(TO_PURE_VALUE(fn));
     }}
     BoxedPureFn{size}* rc = (BoxedPureFn{size}*)GC_malloc(sizeof(BoxedPureFn{size}));
+    if (rc == NULL) {{
+        perror("GC_malloc failure in alloc_boxed_pure_fn{size}");
+        abort();
+    }}
     rc->fn = fn;
     rc->slot_len = 0;
     return (BValue)rc;
