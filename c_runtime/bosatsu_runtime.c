@@ -83,8 +83,6 @@ BValue* closure_data_of(Closure1Data* s) {
 }
 
 // Given the slots variable return the closure fn value
-// TODO: this may interact badly with static ptr tagging trick
-// since we have lost track if the original was tagged static or not
 BValue bsts_closure_from_slots(BValue* slots) {
   uintptr_t s = (uintptr_t)slots;
   uintptr_t pointer_to_closure = s - sizeof(Closure1Data);
@@ -156,8 +154,6 @@ typedef struct Stack {
 
 static _Atomic Stack statics;
 
-// for now, we only push refcounted values on here while they are still valid
-// then we | STATIC_VALUE_TAG to avoid bothering with ref-counting during operation
 static void push(BSTS_OBJ* static_value) {
   // TODO what if this malloc fails
   Node* node = GC_malloc_uncollectable(sizeof(Node));
@@ -251,8 +247,17 @@ void* get_external(BValue v) {
 
 BValue bsts_string_mut(size_t len) {
   BSTS_String* str = GC_malloc(sizeof(BSTS_String));
+  if (str == NULL) {
+      perror("failed to GC_malloc in bsts_string_mut");
+      abort();
+  }
   str->len = len;
-  str->bytes = GC_malloc_atomic(sizeof(char) * len);
+  char* bytes = GC_malloc_atomic(sizeof(char) * len);
+  if (bytes == NULL) {
+      perror("failed to GC_malloc in bsts_string_mut");
+      abort();
+  }
+  str->bytes = bytes;
   return (BValue)str;
 }
 
@@ -489,8 +494,7 @@ BValue bsts_string_substring(BValue value, int start, int end) {
   }
   else {
     // TODO: we could keep track of an offset into the string to optimize
-    // this case when refcount == 1, which may matter for tail recursion
-    // taking substrings....
+    // we could avoid the copy and just keep the original ptr to allocated data
     return bsts_string_from_utf8_bytes_copy(new_len, str->bytes + start);
   }
 }
@@ -620,15 +624,16 @@ BSTS_Integer* bsts_integer_alloc(size_t size) {
     // chatgpt authored this
     BSTS_Integer* integer = (BSTS_Integer*)GC_malloc(sizeof(BSTS_Integer));
     if (integer == NULL) {
-        // Handle allocation failure
-        return NULL;
+        perror("failed to alloc BSTS_Integer");
+        abort();
     }
 
     // TODO we could allocate just once and make sure this is the tail of BSTS_Integer
     integer->words = (uint32_t*)GC_malloc_atomic(size * sizeof(uint32_t));
     if (integer->words == NULL) {
         // Handle allocation failure
-        return NULL;
+        perror("failed to alloc BSTS_Integer words");
+        abort();
     }
     integer->len = size;
     return integer; // Low bit is 0 since it's a pointer
@@ -641,10 +646,6 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
       size--;
     }
     BSTS_Integer* integer = bsts_integer_alloc(size);
-    if (integer == NULL) {
-        // Handle allocation failure
-        return NULL;
-    }
     integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
     return (BValue)integer; // Low bit is 0 since it's a pointer
@@ -839,7 +840,8 @@ BValue bsts_integer_add(BValue l, BValue r) {
             size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
             uint32_t* result_words = (uint32_t*)calloc(max_len + 1, sizeof(uint32_t));
             if (result_words == NULL) {
-                return NULL;
+                perror("failed to alloc result_words in bsts_integer_add");
+                abort();
             }
 
             uint64_t carry = 0;
@@ -902,7 +904,8 @@ BValue bsts_integer_add(BValue l, BValue r) {
                 size_t result_len = larger->len;
                 uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
                 if (result_words == NULL) {
-                    return NULL;
+                    perror("failed to calloc result_words in bsts_integer_add");
+                    abort();
                 }
 
                 int64_t borrow = 0;
@@ -975,11 +978,7 @@ BValue bsts_integer_negate(BValue v) {
 
         // recall the sign is (-1)^sign, so to negate, pos = sign
         _Bool pos = integer->sign;
-        BValue result = bsts_integer_from_words_copy(pos, integer->len, integer->words);
-        if (result == NULL) {
-            return NULL;
-        }
-        return result;
+        return bsts_integer_from_words_copy(pos, integer->len, integer->words);
     }
 }
 
@@ -1017,7 +1016,8 @@ BValue bsts_integer_to_string(BValue v) {
 
         if (length < 0) {
             // snprintf error
-            return NULL;
+            perror("snprintf error in bsts_integer_to_string");
+            abort();
         }
 
         return bsts_string_from_utf8_bytes_copy(length, buffer);
@@ -1046,7 +1046,8 @@ BValue bsts_integer_to_string(BValue v) {
         char* digits = (char*)malloc(max_digits);
         if (digits == NULL) {
             // Memory allocation error
-            return NULL; 
+            perror("failed to malloc digits in bsts_integer_to_string");
+            abort();
         }
 
         size_t digit_count = 0;
@@ -1057,7 +1058,8 @@ BValue bsts_integer_to_string(BValue v) {
         if (words_copy == NULL) {
             // Memory allocation error
             free(digits);
-            return NULL;
+            perror("failed to malloc words_copy in bsts_integer_to_string");
+            abort();
         }
         memcpy(words_copy, bigint->words, len * sizeof(uint32_t));
 
@@ -1066,7 +1068,8 @@ BValue bsts_integer_to_string(BValue v) {
             // Memory allocation error
             free(digits);
             free(words_copy);
-            return NULL;
+            perror("failed to malloc quotient_words in bsts_integer_to_string");
+            abort();
         }
 
         // Handle sign
@@ -1097,12 +1100,6 @@ BValue bsts_integer_to_string(BValue v) {
 
         // Now, reverse the digits to get the correct order
         BSTS_String* res = (BSTS_String*)bsts_string_mut(digit_count);
-        if (res == NULL) {
-            // Memory allocation error
-            free(digits);
-            free(words_copy);
-            return NULL;
-        }
 
         // reverse the data
         for (size_t i = 0; i < digit_count; i++) {
@@ -1247,11 +1244,6 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     _Bool result_sign;
     size_t result_len = max_len;
     BSTS_Integer* result = bsts_integer_alloc(max_len);
-    if (result == NULL) {
-        free(result_twos);
-        return NULL;
-    }
-
     twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
     free(result_twos);
 
@@ -1293,7 +1285,8 @@ BValue bsts_integer_and(BValue l, BValue r) {
     if (l_twos == NULL || r_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to calloc l_twos or r_twos in bsts_integer_and");
+        abort();
     }
 
     // Convert left operand to two's complement
@@ -1317,7 +1310,8 @@ BValue bsts_integer_and(BValue l, BValue r) {
     if (result_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to malloc result_twos in bsts_integer_and");
+        abort();
     }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] & r_twos[i];
@@ -1358,7 +1352,8 @@ BValue bsts_integer_times(BValue left, BValue right) {
         size_t result_len = l_operand.len + r_operand.len;
         uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
         if (result_words == NULL) {
-            return NULL;
+            perror("failed to malloc result_words in bsts_integer_times");
+            abort();
         }
 
         for (size_t i = 0; i < l_operand.len; i++) {
@@ -1421,7 +1416,8 @@ BValue bsts_integer_or(BValue l, BValue r) {
     if (l_twos == NULL || r_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to calloc l_twos or r_twos in bsts_integer_or");
+        abort();
     }
 
     // Convert left operand to two's complement
@@ -1445,7 +1441,8 @@ BValue bsts_integer_or(BValue l, BValue r) {
     if (result_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to malloc result_twos in bsts_integer_or");
+        abort();
     }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] | r_twos[i];
@@ -1482,7 +1479,8 @@ BValue bsts_integer_xor(BValue l, BValue r) {
     if (l_twos == NULL || r_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to calloc l_twos or r_twos in bsts_integer_xor");
+        abort();
     }
 
     // Convert left operand to two's complement
@@ -1506,7 +1504,8 @@ BValue bsts_integer_xor(BValue l, BValue r) {
     if (result_twos == NULL) {
         free(l_twos);
         free(r_twos);
-        return NULL;
+        perror("failed to malloc result_twos in bsts_integer_xor");
+        abort();
     }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] ^ r_twos[i];
@@ -1630,7 +1629,11 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     // Check if r is a small integer
     if (!IS_SMALL(r)) {
         // r is not a small integer, return NULL
-        return NULL;
+        // TODO: it could be a small value encoded as a big number
+        // or it could be negative which we could handle, since it may
+        // be just resulting in zero
+        perror("non-small left shift");
+        abort();
     }
 
     // Get the shift amount
@@ -1665,7 +1668,8 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         size_t new_len = l_len + word_shift + 1; // +1 for possible carry
         uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
         if (new_words == NULL) {
-            return NULL;
+            perror("failed to calloc new_words in bsts_integer_shift_left");
+            abort();
         }
 
         // Shift bits
@@ -1701,7 +1705,8 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         size_t new_len = l_len - word_shift;
         uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
         if (new_words == NULL) {
-            return NULL;
+            perror("failed to calloc new_words in bsts_integer_shift_left");
+            abort();
         }
 
         _Bool operand_sign = bsts_integer_lt_zero(l);
