@@ -369,7 +369,7 @@ char* bsts_string_utf8_bytes(BValue str) {
   return strptr->bytes;
 }
 
-int bsts_utf8_code_point_bytes(char* utf8data, int offset, int len) {
+int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
     if (utf8data == NULL || offset < 0 || offset >= len) {
         // Invalid input
         return -1;

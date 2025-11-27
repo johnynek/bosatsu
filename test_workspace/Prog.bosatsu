@@ -1,7 +1,7 @@
 package Bosatsu/Prog
 
 export (unit, pure, raise_error, read_env, ignore_env, recover, remap_env,
-  println, await, recursive, map, map_err,
+  print, println, await, read_stdin_utf8_bytes, recursive, map, map_err,
   with_env, Prog, Main())
 
 external struct Prog[env: -*, err: +*, res: +*]
@@ -31,6 +31,9 @@ def ignore_env[a, e, r](p: Prog[Unit, e, r]) -> Prog[a, e, r]:
   p.remap_env(_ -> ())
 
 external def println(str: String) -> Prog[Unit, forall e. e, Unit]
+external def print(str: String) -> Prog[Unit, forall e. e, Unit]
+# read about n bytes from the standard in. Returns empty string on EOF
+external def read_stdin_utf8_bytes(n: Int) -> Prog[Unit, Unit, String]
 
 def await(p): fn -> p.flat_map(fn)
 
@@ -44,9 +47,9 @@ struct Main(prog: Prog[List[String], forall e. e, Int])
 count_down = recursive(loop -> (
     def compute(i):
       if cmp_Int(i, 0) matches EQ | LT:
-        println("done")
+        println("\ndone")
       else:
-        _ <- println("${int_to_String(i)}").await()
+        _ <- print("${int_to_String(i)}, ").await()
         loop(i.sub(1))
     
     compute
@@ -55,6 +58,10 @@ count_down = recursive(loop -> (
 to_run = Main(
   read_env.flat_map(args ->
     (
+      stdin <- read_stdin_utf8_bytes(1000).recover(_ -> (
+        println("<failed to read stdin").map(_ -> "")
+      )).await()
+      _ <- println("found stdin: ${stdin}").await()
       _ <- count_down(10).await()
       arg_str = args.foldl_List("", (s, item) -> match s:
         case "": item

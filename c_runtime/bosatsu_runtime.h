@@ -54,6 +54,7 @@ int bsts_string_cmp(BValue left, BValue right);
 // &String -> int (length in bytes)
 size_t bsts_string_utf8_len(BValue);
 char* bsts_string_utf8_bytes(BValue);
+int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len);
 
 // How many bytes is the codepoint at this offset, 1, 2, 3, 4, or -1 on error
 // (&String, int) -> int
@@ -77,6 +78,8 @@ int bsts_string_find(BValue haystack, BValue needle, int start);
  * (&string, string, int) -> int
  */
 int bsts_string_rfind(BValue haystack, BValue needle, int start);
+// &String -> Unit
+void bsts_string_print(BValue v);
 // &String -> Unit
 void bsts_string_println(BValue v);
 
