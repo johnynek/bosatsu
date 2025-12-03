@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.{Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT, StateT}
+import cats.parse.{Parser => P}
 //import cats.effect.IO
 import org.bykn.bosatsu.graph.Memoize
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
@@ -17,6 +18,8 @@ import cats.implicits._
 /** convert TypedExpr to and from Protobuf representation
   */
 object ProtoConverter {
+  case class NameParseError(name: String, message: String, error: P.Error) extends Exception(message)
+
   case class IdAssignment[A1, A2](mapping: Map[A1, Int], inOrder: Vector[A2]) {
     def get(a1: A1, a2: => A2): Either[(IdAssignment[A1, A2], Int), Int] =
       mapping.get(a1) match {
@@ -1530,17 +1533,27 @@ object ProtoConverter {
   private val anonBind: Success[Bindable] =
     Success(Identifier.Name("$anon"))
 
+  private def tryParse[A](p: P[A], str: String): Try[A] =
+    p.parseAll(str) match {
+      case Right(a) => Success(a)
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val message = s"failed to parse: $str: at $idx: (${str
+            .substring(idx)}) with errors: ${err.expected}"
+        Failure(NameParseError(str, message, err))
+    }
+
   def toBindable(str: String): Try[Bindable] =
     if (str == "$anon")
       anonBind // used in Expr to create some lambdas with pattern match
-    else Try(Identifier.unsafeParse(Identifier.bindableParser, str))
+    else tryParse(Identifier.bindableWithSynthetic, str)
 
   def toIdent(str: String): Try[Identifier] =
     if (str == "$anon") anonBind
-    else Try(Identifier.unsafeParse(Identifier.parser, str))
+    else tryParse(Identifier.parserWithSynthetic, str)
 
   def toConstructor(str: String): Try[Identifier.Constructor] =
-    Try(Identifier.unsafeParse(Identifier.consParser, str))
+    tryParse(Identifier.consParser, str)
 
   def lookupBindable(idx: Int, context: => String): DTab[Bindable] =
     lookup(idx, context).flatMapF(toBindable)
