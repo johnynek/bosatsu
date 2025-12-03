@@ -1530,9 +1530,6 @@ object ProtoConverter {
         proto.Packages(packs)
       }
 
-  private val anonBind: Success[Bindable] =
-    Success(Identifier.Name("$anon"))
-
   private def tryParse[A](p: P[A], str: String): Try[A] =
     p.parseAll(str) match {
       case Right(a) => Success(a)
@@ -1544,13 +1541,10 @@ object ProtoConverter {
     }
 
   def toBindable(str: String): Try[Bindable] =
-    if (str == "$anon")
-      anonBind // used in Expr to create some lambdas with pattern match
-    else tryParse(Identifier.bindableWithSynthetic, str)
+    tryParse(Identifier.bindableWithSynthetic, str)
 
   def toIdent(str: String): Try[Identifier] =
-    if (str == "$anon") anonBind
-    else tryParse(Identifier.parserWithSynthetic, str)
+    tryParse(Identifier.parserWithSynthetic, str)
 
   def toConstructor(str: String): Try[Identifier.Constructor] =
     tryParse(Identifier.consParser, str)
