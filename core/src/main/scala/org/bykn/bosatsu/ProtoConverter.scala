@@ -1534,9 +1534,7 @@ object ProtoConverter {
     p.parseAll(str) match {
       case Right(a) => Success(a)
       case Left(err) =>
-        val idx = err.failedAtOffset
-        val message = s"failed to parse: $str: at $idx: (${str
-            .substring(idx)}) with errors: ${err.expected}"
+        val message = show"$err"
         Failure(NameParseError(str, message, err))
     }
 
