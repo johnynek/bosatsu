@@ -297,6 +297,16 @@ class ParserTest extends ParserTestBase {
     examples.foreach(roundTrip(Identifier.parser, _))
   }
 
+  test("synthentics parse") {
+    forAll { (str: String) =>
+      if (str.nonEmpty) {
+        val synth = Identifier.synthetic(str)
+        val parsed = Identifier.bindableWithSynthetic.parseAll(synth.asString)
+        assert(parsed == Right(synth))
+      }
+    }
+  }
+
   test("we can append to an identifier and parse it") {
     forAll(Generators.bindIdentGen, Arbitrary.arbitrary[String]) { (b, str) =>
       val i1 = Identifier.appendToName(b, str)

@@ -93,7 +93,7 @@ object Identifier {
     bindableParser.orElse(consParser)
 
   val bindableWithSynthetic: P[Bindable] =
-    bindableParser.orElse(P.anyChar.repAs[String].map(Name(_)))
+    bindableParser.orElse((P.char('_') ~ P.anyChar.rep).string.map(Name(_)))
 
   val parserWithSynthetic: P[Identifier] =
     bindableWithSynthetic.orElse(consParser)
@@ -138,6 +138,8 @@ object Identifier {
   implicit val showIdentifier: cats.Show[Identifier] =
     cats.Show(_.sourceCodeRepr)
 
-  def synthetic(name: String): Bindable =
+  def synthetic(name: String): Bindable = {
+    require(name.nonEmpty)
     Name("_" + name)
+  }
 }
