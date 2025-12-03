@@ -8,5 +8,7 @@
     read_env: ProgExt.read_env,
     remap_env: ProgExt.remap_env,
     println: ProgExt.println,
+    print: ProgExt.print_stdout,
+    read_stdin_utf8_bytes: ProgExt.read_stdin_utf8_bytes
   }
 }
