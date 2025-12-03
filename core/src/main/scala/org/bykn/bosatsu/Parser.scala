@@ -460,9 +460,7 @@ object Parser {
     pa.parseAll(str) match {
       case Right(a)  => a
       case Left(err) =>
-        val idx = err.failedAtOffset
-        sys.error(s"failed to parse: $str: at $idx: (${str
-            .substring(idx)}) with errors: ${err.expected}")
+        sys.error(show"$err")
     }
 
   sealed abstract class MaybeTupleOrParens[A]

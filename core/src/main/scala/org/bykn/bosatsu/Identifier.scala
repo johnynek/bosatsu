@@ -92,13 +92,19 @@ object Identifier {
   val parser: P[Identifier] =
     bindableParser.orElse(consParser)
 
+  val bindableWithSynthetic: P[Bindable] =
+    bindableParser.orElse((P.char('_') ~ P.anyChar.rep).string.map(Name(_)))
+
+  val parserWithSynthetic: P[Identifier] =
+    bindableWithSynthetic.orElse(consParser)
+
   // When we are allocating new names, we want
   // them to be similar
   def appendToName(i: Bindable, suffix: String): Bindable =
     i match {
       case Backticked(b) => Backticked(b + suffix)
       case _             =>
-        // try to stry the same
+        // try to stay the same
         val p = operator.orElse(nameParser)
         val cand = i.sourceCodeRepr + suffix
         p.parseAll(cand) match {
@@ -132,6 +138,8 @@ object Identifier {
   implicit val showIdentifier: cats.Show[Identifier] =
     cats.Show(_.sourceCodeRepr)
 
-  def synthetic(name: String): Bindable =
+  def synthetic(name: String): Bindable = {
+    require(name.nonEmpty)
     Name("_" + name)
+  }
 }
