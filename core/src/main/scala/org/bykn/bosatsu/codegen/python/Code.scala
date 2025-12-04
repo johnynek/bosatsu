@@ -370,6 +370,8 @@ object Code {
     // prefer constants on the right
     override def simplify: Expression =
       this match {
+        // handle static integer ops, if we get past here
+        // we know that at least one side isn't a pure integer op
         case Op(PyInt(a), io: IntOp, PyInt(b)) =>
           PyInt(io(a, b))
         case Op(i @ PyInt(a), Const.Times, right) =>
@@ -397,7 +399,8 @@ object Code {
             val l1 = left.simplify
             if (l1 == left) {
               l1 match {
-                case Op(ll, io: IntOp, rl) =>
+                // if the left has a trailing constant combine it
+                case Op(ll, io: IntOp, rl @ PyInt(_)) =>
                   io match {
                     case Const.Plus =>
                       // right associate
@@ -407,6 +410,7 @@ object Code {
                       ll.evalMinus(rl.evalMinus(i))
                     case _ => this
                   }
+                // left doesn't have a trailing constant
                 case _ => this
               }
             } else (l1.evalPlus(i))

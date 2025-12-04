@@ -575,15 +575,20 @@ else:
 
   test("simplify applies lambdas") {
     // (lambda x: f(x))(y) == f(y)
+
+    // this is here so we don't shrink the args without the lambda, since
+    // they need to be aligned
+    case class LambdaArgs(lam: Code.Lambda, args: List[Code.Expression])
+
     val genArgs =
       for {
         n <- Gen.choose(0, 4)
         largs <- Gen.listOfN(n, genIdent)
         args <- Gen.listOfN(n, genIdent)
         result <- genExpr(4)
-      } yield (Code.Lambda(largs, result), args)
+      } yield LambdaArgs(Code.Lambda(largs, result), args)
 
-    forAll(genArgs) { case (lam, arg) =>
+    forAll(genArgs) { case LambdaArgs(lam, arg) =>
       assert(
         lam(arg: _*).simplify == Code
           .substitute(lam.args.zip(arg).toMap, lam.result)
