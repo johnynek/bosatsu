@@ -1,10 +1,10 @@
 {
-  "name": "core",
+  "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
   "next_version": "0.0.2",
   "previous": {
       "version": "0.0.1",
-      "hashes": [ "blake3:fbe0326cb5e4a1e1821e4a998288426189d1f1a7f6a584f9604b403bdcba0178" ],
+      "hashes": [ "blake3:fbe0326cb5e4a1e1821e4a998288426189d1f1a7f6a584f9604b403bdcba0178"],
       "uris": []
     },
   "exported_packages": [],
