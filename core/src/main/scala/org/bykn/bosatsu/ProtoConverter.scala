@@ -18,7 +18,8 @@ import cats.implicits._
 /** convert TypedExpr to and from Protobuf representation
   */
 object ProtoConverter {
-  case class NameParseError(name: String, message: String, error: P.Error) extends Exception(message)
+  case class NameParseError(name: String, message: String, error: P.Error)
+      extends Exception(message)
 
   case class IdAssignment[A1, A2](mapping: Map[A1, Int], inOrder: Vector[A2]) {
     def get(a1: A1, a2: => A2): Either[(IdAssignment[A1, A2], Int), Int] =
@@ -1532,7 +1533,7 @@ object ProtoConverter {
 
   private def tryParse[A](p: P[A], str: String): Try[A] =
     p.parseAll(str) match {
-      case Right(a) => Success(a)
+      case Right(a)  => Success(a)
       case Left(err) =>
         val message = show"$err"
         Failure(NameParseError(str, message, err))
