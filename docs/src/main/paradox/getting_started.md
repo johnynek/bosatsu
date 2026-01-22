@@ -20,7 +20,7 @@ Usage:
 a total and functional programming language
 
 version: 0.1.0-SNAPSHOT
-scala-version: 2.12.11
+scala-version: 3.7.4
 git-sha: 1d068c4f3c16807aeb42565d4fc7c45b401e96a4
 
 Options and flags:
@@ -63,4 +63,3 @@ real    0m2.260s
 user    0m4.621s
 sys     0m0.155s
 ```
-

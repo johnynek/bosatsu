@@ -62,8 +62,10 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }
 
     type F[A] = List[(Bindable, A)]
-    val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
-    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(ffunc)
+    type BindablePair[A] = (Bindable, A)
+    val ffunc: cats.Functor[F] =
+      cats.Functor[List].compose[BindablePair](using cats.Functor[BindablePair])
+    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(using ffunc)
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =

@@ -151,7 +151,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               ns.rootKey,
               k,
               vs.toList.iterator
-                .map { case (_, n) => Identifier.Name(n) }
+                .map { case (_, n) => (Identifier.Name(n): Bindable) }
                 .to(SortedSet)
             )
           }
@@ -1030,7 +1030,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case fn: FnExpr[K]       => innerFn(fn)
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
-          case app @ App(_, _)       => innerApp(app)
+          case app: App[K]           => innerApp(app)
           case Global(k, pack, name) =>
             directFn(k, pack, name)
               .flatMap {
@@ -1298,7 +1298,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
     object Env {
       def impl: Env = {
-        def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] =
+        type ErrorOr[A] = EitherT[Eval, Error, A]
+        type StateF[S] = [A] =>> StateT[ErrorOr, S, A]
+
+        def catsMonad[S]: Monad[StateF[S]] =
           implicitly
 
         new Env {
@@ -1394,7 +1397,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
           }
 
-          type T[A] = StateT[EitherT[Eval, Error, *], State, A]
+          type T[A] = StateT[ErrorOr, State, A]
 
           implicit val monadImpl: Monad[T] = catsMonad[State]
 

@@ -5,5 +5,5 @@ native-image --static \
   --no-fallback \
   --verbose \
   --initialize-at-build-time \
-  -jar cli/target/scala-2.13/bosatsu-cli-assembly-0.0.7.jar \
+  -jar cli/target/scala-3.7.4/bosatsu-cli-assembly-0.0.7.jar \
   bosatsu

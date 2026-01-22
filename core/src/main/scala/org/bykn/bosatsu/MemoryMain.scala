@@ -13,8 +13,8 @@ import cats.syntax.all._
 import cats.data.ValidatedNel
 
 class MemoryMain[G[_]](
-    platform: PlatformIO[StateT[G, MemoryMain.State, *], Chain[String]]
-) extends MainModule[StateT[G, MemoryMain.State, *], Chain[String]](platform) {
+    platform: PlatformIO[MemoryMain.StateF[G], Chain[String]]
+) extends MainModule[MemoryMain.StateF[G], Chain[String]](platform) {
 
   def runWith(
       files: Iterable[(Chain[String], String)],
@@ -37,6 +37,8 @@ class MemoryMain[G[_]](
 }
 
 object MemoryMain {
+  type StateF[G[_]] = [A] =>> StateT[G, State, A]
+
   sealed abstract class FileContent
   object FileContent {
     case class Str(str: String) extends FileContent
@@ -157,11 +159,11 @@ object MemoryMain {
 
   def memoryPlatformIO[G[_]](implicit
       innerMonad: MonadError[G, Throwable]
-  ): PlatformIO[StateT[G, State, *], Chain[String]] = {
+  ): PlatformIO[StateF[G], Chain[String]] = {
 
-    val catsDefaultME = implicitly[MonadError[StateT[G, State, *], Throwable]]
+    val catsDefaultME = implicitly[MonadError[StateF[G], Throwable]]
 
-    new PlatformIO[StateT[G, State, *], Chain[String]] {
+    new PlatformIO[StateF[G], Chain[String]] {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
       def moduleIOMonad: MonadError[F, Throwable] = catsDefaultME

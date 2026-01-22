@@ -16,14 +16,15 @@ import Identifier.Bindable
 
 object UnusedLetCheck {
 
-  private[this] val ap = Applicative[Writer[Chain[(Bindable, Region)], *]]
-  private[this] val empty: Writer[Chain[(Bindable, Region)], Set[Bindable]] =
+  private[this] type WriterChain[A] = Writer[Chain[(Bindable, Region)], A]
+  private[this] val ap = Applicative[WriterChain]
+  private[this] val empty: WriterChain[Set[Bindable]] =
     ap.pure(Set.empty)
 
   private[this] def checkArg(
       arg: Bindable,
       reg: => Region,
-      w: Writer[Chain[(Bindable, Region)], Set[Bindable]]
+      w: WriterChain[Set[Bindable]]
   ) =
     w.flatMap { free =>
       if (free(arg)) ap.pure(free - arg)
@@ -35,7 +36,7 @@ object UnusedLetCheck {
 
   private[this] def loop[A: HasRegion](
       e: Expr[A]
-  ): Writer[Chain[(Bindable, Region)], Set[Bindable]] =
+  ): WriterChain[Set[Bindable]] =
     e match {
       case Annotation(expr, _, _) =>
         loop(expr)
@@ -115,5 +116,5 @@ object UnusedLetCheck {
   /** Return the free Bindable names in this expression
     */
   def freeBound[A](e: Expr[A]): Set[Bindable] =
-    loop(e)(HasRegion.instance(_ => Region(0, 0))).run._2
+    loop(e)(using HasRegion.instance(_ => Region(0, 0))).run._2
 }

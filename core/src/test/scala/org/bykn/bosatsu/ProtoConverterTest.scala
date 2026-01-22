@@ -86,7 +86,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
         pats = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
         res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
       } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(Generators.genCompiledPattern(5))(testFn)
   }
@@ -105,7 +105,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
             _.withTypes(tps).withPatterns(patTab)
           )
         } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(
       Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
@@ -118,7 +118,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
         iface,
         ProtoConverter.interfaceToProto _,
         ProtoConverter.interfaceFromProto _
-      )(Eq.fromUniversalEquals)
+      )(using Eq.fromUniversalEquals)
     }
   }
 
@@ -137,7 +137,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
           ifaces,
           ProtoConverter.interfacesToProto[List] _,
           ProtoConverter.interfacesFromProto _
-        )(sortedEq)
+        )(using sortedEq)
     }
   }
 
@@ -150,7 +150,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
         ifaces,
         ProtoConverter.interfacesToProto[List] _,
         ProtoConverter.interfacesFromProto _
-      )(sortedEq)
+      )(using sortedEq)
     }
   }
 
@@ -180,7 +180,7 @@ bar = 1
           },
           ser _,
           deser _
-        )(Eq.fromUniversalEquals)
+        )(using Eq.fromUniversalEquals)
     )
   }
 
@@ -194,7 +194,7 @@ bar = 1
         }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
-      law(packList, ser _, deser _)(Eq.fromUniversalEquals)
+      law(packList, ser _, deser _)(using Eq.fromUniversalEquals)
     }
   }
 

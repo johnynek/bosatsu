@@ -16,8 +16,6 @@ object Dependencies {
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
-  lazy val http4sBlaze =
-    Def.setting("org.http4s" %% "http4s-blaze-client" % "0.23.17")
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.33")
   lazy val http4sEmber =
     Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.33")

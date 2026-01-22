@@ -754,6 +754,7 @@ final class SourceConverter(
 
     type StT = ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
     type VarState[A] = State[StT, A]
+    type BindablePair[A] = (Bindable, A)
 
     val nextVar: VarState[Type.TyVar] =
       State[StT, Type.TyVar] { case ((set, lst), vs) =>
@@ -783,7 +784,7 @@ final class SourceConverter(
 
     // This is a traverse on List[(Bindable, Option[A])]
     val deep =
-      Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
+      Traverse[List].compose[BindablePair].compose[Option]
 
     def updateInferedWithDecl(
         typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
@@ -1011,8 +1012,9 @@ final class SourceConverter(
       pat: Pattern.Parsed,
       region: Region
   ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-    pat.traversePattern[Result, (PackageName, Constructor), rankn.Type](
-      {
+    pat
+      .traversePattern[Result, (PackageName, Constructor), rankn.Type](
+        {
         case (Pattern.StructKind.Tuple, args) =>
           // this is a tuple pattern
           args.flatMap(makeTuplePattern(_, region))
@@ -1189,11 +1191,11 @@ final class SourceConverter(
             })
           }
       },
-      t => toType(t, region),
-      items => items.map(unlistPattern)
-    )(
-      SourceConverter.parallelIor
-    ) // use the parallel, not the default Applicative which is Monadic
+        t => toType(t, region),
+        items => items.map(unlistPattern)
+      )(
+        using SourceConverter.parallelIor
+      ) // use the parallel, not the default Applicative which is Monadic
 
   private lazy val toTypeEnv: Result[ParsedTypeEnv[Option[Kind.Arg]]] = {
     val sunit = success(())

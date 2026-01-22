@@ -250,7 +250,7 @@ object KindFormula {
       imports: E,
       dts: List[DefinedType[Option[Kind.Arg]]]
   ): IorNec[Error, List[DefinedType[Kind.Arg]]] = {
-    implicit val shapeEnv = IsTypeEnv[E].toShapeEnv
+    implicit val shapeEnv: Shape.IsShapeEnv[E] = IsTypeEnv[E].toShapeEnv
     Shape
       .solveAll(imports, dts)
       .leftMap(_.map(Error.FromShapeError(_)))

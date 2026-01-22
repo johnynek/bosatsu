@@ -962,8 +962,9 @@ x = (
 
   test("TypedExpr.fold matches traverse") {
     def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {
+      type StateA[X] = State[A, X]
       val viaFold = te.foldLeft(init)(fn)
-      val viaTraverse = te.traverse_[State[A, *], Unit] { b =>
+      val viaTraverse = te.traverse_[StateA, Unit] { b =>
         for {
           i <- State.get[A]
           i1 = fn(i, b)
@@ -975,10 +976,11 @@ x = (
     }
 
     def lawR[A, B](te: TypedExpr[B], a: A)(fn: (B, A) => A) = {
+      type StateA[X] = State[A, X]
       val viaFold = te
         .foldRight(cats.Eval.now(a))((b, r) => r.map(j => fn(b, j)))
         .value
-      val viaTraverse: State[A, Unit] = te.traverse_[State[A, *], Unit] { b =>
+      val viaTraverse: State[A, Unit] = te.traverse_[StateA, Unit] { b =>
         for {
           i <- State.get[A]
           i1 = fn(b, i)
@@ -1002,9 +1004,10 @@ x = (
     import cats.Monoid
 
     def law[A, B: Monoid](te: TypedExpr[A])(fn: A => B) = {
+      type ConstB[X] = Const[B, X]
       val viaFold = te.foldMap(fn)
       val viaTraverse: Const[B, Unit] = te
-        .traverse[Const[B, *], Unit] { b =>
+        .traverse[ConstB, Unit] { b =>
           Const[B, Unit](fn(b))
         }
         .void

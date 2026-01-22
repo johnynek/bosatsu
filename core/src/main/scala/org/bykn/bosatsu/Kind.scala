@@ -241,9 +241,9 @@ object Kind {
               val rest = sortCombine(v, at, bt)
 
               sortMergeIt(
-                sortMergeIt(line1, line2)(ord),
-                insertSortedIt(head, rest)(ord)
-              )(ord)
+                sortMergeIt(line1, line2)(using ord),
+                insertSortedIt(head, rest)(using ord)
+              )(using ord)
             case _ =>
               // at least one is empty
               Iterator.empty
@@ -255,7 +255,7 @@ object Kind {
         vars(v, sub)
           .map(sortCombine(_, k1, k2))
           // there is at least one item in vars(v, sub) so reduce is safe
-          .reduce(sortMergeIt(_, _)(ord))
+          .reduce(sortMergeIt(_, _)(using ord))
           .to(LazyList)
     }
 

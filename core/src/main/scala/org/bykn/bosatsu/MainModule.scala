@@ -985,7 +985,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           .map { case (p, d) =>
             (p, platformIO.writeDoc(p, d))
           }
-          .sortBy(_._1)
+          .sortBy(_._1)(using platformIO.pathOrdering)
           .traverse_ { case (_, w) => w }
           .as(ExitCode.Success)
 
@@ -1030,9 +1030,16 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                   Nil
               )
 
+            val tupleOrdering = Ordering.Tuple3(
+              platformIO.pathOrdering,
+              Ordering[PackageName],
+              Ordering.String
+            )
             val asJson = Json.JArray(
               depinfo
-                .sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }
+                .sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }(using
+                  tupleOrdering
+                )
                 .map(toJson)
                 .toVector
             )

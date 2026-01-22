@@ -240,7 +240,7 @@ case object ClangTranspiler extends Transpiler {
       modeOutOpts,
       EmitMode.opts,
       GenExternalsMode.opts,
-      Transpiler.outDir(platformIO.pathArg)
+      Transpiler.outDir(using platformIO.pathArg)
     ).mapN { (mOut, e, g, outDir) =>
       (
         mOut,
@@ -265,9 +265,10 @@ case object ClangTranspiler extends Transpiler {
       platformIO: PlatformIO[F, P]
   ): Opts[Transpiler.Optioned[F, P]] =
     Opts.subcommand("c", "generate c code") {
-      justOptsGivenMode(Mode.opts[F](platformIO.moduleIOMonad), platformIO)(m =>
-        m
-      ).map(_._2)
+      justOptsGivenMode(
+        Mode.opts[F](using platformIO.moduleIOMonad),
+        platformIO
+      )(m => m).map(_._2)
     }
 
   private def spacePackList(ps: Iterable[PackageName]): Doc =

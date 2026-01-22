@@ -61,16 +61,13 @@ sealed abstract class Declaration {
         left.toDoc space Doc.text(opStr) space right.toDoc
       case Binding(b) =>
         val d0 = Document[Padding[Declaration]]
-        val withNewLine = Document.instance[Padding[Declaration]] { pd =>
-          Doc.line + d0.document(pd)
+        locally {
+          given Document[Padding[Declaration]] =
+            Document.instance(pd => Doc.line + d0.document(pd))
+          Document[BindingStatement[Pattern.Parsed, NonBinding, Padding[
+            Declaration
+          ]]].document(b)
         }
-        BindingStatement
-          .document(
-            Document[Pattern.Parsed],
-            Document.instance[NonBinding](_.toDoc),
-            withNewLine
-          )
-          .document(b)
       case LeftApply(pat, _, arg, body) =>
         Document[Pattern.Parsed].document(pat) + Doc.text(
           " <- "

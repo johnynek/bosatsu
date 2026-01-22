@@ -586,8 +586,8 @@ object Infer {
       TypedExpr.zonkMeta(e)(zonk)
 
     val zonkTypeExprK
-        : FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] =
-      new FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] {
+        : FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
+      new FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] {
         def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = zonkTypedExpr(fa)
       }
 
@@ -1090,20 +1090,20 @@ object Infer {
       lift(m.ref.set(None))
 
     implicit class AndThenMap[F[_], G[_], J[_]](
-        private val fk: FunctionK[F, Lambda[x => G[J[x]]]]
+        private val fk: FunctionK[F, [X] =>> G[J[X]]]
     ) extends AnyVal {
       def andThenMap[H[_]](
           fn2: FunctionK[J, H]
-      )(implicit G: Functor[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
-        new FunctionK[F, Lambda[x => G[H[x]]]] {
+      )(implicit G: Functor[G]): FunctionK[F, [X] =>> G[H[X]]] =
+        new FunctionK[F, [X] =>> G[H[X]]] {
           def apply[A](fa: F[A]): G[H[A]] =
             fk(fa).map(fn2(_))
         }
 
       def andThenFlatMap[H[_]](
-          fn2: FunctionK[J, Lambda[x => G[H[x]]]]
-      )(implicit G: Monad[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
-        new FunctionK[F, Lambda[x => G[H[x]]]] {
+          fn2: FunctionK[J, [X] =>> G[H[X]]]
+      )(implicit G: Monad[G]): FunctionK[F, [X] =>> G[H[X]]] =
+        new FunctionK[F, [X] =>> G[H[X]]] {
           def apply[A](fa: F[A]): G[H[A]] =
             fk(fa).flatMap(fn2(_))
         }
@@ -1171,10 +1171,10 @@ object Infer {
         fn: (
             List[Type.TyMeta],
             Type.Rho
-        ) => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]]
+        ) => Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]]
     )(
         onErr: NonEmptyList[Type] => Error
-    ): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
+    ): Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
         coerce <- fn(metas, rho)
@@ -2421,14 +2421,14 @@ object Infer {
 
     def quantifyMetas(
         metas: List[Type.TyMeta]
-    ): FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] =
+    ): FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] =
       NonEmptyList.fromList(metas) match {
         case None =>
-          new FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] {
+          new FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] {
             def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = pure(fa)
           }
         case Some(nel) =>
-          new FunctionK[TypedExpr, Lambda[x => Infer[TypedExpr[x]]]] {
+          new FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] {
             def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = {
               // all these metas can be set to Var
               val used: Set[Type.Var.Bound] = fa.allBound
@@ -2462,7 +2462,7 @@ object Infer {
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
       for {
-        check <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](
+        check <- subsUpper[[X] =>> (Expr[X], HasRegion[X]), Infer](
           tpe,
           regionT,
           envTypes
@@ -2495,14 +2495,16 @@ object Infer {
       typeCheckRho(t, Expected.Check((rho, region(t))))
 
     // same as checkRho but as a FunctionK
-    def checkRhoK(rho: Type.Rho): FunctionK[Lambda[
-      x => (Expr[x], HasRegion[x])
-    ], Lambda[x => Infer[TypedExpr.Rho[x]]]] =
-      new FunctionK[Lambda[x => (Expr[x], HasRegion[x])], Lambda[
-        x => Infer[TypedExpr.Rho[x]]
+    def checkRhoK(
+        rho: Type.Rho
+    ): FunctionK[[X] =>> (Expr[X], HasRegion[X]), [X] =>> Infer[
+      TypedExpr.Rho[X]
+    ]] =
+      new FunctionK[[X] =>> (Expr[X], HasRegion[X]), [X] =>> Infer[
+        TypedExpr.Rho[X]
       ]] {
         def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr[A]] =
-          checkRho(fa._1, rho)(fa._2)
+          checkRho(fa._1, rho)(using fa._2)
       }
 
     /** recall a rho type never has a top level Forall

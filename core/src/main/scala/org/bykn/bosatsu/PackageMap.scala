@@ -17,6 +17,7 @@ import Identifier.Constructor
 import IorMethods.IorExtension
 
 import rankn.{DataRepr, TypeEnv}
+import Package.ResolvedMethods
 
 import cats.implicits._
 
@@ -198,19 +199,20 @@ object PackageMap {
       }
 
     type PackageFix = Package[FixPackage[A, B, C], A, B, C]
+    type ErrorOr[A] = Either[NonEmptyList[PackageError], A]
     // We use the ReaderT to build the list of imports we are on
     // to detect circular dependencies, if the current package imports itself transitively we
     // want to report the full path
-    val step: Package[PackageName, A, B, C] => ReaderT[Either[NonEmptyList[
-      PackageError
-    ], *], List[PackageName], PackageFix] =
+    val step: Package[PackageName, A, B, C] => ReaderT[ErrorOr, List[
+      PackageName
+    ], PackageFix] =
       Memoize.memoizeDagHashed[Package[PackageName, A, B, C], ReaderT[
-        Either[NonEmptyList[PackageError], *],
+        ErrorOr,
         List[PackageName],
         PackageFix
       ]] { (p, rec) =>
         val edeps = ReaderT
-          .ask[Either[NonEmptyList[PackageError], *], List[PackageName]]
+          .ask[ErrorOr, List[PackageName]]
           .flatMapF {
             case nonE @ (h :: tail) if nonE.contains(p.name) =>
               Left(
@@ -243,9 +245,10 @@ object PackageMap {
                           Import(Package.fix[A, B, C](Right(p)), i.items)
                         }
                     case Left(iface) =>
-                      ReaderT.pure[Either[NonEmptyList[PackageError], *], List[
-                        PackageName
-                      ], Import[FixPackage[A, B, C], A]](
+                      ReaderT.pure[ErrorOr, List[PackageName], Import[
+                        FixPackage[A, B, C],
+                        A
+                      ]](
                         Import(Package.fix[A, B, C](Left(iface)), i.items)
                       )
                   }
@@ -257,12 +260,11 @@ object PackageMap {
       }
 
     type M = SortedMap[PackageName, PackageFix]
-    val r
-        : ReaderT[Either[NonEmptyList[PackageError], *], List[PackageName], M] =
+    val r: ReaderT[ErrorOr, List[PackageName], M] =
       map.toMap.parTraverse(step)
 
     // we start with no imports on
-    val m: Either[NonEmptyList[PackageError], M] = r.run(Nil)
+    val m: ErrorOr[M] = r.run(Nil)
 
     m.map(PackageMap(_)).toValidated
   }
@@ -393,7 +395,7 @@ object PackageMap {
           )
       }
 
-    (nuEr, check, res.toIor).parMapN((_, _, r) => r)
+    (nuEr, check, res.toIor).mapN((_, _, r) => r)
   }
 
   /** Infer all the types in a resolved PackageMap
@@ -511,7 +513,11 @@ object PackageMap {
         }
       }
 
-    val fut = ps.toMap.parTraverse(infer.andThen(IorT(_)))
+    val fut = ps.toMap.toList
+      .parTraverse { case (name, pack) =>
+        IorT(infer(pack).map(_.map(name -> _)))
+      }
+      .map(_.to(SortedMap))
 
     // Wait until all the resolution is complete
     Par

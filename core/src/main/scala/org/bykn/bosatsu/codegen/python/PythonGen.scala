@@ -34,7 +34,8 @@ object PythonGen {
       new Monad[Env] {
         import Impl._
 
-        val m = Monad[State[EnvState, *]]
+        type EnvStateS[A] = State[EnvState, A]
+        val m = Monad[EnvStateS]
         def pure[A](a: A): Env[A] = EnvImpl(m.pure(a))
         override def map[A, B](ea: Env[A])(fn: A => B): Env[B] =
           EnvImpl(m.map(ea.state)(fn))

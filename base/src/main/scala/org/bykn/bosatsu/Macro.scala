@@ -1,47 +1,51 @@
 package org.bykn.bosatsu
 
-import reflect.macros.blackbox.Context
 import java.io.File
 import scala.io.Source
+import scala.quoted.{Expr, Quotes}
 import scala.util.control.NonFatal
 
-class Macro(val c: Context) {
-  import c._, universe._
-  def loadFileInCompileImpl(file: c.Expr[String]): c.Expr[String] = {
+object Macro {
+  def loadFileInCompileImpl(
+      fileExpr: Expr[String]
+  )(using quotes: Quotes): Expr[String] = {
+    import quotes.reflect.report
 
-    def loadPath(s: String): Option[c.Expr[String]] =
+    def loadPath(path: String): Option[Expr[String]] =
       try {
-        val f = new File(s)
+        val f = new File(path)
         if (f.exists()) {
-          val res = Source.fromFile(s, "UTF-8").getLines().mkString("\n")
-          Some(c.Expr[String](q"$res"))
+          val src = Source.fromFile(path, "UTF-8")
+          try {
+            val res = src.getLines().mkString("\n")
+            Some(Expr(res))
+          } finally {
+            src.close()
+          }
         } else {
           None
         }
       } catch {
         case NonFatal(err) =>
-          c.abort(
-            c.enclosingPosition,
-            s"could not read existing file: $s. Exception: $err"
+          report.errorAndAbort(
+            s"could not read existing file: $path. Exception: $err"
           )
       }
 
-    file.tree match {
-      case Literal(Constant(s: String)) =>
-        loadPath(s)
+    fileExpr.value match {
+      case Some(path) =>
+        loadPath(path)
           .orElse {
-            loadPath(s"external/org_bykn_bosatsu/$s")
+            loadPath(s"external/org_bykn_bosatsu/$path")
           }
           .getOrElse {
-            c.abort(
-              c.enclosingPosition,
-              s"no file found at: $s. working directory is ${System.getProperty("user.dir")}"
+            report.errorAndAbort(
+              s"no file found at: $path. working directory is ${System.getProperty("user.dir")}"
             )
           }
-      case otherTree =>
-        c.abort(
-          c.enclosingPosition,
-          s"expected string literal, found: $otherTree"
+      case None =>
+        report.errorAndAbort(
+          s"expected string literal, found: ${fileExpr.show}"
         )
     }
   }

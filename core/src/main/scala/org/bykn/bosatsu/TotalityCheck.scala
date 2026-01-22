@@ -18,6 +18,7 @@ object TotalityCheck {
   type Cons = (PackageName, Constructor)
   type Res[+A] = Either[NonEmptyList[Error], A]
   type Patterns = List[Pattern[Cons, Type]]
+  type ListPatCons = ListPat[Cons, Type]
   type ListPatElem = ListPart[Pattern[Cons, Type]]
 
   sealed abstract class Error
@@ -94,7 +95,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     */
   def validatePattern(p: Pattern[Cons, Type]): Res[Unit] =
     p match {
-      case lp @ ListPat(parts) =>
+      case lp: ListPatCons =>
+        val parts = lp.parts
         val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
           case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
           case _                                       => false
@@ -323,7 +325,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                     )
                 }
               }
-            )(new Relatable[List[Pattern[Cons, Type]]] {
+            )(using new Relatable[List[Pattern[Cons, Type]]] {
               def relate(
                   a: List[Pattern[Cons, Type]],
                   b: List[Pattern[Cons, Type]]
@@ -425,12 +427,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
                     Left(solve(_, _))
                 }
-              case lp @ ListPat(_) =>
+              case lp: ListPatCons =>
                 def optPatternToList(
                     p: Option[Pattern[Cons, Type]]
-                ): List[ListPat[Cons, Type]] =
+                ): List[ListPatCons] =
                   p match {
-                    case Some(sp @ ListPat(_))         => sp :: Nil
+                    case Some(sp: ListPatCons)         => sp :: Nil
                     case Some(PositionalStruct(n, ps)) =>
                       optPatternToList(structToList(n, ps))
                     case Some(u @ Union(_, _)) =>
@@ -511,16 +513,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             else Nil
           case (p1 @ StrPat(_), p2 @ StrPat(_)) =>
             strPatternSetOps.intersection(p1, p2)
-          case (lp @ ListPat(_), rp @ ListPat(_)) =>
+          case (lp: ListPatCons, rp: ListPatCons) =>
             listPatternSetOps.intersection(lp, rp)
-          case (PositionalStruct(n, as), rp @ ListPat(_)) =>
+          case (PositionalStruct(n, as), rp: ListPatCons) =>
             structToList(n, as) match {
               case Some(lp) => intersection(lp, rp)
               case None     =>
                 if (isTop(rp)) left :: Nil
                 else Nil
             }
-          case (lp @ ListPat(_), pos @ PositionalStruct(_, _)) =>
+          case (lp: ListPatCons, pos @ PositionalStruct(_, _)) =>
             intersection(pos, lp)
           case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
             if (ln == rn) {
@@ -581,9 +583,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               case (l, Named(_, p))                        => difference(l, p)
               case (Annotation(p, _), r)                   => difference(p, r)
               case (l, Annotation(p, _))                   => difference(l, p)
-              case (left @ ListPat(_), right @ ListPat(_)) =>
+              case (left: ListPatCons, right: ListPatCons) =>
                 listPatternSetOps.difference(left, right)
-              case (_, listPat @ ListPat(_)) if leftIsTop =>
+              case (_, listPat: ListPatCons) if leftIsTop =>
                 // _ is the same as [*_] for well typed expressions
                 listPatternSetOps.difference(
                   ListPat(ListPart.WildList :: Nil),
@@ -635,12 +637,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                       .map(PositionalStruct(ln, _))
                   )
                 } else (left :: Nil)
-              case (PositionalStruct(n, as), rp @ ListPat(_)) =>
+              case (PositionalStruct(n, as), rp: ListPatCons) =>
                 structToList(n, as) match {
                   case Some(lp) => difference(lp, rp)
                   case None     => left :: Nil
                 }
-              case (lp @ ListPat(_), PositionalStruct(n, as)) =>
+              case (lp: ListPatCons, PositionalStruct(n, as)) =>
                 structToList(n, as) match {
                   case Some(rp) => difference(lp, rp)
                   case None     => left :: Nil
@@ -667,7 +669,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case Pattern.Annotation(p, _)          => isTop(p)
           case Pattern.Literal(_)     => false // literals are not total
           case s @ Pattern.StrPat(_)  => strPatternSetOps.isTop(s)
-          case l @ Pattern.ListPat(_) => listPatternSetOps.isTop(l)
+          case l: ListPatCons => listPatternSetOps.isTop(l)
           case Pattern.PositionalStruct(name, params) =>
             inEnv.definedTypeFor(name) match {
               case Some(dt) =>
@@ -728,24 +730,24 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               } else if (s1.isTotal) Rel.Super
               else Rel.Disjoint
             case (_, Pattern.StrPat(_)) => loop(b, a).invert
-            case (l1 @ Pattern.ListPat(_), l2 @ Pattern.ListPat(_)) =>
+            case (l1: ListPatCons, l2: ListPatCons) =>
               listPatternSetOps.relate(l1, l2)
-            case (lp @ Pattern.ListPat(_), Pattern.PositionalStruct(n, p)) =>
+            case (lp: ListPatCons, Pattern.PositionalStruct(n, p)) =>
               structToList(n, p) match {
                 case Some(right) => relate(lp, right)
                 case None        =>
                   if (listPatternSetOps.isTop(lp)) Rel.Super
                   else Rel.Disjoint
               }
-            case (Pattern.PositionalStruct(_, _), Pattern.ListPat(_)) =>
+            case (Pattern.PositionalStruct(_, _), _: ListPatCons) =>
               relate(b, a).invert
-            case (s1 @ Pattern.ListPat(_), _) =>
+            case (s1: ListPatCons, _) =>
               if (isTop(b)) {
                 if (listPatternSetOps.isTop(s1)) Rel.Same
                 else Rel.Sub
               } else if (listPatternSetOps.isTop(s1)) Rel.Super
               else Rel.Disjoint
-            case (_, Pattern.ListPat(_)) => loop(b, a).invert
+            case (_, _: ListPatCons) => loop(b, a).invert
             case (
                   Pattern.PositionalStruct(ln, lp),
                   Pattern.PositionalStruct(rn, rp)
@@ -816,7 +818,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             else {
               val structs = structsDs.map(_._2)
               val lps = listPatternSetOps.unifyUnion(u.collect {
-                case lp @ Pattern.ListPat(_) => lp
+                case lp: ListPatCons => lp
               })
               val sps = strPatternSetOps.unifyUnion(u.collect {
                 case sp @ Pattern.StrPat(_) => sp

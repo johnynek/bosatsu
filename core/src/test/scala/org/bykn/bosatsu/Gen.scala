@@ -1066,7 +1066,7 @@ object Generators {
             case Pattern.Named(_, pat)               => pat #:: Stream.empty
             case Pattern.PositionalStruct(n, params) =>
               // shrink all the params
-              shrinkOne(params)(res).map(Pattern.PositionalStruct(n, _))
+              shrinkOne(params)(using res).map(Pattern.PositionalStruct(n, _))
             case Pattern.Literal(Lit.Str(s)) =>
               implicitly[Shrink[String]]
                 .shrink(s)
@@ -1088,7 +1088,7 @@ object Generators {
             case u @ Pattern.Union(_, _) =>
               val flat = Pattern.flatten(u).toList
               val sameLen =
-                shrinkOne[Pattern[N, T]](flat)(res)
+                shrinkOne[Pattern[N, T]](flat)(using res)
                   .map { us =>
                     Pattern.union(us.head, us.tail)
                   }

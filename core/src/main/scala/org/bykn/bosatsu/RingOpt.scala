@@ -555,6 +555,8 @@ object RingOpt {
       // and collapsing constants, we do this before doing harder optimizations
       // since we have better equality at that point
       def basicNorm(implicit o: Order[A]): Expr[A] = {
+        def normExpr(e: Expr[A]): Expr[A] = e.basicNorm(using o)
+
         def add(a: Expr[A], b: Expr[A]) =
           if (a == Zero) b
           else if (b == Zero) a
@@ -585,17 +587,17 @@ object RingOpt {
         def simpleNeg(e: Expr[A]): Expr[A] =
           // normalizeNeg isn't idempotent
           e.normalizeNeg match {
-            case Neg(x) => Neg(x.basicNorm)
+            case Neg(x: Expr[A]) => Neg(normExpr(x))
             case notNeg =>
               // the negative was pushed down, normalize again
-              notNeg.basicNorm
+              normExpr(notNeg)
           }
 
         expr match {
           case Zero | One | Symbol(_) => expr
           case Integer(i)             => canonInt(i)
-          case Neg(Neg(x))            => x.basicNorm
-          case Neg(x)                 => simpleNeg(x.basicNorm)
+          case Neg(Neg(x: Expr[A]))   => normExpr(x)
+          case Neg(x: Expr[A])        => simpleNeg(normExpr(x))
           case Add(x, y)              =>
             // TODO: if we move this to object Expr and take Hash[A]
             // we could normalize x + -(x) into 0, but that should be
@@ -634,7 +636,7 @@ object RingOpt {
                 case Add(x, y) :: tail =>
                   flatAdd(x :: y :: tail, const, acc)
                 case notAdd :: tail =>
-                  notAdd.basicNorm match {
+                  normExpr(notAdd) match {
                     case Add(x, y) =>
                       flatAdd(x :: y :: tail, const, acc)
                     case Zero =>
@@ -716,7 +718,7 @@ object RingOpt {
                   add.saveNeg match {
                     case Some(negAdd) =>
                       // saveNeg isn't normalized
-                      flatMult(negAdd.basicNorm :: tail, -coeff, acc)
+                      flatMult(normExpr(negAdd) :: tail, -coeff, acc)
                     case None =>
                       flatMult(tail, coeff, add :: acc)
                   }
@@ -729,7 +731,7 @@ object RingOpt {
                     )
               }
 
-            flatMult(x.basicNorm :: y.basicNorm :: Nil, BigInt(1), Nil)
+            flatMult(normExpr(x) :: normExpr(y) :: Nil, BigInt(1), Nil)
         }
       }
 
@@ -752,7 +754,7 @@ object RingOpt {
     // This is also an Ordering[Expr[A]]
     implicit def numericExpr[A: Ordering]: Numeric[Expr[A]] =
       new Numeric[Expr[A]] {
-        val ordExpr = orderExpr[A](Order.fromOrdering[A])
+        val ordExpr = orderExpr[A](using Order.fromOrdering[A])
 
         override val zero: Expr[A] = Zero
         override val one: Expr[A] = One
@@ -997,8 +999,10 @@ object RingOpt {
 
       e match {
         case Add(l0, r0) =>
-          val l = undistribute(l0)
-          val r = undistribute(r0)
+          val l0a: Expr[A] = l0
+          val r0a: Expr[A] = r0
+          val l = undistribute[A](l0a)
+          val r = undistribute[A](r0a)
 
           (l, r) match {
             case (Mult(a, b), Mult(c, d)) =>
@@ -1025,8 +1029,13 @@ object RingOpt {
               else Add(l, r)
             case _ => Add(l, r)
           }
-        case Neg(x)     => Neg(undistribute(x))
-        case Mult(x, y) => Mult(undistribute(x), undistribute(y))
+        case Neg(x) =>
+          val xa: Expr[A] = x
+          Neg(undistribute[A](xa))
+        case Mult(x, y) =>
+          val xa: Expr[A] = x
+          val ya: Expr[A] = y
+          Mult(undistribute[A](xa), undistribute[A](ya))
         case One | Zero | Symbol(_) | Integer(_) => e
       }
     }
@@ -1419,7 +1428,7 @@ object RingOpt {
       @annotation.tailrec
       def loop(es: List[Either[Op, Expr[A]]], init: Stack[A]): Stack[A] =
         es match {
-          case Right(leaf: Leaf[a]) :: tail =>
+          case Right(leaf: Leaf[A]) :: tail =>
             loop(tail, Push(leaf, init))
           case Right(Add(left, right)) :: tail =>
             loop(Left(Op.Add) :: Right(right) :: Right(left) :: tail, init)
@@ -1636,23 +1645,34 @@ object RingOpt {
   def normConstMult[A: Order](e: Expr[A], w: Weights): Expr[A] =
     e match {
       case Symbol(_) | One | Zero | Integer(_) => e
-      case Neg(n)                              => Neg(normConstMult(n, w))
-      case Add(x, y)                           =>
-        Add(normConstMult(x, w), normConstMult(y, w))
+      case Neg(n) =>
+        val nA: Expr[A] = n
+        Neg(normConstMult[A](nA, w))
+      case Add(x, y) =>
+        val xA: Expr[A] = x
+        val yA: Expr[A] = y
+        Add(normConstMult[A](xA, w), normConstMult[A](yA, w))
       case Mult(Integer(n), Neg(e)) =>
-        normConstMult(Mult(Integer(-n), e), w)
+        val eA: Expr[A] = e
+        normConstMult[A](Mult(Integer(-n), eA), w)
       case Mult(Neg(e), Integer(n)) =>
-        normConstMult(Mult(Integer(-n), e), w)
+        val eA: Expr[A] = e
+        normConstMult[A](Mult(Integer(-n), eA), w)
       case Mult(Integer(n), leaf @ (Symbol(_) | One | Zero | Integer(_))) =>
-        w.constMult(leaf, n)
+        val leafA: Expr[A] = leaf
+        w.constMult[A](leafA, n)
       case Mult(leaf @ (Symbol(_) | One | Zero | Integer(_)), Integer(n)) =>
-        w.constMult(leaf, n)
+        val leafA: Expr[A] = leaf
+        w.constMult[A](leafA, n)
       case Mult(i @ Integer(n), add @ Add(x, y)) =>
         // we could do n * x + n * y
-        val distribute = normConstMult[A](Add(Mult(i, x), Mult(i, y)), w)
+        val xA: Expr[A] = x
+        val yA: Expr[A] = y
+        val addA: Expr[A] = add
+        val distribute = normConstMult[A](Add(Mult(i, xA), Mult(i, yA)), w)
         val costD = w.cost(distribute)
         // or we could treat the add as an atom
-        val atom = w.constMult(normConstMult[A](add, w), n)
+        val atom = w.constMult[A](normConstMult[A](addA, w), n)
         val costA = w.cost(atom)
         if (costD < costA) distribute
         else if (costD >= costA) atom
@@ -1664,9 +1684,12 @@ object RingOpt {
 
       case Mult(add @ Add(_, _), i @ Integer(_)) =>
         // reverse and loop
-        normConstMult[A](Mult(i, add), w)
+        val addA: Expr[A] = add
+        normConstMult[A](Mult(i, addA), w)
       case Mult(x, y) =>
-        val (const, factors) = Expr.flattenMult(x :: y :: Nil)
+        val xA: Expr[A] = x
+        val yA: Expr[A] = y
+        val (const, factors) = Expr.flattenMult[A](xA :: yA :: Nil)
         if (factors.isEmpty) Integer(const)
         else {
           // we know factors isn't empty now
@@ -1679,13 +1702,16 @@ object RingOpt {
                 }
             }
           // recurse exactly once on each factor
-          val normFactors = factors.map(e => (e, normConstMult(e.toExpr, w)))
+          val normFactors: List[(MultTerm[A], Expr[A])] =
+            factors.map(e => (e, normConstMult[A](e.toExpr, w)))
           // find the best one to push into
-          val all = oneAndRest(normFactors).map { case ((target, _), rest) =>
-            val normed =
-              normConstMult(w.constMult(target.toExpr, const), w) :: rest.map(
-                _._2
-              )
+          val all: List[(Long, Expr[A])] =
+            oneAndRest(normFactors).map { case ((target, _), rest) =>
+              val normed =
+                normConstMult[A](
+                  w.constMult[A](target.toExpr, const),
+                  w
+                ) :: rest.map(_._2)
             val prod = Expr.multAll(normed)
             val costProd = w.cost(prod)
             (costProd, prod)
@@ -1749,12 +1775,18 @@ object RingOpt {
                     case Some((bi, inner)) =>
                       loop((c * bi, inner) :: tail, res, intRes)
                     case None =>
-                      val (c1, prodTerms) = Expr.flattenMult(l :: r :: Nil)
+                      val lA: Expr[A] = l
+                      val rA: Expr[A] = r
+                      val (c1, prodTerms) = Expr.flattenMult[A](lA :: rA :: Nil)
                       prodTerms match {
-                        case Add(a1, a2) :: Nil =>
+                        case (add: Add[A]) :: Nil =>
                           // make sure we never add singleton Add(_, _)
                           val c2 = c * c1
-                          loop((c2, a1) :: (c2, a2) :: tail, res, intRes)
+                          loop(
+                            (c2, add.left) :: (c2, add.right) :: tail,
+                            res,
+                            intRes
+                          )
                         case _ =>
                           loop(tail, res.add(m, c), intRes)
                       }
@@ -2137,32 +2169,43 @@ object RingOpt {
   // === Core normalization ===
 
   private def norm[A: Hash: Order](e: Expr[A], W: Weights): Expr[A] = {
-    val u = Expr.undistribute(e)
+    val u = Expr.undistribute[A](e)
     u match {
       case Zero | One | Symbol(_) => u
 
       case Integer(n) => canonInt[A](n)
 
-      case Neg(Neg(x))           => norm(x, W)
+      case Neg(Neg(x)) =>
+        val xA: Expr[A] = x
+        norm[A](xA, W)
       case Neg(Add(left, right)) =>
-        val GroupSum(const, terms) = GroupSum(left :: right :: Nil)
-        val negGs = GroupSum(-const, terms.negate)
-        val sumProd = SumProd.fromGroupSum(negGs)
+        val leftA: Expr[A] = left
+        val rightA: Expr[A] = right
+        val GroupSum(const, terms) = GroupSum[A](leftA :: rightA :: Nil)
+        val negGs = GroupSum[A](-const, terms.negate)
+        val sumProd = SumProd.fromGroupSum[A](negGs)
         sumProd.normalize(W)
 
-      case Neg(mult @ Mult(_, _)) => norm[A](Neg(One) * mult, W)
+      case Neg(mult @ Mult(_, _)) =>
+        val multA: Expr[A] = mult
+        norm[A](Neg(One) * multA, W)
       case ns @ Neg(Symbol(_))    => ns
       case Neg(Zero)              => Zero
       case Neg(One)               => canonInt(-1)
       case Neg(Integer(n))        => canonInt(-n)
 
       case Add(left, right) =>
-        val sumProd = SumProd(left :: right :: Nil)
+        val leftA: Expr[A] = left
+        val rightA: Expr[A] = right
+        val sumProd = SumProd[A](leftA :: rightA :: Nil)
         sumProd.normalize(W)
 
       case Mult(a, b) =>
-        val (const, factors) = Expr.flattenMult(a :: b :: Nil)
-        val normFactors = Expr.multAll(factors.map(e => norm(e.toExpr, W)))
+        val aA: Expr[A] = a
+        val bA: Expr[A] = b
+        val (const, factors) = Expr.flattenMult[A](aA :: bA :: Nil)
+        val normFactors =
+          Expr.multAll(factors.map(e => norm[A](e.toExpr, W)))
         normFactors.bestEffortConstMult(const)
     }
   }

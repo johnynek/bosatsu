@@ -321,7 +321,8 @@ object DefRecursionCheck {
      * to a sequential (Monadic) State tracking, and can only accumulate errors
      * until we hit the first one
      */
-    type St[A] = StateT[Either[NonEmptyList[RecursionError], *], State, A]
+    type ErrorOr[A] = Either[NonEmptyList[RecursionError], A]
+    type St[A] = StateT[ErrorOr, State, A]
 
     implicit val parallelSt: cats.Parallel[St] = {
       val m = cats.Monad[St]
@@ -329,7 +330,7 @@ object DefRecursionCheck {
       new ParallelViaProduct[St] {
         def monad = m
         def parallelProduct[A, B](fa: St[A], fb: St[B]) = {
-          type E[+X] = Either[NonEmptyList[RecursionError], X]
+          type E[+X] = ErrorOr[X]
           val fna: E[State => E[(State, A)]] = fa.runF
           val fnb: E[State => E[(State, B)]] = fb.runF
 

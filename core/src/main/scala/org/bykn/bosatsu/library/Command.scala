@@ -745,15 +745,16 @@ object Command {
 
     def casPaths(
         dep: proto.LibDependency
-    ): SortedMap[Algo.WithAlgo[HashValue], Algo.WithAlgo[Lambda[
-      A => Hashed[A, P]
-    ]]] =
+    ): SortedMap[
+      Algo.WithAlgo[HashValue],
+      Algo.WithAlgo[[A] =>> Hashed[A, P]]
+    ] =
       hashes(dep)
         .map { withAlgo =>
           val path = hashPath(withAlgo)
           (
             withAlgo,
-            withAlgo.mapK(new FunctionK[HashValue, Lambda[A => Hashed[A, P]]] {
+            withAlgo.mapK(new FunctionK[HashValue, [A] =>> Hashed[A, P]] {
               def apply[A](fn: HashValue[A]) = Hashed(fn, path)
             })
           )
