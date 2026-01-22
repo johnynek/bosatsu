@@ -16,7 +16,9 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   def eqUnion: Gen[Eq[List[A]]]
 
   def eqA: Gen[Eq[A]] =
-    eqUnion.map(Eq.by((a: A) => a :: Nil)(_))
+    eqUnion.map { eqList =>
+      Eq.by((a: A) => a :: Nil)(using eqList)
+    }
 
   import setOps._
 

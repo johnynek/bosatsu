@@ -21,7 +21,7 @@ sealed abstract class ExportedName[+T] { self: Product =>
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
-    MurmurHash3.productHash(this)
+    MurmurHash3.caseClassHash(this)
 
   /** Given name, in the current type environment and fully typed lets what does
     * it correspond to?
@@ -59,7 +59,7 @@ object ExportedName {
   case class Constructor[T](name: Identifier.Constructor, tag: T)
       extends ExportedName[T]
 
-  private[this] val consDoc = Doc.text("()")
+  private val consDoc = Doc.text("()")
 
   implicit val document: Document[ExportedName[Unit]] = {
     val di = Document[Identifier]

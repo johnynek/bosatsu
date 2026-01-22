@@ -194,16 +194,16 @@ object DefRecursionCheck {
         val argsB = func.map(args)(_ => allNames.next())
 
         val argsV: NonEmptyList[NonEmptyList[Declaration.NonBinding]] =
-          func.map(argsB)(n => Declaration.Var(n)(region))
+          func.map(argsB)(n => Declaration.Var(n)(using region))
 
         val argsP: NonEmptyList[NonEmptyList[Pattern.Parsed]] =
           func.map(argsB)(n => Pattern.Var(n))
 
         // fn == (x, y) -> z -> f(x, y)(z)
         val body = argsV.toList.foldLeft(
-          Declaration.Var(fnname)(region): Declaration.NonBinding
+          Declaration.Var(fnname)(using region): Declaration.NonBinding
         ) { (called, group) =>
-          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(region)
+          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(using region)
         }
 
         def lambdify(
@@ -214,7 +214,7 @@ object DefRecursionCheck {
             case Nil       => body
             case h :: tail => lambdify(NonEmptyList(h, tail), body)
           }
-          Declaration.Lambda(args.head, body1)(region)
+          Declaration.Lambda(args.head, body1)(using region)
         }
 
         lambdify(argsP, body)
@@ -489,7 +489,7 @@ object DefRecursionCheck {
           checkApply(fn, args, decl.region)
         case ApplyOp(left, op, right) =>
           checkApply(
-            Var(op)(decl.region),
+            Var(op)(using decl.region),
             NonEmptyList(left, right :: Nil),
             decl.region
           )
@@ -625,7 +625,7 @@ object DefRecursionCheck {
           def checkArg(arg: RecordArg): St[Unit] =
             arg match {
               case RecordArg.Simple(b) =>
-                checkDecl(Var(b)(decl.region))
+                checkDecl(Var(b)(using decl.region))
               case RecordArg.Pair(_, v) =>
                 checkDecl(v)
             }

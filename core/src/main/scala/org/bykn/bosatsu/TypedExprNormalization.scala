@@ -730,7 +730,7 @@ object TypedExprNormalization {
     type Branch[A] = (Pat, TypedExpr[A])
 
     def maybeEvalMatch[A](
-        m: Match[_ <: A],
+        m: Match[? <: A],
         scope: Scope[A]
     ): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {

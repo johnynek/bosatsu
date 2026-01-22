@@ -121,8 +121,9 @@ lazy val proto =
     "proto"
   ))
     .settings(
+     
       Compile / PB.targets := Seq(
-        scalapb.gen() -> (Compile / sourceManaged).value
+        scalapb.gen(scala3Sources = true) -> (Compile / sourceManaged).value
       ),
       // The trick is in this line:
       Compile / PB.protoSources := Seq(

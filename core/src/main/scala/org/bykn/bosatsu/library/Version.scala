@@ -383,7 +383,7 @@ object Version {
 
   val versionCompatiblePartialOrdering: PartialOrdering[Version] =
     PartialOrder.catsKernelPartialOrderingForPartialOrder(
-      versionCompatiblePartialOrder
+      using versionCompatiblePartialOrder
     )
 
   implicit val versionShow: Show[Version] =
@@ -392,7 +392,7 @@ object Version {
     }
 
   implicit val versionWriter: Json.Writer[Version] =
-    Json.Writer[Version](v => Json.JString(v.render))
+    Json.Writer.from[Version](v => Json.JString(v.render))
 
   implicit val versionReader: Json.Reader[Version] =
     new Json.Reader[Version] {

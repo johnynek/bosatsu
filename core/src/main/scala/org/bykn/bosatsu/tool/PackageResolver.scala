@@ -54,7 +54,7 @@ sealed abstract class PackageResolver[IO[_], Path] {
     def flatTrav[A, B, C](va: Validated[A, B])(
         fn: B => IO[Validated[A, C]]
     ): IO[Validated[A, C]] =
-      va.traverse(fn).map(_.andThen(identity _))
+      va.traverse(fn).map(_.andThen(identity))
 
     def parseTransitive(
         search: PackageName,

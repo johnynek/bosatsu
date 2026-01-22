@@ -326,7 +326,7 @@ object Pattern {
         // the same name
         final case class Implicit(field: Bindable) extends FieldKind
       }
-      final case object TupleLike extends Style
+      case object TupleLike extends Style
       // represents the fields like: Foo { bar: x, age }
       final case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
     }
@@ -334,7 +334,7 @@ object Pattern {
       def name: Constructor
       def style: Style
     }
-    final case object Tuple extends StructKind
+    case object Tuple extends StructKind
     // Represents a complete tuple-like pattern Foo(a, b)
     final case class Named(name: Constructor, style: Style) extends NamedKind
     // Represents a partial tuple-like pattern Foo(a, ...)
@@ -361,19 +361,19 @@ object Pattern {
       }
   }
   object StrPart {
-    final case object WildStr extends StrPart
+    case object WildStr extends StrPart
     final case class NamedStr(name: Bindable) extends StrPart
-    final case object WildChar extends StrPart
+    case object WildChar extends StrPart
     final case class NamedChar(name: Bindable) extends StrPart
     final case class LitStr(asString: String) extends StrPart
 
     // this is to circumvent scala warnings because these bosatsu
     // patterns like right.
-    private[this] val dollar = "$"
-    private[this] val wildDoc = Doc.text(s"$dollar{_}")
-    private[this] val wildCharDoc = Doc.text(s"${dollar}.{_}")
-    private[this] val prefix = Doc.text(s"$dollar{")
-    private[this] val prefixChar = Doc.text(s"${dollar}.{")
+    private val dollar = "$"
+    private val wildDoc = Doc.text(s"$dollar{_}")
+    private val wildCharDoc = Doc.text(s"${dollar}.{_}")
+    private val prefix = Doc.text(s"$dollar{")
+    private val prefixChar = Doc.text(s"${dollar}.{")
 
     def document(q: Char): Document[StrPart] =
       Document.instance {
@@ -396,7 +396,7 @@ object Pattern {
     sealed abstract class Glob extends ListPart[Nothing] {
       def map[B](fn: Nothing => B): ListPart[B] = this
     }
-    final case object WildList extends Glob
+    case object WildList extends Glob
     final case class NamedList(name: Bindable) extends Glob
     final case class Item[A](pat: A) extends ListPart[A] {
       def map[B](fn: A => B): ListPart[B] = Item(fn(pat))
@@ -1150,8 +1150,8 @@ object Pattern {
     loop(p, None, env)
   }
 
-  private[this] val pwild = P.char('_').as(WildCard)
-  private[this] val plit: P[Pattern[Nothing, Nothing]] = {
+  private val pwild = P.char('_').as(WildCard)
+  private val plit: P[Pattern[Nothing, Nothing]] = {
     val intp = (Lit.integerParser | Lit.codePointParser).map(Literal(_))
     val startStr = P.string("${").as { (opt: Option[Bindable]) =>
       opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_))

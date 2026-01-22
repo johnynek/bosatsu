@@ -1223,7 +1223,7 @@ object RingOpt {
 
     /** If this stack was constructed from an Expr it will always return Right
       */
-    def toExpr: Either[Stack.Error[_ <: Expr[A]], Expr[A]] = {
+    def toExpr: Either[Stack.Error[? <: Expr[A]], Expr[A]] = {
       import Stack._
       // This is duplicative with toValue, but
       // I can't see a way to reuse and get exact equality
@@ -1231,7 +1231,7 @@ object RingOpt {
       def loop(
           s: Stack[A],
           alist: List[Expr[A]]
-      ): Either[Error[_ <: Expr[A]], Expr[A]] =
+      ): Either[Error[? <: Expr[A]], Expr[A]] =
         s match {
           case Empty =>
             alist match {
@@ -1712,9 +1712,9 @@ object RingOpt {
                   w.constMult[A](target.toExpr, const),
                   w
                 ) :: rest.map(_._2)
-            val prod = Expr.multAll(normed)
-            val costProd = w.cost(prod)
-            (costProd, prod)
+              val prod = Expr.multAll(normed)
+              val costProd = w.cost(prod)
+              (costProd, prod)
           }
           val (minCost, _) = all.minBy(_._1)
           all
@@ -1972,7 +1972,7 @@ object RingOpt {
       val orderedTerms = terms.nonZeroIterator.toList.sorted
       orderedTerms.foldLeft(e0) { case (acc, (ms, c)) =>
         val prod =
-          ms.map(_.toExpr).reduce[Expr[A]]((acc, m) => Expr.checkMult(acc, m))
+          ms.map(_.toExpr).reduceLeft(Expr.checkMult)
 
         val prodC = prod.bestEffortConstMult(c)
         Expr.checkAdd(acc, prodC)

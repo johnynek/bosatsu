@@ -62,7 +62,7 @@ object StrPart {
       }
   }
 
-  private[this] val emptyStringArray: Array[String] = new Array[String](0)
+  private val emptyStringArray: Array[String] = new Array[String](0)
 
   /** This performs the matchstring algorithm on a literal string it returns
     * null if there is no match, or the array of binds in order if there is a

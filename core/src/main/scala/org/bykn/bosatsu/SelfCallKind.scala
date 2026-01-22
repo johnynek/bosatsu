@@ -72,7 +72,7 @@ object SelfCallKind {
       case TypedExpr.App(fn, args, _, _) =>
         val argsCall = args
           .map(apply(n, _).callNotTail)
-          .reduce(SelfCallKind.ifNoCallSemigroup)
+          .reduce(using SelfCallKind.ifNoCallSemigroup)
 
         argsCall.ifNoCallThen(
           if (isFn(n, fn)) SelfCallKind.TailCall

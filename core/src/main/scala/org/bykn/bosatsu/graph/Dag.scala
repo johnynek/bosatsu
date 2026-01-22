@@ -41,7 +41,7 @@ sealed trait Dag[A] {
 
   override def equals(that: Any) =
     that match {
-      case thatDag: Dag[_] =>
+      case thatDag: Dag[?] =>
         def eqDag[B](bs: Dag[B]): Boolean =
           (nodes == bs.nodes) && {
             nodes.iterator.zip(bs.nodes.iterator).forall { case (a, b) =>

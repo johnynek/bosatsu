@@ -900,7 +900,7 @@ object Type {
     val FnKinds: List[(Type.TyConst, Kind)] = {
       // -* -> -* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co): _*)
+        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co)*)
 
       tpes.iterator.zipWithIndex.map { case (t, n1) =>
         (t, kindSize(n1 + 1))
@@ -1065,7 +1065,7 @@ object Type {
     val Kinds: List[(Type.TyConst, Kind)] = {
       // +* -> +* ... -> +* -> *
       def kindSize(n: Int): Kind =
-        Kind(Vector.fill(n)(Kind.Type.co): _*)
+        Kind(Vector.fill(n)(Kind.Type.co)*)
 
       (1 to 32).iterator.map(n => (Arity(n), kindSize(n))).toList
     }
@@ -1136,7 +1136,7 @@ object Type {
         extends Var
 
     object Bound {
-      private[this] val cache: Array[Bound] =
+      private val cache: Array[Bound] =
         ('a' to 'z').map(c => new Bound(c.toString)).toArray
 
       def apply(str: String): Bound =
@@ -1391,7 +1391,7 @@ object Type {
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
-    private[this] val coloncolon = Doc.text("::")
+    private val coloncolon = Doc.text("::")
 
     def unapplyRoot(a: Type): Option[Doc] =
       a match {

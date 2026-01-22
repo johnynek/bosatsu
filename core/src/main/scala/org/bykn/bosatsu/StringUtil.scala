@@ -83,7 +83,7 @@ abstract class GenericStringUtil {
   def undelimitedString1(endP: P[Unit]): P[String] =
     escapedToken
       .orElse((!endP).with1 *> utf16Codepoint)
-      .repAs(codePointAccumulator)
+      .repAs(using codePointAccumulator)
 
   def codepoint(startP: P[Any], endP: P[Any]): P[Int] =
     startP *>

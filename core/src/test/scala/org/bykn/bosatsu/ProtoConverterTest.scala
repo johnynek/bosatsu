@@ -116,8 +116,8 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
     forAll(Generators.interfaceGen) { iface =>
       law(
         iface,
-        ProtoConverter.interfaceToProto _,
-        ProtoConverter.interfaceFromProto _
+        ProtoConverter.interfaceToProto,
+        ProtoConverter.interfaceFromProto
       )(using Eq.fromUniversalEquals)
     }
   }
@@ -135,8 +135,8 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
       ifaces =>
         law(
           ifaces,
-          ProtoConverter.interfacesToProto[List] _,
-          ProtoConverter.interfacesFromProto _
+          ProtoConverter.interfacesToProto[List],
+          ProtoConverter.interfacesFromProto
         )(using sortedEq)
     }
   }
@@ -148,8 +148,8 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
       }.toList
       law(
         ifaces,
-        ProtoConverter.interfacesToProto[List] _,
-        ProtoConverter.interfacesFromProto _
+        ProtoConverter.interfacesToProto[List],
+        ProtoConverter.interfacesFromProto
       )(using sortedEq)
     }
   }
@@ -178,8 +178,8 @@ bar = 1
           packs.toMap.values.toList.sortBy(_.name).map { pt =>
             Package.setProgramFrom(tf.void(pt), ())
           },
-          ser _,
-          deser _
+          ser,
+          deser
         )(using Eq.fromUniversalEquals)
     )
   }
@@ -194,7 +194,7 @@ bar = 1
         }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
-      law(packList, ser _, deser _)(using Eq.fromUniversalEquals)
+      law(packList, ser, deser)(using Eq.fromUniversalEquals)
     }
   }
 

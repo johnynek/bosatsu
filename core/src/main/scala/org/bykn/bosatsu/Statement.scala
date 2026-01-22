@@ -333,7 +333,7 @@ object Statement {
       (if (args.nonEmpty) {
          Doc.char('(') + Doc.intercalate(
            Doc.text(", "),
-           args.toList.map(TypeRef.argDoc[Bindable] _)
+           args.toList.map(TypeRef.argDoc[Bindable])
          ) + Doc.char(')')
        } else Doc.empty)
 
@@ -343,7 +343,7 @@ object Statement {
     Document.instance[Unit](_ => Doc.empty)
 
   private val optKindArgs: Document[Option[Kind.Arg]] =
-    Document {
+    Document.instance {
       case None     => Doc.empty
       case Some(ka) => colonSpace + Kind.argDoc(ka)
     }

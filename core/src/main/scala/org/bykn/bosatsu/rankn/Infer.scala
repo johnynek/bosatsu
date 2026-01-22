@@ -100,7 +100,7 @@ object Infer {
     def addVars(vt: NonEmptyList[(Name, Type)]): Env =
       new Env(uniq, vars = (vars + vt.head) ++ vt.tail, typeCons, variances)
 
-    private[this] val kindCache: Type => Either[Region => Error, Kind] =
+    private val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
         b => { region =>
           Error.UnknownKindOfVar(Type.TyVar(b), region, s"unbound var: $b")
@@ -203,7 +203,7 @@ object Infer {
         extends TypeError
     case class NotPolymorphicEnough(
         tpe: Type,
-        in: Expr[_],
+        in: Expr[?],
         badTvs: NonEmptyList[Type],
         reg: Region
     ) extends TypeError
@@ -269,7 +269,7 @@ object Infer {
       def region: Region
     }
     // This is a logic error which should never happen
-    case class InferIncomplete(term: Expr[_], region: Region)
+    case class InferIncomplete(term: Expr[?], region: Region)
         extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"inferRho not complete for $term"
@@ -574,7 +574,7 @@ object Infer {
     }
 
     val zonk: Type.Meta => Infer[Option[Type.Rho]] =
-      Type.zonk[Infer](SortedSet.empty, readMeta _, writeMeta _)
+      Type.zonk[Infer](SortedSet.empty, readMeta, writeMeta)
 
     /** This fills in any meta vars that have been quantified and replaces them
       * with what they point to
@@ -1282,7 +1282,7 @@ object Infer {
             case Some(_) => None
           }
         }
-    private[this] val pureNone: Infer[None.type] = pure(None)
+    private val pureNone: Infer[None.type] = pure(None)
 
     def solvedExistentitals(
         lst: List[Type.Meta]
@@ -2413,7 +2413,7 @@ object Infer {
       for {
         e <- env
         zrho <- zonkTypedExpr(rho)
-        q <- TypedExpr.quantify(e, zrho, readMeta _, writeMeta _)
+        q <- TypedExpr.quantify(e, zrho, readMeta, writeMeta)
       } yield q
 
     // allocate this once and reuse
@@ -2587,7 +2587,7 @@ object Infer {
       t: Expr[A],
       optMeta: Option[(Identifier, Type.TyMeta, Region)]
   ): Infer[TypedExpr[A]] = {
-    def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
+    def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr)
 
     val optSkols = t match {
       case Expr.Generic(vs, e) =>

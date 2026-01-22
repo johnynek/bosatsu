@@ -12,7 +12,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   /** Holds the final value of the environment for each Package
     */
-  private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
+  private val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
     MMap.empty
 
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
@@ -37,7 +37,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }.toMap
   }
 
-  private[this] lazy val gdr = pm.getDataRepr
+  private lazy val gdr = pm.getDataRepr
 
   private def evalLets(
       thisPack: PackageName,

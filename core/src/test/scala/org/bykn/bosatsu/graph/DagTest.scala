@@ -99,9 +99,10 @@ class DagTest extends AnyFunSuite {
       // if we toposort a dag, we always succeed
       implicit val setOrd: Ordering[SortedSet[Int]] =
         ListOrdering.byIterator[SortedSet[Int], Int]
-      val sortRes @ Toposort.Success(_) = Toposort.sort(dag.nodes) { n =>
-        dag.deps(n).toList
-      }
+      val sortRes @ Toposort.Success(_) =
+        Toposort.sort(dag.nodes) { n =>
+          dag.deps(n).toList
+        }.runtimeChecked
       assert(sortRes.isSuccess)
       sortRes.layers.zipWithIndex.foreach { case (nodes, layer) =>
         nodes.toList.foreach { n =>

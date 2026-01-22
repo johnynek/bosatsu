@@ -79,11 +79,11 @@ class KindParseTest extends ParserTestBase {
 
   test("toArgs and Kind.apply are inverses") {
     forAll(genKind) { k =>
-      assert(Kind(k.toArgs: _*) == k)
+      assert(Kind(k.toArgs*) == k)
     }
 
     forAll(Gen.listOf(genArg)) { args =>
-      assert(Kind(args: _*).toArgs == args)
+      assert(Kind(args*).toArgs == args)
     }
   }
 
@@ -329,7 +329,7 @@ class KindParseTest extends ParserTestBase {
     // ((* -> *) -> *) -> *
     trait MonadTrans[F[_[_]]]
 
-    new MonadTrans[Monad] {}
+    val _ = new MonadTrans[Monad] {}
 
     // this does not compile
     // new MonadTrans[CoMonad] {}
@@ -338,13 +338,13 @@ class KindParseTest extends ParserTestBase {
     // new MonadTrans[ContraMonad] {}
     check("(* -> *) -> *", "(-* -> *) -> *", false)
 
-    new CoMonadTrans[CoMonad] {}
+    val _ = new CoMonadTrans[CoMonad] {}
     // CoMonadTrans accepts Monad
-    new CoMonadTrans[Monad] {}
+    val _ = new CoMonadTrans[Monad] {}
     check("(+* -> *) -> *", "(* -> *) -> *")
-    new ContraMonadTrans[Monad] {}
+    val _ = new ContraMonadTrans[Monad] {}
     check("(-* -> *) -> *", "(* -> *) -> *")
-    new ContraMonadTrans[ContraMonad] {}
+    val _ = new ContraMonadTrans[ContraMonad] {}
     check("(-* -> *) -> *", "(-* -> *) -> *")
     // this does not compile
     // new CoMonadTrans[ContraMonad] {}

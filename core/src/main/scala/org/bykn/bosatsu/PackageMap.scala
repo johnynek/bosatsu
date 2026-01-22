@@ -462,18 +462,17 @@ object PackageMap {
           }
 
           val inferBody =
-            inferImports
-              .flatMap { impMap =>
-                // run this in a thread
-                val ilist = impMap.toList(Package.orderByName)
-                IorT(
-                  Par.start(
-                    Package
-                      .inferBodyUnopt(nm, ilist, stmt)
-                      .map((ilist, impMap, _))
-                  )
+            inferImports.flatMap { impMap =>
+              // run this in a thread
+              val ilist = impMap.toList(using Package.orderByName)
+              IorT(
+                Par.start(
+                  Package
+                    .inferBodyUnopt(nm, ilist, stmt)
+                    .map((ilist, impMap, _))
                 )
-              }
+              )
+            }
 
           inferBody.flatMap { case (ilist, imap, (fte, program)) =>
             val ior =
@@ -515,7 +514,9 @@ object PackageMap {
 
     val fut = ps.toMap.toList
       .parTraverse { case (name, pack) =>
-        IorT(infer(pack).map(_.map(name -> _)))
+        IorT[Par.F, NonEmptyList[PackageError], (PackageName, Package.Inferred)](
+          cats.Functor[Par.F].map(infer(pack))(_.map(name -> _))
+        )
       }
       .map(_.to(SortedMap))
 

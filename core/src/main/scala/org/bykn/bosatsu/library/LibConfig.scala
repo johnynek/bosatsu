@@ -659,7 +659,7 @@ object LibConfig {
       }
 
     implicit val showError: cats.Show[Error] =
-      cats.Show[Error](e => docError.document(e).render(80))
+      cats.Show.show[Error](e => docError.document(e).render(80))
 
     def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
       vnec match {
@@ -813,7 +813,7 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](cats.Order[Version].max(_, _))
+            .reduce[Version](summon[cats.Order[Version]].max)
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)
@@ -965,7 +965,7 @@ object LibConfig {
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
-    Json.Writer[LibConfig] { lc =>
+    Json.Writer.from[LibConfig] { lc =>
       import Json.Writer.write
       import lc._
 

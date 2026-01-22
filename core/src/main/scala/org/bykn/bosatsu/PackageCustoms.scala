@@ -299,7 +299,7 @@ object PackageCustoms {
             case Some(te) => internalDeps(te).map(Right(_))
           }
       }
-    val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf _)
+    val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf)
 
     val unused = pack.lets.filter { case (bn, _, _) =>
       !canReach.contains(Right(bn))

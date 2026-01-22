@@ -30,7 +30,7 @@ object Matcher {
       }
   }
 
-  private[this] val someUnit = Some(())
+  private val someUnit = Some(())
 
   def eqMatcher[A](implicit eqA: Eq[A]): Matcher[A, A, Unit] =
     new Matcher[A, A, Unit] {
@@ -39,9 +39,8 @@ object Matcher {
       }
     }
 
-  val intMatcher: Matcher[Int, Int, Unit] = eqMatcher(
-    Eq.fromUniversalEquals[Int]
-  )
+  val intMatcher: Matcher[Int, Int, Unit] =
+    eqMatcher(using Eq.fromUniversalEquals[Int])
 
   def fnMatch[A]: Matcher[A => Boolean, A, Unit] =
     new Matcher[A => Boolean, A, Unit] {

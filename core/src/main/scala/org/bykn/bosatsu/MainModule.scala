@@ -1031,7 +1031,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               )
 
             val tupleOrdering = Ordering.Tuple3(
-              platformIO.pathOrdering,
+              using platformIO.pathOrdering,
               Ordering[PackageName],
               Ordering.String
             )

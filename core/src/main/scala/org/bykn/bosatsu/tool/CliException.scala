@@ -31,7 +31,7 @@ object CliException {
       err: Doc,
       stdOut: Doc = Doc.empty,
       code: ExitCode = ExitCode.Error
-  ): Exception with CliException =
+  ): Exception & CliException =
     new Exception(summary) with CliException {
       def errDoc = err
       def stdOutDoc = stdOut

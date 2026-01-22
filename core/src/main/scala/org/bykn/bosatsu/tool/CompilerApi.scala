@@ -126,7 +126,7 @@ object CompilerApi {
       sourceMap: PackageMap.SourceMap,
       errors: NonEmptyList[PackageError],
       color: Colorize
-  ): CliException with Exception = {
+  ): CliException & Exception = {
     val messages: List[String] =
       errors.toList.distinct
         .map(_.message(sourceMap, color))
@@ -140,7 +140,7 @@ object CompilerApi {
   private def ParseErrors[Path](
       errors: NonEmptyList[PathParseError[Path]],
       color: Colorize
-  ): CliException with Exception = {
+  ): CliException & Exception = {
 
     val messages: List[String] =
       errors.toList.flatMap {

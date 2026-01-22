@@ -148,7 +148,7 @@ sealed abstract class Declaration {
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts =>
-            Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _))
+            Doc.intercalate(Doc.line, ts.toList.map(Document[T].document))
           }
 
         val piPat = Document[OptIndent[
@@ -166,7 +166,7 @@ sealed abstract class Declaration {
           // matches binds tighter than all these
           case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) |
               Match(_, _, _) =>
-            Parens(arg)(m.region).toDoc
+            Parens(arg)(using m.region).toDoc
           case _ =>
             arg.toDoc
         }
@@ -314,7 +314,7 @@ sealed abstract class Declaration {
             case (acc, RecordArg.Pair(_, v)) =>
               loop(v, bound, acc)
             case (acc, RecordArg.Simple(v)) =>
-              loop(Var(v)(decl.region), bound, acc)
+              loop(Var(v)(using decl.region), bound, acc)
           }
       }
 
@@ -339,7 +339,7 @@ sealed abstract class Declaration {
   def toNonBinding: NonBinding =
     this match {
       case nb: NonBinding => nb
-      case decl           => Parens(decl)(decl.region)
+      case decl           => Parens(decl)(using decl.region)
     }
 
   /** This returns *all* names in the declaration, bound or not
@@ -435,9 +435,9 @@ sealed abstract class Declaration {
             v.replaceRegionsNB(r),
             in.map(_.replaceRegions(r))
           )
-        )(r)
+        )(using r)
       case Comment(CommentStatement(lines, c)) =>
-        Comment(CommentStatement(lines, c.map(_.replaceRegions(r))))(r)
+        Comment(CommentStatement(lines, c.map(_.replaceRegions(r))))(using r)
       case DefFn(d) =>
         DefFn(
           d.copy(result =
@@ -446,7 +446,7 @@ sealed abstract class Declaration {
               d.result._2.map(_.replaceRegions(r))
             )
           )
-        )(r)
+        )(using r)
       case LeftApply(p, _, right, b) =>
         LeftApply(p, r, right.replaceRegionsNB(r), b.map(_.replaceRegions(r)))
       case nb: NonBinding => nb.replaceRegionsNB(r)
@@ -529,10 +529,10 @@ object Declaration {
     def loop(decl: NonBinding): Option[NonBinding] =
       decl match {
         case Annotation(term, tpe) =>
-          loop(term).map(Annotation(_, tpe)(decl.region))
+          loop(term).map(Annotation(_, tpe)(using decl.region))
         case Apply(fn, args, kind) =>
           (loop(fn), args.traverse(loop))
-            .mapN(Apply(_, _, kind)(decl.region))
+            .mapN(Apply(_, _, kind)(using decl.region))
         case aop @ ApplyOp(left, op, right) if (op: Bindable) === ident =>
           // we cannot make a general substition on ApplyOp
           ex match {
@@ -547,7 +547,7 @@ object Declaration {
             .mapN(ApplyOp(_, op, _))
         case CommentNB(CommentStatement(msg, Padding(l, nb))) =>
           loop(nb).map { nb1 =>
-            CommentNB(CommentStatement(msg, Padding(l, nb1)))(decl.region)
+            CommentNB(CommentStatement(msg, Padding(l, nb1)))(using decl.region)
           }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse { case (cond, br) =>
@@ -555,7 +555,7 @@ object Declaration {
           }
           val elsec = elseCase.traverse(loopDec)
 
-          (ifs, elsec).mapN(IfElse(_, _)(decl.region))
+          (ifs, elsec).mapN(IfElse(_, _)(using decl.region))
         case Ternary(t, c, f) =>
           (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
@@ -563,7 +563,7 @@ object Declaration {
           val pnames = args.patternNames
           if (pnames.exists(masks)) None
           else if (pnames.exists(shadows)) Some(decl)
-          else loopDec(body).map(Lambda(args, _)(decl.region))
+          else loopDec(body).map(Lambda(args, _)(using decl.region))
         case l @ Literal(_)       => Some(l)
         case Match(k, arg, cases) =>
           val caseRes =
@@ -578,14 +578,14 @@ object Declaration {
                 }
               }
 
-          (loop(arg), caseRes).mapN(Match(k, _, _)(decl.region))
+          (loop(arg), caseRes).mapN(Match(k, _, _)(using decl.region))
         case Matches(a, p) =>
           // matches does not currently set up bindings
-          loop(a).map(Matches(_, p)(decl.region))
+          loop(a).map(Matches(_, p)(using decl.region))
         case Parens(p) =>
-          loopDec(p).map(Parens(_)(decl.region))
+          loopDec(p).map(Parens(_)(using decl.region))
         case TupleCons(items) =>
-          items.traverse(loop).map(TupleCons(_)(decl.region))
+          items.traverse(loop).map(TupleCons(_)(using decl.region))
         case Var(name: Bindable) if name === ident =>
           // here is the substition
           Some(ex.replaceRegionsNB(decl.region))
@@ -598,17 +598,17 @@ object Declaration {
                 loop(nb).map(StringDecl.CharExpr(_))
               case lit => Some(lit)
             }
-            .map(StringDecl(_)(decl.region))
+            .map(StringDecl(_)(using decl.region))
         case ListDecl(ll) =>
           loopLL(ll)(_.traverse(loop))
-            .map(ListDecl(_)(decl.region))
+            .map(ListDecl(_)(using decl.region))
         case DictDecl(ll) =>
           loopLL(ll)(_.traverse(loop))
-            .map(DictDecl(_)(decl.region))
+            .map(DictDecl(_)(using decl.region))
         case RecordConstructor(c, args) =>
           args
             .traverse(loopRA)
-            .map(RecordConstructor(c, _)(decl.region))
+            .map(RecordConstructor(c, _)(using decl.region))
       }
 
     def loopDec(decl: Declaration): Option[Declaration] =
@@ -620,20 +620,20 @@ object Declaration {
             // we only substitute on v
             loop(v)
               .map { v1 =>
-                Binding(BindingStatement(n, v1, in))(decl.region)
+                Binding(BindingStatement(n, v1, in))(using decl.region)
               }
           } else {
             // we substitute on both
             (loop(v), in.traverse(loopDec))
               .mapN { (v1, in1) =>
-                Binding(BindingStatement(n, v1, in1))(decl.region)
+                Binding(BindingStatement(n, v1, in1))(using decl.region)
               }
           }
         case Comment(c) =>
           c.on
             .traverse(loopDec)
             .map { p1 =>
-              Comment(CommentStatement(c.message, p1))(decl.region)
+              Comment(CommentStatement(c.message, p1))(using decl.region)
             }
         case DefFn(DefStatement(nm, ta, args, rtype, (body, rest))) =>
           def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
@@ -646,7 +646,7 @@ object Declaration {
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
             .mapN { (b, r) =>
-              DefFn(DefStatement(nm, ta, args, rtype, (b, r)))(decl.region)
+              DefFn(DefStatement(nm, ta, args, rtype, (b, r)))(using decl.region)
             }
         case LeftApply(n, r, v, in) =>
           val thisNames = n.names
@@ -712,20 +712,20 @@ object Declaration {
   sealed abstract class NonBinding extends Declaration {
     def replaceRegionsNB(r: Region): NonBinding =
       this match {
-        case Annotation(term, t) => Annotation(term.replaceRegionsNB(r), t)(r)
+        case Annotation(term, t) => Annotation(term.replaceRegionsNB(r), t)(using r)
         case Apply(fn, args, s)  =>
-          Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
+          Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(using r)
         case ApplyOp(left, op, right) =>
           ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
         case CommentNB(CommentStatement(msg, p)) =>
-          CommentNB(CommentStatement(msg, p.map(_.replaceRegionsNB(r))))(r)
+          CommentNB(CommentStatement(msg, p.map(_.replaceRegionsNB(r))))(using r)
         case IfElse(ifCases, elseCase) =>
           IfElse(
             ifCases.map { case (bool, res) =>
               (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r)))
             },
             elseCase.map(_.replaceRegions(r))
-          )(r)
+          )(using r)
         case Ternary(t, c, f) =>
           Ternary(
             t.replaceRegionsNB(r),
@@ -733,8 +733,8 @@ object Declaration {
             f.replaceRegionsNB(r)
           )
         case Lambda(args, body) =>
-          Lambda(args, body.replaceRegions(r))(r)
-        case Literal(lit)              => Literal(lit)(r)
+          Lambda(args, body.replaceRegions(r))(using r)
+        case Literal(lit)              => Literal(lit)(using r)
         case Match(rec, arg, branches) =>
           Match(
             rec,
@@ -742,13 +742,13 @@ object Declaration {
             branches.map(_.map { case (p, x) =>
               (p, x.map(_.replaceRegions(r)))
             })
-          )(r)
+          )(using r)
         case Matches(a, p) =>
-          Matches(a.replaceRegionsNB(r), p)(r)
-        case Parens(p)        => Parens(p.replaceRegions(r))(r)
+          Matches(a.replaceRegionsNB(r), p)(using r)
+        case Parens(p)        => Parens(p.replaceRegions(r))(using r)
         case TupleCons(items) =>
-          TupleCons(items.map(_.replaceRegionsNB(r)))(r)
-        case Var(b)          => Var(b)(r)
+          TupleCons(items.map(_.replaceRegionsNB(r)))(using r)
+        case Var(b)          => Var(b)(using r)
         case StringDecl(nel) =>
           val ne1 = nel.map {
             case StringDecl.Literal(_, s) => StringDecl.Literal(r, s)
@@ -757,9 +757,9 @@ object Declaration {
             case StringDecl.StrExpr(e) =>
               StringDecl.StrExpr(e.replaceRegionsNB(r))
           }
-          StringDecl(ne1)(r)
+          StringDecl(ne1)(using r)
         case ListDecl(ListLang.Cons(items)) =>
-          ListDecl(ListLang.Cons(items.map(_.map(_.replaceRegionsNB(r)))))(r)
+          ListDecl(ListLang.Cons(items.map(_.map(_.replaceRegionsNB(r)))))(using r)
         case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           ListDecl(
             ListLang.Comprehension(
@@ -768,11 +768,11 @@ object Declaration {
               in.replaceRegionsNB(r),
               filter.map(_.replaceRegionsNB(r))
             )
-          )(r)
+          )(using r)
         case DictDecl(ListLang.Cons(items)) =>
           DictDecl(ListLang.Cons(items.map { case ListLang.KVPair(k, v) =>
             ListLang.KVPair(k.replaceRegionsNB(r), v.replaceRegionsNB(r))
-          }))(r)
+          }))(using r)
         case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           DictDecl(
             ListLang.Comprehension(
@@ -781,14 +781,14 @@ object Declaration {
               in.replaceRegionsNB(r),
               filter.map(_.replaceRegionsNB(r))
             )
-          )(r)
+          )(using r)
         case RecordConstructor(c, args) =>
           val args1 = args.map {
             case RecordArg.Simple(b)  => RecordArg.Simple(b)
             case RecordArg.Pair(k, v) =>
               RecordArg.Pair(k, v.replaceRegionsNB(r))
           }
-          RecordConstructor(c, args1)(r)
+          RecordConstructor(c, args1)(using r)
       }
   }
 
@@ -803,7 +803,7 @@ object Declaration {
       binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[
         Declaration
       ]]
-  )(implicit val region: Region)
+  )(using val region: Region)
       extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit
       val region: Region
@@ -813,7 +813,7 @@ object Declaration {
         Pattern.Parsed,
         (OptIndent[Declaration], Padding[Declaration])
       ]
-  )(implicit val region: Region)
+  )(using val region: Region)
       extends Declaration
   case class LeftApply(
       arg: Pattern.Parsed,
@@ -824,9 +824,9 @@ object Declaration {
     def region: Region = argRegion + result.padded.region
     def rewrite: NonBinding = {
       val lam = Lambda(NonEmptyList.one(arg), result.padded)(
-        argRegion + result.padded.region
+        using argRegion + result.padded.region
       )
-      Apply(fn, NonEmptyList.one(lam), ApplyKind.Parens)(region)
+      Apply(fn, NonEmptyList.one(lam), ApplyKind.Parens)(using region)
     }
   }
 
@@ -845,7 +845,7 @@ object Declaration {
       fn: NonBinding,
       args: NonEmptyList[NonBinding],
       kind: ApplyKind
-  )(implicit val region: Region)
+  )(using val region: Region)
       extends NonBinding
   case class ApplyOp(
       left: NonBinding,
@@ -853,10 +853,10 @@ object Declaration {
       right: NonBinding
   ) extends NonBinding {
     val region = left.region + right.region
-    def opVar: Var = Var(op)(Region(left.region.end, right.region.start))
+    def opVar: Var = Var(op)(using Region(left.region.end, right.region.start))
 
     def toApply: Apply =
-      Apply(opVar, NonEmptyList(left, right :: Nil), ApplyKind.Parens)(region)
+      Apply(opVar, NonEmptyList(left, right :: Nil), ApplyKind.Parens)(using region)
   }
   case class CommentNB(comment: CommentStatement[Padding[NonBinding]])(implicit
       val region: Region
@@ -865,7 +865,7 @@ object Declaration {
   case class IfElse(
       ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
       elseCase: OptIndent[Declaration]
-  )(implicit val region: Region)
+  )(using val region: Region)
       extends NonBinding
   case class Ternary(
       trueCase: NonBinding,
@@ -877,21 +877,21 @@ object Declaration {
   case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(
       implicit val region: Region
   ) extends NonBinding
-  case class Literal(lit: Lit)(implicit val region: Region) extends NonBinding
+  case class Literal(lit: Lit)(using val region: Region) extends NonBinding
   case class Match(
       kind: RecursionKind,
       arg: NonBinding,
       cases: OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]]
-  )(implicit val region: Region)
+  )(using val region: Region)
       extends NonBinding
   case class Matches(arg: NonBinding, pattern: Pattern.Parsed)(implicit
       val region: Region
   ) extends NonBinding
-  case class Parens(of: Declaration)(implicit val region: Region)
+  case class Parens(of: Declaration)(using val region: Region)
       extends NonBinding
-  case class TupleCons(items: List[NonBinding])(implicit val region: Region)
+  case class TupleCons(items: List[NonBinding])(using val region: Region)
       extends NonBinding
-  case class Var(name: Identifier)(implicit val region: Region)
+  case class Var(name: Identifier)(using val region: Region)
       extends NonBinding
 
   /** This represents code like: Foo { bar: 12 }
@@ -1022,9 +1022,9 @@ object Declaration {
       .map { case (r, c) =>
         c.on.padded match {
           case nb: NonBinding =>
-            CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(r)
+            CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(using r)
           case _ =>
-            Comment(c)(r)
+            Comment(c)(using r)
         }
       }
 
@@ -1036,7 +1036,7 @@ object Declaration {
         )
       )
       .region
-      .map { case (r, c) => CommentNB(c)(r) }
+      .map { case (r, c) => CommentNB(c)(using r) }
 
   def defP(parser: Indy[Declaration]): Indy[DefFn] = {
     val restParser: Indy[(OptIndent[Declaration], Padding[Declaration])] =
@@ -1046,7 +1046,7 @@ object Declaration {
       DefStatement
         .parser(Pattern.bindParser, maybeSpace.with1 *> rp)
         .region
-        .map { case (r, d) => DefFn(d)(r) }
+        .map { case (r, d) => DefFn(d)(using r) }
     }
   }
 
@@ -1083,7 +1083,7 @@ object Declaration {
             case Some(s) =>
               s.toList // type inference works better than fold sadly
           }
-        IfElse(NonEmptyList(ifcase, elses), elseBody)(region)
+        IfElse(NonEmptyList(ifcase, elses), elseBody)(using region)
       }
   }
 
@@ -1102,14 +1102,14 @@ object Declaration {
       plist.region.map {
         case (r, Nil) =>
           // this is the empty string:
-          Literal(Lit.EmptyStr)(r)
+          Literal(Lit.EmptyStr)(using r)
         case (r, Right((_, str)) :: Nil) =>
-          Literal(Lit.Str(str))(r)
+          Literal(Lit.Str(str))(using r)
         case (r, h :: tail) =>
           StringDecl(NonEmptyList(h, tail).map {
             case Right((region, str)) => StringDecl.Literal(region, str)
             case Left(expr)           => expr
-          })(r)
+          })(using r)
       }
     }
   }
@@ -1121,7 +1121,7 @@ object Declaration {
     val withSlash = OptIndent
       .blockLike(params, parser, maybeSpace.with1 *> rightArrow)
       .region
-      .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
+      .map { case (r, (args, body)) => Lambda(args, body.get)(using r) }
 
     val noSlashParamsArrow =
       // patterns are ambiguous with expressions wo se need backtracking
@@ -1145,7 +1145,7 @@ object Declaration {
             // we consider a top level non-empty tuple to be a list:
             NonEmptyList(h, tail)
         }
-        Lambda(args, body.get)(r)
+        Lambda(args, body.get)(using r)
       }
 
     withSlash <+> noSlash
@@ -1164,7 +1164,7 @@ object Declaration {
       .block(left, branch.nonEmptyList(Indy.toEOLIndent))
       .region
       .map { case (r, ((kind, arg), branches)) =>
-        Match(kind, arg, branches)(r)
+        Match(kind, arg, branches)(using r)
       }
   }
 
@@ -1193,7 +1193,7 @@ object Declaration {
 
   val varP: P[Var] =
     (!keywordsP).with1 *> Identifier.bindableParser.region.map { case (r, i) =>
-      Var(i)(r)
+      Var(i)(using r)
     }
 
   // this returns a Var with a Constructor or a RecordConstrutor
@@ -1214,18 +1214,18 @@ object Declaration {
     val tupArgs = declP.parensLines1Cut.region
       .map {
         case (r, args) => { (nm: Var) =>
-          Apply(nm, args, ApplyKind.Parens)(nm.region + r)
+          Apply(nm, args, ApplyKind.Parens)(using nm.region + r)
         }
       }
 
     (Identifier.consParser ~ Parser.either(recArgs, tupArgs).?).region
       .map {
         case (region, (n, Some(Left(args)))) =>
-          RecordConstructor(n, args)(region)
+          RecordConstructor(n, args)(using region)
         case (region, (n, Some(Right(build)))) =>
-          build(Var(n)(region))
+          build(Var(n)(using region))
         case (region, (n, None)) =>
-          Var(n)(region)
+          Var(n)(using region)
       }
   }
 
@@ -1258,7 +1258,7 @@ object Declaration {
           case PatternBindKind.Equals =>
             // TODO: we should keep the pattern region
             val pat = Pattern.fromMaybeTupleOrParens(rawPat)
-            Binding(BindingStatement(pat, value.get, decl))(region)
+            Binding(BindingStatement(pat, value.get, decl))(using region)
           case PatternBindKind.LeftApplyFn =>
             val pat = Pattern.fromMaybeTupleOrParens(rawPat)
             LeftApply(pat, preg, value.get, decl)
@@ -1271,17 +1271,17 @@ object Declaration {
     ListLang
       .parser(p, src, Pattern.bindParser)
       .region
-      .map { case (r, l) => ListDecl(l)(r) }
+      .map { case (r, l) => ListDecl(l)(using r) }
 
   private def dictP(p: P[NonBinding], src: P[NonBinding]): P[DictDecl] =
     ListLang
       .dictParser(p, src, Pattern.bindParser)
       .region
-      .map { case (r, l) => DictDecl(l)(r) }
+      .map { case (r, l) => DictDecl(l)(using r) }
 
   val lits: P[Literal] =
     (Lit.integerParser | Lit.codePointParser).region.map { case (r, l) =>
-      Literal(l)(r)
+      Literal(l)(using r)
     }
 
   sealed abstract private class ParseMode
@@ -1297,7 +1297,7 @@ object Declaration {
    * or not. If false, we only parse NonBinding, if true
    * we also parse Bind, Def, Comment
    */
-  private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
+  private val parserCache: ((ParseMode, String)) => P[Declaration] =
     Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] {
       case ((pm, indent), rec) =>
         // TODO:
@@ -1342,7 +1342,7 @@ object Declaration {
             indent => recIndy(indent)
           }
           maybeSpace.with1 *> (withIndent | noIndent).map { d => (r: Region) =>
-            Parens(d)(r)
+            Parens(d)(using r)
           } <* maybeSpacesAndLines
         }
 
@@ -1352,12 +1352,12 @@ object Declaration {
             .parens(
               ((maybeSpacesAndLines.with1.soft *> ((recNonBind <* (!(maybeSpace ~ bindOp))).backtrack <* maybeSpacesAndLines)).tupleOrParens0
                 .map {
-                  case Left(p)    => { (r: Region) => Parens(p)(r) }
-                  case Right(tup) => { (r: Region) => TupleCons(tup.toList)(r) }
+                  case Left(p)    => { (r: Region) => Parens(p)(using r) }
+                  case Right(tup) => { (r: Region) => TupleCons(tup.toList)(using r) }
                 })
                 .orElse(nestedBlock)
                 // or it could be () which is just unit
-                .orElse(P.pure((r: Region) => TupleCons(Nil)(r))),
+                .orElse(P.pure((r: Region) => TupleCons(Nil)(using r))),
               P.unit
             )
             .region
@@ -1410,7 +1410,7 @@ object Declaration {
               .map {
                 case (r2, (fn, args)) => { (head: NonBinding) =>
                   Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(
-                    head.region + r2
+                    using head.region + r2
                   )
                 }
               }
@@ -1422,7 +1422,7 @@ object Declaration {
             params1.region
               .map {
                 case (r, args) => { (fn: NonBinding) =>
-                  Apply(fn, args, ApplyKind.Parens)(fn.region + r)
+                  Apply(fn, args, ApplyKind.Parens)(using fn.region + r)
                 }
               }
 
@@ -1447,7 +1447,7 @@ object Declaration {
                 .backtrack.region
                 .map {
                   case (r, tpe) => { (nb: NonBinding) =>
-                    Annotation(nb, tpe)(nb.region + r)
+                    Annotation(nb, tpe)(using nb.region + r)
                   }
                 }
 
@@ -1463,7 +1463,7 @@ object Declaration {
             ) *> spaces).backtrack *> Pattern.matchParser).region
               .map {
                 case (region, pat) => { (nb: NonBinding) =>
-                  Matches(nb, pat)(nb.region + region)
+                  Matches(nb, pat)(using nb.region + region)
                 }
               }
               .rep

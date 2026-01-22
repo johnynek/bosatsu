@@ -230,7 +230,10 @@ object PredefImpl {
     Value.Str(i(intValue).toString)
 
   final def string_to_Int(strValue: Value): Value = {
-    val Value.Str(str) = strValue
+    val str = strValue match {
+      case Value.Str(s) => s
+      case other        => sys.error(s"type error: $other")
+    }
     try Value.VOption.some(VInt(new BigInteger(str)))
     catch {
       case _: NumberFormatException => Value.VOption.none
@@ -238,7 +241,10 @@ object PredefImpl {
   }
 
   def trace(prefix: Value, v: Value): Value = {
-    val Value.Str(prestr) = prefix
+    val prestr = prefix match {
+      case Value.Str(s) => s
+      case other        => sys.error(s"type error: $other")
+    }
     println(s"$prestr: $v")
     v
   }

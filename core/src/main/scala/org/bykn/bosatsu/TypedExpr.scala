@@ -18,7 +18,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   // It is really important to cache the hashcode and these large dags if
   // we use them as hash keys
   final override val hashCode: Int =
-    MurmurHash3.productHash(this)
+    MurmurHash3.caseClassHash(this)
 
   def tag: T
 
@@ -470,7 +470,7 @@ object TypedExpr {
       case _ => None
     }
 
-  private[this] val emptyBound: SortedSet[Type.Var.Bound] =
+  private val emptyBound: SortedSet[Type.Var.Bound] =
     SortedSet.empty
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
@@ -1287,7 +1287,7 @@ object TypedExpr {
     freeVarsDup(ts).distinct
 
   def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
-    SortedSet(freeVarsDup(ts): _*)
+    SortedSet(freeVarsDup(ts)*)
 
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)

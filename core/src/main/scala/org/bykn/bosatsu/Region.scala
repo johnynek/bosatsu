@@ -16,7 +16,7 @@ object Region {
     Ordering.by((r: Region) => (r.start, r.end))
 
   implicit val regionOrder: Order[Region] =
-    Order.fromOrdering(ordering)
+    Order.fromOrdering(using ordering)
 
   implicit val regionSemigroup: Semigroup[Region] =
     Semigroup.instance(_ + _)

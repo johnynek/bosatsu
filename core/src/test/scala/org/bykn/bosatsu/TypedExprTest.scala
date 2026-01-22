@@ -51,7 +51,7 @@ class TypedExprTest extends AnyFunSuite {
       )
     }
 
-    forAll(genTypedExpr)(law _)
+    forAll(genTypedExpr)(law)
 
     checkLast("""
 enum AB: A, B(x)
@@ -827,7 +827,7 @@ x = Foo
         .traverseType { (t: Type) =>
           t match {
             case q: Type.Quantified =>
-              Writer(SortedSet[Type.Var](q.vars.toList.map(_._1): _*), t)
+              Writer(SortedSet[Type.Var](q.vars.toList.map(_._1)*), t)
             case _ => Writer(SortedSet[Type.Var](), t)
           }
         }

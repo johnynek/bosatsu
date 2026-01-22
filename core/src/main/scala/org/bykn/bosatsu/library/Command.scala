@@ -309,7 +309,7 @@ object Command {
                           ),
                         colorize,
                         inputRes
-                      )(ec)
+                      )(using ec)
                     }
                     .map(_._1)
                 case None =>

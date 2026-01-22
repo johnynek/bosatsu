@@ -110,7 +110,8 @@ class ValueTest extends AnyFunSuite {
     forAll(stringValue) { svs =>
       val svsSorted = svs.sortBy(_._1)
 
-      val sortByOrd = svs.sortBy { case (k, _) => ExternalValue(k): Value }(ord)
+      val sortByOrd =
+        svs.sortBy { case (k, _) => ExternalValue(k): Value }(using ord)
 
       assert(svsSorted == sortByOrd)
     }

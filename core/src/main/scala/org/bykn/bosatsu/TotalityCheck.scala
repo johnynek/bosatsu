@@ -85,7 +85,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           )
     }
 
-  private[this] val validUnit: Res[Unit] = Right(())
+  private val validUnit: Res[Unit] = Right(())
 
   /** Check that a given pattern follows all the rules.
     *
@@ -227,8 +227,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     }
 
   private lazy val seqP: SetOps[SeqPattern[Pattern[Cons, Type]]] = {
-    val sp = SeqPart.part1SetOps(patternSetOps)
-    SeqPattern.seqPatternSetOps(sp, implicitly)
+    val sp = SeqPart.part1SetOps(using patternSetOps)
+    SeqPattern.seqPatternSetOps(using sp, implicitly)
   }
 
   private lazy val listPatternSetOps: SetOps[ListPat[Cons, Type]] =
@@ -241,7 +241,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   private val strPatternSetOps: SetOps[StrPat] =
     SetOps.imap[SeqPattern[Int], StrPat](
       SeqPattern.seqPatternSetOps(
-        SeqPart.part1SetOps(SetOps.distinct[Int]),
+        using SeqPart.part1SetOps(using SetOps.distinct[Int]),
         implicitly
       ),
       StrPat.fromSeqPattern(_),

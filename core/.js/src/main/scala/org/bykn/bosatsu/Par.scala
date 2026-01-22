@@ -1,4 +1,5 @@
 package org.bykn.bosatsu
+import scala.compiletime.uninitialized
 
 /** This is an abstraction to handle parallel computation, not effectful
   * computation. It is used in places where we have parallelism in expensive
@@ -7,7 +8,7 @@ package org.bykn.bosatsu
   */
 object Par {
   class Box[A] {
-    private[this] var value: A = _
+    private var value: A = uninitialized
     def set(a: A): Unit =
       value = a
     def get: A = value

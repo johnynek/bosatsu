@@ -114,7 +114,7 @@ final case class DefinedType[+A](
   }
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
-    Kind(toAnnotatedKinds.map(_._2): _*)
+    Kind(toAnnotatedKinds.map(_._2)*)
 
   def depPackages: List[PackageName] =
     (packageName :: constructors.flatMap(_.depPackages)).distinct
@@ -127,7 +127,7 @@ object DefinedType {
   def listToMap[A](
       dts: List[DefinedType[A]]
   ): SortedMap[(PackageName, TypeName), DefinedType[A]] =
-    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt): _*)
+    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt)*)
 
   def toKindMap[F[_]: Foldable](
       dts: F[DefinedType[Kind.Arg]]

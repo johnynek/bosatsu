@@ -16,12 +16,12 @@ import Identifier.Bindable
 
 object UnusedLetCheck {
 
-  private[this] type WriterChain[A] = Writer[Chain[(Bindable, Region)], A]
-  private[this] val ap = Applicative[WriterChain]
-  private[this] val empty: WriterChain[Set[Bindable]] =
+  private type WriterChain[A] = Writer[Chain[(Bindable, Region)], A]
+  private val ap = Applicative[WriterChain]
+  private val empty: WriterChain[Set[Bindable]] =
     ap.pure(Set.empty)
 
-  private[this] def checkArg(
+  private def checkArg(
       arg: Bindable,
       reg: => Region,
       w: WriterChain[Set[Bindable]]
@@ -34,7 +34,7 @@ object UnusedLetCheck {
       }
     }
 
-  private[this] def loop[A: HasRegion](
+  private def loop[A: HasRegion](
       e: Expr[A]
   ): WriterChain[Set[Bindable]] =
     e match {
