@@ -77,7 +77,7 @@ jobs:
     strategy:
       matrix:
         java:
-          - '11'
+          - '17'
     timeout-minutes: 30
   buildWithGraal:
     runs-on: ubuntu-latest
@@ -98,7 +98,7 @@ jobs:
     strategy:
       matrix:
         java:
-          - '11'
+          - '17'
   testWithNode:
     runs-on: ubuntu-latest
     steps:
@@ -117,13 +117,13 @@ jobs:
     strategy:
       matrix:
         java:
-          - '11'
+          - '17'
   testC:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         java:
-          - '11'
+          - '17'
     steps:
       - uses: "actions/checkout@v2.1.0"
       - name: "java setup"
