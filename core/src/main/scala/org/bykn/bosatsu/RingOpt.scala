@@ -555,7 +555,7 @@ object RingOpt {
       // and collapsing constants, we do this before doing harder optimizations
       // since we have better equality at that point
       def basicNorm(implicit o: Order[A]): Expr[A] = {
-        def normExpr(e: Expr[A]): Expr[A] = e.basicNorm(using o)
+        def normExpr[A1 <: A](e: Expr[A1]): Expr[A] = e.basicNorm(using o)
 
         def add(a: Expr[A], b: Expr[A]) =
           if (a == Zero) b
@@ -587,7 +587,7 @@ object RingOpt {
         def simpleNeg(e: Expr[A]): Expr[A] =
           // normalizeNeg isn't idempotent
           e.normalizeNeg match {
-            case Neg(x: Expr[A]) => Neg(normExpr(x))
+            case Neg(x) => Neg(normExpr(x))
             case notNeg =>
               // the negative was pushed down, normalize again
               normExpr(notNeg)
@@ -596,8 +596,8 @@ object RingOpt {
         expr match {
           case Zero | One | Symbol(_) => expr
           case Integer(i)             => canonInt(i)
-          case Neg(Neg(x: Expr[A]))   => normExpr(x)
-          case Neg(x: Expr[A])        => simpleNeg(normExpr(x))
+          case Neg(Neg(x))   => normExpr(x)
+          case Neg(x)        => simpleNeg(normExpr(x))
           case Add(x, y)              =>
             // TODO: if we move this to object Expr and take Hash[A]
             // we could normalize x + -(x) into 0, but that should be
@@ -1779,7 +1779,7 @@ object RingOpt {
                       val rA: Expr[A] = r
                       val (c1, prodTerms) = Expr.flattenMult[A](lA :: rA :: Nil)
                       prodTerms match {
-                        case (add: Add[A]) :: Nil =>
+                        case (add: Add[a]) :: Nil =>
                           // make sure we never add singleton Add(_, _)
                           val c2 = c * c1
                           loop(
