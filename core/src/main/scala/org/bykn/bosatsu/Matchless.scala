@@ -1278,7 +1278,7 @@ object Matchless {
        * is easier to translate into low level
        * instructions
         items
-          .toStream
+          .to(LazyList)
           .mapWithIndex { (a, idx) => afn(a).map((_, idx)) }
           .collect { case Some(m) => m }
           .flatMap { case (b, idx) =>

@@ -9,7 +9,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
   def genItem: Gen[A]
   implicit def shrinkItem: Shrink[A] =
-    Shrink(_ => Stream.empty)
+    Shrink.withLazyList(_ => LazyList.empty)
 
   def genUnion: Gen[List[A]] = Gen.listOf(genItem)
 

@@ -65,25 +65,24 @@ object GenJson {
   implicit def shrinkJson(implicit
       ss: Shrink[String]
   ): Shrink[Json] =
-    Shrink[Json](new Function1[Json, Stream[Json]] {
-      def apply(j: Json): Stream[Json] = {
-        import Json._
-        j match {
-          case JString(str)             => ss.shrink(str).map(JString(_))
-          case JNumberStr(_)            => Stream.empty
-          case JNull                    => Stream.empty
-          case JBool.True | JBool.False => Stream.empty
-          case JArray(js)               =>
-            (0 until js.size).toStream.map { sz =>
-              JArray(js.take(sz))
-            }
-          case JObject(mapList) =>
-            (0 until mapList.size).toStream.map { sz =>
-              JObject(mapList.take(sz))
-            }
-        }
+    Shrink.withLazyList { j =>
+      import Json._
+      j match {
+        case JString(str)             =>
+          LazyList.from(ss.shrink(str)).map(JString(_))
+        case JNumberStr(_)            => LazyList.empty
+        case JNull                    => LazyList.empty
+        case JBool.True | JBool.False => LazyList.empty
+        case JArray(js)               =>
+          (0 until js.size).to(LazyList).map { sz =>
+            JArray(js.take(sz))
+          }
+        case JObject(mapList) =>
+          (0 until mapList.size).to(LazyList).map { sz =>
+            JObject(mapList.take(sz))
+          }
       }
-    })
+    }
 
   lazy val genPath: Gen[Json.Path] =
     Gen.oneOf(

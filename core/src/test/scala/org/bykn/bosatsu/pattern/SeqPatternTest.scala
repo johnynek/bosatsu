@@ -52,12 +52,12 @@ object StringSeqPatternGen {
   implicit val arbPattern: Arbitrary[SeqPattern[Int]] = Arbitrary(genPat)
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Int]] =
-    Shrink {
-      case Empty            => Empty #:: Stream.empty
+    Shrink.withLazyList {
+      case Empty            => Empty #:: LazyList.empty
       case Cat(Wildcard, t) =>
-        (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+        (Cat(AnyElem, t) #:: t #:: LazyList.empty).flatMap(shrinkPat.shrink)
       case Cat(_, t) =>
-        t #:: shrinkPat.shrink(t)
+        t #:: LazyList.from(shrinkPat.shrink(t))
     }
 
   def genNamedFn[A](
@@ -97,7 +97,7 @@ object StringSeqPatternGen {
 
   implicit val arbNamed: Arbitrary[NamedSeqPattern[Int]] = Arbitrary(genNamed)
 
-  def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
+  def interleave[A](s1: LazyList[A], s2: LazyList[A]): LazyList[A] =
     if (s1.isEmpty) s2
     else if (s2.isEmpty) s1
     else {
@@ -105,32 +105,32 @@ object StringSeqPatternGen {
     }
 
   implicit val shrinkNamedSeqPattern: Shrink[NamedSeqPattern[Int]] =
-    Shrink {
-      case NamedSeqPattern.NEmpty     => Stream.Empty
+    Shrink.withLazyList {
+      case NamedSeqPattern.NEmpty     => LazyList.empty
       case NamedSeqPattern.Bind(n, p) =>
-        val sp = shrinkNamedSeqPattern.shrink(p)
+        val sp = LazyList.from(shrinkNamedSeqPattern.shrink(p))
         val binded = sp.map(NamedSeqPattern.Bind(n, _))
         interleave(sp, binded)
       case NamedSeqPattern.NSeqPart(p) =>
-        def tail: Stream[SeqPart[Int]] =
-          lit('0') #:: lit('1') #:: Stream.Empty
+        def tail: LazyList[SeqPart[Int]] =
+          lit('0') #:: lit('1') #:: LazyList.empty
 
         val sp = p match {
           case Wildcard => AnyElem #:: tail
           case AnyElem  => tail
-          case Lit(_)   => Stream.Empty
+          case Lit(_)   => LazyList.empty
         }
         sp.map(NamedSeqPattern.NSeqPart(_))
       case NamedSeqPattern.NCat(fst, snd) =>
-        val s1 = shrinkNamedSeqPattern.shrink(fst)
-        val s2 = shrinkNamedSeqPattern.shrink(snd)
+        val s1 = LazyList.from(shrinkNamedSeqPattern.shrink(fst))
+        val s2 = LazyList.from(shrinkNamedSeqPattern.shrink(snd))
         interleave(s1, s2).iterator
           .sliding(2)
           .map {
             case Seq(a, b) => NamedSeqPattern.NCat(a, b)
             case _         => NamedSeqPattern.NEmpty
           }
-          .toStream
+          .to(LazyList)
     }
 
   def unany[A](p: SeqPattern[A]): SeqPattern[A] =
@@ -149,10 +149,10 @@ object StringSeqPatternGen {
 
   implicit val arbString: Arbitrary[String] = Arbitrary(genBitString)
   implicit val shrinkString: Shrink[String] =
-    Shrink { str =>
+    Shrink.withLazyList { str =>
       for {
-        i <- (0 until str.length).toStream
-        j <- (i until str.length).toStream
+        i <- (0 until str.length).to(LazyList)
+        j <- (i until str.length).to(LazyList)
       } yield str.substring(i, j)
     }
 
@@ -427,17 +427,17 @@ class BoolSeqPatternTest
     PropertyCheckConfiguration(minSuccessful = 100)
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
-    Shrink {
-      case Empty            => Empty #:: Stream.empty
+    Shrink.withLazyList {
+      case Empty            => Empty #:: LazyList.empty
       case Cat(Wildcard, t) =>
-        (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+        (Cat(AnyElem, t) #:: t #:: LazyList.empty).flatMap(shrinkPat.shrink)
       case Cat(AnyElem, t) =>
         (Cat(Lit(Set(false)), t) #:: Cat(
           Lit(Set(true)),
           t
-        ) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+        ) #:: t #:: LazyList.empty).flatMap(shrinkPat.shrink)
       case Cat(_, t) =>
-        t #:: shrinkPat.shrink(t)
+        t #:: LazyList.from(shrinkPat.shrink(t))
     }
 
   val genBool: Gen[Boolean] = Gen.oneOf(true, false)
