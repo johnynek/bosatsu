@@ -96,7 +96,7 @@ object TypeRef {
   implicit val typeRefOrdering: Ordering[TypeRef] =
     new Ordering[TypeRef] { self =>
       val list = ListOrdering.onType(this)
-    implicit val typeRefOrder: Order[TypeRef] = Order.fromOrdering(using self)
+      implicit val typeRefOrder: Order[TypeRef] = Order.fromOrdering(using self)
       val nelistKind = implicitly[Order[NonEmptyList[(TypeRef, Option[Kind])]]]
       val nelTR = implicitly[Order[NonEmptyList[TypeRef]]]
 

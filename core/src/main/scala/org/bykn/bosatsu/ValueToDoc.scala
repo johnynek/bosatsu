@@ -161,9 +161,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               val dtOpt =
                 Type.rootConst(tpe).flatMap {
-                  case Type.TyConst(const) =>
-                    getDefinedType(const)
-                  case _ => None
+                  case Type.TyConst(const) => getDefinedType(const)
                 }
 
               dtOpt match {

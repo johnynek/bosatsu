@@ -500,7 +500,6 @@ object TypedExprNormalization {
               // than m1. requiring m2.size < m1.size fails some tests
               // we can possibly simplify this now:
               normalize1(namerec, m2, scope, typeEnv)
-            case _ => None
           }
         } else {
           // there has been some change, so

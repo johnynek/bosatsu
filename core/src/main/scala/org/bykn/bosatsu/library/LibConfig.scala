@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.Semigroup
 import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
@@ -813,7 +814,7 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](summon[cats.Order[Version]].max)
+            .reduce[Version](using Semigroup.instance(summon[cats.Order[Version]].max))
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)
