@@ -395,7 +395,7 @@ object PackageMap {
           )
       }
 
-    (nuEr, check, res.toIor).mapN((_, _, r) => r)
+    (nuEr, check, res.toIor).parMapN((_, _, r) => r)
   }
 
   /** Infer all the types in a resolved PackageMap
@@ -511,14 +511,7 @@ object PackageMap {
           }
         }
       }
-
-    val fut = ps.toMap.toList
-      .parTraverse { case (name, pack) =>
-        IorT[Par.F, NonEmptyList[PackageError], (PackageName, Package.Inferred)](
-          cats.Functor[Par.F].map(infer(pack))(_.map(name -> _))
-        )
-      }
-      .map(_.to(SortedMap))
+    val fut = ps.toMap.parTraverse(infer.andThen(IorT(_)))
 
     // Wait until all the resolution is complete
     Par
