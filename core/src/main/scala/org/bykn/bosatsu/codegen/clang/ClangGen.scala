@@ -151,7 +151,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               ns.rootKey,
               k,
               vs.toList.iterator
-                .map { case (_, n) => Identifier.Name(n) }
+                .map { case (_, n) => (Identifier.Name(n): Bindable) }
                 .to(SortedSet)
             )
           }
@@ -935,7 +935,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case Lit.Str(toStr) => StringApi.fromString(toStr)
         }
 
-      def innerApp(app: App[K]): T[Code.ValueLike] =
+      def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =
         app match {
           case App(Global(k, pack, fnName), args) =>
             directFn(k, pack, fnName).flatMap {
@@ -1027,10 +1027,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn: FnExpr[K]       => innerFn(fn)
+          case fn @ Lambda(_, _, _, _)       => innerFn(fn: FnExpr[K])
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
-          case app @ App(_, _)       => innerApp(app)
+          case app @ App(_, _)           => innerApp(app)
           case Global(k, pack, name) =>
             directFn(k, pack, name)
               .flatMap {
@@ -1187,7 +1187,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
 
-      def fnStatement(fnName: Code.Ident, fn: FnExpr[K]): T[Code.Statement] =
+      def fnStatement[K1 <: K](fnName: Code.Ident, fn: FnExpr[K1]): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
@@ -1298,7 +1298,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
     object Env {
       def impl: Env = {
-        def catsMonad[S]: Monad[StateT[EitherT[Eval, Error, *], S, *]] =
+        type ErrorOr[A] = EitherT[Eval, Error, A]
+        type StateF[S] = [A] =>> StateT[ErrorOr, S, A]
+
+        def catsMonad[S]: Monad[StateF[S]] =
           implicitly
 
         new Env {
@@ -1394,7 +1397,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
           }
 
-          type T[A] = StateT[EitherT[Eval, Error, *], State, A]
+          type T[A] = StateT[ErrorOr, State, A]
 
           implicit val monadImpl: Monad[T] = catsMonad[State]
 

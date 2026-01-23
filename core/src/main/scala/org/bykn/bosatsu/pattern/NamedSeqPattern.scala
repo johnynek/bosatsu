@@ -99,7 +99,7 @@ object NamedSeqPattern {
       }
     }
 
-  private[this] object Impl {
+  private object Impl {
     def toMachine[A](
         n: NamedSeqPattern[A],
         right: List[Machine[A]]

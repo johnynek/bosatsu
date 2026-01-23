@@ -333,7 +333,7 @@ object Statement {
       (if (args.nonEmpty) {
          Doc.char('(') + Doc.intercalate(
            Doc.text(", "),
-           args.toList.map(TypeRef.argDoc[Bindable] _)
+           args.toList.map(TypeRef.argDoc[Bindable])
          ) + Doc.char(')')
        } else Doc.empty)
 
@@ -343,7 +343,7 @@ object Statement {
     Document.instance[Unit](_ => Doc.empty)
 
   private val optKindArgs: Document[Option[Kind.Arg]] =
-    Document {
+    Document.instance {
       case None     => Doc.empty
       case Some(ka) => colonSpace + Kind.argDoc(ka)
     }
@@ -355,7 +355,7 @@ object Statement {
     implicit val pair: Document[OptIndent[Declaration]] =
       Document.instance[OptIndent[Declaration]] { body =>
         body.sepDoc +
-          OptIndent.document(Declaration.document).document(body)
+          OptIndent.document[Declaration].document(body)
       }
     val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
 
@@ -387,12 +387,14 @@ object Statement {
           case OptIndent.NotSameLine(_) => (Doc.empty, Doc.line)
         }
 
-        implicit def neDoc[T: Document]: Document[NonEmptyList[T]] =
+        given neDoc[T](using Document[T]): Document[NonEmptyList[T]] =
           Document.instance { ne =>
-            Doc.intercalate(itemSep, ne.toList.map(Document[T].document _))
+            Doc.intercalate(itemSep, ne.toList.map(Document[T].document))
           }
 
-        val indentedCons = OptIndent.document(neDoc(consDoc)).document(parts)
+        val indentedCons = OptIndent
+          .document[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]]
+          .document(parts)
 
         val taDoc = typeArgs match {
           case None     => Doc.empty

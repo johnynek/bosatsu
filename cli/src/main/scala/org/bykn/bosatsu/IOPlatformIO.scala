@@ -198,8 +198,10 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
     val filesIO = Files[IO]
 
+    import org.http4s.ember.client.EmberClientBuilder
+
     val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
-      org.http4s.blaze.client.BlazeClientBuilder[IO].resource
+      EmberClientBuilder.default[IO].build
 
     val hashFile: fs2.Pipe[IO, Byte, HashValue[A]] =
       in =>

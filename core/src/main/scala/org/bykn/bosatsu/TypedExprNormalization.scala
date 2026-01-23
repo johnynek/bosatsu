@@ -15,18 +15,19 @@ object TypedExprNormalization {
 
   type ScopeT[A, S] =
     Map[(Option[PackageName], Bindable), (RecursionKind, TypedExpr[A], S)]
-  type Scope[A] = FixType.Fix[ScopeT[A, *]]
+  type ScopeTF[A] = [S] =>> ScopeT[A, S]
+  type Scope[A] = FixType.Fix[ScopeTF[A]]
 
   def emptyScope[A]: Scope[A] =
-    FixType.fix[ScopeT[A, *]](Map.empty)
+    FixType.fix[ScopeTF[A]](Map.empty)
 
   implicit final class ScopeOps[A](private val scope: Scope[A]) extends AnyVal {
     def updated(
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope).updated((None, key), value)
+      FixType.fix[ScopeTF[A]](
+        FixType.unfix[ScopeTF[A]](scope).updated((None, key), value)
       )
 
     def updatedGlobal(
@@ -34,13 +35,13 @@ object TypedExprNormalization {
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope).updated((Some(pack), key), value)
+      FixType.fix[ScopeTF[A]](
+        FixType.unfix[ScopeTF[A]](scope).updated((Some(pack), key), value)
       )
 
     def -(key: Bindable): Scope[A] =
-      FixType.fix[ScopeT[A, *]](
-        FixType.unfix[ScopeT[A, *]](scope) - (None -> key)
+      FixType.fix[ScopeTF[A]](
+        FixType.unfix[ScopeTF[A]](scope) - (None -> key)
       )
 
     def --(keys: Iterable[Bindable]): Scope[A] =
@@ -49,13 +50,13 @@ object TypedExprNormalization {
     def getLocal(
         key: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeT[A, *]](scope).get((None, key))
+      FixType.unfix[ScopeTF[A]](scope).get((None, key))
 
     def getGlobal(
         pack: PackageName,
         n: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeT[A, *]](scope).get((Some(pack), n))
+      FixType.unfix[ScopeTF[A]](scope).get((Some(pack), n))
   }
 
   private def nameScope[A](
@@ -499,7 +500,6 @@ object TypedExprNormalization {
               // than m1. requiring m2.size < m1.size fails some tests
               // we can possibly simplify this now:
               normalize1(namerec, m2, scope, typeEnv)
-            case _ => None
           }
         } else {
           // there has been some change, so
@@ -729,7 +729,7 @@ object TypedExprNormalization {
     type Branch[A] = (Pat, TypedExpr[A])
 
     def maybeEvalMatch[A](
-        m: Match[_ <: A],
+        m: Match[? <: A],
         scope: Scope[A]
     ): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {
@@ -1165,8 +1165,8 @@ object TypedExprNormalization {
                 _,
                 tag
               ) =>
-            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
-            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            val leftArg = unapply[A](left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply[A](right).getOrElse(OpaqueInt(right))
             Some(Add(leftArg, rightArg, addFn, tag))
           case App(
                 timesFn @ Global(
@@ -1179,8 +1179,8 @@ object TypedExprNormalization {
                 _,
                 tag
               ) =>
-            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
-            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            val leftArg = unapply[A](left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply[A](right).getOrElse(OpaqueInt(right))
             Some(Times(leftArg, rightArg, timesFn, tag))
           case App(
                 subFn @ Global(
@@ -1193,8 +1193,8 @@ object TypedExprNormalization {
                 _,
                 tag
               ) =>
-            val leftArg = unapply(left).getOrElse(OpaqueInt(left))
-            val rightArg = unapply(right).getOrElse(OpaqueInt(right))
+            val leftArg = unapply[A](left).getOrElse(OpaqueInt(left))
+            val rightArg = unapply[A](right).getOrElse(OpaqueInt(right))
             Some(Sub(leftArg, rightArg, subFn, tag))
           case Literal(Lit.Integer(bi), _, tag) => Some(LiteralInt(bi, tag))
           case _                                => None

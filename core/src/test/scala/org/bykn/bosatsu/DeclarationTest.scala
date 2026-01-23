@@ -301,14 +301,14 @@ x""")
 
   test("isCheap is constant under Annotation or Parens") {
     forAll(genDecl) { d =>
-      val an = Declaration.Annotation(d.toNonBinding, null)(null)
+      val an = Declaration.Annotation(d.toNonBinding, null)
       assert(an.isCheap == d.isCheap)
-      val p = Declaration.Parens(d)(null)
+      val p = Declaration.Parens(d)
       assert(p.isCheap == d.isCheap)
     }
 
-    assert(Declaration.Var(Identifier.Name(""))(null).isCheap)
-    assert(Declaration.Literal(Lit(""))(null).isCheap)
-    assert(Declaration.Literal(Lit.fromInt(0))(null).isCheap)
+    assert(Declaration.Var(Identifier.Name("")).isCheap)
+    assert(Declaration.Literal(Lit("")).isCheap)
+    assert(Declaration.Literal(Lit.fromInt(0)).isCheap)
   }
 }

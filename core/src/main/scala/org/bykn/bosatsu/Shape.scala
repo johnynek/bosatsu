@@ -205,7 +205,7 @@ object Shape {
       }
       .map(_.reverse)
 
-  private[this] val builtIns: Map[rankn.Type.Const.Defined, Shape] =
+  private val builtIns: Map[rankn.Type.Const.Defined, Shape] =
     rankn.Type.builtInKinds.map { case (t, k) => (t, ShapeOf(k)) }
 
   def solveShape[E: IsShapeEnv](

@@ -59,7 +59,7 @@ object Algo {
 
     override def equals(obj: Any): Boolean =
       obj match {
-        case e: WithAlgo[_] => (e.algo == algo) && (e.value == value)
+        case e: WithAlgo[?] => (e.algo == algo) && (e.value == value)
         case _              => false
       }
 
@@ -80,11 +80,11 @@ object Algo {
       }
 
     def apply[F[_], T](alg: Algo[T], v: F[T]): WithAlgo[F] { type A = T } =
-      apply(v)(alg)
+      apply(v)(using alg)
 
     implicit class WithAlgoHashValue(private val hashValue: WithAlgo[HashValue])
         extends AnyVal {
-      def toIdent: String = hashValue.value.toIdent(hashValue.algo)
+      def toIdent: String = hashValue.value.toIdent(using hashValue.algo)
     }
 
     implicit val ordWithAlgoHash: cats.Order[WithAlgo[HashValue]] =

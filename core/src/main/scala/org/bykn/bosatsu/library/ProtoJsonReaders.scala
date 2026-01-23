@@ -64,7 +64,7 @@ object ProtoJsonReaders {
     }
 
   implicit val historyWriter: Writer[proto.LibHistory] =
-    Writer { (hist: proto.LibHistory) =>
+    Writer.from { (hist: proto.LibHistory) =>
       import Writer.write
 
       Json.JObject(
@@ -103,7 +103,7 @@ object ProtoJsonReaders {
     }
 
   implicit val listOfDepsWriter: Json.Writer[List[proto.LibDependency]] =
-    Json.Writer { list =>
+    Json.Writer.from { list =>
       Json.JObject(list.flatMap { dep =>
         dep.desc.map { d =>
           dep.name -> Json.Writer.write(d)

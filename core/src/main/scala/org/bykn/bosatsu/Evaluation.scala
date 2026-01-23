@@ -12,7 +12,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   /** Holds the final value of the environment for each Package
     */
-  private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
+  private val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
     MMap.empty
 
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
@@ -37,7 +37,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }.toMap
   }
 
-  private[this] lazy val gdr = pm.getDataRepr
+  private lazy val gdr = pm.getDataRepr
 
   private def evalLets(
       thisPack: PackageName,
@@ -62,8 +62,10 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }
 
     type F[A] = List[(Bindable, A)]
-    val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
-    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(ffunc)
+    type BindablePair[A] = (Bindable, A)
+    val ffunc: cats.Functor[F] =
+      cats.Functor[List].compose[BindablePair](using cats.Functor[BindablePair])
+    MatchlessToValue.traverse[F, Unit](exprs)(evalFn)(using ffunc)
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =

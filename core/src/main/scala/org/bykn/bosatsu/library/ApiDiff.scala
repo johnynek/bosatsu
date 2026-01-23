@@ -399,8 +399,8 @@ object ApiDiff {
                 def bindsOf(
                     nel: NonEmptyList[ExportedName[R]]
                 ): List[ExportedName.Binding[R]] =
-                  nel.toList.collect { case b @ ExportedName.Binding(_, _) =>
-                    b
+                  nel.toList.collect { case ExportedName.Binding(n, tag) =>
+                    ExportedName.Binding[R](n, tag)
                   }
 
                 (bindsOf(oldExp), bindsOf(newExp)) match {

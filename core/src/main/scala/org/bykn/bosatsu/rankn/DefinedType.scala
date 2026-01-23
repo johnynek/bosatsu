@@ -114,7 +114,7 @@ final case class DefinedType[+A](
   }
 
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
-    Kind(toAnnotatedKinds.map(_._2): _*)
+    Kind(toAnnotatedKinds.map(_._2)*)
 
   def depPackages: List[PackageName] =
     (packageName :: constructors.flatMap(_.depPackages)).distinct
@@ -127,7 +127,7 @@ object DefinedType {
   def listToMap[A](
       dts: List[DefinedType[A]]
   ): SortedMap[(PackageName, TypeName), DefinedType[A]] =
-    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt): _*)
+    SortedMap(dts.map(dt => (dt.packageName, dt.name) -> dt)*)
 
   def toKindMap[F[_]: Foldable](
       dts: F[DefinedType[Kind.Arg]]
@@ -140,12 +140,17 @@ object DefinedType {
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {
-      val listTup = Traverse[List].compose[(Type.Var.Bound, *)]
+      val listTup = Traverse[List].compose[[X] =>> (Type.Var.Bound, X)]
       def traverse[F[_]: Applicative, A, B](
           da: DefinedType[A]
       )(fn: A => F[B]): F[DefinedType[B]] =
         listTup.traverse(da.annotatedTypeParams)(fn).map { ap =>
-          da.copy(annotatedTypeParams = ap)
+          DefinedType(
+            packageName = da.packageName,
+            name = da.name,
+            annotatedTypeParams = ap,
+            constructors = da.constructors
+          )
         }
 
       def foldRight[A, B](fa: DefinedType[A], b: Eval[B])(
@@ -157,6 +162,11 @@ object DefinedType {
         listTup.foldLeft(fa.annotatedTypeParams, b)(fn)
 
       override def map[A, B](fa: DefinedType[A])(fn: A => B): DefinedType[B] =
-        fa.copy(annotatedTypeParams = listTup.map(fa.annotatedTypeParams)(fn))
+        DefinedType(
+          packageName = fa.packageName,
+          name = fa.name,
+          annotatedTypeParams = listTup.map(fa.annotatedTypeParams)(fn),
+          constructors = fa.constructors
+        )
     }
 }

@@ -701,9 +701,8 @@ object PackageError {
             .distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
-            showT(t)
-          })
+          given Document[Type] = Document.instance(showT)
+          val doc = Pattern.compiledDocument[Type]
 
           Doc.text("non-total match, missing: ") +
             (Doc.intercalate(
@@ -719,9 +718,8 @@ object PackageError {
             .distinct
           val showT = showTypes(pack, allTypes)
 
-          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
-            showT(t)
-          })
+          given Document[Type] = Document.instance(showT)
+          val doc = Pattern.compiledDocument[Type]
 
           Doc.text("unreachable branches: ") +
             (Doc.intercalate(

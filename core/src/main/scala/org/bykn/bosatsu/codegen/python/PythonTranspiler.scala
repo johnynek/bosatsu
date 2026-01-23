@@ -52,7 +52,7 @@ case object PythonTranspiler extends Transpiler {
             help = "evaluators which run values of certain types"
           )
           .orEmpty,
-        Transpiler.outDir(platformIO.pathArg)
+        Transpiler.outDir
       )
         .mapN(Arguments(_, _, _, platformIO))
         .map(arg => Transpiler.optioned(this)(arg))

@@ -215,7 +215,7 @@ object Code {
             acc: NonEmptyList[Expression]
         ): F[ValueLike] =
           rest match {
-            case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList: _*))
+            case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList*))
             case h :: t =>
               h.onExpr(hexpr => loop(t, hexpr :: acc))(newLocalName)
           }
@@ -454,7 +454,7 @@ object Code {
       Statements(NonEmptyChain.fromNonEmptyList(nel))
 
     def apply(first: Statement, rest: Statement*): Statements =
-      Statements(NonEmptyChain.of(first, rest: _*))
+      Statements(NonEmptyChain.of(first, rest*))
 
     def combine(first: Statement, last: Statement): Statement =
       first match {

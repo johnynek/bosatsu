@@ -2,16 +2,14 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
-import language.experimental.macros
-
 object Predef {
 
   /** Loads a file *at compile time* as a means of embedding external files into
     * strings. This lets us avoid resources which compilicate matters for
     * scalajs.
     */
-  private[bosatsu] def loadFileInCompile(file: String): String =
-    macro Macro.loadFileInCompileImpl
+  private[bosatsu] inline def loadFileInCompile(file: String): String =
+    ${ Macro.loadFileInCompileImpl('file) }
 
   /** String representation of the predef
     */
@@ -232,7 +230,10 @@ object PredefImpl {
     Value.Str(i(intValue).toString)
 
   final def string_to_Int(strValue: Value): Value = {
-    val Value.Str(str) = strValue
+    val str = strValue match {
+      case Value.Str(s) => s
+      case other        => sys.error(s"type error: $other")
+    }
     try Value.VOption.some(VInt(new BigInteger(str)))
     catch {
       case _: NumberFormatException => Value.VOption.none
@@ -240,7 +241,10 @@ object PredefImpl {
   }
 
   def trace(prefix: Value, v: Value): Value = {
-    val Value.Str(prestr) = prefix
+    val prestr = prefix match {
+      case Value.Str(s) => s
+      case other        => sys.error(s"type error: $other")
+    }
     println(s"$prestr: $v")
     v
   }

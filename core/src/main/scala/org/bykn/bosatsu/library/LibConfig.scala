@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.Semigroup
 import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
@@ -659,7 +660,7 @@ object LibConfig {
       }
 
     implicit val showError: cats.Show[Error] =
-      cats.Show[Error](e => docError.document(e).render(80))
+      cats.Show.show[Error](e => docError.document(e).render(80))
 
     def toTry[A](vnec: ValidatedNec[Error, A]): Try[A] =
       vnec match {
@@ -813,7 +814,7 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](cats.Order[Version].max(_, _))
+            .reduce[Version](using Semigroup.instance(summon[cats.Order[Version]].max))
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)
@@ -965,7 +966,7 @@ object LibConfig {
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
-    Json.Writer[LibConfig] { lc =>
+    Json.Writer.from[LibConfig] { lc =>
       import Json.Writer.write
       import lc._
 

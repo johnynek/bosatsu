@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Monad
 import java.util.concurrent.Executors
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
@@ -10,10 +11,15 @@ import scala.concurrent.duration.Duration
   * replace the scalajs with just running directly
   */
 object Par {
-  type F[A] = Future[A]
-  type P[A] = Promise[A]
-  type EC = ExecutionContext
-  type ExecutionService = java.util.concurrent.ExecutorService
+  opaque type F[A] = Future[A]
+  opaque type P[A] <: AnyRef = Promise[A]
+  opaque type EC = ExecutionContext
+  opaque type ExecutionService = java.util.concurrent.ExecutorService
+
+  implicit def ecFromExecutionContext(implicit ec: ExecutionContext): EC = ec
+
+  implicit def monadF(implicit ec: EC): Monad[F] =
+    cats.instances.future.catsStdInstancesForFuture
 
   def newService(): ExecutionService =
     Executors.newWorkStealingPool()

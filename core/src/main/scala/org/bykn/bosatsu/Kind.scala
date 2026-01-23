@@ -210,9 +210,9 @@ object Kind {
 
   private val subOrder: Ordering[Kind] =
     Ordering.by[Kind, Long](kindSize(_, true)).reverse
-  private[this] val supOrder: Ordering[Kind] =
+  private val supOrder: Ordering[Kind] =
     Ordering.by[Kind, Long](kindSize(_, false)).reverse
-  @inline private[this] def kindSizeOrder(sub: Boolean): Ordering[Kind] =
+  @inline private def kindSizeOrder(sub: Boolean): Ordering[Kind] =
     if (sub) subOrder else supOrder
 
   private def kinds(
@@ -241,9 +241,9 @@ object Kind {
               val rest = sortCombine(v, at, bt)
 
               sortMergeIt(
-                sortMergeIt(line1, line2)(ord),
-                insertSortedIt(head, rest)(ord)
-              )(ord)
+                sortMergeIt(line1, line2)(using ord),
+                insertSortedIt(head, rest)(using ord)
+              )(using ord)
             case _ =>
               // at least one is empty
               Iterator.empty
@@ -255,7 +255,7 @@ object Kind {
         vars(v, sub)
           .map(sortCombine(_, k1, k2))
           // there is at least one item in vars(v, sub) so reduce is safe
-          .reduce(sortMergeIt(_, _)(ord))
+          .reduce(sortMergeIt(_, _)(using ord))
           .to(LazyList)
     }
 
@@ -381,11 +381,11 @@ object Kind {
         }
     }
 
-  private[this] val phantomStr = "👻"
-  private[this] val ghostDoc = Doc.text(phantomStr)
+  private val phantomStr = "👻"
+  private val ghostDoc = Doc.text(phantomStr)
 
-  private[this] val arrow = Doc.text(" -> ")
-  private[this] def par(d: Doc): Doc =
+  private val arrow = Doc.text(" -> ")
+  private def par(d: Doc): Doc =
     Doc.char('(') + (d + Doc.char(')'))
 
   def argDoc(a: Arg): Doc =
@@ -407,7 +407,7 @@ object Kind {
     }
 
   implicit val documentKind: Document[Kind] =
-    Document(toDoc(_))
+    Document.instance(toDoc)
 
   def varDoc(v: Variance): Doc =
     v match {

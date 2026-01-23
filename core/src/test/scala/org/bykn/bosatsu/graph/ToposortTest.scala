@@ -30,7 +30,7 @@ class ToposortTest extends AnyFunSuite {
       assert(res.toSuccess == Some(res.layers))
       assert(
         res.layers == items.toVector
-          .sorted(Order[A].toOrdering)
+          .sorted(using Order[A].toOrdering)
           .map(NonEmptyList(_, Nil))
       )
       assert(res.layersAreTotalOrder)
@@ -77,7 +77,7 @@ class ToposortTest extends AnyFunSuite {
     forAll(genDag) { case Dag(graph) =>
       val allNodes = graph.flatMap { case (h, t) => h :: t }.toSet
       val Toposort.Success(sorted) =
-        Toposort.sort(allNodes)(graph.getOrElse(_, Nil))
+        Toposort.sort(allNodes)(graph.getOrElse(_, Nil)).runtimeChecked
       assert(sorted.flatMap(_.toList).sorted == allNodes.toList.sorted)
       noEdgesToLater(sorted)(n => graph.getOrElse(n, Nil))
       layersAreSorted(sorted)

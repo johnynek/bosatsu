@@ -10,7 +10,8 @@ import org.scalajs.dom.window.localStorage
 import Action.Cmd
 
 object Store {
-  val memoryMain = MemoryMain[Either[Throwable, *]]
+  private type ErrorOr[A] = Either[Throwable, A]
+  val memoryMain = MemoryMain[ErrorOr]
 
   type HandlerFn = Output[Chain[String]] => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =

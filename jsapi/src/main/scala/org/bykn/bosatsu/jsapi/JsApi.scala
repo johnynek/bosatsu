@@ -20,7 +20,8 @@ object JsApi {
   def normalize(s: String): String =
     splitPath(s).mkString("/")
 
-  private val module = MemoryMain[Either[Throwable, *]]
+  private type ErrorOr[A] = Either[Throwable, A]
+  private val module = MemoryMain[ErrorOr]
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap(key => "--input" :: normalize(key) :: Nil).toList

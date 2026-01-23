@@ -34,7 +34,8 @@ object PythonGen {
       new Monad[Env] {
         import Impl._
 
-        val m = Monad[State[EnvState, *]]
+        type EnvStateS[A] = State[EnvState, A]
+        val m = Monad[EnvStateS]
         def pure[A](a: A): Env[A] = EnvImpl(m.pure(a))
         override def map[A, B](ea: Env[A])(fn: A => B): Env[B] =
           EnvImpl(m.map(ea.state)(fn))
@@ -236,7 +237,7 @@ object PythonGen {
               case None      => res
               case Some(nel) =>
                 val stmts = nel.reverse
-                val stmt = Code.block(stmts.head, stmts.tail: _*)
+                val stmt = Code.block(stmts.head, stmts.tail*)
                 res.map(stmt.withValue(_))
             }
           case (e: Expression) :: t            => loop(t, setup, e :: args)
@@ -626,48 +627,50 @@ object PythonGen {
         }
     }
 
-    val all = pm.transform { (k, pm) =>
-      val testsK =
-        if (ns.isRoot(k)) ns.testValues else Map.empty[PackageName, Nothing]
-      val evaluatorsK =
-        if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
+    val all = pm
+      .transform { (k, pm) =>
+        val testsK =
+          if (ns.isRoot(k)) ns.testValues else Map.empty[PackageName, Nothing]
+        val evaluatorsK =
+          if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
 
-      pm.toList
-        .traverse { case (p, lets) =>
-          Par.start {
-            val stmts0: Env[List[Statement]] =
-              lets
-                .traverse { case (b, x) =>
-                  stmtOf(p, b, x, ns)(externalRemap)
+        pm.toList
+          .traverse { case (p, lets) =>
+            Par.start {
+              val stmts0: Env[List[Statement]] =
+                lets
+                  .traverse { case (b, x) =>
+                    stmtOf(p, b, x, ns)(externalRemap)
+                  }
+
+              val evalStmt: Env[Option[Statement]] =
+                evaluatorsK.get(p).traverse { case (b, m, c) =>
+                  addMainEval(b, m, c)
                 }
 
-            val evalStmt: Env[Option[Statement]] =
-              evaluatorsK.get(p).traverse { case (b, m, c) =>
-                addMainEval(b, m, c)
-              }
+              val testStmt: Env[Option[Statement]] =
+                testsK.get(p).traverse(addUnitTest)
 
-            val testStmt: Env[Option[Statement]] =
-              testsK.get(p).traverse(addUnitTest)
+              val stmts = (stmts0, testStmt, evalStmt)
+                .mapN { (s, optT, optM) =>
+                  s :++ optT.toList :++ optM.toList
+                }
 
-            val stmts = (stmts0, testStmt, evalStmt)
-              .mapN { (s, optT, optM) =>
-                s :++ optT.toList :++ optM.toList
-              }
+              def modName(p: NonEmptyList[String]): Module =
+                p match {
+                  case NonEmptyList(h, Nil) =>
+                    val Code.Ident(m) = escapeModule(h)
 
-            def modName(p: NonEmptyList[String]): Module =
-              p match {
-                case NonEmptyList(h, Nil) =>
-                  val Code.Ident(m) = escapeModule(h)
+                    NonEmptyList.one(Code.Ident(m + ".py"))
+                  case NonEmptyList(h, t1 :: t2) =>
+                    escapeModule(h) :: modName(NonEmptyList(t1, t2))
+                }
 
-                  NonEmptyList.one(Code.Ident(m + ".py"))
-                case NonEmptyList(h, t1 :: t2) =>
-                  escapeModule(h) :: modName(NonEmptyList(t1, t2))
-              }
-
-            (p, (modName(ns.identOf(k, p)), Env.render(stmts)))
+              (p, (modName(ns.identOf(k, p)), Env.render(stmts)))
+            }
           }
-        }
-    }.sequence
+      }
+      .sequence[Par.F, List[(PackageName, (Module, Doc))]]
 
     Par
       .await(all)
@@ -1128,8 +1131,8 @@ object PythonGen {
             )
           }
 
-      def unapply(
-          expr: Expr[Unit]
+      def unapply[A](
+          expr: Expr[A]
       ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
           case Global(_, PackageName.PredefName, name) => results.get(name)

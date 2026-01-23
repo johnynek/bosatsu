@@ -141,7 +141,11 @@ object DecodedLibraryWithDeps {
           override def toString: String =
             s"DecodedLibraryWithDepsCompilationSource($a)"
 
-          implicit val keyOrder: Ordering[ScopeKey] = Ordering.Tuple2
+          implicit val keyOrder: Ordering[ScopeKey] =
+            Ordering.Tuple2(using
+              summon[Ordering[Name]],
+              summon[Ordering[Version]]
+            )
 
           val depForKey: ScopeKey => Option[DecodedLibraryWithDeps[A]] =
             Memoize.memoizeDagHashedConcurrent[ScopeKey, Option[

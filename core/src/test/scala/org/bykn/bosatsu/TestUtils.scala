@@ -172,7 +172,8 @@ object TestUtils {
       "--input" :: idx.iterator.mkString("/") :: Nil
     }
 
-  private val module = MemoryMain[Either[Throwable, *]]
+  private type ErrorOr[A] = Either[Throwable, A]
+  private val module = MemoryMain[ErrorOr]
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>

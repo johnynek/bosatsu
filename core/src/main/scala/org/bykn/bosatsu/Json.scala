@@ -54,11 +54,11 @@ object Json {
   }
 
   object JBool {
-    final case object True extends Json {
+    case object True extends Json {
       override val render = "true"
       val toDoc = text(render)
     }
-    final case object False extends Json {
+    case object False extends Json {
       override val render = "false"
       val toDoc = text(render)
     }
@@ -66,8 +66,8 @@ object Json {
     def apply(bool: Boolean): Json =
       if (bool) True else False
 
-    private[this] val someTrue = Some(true)
-    private[this] val someFalse = Some(false)
+    private val someTrue = Some(true)
+    private val someFalse = Some(false)
 
     def unapply(j: Json): Option[Boolean] =
       j match {
@@ -78,7 +78,7 @@ object Json {
 
   }
 
-  final case object JNull extends Json {
+  case object JNull extends Json {
     override val render = "null"
     val toDoc = text(render)
   }
@@ -157,8 +157,8 @@ object Json {
         }
     }
 
-  private[this] val whitespace: P[Unit] = P.charIn(" \t\r\n").void
-  private[this] val whitespaces0: P0[Unit] = whitespace.rep0.void
+  private val whitespace: P[Unit] = P.charIn(" \t\r\n").void
+  private val whitespaces0: P0[Unit] = whitespace.rep0.void
 
   /** This doesn't have to be super fast (but is fairly fast) since we use it in
     * places where speed won't matter: feeding it into a program that will

@@ -26,7 +26,7 @@ case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
     Document.instance[Import[PackageName, Unit]] { case Import(pname, items) =>
-      val itemDocs = items.toList.map(Document[ImportedName[Unit]].document _)
+      val itemDocs = items.toList.map(Document[ImportedName[Unit]].document)
 
       Doc.text("from") + Doc.space + Document[PackageName].document(
         pname

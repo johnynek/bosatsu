@@ -14,7 +14,7 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr[+A] extends Expr[A]
-  sealed abstract class FnExpr[A] extends Expr[A] {
+  sealed abstract class FnExpr[+A] extends Expr[A] {
     def captures: List[Expr[A]]
     // this is set if the function is recursive
     def recursiveName: Option[Bindable]
@@ -151,7 +151,7 @@ object Matchless {
 
   def hasSideEffect(bx: Expr[Any]): Boolean =
     bx match {
-      case _: CheapExpr[_] => false
+      case _: CheapExpr[?] => false
       case Always(b, x)    => hasSideEffect(b) || hasSideEffect(x)
       case App(f, as)      =>
         (f :: as).exists(hasSideEffect(_))
@@ -278,10 +278,10 @@ object Matchless {
     }
   }
 
-  private[this] val empty = (PackageName.PredefName, Constructor("EmptyList"))
-  private[this] val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
-  private[this] val revName = Identifier.Name("reverse")
-  private[this] def reverseFn[A](from: A) =
+  private val empty = (PackageName.PredefName, Constructor("EmptyList"))
+  private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
+  private val revName = Identifier.Name("reverse")
+  private def reverseFn[A](from: A) =
     Global[A](from, PackageName.PredefName, revName)
 
   // drop all items in the tail after the first time fn returns true
@@ -594,7 +594,7 @@ object Matchless {
           def letrec(expr: Expr[B]): Expr[B] =
             expr match {
               case fn: FnExpr[B] if fn.recursiveName == Some(name) => fn
-              case fn: FnExpr[_]                                   =>
+              case fn: FnExpr[?]                                   =>
                 // loops always have a function name
                 sys.error(
                   s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"

@@ -18,10 +18,10 @@ jobs:
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
-      - name: "java 11 setup"
+      - name: "java 17 setup"
         uses: "olafurpg/setup-scala@v14"
         with:
-          java-version: "11"
+          java-version: "17"
       - name: "build app"
         run: |
           export NODE_OPTIONS=--openssl-legacy-provider
@@ -31,7 +31,7 @@ jobs:
           cp -a docs/target/paradox/site/main/* web_deploy
           cp jsui/index.html web_deploy/compiler/
           cp jsui/app.css web_deploy/compiler/
-          cp jsui/.js/target/scala-2.13/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
+          cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3

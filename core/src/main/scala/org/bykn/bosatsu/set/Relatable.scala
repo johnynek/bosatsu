@@ -199,7 +199,7 @@ object Relatable {
     def isEmpty(a: A): Boolean
 
     private def subIntersectsCase(ab: A, a1: A, a2: A): Rel =
-      unionRelCompare1(ab, a1, a2)(relatable) match {
+      unionRelCompare1(ab, a1, a2)(using relatable) match {
         case Right(Sub)          => Intersects
         case Right(Same)         => Sub
         case Left(SubIntersects) =>
@@ -218,7 +218,7 @@ object Relatable {
       if (isEmpty(b1)) relatable.relate(a, b2)
       else if (isEmpty(b2)) relatable.relate(a, b1)
       else
-        unionRelCompare1(a, b1, b2)(relatable) match {
+        unionRelCompare1(a, b1, b2)(using relatable) match {
           case Right(rel) =>
             rel
           case Left(p) =>
@@ -243,7 +243,7 @@ object Relatable {
                 // we know that a1 and a2 are not empty because they are the result
                 // of a deunion
                 unionRelCompare1(cheapUnion(b1, b2 :: Nil), a1, a2)(
-                  relatable
+                  using relatable
                 ) match {
                   case Left(r)  => andInvert(r)
                   case Right(r) => r.invert

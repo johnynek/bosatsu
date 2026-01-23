@@ -2,13 +2,13 @@ package org.bykn.bosatsu.codegen
 
 object Idents {
 
-  private[this] val firstChars =
+  private val firstChars =
     (('a' to 'z') ++ ('A' to 'Z')).toArray
 
-  private[this] val base62ItemsArray =
+  private val base62ItemsArray =
     (firstChars ++ ('0' to '9')).toArray
 
-  private[this] val base62Items = base62ItemsArray.toSet
+  private val base62Items = base62ItemsArray.toSet
 
   // these are all the strings that escape as themselves
   val allSimpleIdents: LazyList[String] = {
@@ -26,9 +26,9 @@ object Idents {
     } yield f + t)
   }
 
-  private[this] val offset0: Int = '0'.toInt
-  private[this] val offsetA: Int = 'A'.toInt - 10
-  private[this] val offseta: Int = 'a'.toInt - 36
+  private val offset0: Int = '0'.toInt
+  private val offsetA: Int = 'A'.toInt - 10
+  private val offseta: Int = 'a'.toInt - 36
 
   private def toBase62(
       c: Char,

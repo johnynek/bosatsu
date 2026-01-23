@@ -1,60 +1,20 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
 
-lazy val versionString = "2.13.17"
+lazy val versionString = "3.8.1"
+
+ThisBuild / scalaVersion := versionString
+ThisBuild / crossScalaVersions := Seq(versionString)
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version := "0.0.7",
-  addCompilerPlugin(
-    "org.typelevel" %% "kind-projector" % "0.13.4" cross CrossVersion.full
-  ),
-  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := versionString,
-  crossScalaVersions := Seq(versionString),
-  // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
-    "-deprecation", // Emit warning and location for usages of deprecated APIs.
+    "-deprecation",
     "-encoding",
-    "utf-8", // Specify character encoding used by source files.
-    "-explaintypes", // Explain type errors in more detail.
-    "-feature", // Emit warning and location for usages of features that should be imported explicitly.
-    "-language:existentials", // Existential types (besides wildcard types) can be written and inferred
-    "-language:higherKinds", // Allow higher-kinded types
-    "-unchecked", // Enable additional warnings where generated code depends on assumptions.
-    "-Xcheckinit", // Wrap field accessors to throw an exception on uninitialized access.
-    // "-Xfatal-warnings",                  // Fail the compilation if there are any warnings.
-    "-Xlint:adapted-args", // Warn if an argument list is modified to match the receiver.
-    // "-Xlint:constant",                   // Evaluation of a constant arithmetic expression results in an error.
-    "-Xlint:delayedinit-select", // Selecting member of DelayedInit.
-    "-Xlint:doc-detached", // A Scaladoc comment appears to be detached from its element.
-    "-Xlint:inaccessible", // Warn about inaccessible types in method signatures.
-    "-Xlint:infer-any", // Warn when a type argument is inferred to be `Any`.
-    "-Xlint:missing-interpolator", // A string literal appears to be missing an interpolator id.
-    "-Xlint:option-implicit", // Option.apply used implicit view.
-    "-Xlint:package-object-classes", // Class or object defined in package object.
-    "-Xlint:poly-implicit-overload", // Parameterized overloaded implicit methods are not visible as view bounds.
-    "-Xlint:private-shadow", // A private field (or class parameter) shadows a superclass field.
-    "-Xlint:stars-align", // Pattern sequence wildcard must align with sequence component.
-    "-Xlint:type-parameter-shadow", // A local type parameter shadows a type already in scope.
-    // "-Ywarn-dead-code",                  // Warn when dead code is identified. // this kills ability to use ???
-    // "-Ywarn-extra-implicit",             // Warn when more than one implicit parameter section is defined.
-    "-Ywarn-numeric-widen", // Warn when numerics are widened.
-    "-Ywarn-unused",
-    // "-Ywarn-unused:implicits",           // Warn if an implicit parameter is unused.
-    /* "-Ywarn-unused:locals",              // Warn if a local definition is unused */
-    /* "-Ywarn-unused:params",              // Warn if a value parameter is unused. */
-    /* "-Ywarn-unused:patvars",             // Warn if a variable bound in a pattern is unused. */
-    /* "-Ywarn-unused:privates",            // Warn if a private member is unused. */
-    "-Ywarn-value-discard", // Warn when non-Unit expression results are unused.
-    "-Xsource:3",
-    "-Ypatmat-exhaust-depth",
-    "40",
-    "-Wconf:cat=deprecation&msg=.*Stream.*:s"
-  ),
-  Compile / console / scalacOptions --= Seq(
-    "-Ywarn-unused:imports",
-    "-Xfatal-warnings"
+    "utf-8",
+    "-feature",
+    "-unchecked",
   ),
   Test / testOptions += Tests.Argument("-oDF")
 )
@@ -95,10 +55,6 @@ lazy val docs = (project in file("docs"))
 lazy val rootJVM = root.jvm
 lazy val rootJS = root.js
 
-lazy val scalaReflect = Def.setting {
-  "org.scala-lang" % "scala-reflect" % scalaVersion.value
-}
-
 lazy val headCommit = git.gitHeadCommit
 
 lazy val base =
@@ -108,7 +64,6 @@ lazy val base =
     .settings(
       commonSettings,
       name := "bosatsu-base",
-      libraryDependencies += scalaReflect.value,
       buildInfoKeys := Seq[BuildInfoKey](
         name,
         version,
@@ -142,7 +97,7 @@ lazy val cli = (project in file("cli"))
     libraryDependencies ++=
       Seq(
         catsEffect.value,
-        http4sBlaze.value,
+        http4sEmber.value,
         fs2core.value,
         fs2io.value,
         jawnParser.value % Test,
@@ -152,8 +107,12 @@ lazy val cli = (project in file("cli"))
         munitScalaCheck.value % Test
       ),
     // static linking doesn't work with macos or with linux http4s on the path
-    nativeImageOptions ++= List("--no-fallback", "--verbose"),
-    nativeImageVersion := "22.3.0"
+    nativeImageOptions ++= List(
+      "--no-fallback", 
+      "--verbose",
+    ),
+    nativeImageJvm := "graalvm-java21",
+    nativeImageVersion := "21.0.2",
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
@@ -162,8 +121,9 @@ lazy val proto =
     "proto"
   ))
     .settings(
+     
       Compile / PB.targets := Seq(
-        scalapb.gen() -> (Compile / sourceManaged).value
+        scalapb.gen(scala3Sources = true) -> (Compile / sourceManaged).value
       ),
       // The trick is in this line:
       Compile / PB.protoSources := Seq(
@@ -199,16 +159,8 @@ lazy val core =
         scalaTestPlusScalacheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
-        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
-
-        // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % s"acyclic_${versionString}" % "0.3.20" % "provided"
+        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
-    // periodically we use acyclic to ban cyclic dependencies and make compilation faster
-    ,
-    autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % s"acyclic_${versionString}" % "0.3.20"),
-    scalacOptions += "-P:acyclic:force"
   ).dependsOn(base, proto)
     .jsSettings(
       commonJsSettings

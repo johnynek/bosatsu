@@ -59,7 +59,7 @@ object ExportedName {
   case class Constructor[T](name: Identifier.Constructor, tag: T)
       extends ExportedName[T]
 
-  private[this] val consDoc = Doc.text("()")
+  private val consDoc = Doc.text("()")
 
   implicit val document: Document[ExportedName[Unit]] = {
     val di = Document[Identifier]

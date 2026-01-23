@@ -268,9 +268,8 @@ class ParserTest extends ParserTestBase {
 
   test("we can decode any utf16") {
     val p =
-      StringUtil.utf16Codepoint.repAs(StringUtil.codePointAccumulator) | P.pure(
-        ""
-      )
+      StringUtil.utf16Codepoint.repAs(using StringUtil.codePointAccumulator) |
+        P.pure("")
 
     forAll(Gen.listOf(genCodePoints)) { cps =>
       val strbuilder = new java.lang.StringBuilder

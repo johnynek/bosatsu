@@ -194,7 +194,7 @@ object Generators {
     for {
       cs <- nonEmpty(Arbitrary.arbitrary[String])
       t <- dec
-    } yield CommentStatement(cs.map(cleanNewLine _), t)
+    } yield CommentStatement(cs.map(cleanNewLine), t)
   }
 
   val argGen: Gen[(Identifier.Bindable, Option[TypeRef])] =
@@ -286,7 +286,7 @@ object Generators {
         case (StringDecl.Literal(_, _), StringDecl.Literal(_, _)) => true
         case _                                                    => false
       }
-    } yield Declaration.StringDecl(nel1)(emptyRegion)
+    } yield Declaration.StringDecl(nel1)(using emptyRegion)
 
     res.filter {
       case Declaration.StringDecl(
@@ -317,13 +317,13 @@ object Generators {
       .map { case (a, b, c0, _) =>
         val c = c0 match {
           case tern @ Declaration.Ternary(_, _, _) =>
-            Declaration.Parens(tern)(emptyRegion)
+            Declaration.Parens(tern)(using emptyRegion)
           case not => not
         }
         ListLang.Comprehension(a, b, c, None)
       }
 
-    Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
+    Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(using emptyRegion))
   }
 
   def dictGen(dec0: Gen[NonBinding]): Gen[Declaration.DictDecl] = {
@@ -348,13 +348,13 @@ object Generators {
       .map { case (k, v, b, c0, _) =>
         val c = c0 match {
           case tern @ Declaration.Ternary(_, _, _) =>
-            Declaration.Parens(tern)(emptyRegion)
+            Declaration.Parens(tern)(using emptyRegion)
           case not => not
         }
         ListLang.Comprehension(ListLang.KVPair(k, v), b, c, None)
       }
 
-    Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(emptyRegion))
+    Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(using emptyRegion))
   }
 
   def varOrParens(decl: Gen[Declaration]): Gen[NonBinding] =
@@ -364,9 +364,9 @@ object Generators {
           case v @ (Declaration.Var(_) | Declaration.Parens(_) |
               Declaration.Apply(_, _, _)) =>
             v
-          case notVar => Declaration.Parens(notVar)(emptyRegion)
+          case notVar => Declaration.Parens(notVar)(using emptyRegion)
         }
-      case notVar => Declaration.Parens(notVar)(emptyRegion)
+      case notVar => Declaration.Parens(notVar)(using emptyRegion)
     }
 
   def applyGen(decl: Gen[NonBinding]): Gen[NonBinding] =
@@ -393,7 +393,7 @@ object Generators {
           if (useDot) arg.map(NonEmptyList.one(_))
           else smallNonEmptyList(arg, 8)
         args <- argsGen
-      } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)
+      } yield Apply(fn, args, ApplyKind.Parens)(using emptyRegion)
     ) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
@@ -407,7 +407,7 @@ object Generators {
       def protect(d: NonBinding): NonBinding =
         d match {
           case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
-          case _ => Parens(d)(emptyRegion)
+          case _ => Parens(d)(using emptyRegion)
         }
       ApplyOp(protect(l), op, protect(r))
     }
@@ -449,7 +449,7 @@ object Generators {
     for {
       args <- nonEmpty(bindIdentGen)
       body <- bodyGen
-    } yield Declaration.Lambda(args.map(Pattern.Var(_)), body)(emptyRegion)
+    } yield Declaration.Lambda(args.map(Pattern.Var(_)), body)(using emptyRegion)
 
   def optIndent[A](genA: Gen[A]): Gen[OptIndent[A]] = {
     val indentation = Gen.choose(1, 10)
@@ -470,7 +470,7 @@ object Generators {
 
     // args can't have raw annotations:
     val argGen = argGen0.map {
-      case ann @ Annotation(_, _) => Parens(ann)(emptyRegion)
+      case ann @ Annotation(_, _) => Parens(ann)(using emptyRegion)
       case notAnn                 => notAnn
     }
 
@@ -480,18 +480,18 @@ object Generators {
 
     Gen
       .zip(nonEmptyN(genIf, 2), padBody)
-      .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
+      .map { case (ifs, elsec) => IfElse(ifs, elsec)(using emptyRegion) }
   }
 
   def ternaryGen(argGen0: Gen[NonBinding]): Gen[Declaration.Ternary] = {
     import Declaration._
 
     val argGen = argGen0.map {
-      case lam @ Lambda(_, _)      => Parens(lam)(emptyRegion)
-      case ife @ IfElse(_, _)      => Parens(ife)(emptyRegion)
-      case tern @ Ternary(_, _, _) => Parens(tern)(emptyRegion)
-      case matches @ Matches(_, _) => Parens(matches)(emptyRegion)
-      case m @ Match(_, _, _)      => Parens(m)(emptyRegion)
+      case lam @ Lambda(_, _)      => Parens(lam)(using emptyRegion)
+      case ife @ IfElse(_, _)      => Parens(ife)(using emptyRegion)
+      case tern @ Ternary(_, _, _) => Parens(tern)(using emptyRegion)
+      case matches @ Matches(_, _) => Parens(matches)(using emptyRegion)
+      case m @ Match(_, _, _)      => Parens(m)(using emptyRegion)
       case not                     => not
     }
     Gen
@@ -722,7 +722,7 @@ object Generators {
 
     // args can't have raw annotations:
     val argGen = argGen0.map {
-      case ann @ Annotation(_, _) => Parens(ann)(emptyRegion)
+      case ann @ Annotation(_, _) => Parens(ann)(using emptyRegion)
       case notAnn                 => notAnn
     }
 
@@ -734,7 +734,7 @@ object Generators {
       kind <- genRecursionKind
       expr <- argGen
       cases <- optIndent(nonEmptyN(genCase, cnt))
-    } yield Match(kind, expr, cases)(emptyRegion)
+    } yield Match(kind, expr, cases)(using emptyRegion)
   }
 
   def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
@@ -745,10 +745,10 @@ object Generators {
         // matches binds tighter than all these
         case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
             Ternary(_, _, _) =>
-          Parens(a)(emptyRegion)
+          Parens(a)(using emptyRegion)
         case _ => a
       }
-      Matches(fixa, p)(emptyRegion)
+      Matches(fixa, p)(using emptyRegion)
     }
 
   val genLit: Gen[Lit] = {
@@ -769,24 +769,25 @@ object Generators {
     Gen.oneOf(bindIdentGen, consIdentGen)
 
   val varGen: Gen[Declaration.Var] =
-    bindIdentGen.map(Declaration.Var(_)(emptyRegion))
+    bindIdentGen.map(Declaration.Var(_)(using emptyRegion))
 
   val consDeclGen: Gen[Declaration.Var] =
-    consIdentGen.map(Declaration.Var(_)(emptyRegion))
+    consIdentGen.map(Declaration.Var(_)(using emptyRegion))
 
   val unnestedDeclGen: Gen[NonBinding] =
     Gen.frequency(
       (1, consDeclGen),
       (2, varGen),
-      (1, genLit.map(Declaration.Literal(_)(emptyRegion)))
+      (1, genLit.map(Declaration.Literal(_)(using emptyRegion)))
     )
 
   def annGen(g: Gen[NonBinding]): Gen[Declaration.Annotation] = {
     import Declaration._
     Gen.zip(typeRefGen, g).map {
       case (t, r @ (Var(_) | Apply(_, _, _) | Parens(_))) =>
-        Annotation(r, t)(emptyRegion)
-      case (t, wrap) => Annotation(Parens(wrap)(emptyRegion), t)(emptyRegion)
+        Annotation(r, t)(using emptyRegion)
+      case (t, wrap) =>
+        Annotation(Parens(wrap)(using emptyRegion), t)(using emptyRegion)
     }
   }
 
@@ -803,9 +804,9 @@ object Generators {
       Gen.frequency(
         (12, unnestedDeclGen),
         (2, applyCons),
-        (1, recur.map(Parens(_)(emptyRegion))),
+        (1, recur.map(Parens(_)(using emptyRegion))),
         (1, annGen(recur)),
-        (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion)))
+        (1, genListLangCons(varGen, recur).map(ListDecl(_)(using emptyRegion)))
       )
   }
 
@@ -831,7 +832,7 @@ object Generators {
           Gen
             .choose(0, 4)
             .flatMap(Gen.listOfN(_, recur))
-            .map(TupleCons(_)(emptyRegion))
+            .map(TupleCons(_)(using emptyRegion))
         )
       )
   }
@@ -853,7 +854,7 @@ object Generators {
     } yield args
 
     Gen.zip(consIdentGen, args).map { case (c, a) =>
-      Declaration.RecordConstructor(c, a)(emptyRegion)
+      Declaration.RecordConstructor(c, a)(using emptyRegion)
     }
   }
 
@@ -883,7 +884,7 @@ object Generators {
           Gen
             .choose(0, 4)
             .flatMap(Gen.listOfN(_, recNon))
-            .map(TupleCons(_)(emptyRegion))
+            .map(TupleCons(_)(using emptyRegion))
         ),
         (1, genRecordDeclaration(recNon))
       )
@@ -894,10 +895,10 @@ object Generators {
     c.on.padded match {
       case nb: NonBinding =>
         CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(
-          emptyRegion
+          using emptyRegion
         )
       case _ =>
-        Comment(c)(emptyRegion)
+        Comment(c)(using emptyRegion)
     }
   }
 
@@ -922,11 +923,12 @@ object Generators {
         (
           1,
           defGen(Gen.zip(optIndent(recur), padding(recur, 1)))
-            .map(DefFn(_)(emptyRegion))
+            .map(DefFn(_)(using emptyRegion))
         ),
         (
           1,
-          bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion))
+          bindGen(pat, recNon, padding(recur, 1))
+            .map(Binding(_)(using emptyRegion))
         ),
         (1, leftApplyGen(pat, recNon, recur))
       )
@@ -941,16 +943,16 @@ object Generators {
           case Annotation(t, _)   => t #:: apply(t)
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
-            next.flatMap(apply _)
+            next.flatMap(apply)
           case ao @ ApplyOp(left, _, right) =>
             left #:: ao.opVar #:: right #:: Stream.empty
           case Binding(b) =>
             val next = b.value #:: b.in.padded #:: Stream.empty
-            next #::: next.flatMap(apply _)
+            next #::: next.flatMap(apply)
           case DefFn(d) =>
             val (b, r) = d.result
             val inner = b.get #:: r.padded #:: Stream.empty
-            inner #::: inner.flatMap(apply _)
+            inner #::: inner.flatMap(apply)
           case IfElse(ifCases, elseCase) =>
             elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
           case Ternary(t, c, f) =>
@@ -976,15 +978,16 @@ object Generators {
             Stream.empty
           case TupleCons(Nil)       => Stream.empty
           case TupleCons(h :: tail) =>
-            h #:: TupleCons(tail)(emptyRegion) #:: apply(
-              TupleCons(tail)(emptyRegion)
+            h #:: TupleCons(tail)(using emptyRegion) #:: apply(
+              TupleCons(tail)(using emptyRegion)
             )
           case Var(_)            => Stream.empty
           case StringDecl(parts) =>
             parts.toList.toStream.map {
-              case StringDecl.StrExpr(nb)     => nb
-              case StringDecl.CharExpr(nb)    => nb
-              case StringDecl.Literal(r, str) => Literal(Lit.Str(str))(r)
+              case StringDecl.StrExpr(nb)  => nb
+              case StringDecl.CharExpr(nb) => nb
+              case StringDecl.Literal(r, str) =>
+                Literal(Lit.Str(str))(using r)
             }
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
@@ -997,8 +1000,10 @@ object Generators {
           case RecordConstructor(n, args) =>
             def head: Stream[Declaration] =
               args.head match {
-                case RecordArg.Pair(n, d) => Stream(Var(n)(emptyRegion), d)
-                case RecordArg.Simple(n)  => Stream(Var(n)(emptyRegion))
+                case RecordArg.Pair(n, d) =>
+                  Stream(Var(n)(using emptyRegion), d)
+                case RecordArg.Simple(n)  =>
+                  Stream(Var(n)(using emptyRegion))
               }
 
             def tailStream(
@@ -1012,10 +1017,10 @@ object Generators {
                   )
               }
 
-            Var(n)(emptyRegion) #::
+            Var(n)(using emptyRegion) #::
               head #:::
               tailStream(args).map(
-                RecordConstructor(n, _)(emptyRegion): Declaration
+                RecordConstructor(n, _)(using emptyRegion): Declaration
               ) // type annotation for scala 2.11
         }
     })
@@ -1066,7 +1071,7 @@ object Generators {
             case Pattern.Named(_, pat)               => pat #:: Stream.empty
             case Pattern.PositionalStruct(n, params) =>
               // shrink all the params
-              shrinkOne(params)(res).map(Pattern.PositionalStruct(n, _))
+              shrinkOne(params)(using res).map(Pattern.PositionalStruct(n, _))
             case Pattern.Literal(Lit.Str(s)) =>
               implicitly[Shrink[String]]
                 .shrink(s)
@@ -1088,7 +1093,7 @@ object Generators {
             case u @ Pattern.Union(_, _) =>
               val flat = Pattern.flatten(u).toList
               val sameLen =
-                shrinkOne[Pattern[N, T]](flat)(res)
+                shrinkOne[Pattern[N, T]](flat)(using res)
                   .map { us =>
                     Pattern.union(us.head, us.tail)
                   }
@@ -1710,7 +1715,7 @@ object Generators {
       if !existing.contains(pn)
       imps0 <- genImports
       impMap = ImportMap.fromImports(imps0)((_, _) => ImportMap.Unify.Error)._2
-      imps = impMap.toList(Package.orderByName)
+      imps = impMap.toList(using Package.orderByName)
       prog <- genProg(pn, imps)
       exps <- genExports(pn, prog)
     } yield Package(pn, imps, exps, (prog, impMap))

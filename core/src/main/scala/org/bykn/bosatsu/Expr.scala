@@ -245,9 +245,9 @@ object Expr {
   /*
    * Allocate these once
    */
-  private[this] val TruePat: Pattern[(PackageName, Constructor), Type] =
+  private val TruePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
-  private[this] val FalsePat: Pattern[(PackageName, Constructor), Type] =
+  private val FalsePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct(
       (PackageName.PredefName, Constructor("False")),
       Nil
@@ -313,7 +313,7 @@ object Expr {
                 .traverseType(fn(_, bound))
                 .product(traverseType[T, F](expr, bound)(fn))
           }
-        val branchB = branches.traverse(branchFn _)
+        val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Match(_, _, tag))
     }
 

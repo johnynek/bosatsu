@@ -1,4 +1,6 @@
 package org.bykn.bosatsu
+import scala.compiletime.uninitialized
+import cats.Monad
 
 /** This is an abstraction to handle parallel computation, not effectful
   * computation. It is used in places where we have parallelism in expensive
@@ -6,17 +8,22 @@ package org.bykn.bosatsu
   * replace the scalajs with just running directly
   */
 object Par {
-  class Box[A] {
-    private[this] var value: A = _
+  private class Box[A] {
+    private var value: A = uninitialized
     def set(a: A): Unit =
       value = a
     def get: A = value
   }
 
-  type F[A] = cats.Id[A]
-  type P[A] = Box[A]
-  type EC = DummyImplicit
-  type ExecutionService = Unit
+  opaque type F[A] = cats.Id[A]
+  opaque type P[A] <: AnyRef = Box[A]
+  opaque type EC = DummyImplicit
+  opaque type ExecutionService = Unit
+
+  implicit def ecFromExecutionContext(implicit ec: DummyImplicit): EC = ec
+
+  implicit def monadF(implicit ec: EC): Monad[F] =
+    cats.catsInstancesForId
 
   def newService(): ExecutionService = ()
   def shutdownService(es: ExecutionService): Unit = es

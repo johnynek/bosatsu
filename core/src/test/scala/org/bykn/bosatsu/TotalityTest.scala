@@ -146,7 +146,7 @@ enum Bool: False, True
 
     Parser
       .unsafeParse(Pattern.matchParser.listSyntax, str)
-      .map(parsedToExpr _)
+      .map(parsedToExpr)
   }
 
   def notTotal(
@@ -335,13 +335,14 @@ enum Either: Left(l), Right(r)
   }
 
   test("test intersection") {
-    val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]")
+    val p0 :: p1 :: p1norm :: Nil =
+      patterns("[[*_], [*_, _], [_, *_]]").runtimeChecked
     PredefTotalityCheck.intersection(p0, p1) match {
       case List(intr) => assert(intr == p1norm)
       case other      => fail(s"expected exactly one intersection: $other")
     }
 
-    val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
+    val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]").runtimeChecked
     PredefTotalityCheck.intersection(p2, p3) match {
       case List(intr) => assert(p3 == intr)
       case other      => fail(s"expected exactly one intersection: $other")
@@ -349,9 +350,10 @@ enum Either: Left(l), Right(r)
 
     // a regression
     {
-      val p0 :: p1 :: p2 :: Nil = patterns("""["${_}$.{_}$.{_}",
+      val p0 :: p1 :: p2 :: Nil =
+        patterns("""["${_}$.{_}$.{_}",
         "$.{foo}",
-        "baz"]""")
+        "baz"]""").runtimeChecked
 
       assert(PredefTotalityCheck.intersection(p0, p1).isEmpty)
       assert(PredefTotalityCheck.intersection(p1, p2).isEmpty)
@@ -374,7 +376,7 @@ enum Either: Left(l), Right(r)
     val tc = PredefTotalityCheck
     import tc.eqPat.eqv
     {
-      val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]")
+      val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]").runtimeChecked
       tc.difference(p0, p1) match {
         case diff :: Nil => assert(eqv(p0, diff))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
@@ -382,7 +384,7 @@ enum Either: Left(l), Right(r)
     }
 
     {
-      val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]")
+      val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]").runtimeChecked
       PredefTotalityCheck.difference(p1, p0) match {
         case diff :: Nil => assert(eqv(diff, p1))
         case many => fail(s"expected exactly one difference: ${showPats(many)}")
@@ -394,7 +396,7 @@ enum Either: Left(l), Right(r)
     }
 
     {
-      val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
+      val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]").runtimeChecked
       PredefTotalityCheck.intersection(p0, p1) match {
         case List(res) if res == p0 || res == p1 => ()
         case Nil                                 => fail("these do overlap")
@@ -598,7 +600,7 @@ enum Either: Left(l), Right(r)
 
   test("difference returns distinct regressions") {
     def check(str: String) = {
-      val List(p1, p2) = patterns(str)
+      val List(p1, p2) = patterns(str).runtimeChecked
       val tc = PredefTotalityCheck
       val diff = tc.difference(p1, p2)
       assert(diff == diff.distinct)
@@ -614,7 +616,7 @@ enum Either: Left(l), Right(r)
       val p0 :: p1 :: Nil = patterns("""[
         "${_}$.{_}",
         "${_}$.{_}${_}",
-        ]""")
+        ]""").runtimeChecked
 
       assert(tc.intersection(p0, p1) == tc.intersection(p1, p0))
     }
@@ -639,7 +641,7 @@ enum Either: Left(l), Right(r)
   test("var pattern is super or same") {
     val tc = PredefTotalityCheck
 
-    val p1 :: p2 :: _ = patterns("""[foo, Bar(1)]""")
+    val p1 :: p2 :: _ = patterns("""[foo, Bar(1)]""").runtimeChecked
     val rel = tc.patternSetOps.relate(p1, p2)
     assertEquals(rel, Rel.Super)
   }
@@ -648,13 +650,15 @@ enum Either: Left(l), Right(r)
     val tc = PredefTotalityCheck
 
     {
-      val p1 :: p2 :: _ = patterns("""[Some(1 | 2), Some(1) | Some(2)]""")
+      val p1 :: p2 :: _ =
+        patterns("""[Some(1 | 2), Some(1) | Some(2)]""").runtimeChecked
       val rel = tc.patternSetOps.relate(p1, p2)
       assertEquals(rel, Rel.Same)
     }
 
     {
-      val p1 :: p2 :: _ = patterns("""[Some(1 | 2 | 3), Some(1) | Some(2)]""")
+      val p1 :: p2 :: _ =
+        patterns("""[Some(1 | 2 | 3), Some(1) | Some(2)]""").runtimeChecked
       val rel = tc.patternSetOps.relate(p1, p2)
       assertEquals(rel, Rel.Super)
     }

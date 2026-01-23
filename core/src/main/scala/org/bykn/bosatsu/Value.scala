@@ -102,9 +102,9 @@ object Value {
     override def toString = s"SumValue($variant, $value)"
   }
   object SumValue {
-    private[this] val sizeMask = 0xffffff00
-    private[this] val constCount = 256
-    private[this] lazy val constants: Array[SumValue] =
+    private val sizeMask = 0xffffff00
+    private val constCount = 256
+    private lazy val constants: Array[SumValue] =
       (0 until constCount).map(new SumValue(_, UnitValue)).toArray
 
     def apply(variant: Int, value: ProductValue): SumValue =
@@ -193,7 +193,7 @@ object Value {
     val none: Value = SumValue(0, UnitValue)
     def some(v: Value): Value = SumValue(1, ProductValue.single(v))
 
-    private[this] val someNone = Some(None)
+    private val someNone = Some(None)
 
     def unapply(v: Value): Option[Option[Value]] =
       v match {

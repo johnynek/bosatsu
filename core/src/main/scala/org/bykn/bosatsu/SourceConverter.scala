@@ -361,9 +361,9 @@ final class SourceConverter(
           NonEmptyList.fromList(tail) match {
             case None      => elseCase
             case Some(nel) =>
-              val restRegion = nel.map(_._2.get.region).reduce[Region](_ + _)
+              val restRegion = nel.map(_._2.get.region).reduceLeft(_ + _)
               // keep the OptIndent from the first item
-              nel.head._2.map(_ => IfElse(nel, elseCase)(restRegion))
+              nel.head._2.map(_ => IfElse(nel, elseCase)(using restRegion))
           }
         loop(
           Match(
@@ -375,7 +375,7 @@ final class SourceConverter(
                 (Pattern.WildCard, restDecl) :: Nil
               )
             )
-          )(decl.region)
+          )(using decl.region)
         )
       case IfElse(ifCases, elseCase) =>
         def loop0(
@@ -398,7 +398,7 @@ final class SourceConverter(
       case tern @ Ternary(t, c, f) =>
         loop(
           IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(
-            tern.region
+            using tern.region
           )
         )
       case Lambda(args, body) =>
@@ -461,7 +461,7 @@ final class SourceConverter(
         }
 
         val decls = parts.parTraverse {
-          case StringDecl.Literal(r, str) => loop(Literal(Lit(str))(r))
+          case StringDecl.Literal(r, str) => loop(Literal(Lit(str))(using r))
           case StringDecl.CharExpr(decl)  => loop(decl).map(charToString)
           case StringDecl.StrExpr(decl)   => loop(decl)
         }
@@ -754,6 +754,7 @@ final class SourceConverter(
 
     type StT = ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
     type VarState[A] = State[StT, A]
+    type BindablePair[A] = (Bindable, A)
 
     val nextVar: VarState[Type.TyVar] =
       State[StT, Type.TyVar] { case ((set, lst), vs) =>
@@ -779,11 +780,11 @@ final class SourceConverter(
     def buildParams(
         args: List[(Bindable, Option[Type])]
     ): VarState[List[(Bindable, Type)]] =
-      args.traverse(buildParam _)
+      args.traverse(buildParam)
 
     // This is a traverse on List[(Bindable, Option[A])]
     val deep =
-      Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
+      Traverse[List].compose[BindablePair].compose[Option]
 
     def updateInferedWithDecl(
         typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
@@ -945,11 +946,11 @@ final class SourceConverter(
     }
   }
 
-  private[this] val empty = Pattern.PositionalStruct(
+  private val empty = Pattern.PositionalStruct(
     (PackageName.PredefName, Constructor("EmptyList")),
     Nil
   )
-  private[this] val nonEmpty =
+  private val nonEmpty =
     (PackageName.PredefName, Constructor("NonEmptyList"))
 
   /** As much as possible, convert a list pattern into a normal enum pattern
@@ -1011,8 +1012,9 @@ final class SourceConverter(
       pat: Pattern.Parsed,
       region: Region
   ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-    pat.traversePattern[Result, (PackageName, Constructor), rankn.Type](
-      {
+    pat
+      .traversePattern[Result, (PackageName, Constructor), rankn.Type](
+        {
         case (Pattern.StructKind.Tuple, args) =>
           // this is a tuple pattern
           args.flatMap(makeTuplePattern(_, region))
@@ -1091,7 +1093,7 @@ final class SourceConverter(
                 val mapping =
                   fs.toList.iterator.map(_.field).zip(args.iterator).toMap
                 lazy val present =
-                  SortedSet(fs.toList.iterator.map(_.field).toList: _*)
+                  SortedSet(fs.toList.iterator.map(_.field).toList*)
                 def get(
                     b: Bindable
                 ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
@@ -1107,7 +1109,7 @@ final class SourceConverter(
                 val mapped =
                   params
                     .traverse { case (b, _) => get(b) }(
-                      SourceConverter.parallelIor
+                      using SourceConverter.parallelIor
                     )
                     .map(Pattern.PositionalStruct(pc, _))
 
@@ -1189,11 +1191,11 @@ final class SourceConverter(
             })
           }
       },
-      t => toType(t, region),
-      items => items.map(unlistPattern)
-    )(
-      SourceConverter.parallelIor
-    ) // use the parallel, not the default Applicative which is Monadic
+        t => toType(t, region),
+        items => items.map(unlistPattern)
+      )(
+        using SourceConverter.parallelIor
+      ) // use the parallel, not the default Applicative which is Monadic
 
   private lazy val toTypeEnv: Result[ParsedTypeEnv[Option[Kind.Arg]]] = {
     val sunit = success(())
@@ -1323,7 +1325,7 @@ final class SourceConverter(
         NonEmptyList.one((nm, decl))
       case Pattern.Annotation(p, tpe) =>
         // we can just move the annotation to the expr:
-        bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(decl.region))(alloc)
+        bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(using decl.region))(alloc)
       case Pattern.WildCard =>
         // this is silly, but maybe some kind of comment, or side-effecting
         // debug, or type checking of the rhs
@@ -1342,7 +1344,7 @@ final class SourceConverter(
             (Nil, decl)
           } else {
             val ident = alloc()
-            val v = Var(ident)(decl.region)
+            val v = Var(ident)(using decl.region)
             ((ident, decl) :: Nil, v)
           }
 
@@ -1354,13 +1356,13 @@ final class SourceConverter(
             RecursionKind.NonRecursive,
             rhsNB,
             OptIndent.same(NonEmptyList.one((pat, resOI)))
-          )(decl.region)
+          )(using decl.region)
         }
 
         val tail: List[(Bindable, Declaration)] =
           complex.names.map { nm =>
             val pat = complex.filterVars(_ == nm)
-            (nm, makeMatch(pat, Var(nm)(decl.region)))
+            (nm, makeMatch(pat, Var(nm)(using decl.region)))
           }
 
         NonEmptyList.fromList(tail) match {
@@ -1370,7 +1372,7 @@ final class SourceConverter(
             // there are no names to bind here, but we still need to typecheck the match
             val dummy = alloc()
             val pat = complex.unbind
-            val unitDecl = TupleCons(Nil)(decl.region)
+            val unitDecl = TupleCons(Nil)(using decl.region)
             val matchD = makeMatch(pat, unitDecl)
             val shapeMatch = (dummy, matchD)
             SourceConverter.concat(prefix, NonEmptyList.one(shapeMatch))
@@ -1456,7 +1458,7 @@ final class SourceConverter(
                 dstmt.result.map { body =>
                   Declaration.substitute(
                     bind,
-                    Var(newNameV)(body.region),
+                    Var(newNameV)(using body.region),
                     body
                   ) match {
                     case Some(body1) => body1
@@ -1472,7 +1474,7 @@ final class SourceConverter(
             Left(Def(d1.copy(result = res))(d.region))
           case Right((b0, d)) =>
             // we don't need to update b0, we discard it anyway
-            Declaration.substitute(bind, Var(newNameV)(d.region), d) match {
+            Declaration.substitute(bind, Var(newNameV)(using d.region), d) match {
               case Some(d1) => Right((b0, d1))
               // $COVERAGE-OFF$
               case None =>
@@ -1548,7 +1550,7 @@ final class SourceConverter(
             case Left(ExternalDef(n, _, _, _)) =>
               (topBound + n, success(Nil))
           }
-      }(SourceConverter.parallelIor))
+      }(using SourceConverter.parallelIor))
       .map(_.flatten)
   }
 
@@ -1802,8 +1804,8 @@ object SourceConverter {
 
   sealed abstract class BindKind(val asString: String)
   object BindKind {
-    final case object Def extends BindKind("def")
-    final case object Bind extends BindKind("bind")
+    case object Def extends BindKind("def")
+    case object Bind extends BindKind("bind")
   }
 
   final case class ExtDefShadow(

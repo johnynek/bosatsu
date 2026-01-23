@@ -86,7 +86,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
         pats = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
         res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
       } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(Generators.genCompiledPattern(5))(testFn)
   }
@@ -105,7 +105,7 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
             _.withTypes(tps).withPatterns(patTab)
           )
         } yield res
-    }(Eq.fromUniversalEquals)
+    }(using Eq.fromUniversalEquals)
 
     forAll(
       Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
@@ -116,9 +116,9 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
     forAll(Generators.interfaceGen) { iface =>
       law(
         iface,
-        ProtoConverter.interfaceToProto _,
-        ProtoConverter.interfaceFromProto _
-      )(Eq.fromUniversalEquals)
+        ProtoConverter.interfaceToProto,
+        ProtoConverter.interfaceFromProto
+      )(using Eq.fromUniversalEquals)
     }
   }
 
@@ -135,9 +135,9 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
       ifaces =>
         law(
           ifaces,
-          ProtoConverter.interfacesToProto[List] _,
-          ProtoConverter.interfacesFromProto _
-        )(sortedEq)
+          ProtoConverter.interfacesToProto[List],
+          ProtoConverter.interfacesFromProto
+        )(using sortedEq)
     }
   }
 
@@ -148,9 +148,9 @@ class ProtoConverterTest extends AnyFunSuite with ParTest {
       }.toList
       law(
         ifaces,
-        ProtoConverter.interfacesToProto[List] _,
-        ProtoConverter.interfacesFromProto _
-      )(sortedEq)
+        ProtoConverter.interfacesToProto[List],
+        ProtoConverter.interfacesFromProto
+      )(using sortedEq)
     }
   }
 
@@ -178,9 +178,9 @@ bar = 1
           packs.toMap.values.toList.sortBy(_.name).map { pt =>
             Package.setProgramFrom(tf.void(pt), ())
           },
-          ser _,
-          deser _
-        )(Eq.fromUniversalEquals)
+          ser,
+          deser
+        )(using Eq.fromUniversalEquals)
     )
   }
 
@@ -194,7 +194,7 @@ bar = 1
         }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
-      law(packList, ser _, deser _)(Eq.fromUniversalEquals)
+      law(packList, ser, deser)(using Eq.fromUniversalEquals)
     }
   }
 
