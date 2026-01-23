@@ -18,14 +18,14 @@ jobs:
         with:
           fetch-depth: 0  # we want full history and tags
       - uses: "coursier/cache-action@v2"
-      - name: "java 11 setup"
+      - name: "java 17 setup"
         uses: "olafurpg/setup-scala@v10"
         with:
-          java-version: "11"
+          java-version: "17"
       - name: "build assembly"
         run: |
-          sbt "++3.7.4; cli/assembly"
-          cp cli/target/scala-3.7.4/bosatsu-cli-assembly-*.jar bosatsu.jar
+          sbt "++3.8.1; cli/assembly"
+          cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
 
       - name: Publish Bosatsu libraries
         env:

@@ -38,9 +38,9 @@ object State {
   // Encoder for the State trait
   implicit val encodeState: Encoder[State] = Encoder.instance {
     case Init                 => Json.obj("type" -> Json.fromString("Init"))
-    case wt: WithText         => wt.asJson(encodeWithText)
-    case compiling: Compiling => compiling.asJson(encodeCompiling)
-    case compiled: Compiled   => compiled.asJson(encodeCompiled)
+    case wt: WithText         => wt.asJson(using encodeWithText)
+    case compiling: Compiling => compiling.asJson(using encodeCompiling)
+    case compiled: Compiled   => compiled.asJson(using encodeCompiled)
   }
 
   // Decoders for HasText and its subtypes
@@ -57,8 +57,8 @@ object State {
     }
     Decoder.instance { cursor =>
       cursor.downField("type").as[String].flatMap {
-        case "WithText" => cursor.as(decodeWithText)
-        case "Compiled" => cursor.as(decodeCompiled)
+        case "WithText" => cursor.as(using decodeWithText)
+        case "Compiled" => cursor.as(using decodeCompiled)
       }
     }
   }
