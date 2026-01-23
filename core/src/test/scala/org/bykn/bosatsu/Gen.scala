@@ -153,39 +153,37 @@ object Generators {
   }
 
   implicit val shrinkTypeRef: Shrink[TypeRef] =
-    Shrink[TypeRef](new Function1[TypeRef, Stream[TypeRef]] {
-      def apply(tr: TypeRef): Stream[TypeRef] = {
-        import TypeRef._
-        tr match {
-          case TypeVar(_) | TypeName(_) => Stream.empty
-          case TypeArrow(l, r)          =>
-            r #:: l.toList.toStream
-          case TypeApply(of, args)   => of #:: args.toList.toStream
-          case TypeForAll(par, expr) =>
-            val rest = NonEmptyList.fromList(par.tail) match {
-              case None      => Stream.empty
-              case Some(nel) => TypeForAll(nel, expr) #:: Stream.empty
+    Shrink.withLazyList[TypeRef] { tr =>
+      import TypeRef._
+      tr match {
+        case TypeVar(_) | TypeName(_) => LazyList.empty
+        case TypeArrow(l, r)          =>
+          r #:: l.toList.to(LazyList)
+        case TypeApply(of, args)   => of #:: args.toList.to(LazyList)
+        case TypeForAll(par, expr) =>
+          val rest = NonEmptyList.fromList(par.tail) match {
+            case None      => LazyList.empty
+            case Some(nel) => TypeForAll(nel, expr) #:: LazyList.empty
+          }
+          expr #:: rest
+        case TypeExists(par, expr) =>
+          val rest = NonEmptyList.fromList(par.tail) match {
+            case None      => LazyList.empty
+            case Some(nel) => TypeExists(nel, expr) #:: LazyList.empty
+          }
+          expr #:: rest
+        case TypeTuple(ts) =>
+          def drop(as: List[TypeRef]): LazyList[TypeTuple] =
+            as match {
+              case Nil       => LazyList.empty
+              case h :: tail =>
+                TypeTuple(tail) #:: (drop(tail).map { case TypeTuple(ts) =>
+                  TypeTuple(h :: ts)
+                })
             }
-            expr #:: rest
-          case TypeExists(par, expr) =>
-            val rest = NonEmptyList.fromList(par.tail) match {
-              case None      => Stream.empty
-              case Some(nel) => TypeExists(nel, expr) #:: Stream.empty
-            }
-            expr #:: rest
-          case TypeTuple(ts) =>
-            def drop(as: List[TypeRef]): Stream[TypeTuple] =
-              as match {
-                case Nil       => Stream.empty
-                case h :: tail =>
-                  TypeTuple(tail) #:: (drop(tail).map { case TypeTuple(ts) =>
-                    TypeTuple(h :: ts)
-                  })
-              }
-            ts.toStream #::: (drop(ts): Stream[TypeRef])
-        }
+          ts.to(LazyList) #::: (drop(ts): LazyList[TypeRef])
       }
-    })
+    }
 
   def commentGen[T](dec: Gen[T]): Gen[CommentStatement[T]] = {
     def cleanNewLine(s: String): String = s.map { c =>
@@ -935,199 +933,197 @@ object Generators {
   }
 
   implicit val shrinkDecl: Shrink[Declaration] =
-    Shrink[Declaration](new Function1[Declaration, Stream[Declaration]] {
+    Shrink.withLazyList[Declaration] { d =>
       import Declaration._
 
-      def apply(d: Declaration): Stream[Declaration] =
-        d match {
-          case Annotation(t, _)   => t #:: apply(t)
-          case Apply(fn, args, _) =>
-            val next = fn #:: args.toList.toStream
-            next.flatMap(apply)
-          case ao @ ApplyOp(left, _, right) =>
-            left #:: ao.opVar #:: right #:: Stream.empty
-          case Binding(b) =>
-            val next = b.value #:: b.in.padded #:: Stream.empty
-            next #::: next.flatMap(apply)
-          case DefFn(d) =>
-            val (b, r) = d.result
-            val inner = b.get #:: r.padded #:: Stream.empty
-            inner #::: inner.flatMap(apply)
-          case IfElse(ifCases, elseCase) =>
-            elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
-          case Ternary(t, c, f) =>
-            val s = Stream(t, c, f)
-            s #::: s.flatMap(apply(_))
-          case LeftApply(_, _, r, b) =>
-            // todo, we should really interleave shrinking r and b
-            r #:: b.padded #:: Stream.empty
-          case Match(_, _, args) =>
-            args.get.toList.toStream.flatMap { case (_, decl) =>
-              decl.get #:: apply(decl.get)
+      d match {
+        case Annotation(t, _)   => t #:: LazyList.from(shrinkDecl.shrink(t))
+        case Apply(fn, args, _) =>
+          val next = fn #:: args.toList.to(LazyList)
+          next.flatMap(shrinkDecl.shrink)
+        case ao @ ApplyOp(left, _, right) =>
+          left #:: ao.opVar #:: right #:: LazyList.empty
+        case Binding(b) =>
+          val next = b.value #:: b.in.padded #:: LazyList.empty
+          next #::: next.flatMap(shrinkDecl.shrink)
+        case DefFn(d) =>
+          val (b, r) = d.result
+          val inner = b.get #:: r.padded #:: LazyList.empty
+          inner #::: inner.flatMap(shrinkDecl.shrink)
+        case IfElse(ifCases, elseCase) =>
+          elseCase.get #:: ifCases.toList.to(LazyList).map(_._2.get)
+        case Ternary(t, c, f) =>
+          val s = LazyList(t, c, f)
+          s #::: s.flatMap(shrinkDecl.shrink)
+        case LeftApply(_, _, r, b) =>
+          // todo, we should really interleave shrinking r and b
+          r #:: b.padded #:: LazyList.empty
+        case Match(_, _, args) =>
+          args.get.toList.to(LazyList).flatMap { case (_, decl) =>
+            decl.get #:: LazyList.from(shrinkDecl.shrink(decl.get))
+          }
+        case Matches(a, _) =>
+          a #:: LazyList.from(shrinkDecl.shrink(a))
+        // the rest can't be shrunk
+        case Comment(c)      => c.on.padded #:: LazyList.empty
+        case CommentNB(c)    => c.on.padded #:: LazyList.empty
+        case Lambda(_, body) => body #:: LazyList.empty
+        case Literal(_)      => LazyList.empty
+        case Parens(_)       =>
+          // by removing parens we can make invalid
+          // expressions
+          LazyList.empty
+        case TupleCons(Nil)       => LazyList.empty
+        case TupleCons(h :: tail) =>
+          h #:: TupleCons(tail)(using emptyRegion) #:: LazyList.from(
+            shrinkDecl.shrink(TupleCons(tail)(using emptyRegion))
+          )
+        case Var(_)            => LazyList.empty
+        case StringDecl(parts) =>
+          parts.toList.to(LazyList).map {
+            case StringDecl.StrExpr(nb)  => nb
+            case StringDecl.CharExpr(nb) => nb
+            case StringDecl.Literal(r, str) =>
+              Literal(Lit.Str(str))(using r)
+          }
+        case ListDecl(ListLang.Cons(items)) =>
+          items.map(_.value).to(LazyList)
+        case ListDecl(ListLang.Comprehension(a, _, c, d)) =>
+          (a.value :: c :: d.toList).to(LazyList)
+        case DictDecl(ListLang.Cons(items)) =>
+          items.to(LazyList).flatMap(kv => LazyList(kv.key, kv.value))
+        case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
+          (a.key :: a.value :: c :: d.toList).to(LazyList)
+        case RecordConstructor(n, args) =>
+          def head: LazyList[Declaration] =
+            args.head match {
+              case RecordArg.Pair(n, d) =>
+                LazyList(Var(n)(using emptyRegion), d)
+              case RecordArg.Simple(n)  =>
+                LazyList(Var(n)(using emptyRegion))
             }
-          case Matches(a, _) =>
-            a #:: apply(a)
-          // the rest can't be shrunk
-          case Comment(c)      => c.on.padded #:: Stream.empty
-          case CommentNB(c)    => c.on.padded #:: Stream.empty
-          case Lambda(_, body) => body #:: Stream.empty
-          case Literal(_)      => Stream.empty
-          case Parens(_)       =>
-            // by removing parens we can make invalid
-            // expressions
-            Stream.empty
-          case TupleCons(Nil)       => Stream.empty
-          case TupleCons(h :: tail) =>
-            h #:: TupleCons(tail)(using emptyRegion) #:: apply(
-              TupleCons(tail)(using emptyRegion)
-            )
-          case Var(_)            => Stream.empty
-          case StringDecl(parts) =>
-            parts.toList.toStream.map {
-              case StringDecl.StrExpr(nb)  => nb
-              case StringDecl.CharExpr(nb) => nb
-              case StringDecl.Literal(r, str) =>
-                Literal(Lit.Str(str))(using r)
+
+          def tailStream(
+              of: NonEmptyList[RecordArg]
+          ): LazyList[NonEmptyList[RecordArg]] =
+            NonEmptyList.fromList(of.tail) match {
+              case None           => LazyList.empty
+              case Some(tailArgs) =>
+                tailArgs #:: tailStream(tailArgs) #::: tailStream(
+                  NonEmptyList(of.head, tailArgs.tail)
+                )
             }
-          case ListDecl(ListLang.Cons(items)) =>
-            items.map(_.value).toStream
-          case ListDecl(ListLang.Comprehension(a, _, c, d)) =>
-            (a.value :: c :: d.toList).toStream
-          case DictDecl(ListLang.Cons(items)) =>
-            items.toStream.flatMap(kv => Stream(kv.key, kv.value))
-          case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
-            (a.key :: a.value :: c :: d.toList).toStream
-          case RecordConstructor(n, args) =>
-            def head: Stream[Declaration] =
-              args.head match {
-                case RecordArg.Pair(n, d) =>
-                  Stream(Var(n)(using emptyRegion), d)
-                case RecordArg.Simple(n)  =>
-                  Stream(Var(n)(using emptyRegion))
-              }
 
-            def tailStream(
-                of: NonEmptyList[RecordArg]
-            ): Stream[NonEmptyList[RecordArg]] =
-              NonEmptyList.fromList(of.tail) match {
-                case None           => Stream.empty
-                case Some(tailArgs) =>
-                  tailArgs #:: tailStream(tailArgs) #::: tailStream(
-                    NonEmptyList(of.head, tailArgs.tail)
-                  )
-              }
+          Var(n)(using emptyRegion) #::
+            head #:::
+            tailStream(args).map(
+              RecordConstructor(n, _)(using emptyRegion): Declaration
+            ) // type annotation for scala 2.11
+      }
+    }
 
-            Var(n)(using emptyRegion) #::
-              head #:::
-              tailStream(args).map(
-                RecordConstructor(n, _)(using emptyRegion): Declaration
-              ) // type annotation for scala 2.11
-        }
-    })
-
-  def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
+  def interleave[A](s1: LazyList[A], s2: LazyList[A]): LazyList[A] =
     if (s1.isEmpty) s2
     else if (s2.isEmpty) s1
     else {
       s1.head #:: interleave(s2, s1.tail)
     }
 
-  def interleaveAll[A](ss: List[Stream[A]]): Stream[A] =
+  def interleaveAll[A](ss: List[LazyList[A]]): LazyList[A] =
     ss match {
-      case Nil        => Stream.empty
+      case Nil        => LazyList.empty
       case one :: Nil => one
       case twoOrMore  =>
         val (l, r) = twoOrMore.splitAt(twoOrMore.size / 2)
         interleave(interleaveAll(l), interleaveAll(r))
     }
   // treat the list like a product and shrink each position
-  def shrinkOne[A: Shrink](list: List[A]): Stream[List[A]] =
+  def shrinkOne[A: Shrink](list: List[A]): LazyList[List[A]] =
     interleaveAll((0 until list.size).toList.map { idx =>
       val aIdx = list(idx)
-      implicitly[Shrink[A]]
-        .shrink(aIdx)
+      LazyList
+        .from(implicitly[Shrink[A]].shrink(aIdx))
         .map { a =>
           list.updated(idx, a)
         }
     })
 
-  def dropItemList[A](list: List[A]): Stream[List[A]] =
+  def dropItemList[A](list: List[A]): LazyList[List[A]] =
     list match {
-      case Nil | _ :: Nil => Stream.empty
+      case Nil | _ :: Nil => LazyList.empty
       case twoOrMore      =>
-        (0 until twoOrMore.size).toStream.map { idx =>
+        (0 until twoOrMore.size).to(LazyList).map { idx =>
           list.take(idx) ::: list.drop(idx + 1)
         }
     }
 
   implicit def shrinkPattern[N, T]: Shrink[Pattern[N, T]] = {
     lazy val res: Shrink[Pattern[N, T]] =
-      Shrink(new Function1[Pattern[N, T], Stream[Pattern[N, T]]] {
-        def apply(p: Pattern[N, T]) =
-          p match {
-            case Pattern.WildCard => Stream.empty
-            case Pattern.Var(_)   => Pattern.WildCard #:: Stream.empty
-            case Pattern.Annotation(pattern, _)      => pattern #:: Stream.empty
-            case Pattern.Named(_, pat)               => pat #:: Stream.empty
-            case Pattern.PositionalStruct(n, params) =>
-              // shrink all the params
-              shrinkOne(params)(using res).map(Pattern.PositionalStruct(n, _))
-            case Pattern.Literal(Lit.Str(s)) =>
-              implicitly[Shrink[String]]
-                .shrink(s)
-                .map(s => Pattern.Literal(Lit(s)))
-            case Pattern.Literal(Lit.Integer(s)) =>
-              implicitly[Shrink[BigInt]]
-                .shrink(BigInt(s))
-                .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
-            case Pattern.Literal(_)  => Stream.empty
-            case Pattern.ListPat(ls) =>
-              if (ls.isEmpty) Stream.empty
-              else (Pattern.ListPat(ls.tail) #:: Stream.empty)
-            case Pattern.StrPat(ls) =>
-              if (ls.tail.isEmpty) Stream.empty
-              else
-                (Pattern.StrPat(
-                  NonEmptyList.fromListUnsafe(ls.tail)
-                ) #:: Stream.empty)
-            case u @ Pattern.Union(_, _) =>
-              val flat = Pattern.flatten(u).toList
-              val sameLen =
-                shrinkOne[Pattern[N, T]](flat)(using res)
-                  .map { us =>
-                    Pattern.union(us.head, us.tail)
-                  }
-              // unions have 2 or more, so this won't throw
-              val oneLess = dropItemList(flat).map { smaller =>
-                Pattern.union(smaller.head, smaller.tail)
-              }
+      Shrink.withLazyList { p =>
+        p match {
+          case Pattern.WildCard => LazyList.empty
+          case Pattern.Var(_)   => Pattern.WildCard #:: LazyList.empty
+          case Pattern.Annotation(pattern, _)      => pattern #:: LazyList.empty
+          case Pattern.Named(_, pat)               => pat #:: LazyList.empty
+          case Pattern.PositionalStruct(n, params) =>
+            // shrink all the params
+            shrinkOne(params)(using res).map(Pattern.PositionalStruct(n, _))
+          case Pattern.Literal(Lit.Str(s)) =>
+            LazyList
+              .from(implicitly[Shrink[String]].shrink(s))
+              .map(s => Pattern.Literal(Lit(s)))
+          case Pattern.Literal(Lit.Integer(s)) =>
+            LazyList
+              .from(implicitly[Shrink[BigInt]].shrink(BigInt(s)))
+              .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
+          case Pattern.Literal(_)  => LazyList.empty
+          case Pattern.ListPat(ls) =>
+            if (ls.isEmpty) LazyList.empty
+            else (Pattern.ListPat(ls.tail) #:: LazyList.empty)
+          case Pattern.StrPat(ls) =>
+            if (ls.tail.isEmpty) LazyList.empty
+            else
+              (Pattern.StrPat(
+                NonEmptyList.fromListUnsafe(ls.tail)
+              ) #:: LazyList.empty)
+          case u @ Pattern.Union(_, _) =>
+            val flat = Pattern.flatten(u).toList
+            val sameLen =
+              shrinkOne[Pattern[N, T]](flat)(using res)
+                .map { us =>
+                  Pattern.union(us.head, us.tail)
+                }
+            // unions have 2 or more, so this won't throw
+            val oneLess = dropItemList(flat).map { smaller =>
+              Pattern.union(smaller.head, smaller.tail)
+            }
 
-              interleave(oneLess, sameLen)
-          }
-      })
+            interleave(oneLess, sameLen)
+        }
+      }
 
     res
   }
 
   implicit val shrinkStmt: Shrink[Statement] =
-    Shrink[Statement](new Function1[Statement, Stream[Statement]] {
+    Shrink.withLazyList { s =>
       import Statement._
 
-      def apply(s: Statement): Stream[Statement] = s match {
+      s match {
         case Bind(bs @ BindingStatement(_, d, _)) =>
-          shrinkDecl.shrink(d).collect { case sd: NonBinding =>
+          LazyList.from(shrinkDecl.shrink(d)).collect { case sd: NonBinding =>
             Bind(bs.copy(value = sd))(emptyRegion)
           }
         case Def(ds) =>
           val body = ds.result
           body
-            .traverse(shrinkDecl.shrink(_))
+            .traverse(d => LazyList.from(shrinkDecl.shrink(d)))
             .map { bod =>
               Def(ds.copy(result = bod))(emptyRegion)
             }
-        case _ => Stream.empty
+        case _ => LazyList.empty
       }
-    })
+    }
 
   val constructorGen: Gen[
     (Identifier.Constructor, List[(Identifier.Bindable, Option[TypeRef])])

@@ -92,31 +92,31 @@ object NTypeGen {
   }
 
   implicit val shrinkKind: Shrink[Kind] = {
-    def shrink(k: Kind): Stream[Kind] =
+    def shrink(k: Kind): LazyList[Kind] =
       k match {
-        case Kind.Type                    => Stream.empty
+        case Kind.Type                    => LazyList.empty
         case Kind.Cons(Kind.Arg(_, a), b) =>
-          a #:: b #:: Stream.empty
+          a #:: b #:: LazyList.empty
       }
 
-    Shrink(shrink(_))
+    Shrink.withLazyList(shrink)
   }
 
   implicit val shrinkType: Shrink[Type] = {
     import Type._
-    def shrink(t: Type): Stream[Type] =
+    def shrink(t: Type): LazyList[Type] =
       t match {
         case ForAll(items, in) =>
           shrink(in).map(Type.forAll(items.tail, _))
         case Exists(items, in) =>
           shrink(in).map(Type.exists(items.tail, _))
-        case _: Leaf          => Stream.empty
+        case _: Leaf          => LazyList.empty
         case TyApply(on, arg) =>
           on #:: arg #:: shrink(on).collect { case r: Type.Rho =>
             TyApply(r, arg)
           } #::: shrink(arg).map(TyApply(on, _))
       }
-    Shrink(shrink(_))
+    Shrink.withLazyList(shrink)
   }
 
   val genKindArg: Gen[Kind.Arg] =

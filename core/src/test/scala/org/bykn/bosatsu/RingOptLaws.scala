@@ -42,23 +42,25 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     Arbitrary(genExpr(Arbitrary.arbitrary[A]))
 
   implicit def shrinkExpr[A: Shrink: Order]: Shrink[Expr[A]] =
-    Shrink[Expr[A]] {
-      case Zero       => Stream.empty
-      case One        => Zero #:: Stream.empty
-      case Symbol(a)  => Shrink.shrink(a).map(Symbol(_))
-      case Integer(n) => Shrink.shrink(n).map(Integer(_))
+    Shrink.withLazyList[Expr[A]] {
+      case Zero       => LazyList.empty
+      case One        => Zero #:: LazyList.empty
+      case Symbol(a)  => LazyList.from(Shrink.shrink(a)).map(Symbol(_))
+      case Integer(n) => LazyList.from(Shrink.shrink(n)).map(Integer(_))
       case Neg(x)     =>
+        val shrinkX = LazyList.from(Shrink.shrink(x))
         x #:: Generators.interleave(
-          Shrink.shrink(x),
-          Shrink.shrink(x).map(Neg(_))
+          shrinkX,
+          shrinkX.map(Neg(_))
         )
       case add @ Add(a, b) =>
-        val shrinkAdd =
-          Shrink.shrink((a, b)).map { case (sa, sb) => Add(sa, sb) }
+        val shrinkAdd = LazyList
+          .from(Shrink.shrink((a, b)))
+          .map { case (sa, sb) => Add(sa, sb) }
 
         val tail = a #:: b #:: Generators.interleaveAll(
-          Shrink.shrink(a) ::
-            Shrink.shrink(b) ::
+          LazyList.from(Shrink.shrink(a)) ::
+            LazyList.from(Shrink.shrink(b)) ::
             shrinkAdd ::
             Nil
         )
@@ -68,11 +70,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         else tail
 
       case mult @ Mult(a, b) =>
-        val shrinkMult =
-          Shrink.shrink((a, b)).map { case (sa, sb) => Mult(sa, sb) }
+        val shrinkMult = LazyList
+          .from(Shrink.shrink((a, b)))
+          .map { case (sa, sb) => Mult(sa, sb) }
         val tail = a #:: b #:: Generators.interleaveAll(
-          Shrink.shrink(a) ::
-            Shrink.shrink(b) ::
+          LazyList.from(Shrink.shrink(a)) ::
+            LazyList.from(Shrink.shrink(b)) ::
             shrinkMult ::
             Nil
         )
@@ -89,7 +92,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     } yield Weights(mult = m, add = a, neg = n))
 
   implicit val shrinkWeights: Shrink[Weights] =
-    Shrink[Weights] { case Weights(m, a, n) =>
+    Shrink.withLazyList[Weights] { case Weights(m, a, n) =>
       Shrink
         .shrink((m, a, n))
         .map { case (m0, a0, n0) =>
@@ -106,7 +109,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         }
         .map(_(0))
         .map { case (m, a, n) => Weights(m, a, n) }
-        .toStream
+        .to(LazyList)
     }
 
   implicit def arbMultiSet[A: Arbitrary: Hash, B: Arbitrary: Numeric]
