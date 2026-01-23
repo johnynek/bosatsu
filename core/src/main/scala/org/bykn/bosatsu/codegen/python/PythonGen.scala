@@ -1131,8 +1131,8 @@ object PythonGen {
             )
           }
 
-      def unapply(
-          expr: Expr[Unit]
+      def unapply[A](
+          expr: Expr[A]
       ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
           case Global(_, PackageName.PredefName, name) => results.get(name)

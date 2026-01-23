@@ -935,7 +935,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case Lit.Str(toStr) => StringApi.fromString(toStr)
         }
 
-      def innerApp(app: App[K]): T[Code.ValueLike] =
+      def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =
         app match {
           case App(Global(k, pack, fnName), args) =>
             directFn(k, pack, fnName).flatMap {
@@ -1027,10 +1027,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn: FnExpr[K]       => innerFn(fn)
+          case fn @ Lambda(_, _, _, _)       => innerFn(fn: FnExpr[K])
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
-          case app: App[K]           => innerApp(app)
+          case app @ App(_, _)           => innerApp(app)
           case Global(k, pack, name) =>
             directFn(k, pack, name)
               .flatMap {
@@ -1187,7 +1187,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
 
-      def fnStatement(fnName: Code.Ident, fn: FnExpr[K]): T[Code.Statement] =
+      def fnStatement[K1 <: K](fnName: Code.Ident, fn: FnExpr[K1]): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))

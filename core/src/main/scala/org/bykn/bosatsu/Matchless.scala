@@ -14,7 +14,7 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr[+A] extends Expr[A]
-  sealed abstract class FnExpr[A] extends Expr[A] {
+  sealed abstract class FnExpr[+A] extends Expr[A] {
     def captures: List[Expr[A]]
     // this is set if the function is recursive
     def recursiveName: Option[Bindable]
