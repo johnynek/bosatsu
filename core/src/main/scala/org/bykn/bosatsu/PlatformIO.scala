@@ -20,7 +20,7 @@ trait PlatformIO[F[_], Path] {
   implicit def pathArg: Argument[Path]
   implicit def pathOrdering: Ordering[Path]
 
-  def withEC[A](fn: Par.EC => F[A]): F[A]
+  def withEC[A](fn: Par.EC ?=> F[A]): F[A]
 
   final def path(str: String): ValidatedNel[String, Path] =
     pathArg.read(str)

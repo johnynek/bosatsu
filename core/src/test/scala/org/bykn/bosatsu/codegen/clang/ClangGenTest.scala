@@ -30,7 +30,7 @@ x = 1
       val filtered = predef.filterLets(ident => fnSet(ident.asString))
       val pm1 = PackageMap.fromIterable(filtered :: Nil)
 
-      val res = Par.withEC { implicit ec =>
+      val res = Par.withEC {
         ClangGen(pm1).renderMain(
           PackageName.PredefName,
           Identifier.Name(fns.last),

@@ -187,7 +187,7 @@ object MemoryMain {
 
       def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
 
-      def withEC[A](fn: Par.EC => F[A]): F[A] =
+      def withEC[A](fn: Par.EC ?=> F[A]): F[A] =
         StateT { state =>
           // this is safe to use the side-effects
           // of Par here because they are local to this method
@@ -197,7 +197,7 @@ object MemoryMain {
           val es = Par.newService()
           try {
             val ec = Par.ecFromService(es)
-            val fa = fn(ec)
+            val fa = fn(using ec)
             fa.run(state)
           } finally {
             Par.shutdownService(es)

@@ -138,7 +138,7 @@ object TestUtils {
       ] => A
   ): A =
     checkPackageMap(statement) { pm =>
-      Par.withEC { implicit ec =>
+      Par.withEC {
         val comp = MatchlessFromTypedExpr.compile((), pm)
         fn(comp)
       }

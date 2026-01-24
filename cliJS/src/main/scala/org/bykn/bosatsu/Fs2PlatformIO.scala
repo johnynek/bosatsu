@@ -106,7 +106,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
 
-  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+  def withEC[A](fn: Par.EC ?=> IO[A]): IO[A] =
     parResource.use(fn)
 
   def readUtf8(p: Path): IO[String] =

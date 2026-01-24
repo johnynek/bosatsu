@@ -31,11 +31,11 @@ object Par {
     ExecutionContext.fromExecutor(es)
 
   // Used in testing generally, we don't want to make more than one of these per app
-  def withEC[A](fn: EC => A): A = {
+  def withEC[A](fn: EC ?=> A): A = {
     val srv = newService()
     try {
       val ec = ecFromService(srv)
-      fn(ec)
+      fn(using ec)
     } finally shutdownService(srv)
   }
 

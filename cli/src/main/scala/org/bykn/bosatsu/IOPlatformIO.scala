@@ -101,7 +101,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
 
-  def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+  def withEC[A](fn: Par.EC ?=> IO[A]): IO[A] =
     parResource.use(fn)
 
   def readUtf8(path: Path): IO[String] =
