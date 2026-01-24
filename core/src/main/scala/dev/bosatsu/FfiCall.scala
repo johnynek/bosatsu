@@ -39,35 +39,4 @@ object FfiCall {
 
     def call(t: rankn.Type): Value = evalFn
   }
-
-  def getJavaType(t: rankn.Type): List[Class[?]] = {
-    def one(t: rankn.Type): Option[Class[?]] =
-      loop(t, false) match {
-        case c :: Nil => Some(c)
-        case _        => None
-      }
-
-    def loop(t: rankn.Type, top: Boolean): List[Class[?]] =
-      t match {
-        case rankn.Type.Fun(as, b) if top =>
-          val ats = as.map { a =>
-            one(a) match {
-              case Some(at) => at
-              case function =>
-                sys.error(s"unsupported function type $function in $t")
-            }
-          }
-          val res =
-            one(b) match {
-              case Some(at) => at
-              case function =>
-                sys.error(s"unsupported function type $function in $t")
-            }
-          ats.toList ::: res :: Nil
-        case rankn.Type.ForAll(_, t) =>
-          loop(t, top)
-        case _ => classOf[Value] :: Nil
-      }
-    loop(t, true)
-  }
 }
