@@ -18,7 +18,7 @@ class JsonTest extends munit.ScalaCheckSuite {
     )
 
   def law(j: Json) =
-    assert(Parser.unsafeParse(Json.parser, j.render) == j)
+    assertEquals(Parser.unsafeParse(Json.parser, j.render), j)
 
   val withType: Gen[(TypeEnv[Unit], Type)] =
     Generators
@@ -42,18 +42,14 @@ class JsonTest extends munit.ScalaCheckSuite {
     } yield (optTE, tpe)
 
   test("test some example escapes") {
-    assert(
-      Parser.unsafeParse(
+    assertEquals(Parser.unsafeParse(
         JsonStringUtil.escapedToken.string,
         "\\u0000"
-      ) == "\\u0000"
-    )
-    assert(
-      Parser.unsafeParse(
+      ), "\\u0000")
+    assertEquals(Parser.unsafeParse(
         JsonStringUtil.escapedString('\''),
         "'\\u0000'"
-      ) == 0.toChar.toString
-    )
+      ), 0.toChar.toString)
   }
 
   test("we can parse all the json we generate") {
@@ -66,7 +62,7 @@ class JsonTest extends munit.ScalaCheckSuite {
     val propParts = forAll(genJsonNumber) { num =>
       val parts =
         Parser.unsafeParse(Parser.JsonNumber.partsParser, num.asString)
-      assert(parts.asString == num.asString)
+      assertEquals(parts.asString, num.asString)
     }
 
     val regressions = List(Json.JNumberStr("2E9"), Json.JNumberStr("-9E+19"))
@@ -87,7 +83,7 @@ class JsonTest extends munit.ScalaCheckSuite {
       val toJson = jsonCodec.toJson(t)
       val fromJson = jsonCodec.toValue(t)
 
-      assert(toJson.isRight == fromJson.isRight)
+      assertEquals(toJson.isRight, fromJson.isRight)
       val ej1 = for {
         f12 <- fromJson.product(toJson)
         (fn1, fn2) = f12
@@ -139,7 +135,7 @@ class JsonTest extends munit.ScalaCheckSuite {
       val toJson = jsonCodec.toJson(t)
       val fromJson = jsonCodec.toValue(t)
 
-      assert(toJson.isRight == fromJson.isRight)
+      assertEquals(toJson.isRight, fromJson.isRight)
       val ej1 = for {
         f12 <- fromJson.product(toJson)
         (fn1, fn2) = f12
@@ -148,7 +144,7 @@ class JsonTest extends munit.ScalaCheckSuite {
       } yield v1
 
       ej1 match {
-        case Right(v1) => assert(v1 == v, s"$v1 != $v")
+        case Right(v1) => assertEquals(v1, v, s"$v1 != $v")
         case Left(_)   => ()
       }
     }
@@ -290,7 +286,7 @@ enum MyNat: Z, S(prev: MyNat)
   test("we can parse all paths") {
     forAll(genPath) { p =>
       val str = Json.Path.showPath.show(p)
-      assert(Json.Path.parser.parseAll(str) == Right(p), s"parsing: $str")
+      assertEquals(Json.Path.parser.parseAll(str), Right(p), s"parsing: $str")
     }
   }
 }

@@ -189,7 +189,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
     val sep = matches(p1, x) && matches(p2, x)
     val together = intersect.exists(matches(_, x))
 
-    assert(together == sep, s"n1: $n1, n2: $n2, intersection: $intersect")
+    assertEquals(together, sep, s"n1: $n1, n2: $n2, intersection: $intersect")
     // if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
     // else succeed
   }
@@ -197,7 +197,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
   def namedMatchesPatternLaw(n: Named, str: S) = {
     val p = n.unname
 
-    assert(namedMatches(n, str) == matches(p, str), s"${p.show}")
+    assertEquals(namedMatches(n, str), matches(p, str), s"${p.show}")
   }
 
   def differenceUBLaw(p10: Pattern, p20: Pattern, s: S) = {
@@ -221,7 +221,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
       if (matches(p1, s)) assert(matches(p2, s))
     }
 
-    if (p2.matchesAny) assert(diff == Nil)
+    if (p2.matchesAny) assertEquals(diff, Nil)
 
     // the law we wish we had:
     // if (p2.matches(s) && p1.matches(s)) assert(!diffmatch)
@@ -229,15 +229,15 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
 
   test("reverse is idempotent") {
     forAll(genPattern) { (p: Pattern) =>
-      assert(p.reverse.reverse == p)
+      assertEquals(p.reverse.reverse, p)
     }
   }
 
   test("cat.reverse == cat.reverseCat") {
     forAll(genPattern) { p =>
       p match {
-        case Empty         => assert(p.reverse == Empty)
-        case c @ Cat(_, _) => assert(c.reverseCat == c.reverse)
+        case Empty         => assertEquals(p.reverse, Empty)
+        case c @ Cat(_, _) => assertEquals(c.reverseCat, c.reverse)
       }
     }
   }
@@ -245,10 +245,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
   test("reverse matches the reverse string") {
     forAll(genPattern, genSeq) { (p: Pattern, str: S) =>
       val rstr = splitter.fromList(splitter.toList(str).reverse)
-      assert(
-        matches(p, str) == matches(p.reverse, rstr),
-        s"p.reverse = ${p.reverse}"
-      )
+      assertEquals(matches(p, str), matches(p.reverse, rstr), s"p.reverse = ${p.reverse}")
     }
   }
 
@@ -269,7 +266,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
   test("normalized patterns have the same matches as unnormalized ones") {
     forAll(genPattern, genSeq) { (p0, s) =>
       val pnorm = p0.normalize
-      assert(matches(pnorm, s) == matches(p0, s))
+      assertEquals(matches(pnorm, s), matches(p0, s))
     }
   }
 
@@ -303,7 +300,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
   test("toList/fromList match the same") {
     forAll(genPattern, genSeq) { (p, s) =>
       val p1 = Pattern.fromList(p.toList)
-      assert(matches(p1, s) == matches(p, s), s"p1 = $p1")
+      assertEquals(matches(p1, s), matches(p, s), s"p1 = $p1")
     }
   }
 
@@ -324,7 +321,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
       val unified = setOps.unifyUnion(ps)
       val u2 = unified.exists(matches(_, s))
 
-      assert(u2 == u1, s"unified = $unified")
+      assertEquals(u2, u1, s"unified = $unified")
     }
   }
 
@@ -369,16 +366,12 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
 
   test("* - [] - [_, *] == empty") {
     val diff1 = setOps.difference(Cat(Wildcard, Empty), Empty)
-    assert(
-      diff1.flatMap(
+    assertEquals(diff1.flatMap(
         setOps.difference(_, Cat(AnyElem, Cat(Wildcard, Empty)))
-      ) == Nil
-    )
-    assert(
-      diff1.flatMap(
+      ), Nil)
+    assertEquals(diff1.flatMap(
         setOps.difference(_, Cat(Wildcard, Cat(AnyElem, Empty)))
-      ) == Nil
-    )
+      ), Nil)
   }
 
   test("[*, _] n [*, _, *] commutes and is [_, *]") {
@@ -386,8 +379,8 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
     val p2 = Cat(Wildcard, Cat(AnyElem, Cat(Wildcard, Empty)))
     val int1 = setOps.intersection(p1, p2)
     val int2 = setOps.intersection(p2, p1)
-    assert(int1 == int2)
-    assert(int1 == List(Cat(AnyElem, Cat(Wildcard, Empty))))
+    assertEquals(int1, int2)
+    assertEquals(int1, List(Cat(AnyElem, Cat(Wildcard, Empty))))
   }
 
   test("[*] n [*, *] commutes") {
@@ -395,14 +388,14 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
     val p2 = Cat(Wildcard, p1)
     val int1 = setOps.intersection(p1, p2)
     val int2 = setOps.intersection(p2, p1)
-    assert(int1 == int2)
+    assertEquals(int1, int2)
   }
 
   test("x n y == y n x") {
     forAll(genPattern, genPattern) { (x: Pattern, y: Pattern) =>
       val i1 = setOps.intersection(x, y)
       val i2 = setOps.intersection(y, x)
-      assert(i1 == i2, s"${i1.map(_.show)} != ${i2.map(_.show)}")
+      assertEquals(i1, i2, s"${i1.map(_.show)} != ${i2.map(_.show)}")
     }
   }
 
@@ -413,7 +406,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
         val y = Pattern.fromList(y0.toList.take(3))
         val z = Pattern.fromList(z0.toList.take(3))
         if (setOps.difference(x, y).isEmpty) {
-          assert(setOps.differenceAll(x :: z :: Nil, y :: z :: Nil) == Nil)
+          assertEquals(setOps.differenceAll(x :: z :: Nil, y :: z :: Nil), Nil)
         }
     }
   }
@@ -551,7 +544,7 @@ class BoolSeqPatternTest
       )
     )
 
-    assert(missing == Nil)
+    assertEquals(missing, Nil)
   }
 
   test("a n b == b n a regressions (bool)") {
@@ -562,7 +555,7 @@ class BoolSeqPatternTest
 
     val ab = setOps.intersection(a, b)
     val ba = setOps.intersection(b, a)
-    assert(ab == ba)
+    assertEquals(ab, ba)
   }
 
   test("if we can enumerate p1 and p1 - p2 == 0, then all match p2") {
@@ -606,7 +599,7 @@ class BoolSeqPatternTest
         case Some(ms) =>
           assert(ms.nonEmpty)
           val mslist = ms.toList
-          assert(matches(p, s) == ms.exists(_ == s), mslist)
+          assertEquals(matches(p, s), ms.exists(_ == s), mslist)
       }
     }
   }
@@ -651,7 +644,7 @@ class BoolSeqPatternTest
       }
 
     subsets.foreach { case (p1, p2, res) =>
-      assert(setOps.subset(p1, p2) == res)
+      assertEquals(setOps.subset(p1, p2), res)
     }
 
     val regressions: List[(Pattern, Pattern, List[List[Boolean]])] =
@@ -726,23 +719,17 @@ class BoolSeqPatternTest
   }
 
   test("test some missing branches") {
-    assert(
-      setOps.missingBranches(
+    assertEquals(setOps.missingBranches(
         Cat(Wildcard, Empty) :: Nil,
         Pattern.fromList(List(Wildcard, AnyElem, Wildcard)) :: Nil
-      ) ==
-        Pattern.fromList(Nil) :: Nil
-    )
+      ), Pattern.fromList(Nil) :: Nil)
 
-    assert(
-      setOps.missingBranches(
+    assertEquals(setOps.missingBranches(
         Cat(Wildcard, Empty) :: Nil,
         Pattern.fromList(List(Wildcard, Lit(Set(true)), Wildcard)) :: Nil
-      ) ==
-        Pattern.fromList(Nil) :: Pattern.fromList(
+      ), Pattern.fromList(Nil) :: Pattern.fromList(
           Lit(Set(false)) :: Wildcard :: Nil
-        ) :: Nil
-    )
+        ) :: Nil)
   }
 }
 
@@ -797,21 +784,19 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
 
   test("wildcard on either side is the same as contains") {
     forAll { (ps: String, s: String) =>
-      assert(
-        matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s) == s.contains(
+      assertEquals(matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s), s.contains(
           ps
-        )
-      )
+        ))
     }
   }
   test("wildcard on front side is the same as endsWith") {
     forAll { (ps: String, s: String) =>
-      assert(matches(Pattern.Wild + toPattern(ps), s) == s.endsWith(ps))
+      assertEquals(matches(Pattern.Wild + toPattern(ps), s), s.endsWith(ps))
     }
   }
   test("wildcard on back side is the same as startsWith") {
     forAll { (ps: String, s: String) =>
-      assert(matches(toPattern(ps) + Pattern.Wild, s) == s.startsWith(ps))
+      assertEquals(matches(toPattern(ps) + Pattern.Wild, s), s.startsWith(ps))
     }
   }
 
@@ -855,7 +840,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
       val y = Pattern.fromList(y0.toList.take(5))
       if (setOps.difference(y, x) == Nil) {
         val left = y + toPattern(str)
-        assert(setOps.difference(left, x + toPattern(str)) == Nil)
+        assertEquals(setOps.difference(left, x + toPattern(str)), Nil)
       }
     }
 
@@ -869,7 +854,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
         val y = Pattern.fromList(y0.toList.take(5))
         if (setOps.difference(y, x) == Nil) {
           val left = toPattern(str) + y
-          assert(setOps.difference(left, toPattern(str) + x) == Nil)
+          assertEquals(setOps.difference(left, toPattern(str) + x), Nil)
         }
     }
   }
@@ -880,10 +865,10 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
         n.render(m) { codePoint =>
           StringUtil.fromCodePoints(codePoint :: Nil)
         } match {
-          case Some(s0) => assert(s0 == str, s"m = $m")
+          case Some(s0) => assertEquals(s0, str, s"m = $m")
           case None     =>
             // this can only happen if we have unnamed Wild/AnyElem
-            assert(n.isRenderable == false, s"m = $m")
+            assertEquals(n.isRenderable, false, s"m = $m")
         }
       }
 
@@ -922,11 +907,9 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
     // foo@("bar" baz@(*"baz"))
     val p1 =
       (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
-    assert(
-      namedMatch(p1, "bar and baz") == Some(
+    assertEquals(namedMatch(p1, "bar and baz"), Some(
         Map("foo" -> "bar and baz", "baz" -> " and baz")
-      )
-    )
+      ))
   }
 
   test("regression subset example") {
@@ -940,7 +923,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
     val p1 = Cat(Wildcard, Cat(lit('0'), Cat(lit('1'), Empty)))
     val p2 = Cat(lit('0'), Cat(lit('0'), Cat(lit('0'), Cat(Wildcard, Empty))))
 
-    assert(setOps.relate(p2, p1) == Rel.Intersects)
+    assertEquals(setOps.relate(p2, p1), Rel.Intersects)
     assert(setOps.intersection(p1, p2).nonEmpty)
   }
 }

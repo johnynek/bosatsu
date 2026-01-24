@@ -29,43 +29,33 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     def pn(roots: List[String], file: String): Option[PackageName] =
       pathPackage(roots.map(Paths.get(_)), Paths.get(file))
 
-    assert(
-      pn(List("/root0", "/root1"), "/root0/Bar.bosatsu") == Some(
+    assertEquals(pn(List("/root0", "/root1"), "/root0/Bar.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar"))
-      )
-    )
-    assert(
-      pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(
+      ))
+    assertEquals(pn(
         List("/root0/ext", "/root0/Bar"),
         "/root0/ext/Bar/Baz.bosatsu"
-      ) == Some(PackageName(NonEmptyList.of("Bar", "Baz")))
-    )
+      ), Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
   }
 
   test("no roots means no Package") {
     forAll { (p: Path) =>
-      assert(pathPackage(Nil, p) == None)
+      assertEquals(pathPackage(Nil, p), None)
     }
   }
 
   test("empty path is not okay for a package") {
     forAll { (roots: List[Path]) =>
-      assert(pathPackage(roots, Paths.get("")) == None)
+      assertEquals(pathPackage(roots, Paths.get("")), None)
     }
   }
 
@@ -77,7 +67,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
           PackageName.parse(
             rest.asScala.map(_.toString.toLowerCase.capitalize).mkString("/")
           )
-        assert(pathPackage(root :: otherRoots, path) == pack)
+        assertEquals(pathPackage(root :: otherRoots, path), pack)
       }
 
     val prop = forAll(law(_, _, _))
@@ -101,7 +91,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         file.asScala.toList.startsWith(r.asScala.toList)
       }
 
-      if (noPrefix) assert(pack == None)
+      if (noPrefix) assertEquals(pack, None)
     }
   }
 
@@ -133,7 +123,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Queue" => t.value
         }
-        assert(res.length == 1)
+        assertEquals(res.length, 1)
       case other => fail(s"expected test output: $other")
     }
   }
@@ -149,9 +139,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Bar" => t.value
         }
-        assert(res.length == 1)
-        assert(res.head.assertions == 1)
-        assert(res.head.failureCount == 0)
+        assertEquals(res.length, 1)
+        assertEquals(res.head.assertions, 1)
+        assertEquals(res.head.failureCount, 0)
       case other => fail(s"expected test output: $other")
     }
   }
@@ -178,13 +168,11 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     )
     out match {
       case Output.JsonOutput(j @ Json.JObject(_), _) =>
-        assert(
-          j.toMap == Map(
+        assertEquals(j.toMap, Map(
             "value" -> Json.JBool(true),
             "message" -> Json.JString("got the right string")
-          )
-        )
-        assert(j.items.length == 2)
+          ))
+        assertEquals(j.items.length, 2)
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -276,11 +264,11 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     out match {
       case Output.TestOutput(res, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
-        assert(noTests == Nil)
+        assertEquals(noTests, Nil)
         val failures = res.collect {
           case (pn, Some(t)) if t.value.failureCount > 0 => pn
         }
-        assert(failures == Nil)
+        assertEquals(failures, Nil)
       case other => fail(s"expected test output: $other")
     }
   }

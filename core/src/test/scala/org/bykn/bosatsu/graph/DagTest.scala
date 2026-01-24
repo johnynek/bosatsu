@@ -49,10 +49,10 @@ class DagTest extends munit.ScalaCheckSuite {
     forAll(genDag) { dagMap =>
       val (mapping, dag) = Dag.dagify(dagMap.keys.toList)(dagMap(_))
       dag.nodes.foreach { cluster =>
-        assert(cluster.size == 1)
+        assertEquals(cluster.size, 1)
       }
       dagMap.keys.foreach { n =>
-        assert(mapping(n) == Some(SortedSet(n)))
+        assertEquals(mapping(n), Some(SortedSet(n)))
       }
       assert(dag.unsingleton.isDefined)
     }
@@ -90,7 +90,7 @@ class DagTest extends munit.ScalaCheckSuite {
 
       // every node is in one cluster
       val allNodes = dag.nodes.foldLeft(SortedSet.empty[Int])(_ | _)
-      assert(allNodes == graph.keys.to(SortedSet))
+      assertEquals(allNodes, graph.keys.to(SortedSet))
 
       // if we toposort a dag, we always succeed
       implicit val setOrd: Ordering[SortedSet[Int]] =
@@ -102,15 +102,15 @@ class DagTest extends munit.ScalaCheckSuite {
       assert(sortRes.isSuccess)
       sortRes.layers.zipWithIndex.foreach { case (nodes, layer) =>
         nodes.toList.foreach { n =>
-          assert(dag.layerOf(n) == layer)
+          assertEquals(dag.layerOf(n), layer)
         }
       }
-      assert(dag.layers == sortRes.layers.length)
-      assert(sortRes.layers == dag.toToposorted.layers)
+      assertEquals(dag.layers, sortRes.layers.length)
+      assertEquals(sortRes.layers, dag.toToposorted.layers)
 
       // if we dagify again we get singletons:
       val (_, dag1) = Dag.dagify(dag.nodes)(dag.deps(_))
-      assert(dag1.unsingleton == Some(dag))
+      assertEquals(dag1.unsingleton, Some(dag))
     }
   }
 }

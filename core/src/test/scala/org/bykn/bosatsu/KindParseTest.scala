@@ -40,19 +40,19 @@ class KindParseTest extends ParserTestBase {
 
   test("order is consistent with isType") {
     forAll(genKind) { k =>
-      assert((k.order == 0) == k.isType)
+      assertEquals((k.order == 0), k.isType)
     }
   }
 
   test("order is consistent with isOrder1") {
     forAll(genKind) { k =>
-      assert((k.order == 1) == k.isOrder1)
+      assertEquals((k.order == 1), k.isOrder1)
     }
   }
 
   test("order is consistent with isHigherKind") {
     forAll(genKind) { k =>
-      assert((k.order > 1) == k.isHigherOrder)
+      assertEquals((k.order > 1), k.isHigherOrder)
     }
   }
 
@@ -68,17 +68,17 @@ class KindParseTest extends ParserTestBase {
       val ord0 = k0.order
       val ord1 = k1.order
       val ord2 = Kind.Cons(k0.in, k1).order
-      assert(ord2 == scala.math.max(ord0 + 1, ord1))
+      assertEquals(ord2, scala.math.max(ord0 + 1, ord1))
     }
   }
 
   test("toArgs and Kind.apply are inverses") {
     val propKind = forAll(genKind) { k =>
-      assert(Kind(k.toArgs*) == k)
+      assertEquals(Kind(k.toArgs*), k)
     }
 
     val propArgs = forAll(Gen.listOf(genArg)) { args =>
-      assert(Kind(args*).toArgs == args)
+      assertEquals(Kind(args*).toArgs, args)
     }
     org.scalacheck.Prop.all(propKind, propArgs)
   }
@@ -86,7 +86,7 @@ class KindParseTest extends ParserTestBase {
   test("example orders") {
     def check(str: String, ord: Int) =
       Kind.parser.parseAll(str) match {
-        case Right(k)  => assert(k.order == ord)
+        case Right(k)  => assertEquals(k.order, ord)
         case Left(err) => fail(err.toString)
       }
 
@@ -103,9 +103,9 @@ class KindParseTest extends ParserTestBase {
   test("Kind.shapeMatch(a, b) == Kind.shapeMatch(b, a)") {
     forAll(genKind, genKind) { (a, b) =>
       val m = Kind.shapeMatch(a, b)
-      assert(m == Kind.shapeMatch(b, a))
+      assertEquals(m, Kind.shapeMatch(b, a))
       if (m) {
-        assert(a.order == b.order)
+        assertEquals(a.order, b.order)
       }
       assert(Kind.shapeMatch(a, a))
     }
@@ -133,7 +133,7 @@ class KindParseTest extends ParserTestBase {
           assert(Kind.leftSubsumesRight(k1, k))
           assert(Kind.shapeMatch(k, k1))
           assert(Kind.shapeMatch(k1, k))
-          assert(k.order == k1.order)
+          assertEquals(k.order, k1.order)
         }
       }
 
@@ -153,7 +153,7 @@ class KindParseTest extends ParserTestBase {
           assert(Kind.leftSubsumesRight(k, k1))
           assert(Kind.shapeMatch(k, k1))
           assert(Kind.shapeMatch(k1, k))
-          assert(k.order == k1.order)
+          assertEquals(k.order, k1.order)
         }
       }
     }
@@ -162,7 +162,7 @@ class KindParseTest extends ParserTestBase {
     forAll(genKind) { k =>
       val size = Kind.allSubKindsSize(k)
       if (size < (1 << 14))
-        assert(size == Kind.allSubKinds(k).size.toLong)
+        assertEquals(size, Kind.allSubKinds(k).size.toLong)
     }
   }
 
@@ -170,7 +170,7 @@ class KindParseTest extends ParserTestBase {
     forAll(genKind) { k =>
       val size = Kind.allSuperKindsSize(k)
       if (size < (1 << 14))
-        assert(size == Kind.allSuperKinds(k).size.toLong)
+        assertEquals(size, Kind.allSuperKinds(k).size.toLong)
     }
   }
 
@@ -227,7 +227,7 @@ class KindParseTest extends ParserTestBase {
       val diags = Kind.diagonal(lst.to(LazyList)).toList
       val lenLst = lst.length
       val expectSize = lenLst * (lenLst + 1) / 2
-      assert(diags.length == expectSize)
+      assertEquals(diags.length, expectSize)
       // expensive version
       val lstIdx = lst.zipWithIndex
       val prod = for {
@@ -235,7 +235,7 @@ class KindParseTest extends ParserTestBase {
         (b, bidx) <- lstIdx
         if aidx + bidx < lenLst
       } yield (a, b)
-      assert(diags.sorted == prod.sorted)
+      assertEquals(diags.sorted, prod.sorted)
     }
   }
 
@@ -243,14 +243,14 @@ class KindParseTest extends ParserTestBase {
     forAll { (l1: List[Int], l2: List[Int]) =>
       val ll1 = l1.sorted.to(LazyList)
       val ll2 = l2.sorted.to(LazyList)
-      assert(Kind.sortMerge(ll1, ll2).toList == (l1 ::: l2).sorted)
+      assertEquals(Kind.sortMerge(ll1, ll2).toList, (l1 ::: l2).sorted)
     }
   }
 
   test("sortMerge is lazy and doesn't blow the stack") {
     val pairs = Kind.sortMerge(LazyList.from(0), LazyList.from(0))
     val idx = 1000000
-    assert(pairs.drop(idx).head == (idx / 2))
+    assertEquals(pairs.drop(idx).head, (idx / 2))
   }
 
   test("product sort test") {
@@ -288,7 +288,7 @@ class KindParseTest extends ParserTestBase {
     def check(str1: String, str2: String, matches: Boolean = true) =
       (Kind.parser.parseAll(str1), Kind.parser.parseAll(str2)) match {
         case (Right(k1), Right(k2)) =>
-          assert(Kind.leftSubsumesRight(k1, k2) == matches)
+          assertEquals(Kind.leftSubsumesRight(k1, k2), matches)
         case err => fail(err.toString)
       }
 
@@ -352,7 +352,7 @@ class KindParseTest extends ParserTestBase {
     val all = Kind.allKinds
 
     // if order gets too crazy we will blow up the memory
-    assert(all.take(10000).toSet.size == 10000)
+    assertEquals(all.take(10000).toSet.size, 10000)
 
     def check(k: Kind) = assert(all.indexOf(k) >= 0)
 
@@ -369,7 +369,7 @@ class KindParseTest extends ParserTestBase {
     forAll(genArg) { a =>
       Kind.paramKindParser.parseAll(Kind.argDoc(a).render(80)) match {
         case Right(a1) =>
-          assert(a1 == a)
+          assertEquals(a1, a)
         case err => fail(err.toString)
       }
     }
@@ -383,16 +383,16 @@ class KindParseTest extends ParserTestBase {
     forAll(genKind) { k =>
       Kind.kindToLong(k) match {
         case Some(idx) =>
-          assert(Kind.longToKind(idx) == Some(k))
+          assertEquals(Kind.longToKind(idx), Some(k))
         case None => ()
       }
     }
 
-    assert(Kind.kindToLong(Kind.Type) == Some(0L))
-    assert(Kind.kindToLong(Kind(Kind.Type.in)) == Some(11L))
-    assert(Kind.kindToLong(Kind(Kind.Type.co)) == Some(3L))
-    assert(Kind.kindToLong(Kind(Kind.Type.contra)) == Some(9L))
-    assert(Kind.kindToLong(Kind(Kind.Type.phantom)) == Some(1L))
+    assertEquals(Kind.kindToLong(Kind.Type), Some(0L))
+    assertEquals(Kind.kindToLong(Kind(Kind.Type.in)), Some(11L))
+    assertEquals(Kind.kindToLong(Kind(Kind.Type.co)), Some(3L))
+    assertEquals(Kind.kindToLong(Kind(Kind.Type.contra)), Some(9L))
+    assertEquals(Kind.kindToLong(Kind(Kind.Type.phantom)), Some(1L))
 
     // small kinds have small codes
     Kind.allKinds.take(21).foreach { k =>
@@ -410,10 +410,7 @@ class KindParseTest extends ParserTestBase {
       val res = Kind.uninterleave(l)
       val high = (res >>> 32).toInt
       val low = (res & 0xffffffffL).toInt
-      assert(
-        Kind.interleave(high, low) == l,
-        s"res = $res low = $low, high = $high"
-      )
+      assertEquals(Kind.interleave(high, low), l, s"res = $res low = $low, high = $high")
     }
 
     forAll { (low: Int, high: Int) =>
@@ -421,10 +418,7 @@ class KindParseTest extends ParserTestBase {
       val res = Kind.uninterleave(long)
       val high1 = (res >>> 32).toInt
       val low1 = (res & 0xffffffffL).toInt
-      assert(
-        (high, low) == (high1, low1),
-        s"interleave($low, $high) = $long uninterleave($long) = $res"
-      )
+      assertEquals((high, low), (high1, low1), s"interleave($low, $high) = $long uninterleave($long) = $res")
     }
   }
 }

@@ -26,7 +26,7 @@ class ShapeTest extends munit.FunSuite {
             case Right(k) => Shape.ShapeOf(k)
             case Left(e)  => fail(s"parse error: $e")
           }
-          assert(Shape.ShapeOf(dt) == shape, s"name: $n")
+          assertEquals(Shape.ShapeOf(dt), shape, s"name: $n")
         }
       case Left(errs) =>
         fail(errs.toString)

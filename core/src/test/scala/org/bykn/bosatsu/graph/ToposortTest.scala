@@ -22,13 +22,11 @@ class ToposortTest extends munit.ScalaCheckSuite {
 
       val res = Toposort.sort(items)(neighbor(_))
       assert(res.isSuccess)
-      assert(res.isFailure == res.loopNodes.nonEmpty)
-      assert(res.toSuccess == Some(res.layers))
-      assert(
-        res.layers == items.toVector
+      assertEquals(res.isFailure, res.loopNodes.nonEmpty)
+      assertEquals(res.toSuccess, Some(res.layers))
+      assertEquals(res.layers, items.toVector
           .sorted(using Order[A].toOrdering)
-          .map(NonEmptyList(_, Nil))
-      )
+          .map(NonEmptyList(_, Nil)))
       assert(res.layersAreTotalOrder)
     }
 
@@ -57,7 +55,7 @@ class ToposortTest extends munit.ScalaCheckSuite {
     }
 
   def layersAreSorted[A: Order](layers: Vector[NonEmptyList[A]]) =
-    layers.foreach(layer => assert(layer.sorted == layer))
+    layers.foreach(layer => assertEquals(layer.sorted, layer))
 
   test("we can sort general dags") {
     case class Dag(graph: Map[Int, List[Int]])
@@ -75,7 +73,7 @@ class ToposortTest extends munit.ScalaCheckSuite {
       val allNodes = graph.flatMap { case (h, t) => h :: t }.toSet
       val Toposort.Success(sorted) =
         Toposort.sort(allNodes)(graph.getOrElse(_, Nil)).runtimeChecked
-      assert(sorted.flatMap(_.toList).sorted == allNodes.toList.sorted)
+      assertEquals(sorted.flatMap(_.toList).toList.sorted, allNodes.toList.sorted)
       noEdgesToLater(sorted)(n => graph.getOrElse(n, Nil))
       layersAreSorted(sorted)
     }
@@ -96,34 +94,28 @@ class ToposortTest extends munit.ScalaCheckSuite {
       layersAreSorted(layers)
       // all the nodes is the same set:
       val goodNodes = layers.flatMap(_.toList)
-      assert(
-        (goodNodes.toList ::: res.loopNodes).sorted == allNodes.toList.sorted
-      )
+      assertEquals((goodNodes.toList ::: res.loopNodes).sorted, allNodes.toList.sorted)
       // good nodes are distinct
-      assert(goodNodes == goodNodes.distinct)
+      assertEquals(goodNodes, goodNodes.distinct)
       // loop nodes are distinct
-      assert(res.loopNodes == res.loopNodes.distinct)
+      assertEquals(res.loopNodes, res.loopNodes.distinct)
       // no nodes is good and bad
       assert((res.loopNodes.toSet & goodNodes.toSet).isEmpty)
       // loop nodes are sorted
-      assert(res.loopNodes.sorted == res.loopNodes)
-      assert(res.isFailure == res.loopNodes.nonEmpty)
-      assert(res.isSuccess == res.loopNodes.isEmpty)
-      assert(res.toSuccess == (if (res.isSuccess) Some(res.layers) else None))
+      assertEquals(res.loopNodes.sorted, res.loopNodes)
+      assertEquals(res.isFailure, res.loopNodes.nonEmpty)
+      assertEquals(res.isSuccess, res.loopNodes.isEmpty)
+      assertEquals(res.toSuccess, (if (res.isSuccess) Some(res.layers) else None))
     }
   }
 
   test("we return the least node with a loop") {
-    assert(
-      Toposort.sort(List(1, 2))(Function.const(List(1, 2))) == Toposort.Failure(
+    assertEquals(Toposort.sort(List(1, 2))(Function.const(List(1, 2))), Toposort.Failure(
         List(1, 2),
         Vector.empty
-      )
-    )
-    assert(
-      Toposort.sort(List("bb", "aa"))(
+      ))
+    assertEquals(Toposort.sort(List("bb", "aa"))(
         Function.const(List("aa", "bb"))
-      ) == Toposort.Failure(List("aa", "bb"), Vector.empty)
-    )
+      ), Toposort.Failure(List("aa", "bb"), Vector.empty))
   }
 }

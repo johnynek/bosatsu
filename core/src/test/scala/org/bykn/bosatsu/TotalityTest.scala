@@ -338,13 +338,13 @@ enum Either: Left(l), Right(r)
     val p0 :: p1 :: p1norm :: Nil =
       patterns("[[*_], [*_, _], [_, *_]]").runtimeChecked
     PredefTotalityCheck.intersection(p0, p1) match {
-      case List(intr) => assert(intr == p1norm)
+      case List(intr) => assertEquals(intr, p1norm)
       case other      => fail(s"expected exactly one intersection: $other")
     }
 
     val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]").runtimeChecked
     PredefTotalityCheck.intersection(p2, p3) match {
-      case List(intr) => assert(p3 == intr)
+      case List(intr) => assertEquals(p3, intr)
       case other      => fail(s"expected exactly one intersection: $other")
     }
 
@@ -364,10 +364,10 @@ enum Either: Left(l), Right(r)
 
       val strPat1 = p1.asInstanceOf[Pattern.StrPat]
       val seqPat = Cat(AnyElem, Empty)
-      assert(strPat1.toSeqPattern == seqPat)
+      assertEquals(strPat1.toSeqPattern, seqPat)
       assert(!strPat1.matches("baz"))
       assert(stringUnitMatcher(seqPat)("baz").isEmpty)
-      assert(stringUnit.uncons("baz") == Some(('b', "az")))
+      assertEquals(stringUnit.uncons("baz"), Some(('b'.toInt, "az")))
       assert(!stringUnit.isEmpty("az"))
     }
   }
@@ -603,7 +603,7 @@ enum Either: Left(l), Right(r)
       val List(p1, p2) = patterns(str).runtimeChecked
       val tc = PredefTotalityCheck
       val diff = tc.difference(p1, p2)
-      assert(diff == diff.distinct)
+      assertEquals(diff, diff.distinct)
     }
 
     check("""["${foo}$.{_}", "$.{bar}$.{_}$.{_}"]""")
@@ -618,7 +618,7 @@ enum Either: Left(l), Right(r)
         "${_}$.{_}${_}",
         ]""").runtimeChecked
 
-      assert(tc.intersection(p0, p1) == tc.intersection(p1, p0))
+      assertEquals(tc.intersection(p0, p1), tc.intersection(p1, p0))
     }
   }
 

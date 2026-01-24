@@ -12,7 +12,7 @@ class FreeVarTest extends munit.ScalaCheckSuite {
     Statement.parser.parseAll(stmt) match {
       case Right(t) =>
         val found = Statement.valuesOf(t).flatMap(_.freeVars).toList.sorted
-        assert(found == vars.sorted.map(Identifier.Name(_)))
+        assertEquals(found, vars.sorted.map(Identifier.Name(_)))
       case Left(errs) =>
         val idx = errs.failedAtOffset
         fail(s"failed to parse: $stmt: at $idx with errs: ${errs}")

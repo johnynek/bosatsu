@@ -60,17 +60,13 @@ main = 1
 
     valid(resolveThenInfer(List(p1)))
     valid(resolveThenInfer(List(p1, p2)).map { pmap =>
-      assert(
-        pmap.toMap(PackageName.parts("Foo2")).allImportPacks == List(
+      assertEquals(pmap.toMap(PackageName.parts("Foo2")).allImportPacks, List(
           PackageName.parts("Foo")
-        )
-      )
-      assert(
-        pmap
+        ))
+      assertEquals(pmap
           .toMap(PackageName.parts("Foo2"))
           .toIface
-          .visibleDepPackages == List(PackageName.PredefName)
-      )
+          .visibleDepPackages, List(PackageName.PredefName))
     })
     invalid(resolveThenInfer(List(p2, p3))) // loop here
 
@@ -120,17 +116,13 @@ data = NonEmpty(1, NonEmpty(2, Empty))
 main = head(data)
 """)
     valid(resolveThenInfer(List(p5, p6)).map { pmap =>
-      assert(
-        pmap.toMap(PackageName.parts("P6")).allImportPacks == List(
+      assertEquals(pmap.toMap(PackageName.parts("P6")).allImportPacks, List(
           PackageName.parts("P5")
-        )
-      )
-      assert(
-        pmap.toMap(PackageName.parts("P6")).toIface.visibleDepPackages == List(
+        ))
+      assertEquals(pmap.toMap(PackageName.parts("P6")).toIface.visibleDepPackages, List(
           PackageName.PredefName,
           PackageName.parts("P5")
-        )
-      )
+        ))
     })
 
     val p7 = parse("""

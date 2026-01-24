@@ -31,7 +31,7 @@ class TypedExprTest extends munit.ScalaCheckSuite {
   def normSame(s1: String, s2: String) =
     checkLast(s1) { t1 =>
       checkLast(s2) { t2 =>
-        assert(t1.void == t2.void)
+        assertEquals(t1.void, t2.void)
       }
     }
 
@@ -63,17 +63,17 @@ x = match B(100):
 x = 1
 def id(x): x
 y = id(x)
-""")(te => assert(TypedExpr.freeVars(te :: Nil) == Nil))
+""")(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
 
     checkLast("""#
 x = 1
-""")(te => assert(TypedExpr.freeVars(te :: Nil) == Nil))
+""")(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
 
     checkLast("""#
 struct Tup2(a, b)
 
 x = Tup2(1, 2)
-""")(te => assert(TypedExpr.freeVars(te :: Nil) == Nil))
+""")(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
 
     checkLast("""#
 struct Tup2(a, b)
@@ -82,7 +82,7 @@ x = 23
 x = Tup2(1, 2)
 y = match x:
   case Tup2(a, _): a
-""")(te => assert(TypedExpr.freeVars(te :: Nil) == Nil))
+""")(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
   }
 
   test("we can inline struct/destruct") {
@@ -94,7 +94,7 @@ x = Tup2(1, 2)
 y = match x:
   case Tup2(a, _): a
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -123,7 +123,7 @@ inner = (
     case Tup2(a, _): a
 )
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -138,7 +138,7 @@ inner = (
 
 y = inner
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -151,7 +151,7 @@ x = cons(1, 2)
 y = match x:
   case Tup2(a, _): a
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -166,7 +166,7 @@ y = match x:
     Tup2(a, _) = t
     a
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -178,7 +178,7 @@ x = Tup2(Tup2(1, 3), 2)
 y = match x:
   case Tup2(Tup2(a, _), _): a
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -190,7 +190,7 @@ x = Tup2(0, Tup2(1, 2))
 y = match x:
   case Tup2(_, Tup2(a, _)): a
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -203,7 +203,7 @@ y = match x:
   case Left(l): l
   case Right(r): r
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -221,7 +221,7 @@ inner = (
         case _: r
 )
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
 
@@ -232,7 +232,7 @@ y = match x:
   case 23 as y: y
   case _: -1
 """) {
-      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(23))
+      case TypedExpr.Literal(lit, _, _) => assertEquals(lit, Lit.fromInt(23))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
   }
@@ -417,41 +417,29 @@ foo = _ -> 1
     {
       // substitution in let
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
-      assert(
-        TypedExpr.substitute(Identifier.Name("x"), int(2), let1) ==
-          Some(let("y", int(2), varTE("y", intTpe)))
-      )
+      assertEquals(TypedExpr.substitute(Identifier.Name("x"), int(2), let1), Some(let("y", int(2), varTE("y", intTpe))))
     }
 
     {
       // substitution in let with a masking
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
-      assert(
-        TypedExpr
+      assertEquals(TypedExpr
           .substitute(Identifier.Name("x"), varTE("y", intTpe), let1)
-          .map(_.reprString) ==
-          Some(
+          .map(_.reprString), Some(
             "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
-          )
-      )
+          ))
     }
 
     {
       // substitution in let with a shadowing in result
       val let1 = let("y", varTE("y", intTpe), varTE("y", intTpe))
-      assert(
-        TypedExpr.substitute(Identifier.Name("y"), int(42), let1) ==
-          Some(let("y", int(42), varTE("y", intTpe)))
-      )
+      assertEquals(TypedExpr.substitute(Identifier.Name("y"), int(42), let1), Some(let("y", int(42), varTE("y", intTpe))))
     }
 
     {
       // substitution in letrec with a shadowing in bind and result
       val let1 = letrec("y", varTE("y", intTpe), varTE("y", intTpe))
-      assert(
-        TypedExpr.substitute(Identifier.Name("y"), int(42), let1) ==
-          Some(let1)
-      )
+      assertEquals(TypedExpr.substitute(Identifier.Name("y"), int(42), let1), Some(let1))
     }
   }
 
@@ -501,19 +489,16 @@ foo = _ -> 1
           // te1 has no free variables, this shouldn't fail
           assert(false)
 
-        case Some(te0sub) => assert(te0sub == te0)
+        case Some(te0sub) => assertEquals(te0sub, te0)
       }
     }
   }
 
   test("let x = y in x == y") {
     // inline lets of vars
-    assert(
-      TypedExprNormalization.normalize(
+    assertEquals(TypedExprNormalization.normalize(
         let("x", varTE("y", intTpe), varTE("x", intTpe))
-      ) ==
-        Some(varTE("y", intTpe))
-    )
+      ), Some(varTE("y", intTpe)))
   }
 
   test("we can normalize addition") {
@@ -523,9 +508,7 @@ foo = _ -> 1
       Type.IntType,
       ()
     )
-    assert(
-      TypedExprNormalization.normalize(three) == Some(int(3))
-    )
+    assertEquals(TypedExprNormalization.normalize(three), Some(int(3)))
   }
 
   test("we can normalize multiplication") {
@@ -535,9 +518,7 @@ foo = _ -> 1
       Type.IntType,
       ()
     )
-    assert(
-      TypedExprNormalization.normalize(six) == Some(int(6))
-    )
+    assertEquals(TypedExprNormalization.normalize(six), Some(int(6)))
 
     val zeroR = TypedExpr.App(
       PredefTimes,
@@ -545,9 +526,7 @@ foo = _ -> 1
       Type.IntType,
       ()
     )
-    assert(
-      TypedExprNormalization.normalize(zeroR) == Some(int(0))
-    )
+    assertEquals(TypedExprNormalization.normalize(zeroR), Some(int(0)))
 
     val zeroL = TypedExpr.App(
       PredefTimes,
@@ -555,9 +534,7 @@ foo = _ -> 1
       Type.IntType,
       ()
     )
-    assert(
-      TypedExprNormalization.normalize(zeroL) == Some(int(0))
-    )
+    assertEquals(TypedExprNormalization.normalize(zeroL), Some(int(0)))
   }
 
   val normalLet =
@@ -581,7 +558,7 @@ foo = _ -> 1
     // y = z(43)
     // x(y, y)
     val normed = TypedExprNormalization.normalize(normalLet)
-    assert(normed.map(_.repr.render(80)) == Some("""(let
+    assertEquals(normed.map(_.repr.render(80)), Some("""(let
     y0
     (ap
         (var z Bosatsu/Predef::Int)
@@ -597,13 +574,11 @@ foo = _ -> 1
   }
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
-    assert(
-      TypedExprNormalization
+    assertEquals(TypedExprNormalization
         .normalize(
           app(normalLet, varTE("w", intTpe), intTpe)
         )
-        .map(_.reprString) ==
-        Some(
+        .map(_.reprString), Some(
           let(
             "y0",
             app(varTE("z", intTpe), int(43), intTpe),
@@ -617,8 +592,7 @@ foo = _ -> 1
               intTpe
             )
           ).reprString
-        )
-    )
+        ))
 
   }
 
@@ -626,7 +600,7 @@ foo = _ -> 1
     val f = varTE("f", Type.Fun(intTpe, intTpe))
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
 
-    assert(TypedExprNormalization.normalize(left) == Some(f))
+    assertEquals(TypedExprNormalization.normalize(left), Some(f))
 
     checkLast("""
 struct Foo(a)
@@ -637,7 +611,7 @@ g = a -> x(a)
 struct Foo(a)
 x = Foo
       """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assertEquals(te1.void, te2.void, s"${te1.repr} != ${te2.repr}")
       }
     }
 
@@ -663,7 +637,7 @@ x = Foo
     val right = app(app(f, y, int2int), z, intTpe)
     val res = TypedExprNormalization.normalize(left)
 
-    assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
+    assertEquals(res, Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
 
     checkLast("""
 res = (
@@ -675,10 +649,7 @@ res = (
       checkLast("""
 res = _ -> 1
       """) { te2 =>
-        assert(
-          te1.void == te2.void,
-          s"${te1.repr.render(80)} != ${te2.repr.render(80)}"
-        )
+        assertEquals(te1.void, te2.void, s"${te1.repr.render(80)} != ${te2.repr.render(80)}")
       }
     }
 
@@ -690,7 +661,7 @@ res = y -> (x -> f(x, z))(y)
       checkLast("""
 res = _ -> 1
       """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assertEquals(te1.void, te2.void, s"${te1.repr} != ${te2.repr}")
       }
     }
   }
@@ -716,7 +687,7 @@ res = (
    Tup(x, x)
 )
       """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assertEquals(te1.void, te2.void, s"${te1.repr} != ${te2.repr}")
       }
     }
   }
@@ -740,7 +711,7 @@ enum FooBar: Foo, Bar
 
 fn = (x: FooBar) -> x
     """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assertEquals(te1.void, te2.void, s"${te1.repr} != ${te2.repr}")
       }
     }
   }
@@ -760,7 +731,7 @@ enum FooBar: Foo, Bar
 
 x = Foo
     """) { te2 =>
-        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+        assertEquals(te1.void, te2.void, s"${te1.repr} != ${te2.repr}")
       }
     }
   }
@@ -782,7 +753,7 @@ x = Foo
       val identMap: Map[Type.Var, Type] = bounds.map { b =>
         (b, Type.TyVar(b))
       }.toMap
-      assert(TypedExpr.substituteTypeVar(te, identMap) == te)
+      assertEquals(TypedExpr.substituteTypeVar(te, identMap), te)
     }
   }
 
@@ -800,7 +771,7 @@ x = Foo
           .toMap
       val te1 = TypedExpr.substituteTypeVar(te, identMap)
       val te2 = TypedExpr.substituteTypeVar(te1, identMap)
-      assert(te2 == te1)
+      assertEquals(te2, te1)
     }
   }
 
@@ -875,19 +846,19 @@ x = Foo
   test("test match removed from some examples") {
     checkLast("""
 x = _ -> 1
-""")(te => assert(countMatch(te) == 0))
+""")(te => assertEquals(countMatch(te), 0))
 
     checkLast("""
 x = 10
 y = match x:
   case z: z
-""")(te => assert(countMatch(te) == 0))
+""")(te => assertEquals(countMatch(te), 0))
 
     checkLast("""
 x = 10
 y = match x:
   case _: 20
-""")(te => assert(countMatch(te) == 0))
+""")(te => assertEquals(countMatch(te), 0))
   }
 
   test("test let removed from some examples") {
@@ -896,7 +867,7 @@ y = match x:
 x = 10
 y = match x:
   case _: 20
-""")(te => assert(countLet(te) == 0))
+""")(te => assertEquals(countLet(te), 0))
 
     checkLast("""
 foo = (
@@ -904,7 +875,7 @@ foo = (
   _ = x
   42
 )
-""")(te => assert(countLet(te) == 0))
+""")(te => assertEquals(countLet(te), 0))
   }
 
   test("test normalization let shadowing bug in lambda") {
@@ -940,10 +911,7 @@ x = (
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
-        assert(
-          te1.void == te2.void,
-          s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}"
-        )
+        assertEquals(te1.void, te2.void, s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}")
       }
     }
   }
@@ -967,7 +935,7 @@ x = (
         } yield ()
       }
 
-      assert(viaFold == viaTraverse.runS(init).value, s"${te.repr}")
+      assertEquals(viaFold, viaTraverse.runS(init).value, s"${te.repr}")
     }
 
     def lawR[A, B](te: TypedExpr[B], a: A)(fn: (B, A) => A) = {
@@ -983,7 +951,7 @@ x = (
         } yield ()
       }
 
-      assert(viaFold == viaTraverse.runS(a).value, s"${te.repr}")
+      assertEquals(viaFold, viaTraverse.runS(a).value, s"${te.repr}")
     }
 
     forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, init) =>
@@ -1007,7 +975,7 @@ x = (
         }
         .void
 
-      assert(viaFold == viaTraverse.getConst, s"${te.repr}")
+      assertEquals(viaFold, viaTraverse.getConst, s"${te.repr}")
     }
 
     val propInt = forAll(genTypedExprChar, arbitrary[Char => Int])(law(_)(_))
@@ -1022,18 +990,15 @@ x = (
         "b"
       )
 
-    assert(lamconst.foldMap(identity) == "ab")
-    assert(lamconst.traverse(a => Const[String, Unit](a)).getConst == "ab")
+    assertEquals(lamconst.foldMap(identity), "ab")
+    assertEquals(lamconst.traverse(a => Const[String, Unit](a)).getConst, "ab")
     org.scalacheck.Prop.all(propInt, propString)
   }
 
   test("TypedExpr.traverse.void matches traverse_") {
     import cats.data.Const
     forAll(genTypedExprInt, arbitrary[Int => String]) { (te, fn) =>
-      assert(
-        te.traverse(i => Const[String, Unit](fn(i))).void ==
-          te.traverse_(i => Const[String, Unit](fn(i)))
-      )
+      assertEquals(te.traverse(i => Const[String, Unit](fn(i))).void, te.traverse_(i => Const[String, Unit](fn(i))))
     }
   }
 
@@ -1042,7 +1007,7 @@ x = (
       val right =
         te.foldRight(cats.Eval.now(init))((i, ej) => ej.map(_ + i)).value
       val left = te.foldLeft(init)(_ + _)
-      assert(right == left)
+      assertEquals(right, left)
     }
   }
 
@@ -1054,13 +1019,13 @@ x = (
         }
         .value
       val left = te.foldLeft("")((i, j) => i + j.toString)
-      assert(right == left)
+      assertEquals(right, left)
     }
   }
 
   test("TypedExpr.map matches traverse with Id") {
     forAll(genTypedExprInt, arbitrary[Int => Int]) { (te, fn) =>
-      assert(te.map(fn) == te.traverse[cats.Id, Int](fn))
+      assertEquals(te.map(fn), te.traverse[cats.Id, Int](fn))
     }
   }
 
@@ -1091,7 +1056,7 @@ x = (
         }
       }
       val allRhos = tes.forall(_.getType.isInstanceOf[Type.Rho])
-      assert(allRhos == optQuant.isEmpty)
+      assertEquals(allRhos, optQuant.isEmpty)
     }
   }
 }

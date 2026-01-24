@@ -47,17 +47,14 @@ class KindFormulaTest extends munit.FunSuite {
             case Left(e)  => fail(s"parse error: $e")
           }
           val leftK = dt.get.kindOf
-          assert(
-            leftK == kind,
-            s"for name: $n, ${Kind.toDoc(leftK).render(80)} != ${Kind.toDoc(kind).render(80)}"
-          )
+          assertEquals(leftK, kind, s"for name: $n, ${Kind.toDoc(leftK).render(80)} != ${Kind.toDoc(kind).render(80)}")
         }
       case Left(errs) =>
         fail(errs.toString)
     }
 
   def testIllKinded(teStr: String) =
-    assert(makeTE(teStr).left.map(_ => ()) == Left(()))
+    assertEquals(makeTE(teStr).left.map(_ => ()), Left(()))
 
   def allowed(teStr: String) = testKind(teStr, Map.empty)
   def disallowed(teStr: String) = testIllKinded(teStr)

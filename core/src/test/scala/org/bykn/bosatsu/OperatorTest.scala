@@ -42,11 +42,9 @@ class OperatorTest extends ParserTestBase {
     }
 
   def parseSame(left: String, right: String) =
-    assert(
-      Parser.unsafeParse(formP, left).toFormula == Parser
+    assertEquals(Parser.unsafeParse(formP, left).toFormula, Parser
         .unsafeParse(formP, right)
-        .toFormula
-    )
+        .toFormula)
 
   test("we can parse integer formulas") {
     parseSame("1+2", "1 + 2")

@@ -21,27 +21,25 @@ class VarianceTest extends munit.ScalaCheckSuite {
 
   test("variance is commutative") {
     forAll { (v1: Variance, v2: Variance) =>
-      assert(V.combine(v1, v2) == V.combine(v2, v1))
+      assertEquals(V.combine(v1, v2), V.combine(v2, v1))
     }
   }
 
   test("variance combine is associative") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
-      assert(
-        V.combine(v1, V.combine(v2, v3)) == V.combine(V.combine(v1, v2), v3)
-      )
+      assertEquals(V.combine(v1, V.combine(v2, v3)), V.combine(V.combine(v1, v2), v3))
     }
   }
 
   test("variance * is associative") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
-      assert(((v1 * v2) * v3) == (v1 * (v2 * v3)))
+      assertEquals(((v1 * v2) * v3), (v1 * (v2 * v3)))
     }
   }
 
   test("combine matches combineAll") {
     forAll { (vs: List[Variance]) =>
-      assert(V.combineAllOption(vs) == vs.reduceOption(_ + _))
+      assertEquals(V.combineAllOption(vs), vs.reduceOption(_ + _))
     }
   }
 
@@ -49,7 +47,7 @@ class VarianceTest extends munit.ScalaCheckSuite {
     val prop = forAll { (v1: Variance, v2: Variance, v3: Variance) =>
       val left = v1 * (v2 + v3)
       val right = (v1 * v2) + (v1 * v3)
-      assert(left == right, s"$left != $right")
+      assertEquals(left, right, s"$left != $right")
     }
 
     // previous failures:
@@ -60,67 +58,65 @@ class VarianceTest extends munit.ScalaCheckSuite {
 
       val left = v1 * (v2 + v3)
       val right = (v1 * v2) + (v1 * v3)
-      assert(left == right, s"$left != $right")
+      assertEquals(left, right, s"$left != $right")
     }
     prop
   }
 
   test("negate is the same as muliplying by contra") {
     forAll { (v1: Variance) =>
-      assert(-v1 == (Variance.contra * v1))
+      assertEquals(-v1, (Variance.contra * v1))
     }
   }
 
   test("double negation is identity") {
     forAll { (v1: Variance) =>
-      assert(-(-v1) == v1)
+      assertEquals(-(-v1), v1)
     }
   }
 
   test("times is commutative") {
     forAll { (v1: Variance, v2: Variance) =>
-      assert((v1 * v2) == (v2 * v1))
+      assertEquals((v1 * v2), (v2 * v1))
     }
   }
 
   test("variance is idempotent") {
     forAll { (v1: Variance) =>
-      assert(V.combine(v1, v1) == v1)
+      assertEquals(V.combine(v1, v1), v1)
     }
   }
 
   test("phantom is bottom") {
-    assert(V.empty == Variance.Phantom)
+    assertEquals(V.empty, Variance.Phantom)
     forAll { (v1: Variance) =>
-      assert(V.combine(V.empty, v1) == v1)
-      assert(V.combine(v1, V.empty) == v1)
+      assertEquals(V.combine(V.empty, v1), v1)
+      assertEquals(V.combine(v1, V.empty), v1)
     }
   }
 
   test("invariant is top") {
     forAll { (v1: Variance) =>
-      assert(V.combine(Variance.Invariant, v1) == Variance.Invariant)
-      assert(V.combine(v1, Variance.Invariant) == Variance.Invariant)
+      assertEquals(V.combine(Variance.Invariant, v1), Variance.Invariant)
+      assertEquals(V.combine(v1, Variance.Invariant), Variance.Invariant)
     }
   }
 
   test("negate combine gives either Phantom or Invariant") {
     forAll { (v1: Variance) =>
-      if (v1 == Variance.Phantom) assert(-v1 == v1)
+      if (v1 == Variance.Phantom) assertEquals(-v1, v1)
       else {
-        assert(V.combine(-v1, v1) == Variance.Invariant)
-        assert(V.combine(v1, -v1) == Variance.Invariant)
+        assertEquals(V.combine(-v1, v1), Variance.Invariant)
+        assertEquals(V.combine(v1, -v1), Variance.Invariant)
       }
     }
   }
 
   test("covariant combines to get either covariant or invariant") {
-    assert(
-      V.combine(
+    assertEquals(V.combine(
         Variance.Covariant,
         Variance.Contravariant
-      ) == Variance.Invariant
-    )
+      ), Variance.Invariant)
     val results = Set(Variance.co, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Covariant)))
@@ -128,12 +124,10 @@ class VarianceTest extends munit.ScalaCheckSuite {
   }
 
   test("contravariant combines to get either contravariant or invariant") {
-    assert(
-      V.combine(
+    assertEquals(V.combine(
         Variance.Covariant,
         Variance.Contravariant
-      ) == Variance.Invariant
-    )
+      ), Variance.Invariant)
     val results = Set(Variance.contra, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Contravariant)))

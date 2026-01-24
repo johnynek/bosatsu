@@ -24,7 +24,7 @@ class ListUtilTest extends munit.ScalaCheckSuite {
   test("unit group has 1 item") {
     forAll { (nel: NonEmptyList[Int]) =>
       val unit = ListUtil.greedyGroup(nel)(_ => ())((_, _) => Some(()))
-      assert(unit == NonEmptyList.one(()))
+      assertEquals(unit, NonEmptyList.one(()))
     }
   }
 
@@ -58,14 +58,14 @@ class ListUtilTest extends munit.ScalaCheckSuite {
   test("if we always accept there is one group") {
     forAll { (nel: NonEmptyList[Int], one: Int => Int) =>
       val groups = ListUtil.greedyGroup(nel)(one)((x, y) => Some(x + y))
-      assert(groups.length == 1)
+      assertEquals(groups.length, 1)
     }
   }
 
   test("if we never accept there are as many groups as came in") {
     forAll { (nel: NonEmptyList[Int], one: Int => Int) =>
       val groups = ListUtil.greedyGroup(nel)(one)((_, _) => None)
-      assert(groups.length == nel.length)
+      assertEquals(groups.length, nel.length)
     }
   }
 
@@ -96,7 +96,7 @@ class ListUtilTest extends munit.ScalaCheckSuite {
       val asList = nel.toList.distinct
       val viaFn = ListUtil.distinctByHashSet(nel).toList
 
-      assert(viaFn == asList)
+      assertEquals(viaFn, asList)
     }
   }
 }

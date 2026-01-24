@@ -47,11 +47,8 @@ abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
         lazy val message = firstDiff(t.toString, expected.toString)
-        assert(
-          t == expected,
-          s"difference: $message, input syntax:\n\n\n$str\n\n"
-        )
-        assert(idx == exidx)
+        assertEquals(t, expected, s"difference: $message, input syntax:\n\n\n$str\n\n")
+        assertEquals(idx, exidx)
       case Left(err) =>
         val idx = err.failedAtOffset
         fail(
@@ -67,12 +64,12 @@ abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
         if (!lax) {
-          assert(idx == str.length, s"parsed: $t from: $str")
+          assertEquals(idx, str.length, s"parsed: $t from: $str")
         }
         val tstr = Document[T].document(t).render(80)
         p.parse(tstr) match {
           case Right((_, t1)) =>
-            assert(t1 == t)
+            assertEquals(t1, t)
           case Left(err) =>
             val idx = err.failedAtOffset
             val diff = firstDiff(str, tstr)
@@ -91,9 +88,9 @@ abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
-        assert(idx == str.length, s"parsed: $t from: $str")
+        assertEquals(idx, str.length, s"parsed: $t from: $str")
         val tstr = Document[T].document(t).render(80)
-        assert(tstr == str)
+        assertEquals(tstr, str)
       case Left(err) =>
         val idx = err.failedAtOffset
         fail(
@@ -115,7 +112,7 @@ abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
         val idx = err.failedAtOffset
         def msg =
           s"failed to parse: $str: at $idx in region ${region(str, idx)} with err: ${err}"
-        assert(idx == atIdx, msg)
+        assertEquals(idx, atIdx, msg)
     }
 
   protected def minSuccessfulTests: Int =
@@ -165,7 +162,7 @@ class ParserTest extends ParserTestBase {
       val str1 = Parser.escape(c, str)
       try {
         Parser.unescape(str1) match {
-          case Right(str2) => assert(str2 == str)
+          case Right(str2) => assertEquals(str2, str)
           case Left(idx)   =>
             fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
         }
@@ -175,8 +172,8 @@ class ParserTest extends ParserTestBase {
       }
     }
 
-    assert(Parser.escape('"', "\t") == "\\t")
-    assert(Parser.escape('"', "\n") == "\\n")
+    assertEquals(Parser.escape('"', "\t"), "\\t")
+    assertEquals(Parser.escape('"', "\n"), "\\n")
 
     // unescape never throws:
     assert(Parser.unescape("\\x0").isLeft)
@@ -195,7 +192,7 @@ class ParserTest extends ParserTestBase {
       }
     }
 
-    assert(Parser.unescape("\\u0020") == Right(" "))
+    assertEquals(Parser.unescape("\\u0020"), Right(" "))
     org.scalacheck.Prop.all(propRoundTrip, propUnescape, propPrefixes)
   }
 
@@ -278,12 +275,9 @@ class ParserTest extends ParserTestBase {
       val hex = cps.map(_.toHexString)
 
       val parsed = p.parseAll(str)
-      assert(parsed == Right(str))
+      assertEquals(parsed, Right(str))
 
-      assert(
-        parsed.map(StringUtil.codePoints) == Right(cps),
-        s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}"
-      )
+      assertEquals(parsed.map(StringUtil.codePoints), Right(cps), s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
     }
   }
 
@@ -302,7 +296,7 @@ class ParserTest extends ParserTestBase {
       if (str.nonEmpty) {
         val synth = Identifier.synthetic(str)
         val parsed = Identifier.bindableWithSynthetic.parseAll(synth.asString)
-        assert(parsed == Right(synth))
+        assertEquals(parsed, Right(synth))
       }
     }
   }
@@ -312,7 +306,7 @@ class ParserTest extends ParserTestBase {
       val i1 = Identifier.appendToName(b, str)
 
       val src = i1.sourceCodeRepr
-      assert(Identifier.unsafe(src).sourceCodeRepr == src)
+      assertEquals(Identifier.unsafe(src).sourceCodeRepr, src)
     }
   }
 
@@ -990,7 +984,7 @@ x"""
           // if we convert to string this parses the same as a pattern:
           val decStr = dec.toDoc.render(80)
           val parsePat = unsafeParse(Pattern.bindParser, decStr)
-          assert(pat == parsePat)
+          assertEquals(pat, parsePat)
       }
     val propLikePatterns = forAll(Generators.patternDecl(4))(law1(_))
 
@@ -1021,7 +1015,7 @@ x"""
       val parsePat = optionParse(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
         case (None, None)         => ()
-        case (Some(p0), Some(p1)) => assert(p0 == p1)
+        case (Some(p0), Some(p1)) => assertEquals(p0, p1)
         case (None, Some(_))      =>
           fail(s"toPattern failed, but parsed $decStr to: $parsePat")
         case (Some(p), None) =>
@@ -1038,7 +1032,7 @@ x"""
         .asInstanceOf[Declaration.NonBinding]
       val patt = unsafeParse(Pattern.matchParser, decl)
       Declaration.toPattern(dec) match {
-        case Some(p2) => assert(p2 == patt)
+        case Some(p2) => assertEquals(p2, patt)
         case None     => fail(s"could not convert $decl to pattern")
       }
     }
@@ -1980,8 +1974,8 @@ x = z ->
     forAll(gen) { case Args(bi, inBase, base) =>
       Parser.integerWithBase.parseAll(inBase) match {
         case Right((biP, b)) =>
-          assert(biP == bi)
-          assert(b == base)
+          assertEquals(biP, bi)
+          assertEquals(b, base)
         case Left(err) => fail(err.toString)
       }
     }

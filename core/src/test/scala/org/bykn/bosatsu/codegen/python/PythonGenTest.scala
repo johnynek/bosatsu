@@ -26,7 +26,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     val extstr = """
       { IO: { foo: bar.baz, quux: quux.quux_impl }, Bop: { foo: collections.queue } }
     """
-    assert(PythonGen.externalParser.parseAll(extstr).map(_ => ()) == Right(()))
+    assertEquals(PythonGen.externalParser.parseAll(extstr).map(_ => ()), Right(()))
   }
 
   test("we can parse an example evals file") {
@@ -36,6 +36,6 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         Build/Foo::Bar: BuildImpl.run_build,
       }
     """
-    assert(PythonGen.evaluatorParser.parseAll(str).map(_ => ()) == Right(()))
+    assertEquals(PythonGen.evaluatorParser.parseAll(str).map(_ => ()), Right(()))
   }
 }

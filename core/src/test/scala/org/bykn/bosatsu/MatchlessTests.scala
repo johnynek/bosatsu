@@ -52,7 +52,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         // ill-formed inputs can fail
         Try(Matchless.fromLet((), b, r, t)(fn)).toOption
 
-      assert(run() == run())
+      assertEquals(run(), run())
     }
   }
 
@@ -82,7 +82,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
       val p0 = ne2.map(_.toList.reduce(_ + _)).toList.reduce(_ * _)
 
-      assert(p1 == p0)
+      assertEquals(p1, p0)
     }
   }
 
@@ -95,11 +95,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
       if (fn(stopped.last)) {
         // none of the items before the last are true:
-        assert(stopped.init.exists(fn) == false)
+        assertEquals(stopped.init.exists(fn), false)
       } else {
         // none of them were true
-        assert(stopped == nel)
-        assert(nel.exists(fn) == false)
+        assertEquals(stopped, nel)
+        assertEquals(nel.exists(fn), false)
       }
     }
   }
@@ -145,7 +145,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         }
       )
 
-      assert(matchlessRes == matchRes)
+      assertEquals(matchlessRes, matchRes)
     }
   }
 
@@ -164,7 +164,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
               Matchless.If(ifs.head._1, ifs.head._2, end)
           }
 
-        assert(unflatten(chain, rest) == ifexpr)
+        assertEquals(unflatten(chain, rest), ifexpr)
       case _ => ()
     }
   }
@@ -176,7 +176,7 @@ x = 1
       val map = binds(TestUtils.testPackage).toMap
 
       assert(map.contains(Identifier.Name("x")))
-      assert(map(Identifier.Name("x")) == Matchless.Literal(Lit(1)))
+      assertEquals(map(Identifier.Name("x")), Matchless.Literal(Lit(1)))
     }
   }
 }

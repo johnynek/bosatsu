@@ -57,10 +57,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     tup.getArray()(0) match {
       case x if x == zero =>
         // True == one in our encoding
-        assert(
-          tup.getArray()(1) == one,
-          prefix + "/" + tup.getArray()(2).toString
-        )
+        assertEquals(tup.getArray()(1), one, prefix + "/" + tup.getArray()(2).toString)
         ()
       case x if x == one =>
         val suite = tup.getArray()(1).toString
@@ -116,9 +113,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         val arg = new PyInteger(i)
         val res = fn.__call__(arg)
         if (i <= 0) {
-          assert(res == new PyInteger(0))
+          assertEquals(res, new PyInteger(0))
         } else {
-          assert(fn.__call__(arg) == arg)
+          assertEquals(fn.__call__(arg), arg)
         }
       }
     }
@@ -131,7 +128,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
       forAll(Gen.choose(0, 100), Gen.choose(0, 100)) { (i1, i2) =>
         val m1 = fn.__call__(new PyInteger(i1), new PyInteger(i2))
-        assert(m1 == new PyInteger(i1 * i2))
+        assertEquals(m1, new PyInteger(i1 * i2))
       }
     }
   }

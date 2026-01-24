@@ -28,47 +28,31 @@ class IntLaws extends munit.ScalaCheckSuite {
       .map(BigInteger.valueOf(_))
 
   test("match python on some examples") {
-    assert(
-      BigInteger.valueOf(4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+    assertEquals(BigInteger.valueOf(4L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
         -2L
-      )
-    )
+      ))
 
-    assert(
-      BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L) == BigInteger.valueOf(
+    assertEquals(BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L), BigInteger.valueOf(
         0L
-      )
-    )
-    assert(
-      BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L) == BigInteger.valueOf(
+      ))
+    assertEquals(BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L), BigInteger.valueOf(
         4L
-      )
-    )
+      ))
 
-    assert(
-      BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+    assertEquals(BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
         -1L
-      )
-    )
-    assert(
-      BigInteger.valueOf(13L) % BigInteger.valueOf(3L) == BigInteger.valueOf(1L)
-    )
-    assert(
-      BigInteger.valueOf(-113L) / BigInteger.valueOf(16L) == BigInteger.valueOf(
+      ))
+    assertEquals(BigInteger.valueOf(13L) % BigInteger.valueOf(3L), BigInteger.valueOf(1L))
+    assertEquals(BigInteger.valueOf(-113L) / BigInteger.valueOf(16L), BigInteger.valueOf(
         -8L
-      )
-    )
+      ))
 
-    assert(
-      BigInteger.valueOf(54L) % BigInteger.valueOf(-3L) == BigInteger.valueOf(
+    assertEquals(BigInteger.valueOf(54L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
         0L
-      )
-    )
-    assert(
-      BigInteger.valueOf(54L) / BigInteger.valueOf(-3L) == BigInteger.valueOf(
+      ))
+    assertEquals(BigInteger.valueOf(54L) / BigInteger.valueOf(-3L), BigInteger.valueOf(
         -18L
-      )
-    )
+      ))
   }
 
   test("a = (a / b) * b + (a % b)") {
@@ -76,7 +60,7 @@ class IntLaws extends munit.ScalaCheckSuite {
       val div = a / b
       val mod = a % b
       val a1 = (div * b) + mod
-      assert(a1 == a, s"div = $div, mod = $mod")
+      assertEquals(a1, a, s"div = $div, mod = $mod")
     }
   }
 
@@ -102,7 +86,7 @@ class IntLaws extends munit.ScalaCheckSuite {
 
   test("(a - (a % b)) % b == 0") {
     forAll(genBI, genBI) { (a, b) =>
-      assert((a - (a % b)) % b == BigInteger.ZERO)
+      assertEquals((a - (a % b)) % b, BigInteger.ZERO)
     }
   }
 
@@ -111,7 +95,7 @@ class IntLaws extends munit.ScalaCheckSuite {
       // make something with the same mod as a
       val c = a + (c0 * b)
 
-      assert((a * k) % b == (c * k) % b)
+      assertEquals((a * k) % b, (c * k) % b)
     }
   }
 
@@ -120,7 +104,7 @@ class IntLaws extends munit.ScalaCheckSuite {
       // make something with the same mod as a
       val c = a + (c0 * b)
 
-      assert((a + k) % b == (c + k) % b)
+      assertEquals((a + k) % b, (c + k) % b)
     }
   }
 
@@ -147,7 +131,7 @@ class IntLaws extends munit.ScalaCheckSuite {
 
   test("(-a) / (-b) == a / b") {
     forAll(genBI, genBI) { (a, b) =>
-      assert((a.negate) / (b.negate) == a / b)
+      assertEquals((a.negate) / (b.negate), a / b)
     }
   }
 
@@ -155,7 +139,7 @@ class IntLaws extends munit.ScalaCheckSuite {
     forAll(genBI, genBI) { (a, b) =>
       val mod = a % b
       if ((b != BigInteger.ZERO) && (mod != BigInteger.ZERO)) {
-        assert(mod.signum == b.signum)
+        assertEquals(mod.signum, b.signum)
       }
     }
   }
@@ -164,19 +148,19 @@ class IntLaws extends munit.ScalaCheckSuite {
     forAll(genBI, genBI) { (a, b) =>
       val mod = a % b
       if (mod == BigInteger.ZERO) {
-        assert((a / b) * b == a)
+        assertEquals((a / b) * b, a)
       }
     }
   }
 
   test("a.mod(0) == a") {
     forAll(genBI) { a =>
-      assert(a % BigInteger.ZERO == a)
+      assertEquals(a % BigInteger.ZERO, a)
     }
   }
   test("a / 0 == 0") {
     forAll(genBI) { a =>
-      assert(a / BigInteger.ZERO == BigInteger.ZERO)
+      assertEquals(a / BigInteger.ZERO, BigInteger.ZERO)
     }
   }
 
@@ -189,7 +173,7 @@ class IntLaws extends munit.ScalaCheckSuite {
           gcd(b, a % b)
         }
 
-      assert(gcd(a, b) == PredefImpl.gcdBigInteger(a, b))
+      assertEquals(gcd(a, b), PredefImpl.gcdBigInteger(a, b))
     }
   }
 }

@@ -13,21 +13,21 @@ class ValueTest extends munit.ScalaCheckSuite {
 
   test("SumValue.toString is what we expect") {
     forAll(Gen.choose(0, 1024), GenValue.genProd) { (i, p) =>
-      assert(SumValue(i, p).toString == s"SumValue($i, $p)")
+      assertEquals(SumValue(i, p).toString, s"SumValue($i, $p)")
     }
   }
 
   test("Value.equals is false if the class isn't right") {
     forAll(genValue, genValue) { (v1, v2) =>
       if (v1.getClass != v2.getClass) assert(v1 != v2)
-      else if (v1 == v2) assert(v1.getClass == v2.getClass)
+      else if (v1 == v2) assertEquals(v1.getClass, v2.getClass)
     }
   }
 
   test("VOption works") {
     val propSome = forAll(genValue) { v =>
       VOption.some(v) match {
-        case VOption(Some(v1)) => assert(v1 == v)
+        case VOption(Some(v1)) => assertEquals(v1, v)
         case other             => fail(s"expected Some($v) got $other")
       }
     }
@@ -36,20 +36,20 @@ class ValueTest extends munit.ScalaCheckSuite {
       VOption.unapply(v) match {
         case None       => ()
         case Some(None) =>
-          assert(v == VOption.none)
+          assertEquals(v, VOption.none)
         case Some(Some(v1)) =>
-          assert(v == VOption.some(v1))
+          assertEquals(v, VOption.some(v1))
       }
     }
 
-    assert(VOption.unapply(VOption.none) == Some(None))
+    assertEquals(VOption.unapply(VOption.none), Some(None))
     org.scalacheck.Prop.all(propSome, propUnapply)
   }
 
   test("VList works") {
     val propList = forAll(Gen.listOf(genValue)) { vs =>
       VList(vs) match {
-        case VList(vs1) => assert(vs1 == vs)
+        case VList(vs1) => assertEquals(vs1, vs)
         case other      => fail(s"expected VList($vs) got $other")
       }
     }
@@ -58,13 +58,13 @@ class ValueTest extends munit.ScalaCheckSuite {
       VList.unapply(v) match {
         case None      => ()
         case Some(Nil) =>
-          assert(v == VList.VNil)
+          assertEquals(v, VList.VNil)
         case Some(v1) =>
-          assert(v == VList(v1))
+          assertEquals(v, VList(v1))
       }
     }
 
-    assert(VList.unapply(VList.VNil) == Some(Nil))
+    assertEquals(VList.unapply(VList.VNil), Some(Nil))
     org.scalacheck.Prop.all(propList, propUnapply)
   }
 
@@ -83,7 +83,7 @@ class ValueTest extends munit.ScalaCheckSuite {
             case kv                            =>
               sys.error(s"expected a string key, found: $kv")
           }
-          assert(asList == svsDedup)
+          assertEquals(asList, svsDedup)
         case other =>
           assert(false, s"$other didn't match VDict")
       }
@@ -94,7 +94,7 @@ class ValueTest extends munit.ScalaCheckSuite {
     forAll(Gen.listOf(genValue)) { vs =>
       Tuple.fromList(vs) match {
         case Tuple(items) =>
-          assert(items == vs)
+          assertEquals(items, vs)
         case notTuple =>
           assert(false, s"not tuple: $notTuple")
       }
@@ -111,7 +111,7 @@ class ValueTest extends munit.ScalaCheckSuite {
       val sortByOrd =
         svs.sortBy { case (k, _) => ExternalValue(k): Value }(using ord)
 
-      assert(svsSorted == sortByOrd)
+      assertEquals(svsSorted, sortByOrd)
     }
   }
 }

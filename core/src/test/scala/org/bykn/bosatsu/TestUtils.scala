@@ -4,7 +4,7 @@ import cats.data.{Chain, Ior, Validated, NonEmptyList}
 import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
 import org.bykn.bosatsu.tool.Output
-import munit.Assertions.fail
+import munit.Assertions.{assertEquals, fail}
 import IorMethods.IorExtension
 
 import cats.syntax.all._
@@ -183,10 +183,7 @@ object TestUtils {
     ) match {
       case Right(Output.EvaluationResult(got, _, gotDoc)) =>
         val gv = got.value
-        assert(
-          gv == expected,
-          s"${gotDoc.value.render(80)}\n\n$gv != $expected"
-        )
+        assertEquals(gv, expected, s"${gotDoc.value.render(80)}\n\n$gv != $expected")
       case Right(other) =>
         fail(s"got an unexpected success: $other")
       case Left(err) =>
@@ -212,7 +209,7 @@ object TestUtils {
       )
     ) match {
       case Right(Output.JsonOutput(got, _)) =>
-        assert(got == expected, s"$got != $expected")
+        assertEquals(got, expected, s"$got != $expected")
       case Right(other) =>
         fail(s"got an unexpected success: $other")
       case Left(err) =>
@@ -235,13 +232,10 @@ object TestUtils {
       case Right(Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
-            assert(
-              t.assertions == assertionCount,
-              s"${t.assertions} != $assertionCount"
-            )
+            assertEquals(t.assertions, assertionCount, s"${t.assertions} != $assertionCount")
             val Test.Report(_, failcount, message) =
               Test.report(t, LocationMap.Colorize.None)
-            assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
+            assertEquals(t.failures.map(_.assertions).getOrElse(0), failcount)
             if (failcount > 0) fail(message.render(80))
             else ()
           case other =>

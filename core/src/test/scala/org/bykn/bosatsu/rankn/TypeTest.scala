@@ -25,7 +25,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("free vars are not duplicated") {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       val frees = Type.freeTyVars(ts)
-      assert(frees.distinct == frees)
+      assertEquals(frees.distinct, frees)
     }
   }
 
@@ -34,39 +34,30 @@ class TypeTest extends munit.ScalaCheckSuite {
       val frees = Type.freeTyVars(ts :: Nil)
       val norm = Type.normalize(ts)
       val freeNorm = Type.freeTyVars(norm :: Nil)
-      assert(
-        frees == freeNorm,
-        s"${Type.typeParser.render(ts)} => ${Type.typeParser.render(norm)}"
-      )
+      assertEquals(frees, freeNorm, s"${Type.typeParser.render(ts)} => ${Type.typeParser.render(norm)}")
     }
   }
 
   test("Tuple unapply is the inverse of apply") {
     val prop = forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       Type.Tuple(ts) match {
-        case Type.Tuple(ts1) => assert(ts1 == ts)
+        case Type.Tuple(ts1) => assertEquals(ts1, ts)
         case notTup          => fail(notTup.toString)
       }
     }
 
-    assert(Type.Tuple.unapply(parse("()")) == Some(Nil))
-    assert(
-      Type.Tuple.unapply(parse("(a, b, c)")) ==
-        Some(List("a", "b", "c").map(parse))
-    )
+    assertEquals(Type.Tuple.unapply(parse("()")), Some(Nil))
+    assertEquals(Type.Tuple.unapply(parse("(a, b, c)")), Some(List("a", "b", "c").map(parse)))
     prop
   }
 
   test("unapplyAll is the inverse of applyAll") {
     val prop = forAll(NTypeGen.genDepth03) { ts =>
       val (left, args) = Type.unapplyAll(ts)
-      assert(Type.applyAll(left, args) == ts)
+      assertEquals(Type.applyAll(left, args), ts)
     }
 
-    assert(
-      Type.unapplyAll(parse("foo[bar]")) ==
-        (parse("foo"), List(parse("bar")))
-    )
+    assertEquals(Type.unapplyAll(parse("foo[bar]")), (parse("foo"), List(parse("bar"))))
     prop
   }
 
@@ -93,7 +84,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     val g = NTypeGen.genDepth03
     forAll(g, g, g) { (a, b, c) =>
       if (a.sameAs(b)) {
-        assert(a.sameAs(c) == b.sameAs(c))
+        assertEquals(a.sameAs(c), b.sameAs(c))
       }
     }
   }
@@ -101,7 +92,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("a.sameAs(b) == (normalize(a) == normalize(b))") {
     val g = NTypeGen.genDepth03
     forAll(g, g) { (a, b) =>
-      assert(a.sameAs(b) == (Type.normalize(a) == Type.normalize(b)))
+      assertEquals(a.sameAs(b), (Type.normalize(a) == Type.normalize(b)))
     }
   }
 
@@ -235,11 +226,11 @@ class TypeTest extends munit.ScalaCheckSuite {
           Type.typeParser.render(t)
 
         val normt2 = Type.normalize(normt)
-        assert(normt == normt2, s"${show(normt)} normalizes to ${show(normt2)}")
+        assertEquals(normt, normt2, s"${show(normt)} normalizes to ${show(normt2)}")
         assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")
       }
 
-      assert(Type.freeBoundTyVars(qt1.in :: Nil) == List(Bound("u")))
+      assertEquals(Type.freeBoundTyVars(qt1.in :: Nil), List(Bound("u")))
     }
     prop
   }
@@ -248,14 +239,14 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genDepth03) { t =>
       val n1 = Type.normalize(t)
       val n2 = Type.normalize(n1)
-      assert(n2 == n1)
+      assertEquals(n2, n1)
     }
   }
 
   test("we can parse types") {
     def law(t: Type) = {
       val str = Type.fullyResolvedDocument.document(t).render(80)
-      assert(Type.fullyResolvedParser.parseAll(str) == Right(t), s"$str != $t")
+      assertEquals(Type.fullyResolvedParser.parseAll(str), Right(t), s"$str != $t")
     }
 
     val propRoundTrip = forAll(NTypeGen.genDepth03)(law(_))
@@ -268,22 +259,19 @@ class TypeTest extends munit.ScalaCheckSuite {
         law(tpe)
         tpe match {
           case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
-            assert((b1, k1, i1) == (b, Kind.Type, id))
+            assertEquals((b1, k1, i1), (b, Kind.Type, id))
           case other => fail(other.toString)
         }
     }
 
     val propMeta = forAll { (l: Long) =>
-      assert(parse("?" + l.toString).asInstanceOf[Type.TyMeta].toMeta.id == l)
+      assertEquals(parse("?" + l.toString).asInstanceOf[Type.TyMeta].toMeta.id, l)
     }
     org.scalacheck.Prop.all(propRoundTrip, propSkolem, propMeta)
   }
 
   test("test all binders") {
-    assert(
-      Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
-        ("a" #:: LazyList.iterate(0)(_ + 1).map(i => s"a$i")).take(100)
-    )
+    assertEquals(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name), ("a" #:: LazyList.iterate(0)(_ + 1).map(i => s"a$i")).take(100))
   }
 
   test("tyVarBinders is identity for Bound") {
@@ -298,13 +286,13 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("if Type.hasNoVars then freeVars is empty") {
     forAll(NTypeGen.genDepth03) { t =>
-      assert(Type.hasNoVars(t) == Type.freeTyVars(t :: Nil).isEmpty)
+      assertEquals(Type.hasNoVars(t), Type.freeTyVars(t :: Nil).isEmpty)
     }
   }
 
   test("if Type.hasNoUnboundVars then freeBoundTyVars is empty") {
     forAll(NTypeGen.genDepth03) { t =>
-      assert(Type.hasNoUnboundVars(t) == Type.freeBoundTyVars(t :: Nil).isEmpty)
+      assertEquals(Type.hasNoUnboundVars(t), Type.freeBoundTyVars(t :: Nil).isEmpty)
     }
   }
 
@@ -368,8 +356,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     val ta = Type.TyVar(ba)
     val tb = Type.TyVar(bb)
     val fb = Type.Fun(NonEmptyList.one(ta), tb)
-    assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
-    assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
+    assertEquals(Type.freeTyVars(fb :: ta :: Nil), List(ba, bb))
+    assertEquals(Type.freeTyVars(fb :: tb :: Nil), List(ba, bb))
   }
 
   test("types are in order in freeTyVars") {
@@ -378,8 +366,8 @@ class TypeTest extends munit.ScalaCheckSuite {
       val right = Type.freeTyVars(t2 :: Nil)
       val both = Type.freeTyVars(t1 :: t2 :: Nil)
 
-      assert((left.toSet | right.toSet) == both.toSet)
-      assert(left ::: (right.filterNot(left.toSet)) == both)
+      assertEquals((left.toSet | right.toSet), both.toSet)
+      assertEquals(left ::: (right.filterNot(left.toSet)), both)
     }
   }
 
@@ -394,7 +382,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("substitute is a no-op if none of the substitutions are free") {
     forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
       val subs1 = subs -- Type.freeBoundTyVars(t :: Nil)
-      assert(Type.substituteVar(t, subs1) == t)
+      assertEquals(Type.substituteVar(t, subs1), t)
     }
   }
 
@@ -408,7 +396,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       val subs = subs0.filterNot { case (k, _) => allFrees(k) }
       val t1 = Type.substituteVar(t, subs)
       val t2 = Type.substituteVar(t1, subs)
-      assert(t2 == t1)
+      assertEquals(t2, t1)
     }
 
     val prop = forAll(NTypeGen.genDepth03, genSubs(3))(law)
@@ -433,9 +421,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       // now subs1 has keys that can be completely removed, so
       // after substitution, those keys should be gone
       val t1 = Type.substituteVar(t, subs1)
-      assert(
-        (Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty
-      )
+      assertEquals((Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet), Set.empty)
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law)
@@ -482,10 +468,10 @@ class TypeTest extends munit.ScalaCheckSuite {
       val targ = parse(matches)
       Type.instantiate(fas.iterator.toMap, t, targ, Map.empty) match {
         case Some((_, subMap)) =>
-          assert(subMap.size == subs.size)
+          assertEquals(subMap.size, subs.size)
           subs.foreach { case (k, v) =>
             val Type.TyVar(b: Type.Var.Bound) = parse(k).runtimeChecked
-            assert(subMap(b)._2 == parse(v))
+            assertEquals(subMap(b)._2, parse(v))
           }
         case None =>
           fail(s"could not instantitate: $forall to $matches")
@@ -496,7 +482,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
       val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
-      assert(res == None)
+      assertEquals(res, None)
     }
 
     check(
@@ -551,8 +537,8 @@ class TypeTest extends munit.ScalaCheckSuite {
       val fnType = Type.Fun(args, res)
       fnType match {
         case Type.Fun(args1, res1) =>
-          assert(args1 == args)
-          assert(res1 == res)
+          assertEquals(args1, args)
+          assertEquals(res1, res)
         case _ =>
           fail(s"fnType didn't match Fun")
       }
@@ -562,24 +548,22 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("Quantification.concat is associative") {
     forAll(NTypeGen.genQuant, NTypeGen.genQuant, NTypeGen.genQuant) {
       (a, b, c) =>
-        assert(a.concat(b).concat(c) == a.concat(b.concat(c)))
+        assertEquals(a.concat(b).concat(c), a.concat(b.concat(c)))
     }
   }
 
   test("Quantification.toLists/fromList identity") {
     forAll(NTypeGen.genQuant) { q =>
-      assert(
-        Type.Quantification.fromLists(q.forallList, q.existList) == Some(q)
-      )
+      assertEquals(Type.Quantification.fromLists(q.forallList, q.existList), Some(q))
     }
   }
 
   test("unexists/exists | unforall/forall iso") {
     forAll(NTypeGen.genDepth03) {
       case t @ Type.Exists(ps, in) =>
-        assert(Type.exists(ps, in) == t)
+        assertEquals(Type.exists(ps, in), t)
       case t @ Type.ForAll(ps, in) =>
-        assert(Type.forAll(ps, in) == t)
+        assertEquals(Type.forAll(ps, in), t)
       case _ => ()
     }
   }
@@ -587,11 +571,11 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
       Type.exists(args, t) match {
         case Type.Exists(ps, in) =>
-          assert(ps.toList == args)
-          assert(in == t)
+          assertEquals(ps.toList, args)
+          assertEquals(in, t)
         case notExists =>
           assert(args.isEmpty)
-          assert(notExists == t)
+          assertEquals(notExists, t)
       }
     }
   }
@@ -599,11 +583,11 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
       Type.forAll(args, t) match {
         case Type.ForAll(ps, in) =>
-          assert(ps.toList == args)
-          assert(in == t)
+          assertEquals(ps.toList, args)
+          assertEquals(in, t)
         case notExists =>
           assert(args.isEmpty)
-          assert(notExists == t)
+          assertEquals(notExists, t)
       }
     }
   }
@@ -633,13 +617,13 @@ class TypeTest extends munit.ScalaCheckSuite {
       val consts = allConsts(t :: Nil)
       t match {
         case tyc @ TyConst(_) =>
-          assert(consts == (tyc :: Nil))
+          assertEquals(consts, (tyc :: Nil))
         case (TyVar(_) | TyMeta(_)) =>
-          assert(consts == Nil)
+          assertEquals(consts, Nil)
         case TyApply(left, right) =>
-          assert(consts == Type.allConsts(left :: right :: Nil))
+          assertEquals(consts, Type.allConsts(left :: right :: Nil))
         case Quantified(_, in) =>
-          assert(consts == allConsts(in :: Nil))
+          assertEquals(consts, allConsts(in :: Nil))
       }
     }
   }

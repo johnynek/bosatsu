@@ -70,7 +70,7 @@ enum MyNat: Z, S(prev: MyNat)
       val toDoc = conv.toDoc(t)
 
       toDoc(v) match {
-        case Right(doc) => assert(doc.render(80) == str)
+        case Right(doc) => assertEquals(doc.render(80), str)
         case Left(err)  => fail(s"could not handle to Value: $tpe, $v, $err")
       }
     }

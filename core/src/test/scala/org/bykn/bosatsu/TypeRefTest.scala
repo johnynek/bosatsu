@@ -36,7 +36,7 @@ class TypeRefTest extends munit.ScalaCheckSuite {
         }
       )
 
-      assert(tr1 == Some(tr.normalizeForAll), s"tpe = $tpe")
+      assertEquals(tr1, Some(tr.normalizeForAll), s"tpe = $tpe")
     }
   }
 
@@ -44,7 +44,7 @@ class TypeRefTest extends munit.ScalaCheckSuite {
     forAll(typeRefGen) { tr =>
       val norm1 = tr.normalizeForAll
       val norm2 = norm1.normalizeForAll
-      assert(norm2 == norm1, s"${show(norm2)} != ${show(norm1)}")
+      assertEquals(norm2, norm1, s"${show(norm2)} != ${show(norm1)}")
     }
   }
 }
