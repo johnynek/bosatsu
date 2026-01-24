@@ -1,16 +1,12 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop.forAll
 
-class ExprTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+class ExprTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   val genExpr: Gen[Expr[Int]] = Generators.Exprs.gen(Gen.choose(0, 99), 4)
 
@@ -18,13 +14,13 @@ class ExprTest extends AnyFunSuite {
 
   test("replaceTag replaces") {
     forAll { (s: Expr[Int], i: Int) =>
-      assert(s.replaceTag(i).tag == i)
+      assertEquals(s.replaceTag(i).tag, i)
     }
   }
 
   test("e.notFree(n) is true if n is not free in e") {
     forAll(genExpr, Generators.bindIdentGen) { (expr, n) =>
-      assert(expr.notFree(n) == !expr.freeVarsDup.contains(n))
+      assertEquals(expr.notFree(n), !expr.freeVarsDup.contains(n))
     }
   }
 
@@ -64,17 +60,17 @@ class ExprTest extends AnyFunSuite {
     forAll(genExpr) {
       case let @ Expr.Let(n, b, i, r, tag) =>
         val (lets, res) = let.flatten
-        assert(Expr.lets(lets.toList, res) == let)
+        assertEquals(Expr.lets(lets.toList, res), let)
 
         if (i == res) {
-          assert(lets.length == 1)
-          assert(lets.head == (n, r, b, tag))
+          assertEquals(lets.length, 1)
+          assertEquals(lets.head, (n, r, b, tag))
         } else {
           i match {
             case l1 @ Expr.Let(_, _, _, _, _) =>
               val (lets1, res1) = l1.flatten
-              assert(res == res1)
-              assert((n, r, b, tag) :: lets1 == lets)
+              assertEquals(res, res1)
+              assertEquals((n, r, b, tag) :: lets1, lets)
             case other =>
               fail(s"expected Let: $other")
           }

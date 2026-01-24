@@ -1,19 +1,14 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import rankn.{NTypeGen, Type, TypeEnv}
 import TestUtils.typeEnvOf
-import org.scalatest.funsuite.AnyFunSuite
 
-class ValueToDocTest extends AnyFunSuite {
-
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class ValueToDocTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 1000 else 20
     )
 
@@ -35,7 +30,7 @@ class ValueToDocTest extends AnyFunSuite {
     forAll(withType, GenValue.genValue) { case ((te, t), v) =>
       val vd = ValueToDoc(te.toDefinedType(_))
       vd.toDoc(t)(v)
-      succeed
+      ()
     }
   }
 
@@ -75,7 +70,7 @@ enum MyNat: Z, S(prev: MyNat)
       val toDoc = conv.toDoc(t)
 
       toDoc(v) match {
-        case Right(doc) => assert(doc.render(80) == str)
+        case Right(doc) => assertEquals(doc.render(80), str)
         case Left(err)  => fail(s"could not handle to Value: $tpe, $v, $err")
       }
     }

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import org.scalatest.Assertions._
+import munit.Assertions._
 
 object OrderingLaws {
   def law[A: Ordering](a: A, b: A, c: A): Unit = {
@@ -16,20 +16,20 @@ object OrderingLaws {
     if (a == b) assert(ord.equiv(a, b))
     if (ord.lteq(a, b) && ord.gteq(a, b)) assert(ord.equiv(a, b))
 
-    assert(ord.lt(a, b) == !ord.gteq(a, b))
-    assert(ord.lt(a, b) == (ord.compare(a, b) < 0))
-    assert(ord.lteq(a, b) == (ord.lt(a, b) || ord.equiv(a, b)))
-    assert(ord.lteq(a, b) == (ord.compare(a, b) <= 0))
-    assert(ord.gt(a, b) == !ord.lteq(a, b))
-    assert(ord.gt(a, b) == (ord.compare(a, b) > 0))
-    assert(ord.gteq(a, b) == (ord.gt(a, b) || ord.equiv(a, b)))
-    assert(ord.gteq(a, b) == (ord.compare(a, b) >= 0))
-    assert(ord.equiv(a, b) == !(ord.lt(a, b) || ord.gt(a, b)))
-    assert(ord.equiv(a, b) == (ord.compare(a, b) == 0))
+    assertEquals(ord.lt(a, b), !ord.gteq(a, b))
+    assertEquals(ord.lt(a, b), (ord.compare(a, b) < 0))
+    assertEquals(ord.lteq(a, b), (ord.lt(a, b) || ord.equiv(a, b)))
+    assertEquals(ord.lteq(a, b), (ord.compare(a, b) <= 0))
+    assertEquals(ord.gt(a, b), !ord.lteq(a, b))
+    assertEquals(ord.gt(a, b), (ord.compare(a, b) > 0))
+    assertEquals(ord.gteq(a, b), (ord.gt(a, b) || ord.equiv(a, b)))
+    assertEquals(ord.gteq(a, b), (ord.compare(a, b) >= 0))
+    assertEquals(ord.equiv(a, b), !(ord.lt(a, b) || ord.gt(a, b)))
+    assertEquals(ord.equiv(a, b), (ord.compare(a, b) == 0))
 
-    assert(ord.lteq(a, b) == ord.gteq(b, a))
-    assert(ord.lteq(a, c) == ord.gteq(c, a))
-    assert(ord.lteq(b, c) == ord.gteq(c, b))
+    assertEquals(ord.lteq(a, b), ord.gteq(b, a))
+    assertEquals(ord.lteq(a, c), ord.gteq(c, a))
+    assertEquals(ord.lteq(b, c), ord.gteq(c, b))
 
     assert(ord.equiv(a, a))
     assert(ord.equiv(b, b))

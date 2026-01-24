@@ -1,8 +1,6 @@
 package org.bykn.bosatsu
 
-import org.scalatest.funsuite.AnyFunSuite
-
-class Regressions extends AnyFunSuite with ParTest {
+class Regressions extends munit.FunSuite with ParTest {
   import TestUtils._
 
   test("test complex recursion case from #196") {

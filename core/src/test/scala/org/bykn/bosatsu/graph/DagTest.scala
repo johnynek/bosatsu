@@ -1,21 +1,17 @@
 package org.bykn.bosatsu.graph
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 import org.bykn.bosatsu.MonadGen.genMonad
 import org.bykn.bosatsu.ListOrdering
 import scala.collection.immutable.SortedSet
 
 import cats.syntax.all._
 
-class DagTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class DagTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
 
   val genDag: Gen[Map[Int, Set[Int]]] =
     Gen
@@ -53,10 +49,10 @@ class DagTest extends AnyFunSuite {
     forAll(genDag) { dagMap =>
       val (mapping, dag) = Dag.dagify(dagMap.keys.toList)(dagMap(_))
       dag.nodes.foreach { cluster =>
-        assert(cluster.size == 1)
+        assertEquals(cluster.size, 1)
       }
       dagMap.keys.foreach { n =>
-        assert(mapping(n) == Some(SortedSet(n)))
+        assertEquals(mapping(n), Some(SortedSet(n)))
       }
       assert(dag.unsingleton.isDefined)
     }
@@ -94,7 +90,7 @@ class DagTest extends AnyFunSuite {
 
       // every node is in one cluster
       val allNodes = dag.nodes.foldLeft(SortedSet.empty[Int])(_ | _)
-      assert(allNodes == graph.keys.to(SortedSet))
+      assertEquals(allNodes, graph.keys.to(SortedSet))
 
       // if we toposort a dag, we always succeed
       implicit val setOrd: Ordering[SortedSet[Int]] =
@@ -106,15 +102,15 @@ class DagTest extends AnyFunSuite {
       assert(sortRes.isSuccess)
       sortRes.layers.zipWithIndex.foreach { case (nodes, layer) =>
         nodes.toList.foreach { n =>
-          assert(dag.layerOf(n) == layer)
+          assertEquals(dag.layerOf(n), layer)
         }
       }
-      assert(dag.layers == sortRes.layers.length)
-      assert(sortRes.layers == dag.toToposorted.layers)
+      assertEquals(dag.layers, sortRes.layers.length)
+      assertEquals(sortRes.layers, dag.toToposorted.layers)
 
       // if we dagify again we get singletons:
       val (_, dag1) = Dag.dagify(dag.nodes)(dag.deps(_))
-      assert(dag1.unsingleton == Some(dag))
+      assertEquals(dag1.unsingleton, Some(dag))
     }
   }
 }

@@ -130,13 +130,10 @@ class RankNInferTest extends munit.FunSuite {
       .runFully(withBools, boolTypes, Type.builtInKinds) match {
       case Left(err)   => assert(false, err)
       case Right(tpes) =>
-        assert(tpes.size == terms.size)
+        assertEquals(tpes.size, terms.size)
         terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
-          assert(n == n1.asString, s"the name changed: $n != $n1")
-          assert(
-            te.getType == expt,
-            s"$n = $exp failed to typecheck to $expt, got ${te.getType}"
-          )
+          assertEquals(n, n1.asString, s"the name changed: $n != $n1")
+          assertEquals(te.getType, expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
         }
     }
 
@@ -211,7 +208,7 @@ class RankNInferTest extends munit.FunSuite {
 
   // this could be used to test the string representation of expressions
   def checkTERepr(statement: String, repr: String) =
-    checkLast(statement)(te => assert(te.repr.render(80) == repr))
+    checkLast(statement)(te => assertEquals(te.repr.render(80), repr))
 
   /** Test that a program is ill-typed
     */
@@ -438,7 +435,7 @@ class RankNInferTest extends munit.FunSuite {
           kindNotGen
         ) match {
         case Left(err)  => assert(false, err)
-        case Right(tpe) => assert(tpe.getType == ty, term.toString)
+        case Right(tpe) => assertEquals(tpe.getType, ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
@@ -521,7 +518,7 @@ class RankNInferTest extends munit.FunSuite {
           kinds
         ) match {
         case Left(err)  => assert(false, err)
-        case Right(tpe) => assert(tpe.getType == ty, term.toString)
+        case Right(tpe) => assertEquals(tpe.getType, ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
@@ -662,7 +659,7 @@ class RankNInferTest extends munit.FunSuite {
           Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
         ) match {
         case Left(err)  => assert(false, err)
-        case Right(tpe) => assert(tpe.getType == ty, term.toString)
+        case Right(tpe) => assertEquals(tpe.getType, ty, term.toString)
       }
 
     testWithTypes(

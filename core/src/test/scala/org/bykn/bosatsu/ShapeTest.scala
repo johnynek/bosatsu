@@ -1,9 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.TypeEnv
-import org.scalatest.funsuite.AnyFunSuite
-
-class ShapeTest extends AnyFunSuite {
+class ShapeTest extends munit.FunSuite {
 
   def makeTE(
       teStr: String
@@ -28,7 +26,7 @@ class ShapeTest extends AnyFunSuite {
             case Right(k) => Shape.ShapeOf(k)
             case Left(e)  => fail(s"parse error: $e")
           }
-          assert(Shape.ShapeOf(dt) === shape, s"name: $n")
+          assertEquals(Shape.ShapeOf(dt), shape, s"name: $n")
         }
       case Left(errs) =>
         fail(errs.toString)

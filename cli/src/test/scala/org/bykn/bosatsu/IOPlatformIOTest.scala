@@ -53,7 +53,7 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
           _ <- IOPlatformIO.writePackages(packList, path)
           packList1 <- IOPlatformIO.readPackages(path :: Nil)
           psort = packList1.sortBy(_.name)
-          _ = assert(psort == packList)
+          _ = assertEquals(psort, packList)
         } yield ()
       }
     }

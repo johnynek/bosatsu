@@ -1,16 +1,12 @@
 package org.bykn.bosatsu
 
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.bykn.bosatsu.rankn.Type
-import org.scalatest.funsuite.AnyFunSuite
 
-class TypeRefTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class TypeRefTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 500000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   import Generators.{typeRefGen, shrinkTypeRef}
 
@@ -40,7 +36,7 @@ class TypeRefTest extends AnyFunSuite {
         }
       )
 
-      assert(tr1 == Some(tr.normalizeForAll), s"tpe = $tpe")
+      assertEquals(tr1, Some(tr.normalizeForAll), s"tpe = $tpe")
     }
   }
 
@@ -48,7 +44,7 @@ class TypeRefTest extends AnyFunSuite {
     forAll(typeRefGen) { tr =>
       val norm1 = tr.normalizeForAll
       val norm2 = norm1.normalizeForAll
-      assert(norm2 == norm1, s"${show(norm2)} != ${show(norm1)}")
+      assertEquals(norm2, norm1, s"${show(norm2)} != ${show(norm1)}")
     }
   }
 }

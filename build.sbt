@@ -155,8 +155,6 @@ lazy val core =
         decline.value,
         paiges.value,
         scalaCheck.value % Test,
-        scalaTest.value % Test,
-        scalaTestPlusScalacheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
@@ -205,9 +203,7 @@ lazy val jsapi =
         Seq(
           cats.value,
           decline.value,
-          scalaCheck.value % Test,
-          scalaTest.value % Test,
-          scalaTestPlusScalacheck.value % Test
+          scalaCheck.value % Test
         )
     )
     .dependsOn(base, core)

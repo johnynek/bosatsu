@@ -1,19 +1,15 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import Identifier.Bindable
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class SourceConverterTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class SourceConverterTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 3000 else 20
     )
 
@@ -35,11 +31,11 @@ class SourceConverterTest extends AnyFunSuite {
 
       val p1sz = p1.size
       // the total number of lets is unchanged
-      assert(p1sz == lets.size)
+      assertEquals(p1sz, lets.size)
       // the result has distinct names
-      assert(p1sz == p1.iterator.map(_._1).toSet.size)
+      assertEquals(p1sz, p1.iterator.map(_._1).toSet.size)
       // recursiveness is not changed:
-      assert(p1.map(_._2) == lets.map(_._2))
+      assertEquals(p1.map(_._2), lets.map(_._2))
     }
   }
 
@@ -80,7 +76,7 @@ class SourceConverterTest extends AnyFunSuite {
       }
 
       p1.foreach { case (bl, _, br) =>
-        assert(bl == br)
+        assertEquals(bl, br)
       }
     }
   }
@@ -134,7 +130,7 @@ class SourceConverterTest extends AnyFunSuite {
         (Identifier.Name("d"), RecursionKind.NonRecursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Some("a1"))
       )
-      assert(up1 == expectl1)
+      assertEquals(up1, expectl1)
     }
 
     {
@@ -165,7 +161,7 @@ class SourceConverterTest extends AnyFunSuite {
         (Identifier.Name("d"), RecursionKind.Recursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.Recursive, None)
       )
-      assert(up1 == expectl1)
+      assertEquals(up1, expectl1)
     }
   }
 }
