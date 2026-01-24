@@ -4,10 +4,7 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import java.math.BigInteger
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
@@ -15,7 +12,6 @@ import cats.parse.{Parser0 => P0, Parser => P}
 import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt, genCodePoints}
-import org.scalatest.funsuite.AnyFunSuite
 
 trait ParseFns {
   def region(s0: String, idx: Int): String =
@@ -41,7 +37,7 @@ trait ParseFns {
 
 object TestParseUtils extends ParseFns
 
-abstract class ParserTestBase extends AnyFunSuite with ParseFns {
+abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
 
   // This is so we can make Declarations without the region
   implicit protected val emptyRegion: Region = Region(0, 0)
@@ -51,11 +47,8 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
         lazy val message = firstDiff(t.toString, expected.toString)
-        assert(
-          t == expected,
-          s"difference: $message, input syntax:\n\n\n$str\n\n"
-        )
-        assert(idx == exidx)
+        assertEquals(t, expected, s"difference: $message, input syntax:\n\n\n$str\n\n")
+        assertEquals(idx, exidx)
       case Left(err) =>
         val idx = err.failedAtOffset
         fail(
@@ -71,12 +64,12 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
         if (!lax) {
-          assert(idx == str.length, s"parsed: $t from: $str")
+          assertEquals(idx, str.length, s"parsed: $t from: $str")
         }
         val tstr = Document[T].document(t).render(80)
         p.parse(tstr) match {
           case Right((_, t1)) =>
-            assert(t1 == t)
+            assertEquals(t1, t)
           case Left(err) =>
             val idx = err.failedAtOffset
             val diff = firstDiff(str, tstr)
@@ -95,9 +88,9 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
-        assert(idx == str.length, s"parsed: $t from: $str")
+        assertEquals(idx, str.length, s"parsed: $t from: $str")
         val tstr = Document[T].document(t).render(80)
-        assert(tstr == str)
+        assertEquals(tstr, str)
       case Left(err) =>
         val idx = err.failedAtOffset
         fail(
@@ -119,20 +112,20 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
         val idx = err.failedAtOffset
         def msg =
           s"failed to parse: $str: at $idx in region ${region(str, idx)} with err: ${err}"
-        assert(idx == atIdx, msg)
+        assertEquals(idx, atIdx, msg)
     }
 
-  def config: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
-      if (Platform.isScalaJvm) 300 else 10
-    )
+  protected def minSuccessfulTests: Int =
+    if (Platform.isScalaJvm) 300 else 10
+
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(minSuccessfulTests)
 }
 
 class ParserTest extends ParserTestBase {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
 
   test("we can parse integers") {
-    forAll { (b: BigInt) =>
+    val propInts = forAll { (b: BigInt) =>
       val bstr = b.toString
       parseTestAll(Parser.integerString, bstr, bstr)
     }
@@ -157,17 +150,19 @@ class ParserTest extends ParserTestBase {
       }
 
     parseTestAll(Parser.integerString, "1_000", "1_000")
-    forAll(strGen) { case Opaque(s) =>
+    val propWithUnderscore = forAll(strGen) { case Opaque(s) =>
       parseTestAll(Parser.integerString, s, s)
     }
+    org.scalacheck.Prop.all(propInts, propWithUnderscore)
   }
 
   test("string escape/unescape round trips") {
-    forAll(Gen.oneOf('\'', '"'), Arbitrary.arbitrary[String]) { (c, str) =>
+    val propRoundTrip =
+      forAll(Gen.oneOf('\'', '"'), Arbitrary.arbitrary[String]) { (c, str) =>
       val str1 = Parser.escape(c, str)
       try {
         Parser.unescape(str1) match {
-          case Right(str2) => assert(str2 == str)
+          case Right(str2) => assertEquals(str2, str)
           case Left(idx)   =>
             fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
         }
@@ -177,8 +172,8 @@ class ParserTest extends ParserTestBase {
       }
     }
 
-    assert(Parser.escape('"', "\t") == "\\t")
-    assert(Parser.escape('"', "\n") == "\\n")
+    assertEquals(Parser.escape('"', "\t"), "\\t")
+    assertEquals(Parser.escape('"', "\n"), "\\n")
 
     // unescape never throws:
     assert(Parser.unescape("\\x0").isLeft)
@@ -187,17 +182,18 @@ class ParserTest extends ParserTestBase {
     assert(Parser.unescape("\\u00").isLeft)
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
-    forAll { (s: String) => Parser.unescape(s); succeed }
+    val propUnescape = forAll { (s: String) => Parser.unescape(s); () }
     // more brutal tests
-    forAll { (s: String) =>
+    val propPrefixes = forAll { (s: String) =>
       val prefixes = List('x', 'o', 'u', 'U').map(c => s"\\$c")
       prefixes.foreach { p =>
         Parser.unescape(s"$p$s")
-        succeed
+        ()
       }
     }
 
-    assert(Parser.unescape("\\u0020") == Right(" "))
+    assertEquals(Parser.unescape("\\u0020"), Right(" "))
+    org.scalacheck.Prop.all(propRoundTrip, propUnescape, propPrefixes)
   }
 
   test("we can parse quoted strings") {
@@ -213,7 +209,7 @@ class ParserTest extends ParserTestBase {
       parseTestAll(Parser.escapedString(qchar), quoted, str)
     }
 
-    forAll(qstr) { case (s, c) => law(s, c) }
+    val prop = forAll(qstr) { case (s, c) => law(s, c) }
 
     parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('\''), "'\\o44'", "$")
@@ -227,6 +223,7 @@ class ParserTest extends ParserTestBase {
     val regressions = List(("'", '\''))
 
     regressions.foreach { case (s, c) => law(s, c) }
+    prop
   }
 
   test("we can parse interpolated strings") {
@@ -278,22 +275,20 @@ class ParserTest extends ParserTestBase {
       val hex = cps.map(_.toHexString)
 
       val parsed = p.parseAll(str)
-      assert(parsed == Right(str))
+      assertEquals(parsed, Right(str))
 
-      assert(
-        parsed.map(StringUtil.codePoints) == Right(cps),
-        s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}"
-      )
+      assertEquals(parsed.map(StringUtil.codePoints), Right(cps), s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
     }
   }
 
   test("Identifier round trips") {
-    forAll(Generators.identifierGen)(law(Identifier.parser))
+    val prop = forAll(Generators.identifierGen)(law(Identifier.parser))
 
     val examples =
       List("foo", "`bar`", "`bar foo`", "`with \\`internal`", "operator +")
 
     examples.foreach(roundTrip(Identifier.parser, _))
+    prop
   }
 
   test("synthentics parse") {
@@ -301,7 +296,7 @@ class ParserTest extends ParserTestBase {
       if (str.nonEmpty) {
         val synth = Identifier.synthetic(str)
         val parsed = Identifier.bindableWithSynthetic.parseAll(synth.asString)
-        assert(parsed == Right(synth))
+        assertEquals(parsed, Right(synth))
       }
     }
   }
@@ -311,7 +306,7 @@ class ParserTest extends ParserTestBase {
       val i1 = Identifier.appendToName(b, str)
 
       val src = i1.sourceCodeRepr
-      assert(Identifier.unsafe(src).sourceCodeRepr == src)
+      assertEquals(Identifier.unsafe(src).sourceCodeRepr, src)
     }
   }
 
@@ -447,7 +442,7 @@ class ParserTest extends ParserTestBase {
   }
 
   test("we can parse tuples") {
-    forAll { (ls: List[Long], spaceCnt0: Int) =>
+    val propTuple = forAll { (ls: List[Long], spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7
       val pad = " " * spaceCount
       val str =
@@ -464,12 +459,13 @@ class ParserTest extends ParserTestBase {
     }
 
     // a single item is parsed as parens
-    forAll { (it: Long, spaceCnt0: Int) =>
+    val propSingle = forAll { (it: Long, spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7
       val pad = " " * spaceCount
       val str = s"($it$pad)"
       parseTestAll(Parser.integerString.tupleOrParens, str, Left(it.toString))
     }
+    org.scalacheck.Prop.all(propTuple, propSingle)
   }
 
   test("we can parse blocks") {
@@ -705,15 +701,13 @@ class ParserTest extends ParserTestBase {
   */
 class SyntaxParseTest extends ParserTestBase {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
-
   def mkVar(n: String): Declaration.Var =
     Declaration.Var(Identifier.Name(n))
 
   test("we can parse comments") {
     val gen =
       Generators.commentGen(Generators.padding(Generators.genDeclaration(0), 1))
-    forAll(gen) { comment =>
+    val prop = forAll(gen) { comment =>
       parseTestAll(
         CommentStatement
           .parser(i => Padding.parser(Declaration.parser(i)))
@@ -756,6 +750,7 @@ class SyntaxParseTest extends ParserTestBase {
         )
       )
     )
+    prop
   }
 
   test("we can parse Lit.Integer") {
@@ -765,7 +760,7 @@ class SyntaxParseTest extends ParserTestBase {
   }
 
   test("we can parse DefStatement") {
-    forAll(
+    val prop = forAll(
       Generators.defGen(Generators.optIndent(Generators.genDeclaration(0)))
     ) { defn =>
       parseTestAll[DefStatement[Pattern.Parsed, OptIndent[Declaration]]](
@@ -821,6 +816,7 @@ foo"""
 foo"""
     )
 
+    prop
   }
 
   test("we can parse BindingStatement") {
@@ -988,9 +984,9 @@ x"""
           // if we convert to string this parses the same as a pattern:
           val decStr = dec.toDoc.render(80)
           val parsePat = unsafeParse(Pattern.bindParser, decStr)
-          assert(pat == parsePat)
+          assertEquals(pat, parsePat)
       }
-    forAll(Generators.patternDecl(4))(law1(_))
+    val propLikePatterns = forAll(Generators.patternDecl(4))(law1(_))
 
     val regressions = {
       import Declaration._
@@ -1018,8 +1014,8 @@ x"""
       val decStr = dec.toDoc.render(80)
       val parsePat = optionParse(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
-        case (None, None)         => succeed
-        case (Some(p0), Some(p1)) => assert(p0 == p1)
+        case (None, None)         => ()
+        case (Some(p0), Some(p1)) => assertEquals(p0, p1)
         case (None, Some(_))      =>
           fail(s"toPattern failed, but parsed $decStr to: $parsePat")
         case (Some(p), None) =>
@@ -1028,7 +1024,7 @@ x"""
     }
 
     // for all Declarations, either it parses like a pattern or toPattern is None
-    forAll(Generators.genNonBinding(5))(law2(_))
+    val propAllDecls = forAll(Generators.genNonBinding(5))(law2(_))
     regressions.foreach(law2(_))
 
     def testEqual(decl: String) = {
@@ -1036,7 +1032,7 @@ x"""
         .asInstanceOf[Declaration.NonBinding]
       val patt = unsafeParse(Pattern.matchParser, decl)
       Declaration.toPattern(dec) match {
-        case Some(p2) => assert(p2 == patt)
+        case Some(p2) => assertEquals(p2, patt)
         case None     => fail(s"could not convert $decl to pattern")
       }
     }
@@ -1045,6 +1041,7 @@ x"""
     testEqual("Foo(a)")
     testEqual("[1, Foo, a]")
     testEqual("[*a, Foo([]), bar]")
+    org.scalacheck.Prop.all(propLikePatterns, propAllDecls)
   }
 
   test("we can parse bind") {
@@ -1436,7 +1433,7 @@ x"""
   }
 
   test("we can parse any Declaration") {
-    forAll(Generators.genDeclaration(5))(
+    val prop = forAll(Generators.genDeclaration(5))(
       law(Declaration.parser("").map(_.replaceRegions(emptyRegion)))
     )
 
@@ -1483,10 +1480,11 @@ x"""
             |  # comment in a list
             |    # 1.5
             |  2]""".stripMargin)
+    prop
   }
 
   test("we can parse any Statement") {
-    forAll(Generators.genStatements(4, 10))(
+    val prop = forAll(Generators.genStatements(4, 10))(
       law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion))))
     )
 
@@ -1643,6 +1641,7 @@ def foo(
   y
 """
     )
+    prop
   }
 
   def dropTrailingPadding(s: List[Statement]): List[Statement] =
@@ -1975,8 +1974,8 @@ x = z ->
     forAll(gen) { case Args(bi, inBase, base) =>
       Parser.integerWithBase.parseAll(inBase) match {
         case Right((biP, b)) =>
-          assert(biP == bi)
-          assert(b == base)
+          assertEquals(biP, bi)
+          assertEquals(b, base)
         case Left(err) => fail(err.toString)
       }
     }

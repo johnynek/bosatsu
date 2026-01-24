@@ -2,15 +2,11 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Gen, Arbitrary}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class PatternTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+class PatternTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
@@ -19,22 +15,20 @@ class PatternTest extends AnyFunSuite {
 
   test("Pattern.unbind is the same as filterVars(Set.empty)") {
     forAll(patGen) { p =>
-      assert(p.unbind == p.filterVars(Set.empty))
+      assertEquals(p.unbind, p.filterVars(Set.empty))
     }
   }
 
   test("filtering for names not in a pattern is unbind") {
     forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids0) =>
       val ids = ids0.map(Identifier.unsafe(_))
-      assert(
-        p.unbind == p.filterVars(ids.toSet.filterNot(p.names.toSet[Identifier]))
-      )
+      assertEquals(p.unbind, p.filterVars(ids.toSet.filterNot(p.names.toSet[Identifier])))
     }
   }
 
   test("filtering and keeping all names is identity") {
     forAll(patGen) { p =>
-      assert(p.filterVars(p.names.toSet) == p)
+      assertEquals(p.filterVars(p.names.toSet), p)
     }
   }
 
@@ -60,20 +54,16 @@ class PatternTest extends AnyFunSuite {
     def law(p: Pattern.Parsed) =
       p match {
         case Pattern.SinglyNamed(n) =>
-          assert(p.topNames == (n :: Nil))
-          assert(p.names == (n :: Nil))
+          assertEquals(p.topNames, (n :: Nil))
+          assertEquals(p.names, (n :: Nil))
           // we can name with the same name, and still be singly named
-          assert(Pattern.SinglyNamed.unapply(Pattern.Named(n, p)) == Some(n))
+          assertEquals(Pattern.SinglyNamed.unapply(Pattern.Named(n, p)), Some(n))
           // we can annotate and not lose singly named-ness
-          assert(
-            Pattern.SinglyNamed.unapply(Pattern.Annotation(p, null)) == Some(n)
-          )
+          assertEquals(Pattern.SinglyNamed.unapply(Pattern.Annotation(p, null)), Some(n))
           // we can make a union and not lose singly named-ness
-          assert(
-            Pattern.SinglyNamed.unapply(
+          assertEquals(Pattern.SinglyNamed.unapply(
               Pattern.union(Pattern.Var(n), p :: Nil)
-            ) == Some(n)
-          )
+            ), Some(n))
         case _ =>
       }
 
@@ -89,14 +79,14 @@ class PatternTest extends AnyFunSuite {
   test("test some examples for singly named") {
     def check(str: String, nm: String) =
       pat(str) match {
-        case Pattern.SinglyNamed(n) => assert(n == Identifier.unsafe(nm))
+        case Pattern.SinglyNamed(n) => assertEquals(n, Identifier.unsafe(nm))
         case other                  => fail(s"expected singlynamed: $other")
       }
 
     def checkNot(str: String) =
       pat(str) match {
         case Pattern.SinglyNamed(n) => fail(s"unexpected singlynamed: $n")
-        case _                      => succeed
+        case _                      => ()
       }
 
     check("foo", "foo")
@@ -155,7 +145,7 @@ class PatternTest extends AnyFunSuite {
 
   test("substitute identity is identity") {
     forAll(patGen, Gen.listOf(Generators.bindIdentGen)) { (p, list) =>
-      assert(p.substitute(list.map(b => (b, b)).toMap) == p)
+      assertEquals(p.substitute(list.map(b => (b, b)).toMap), p)
     }
   }
 
@@ -164,10 +154,7 @@ class PatternTest extends AnyFunSuite {
 
     def law[A, B](p: Pattern[A, B], map: Map[Bindable, Bindable]) = {
       val subsP = p.substitute(map)
-      assert(
-        subsP.names.distinct == p.names.map(n => map.getOrElse(n, n)).distinct,
-        s"got $subsP"
-      )
+      assertEquals(subsP.names.distinct, p.names.map(n => map.getOrElse(n, n)).distinct, s"got $subsP")
     }
 
     def b(s: String) = Identifier.Name(s)

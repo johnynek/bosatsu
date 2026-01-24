@@ -142,8 +142,8 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Int]] {
     val p1 = Cat(Wildcard, Cat(lit('0'), Cat(lit('1'), Empty)))
     val p2 = Cat(lit('0'), Cat(lit('0'), Cat(lit('0'), Cat(Wildcard, Empty))))
 
-    assert(setOps.relate(p1, p2) == Rel.Intersects)
-    assert(setOps.relate(p2, p1) == Rel.Intersects)
+    assertEquals(setOps.relate(p1, p2), Rel.Intersects)
+    assertEquals(setOps.relate(p2, p1), Rel.Intersects)
     assert(setOps.intersection(p1, p2).nonEmpty)
     assert(setOps.intersection(p2, p1).nonEmpty)
   }

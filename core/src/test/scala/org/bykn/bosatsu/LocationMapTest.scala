@@ -1,15 +1,11 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class LocationMapTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class LocationMapTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 50000 else 100
     )
 
@@ -20,13 +16,13 @@ class LocationMapTest extends AnyFunSuite {
     forAll(singleLine, Arbitrary.arbitrary[Int]) { (sline, offset) =>
       val lm = LocationMap(sline)
 
-      assert(lm.getLine(0) == Some(sline))
+      assertEquals(lm.getLine(0), Some(sline))
       lm.toLineCol(offset) match {
         case None =>
           assert(offset < 0 || offset >= sline.length)
         case Some((row, col)) =>
-          assert(row == 0)
-          assert(col == offset)
+          assertEquals(row, 0)
+          assertEquals(col, offset)
       }
     }
   }
@@ -42,7 +38,7 @@ class LocationMapTest extends AnyFunSuite {
         .collect { case Some(l) => l }
         .mkString("\n")
 
-      assert(reconstruct === str)
+      assertEquals(reconstruct, str)
     }
   }
   test(
@@ -58,12 +54,12 @@ class LocationMapTest extends AnyFunSuite {
             assert(offset < 0 || offset > s.length)
           case Some((row, col)) =>
             lm.getLine(row) match {
-              case None       => assert(offset == s.length)
+              case None       => assertEquals(offset, s.length)
               case Some(line) =>
                 assert(line.length >= col)
                 if (line.length == col)
                   assert(offset == s.length || s(offset) == '\n')
-                else assert(line(col) == s(offset))
+                else assertEquals(line(col), s(offset))
             }
         }
 
@@ -75,7 +71,7 @@ class LocationMapTest extends AnyFunSuite {
   test("if a string is not empty, 0 offset is (0, 0)") {
     forAll { (s: String) =>
       LocationMap(s).toLineCol(0) match {
-        case Some(r) => assert(r == ((0, 0)))
+        case Some(r) => assertEquals(r, ((0, 0)))
         case None    => assert(s.isEmpty)
       }
     }

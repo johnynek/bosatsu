@@ -5,15 +5,11 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
 import org.bykn.bosatsu.{PackageName, TestUtils}
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
-import org.scalatest.funsuite.AnyFunSuite
 
 import TestUtils.compileFile
 
@@ -30,11 +26,11 @@ object JythonBarrier {
   }
 }
 
-class PythonGenTest extends AnyFunSuite {
+class PythonGenTest extends munit.ScalaCheckSuite {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  override def scalaCheckTestParameters =
     // these tests are slow
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   implicit val showStr: Show[String] = Show.show[String](identity)
 
@@ -61,10 +57,7 @@ class PythonGenTest extends AnyFunSuite {
     tup.getArray()(0) match {
       case x if x == zero =>
         // True == one in our encoding
-        assert(
-          tup.getArray()(1) == one,
-          prefix + "/" + tup.getArray()(2).toString
-        )
+        assertEquals(tup.getArray()(1), one, prefix + "/" + tup.getArray()(2).toString)
         ()
       case x if x == one =>
         val suite = tup.getArray()(1).toString
@@ -120,9 +113,9 @@ class PythonGenTest extends AnyFunSuite {
         val arg = new PyInteger(i)
         val res = fn.__call__(arg)
         if (i <= 0) {
-          assert(res == new PyInteger(0))
+          assertEquals(res, new PyInteger(0))
         } else {
-          assert(fn.__call__(arg) == arg)
+          assertEquals(fn.__call__(arg), arg)
         }
       }
     }
@@ -135,7 +128,7 @@ class PythonGenTest extends AnyFunSuite {
 
       forAll(Gen.choose(0, 100), Gen.choose(0, 100)) { (i1, i2) =>
         val m1 = fn.__call__(new PyInteger(i1), new PyInteger(i2))
-        assert(m1 == new PyInteger(i1 * i2))
+        assertEquals(m1, new PyInteger(i1 * i2))
       }
     }
   }

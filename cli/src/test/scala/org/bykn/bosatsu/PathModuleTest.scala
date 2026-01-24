@@ -5,15 +5,17 @@ import cats.effect.IO
 import java.nio.file.{Path, Paths}
 import org.bykn.bosatsu.tool.Output
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
+import org.scalacheck.Prop.forAll
+import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 // allow us to unsafeRunSync
 import cats.effect.unsafe.implicits.global
 
-class PathModuleTest extends AnyFunSuite {
+class PathModuleTest extends munit.ScalaCheckSuite {
+  override def munitTimeout: Duration = 6.minutes
+
   import PathModule.platformIO.pathPackage
 
   implicit val arbPath: Arbitrary[Path] =
@@ -27,43 +29,33 @@ class PathModuleTest extends AnyFunSuite {
     def pn(roots: List[String], file: String): Option[PackageName] =
       pathPackage(roots.map(Paths.get(_)), Paths.get(file))
 
-    assert(
-      pn(List("/root0", "/root1"), "/root0/Bar.bosatsu") == Some(
+    assertEquals(pn(List("/root0", "/root1"), "/root0/Bar.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar"))
-      )
-    )
-    assert(
-      pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(
+      ))
+    assertEquals(pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assert(
-      pn(
+      ))
+    assertEquals(pn(
         List("/root0/ext", "/root0/Bar"),
         "/root0/ext/Bar/Baz.bosatsu"
-      ) == Some(PackageName(NonEmptyList.of("Bar", "Baz")))
-    )
+      ), Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
   }
 
   test("no roots means no Package") {
     forAll { (p: Path) =>
-      assert(pathPackage(Nil, p) == None)
+      assertEquals(pathPackage(Nil, p), None)
     }
   }
 
   test("empty path is not okay for a package") {
     forAll { (roots: List[Path]) =>
-      assert(pathPackage(roots, Paths.get("")) == None)
+      assertEquals(pathPackage(roots, Paths.get("")), None)
     }
   }
 
@@ -75,10 +67,10 @@ class PathModuleTest extends AnyFunSuite {
           PackageName.parse(
             rest.asScala.map(_.toString.toLowerCase.capitalize).mkString("/")
           )
-        assert(pathPackage(root :: otherRoots, path) == pack)
+        assertEquals(pathPackage(root :: otherRoots, path), pack)
       }
 
-    forAll(law(_, _, _))
+    val prop = forAll(law(_, _, _))
     // some regressions:
     val regressions: List[(Path, List[Path], Path)] =
       List(
@@ -87,6 +79,7 @@ class PathModuleTest extends AnyFunSuite {
       )
 
     regressions.foreach { case (r, o, e) => law(r, o, e) }
+    prop
   }
 
   test("if none of the roots are prefixes we have none") {
@@ -98,7 +91,7 @@ class PathModuleTest extends AnyFunSuite {
         file.asScala.toList.startsWith(r.asScala.toList)
       }
 
-      if (noPrefix) assert(pack == None)
+      if (noPrefix) assertEquals(pack, None)
     }
   }
 
@@ -130,7 +123,7 @@ class PathModuleTest extends AnyFunSuite {
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Queue" => t.value
         }
-        assert(res.length == 1)
+        assertEquals(res.length, 1)
       case other => fail(s"expected test output: $other")
     }
   }
@@ -146,9 +139,9 @@ class PathModuleTest extends AnyFunSuite {
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Bar" => t.value
         }
-        assert(res.length == 1)
-        assert(res.head.assertions == 1)
-        assert(res.head.failureCount == 0)
+        assertEquals(res.length, 1)
+        assertEquals(res.head.assertions, 1)
+        assertEquals(res.head.failureCount, 0)
       case other => fail(s"expected test output: $other")
     }
   }
@@ -175,13 +168,11 @@ class PathModuleTest extends AnyFunSuite {
     )
     out match {
       case Output.JsonOutput(j @ Json.JObject(_), _) =>
-        assert(
-          j.toMap == Map(
+        assertEquals(j.toMap, Map(
             "value" -> Json.JBool(true),
             "message" -> Json.JString("got the right string")
-          )
-        )
-        assert(j.items.length == 2)
+          ))
+        assertEquals(j.items.length, 2)
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -193,7 +184,7 @@ class PathModuleTest extends AnyFunSuite {
         .toList :+ "[2, 4]"
 
     run(cmd: _*) match {
-      case Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
+      case Output.JsonOutput(Json.JNumberStr("8"), _) => ()
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -209,7 +200,7 @@ class PathModuleTest extends AnyFunSuite {
             Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))),
             _
           ) =>
-        succeed
+        ()
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -221,7 +212,7 @@ class PathModuleTest extends AnyFunSuite {
         case Right(io) =>
           Try(io.unsafeRunSync()) match {
             case Success(s) => fail(s"got Success($s) expected to fail")
-            case Failure(_) => succeed
+            case Failure(_) => ()
           }
       }
 
@@ -252,14 +243,14 @@ class PathModuleTest extends AnyFunSuite {
     PathModule.run(
       "json write --input_dir test_workspace --main Bo//".split(' ').toList
     ) match {
-      case Left(_)  => succeed
-      case Right(_) => fail()
+      case Left(_)  => ()
+      case Right(_) => fail("expected invalid main name to fail")
     }
     PathModule.run(
       "json write --input_dir test_workspace --main Bo:::boop".split(' ').toList
     ) match {
-      case Left(_)  => succeed
-      case Right(_) => fail()
+      case Left(_)  => ()
+      case Right(_) => fail("expected invalid main name to fail")
     }
   }
 
@@ -273,11 +264,11 @@ class PathModuleTest extends AnyFunSuite {
     out match {
       case Output.TestOutput(res, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
-        assert(noTests == Nil)
+        assertEquals(noTests, Nil)
         val failures = res.collect {
           case (pn, Some(t)) if t.value.failureCount > 0 => pn
         }
-        assert(failures == Nil)
+        assertEquals(failures, Nil)
       case other => fail(s"expected test output: $other")
     }
   }
@@ -289,7 +280,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     ) match {
       case Output.JsonOutput(Json.JString("this is Foo"), _) =>
-        succeed
+        ()
       case other => fail(s"unexpeced: $other")
     }
   }

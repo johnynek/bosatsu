@@ -2,23 +2,19 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import Identifier.Bindable
 
 import Parser.unsafeParse
-import org.scalatest.funsuite.AnyFunSuite
 
-class DeclarationTest extends AnyFunSuite {
+class DeclarationTest extends munit.ScalaCheckSuite {
 
   import Generators.shrinkDecl
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 200 else 20
     )
   // PropertyCheckConfiguration(minSuccessful = 50)
@@ -119,7 +115,7 @@ class DeclarationTest extends AnyFunSuite {
       }
     }
 
-    forAll(genDNF, genNonFree) { case ((d0, b), d1) =>
+    val prop = forAll(genDNF, genNonFree) { case ((d0, b), d1) =>
       law(b, d1, d0)
     }
 
@@ -205,6 +201,7 @@ class DeclarationTest extends AnyFunSuite {
       }
 
     regressions.foreach { case (b, d1, d0) => law(b, d1, d0) }
+    prop
 
   }
 
@@ -225,11 +222,11 @@ class DeclarationTest extends AnyFunSuite {
           // this mean the free variable is also shadowed
           // at some point
           ()
-        case Some(res) => assert(res == d0)
+        case Some(res) => assertEquals(res, d0)
       }
     }
 
-    forAll(genFrees) { case (d, b) => law(b, d) }
+    val prop = forAll(genFrees) { case (d, b) => law(b, d) }
 
     val regressions: List[(String, String)] =
       List(
@@ -241,6 +238,7 @@ class DeclarationTest extends AnyFunSuite {
       val bind = unsafeParse(Identifier.bindableParser, v)
       law(bind, d)
     }
+    prop
   }
 
   test("test example substitutions") {
@@ -250,7 +248,7 @@ class DeclarationTest extends AnyFunSuite {
       val resD = res.map(unsafeParse(Declaration.parser(""), _))
       val b = unsafeParse(Identifier.bindableParser, bStr)
 
-      assert(Declaration.substitute(b, d1.toNonBinding, d0) == resD)
+      assertEquals(Declaration.substitute(b, d1.toNonBinding, d0), resD)
     }
 
     law(
@@ -275,8 +273,8 @@ x""")
       val alls = all.map(unsafeParse(Identifier.bindableParser, _))
       val decl = unsafeParse(Declaration.parser(""), decls)
 
-      assert(decl.freeVars.toSet == binds.toSet, "freeVars don't match")
-      assert(decl.allNames.toSet == alls.toSet, "allVars don't match")
+      assertEquals(decl.freeVars.toSet, binds.toSet, "freeVars don't match")
+      assertEquals(decl.allNames.toSet, alls.toSet, "allVars don't match")
     }
 
     law("a", List("a"), List("a"))
@@ -300,15 +298,16 @@ x""")
   }
 
   test("isCheap is constant under Annotation or Parens") {
-    forAll(genDecl) { d =>
+    val prop = forAll(genDecl) { d =>
       val an = Declaration.Annotation(d.toNonBinding, null)
-      assert(an.isCheap == d.isCheap)
+      assertEquals(an.isCheap, d.isCheap)
       val p = Declaration.Parens(d)
-      assert(p.isCheap == d.isCheap)
+      assertEquals(p.isCheap, d.isCheap)
     }
 
     assert(Declaration.Var(Identifier.Name("")).isCheap)
     assert(Declaration.Literal(Lit("")).isCheap)
     assert(Declaration.Literal(Lit.fromInt(0)).isCheap)
+    prop
   }
 }

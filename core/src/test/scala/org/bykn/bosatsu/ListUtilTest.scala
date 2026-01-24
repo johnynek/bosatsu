@@ -1,17 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop.forAll
 
-class ListUtilTest extends AnyFunSuite {
+class ListUtilTest extends munit.ScalaCheckSuite {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   def genNEL[A](ga: Gen[A]): Gen[NonEmptyList[A]] =
     Gen.sized { sz =>
@@ -28,7 +24,7 @@ class ListUtilTest extends AnyFunSuite {
   test("unit group has 1 item") {
     forAll { (nel: NonEmptyList[Int]) =>
       val unit = ListUtil.greedyGroup(nel)(_ => ())((_, _) => Some(()))
-      assert(unit == NonEmptyList.one(()))
+      assertEquals(unit, NonEmptyList.one(()))
     }
   }
 
@@ -62,14 +58,14 @@ class ListUtilTest extends AnyFunSuite {
   test("if we always accept there is one group") {
     forAll { (nel: NonEmptyList[Int], one: Int => Int) =>
       val groups = ListUtil.greedyGroup(nel)(one)((x, y) => Some(x + y))
-      assert(groups.length == 1)
+      assertEquals(groups.length, 1)
     }
   }
 
   test("if we never accept there are as many groups as came in") {
     forAll { (nel: NonEmptyList[Int], one: Int => Int) =>
       val groups = ListUtil.greedyGroup(nel)(one)((_, _) => None)
-      assert(groups.length == nel.length)
+      assertEquals(groups.length, nel.length)
     }
   }
 
@@ -100,7 +96,7 @@ class ListUtilTest extends AnyFunSuite {
       val asList = nel.toList.distinct
       val viaFn = ListUtil.distinctByHashSet(nel).toList
 
-      assert(viaFn == asList)
+      assertEquals(viaFn, asList)
     }
   }
 }

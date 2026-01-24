@@ -3,18 +3,14 @@ package org.bykn.bosatsu.codegen.python
 import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.python.core.{ParserFacade => JythonParserFacade}
-import org.scalatest.funsuite.AnyFunSuite
 
-class CodeTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class CodeTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 50000)
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
 
   lazy val genPy2Name: Gen[String] = {
     val letters = (('A' to 'Z') ++ ('a' to 'z')).toList
@@ -242,7 +238,7 @@ class CodeTest extends AnyFunSuite {
     val ifElse = IfElse(NonEmptyList.of((Ident("a"), Ident("b"))), Ident("c"))
     val stmt = addAssign(Ident("bar"), ifElse)
 
-    assert(toDoc(stmt).renderTrim(80) == """if a:
+    assertEquals(toDoc(stmt).renderTrim(80), """if a:
     bar = b
 else:
     bar = c""")
@@ -254,17 +250,17 @@ else:
     val apbpc =
       Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
 
-    assert(toDoc(apbpc).renderTrim(80) == """a + b + c""")
+    assertEquals(toDoc(apbpc).renderTrim(80), """a + b + c""")
 
     val apbmc =
       Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Minus, Ident("c")))
 
-    assert(toDoc(apbmc).renderTrim(80) == """a + b - c""")
+    assertEquals(toDoc(apbmc).renderTrim(80), """a + b - c""")
 
     val ambmc =
       Op(Ident("a"), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
-    assert(toDoc(ambmc).renderTrim(80) == """a - (b - c)""")
+    assertEquals(toDoc(ambmc).renderTrim(80), """a - (b - c)""")
 
     val amzmbmc = Op(
       Op(Ident("a"), Const.Minus, Ident("z")),
@@ -272,12 +268,12 @@ else:
       Op(Ident("b"), Const.Minus, Ident("c"))
     )
 
-    assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
+    assertEquals(toDoc(amzmbmc).renderTrim(80), """(a - z) - (b - c)""")
   }
 
   test("x.eval(Eq, x) == True") {
     forAll(genExpr(4)) { x =>
-      assert(x.eval(Code.Const.Eq, x) == Code.Const.True)
+      assertEquals(x.eval(Code.Const.Eq, x), Code.Const.True)
     }
   }
   test("we can do integer comparisons") {
@@ -288,19 +284,19 @@ else:
       val p2 = Code.fromInt(i2)
 
       if (cmp == 0) {
-        assert(p1.eval(Code.Const.Eq, p2) == Code.Const.True)
+        assertEquals(p1.eval(Code.Const.Eq, p2), Code.Const.True)
       } else if (cmp < 0) {
-        assert(p1.eval(Code.Const.Lt, p2) == Code.Const.True)
+        assertEquals(p1.eval(Code.Const.Lt, p2), Code.Const.True)
       } else {
-        assert(p1.eval(Code.Const.Gt, p2) == Code.Const.True)
+        assertEquals(p1.eval(Code.Const.Gt, p2), Code.Const.True)
       }
     }
   }
 
   test("x.evalAnd(True) == x") {
     forAll(genExpr(4)) { x =>
-      assert(x.evalAnd(Code.Const.True) == x.simplify)
-      assert(Code.Const.True.evalAnd(x) == x.simplify)
+      assertEquals(x.evalAnd(Code.Const.True), x.simplify)
+      assertEquals(Code.Const.True.evalAnd(x), x.simplify)
     }
   }
   test("x.evalAnd(False) == False") {
@@ -310,7 +306,7 @@ else:
       assert(
         (res == Code.Const.False) || ((res == sx) && (sx == Code.Const.Zero))
       )
-      assert(Code.Const.False.evalAnd(x) == Code.Const.False)
+      assertEquals(Code.Const.False.evalAnd(x), Code.Const.False)
     }
   }
 
@@ -318,7 +314,7 @@ else:
     forAll { (x: Int, y: Int) =>
       val cx = Code.fromInt(x)
       val cy = Code.fromInt(y)
-      assert(cx.evalPlus(cy) == Code.fromLong(x.toLong + y.toLong))
+      assertEquals(cx.evalPlus(cy), Code.fromLong(x.toLong + y.toLong))
     }
   }
 
@@ -326,7 +322,7 @@ else:
     forAll { (x: Int, y: Int) =>
       val cx = Code.fromInt(x)
       val cy = Code.fromInt(y)
-      assert(cx.evalMinus(cy) == Code.fromLong(x.toLong - y.toLong))
+      assertEquals(cx.evalMinus(cy), Code.fromLong(x.toLong - y.toLong))
     }
   }
 
@@ -334,7 +330,7 @@ else:
     forAll { (x: Int, y: Int) =>
       val cx = Code.fromInt(x)
       val cy = Code.fromInt(y)
-      assert(cx.evalTimes(cy) == Code.fromLong(x.toLong * y.toLong))
+      assertEquals(cx.evalTimes(cy), Code.fromLong(x.toLong * y.toLong))
     }
   }
 
@@ -348,28 +344,24 @@ else:
         op2,
         Code.fromLong(c)
       )
-      assert(
-        left.simplify == Code.PyInt(
+      assertEquals(left.simplify, Code.PyInt(
           op2(
             op1(BigInteger.valueOf(a), BigInteger.valueOf(b)),
             BigInteger.valueOf(c)
           )
-        )
-      )
+        ))
 
       val right = Code.Op(
         Code.fromLong(a),
         op1,
         Code.Op(Code.fromLong(b), op2, Code.fromLong(c))
       )
-      assert(
-        right.simplify == Code.PyInt(
+      assertEquals(right.simplify, Code.PyInt(
           op1(
             BigInteger.valueOf(a),
             op2(BigInteger.valueOf(b), BigInteger.valueOf(c))
           )
-        )
-      )
+        ))
     }
   }
 
@@ -402,6 +394,12 @@ else:
     genOp(depth, go, Gen.choose(-1024, 1024).map(Code.fromInt))
 
   test("any sequence of IntOps is optimized") {
+    def asPyInt(expr: Code.Expression): Option[Code.PyInt] =
+      expr match {
+        case pi: Code.PyInt => Some(pi)
+        case _              => None
+      }
+
     forAll(
       genIntOp(
         5,
@@ -409,15 +407,13 @@ else:
       )
     ) { op =>
       // adding zero collapses to an Int
-      assert(Some(op.evalPlus(Code.fromInt(0))) == runAll(op))
-      assert(Some(Code.fromInt(0).evalPlus(op)) == runAll(op))
-      assert(Some(op.evalMinus(Code.fromInt(0))) == runAll(op))
-      assert(
-        Some(Code.fromInt(0).evalMinus(op)) == runAll(
+      assertEquals(asPyInt(op.evalPlus(Code.fromInt(0))), runAll(op))
+      assertEquals(asPyInt(Code.fromInt(0).evalPlus(op)), runAll(op))
+      assertEquals(asPyInt(op.evalMinus(Code.fromInt(0))), runAll(op))
+      assertEquals(asPyInt(Code.fromInt(0).evalMinus(op)), runAll(
           op.evalTimes(Code.fromInt(-1))
-        )
-      )
-      assert(Some(Code.fromInt(1).evalTimes(op)) == runAll(op))
+        ))
+      assertEquals(asPyInt(Code.fromInt(1).evalTimes(op)), runAll(op))
     }
   }
 
@@ -436,7 +432,7 @@ else:
       def assertGood(
           x: Code.Expression,
           isRight: Boolean
-      ): org.scalatest.Assertion =
+      ): Unit =
         x match {
           case Code.PyInt(_) =>
             assert(isRight, s"found: $x on the left inside of $simpOp")
@@ -455,8 +451,8 @@ else:
   test("Code.block as at most 1 Pass and if so, only at the end") {
     import Code._
 
-    assert(block(Pass) == Pass)
-    assert(block(Pass, Pass) == Pass)
+    assertEquals(block(Pass), Pass)
+    assertEquals(block(Pass, Pass), Pass)
 
     forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
       val stmt = block(h, t: _*)
@@ -479,16 +475,16 @@ else:
       assert(pc <= 1)
       if (pc == 1) {
         t.foreach { s =>
-          assert(notPassCount(s) == 0)
+          assertEquals(notPassCount(s), 0)
         }
-        assert(notPassCount(h) == 0)
+        assertEquals(notPassCount(h), 0)
       }
     }
   }
 
   test("simplify is idempotent") {
-    forAll(genExpr(4)) { expr =>
-      assert(expr.simplify.simplify == expr.simplify)
+    val prop = forAll(genExpr(4)) { expr =>
+      assertEquals(expr.simplify.simplify, expr.simplify)
     }
 
     val regressions: List[Code.Expression] =
@@ -504,8 +500,10 @@ else:
       )
 
     regressions.foreach { expr =>
-      assert(expr.simplify.simplify == expr.simplify)
+      assertEquals(expr.simplify.simplify, expr.simplify)
     }
+
+    prop
   }
 
   test("simplify on Ternary removes branches when possible") {
@@ -514,15 +512,15 @@ else:
       c.simplify match {
         case Code.PyBool(b) =>
           if (b) {
-            assert(tern == t.simplify)
+            assertEquals(tern, t.simplify)
           } else {
-            assert(tern == f.simplify)
+            assertEquals(tern, f.simplify)
           }
         case Code.PyInt(i) =>
           if (i != BigInteger.ZERO) {
-            assert(tern == t.simplify)
+            assertEquals(tern, t.simplify)
           } else {
-            assert(tern == f.simplify)
+            assertEquals(tern, f.simplify)
           }
         case whoKnows =>
           if (tern == whoKnows) {
@@ -542,9 +540,9 @@ else:
                     Code.Const.One | Code.Const.True
                   ) =>
                 val not = Code.Not(whoKnows).simplify
-                assert(tern == not)
+                assertEquals(tern, not)
               case (ts, fs) =>
-                assert(tern == Code.Ternary(ts, whoKnows, fs))
+                assertEquals(tern, Code.Ternary(ts, whoKnows, fs))
             }
           }
       }
@@ -565,12 +563,10 @@ else:
     val right = Code.Op(Code.Ident("b"), Code.Const.Eq, Code.Ident("c"))
     val and = left.evalAnd(right)
 
-    assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
-    assert(
-      Code
+    assertEquals(Code.toDoc(and).renderTrim(80), "(a == b) and (b == c)")
+    assertEquals(Code
         .toDoc(Code.Ident("z").evalAnd(and))
-        .renderTrim(80) == "z and (a == b) and (b == c)"
-    )
+        .renderTrim(80), "z and (a == b) and (b == c)")
   }
 
   test("simplify applies lambdas") {
@@ -589,11 +585,9 @@ else:
       } yield LambdaArgs(Code.Lambda(largs, result), args)
 
     forAll(genArgs) { case LambdaArgs(lam, arg) =>
-      assert(
-        lam(arg: _*).simplify == Code
+      assertEquals(lam(arg: _*).simplify, Code
           .substitute(lam.args.zip(arg).toMap, lam.result)
-          .simplify
-      )
+          .simplify)
     }
   }
 
@@ -604,16 +598,16 @@ else:
 
     val applied = hardCase(y).simplify
     val y0 = Code.Ident("y0")
-    assert(applied == Code.Lambda(List(y0), y + y0))
+    assertEquals(applied, Code.Lambda(List(y0), y + y0))
 
     val z = Code.Ident("z")
     val applied1 = hardCase(z).simplify
-    assert(applied1 == Code.Lambda(List(y), z + y))
+    assertEquals(applied1, Code.Lambda(List(y), z + y))
   }
 
   test("simplify(Map.empty, x) == x") {
     forAll(genExpr(4)) { x =>
-      assert(Code.substitute(Map.empty, x) == x)
+      assertEquals(Code.substitute(Map.empty, x), x)
     }
   }
 

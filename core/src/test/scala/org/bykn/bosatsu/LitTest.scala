@@ -1,17 +1,13 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.scalacheck.Arbitrary
 import org.typelevel.paiges.Document
 
-class LitTest extends AnyFunSuite {
-  def config: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class LitTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 1000 else 100
     )
 
@@ -31,7 +27,7 @@ class LitTest extends AnyFunSuite {
     forAll(Gen.choose(Char.MinValue, Char.MaxValue)) { (c: Char) =>
       try {
         val chr = Lit.fromChar(c)
-        assert(chr.asInstanceOf[Lit.Chr].asStr == c.toString)
+        assertEquals(chr.asInstanceOf[Lit.Chr].asStr, c.toString)
       } catch {
         case _: IllegalArgumentException =>
           // there are at least 1million valid codepoints
@@ -45,7 +41,7 @@ class LitTest extends AnyFunSuite {
     forAll(Gen.choose(-1000, 1500000)) { (cp: Int) =>
       try {
         val chr = Lit.fromCodePoint(cp)
-        assert(chr.asInstanceOf[Lit.Chr].toCodePoint == cp)
+        assertEquals(chr.asInstanceOf[Lit.Chr].toCodePoint, cp)
       } catch {
         case _: IllegalArgumentException =>
           // there are at least 1million valid codepoints
@@ -62,9 +58,7 @@ class LitTest extends AnyFunSuite {
 
   test("we can parse from document") {
     forAll(genLit) { l =>
-      assert(
-        Lit.parser.parseAll(Document[Lit].document(l).render(80)) == Right(l)
-      )
+      assertEquals(Lit.parser.parseAll(Document[Lit].document(l).render(80)), Right(l))
     }
   }
 }

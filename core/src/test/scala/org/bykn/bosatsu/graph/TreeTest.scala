@@ -2,12 +2,11 @@ package org.bykn.bosatsu.graph
 
 import cats.data.{NonEmptyList, Validated}
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
+import org.scalacheck.Prop.forAll
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class TreeTest extends AnyFunSuite {
+class TreeTest extends munit.ScalaCheckSuite {
 
   test("explicit dags never fail") {
     val dagFn: Gen[Int => List[Int]] =
@@ -34,7 +33,7 @@ class TreeTest extends AnyFunSuite {
           // the neightbor function should give the same tree:
           val treeFn = Tree.neighborsFn(tree)
           val tree2 = Tree.dagToTree(tree.item)(treeFn)
-          assert(tree2 == v)
+          assertEquals(tree2, v)
           assert(Paths.allCycle0(start)(nfn).isEmpty)
         case Validated.Invalid(circs) =>
           fail(s"circular paths found: $circs")
@@ -79,8 +78,8 @@ class TreeTest extends AnyFunSuite {
       val reached = Dag.transitiveSet(start :: Nil)(nfn)
 
       val expectReachable = reachable(Set(start)).toList.sorted
-      assert(reached.toList == expectReachable)
-      assert(expectReachable == cycles.head.toList)
+      assertEquals(reached.toList, expectReachable)
+      assertEquals(expectReachable, cycles.head.toList)
       assert(Tree.dagToTree(start)(nfn).isInvalid)
     }
   }
@@ -88,14 +87,14 @@ class TreeTest extends AnyFunSuite {
   test("distinctBy matches distinct") {
     forAll { (h: Int, tail: List[Int]) =>
       val nel = NonEmptyList(h, tail)
-      assert(Tree.distinctBy(nel)(identity).toList == (h :: tail).distinct)
+      assertEquals(Tree.distinctBy(nel)(identity).toList, (h :: tail).distinct)
     }
   }
 
   test("if everything is the same, we keep the first item, in distinctBy") {
     forAll { (h: Int, tail: List[Int]) =>
       val nel = NonEmptyList(h, tail)
-      assert(Tree.distinctBy(nel)(Function.const(1)).toList == (h :: Nil))
+      assertEquals(Tree.distinctBy(nel)(Function.const(1)).toList, (h :: Nil))
     }
   }
 
@@ -104,12 +103,12 @@ class TreeTest extends AnyFunSuite {
       val nel0 = NonEmptyList(h0, tail0)
       // filter all items in nel1 that are in nel0
       NonEmptyList.fromList(l1.filterNot(nel0.toList.toSet)) match {
-        case None        => succeed
+        case None        => ()
         case Some(diffs) =>
           val got =
             Tree.distinctBy(nel0)(identity) ::: Tree.distinctBy(diffs)(identity)
           val expected = Tree.distinctBy(nel0 ::: diffs)(identity)
-          assert(got == expected)
+          assertEquals(got, expected)
       }
     }
   }
