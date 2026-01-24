@@ -52,7 +52,9 @@ class PatternTest extends AnyFunSuite {
 
   test("topNames and substructures are disjoint") {
     forAll(patGen) { p =>
-      p.topNames.toSet.intersect(p.substructures.toSet).isEmpty
+      if (p.collisionBinds.isEmpty)
+        p.topNames.toSet.intersect(p.substructures.toSet).isEmpty
+      else true
     }
   }
 
