@@ -73,7 +73,10 @@ jobs:
       - name: "run tests with coverage"
         run: |
           sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
-          bash <(curl -s https://codecov.io/bash)
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       matrix:
         java:
