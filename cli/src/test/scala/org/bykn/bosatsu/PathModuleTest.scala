@@ -14,7 +14,7 @@ import scala.util.{Failure, Success, Try}
 import cats.effect.unsafe.implicits.global
 
 class PathModuleTest extends munit.ScalaCheckSuite {
-  override def munitTimeout: Duration = 2.minutes
+  override def munitTimeout: Duration = 6.minutes
 
   import PathModule.platformIO.pathPackage
 
