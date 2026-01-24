@@ -567,8 +567,7 @@ object PackageMap {
 
   /** Here is the fully compiled Predef
     */
-  val predefCompiled: Package.Inferred = {
-    import DirectEC.directEC
+  val predefCompiled: Package.Inferred = Par.noParallelism {
 
     // implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
     val inferred = PackageMap

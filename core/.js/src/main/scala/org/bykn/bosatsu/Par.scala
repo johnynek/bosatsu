@@ -17,19 +17,21 @@ object Par {
 
   opaque type F[A] = cats.Id[A]
   opaque type P[A] <: AnyRef = Box[A]
-  opaque type EC = DummyImplicit
+  opaque type EC = Unit
   opaque type ExecutionService = Unit
 
-  implicit def ecFromExecutionContext(implicit ec: DummyImplicit): EC = ec
+  // There is no actual parallelism here, so we don't need any ExecutionContext
+  implicit val alwaysEC: EC = ()
 
-  implicit def monadF(implicit ec: EC): Monad[F] =
+  implicit val monadF: Monad[F] =
     cats.catsInstancesForId
 
   def newService(): ExecutionService = ()
   def shutdownService(es: ExecutionService): Unit = es
-  def ecFromService(es: ExecutionService): EC = DummyImplicit.dummyImplicit
+  def ecFromService(es: ExecutionService): EC = ()
 
-  def withEC[A](fn: EC => A): A = fn(DummyImplicit.dummyImplicit)
+  def withEC[A](fn: EC ?=> A): A = fn(using ())
+  def noParallelism[A](fn: EC ?=> A): A = fn(using ())
 
   @inline def start[A](a: => A): F[A] = a
 

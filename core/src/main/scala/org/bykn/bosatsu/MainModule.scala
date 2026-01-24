@@ -371,7 +371,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       type Result = Output.TranspileOut[Path]
 
       def run =
-        withEC { implicit ec =>
+        withEC {
           for {
             pn <- inputs.packMap(this, Nil, errColor)
             (packs, names) = pn
@@ -389,7 +389,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       type Result = Output.EvaluationResult
 
       def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] = withEC {
-        implicit ec =>
           for {
             (packs, names) <- inputs.packMap(this, List(mainPackage), errColor)
             (mainPackageName, value) <- mainPackage.getMain(names)
@@ -597,7 +596,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       type Result = Output.CompileOut[Path]
 
       def run =
-        withEC { implicit ec =>
+        withEC {
           for {
             packs <- inputs.compile(this, errColor)
             packList =
@@ -620,7 +619,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       type Result = Output.TestOutput
 
-      def run = withEC { implicit ec =>
+      def run = withEC {
         for {
           (packs, nameMap) <- inputs.packMap(this, testPacks, errColor)
           testPackIdents <- testPacks.traverse(_.getMain(nameMap))
@@ -659,7 +658,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       type Result = Output.ShowOutput[Path]
 
-      def run = withEC { implicit ec =>
+      def run = withEC {
         for {
           (ifaces, packs0) <- inputs.loadAndCompile(errColor)
           packs = packs0.filterNot(_.name == PackageName.PredefName)

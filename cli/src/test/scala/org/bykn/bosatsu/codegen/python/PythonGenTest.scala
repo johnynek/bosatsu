@@ -3,13 +3,11 @@ package org.bykn.bosatsu.codegen.python
 import cats.Show
 import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
-import org.bykn.bosatsu.{PackageName, TestUtils}
+import org.bykn.bosatsu.{PackageName, Par, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
-
-import org.bykn.bosatsu.DirectEC.directEC
 
 import TestUtils.compileFile
 
@@ -81,10 +79,12 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   test("we can compile Nat.bosatsu") {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
 
-    val bosatsuPM = compileFile(natPathBosatu)
 
     val packMap =
-      PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+      Par.noParallelism {
+        val bosatsuPM = compileFile(natPathBosatu)
+        PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+      }
     val natDoc = packMap(())(PackageName.parts("Bosatsu", "Nat"))._2
     val natStr = natDoc.renderTrim(80)
 
@@ -139,10 +139,11 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     JythonBarrier.run {
       val intr = new PythonInterpreter()
 
-      val bosatsuPM = compileFile(path)
-
       val packMap =
-        PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+        Par.noParallelism {
+          val bosatsuPM = compileFile(path)
+          PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+        }
       val doc = packMap(())(pn)._2
 
       intr.execfile(isfromString(doc.renderTrim(80)), "test.py")

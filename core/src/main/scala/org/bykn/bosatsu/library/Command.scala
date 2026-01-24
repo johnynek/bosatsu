@@ -299,7 +299,7 @@ object Command {
               NonEmptyList.fromList(inputSrcs) match {
                 case Some(inputNel) =>
                   platformIO
-                    .withEC { ec =>
+                    .withEC {
                       CompilerApi.typeCheck(
                         platformIO,
                         inputNel,
@@ -309,7 +309,7 @@ object Command {
                           ),
                         colorize,
                         inputRes
-                      )(using ec)
+                      )
                     }
                     .map(_._1)
                 case None =>
@@ -404,7 +404,7 @@ object Command {
             }
           }
           decWithLibs <- DecodedLibraryWithDeps.decodeAll(decLib)(loadFn)
-          outputs <- platformIO.withEC { implicit ec =>
+          outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
           }
           _ <- outputs.traverse_ { case (path, doc) =>
