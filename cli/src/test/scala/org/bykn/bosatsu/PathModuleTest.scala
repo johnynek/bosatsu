@@ -5,15 +5,17 @@ import cats.effect.IO
 import java.nio.file.{Path, Paths}
 import org.bykn.bosatsu.tool.Output
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
+import org.scalacheck.Prop.forAll
+import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 // allow us to unsafeRunSync
 import cats.effect.unsafe.implicits.global
 
-class PathModuleTest extends AnyFunSuite {
+class PathModuleTest extends munit.ScalaCheckSuite {
+  override def munitTimeout: Duration = 2.minutes
+
   import PathModule.platformIO.pathPackage
 
   implicit val arbPath: Arbitrary[Path] =
@@ -78,7 +80,7 @@ class PathModuleTest extends AnyFunSuite {
         assert(pathPackage(root :: otherRoots, path) == pack)
       }
 
-    forAll(law(_, _, _))
+    val prop = forAll(law(_, _, _))
     // some regressions:
     val regressions: List[(Path, List[Path], Path)] =
       List(
@@ -87,6 +89,7 @@ class PathModuleTest extends AnyFunSuite {
       )
 
     regressions.foreach { case (r, o, e) => law(r, o, e) }
+    prop
   }
 
   test("if none of the roots are prefixes we have none") {
@@ -193,7 +196,7 @@ class PathModuleTest extends AnyFunSuite {
         .toList :+ "[2, 4]"
 
     run(cmd: _*) match {
-      case Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
+      case Output.JsonOutput(Json.JNumberStr("8"), _) => ()
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -209,7 +212,7 @@ class PathModuleTest extends AnyFunSuite {
             Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))),
             _
           ) =>
-        succeed
+        ()
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -221,7 +224,7 @@ class PathModuleTest extends AnyFunSuite {
         case Right(io) =>
           Try(io.unsafeRunSync()) match {
             case Success(s) => fail(s"got Success($s) expected to fail")
-            case Failure(_) => succeed
+            case Failure(_) => ()
           }
       }
 
@@ -252,14 +255,14 @@ class PathModuleTest extends AnyFunSuite {
     PathModule.run(
       "json write --input_dir test_workspace --main Bo//".split(' ').toList
     ) match {
-      case Left(_)  => succeed
-      case Right(_) => fail()
+      case Left(_)  => ()
+      case Right(_) => fail("expected invalid main name to fail")
     }
     PathModule.run(
       "json write --input_dir test_workspace --main Bo:::boop".split(' ').toList
     ) match {
-      case Left(_)  => succeed
-      case Right(_) => fail()
+      case Left(_)  => ()
+      case Right(_) => fail("expected invalid main name to fail")
     }
   }
 
@@ -289,7 +292,7 @@ class PathModuleTest extends AnyFunSuite {
         .toSeq: _*
     ) match {
       case Output.JsonOutput(Json.JString("this is Foo"), _) =>
-        succeed
+        ()
       case other => fail(s"unexpeced: $other")
     }
   }

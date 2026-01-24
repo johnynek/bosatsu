@@ -1,19 +1,15 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import Value._
-import org.scalatest.funsuite.AnyFunSuite
 
-class ValueTest extends AnyFunSuite {
+class ValueTest extends munit.ScalaCheckSuite {
   import GenValue.genValue
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   test("SumValue.toString is what we expect") {
     forAll(Gen.choose(0, 1024), GenValue.genProd) { (i, p) =>
@@ -29,14 +25,14 @@ class ValueTest extends AnyFunSuite {
   }
 
   test("VOption works") {
-    forAll(genValue) { v =>
+    val propSome = forAll(genValue) { v =>
       VOption.some(v) match {
         case VOption(Some(v1)) => assert(v1 == v)
         case other             => fail(s"expected Some($v) got $other")
       }
     }
 
-    forAll(genValue) { v =>
+    val propUnapply = forAll(genValue) { v =>
       VOption.unapply(v) match {
         case None       => ()
         case Some(None) =>
@@ -47,17 +43,18 @@ class ValueTest extends AnyFunSuite {
     }
 
     assert(VOption.unapply(VOption.none) == Some(None))
+    org.scalacheck.Prop.all(propSome, propUnapply)
   }
 
   test("VList works") {
-    forAll(Gen.listOf(genValue)) { vs =>
+    val propList = forAll(Gen.listOf(genValue)) { vs =>
       VList(vs) match {
         case VList(vs1) => assert(vs1 == vs)
         case other      => fail(s"expected VList($vs) got $other")
       }
     }
 
-    forAll(genValue) { v =>
+    val propUnapply = forAll(genValue) { v =>
       VList.unapply(v) match {
         case None      => ()
         case Some(Nil) =>
@@ -68,6 +65,7 @@ class ValueTest extends AnyFunSuite {
     }
 
     assert(VList.unapply(VList.VNil) == Some(Nil))
+    org.scalacheck.Prop.all(propList, propUnapply)
   }
 
   val stringValue: Gen[List[(String, Value)]] =

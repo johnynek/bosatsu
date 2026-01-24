@@ -1,17 +1,13 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.scalacheck.Arbitrary
 import org.typelevel.paiges.Document
 
-class LitTest extends AnyFunSuite {
-  def config: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class LitTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 1000 else 100
     )
 

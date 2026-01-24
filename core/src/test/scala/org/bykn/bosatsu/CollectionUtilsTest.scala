@@ -1,15 +1,11 @@
 package org.bykn.bosatsu
 
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class CollectionUtilsTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class CollectionUtilsTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
   // PropertyCheckConfiguration(minSuccessful = 5)
 
   test("listToUnique works for maps converted to lists") {

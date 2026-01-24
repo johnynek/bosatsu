@@ -2,20 +2,16 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
 
-import org.scalatest.funsuite.AnyFunSuite
 import scala.util.Try
 
-class MatchlessTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class MatchlessTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 5000 else 20
     )
 

@@ -1,16 +1,12 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop.forAll
 
-class ExprTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+class ExprTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   val genExpr: Gen[Expr[Int]] = Generators.Exprs.gen(Gen.choose(0, 99), 4)
 

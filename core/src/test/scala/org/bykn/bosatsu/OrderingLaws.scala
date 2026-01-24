@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import org.scalatest.Assertions._
+import munit.Assertions._
 
 object OrderingLaws {
   def law[A: Ordering](a: A, b: A, c: A): Unit = {

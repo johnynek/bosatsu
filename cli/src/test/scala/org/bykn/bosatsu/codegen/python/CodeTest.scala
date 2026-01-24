@@ -3,18 +3,14 @@ package org.bykn.bosatsu.codegen.python
 import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.python.core.{ParserFacade => JythonParserFacade}
-import org.scalatest.funsuite.AnyFunSuite
 
-class CodeTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class CodeTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 50000)
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
 
   lazy val genPy2Name: Gen[String] = {
     val letters = (('A' to 'Z') ++ ('a' to 'z')).toList
@@ -436,7 +432,7 @@ else:
       def assertGood(
           x: Code.Expression,
           isRight: Boolean
-      ): org.scalatest.Assertion =
+      ): Unit =
         x match {
           case Code.PyInt(_) =>
             assert(isRight, s"found: $x on the left inside of $simpOp")
@@ -487,7 +483,7 @@ else:
   }
 
   test("simplify is idempotent") {
-    forAll(genExpr(4)) { expr =>
+    val prop = forAll(genExpr(4)) { expr =>
       assert(expr.simplify.simplify == expr.simplify)
     }
 
@@ -506,6 +502,8 @@ else:
     regressions.foreach { expr =>
       assert(expr.simplify.simplify == expr.simplify)
     }
+
+    prop
   }
 
   test("simplify on Ternary removes branches when possible") {

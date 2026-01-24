@@ -2,15 +2,11 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Gen, Arbitrary}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class PatternTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+class PatternTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
@@ -96,7 +92,7 @@ class PatternTest extends AnyFunSuite {
     def checkNot(str: String) =
       pat(str) match {
         case Pattern.SinglyNamed(n) => fail(s"unexpected singlynamed: $n")
-        case _                      => succeed
+        case _                      => ()
       }
 
     check("foo", "foo")

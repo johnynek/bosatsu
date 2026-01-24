@@ -5,15 +5,11 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
 import org.bykn.bosatsu.{PackageName, TestUtils}
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
-import org.scalatest.funsuite.AnyFunSuite
 
 import TestUtils.compileFile
 
@@ -30,11 +26,11 @@ object JythonBarrier {
   }
 }
 
-class PythonGenTest extends AnyFunSuite {
+class PythonGenTest extends munit.ScalaCheckSuite {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  override def scalaCheckTestParameters =
     // these tests are slow
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   implicit val showStr: Show[String] = Show.show[String](identity)
 

@@ -1,19 +1,15 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.bykn.bosatsu.rankn.NTypeGen
 import org.bykn.bosatsu.TestUtils.checkLast
 import org.bykn.bosatsu.Identifier.Name
 
-class SelfCallKindTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class SelfCallKindTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
     Generators.genTypedExpr(g, 3, NTypeGen.genDepth03)

@@ -1,21 +1,17 @@
 package org.bykn.bosatsu.graph
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 import org.bykn.bosatsu.MonadGen.genMonad
 import org.bykn.bosatsu.ListOrdering
 import scala.collection.immutable.SortedSet
 
 import cats.syntax.all._
 
-class DagTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class DagTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
 
   val genDag: Gen[Map[Int, Set[Int]]] =
     Gen

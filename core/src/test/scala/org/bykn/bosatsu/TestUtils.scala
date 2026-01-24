@@ -4,9 +4,7 @@ import cats.data.{Chain, Ior, Validated, NonEmptyList}
 import java.nio.file.{Files, Paths}
 import org.bykn.bosatsu.rankn._
 import org.bykn.bosatsu.tool.Output
-import org.scalatest.{Assertion, Assertions}
-
-import Assertions.{succeed, fail}
+import munit.Assertions.fail
 import IorMethods.IorExtension
 
 import cats.syntax.all._
@@ -245,7 +243,7 @@ object TestUtils {
               Test.report(t, LocationMap.Colorize.None)
             assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
             if (failcount > 0) fail(message.render(80))
-            else succeed
+            else ()
           case other =>
             fail(s"expected exactly one test result, got: $other")
         }
@@ -265,7 +263,7 @@ object TestUtils {
   def testInferred(
       packages: List[String],
       mainPackS: String,
-      inferredHandler: (PackageMap.Inferred, PackageName) => Assertion
+      inferredHandler: (PackageMap.Inferred, PackageName) => Unit
   )(implicit ec: Par.EC) = {
     val mainPack = PackageName.parse(mainPackS).get
 

@@ -4,19 +4,15 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
 import Identifier.Constructor
-import org.scalatest.funsuite.AnyFunSuite
 
-class ProtoConverterTest extends AnyFunSuite with ParTest {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 100 else 10
     )
 

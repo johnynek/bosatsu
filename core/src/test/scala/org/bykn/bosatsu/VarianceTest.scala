@@ -1,8 +1,7 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
 object VarianceGen {
   val gen: Gen[Variance] = Gen.oneOf(
@@ -15,7 +14,7 @@ object VarianceGen {
   implicit val arbVar: Arbitrary[Variance] = Arbitrary(gen)
 }
 
-class VarianceTest extends AnyFunSuite {
+class VarianceTest extends munit.ScalaCheckSuite {
   import VarianceGen.arbVar
 
   val V = Variance.varianceBoundedSemilattice
@@ -47,7 +46,7 @@ class VarianceTest extends AnyFunSuite {
   }
 
   test("variance is distributive") {
-    forAll { (v1: Variance, v2: Variance, v3: Variance) =>
+    val prop = forAll { (v1: Variance, v2: Variance, v3: Variance) =>
       val left = v1 * (v2 + v3)
       val right = (v1 * v2) + (v1 * v3)
       assert(left == right, s"$left != $right")
@@ -63,6 +62,7 @@ class VarianceTest extends AnyFunSuite {
       val right = (v1 * v2) + (v1 * v3)
       assert(left == right, s"$left != $right")
     }
+    prop
   }
 
   test("negate is the same as muliplying by contra") {

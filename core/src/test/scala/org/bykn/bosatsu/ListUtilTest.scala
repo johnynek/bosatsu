@@ -1,17 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop.forAll
 
-class ListUtilTest extends AnyFunSuite {
+class ListUtilTest extends munit.ScalaCheckSuite {
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
 
   def genNEL[A](ga: Gen[A]): Gen[NonEmptyList[A]] =
     Gen.sized { sz =>

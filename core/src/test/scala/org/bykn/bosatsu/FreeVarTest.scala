@@ -1,15 +1,10 @@
 package org.bykn.bosatsu
 
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
-import org.scalatest.funsuite.AnyFunSuite
-
-class FreeVarTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+class FreeVarTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
   // PropertyCheckConfiguration(minSuccessful = 300)
   // PropertyCheckConfiguration(minSuccessful = 5)
 

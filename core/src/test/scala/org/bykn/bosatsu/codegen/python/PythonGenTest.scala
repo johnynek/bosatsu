@@ -1,16 +1,12 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.bykn.bosatsu.Generators.bindIdentGen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class PythonGenTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class PythonGenTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
   // PropertyCheckConfiguration(minSuccessful = 500)
 
   val PythonName = "[_A-Za-z][_A-Za-z0-9]*".r.pattern

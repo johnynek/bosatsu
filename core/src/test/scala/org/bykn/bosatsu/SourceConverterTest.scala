@@ -1,19 +1,15 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import Identifier.Bindable
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class SourceConverterTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class SourceConverterTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 3000 else 20
     )
 

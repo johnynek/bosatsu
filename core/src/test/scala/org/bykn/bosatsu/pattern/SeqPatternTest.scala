@@ -3,16 +3,12 @@ package org.bykn.bosatsu.pattern
 import org.bykn.bosatsu.set.{Rel, SetOps}
 import org.bykn.bosatsu.StringUtil
 import org.scalacheck.{Arbitrary, Gen, Shrink}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import SeqPattern.{Cat, Empty}
 import SeqPart.{Wildcard, AnyElem, Lit}
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
 object StringSeqPatternGen {
 
@@ -158,17 +154,20 @@ object StringSeqPatternGen {
 
 }
 
-abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
+abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
 
   type Pattern = SeqPattern[E]
   val Pattern = SeqPattern
   type Named = NamedSeqPattern[E]
   val Named = NamedSeqPattern
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  protected def minSuccessfulTests: Int =
     // PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    5000
   // PropertyCheckConfiguration(minSuccessful = 50)
+
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(minSuccessfulTests)
 
   def genPattern: Gen[Pattern]
   def genNamed: Gen[Named]
@@ -345,13 +344,14 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   def diffUBRegressions: List[(Pattern, Pattern, S)] = Nil
 
   test("difference is an upper bound") {
-    forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) =>
+    val prop = forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) =>
       differenceUBLaw(p1, p2, s)
     }
 
     diffUBRegressions.foreach { case (p1, p2, s) =>
       differenceUBLaw(p1, p2, s)
     }
+    prop
   }
 
   test("p + q match (s + t) if p.matches(s) && q.matches(t)") {
@@ -422,9 +422,9 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
 class BoolSeqPatternTest
     extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {
 
-  implicit override val generatorDrivenConfig: PropertyCheckConfiguration =
+  override protected def minSuccessfulTests: Int =
     // these tests wind up running very long sometimes
-    PropertyCheckConfiguration(minSuccessful = 100)
+    100
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
     Shrink.withLazyList {
@@ -635,7 +635,7 @@ class BoolSeqPatternTest
       }
     }
 
-    forAll(genPattern, genPattern, Gen.listOf(genSeq))(law(_, _, _))
+    val prop = forAll(genPattern, genPattern, Gen.listOf(genSeq))(law(_, _, _))
 
     val subsets: List[(Pattern, Pattern, Boolean)] =
       List {
@@ -722,6 +722,7 @@ class BoolSeqPatternTest
     regressions.foreach { case (p1, p2, bs) =>
       law(p1, p2, bs)
     }
+    prop
   }
 
   test("test some missing branches") {
@@ -886,7 +887,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
         }
       }
 
-    forAll(genNamed, genSeq)(law(_, _))
+    val prop = forAll(genNamed, genSeq)(law(_, _))
 
     import NamedSeqPattern.{NCat, Bind, NSeqPart}
     import SeqPart.Wildcard
@@ -899,6 +900,7 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
         Nil
 
     regressions.foreach { case (n, s) => law(n, s) }
+    prop
   }
 
   def named(s: String): Named =

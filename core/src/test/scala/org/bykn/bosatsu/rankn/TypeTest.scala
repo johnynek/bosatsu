@@ -3,18 +3,14 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.Kind
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class TypeTest extends AnyFunSuite {
+class TypeTest extends munit.ScalaCheckSuite {
   import NTypeGen.shrinkType
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
   // PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =
@@ -46,7 +42,7 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("Tuple unapply is the inverse of apply") {
-    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+    val prop = forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       Type.Tuple(ts) match {
         case Type.Tuple(ts1) => assert(ts1 == ts)
         case notTup          => fail(notTup.toString)
@@ -58,10 +54,11 @@ class TypeTest extends AnyFunSuite {
       Type.Tuple.unapply(parse("(a, b, c)")) ==
         Some(List("a", "b", "c").map(parse))
     )
+    prop
   }
 
   test("unapplyAll is the inverse of applyAll") {
-    forAll(NTypeGen.genDepth03) { ts =>
+    val prop = forAll(NTypeGen.genDepth03) { ts =>
       val (left, args) = Type.unapplyAll(ts)
       assert(Type.applyAll(left, args) == ts)
     }
@@ -70,6 +67,7 @@ class TypeTest extends AnyFunSuite {
       Type.unapplyAll(parse("foo[bar]")) ==
         (parse("foo"), List(parse("bar")))
     )
+    prop
   }
 
   test("freeBoundVar doesn't change by applyAll") {
@@ -108,7 +106,7 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("normalization never throws") {
-    forAll(NTypeGen.genDepth03) { t =>
+    val prop = forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
     }
 
@@ -243,6 +241,7 @@ class TypeTest extends AnyFunSuite {
 
       assert(Type.freeBoundTyVars(qt1.in :: Nil) == List(Bound("u")))
     }
+    prop
   }
 
   test("normalization is idempotent") {
@@ -259,23 +258,25 @@ class TypeTest extends AnyFunSuite {
       assert(Type.fullyResolvedParser.parseAll(str) == Right(t), s"$str != $t")
     }
 
-    forAll(NTypeGen.genDepth03)(law(_))
+    val propRoundTrip = forAll(NTypeGen.genDepth03)(law(_))
 
-    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) {
+    val propSkolem =
+      forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) {
       (b, id) =>
         val str = "$" + b + "$" + id.toString
         val tpe = parse(str)
         law(tpe)
         tpe match {
           case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
-            assert((b1, k1, i1) === (b, Kind.Type, id))
+            assert((b1, k1, i1) == (b, Kind.Type, id))
           case other => fail(other.toString)
         }
     }
 
-    forAll { (l: Long) =>
+    val propMeta = forAll { (l: Long) =>
       assert(parse("?" + l.toString).asInstanceOf[Type.TyMeta].toMeta.id == l)
     }
+    org.scalacheck.Prop.all(propRoundTrip, propSkolem, propMeta)
   }
 
   test("test all binders") {
@@ -330,7 +331,7 @@ class TypeTest extends AnyFunSuite {
       else assert(allT.exists(t => !Type.hasNoVars(t)), "hasNoVars == false")
     }
 
-    forAll(NTypeGen.genDepth03)(law)
+    val prop = forAll(NTypeGen.genDepth03)(law)
 
     val pastFails =
       List(
@@ -349,6 +350,7 @@ class TypeTest extends AnyFunSuite {
       )
 
     pastFails.foreach(law)
+    prop
   }
 
   test("Type.freeTyVars is empty for ForAll fully bound") {
@@ -409,7 +411,7 @@ class TypeTest extends AnyFunSuite {
       assert(t2 == t1)
     }
 
-    forAll(NTypeGen.genDepth03, genSubs(3))(law)
+    val prop = forAll(NTypeGen.genDepth03, genSubs(3))(law)
 
     val ba: Type.Var = Type.Var.Bound("a")
 
@@ -419,6 +421,7 @@ class TypeTest extends AnyFunSuite {
     )
 
     pastFails.foreach { case (t, s) => law(t, s) }
+    prop
   }
 
   test("after substitution, none of the keys are free") {
@@ -658,7 +661,7 @@ class TypeTest extends AnyFunSuite {
           }
         case _ =>
           expect match {
-            case None        => succeed
+            case None        => ()
             case Some(exTpe) =>
               fail(s"$fn is not SimpleUniversal but expected: $exTpe")
           }

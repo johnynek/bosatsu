@@ -4,9 +4,8 @@ import cats.Show
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import IorMethods.IorExtension
-import org.scalatest.funsuite.AnyFunSuite
 
-class PackageTest extends AnyFunSuite with ParTest {
+class PackageTest extends munit.FunSuite with ParTest {
 
   def resolveThenInfer(
       ps: Iterable[Package.Parsed]
@@ -25,7 +24,7 @@ class PackageTest extends AnyFunSuite with ParTest {
 
   def valid[A, B](v: Validated[A, B]) =
     v match {
-      case Validated.Valid(_)     => succeed
+      case Validated.Valid(_)     => ()
       case Validated.Invalid(err) => fail(err.toString)
     }
 
@@ -34,7 +33,7 @@ class PackageTest extends AnyFunSuite with ParTest {
       case Validated.Valid(err)   => fail(err.toString)
       case Validated.Invalid(err) =>
         err.toList.foreach(_.message(Map.empty, LocationMap.Colorize.None))
-        succeed
+        ()
     }
 
   test("simple package resolves") {
@@ -62,7 +61,7 @@ main = 1
     valid(resolveThenInfer(List(p1)))
     valid(resolveThenInfer(List(p1, p2)).map { pmap =>
       assert(
-        pmap.toMap(PackageName.parts("Foo2")).allImportPacks === List(
+        pmap.toMap(PackageName.parts("Foo2")).allImportPacks == List(
           PackageName.parts("Foo")
         )
       )
@@ -70,7 +69,7 @@ main = 1
         pmap
           .toMap(PackageName.parts("Foo2"))
           .toIface
-          .visibleDepPackages === List(PackageName.PredefName)
+          .visibleDepPackages == List(PackageName.PredefName)
       )
     })
     invalid(resolveThenInfer(List(p2, p3))) // loop here
@@ -122,12 +121,12 @@ main = head(data)
 """)
     valid(resolveThenInfer(List(p5, p6)).map { pmap =>
       assert(
-        pmap.toMap(PackageName.parts("P6")).allImportPacks === List(
+        pmap.toMap(PackageName.parts("P6")).allImportPacks == List(
           PackageName.parts("P5")
         )
       )
       assert(
-        pmap.toMap(PackageName.parts("P6")).toIface.visibleDepPackages === List(
+        pmap.toMap(PackageName.parts("P6")).toIface.visibleDepPackages == List(
           PackageName.PredefName,
           PackageName.parts("P5")
         )

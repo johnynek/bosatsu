@@ -3,14 +3,13 @@ package org.bykn.bosatsu
 import cats.data.Validated
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class DefRecursionCheckTest extends AnyFunSuite {
+class DefRecursionCheckTest extends munit.FunSuite {
 
   def allowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
-      case Validated.Valid(_)      => succeed
+      case Validated.Valid(_)      => ()
       case Validated.Invalid(errs) =>
         fail(s"$errs")
     }
@@ -20,7 +19,7 @@ class DefRecursionCheckTest extends AnyFunSuite {
     val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_)   => fail("expected failure")
-      case Validated.Invalid(_) => succeed
+      case Validated.Invalid(_) => ()
     }
   }
 

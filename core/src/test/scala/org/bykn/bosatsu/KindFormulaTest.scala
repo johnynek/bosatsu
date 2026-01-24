@@ -1,9 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.TypeEnv
-import org.scalatest.funsuite.AnyFunSuite
-
-class KindFormulaTest extends AnyFunSuite {
+class KindFormulaTest extends munit.FunSuite {
 
   def makeTE(teStr: String): Either[Any, TypeEnv[Kind.Arg]] = {
     val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)

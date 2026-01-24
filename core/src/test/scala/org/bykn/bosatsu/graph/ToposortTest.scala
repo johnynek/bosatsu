@@ -3,18 +3,14 @@ package org.bykn.bosatsu.graph
 import cats.Order
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class ToposortTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class ToposortTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
 
   test("toposort can recover full sort") {
     def law[A: Order](items: Iterable[A]) = {
@@ -36,8 +32,9 @@ class ToposortTest extends AnyFunSuite {
       assert(res.layersAreTotalOrder)
     }
 
-    forAll((ints: List[Int]) => law(ints.distinct))
-    forAll((strings: List[String]) => law(strings.distinct))
+    val propInts = forAll((ints: List[Int]) => law(ints.distinct))
+    val propStrings = forAll((strings: List[String]) => law(strings.distinct))
+    org.scalacheck.Prop.all(propInts, propStrings)
   }
 
   /*

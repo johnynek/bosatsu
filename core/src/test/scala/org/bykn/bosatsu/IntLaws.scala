@@ -2,11 +2,7 @@ package org.bykn.bosatsu
 
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
 object IntLaws {
   implicit class BIMethods(val self: BigInteger) extends AnyVal {
@@ -18,11 +14,11 @@ object IntLaws {
   }
 }
 
-class IntLaws extends AnyFunSuite {
+class IntLaws extends munit.ScalaCheckSuite {
   import IntLaws.BIMethods
 
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 50000)
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(50000)
   // PropertyCheckConfiguration(minSuccessful = 5000)
   // PropertyCheckConfiguration(minSuccessful = 500)
 

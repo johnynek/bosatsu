@@ -1,18 +1,13 @@
 package org.bykn.bosatsu
 
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import org.typelevel.jawn.ast.{JValue, JParser}
 
 import GenJson._
-import org.scalatest.funsuite.AnyFunSuite
 
-class JsonJawnTest extends AnyFunSuite {
-
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = 500)
+class JsonJawnTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   def matches(j1: Json, j2: JValue): Unit = {
     import Json._

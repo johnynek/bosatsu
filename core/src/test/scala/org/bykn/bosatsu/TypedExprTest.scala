@@ -3,11 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
 import Arbitrary.arbitrary
@@ -15,11 +11,10 @@ import Identifier.Bindable
 import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
 
-class TypedExprTest extends AnyFunSuite {
-
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+class TypedExprTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
 
   def allVars[A](te: TypedExpr[A]): Set[Bindable] = {
     type W[B] = Writer[Set[Bindable], B]
@@ -1015,9 +1010,10 @@ x = (
       assert(viaFold == viaTraverse.getConst, s"${te.repr}")
     }
 
-    forAll(genTypedExprChar, arbitrary[Char => Int])(law(_)(_))
+    val propInt = forAll(genTypedExprChar, arbitrary[Char => Int])(law(_)(_))
     // non-commutative
-    forAll(genTypedExprChar, arbitrary[Char => String])(law(_)(_))
+    val propString =
+      forAll(genTypedExprChar, arbitrary[Char => String])(law(_)(_))
 
     val lamconst: TypedExpr[String] =
       TypedExpr.AnnotatedLambda(
@@ -1028,6 +1024,7 @@ x = (
 
     assert(lamconst.foldMap(identity) == "ab")
     assert(lamconst.traverse(a => Const[String, Unit](a)).getConst == "ab")
+    org.scalacheck.Prop.all(propInt, propString)
   }
 
   test("TypedExpr.traverse.void matches traverse_") {

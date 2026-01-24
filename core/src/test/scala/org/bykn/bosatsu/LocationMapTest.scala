@@ -1,15 +1,11 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
-import org.scalatest.funsuite.AnyFunSuite
+import org.scalacheck.Prop.forAll
 
-class LocationMapTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful =
+class LocationMapTest extends munit.ScalaCheckSuite {
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 50000 else 100
     )
 
@@ -42,7 +38,7 @@ class LocationMapTest extends AnyFunSuite {
         .collect { case Some(l) => l }
         .mkString("\n")
 
-      assert(reconstruct === str)
+      assert(reconstruct == str)
     }
   }
   test(

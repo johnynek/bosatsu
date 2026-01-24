@@ -2,12 +2,11 @@ package org.bykn.bosatsu.graph
 
 import cats.data.{NonEmptyList, Validated}
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
+import org.scalacheck.Prop.forAll
 
 import cats.implicits._
-import org.scalatest.funsuite.AnyFunSuite
 
-class TreeTest extends AnyFunSuite {
+class TreeTest extends munit.ScalaCheckSuite {
 
   test("explicit dags never fail") {
     val dagFn: Gen[Int => List[Int]] =
@@ -104,7 +103,7 @@ class TreeTest extends AnyFunSuite {
       val nel0 = NonEmptyList(h0, tail0)
       // filter all items in nel1 that are in nel0
       NonEmptyList.fromList(l1.filterNot(nel0.toList.toSet)) match {
-        case None        => succeed
+        case None        => ()
         case Some(diffs) =>
           val got =
             Tree.distinctBy(nel0)(identity) ::: Tree.distinctBy(diffs)(identity)

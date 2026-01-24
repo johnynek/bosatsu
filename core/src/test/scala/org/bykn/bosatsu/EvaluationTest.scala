@@ -3,9 +3,8 @@ package org.bykn.bosatsu
 import Value._
 
 import LocationMap.Colorize
-import org.scalatest.funsuite.AnyFunSuite
 
-class EvaluationTest extends AnyFunSuite with ParTest {
+class EvaluationTest extends munit.FunSuite with ParTest {
 
   import TestUtils._
 
