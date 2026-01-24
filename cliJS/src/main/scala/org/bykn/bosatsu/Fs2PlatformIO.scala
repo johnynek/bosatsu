@@ -107,7 +107,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .map(Par.ecFromService(_))
 
   def withEC[A](fn: Par.EC ?=> IO[A]): IO[A] =
-    parResource.use(fn)
+    parResource.use(ec => fn(using ec))
 
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
@@ -253,7 +253,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
             } else {
               IO.raiseError(
                 new Exception(
-                  s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"
+                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash.toIdent(using algo)}"
                 )
               )
             }

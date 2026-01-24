@@ -102,7 +102,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       .map(Par.ecFromService(_))
 
   def withEC[A](fn: Par.EC ?=> IO[A]): IO[A] =
-    parResource.use(fn)
+    parResource.use(ec => fn(using ec))
 
   def readUtf8(path: Path): IO[String] =
     IO.blocking(new String(Files.readAllBytes(path), "utf-8"))
@@ -261,7 +261,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
             } else {
               IO.raiseError(
                 new Exception(
-                  s"from $uri expected hash to be ${hash.toIdent(algo)} but found ${computedHash.toIdent(algo)}"
+                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash.toIdent(using algo)}"
                 )
               )
             }
