@@ -71,7 +71,7 @@ lazy val base =
         sbtVersion,
         headCommit
       ),
-      buildInfoPackage := "org.bykn.bosatsu"
+      buildInfoPackage := "dev.bosatsu"
     )
     .jsSettings(commonJsSettings)
 
@@ -92,8 +92,8 @@ lazy val cli = (project in file("cli"))
         val oldStrategy = (assembly / assemblyMergeStrategy).value
         oldStrategy(x)
     },
-    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
-    Compile / mainClass := Some("org.bykn.bosatsu.Main"),
+    assembly / mainClass := Some("dev.bosatsu.Main"),
+    Compile / mainClass := Some("dev.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         catsEffect.value,
@@ -175,7 +175,7 @@ lazy val cliJS =
       commonJsSettings,
       name := "bosatsu-clijs",
       assembly / test := {},
-      mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
+      mainClass := Some("dev.bosatsu.tool.Fs2Main"),
       libraryDependencies ++= Seq(
         fs2core.value,
         fs2io.value,
@@ -187,7 +187,7 @@ lazy val cliJS =
     .jsSettings(
       scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
       scalaJSLinkerConfig ~= { _.withSourceMap(false).withOptimizer(true) },
-      mainClass := Some("org.bykn.bosatsu.tool.Fs2Main"),
+      mainClass := Some("dev.bosatsu.tool.Fs2Main"),
       scalaJSUseMainModuleInitializer := true
     )
     .dependsOn(base, core)
