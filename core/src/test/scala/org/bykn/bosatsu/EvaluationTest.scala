@@ -3108,6 +3108,24 @@ test = Assertion(True, "")
         ), "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(68,69)")
       ()
     }
+    evalFail(List("""
+package Foo
+
+x = Some(1)
+
+out = match x:
+  case Some(y) as y: y
+  case _: 0
+
+test = Assertion(True, "")
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(
+          Map.empty,
+          Colorize.None
+        )
+      assert(msg.contains("repeated bindings in pattern: y"), msg)
+      ()
+    }
     runBosatsuTest(
       List("""
 package Foo
