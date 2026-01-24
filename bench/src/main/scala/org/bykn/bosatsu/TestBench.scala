@@ -10,7 +10,6 @@ import IorMethods.IorExtension
 @State(Scope.Thread)
 class TestBench {
   // don't use threads in the benchmark which will complicate matters
-  import DirectEC.directEC
 
   private def prepPackages(
       packages: List[String],
@@ -37,11 +36,11 @@ class TestBench {
     implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) =>
       s
     }
-    PackageMap
+    Par.noParallelism(PackageMap
       .resolveThenInfer(
         PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
         Nil
-      )
+      ))
       .strictToValidated match {
       case Validated.Valid(packMap) =>
         (packMap, mainPack)

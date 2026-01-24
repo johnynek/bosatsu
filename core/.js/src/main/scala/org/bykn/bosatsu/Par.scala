@@ -31,6 +31,7 @@ object Par {
   def ecFromService(es: ExecutionService): EC = ()
 
   def withEC[A](fn: EC ?=> A): A = fn(using ())
+  def noParallelism[A](fn: EC ?=> A): A = fn(using ())
 
   @inline def start[A](a: => A): F[A] = a
 

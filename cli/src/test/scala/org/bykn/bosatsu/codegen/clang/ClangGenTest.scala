@@ -1,8 +1,6 @@
 package org.bykn.bosatsu.codegen.clang
 
-import org.bykn.bosatsu.{PackageName, PackageMap, TestUtils, Identifier}
-
-import org.bykn.bosatsu.DirectEC.directEC
+import org.bykn.bosatsu.{PackageName, PackageMap, Par, TestUtils, Identifier}
 
 class ClangGenTest extends munit.FunSuite {
   def md5HashToHex(content: String): String = {
@@ -12,7 +10,7 @@ class ClangGenTest extends munit.FunSuite {
   }
   def testFilesCompilesToHash(path0: String, paths: String*)(
       hashHex: String
-  )(implicit loc: munit.Location) = {
+  )(implicit loc: munit.Location) = Par.noParallelism {
     val pm: PackageMap.Typed[Any] = TestUtils.compileFile(path0, paths*)
     /*
     val exCode = ClangGen.generateExternalsStub(pm)

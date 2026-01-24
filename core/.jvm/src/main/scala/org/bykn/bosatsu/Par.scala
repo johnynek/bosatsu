@@ -38,6 +38,8 @@ object Par {
       fn(using ec)
     } finally shutdownService(srv)
   }
+  def noParallelism[A](fn: EC ?=> A): A =
+    fn(using ecFromExecutionContext(using DirectEC.directEC))
 
   @inline def start[A](a: => A)(implicit ec: EC): F[A] =
     Future(a)
