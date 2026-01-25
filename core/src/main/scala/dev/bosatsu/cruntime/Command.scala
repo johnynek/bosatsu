@@ -8,7 +8,7 @@ import dev.bosatsu.tool.{CliException, Output}
 import org.typelevel.paiges.Doc
 
 object Command {
-  private val defaultRepo = "bosatsu/bosatsu"
+  private val defaultRepo = "johnynek/bosatsu"
 
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
     import platformIO.{moduleIOMonad, pathArg, showPath}
@@ -183,7 +183,7 @@ object Command {
           }
       }
 
-    val install =
+    val install: Opts[F[Output[P]]] =
       Opts.subcommand("install", "install the bosatsu c runtime") {
         (
           repoRootOpt,
@@ -247,12 +247,12 @@ object Command {
             )
             installDir =
               platformIO.resolve(root, ".bosatsuc" :: gitSha :: Nil)
-            out = Doc.text(
+            outDoc = Doc.text(
               show"installed c_runtime into $installDir"
             )
-          } yield Output.Basic(out, None)
+          } yield Output.Basic(outDoc, Option.empty[P])
         }
-      }
+      }.map(_.widen[Output[P]])
 
     install
   }
