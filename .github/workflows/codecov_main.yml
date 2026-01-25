@@ -1,0 +1,29 @@
+name: Codecov on main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  testWithCoverageReport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v6"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-scala@v14"
+        with:
+          java-version: "${{matrix.java}}"
+      - name: "run tests with coverage"
+        run: |
+          sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+    strategy:
+      matrix:
+        java:
+          - '17'
+    timeout-minutes: 30
