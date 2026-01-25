@@ -455,7 +455,7 @@ else:
     assertEquals(block(Pass, Pass), Pass)
 
     forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
-      val stmt = block(h, t: _*)
+      val stmt = block(h, t*)
 
       def passCount(s: Statement): Int =
         s match {
@@ -585,7 +585,7 @@ else:
       } yield LambdaArgs(Code.Lambda(largs, result), args)
 
     forAll(genArgs) { case LambdaArgs(lam, arg) =>
-      assertEquals(lam(arg: _*).simplify, Code
+      assertEquals(lam(arg*).simplify, Code
           .substitute(lam.args.zip(arg).toMap, lam.result)
           .simplify)
     }

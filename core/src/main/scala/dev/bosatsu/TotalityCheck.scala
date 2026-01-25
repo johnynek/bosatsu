@@ -95,7 +95,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     */
   def validatePattern(p: Pattern[Cons, Type]): Res[Unit] =
     p match {
-      case lp: ListPatCons =>
+      case lp @ ListPat(_) =>
         val parts = lp.parts
         val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
           case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
@@ -427,7 +427,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
                     Left(solve(_, _))
                 }
-              case lp: ListPatCons =>
+              case lp @ ListPat(_)=>
                 def optPatternToList(
                     p: Option[Pattern[Cons, Type]]
                 ): List[ListPatCons] =

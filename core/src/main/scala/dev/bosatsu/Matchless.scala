@@ -392,7 +392,7 @@ object Matchless {
         case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
-        case ms: MatchString[B] =>
+        case ms: MatchString[b] =>
           ms.copy(arg = substituteLocalsCheap(m, ms.arg))
         case LetBool(b, a, in) =>
           val m1 = b match {
@@ -430,9 +430,9 @@ object Matchless {
             case None      => e
           }
         case PrevNat(n)            => PrevNat(substituteLocals(m, n))
-        case ge: GetEnumElement[B] =>
+        case ge: GetEnumElement[b] =>
           ge.copy(arg = substituteLocalsCheap(m, ge.arg))
-        case gs: GetStructElement[B] =>
+        case gs: GetStructElement[b] =>
           gs.copy(arg = substituteLocalsCheap(m, gs.arg))
         case Lambda(c, r, as, b) =>
           val m1 = m -- as.toList
@@ -874,7 +874,7 @@ object Matchless {
                 }
           }
         case lp @ Pattern.ListPat(_) =>
-          lp.toPositionalStruct(empty, cons) match {
+          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
             case Right(p) => doesMatch(arg, p, mustMatch)
             case Left(
                   (glob, right @ NonEmptyList(Pattern.ListPart.Item(_), _))

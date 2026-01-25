@@ -115,6 +115,8 @@ object NTypeGen {
           on #:: arg #:: shrink(on).collect { case r: Type.Rho =>
             TyApply(r, arg)
           } #::: shrink(arg).map(TyApply(on, _))
+        case Quantified(_, rho) =>
+          rho #:: LazyList.empty
       }
     Shrink.withLazyList(shrink)
   }
