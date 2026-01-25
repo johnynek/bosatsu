@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Order
+import cats.collections.Heap
 import cats.parse.{Parser => P, Parser0 => P0}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
@@ -167,7 +168,7 @@ object Kind {
       val b2 = l2.buffered
       val ord = implicitly[Ordering[A]]
       new Iterator[A] {
-        def hasNext = b1.hasNext | b2.hasNext
+        def hasNext = b1.hasNext || b2.hasNext
         def next() =
           if (!b1.hasNext) b2.next()
           else if (!b2.hasNext) b1.next()
@@ -227,27 +228,95 @@ object Kind {
             v: Variance,
             as: LazyList[Kind],
             bs: LazyList[Kind]
-        ): Iterator[Kind] =
-          (as, bs) match {
-            case (a0 #:: at, b0 #:: bt) =>
-              val a0L = a0 #:: LazyList.empty
-              val b0L = b0 #:: LazyList.empty
+        ): LazyList[Kind] = {
+          final case class SizedKind(kind: Kind, size: Long)
+          final case class Pair(i: Int, j: Int, score: Long)
+          final case class CombineState(
+              heap: Heap[Pair],
+              seen: Set[(Int, Int)],
+              as: Vector[SizedKind],
+              asTail: LazyList[Kind],
+              bs: Vector[SizedKind],
+              bsTail: LazyList[Kind]
+          )
 
-              val head = Cons(Arg(v, a0), b0)
+          implicit val pairOrder: Order[Pair] =
+            Order.from { (left, right) =>
+              java.lang.Long.compare(right.score, left.score)
+            }
 
-              val line1 = sortCombine(v, a0L, bt)
-              val line2 = sortCombine(v, at, b0L)
+          @tailrec
+          def ensureSized(
+              idx: Int,
+              vec: Vector[SizedKind],
+              tail: LazyList[Kind],
+              sizeSub: Boolean
+          ): Option[(Vector[SizedKind], LazyList[Kind])] =
+            if (idx < vec.size) Some((vec, tail))
+            else
+              tail match {
+                case h #:: t =>
+                  ensureSized(
+                    idx,
+                    vec :+ SizedKind(h, kindSize(h, sizeSub)),
+                    t,
+                    sizeSub
+                  )
+                case _ => None
+              }
 
-              val rest = sortCombine(v, at, bt)
+          def addPair(state: CombineState, i: Int, j: Int): CombineState =
+            if (state.seen((i, j))) state
+            else
+              ensureSized(i, state.as, state.asTail, !sub) match {
+                case None => state
+                case Some((as1, asTail1)) =>
+                  ensureSized(j, state.bs, state.bsTail, sub) match {
+                    case None =>
+                      state.copy(as = as1, asTail = asTail1)
+                    case Some((bs1, bsTail1)) =>
+                      val score = as1(i).size * bs1(j).size
+                      val heap1 = state.heap.add(Pair(i, j, score))
+                      state.copy(
+                        heap = heap1,
+                        seen = state.seen + ((i, j)),
+                        as = as1,
+                        asTail = asTail1,
+                        bs = bs1,
+                        bsTail = bsTail1
+                      )
+                  }
+              }
 
-              sortMergeIt(
-                sortMergeIt(line1, line2)(using ord),
-                insertSortedIt(head, rest)(using ord)
-              )(using ord)
-            case _ =>
-              // at least one is empty
-              Iterator.empty
+          val initState =
+            for {
+              (as1, asTail1) <- ensureSized(0, Vector.empty, as, !sub)
+              (bs1, bsTail1) <- ensureSized(0, Vector.empty, bs, sub)
+            } yield {
+              val score = as1(0).size * bs1(0).size
+              val heap = Heap.empty[Pair].add(Pair(0, 0, score))
+              CombineState(heap, Set((0, 0)), as1, asTail1, bs1, bsTail1)
+            }
+
+          initState match {
+            case None => LazyList.empty
+            case Some(init) =>
+              LazyList.unfold(init) { state =>
+                state.heap.pop match {
+                  case None => None
+                  case Some((pair, heap1)) =>
+                    val a = state.as(pair.i)
+                    val b = state.bs(pair.j)
+                    val withNeighbors = {
+                      val base = state.copy(heap = heap1)
+                      val withDown = addPair(base, pair.i + 1, pair.j)
+                      addPair(withDown, pair.i, pair.j + 1)
+                    }
+                    Some((Cons(Arg(v, a.kind), b.kind), withNeighbors))
+                }
+              }
           }
+        }
 
         val k1 = kinds(a, !sub)
         val k2 = kinds(b, sub)
@@ -255,8 +324,7 @@ object Kind {
         vars(v, sub)
           .map(sortCombine(_, k1, k2))
           // there is at least one item in vars(v, sub) so reduce is safe
-          .reduce(sortMergeIt(_, _)(using ord))
-          .to(LazyList)
+          .reduce(sortMerge(_, _)(using ord))
     }
 
   // allSubKinds(k).forall(leftSubsumesRight(k, _))
