@@ -7,9 +7,9 @@ object FixType {
     */
   type Fix[F[_]]
 
-  final def fix[F[_]](f: F[Fix[F]]): Fix[F] =
+  inline def fix[F[_]](f: F[Fix[F]]): Fix[F] =
     f.asInstanceOf[Fix[F]]
 
-  final def unfix[F[_]](f: Fix[F]): F[Fix[F]] =
+  inline def unfix[F[_]](f: Fix[F]): F[Fix[F]] =
     f.asInstanceOf[F[Fix[F]]]
 }

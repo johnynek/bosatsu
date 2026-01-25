@@ -83,7 +83,7 @@ object JsApi {
       case Json.JObject(kvs) =>
         js.Dictionary[js.Any](kvs.map { case (k, v) =>
           (k, jsonToAny(v))
-        }: _*)
+        }*)
     }
 
   /** mainPackage can be null, in which case we find the package in mainFile

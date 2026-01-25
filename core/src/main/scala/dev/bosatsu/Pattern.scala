@@ -586,43 +586,14 @@ object Pattern {
   /** Patterns like Some(_) as foo as binds tighter than |, so use ( ) with
     * groups you want to bind
     */
-  case class Named[N, T](name: Bindable, pat: Pattern[N, T])
+  case class Named[+N, +T](name: Bindable, pat: Pattern[N, T])
       extends Pattern[N, T]
-  case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]])
+  case class ListPat[+N, +T](parts: List[ListPart[Pattern[N, T]]])
       extends Pattern[N, T] {
     lazy val toNamedSeqPattern: NamedSeqPattern[Pattern[N, T]] =
       ListPat.toNamedSeqPattern(this)
 
     lazy val toSeqPattern: SeqPattern[Pattern[N, T]] = toNamedSeqPattern.unname
-
-    def toPositionalStruct(empty: N, cons: N): Either[
-      (ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]),
-      Pattern[N, T]
-    ] = {
-      def loop(
-          parts: List[ListPart[Pattern[N, T]]]
-      ): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]), Pattern[
-        N,
-        T
-      ]] =
-        parts match {
-          case Nil                      => Right(PositionalStruct(empty, Nil))
-          case ListPart.WildList :: Nil => Right(WildCard)
-          case ListPart.NamedList(glob) :: Nil => Right(Var(glob))
-          case ListPart.Item(p) :: tail        =>
-            // we can always make some progress here
-            val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
-            Right(PositionalStruct(cons, List(p, tailPat)))
-          case (l @ ListPart.WildList) :: (r @ ListPart.Item(WildCard)) :: t =>
-            // we can switch *_, _ with _, *_
-            loop(r :: l :: t)
-          case (glob: ListPart.Glob) :: h1 :: t =>
-            // a prefixed list cannot be represented as a cons cell
-            Left((glob, NonEmptyList(h1, t)))
-        }
-
-      loop(parts)
-    }
   }
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T)
       extends Pattern[N, T]
@@ -695,6 +666,35 @@ object Pattern {
           case h :: Nil => partToNsp(h)
           case h :: t   =>
             NamedSeqPattern.NCat(partToNsp(h), loop(t))
+        }
+
+      loop(lp.parts)
+    }
+
+    def toPositionalStruct[N, T](lp: ListPat[N, T], empty: N, cons: N): Either[
+      (ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]),
+      Pattern[N, T]
+    ] = {
+      def loop(
+          parts: List[ListPart[Pattern[N, T]]]
+      ): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]), Pattern[
+        N,
+        T
+      ]] =
+        parts match {
+          case Nil                      => Right(PositionalStruct(empty, Nil))
+          case ListPart.WildList :: Nil => Right(WildCard)
+          case ListPart.NamedList(glob) :: Nil => Right(Var(glob))
+          case ListPart.Item(p) :: tail        =>
+            // we can always make some progress here
+            val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
+            Right(PositionalStruct(cons, List(p, tailPat)))
+          case (l @ ListPart.WildList) :: (r @ ListPart.Item(WildCard)) :: t =>
+            // we can switch *_, _ with _, *_
+            loop(r :: l :: t)
+          case (glob: ListPart.Glob) :: h1 :: t =>
+            // a prefixed list cannot be represented as a cons cell
+            Left((glob, NonEmptyList(h1, t)))
         }
 
       loop(lp.parts)
