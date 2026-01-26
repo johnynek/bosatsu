@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  verify_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6
+      - name: Java 17 setup
+        uses: olafurpg/setup-scala@v14
+        with:
+          java-version: "17"
+      - name: Verify tag matches sbt version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          expected="${TAG_NAME#v}"
+          actual="$(sbt -batch -no-colors 'show version' | awk '/^\\[info\\] /{print $2}' | tail -n 1)"
+          if [ -z "$actual" ]; then
+            echo "Failed to determine sbt version" >&2
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "Tag version mismatch: tag=${expected}, sbt=${actual}" >&2
+            exit 1
+          fi
+
+  prepare:
+    runs-on: ubuntu-latest
+    needs: verify_tag
+    outputs:
+      c_runtime_hash: ${{ steps.cruntime.outputs.c_runtime_hash }}
+      c_runtime_archive: ${{ steps.cruntime.outputs.c_runtime_archive }}
+      git_sha: ${{ steps.cruntime.outputs.git_sha }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install b3sum
+        run: sudo apt-get update && sudo apt-get install -y b3sum
+      - name: Create c_runtime archive
+        id: cruntime
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          archive="bosatsu-c-runtime-${sha}.tar.gz"
+          tar -czf "${archive}" c_runtime
+          hash="$(b3sum "${archive}" | awk '{print $1}')"
+          echo "git_sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "c_runtime_archive=${archive}" >> "$GITHUB_OUTPUT"
+          echo "c_runtime_hash=blake3:${hash}" >> "$GITHUB_OUTPUT"
+      - name: Upload c_runtime archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosatsu-c-runtime
+          path: ${{ steps.cruntime.outputs.c_runtime_archive }}
+
+  build_cli:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6
+      - name: Java 17 setup
+        uses: olafurpg/setup-scala@v14
+        with:
+          java-version: "17"
+      - name: Build jar and node JS
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+        run: |
+          sbt "++3.8.1; cli/assembly; cliJSJS/fullOptJS"
+          cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
+          cp cliJS/.js/target/scala-3.8.1/bosatsu-clijs-opt bosatsu_node.js
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosatsu-jar
+          path: bosatsu.jar
+      - name: Upload node JS
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosatsu-node
+          path: bosatsu_node.js
+
+  native_linux:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6
+      - name: Java 17 setup
+        uses: olafurpg/setup-scala@v14
+        with:
+          java-version: "17"
+      - name: Build native image (linux static)
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+          BOSATSU_STATIC_NATIVE_IMAGE: "true"
+        run: |
+          sbt "++3.8.1; cli/nativeImage"
+          cp cli/target/native-image/bosatsu-cli bosatsu-linux
+      - name: Upload linux native image
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosatsu-native-linux
+          path: bosatsu-linux
+
+  native_macos:
+    runs-on: macos-latest
+    needs: prepare
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6
+      - name: Java 17 setup
+        uses: olafurpg/setup-scala@v14
+        with:
+          java-version: "17"
+      - name: Build native image (macos)
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+        run: |
+          sbt "++3.8.1; cli/nativeImage"
+          cp cli/target/native-image/bosatsu-cli bosatsu-macos
+      - name: Upload macos native image
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosatsu-native-macos
+          path: bosatsu-macos
+
+  release:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build_cli
+      - native_linux
+      - native_macos
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+      - name: Java 17 setup
+        uses: olafurpg/setup-scala@v14
+        with:
+          java-version: "17"
+      - name: Build assembly for lib publish
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+        run: sbt "++3.8.1; cli/assembly"
+      - name: Publish Bosatsu libraries
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+          OUTDIR: ${{ github.workspace }}/.bosatsu_lib_publish
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          URI_BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+        run: |
+          chmod +x scripts/publish_bosatsu_libs.sh
+          scripts/publish_bosatsu_libs.sh
+      - name: Stage release assets
+        env:
+          C_RUNTIME_ARCHIVE: ${{ needs.prepare.outputs.c_runtime_archive }}
+        run: |
+          set -euo pipefail
+          mkdir -p release_assets
+          cp bosatsu release_assets/
+          cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/
+          chmod +x release_assets/bosatsu || true
+          if [ ! -f "release_assets/${C_RUNTIME_ARCHIVE}" ]; then
+            echo "Missing c_runtime archive: ${C_RUNTIME_ARCHIVE}" >&2
+            exit 1
+          fi
+      - name: Create SHA256SUMS
+        env:
+          C_RUNTIME_ARCHIVE: ${{ needs.prepare.outputs.c_runtime_archive }}
+        run: |
+          set -euo pipefail
+          cd release_assets
+          files=(
+            "bosatsu.jar"
+            "bosatsu_node.js"
+            "bosatsu-linux"
+            "bosatsu-macos"
+            "bosatsu"
+            "${C_RUNTIME_ARCHIVE}"
+          )
+          for lib in *.bosatsu_lib; do
+            files+=("$lib")
+          done
+          sha256sum "${files[@]}" > SHA256SUMS
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release_assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create PR for core_conf.json changes
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Changes after bosatsu lib publish:"
+          git status
+          git diff
+
+          git config user.name "bosatsu-release-bot"
+          git config user.email "bosatsu-release-bot@users.noreply.github.com"
+
+          git add **/*_conf.json
+
+          if git diff --cached --quiet; then
+            echo "No core_conf.json changes to commit, skipping push."
+            exit 0
+          fi
+
+          branch="release/conf-${GITHUB_REF_NAME}"
+          git checkout -B "$branch"
+          git commit -m "Update lib conf.jsons for ${GITHUB_REF_NAME}"
+          git push -u --force-with-lease origin "$branch"
+
+          if gh pr view "$branch" >/dev/null 2>&1; then
+            echo "PR already exists for ${branch}, skipping create."
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Update lib conf.jsons for ${GITHUB_REF_NAME}" \
+            --body "Automated updates for ${GITHUB_REF_NAME} release."

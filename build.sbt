@@ -5,10 +5,10 @@ lazy val versionString = "3.8.1"
 
 ThisBuild / scalaVersion := versionString
 ThisBuild / crossScalaVersions := Seq(versionString)
+ThisBuild / dynverVTagPrefix := true
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
-  version := "0.0.7",
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
@@ -111,9 +111,14 @@ lazy val cli = (project in file("cli"))
       ),
     // static linking doesn't work with macos or with linux http4s on the path
     nativeImageOptions ++= List(
-      "--no-fallback", 
+      "--no-fallback",
       "--verbose",
-    ),
+    ) ++ {
+      if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
+        List("--static")
+      else
+        Nil
+    },
     nativeImageJvm := "graalvm-java21",
     nativeImageVersion := "21.0.2",
   )
