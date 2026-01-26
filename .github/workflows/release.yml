@@ -27,29 +27,7 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          expected="${TAG_NAME#v}"
-          actual="$(
-            sbt -batch -no-colors 'show ThisBuild / version' 2>&1 | awk '
-              BEGIN { found=0 }
-              /^\\[info\\] ThisBuild \\/ version/ { found=1; next }
-              found==1 {
-                sub(/^\\[info\\][[:space:]]*/, "", $0)
-                if ($0 ~ /^[0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*/) {
-                  print
-                  exit
-                }
-              }
-            '
-          )"
-          if [ -z "$actual" ]; then
-            echo "Failed to determine sbt version" >&2
-            exit 1
-          fi
-          actual_base="${actual%%+*}"
-          if [ "$actual_base" != "$expected" ]; then
-            echo "Tag version mismatch: tag=${expected}, sbt=${actual}" >&2
-            exit 1
-          fi
+          python3 scripts/verify_release_tag.py
 
   prepare:
     runs-on: ubuntu-latest
@@ -208,17 +186,7 @@ jobs:
           cp bosatsu release_assets/
           cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/
           chmod +x release_assets/bosatsu || true
-          if [ ! -f "release_assets/${C_RUNTIME_ARCHIVE}" ]; then
-            echo "Missing c_runtime archive: ${C_RUNTIME_ARCHIVE}" >&2
-            exit 1
-          fi
-      - name: Create SHA256SUMS
-        env:
-          C_RUNTIME_ARCHIVE: ${{ needs.prepare.outputs.c_runtime_archive }}
-        run: |
-          set -euo pipefail
-          cd release_assets
-          files=(
+          required_files=(
             "bosatsu.jar"
             "bosatsu_node.js"
             "bosatsu-linux"
@@ -226,10 +194,21 @@ jobs:
             "bosatsu"
             "${C_RUNTIME_ARCHIVE}"
           )
-          for lib in *.bosatsu_lib; do
-            files+=("$lib")
+          for file in "${required_files[@]}"; do
+            if [ ! -f "release_assets/${file}" ]; then
+              echo "Missing release asset: ${file}" >&2
+              exit 1
+            fi
           done
-          sha256sum "${files[@]}" > SHA256SUMS
+      - name: Create SHA256SUMS
+        env:
+          C_RUNTIME_ARCHIVE: ${{ needs.prepare.outputs.c_runtime_archive }}
+        run: |
+          set -euo pipefail
+          cd release_assets
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -244,6 +223,7 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           echo "Changes after bosatsu lib publish:"
           git status
           git diff
