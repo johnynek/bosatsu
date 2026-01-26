@@ -123,7 +123,7 @@ jobs:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
           BOSATSU_STATIC_NATIVE_IMAGE: "true"
           BOSATSU_NATIVE_IMAGE_LIBC: "musl"
-          BOSATSU_NATIVE_IMAGE_CLIB_PATH: "/usr/local/musl/lib:/usr/local/musl/lib64"
+          BOSATSU_NATIVE_IMAGE_CLIB_PATH: "/usr/local/musl/lib"
           CC: musl-gcc
         run: |
           sbt "++3.8.1; cli/nativeImage"
