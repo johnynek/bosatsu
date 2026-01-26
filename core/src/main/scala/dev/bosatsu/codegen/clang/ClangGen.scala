@@ -844,7 +844,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       // We have to lift functions to the top level and not
       // create any nesting
-      def innerFn(fn: FnExpr[K]): T[Code.ValueLike] = {
+      def innerFn(fn: Lambda[K]): T[Code.ValueLike] = {
         val nameSuffix = fn.recursiveName match {
           case None    => ""
           case Some(n) => Idents.escape("_", n.asString)
@@ -1027,7 +1027,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn @ Lambda(_, _, _, _)       => innerFn(fn: FnExpr[K])
+          case fn @ Lambda(_, _, _, _)       => innerFn(fn)
           case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _)           => innerApp(app)
@@ -1187,7 +1187,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
 
-      def fnStatement[K1 <: K](fnName: Code.Ident, fn: FnExpr[K1]): T[Code.Statement] =
+      def fnStatement[K1 <: K](fnName: Code.Ident, fn: Lambda[K1]): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
@@ -1229,7 +1229,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def renderTop(k: K, p: PackageName, b: Bindable, expr: Expr[K]): T[Unit] =
         inTop(k, p, b) {
           expr match {
-            case fn: FnExpr[K] =>
+            case fn: Lambda[K] =>
               for {
                 fnName <- globalIdent(k, p, b)
                 stmt <- fnStatement(fnName, fn)
@@ -1554,7 +1554,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             StateT { s =>
               val key = (k, pack, b)
               s.allValues.get(key) match {
-                case Some((fn: Matchless.FnExpr[K], ident)) =>
+                case Some((fn: Matchless.Lambda[K], ident)) =>
                   result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external
