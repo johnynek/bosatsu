@@ -1811,7 +1811,7 @@ object PythonGen {
                   // $COVERAGE-ON$
                 }
             }.flatten
-          case Let(localOrBind, fn: Lambda[K], in) =>
+          case Let(localOrBind, fn: Lambda[k], in) =>
             val inF = loop(in, slotName)
 
             localOrBind match {
