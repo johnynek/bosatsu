@@ -28,12 +28,25 @@ jobs:
         run: |
           set -euo pipefail
           expected="${TAG_NAME#v}"
-          actual="$(sbt -batch -no-colors 'show version' | awk '/^\\[info\\] /{print $2}' | tail -n 1)"
+          actual="$(
+            sbt -batch -no-colors 'show ThisBuild / version' 2>&1 | awk '
+              BEGIN { found=0 }
+              /^\\[info\\] ThisBuild \\/ version/ { found=1; next }
+              found==1 {
+                sub(/^\\[info\\][[:space:]]*/, "", $0)
+                if ($0 ~ /^[0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*/) {
+                  print
+                  exit
+                }
+              }
+            '
+          )"
           if [ -z "$actual" ]; then
             echo "Failed to determine sbt version" >&2
             exit 1
           fi
-          if [ "$actual" != "$expected" ]; then
+          actual_base="${actual%%+*}"
+          if [ "$actual_base" != "$expected" ]; then
             echo "Tag version mismatch: tag=${expected}, sbt=${actual}" >&2
             exit 1
           fi
