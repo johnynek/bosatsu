@@ -57,9 +57,19 @@
 		    ]
 		},
 		"double_quote_strings": {
-			"name": "string.quoted.double.bosatsu",
+			"name": "meta.string.quoted.double.bosatsu",
 			"begin": "\"",
+			"beginCaptures": {
+				"0": {
+					"name": "string.quoted.double.bosatsu"
+				}
+			},
 			"end": "\"",
+			"endCaptures": {
+				"0": {
+					"name": "string.quoted.double.bosatsu"
+				}
+			},
 			"patterns": [
 				{
 					"include": "#interpolation"
@@ -67,13 +77,31 @@
 				{
 					"name": "constant.character.escape.bosatsu",
 					"match": "\\\\."
+				},
+				{
+					"name": "string.quoted.double.bosatsu",
+					"match": "[^\\\\$\\\"]+"
+				},
+				{
+					"name": "string.quoted.double.bosatsu",
+					"match": "\\$"
 				}
 			]
 		},
 		"single_quote_strings": {
-			"name": "string.quoted.single.bosatsu",
+			"name": "meta.string.quoted.single.bosatsu",
 			"begin": "'",
+			"beginCaptures": {
+				"0": {
+					"name": "string.quoted.single.bosatsu"
+				}
+			},
 			"end": "'",
+			"endCaptures": {
+				"0": {
+					"name": "string.quoted.single.bosatsu"
+				}
+			},
 			"patterns": [
 				{
 					"include": "#interpolation"
@@ -81,6 +109,14 @@
 				{
 					"name": "constant.character.escape.bosatsu",
 					"match": "\\\\."
+				},
+				{
+					"name": "string.quoted.single.bosatsu",
+					"match": "[^\\\\$']+"
+				},
+				{
+					"name": "string.quoted.single.bosatsu",
+					"match": "\\$"
 				}
 			]
 		},
