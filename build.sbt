@@ -114,10 +114,18 @@ lazy val cli = (project in file("cli"))
       "--no-fallback",
       "--verbose",
     ) ++ {
-      if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
-        List("--static")
-      else
-        Nil
+      val staticOpt =
+        if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
+          List("--static")
+        else
+          Nil
+      val muslOpt =
+        if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty) &&
+            sys.env.get("BOSATSU_NATIVE_IMAGE_LIBC").contains("musl"))
+          List("--libc=musl")
+        else
+          Nil
+      staticOpt ++ muslOpt
     },
     nativeImageJvm := "graalvm-java21",
     nativeImageVersion := "21.0.2",
