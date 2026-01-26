@@ -176,7 +176,7 @@ case object ClangTranspiler extends Transpiler {
             moduleIOMonad.raiseError[Unit](
               CliException.Basic(
                 show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
-                  "Perhaps you need to `make install` the c_runtime"
+                  "Perhaps you need to run `bosatsu c-runtime install` (or `make install` in c_runtime)"
               )
             )
         }

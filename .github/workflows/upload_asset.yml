@@ -14,6 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - uses: "coursier/cache-action@v2"
+      - name: "install b3sum"
+        run: "sudo apt-get update && sudo apt-get install -y b3sum"
+      - name: "create c_runtime archive"
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          archive="bosatsu-c-runtime-${sha}.tar.gz"
+          tar -czf "${archive}" c_runtime
+          hash="$(b3sum "${archive}" | awk '{print $1}')"
+          echo "BOSATSU_C_RUNTIME_HASH=blake3:${hash}" >> "$GITHUB_ENV"
+          echo "C_RUNTIME_ARCHIVE=${archive}" >> "$GITHUB_ENV"
       - name: "java ${{matrix.java}} setup"
         uses: "olafurpg/setup-scala@v10"
         with:
@@ -42,6 +53,16 @@ jobs:
           asset_path: ./bosatsu.jar
           asset_name: bosatsu.jar
           asset_content_type: application/java-archive
+      - name: Upload C Runtime Archive
+        id: upload-release-cruntime
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ env.C_RUNTIME_ARCHIVE }}
+          asset_name: ${{ env.C_RUNTIME_ARCHIVE }}
+          asset_content_type: application/gzip
     strategy:
       matrix:
         java:
