@@ -35,13 +35,13 @@ version_file="${repo_root}/.bosatsu_version"
 platform_file="${repo_root}/.bosatsu_platform"
 
 [ -f "$version_file" ] || fail "missing ${version_file}"
-[ -f "$platform_file" ] || fail "missing ${platform_file}"
+[ -f "$platform_file" ] || fail "missing ${platform_file} (expected: java, node, or native)"
 
 version="$(tr -d '[:space:]' < "$version_file")"
 platform="$(tr -d '[:space:]' < "$platform_file")"
 
 [ -n "$version" ] || fail "empty ${version_file}"
-[ -n "$platform" ] || fail "empty ${platform_file}"
+[ -n "$platform" ] || fail "empty ${platform_file} (expected: java, node, or native)"
 
 fetch=0
 artifact_src=""
@@ -78,7 +78,7 @@ artifact_name=""
 runner=""
 
 case "$platform" in
-  jar)
+  java)
     artifact_name="bosatsu.jar"
     runner="java"
     ;;
@@ -96,12 +96,12 @@ case "$platform" in
         artifact_name="bosatsu-linux"
         ;;
       *)
-        fail "unsupported OS for native platform: ${os_name}"
+        fail "unsupported OS for native platform: ${os_name} (try java or node)"
         ;;
     esac
     ;;
   *)
-    fail "unknown platform: ${platform} (expected jar, node, or native)"
+    fail "unknown platform: ${platform} (expected java, node, or native)"
     ;;
 esac
 
@@ -164,7 +164,7 @@ elif [ ! -f "$artifact_path" ]; then
 fi
 
 case "$platform" in
-  jar)
+  java)
     command -v java >/dev/null 2>&1 || fail "java not found"
     exec java -jar "$artifact_path" "${args[@]}"
     ;;
@@ -177,6 +177,6 @@ case "$platform" in
     exec "$artifact_path" "${args[@]}"
     ;;
   *)
-    fail "unhandled platform: ${platform}"
+    fail "unhandled platform: ${platform} (expected java, node, or native)"
     ;;
 esac
