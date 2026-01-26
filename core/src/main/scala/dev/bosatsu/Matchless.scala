@@ -14,25 +14,19 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr[+A] extends Expr[A]
-  sealed abstract class FnExpr[+A] extends Expr[A] {
-    def captures: List[Expr[A]]
-    // this is set if the function is recursive
-    def recursiveName: Option[Bindable]
-    def recursionKind: RecursionKind =
-      RecursionKind.recursive(recursiveName.isDefined)
-
-    def args: NonEmptyList[Bindable]
-    def arity: Int = args.length
-    def body: Expr[A]
-  }
 
   // name is set for recursive (but not tail recursive) methods
-  case class Lambda[A](
+  case class Lambda[+A](
       captures: List[Expr[A]],
       recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
       body: Expr[A]
-  ) extends FnExpr[A]
+  ) extends Expr[A] {
+    def recursionKind: RecursionKind =
+      RecursionKind.recursive(recursiveName.isDefined)
+
+    def arity: Int = args.length
+  }
 
   // This is a while loop, the result of which is result and the body is evaluated
   // while cond is true
@@ -593,8 +587,8 @@ object Matchless {
           lazy val e0 = loop(e, slots.inLet(name))
           def letrec(expr: Expr[B]): Expr[B] =
             expr match {
-              case fn: FnExpr[B] if fn.recursiveName == Some(name) => fn
-              case fn: FnExpr[?]                                   =>
+              case fn: Lambda[B] if fn.recursiveName == Some(name) => fn
+              case fn: Lambda[?]                                   =>
                 // loops always have a function name
                 sys.error(
                   s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
