@@ -33,13 +33,13 @@ object Par {
   def withEC[A](fn: EC ?=> A): A = fn(using ())
   def noParallelism[A](fn: EC ?=> A): A = fn(using ())
 
-  @inline def start[A](a: => A): F[A] = a
+  inline def start[A](a: => A): F[A] = a
 
-  @inline def await[A](f: F[A]): A = f
+  inline def await[A](f: F[A]): A = f
 
-  @inline def promise[A]: P[A] = new Box[A]
+  def promise[A]: P[A] = new Box[A]
 
-  @inline def complete[A](p: P[A], f: F[A]): Unit = p.set(f)
+  def complete[A](p: P[A], f: F[A]): Unit = p.set(f)
 
-  @inline def toF[A](pa: P[A]): F[A] = pa.get
+  def toF[A](pa: P[A]): F[A] = pa.get
 }
