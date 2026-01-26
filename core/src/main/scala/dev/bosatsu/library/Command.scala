@@ -512,9 +512,47 @@ object Command {
           for {
             cc <- fcc
             _ <- cc.conf.previous.traverse_ { desc =>
-              cc.cas.fetchIfNeeded(
+              val dep =
                 proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
-              )
+              cc.cas.fetchIfNeeded(dep).flatMap { fetchMap =>
+                val failed = fetchMap.collect { case (hash, Left(err)) =>
+                  (hash, err)
+                }
+                if (failed.isEmpty) moduleIOMonad.unit
+                else {
+                  val versionStr = desc.version match {
+                    case None    => "unknown"
+                    case Some(v) => show"${Version.fromProto(v)}"
+                  }
+                  val header = Doc.text(
+                    s"failed to fetch previous ${dep.name} $versionStr"
+                  )
+                  val detail = Doc.intercalate(
+                    Doc.hardLine,
+                    failed.toList.map { case (hash, err) =>
+                      val errDoc = err match {
+                        case ce: CliException => ce.errDoc
+                        case other =>
+                          Doc.text(
+                            Option(other.getMessage)
+                              .getOrElse(other.getClass.getName)
+                          )
+                      }
+                      Doc.text(show"${hash.toIdent}:") + (Doc.line + errDoc)
+                        .nested(4)
+                    }
+                  )
+                  val hint = Doc.text(
+                    "ensure the previous descriptor has valid uris or pre-populate the CAS."
+                  )
+                  moduleIOMonad.raiseError[Unit](
+                    CliException(
+                      "failed to fetch previous",
+                      header + Doc.line + detail + Doc.line + hint
+                    )
+                  )
+                }
+              }
             }
             msg <- cc.cas.fetchAllDeps(
               cc.conf.publicDeps ::: cc.conf.privateDeps
