@@ -28,6 +28,46 @@ echo "  uri-base  = $URI_BASE"
 
 cd "$REPO_ROOT"
 
+# Pre-populate CAS so publish can validate semver against previous versions.
+echo "bosatsuj lib fetch:"
+LIB_NAMES=()
+LIBS_JSON="$REPO_ROOT/bosatsu_libs.json"
+if [[ -f "$LIBS_JSON" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON=python
+  else
+    PYTHON=""
+  fi
+
+  if [[ -n "$PYTHON" ]]; then
+    mapfile -t LIB_NAMES < <(
+      "$PYTHON" - "$LIBS_JSON" <<'PY'
+import json,sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for name in sorted(data.keys()):
+    print(name)
+PY
+    )
+  else
+    echo "WARNING: python not found; falling back to fetch without --name" >&2
+  fi
+fi
+
+if [[ ${#LIB_NAMES[@]} -gt 0 ]]; then
+  for name in "${LIB_NAMES[@]}"; do
+    echo "  name = $name"
+    ./bosatsuj lib fetch \
+      --repo_root "$REPO_ROOT" \
+      --name "$name"
+  done
+else
+  ./bosatsuj lib fetch \
+    --repo_root "$REPO_ROOT"
+fi
+
 # Add --cas_dir/--color here if you want to override defaults
 ./bosatsuj lib publish \
   --repo_root "$REPO_ROOT" \
