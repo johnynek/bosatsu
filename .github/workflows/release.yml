@@ -79,7 +79,7 @@ jobs:
         run: |
           sbt "++3.8.1; cli/assembly; cliJSJS/fullOptJS"
           cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
-          cp cliJS/.js/target/scala-3.8.1/bosatsu-clijs-opt bosatsu_node.js
+          cp cliJS/.js/target/scala-3.8.1/bosatsu-clijs-opt/main.js bosatsu_node.js
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
@@ -104,10 +104,14 @@ jobs:
         uses: olafurpg/setup-scala@v14
         with:
           java-version: "17"
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools zlib1g-dev
       - name: Build native image (linux static)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
           BOSATSU_STATIC_NATIVE_IMAGE: "true"
+          BOSATSU_NATIVE_IMAGE_LIBC: "musl"
+          CC: musl-gcc
         run: |
           sbt "++3.8.1; cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-linux
