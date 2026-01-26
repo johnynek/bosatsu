@@ -206,18 +206,9 @@ jobs:
         run: |
           set -euo pipefail
           cd release_assets
-          files=(
-            "bosatsu.jar"
-            "bosatsu_node.js"
-            "bosatsu-linux"
-            "bosatsu-macos"
-            "bosatsu"
-            "${C_RUNTIME_ARCHIVE}"
-          )
-          for lib in *.bosatsu_lib; do
-            files+=("$lib")
-          done
-          sha256sum "${files[@]}" > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
