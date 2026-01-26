@@ -4,4 +4,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # make sure to run sbt cli/assembly first
-java -jar $SCRIPT_DIR/cli/target/scala-3.8.1/bosatsu-cli-assembly-0.0.7.jar "$@"
+jar_path="$(
+  ls -1t "$SCRIPT_DIR/cli/target/scala-3.8.1"/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
+)"
+
+if [ -z "$jar_path" ]; then
+  echo "bosatsuj: no assembly jar found; run sbt cli/assembly first" >&2
+  exit 1
+fi
+
+java -jar "$jar_path" "$@"

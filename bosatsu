@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+IFS=$'\n\t'
+
+SCRIPT_NAME="$(basename "$0")"
+
+fail() {
+  echo "${SCRIPT_NAME}: $*" >&2
+  exit 1
+}
+
+find_repo_root() {
+  local root
+  if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    printf '%s\n' "$root"
+    return 0
+  fi
+
+  local dir="$PWD"
+  while [ "$dir" != "/" ]; do
+    if [ -d "$dir/.git" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+repo_root="$(find_repo_root)" || fail "could not find repo root (.git not found)"
+
+version_file="${repo_root}/.bosatsu_version"
+platform_file="${repo_root}/.bosatsu_platform"
+
+[ -f "$version_file" ] || fail "missing ${version_file}"
+[ -f "$platform_file" ] || fail "missing ${platform_file}"
+
+version="$(tr -d '[:space:]' < "$version_file")"
+platform="$(tr -d '[:space:]' < "$platform_file")"
+
+[ -n "$version" ] || fail "empty ${version_file}"
+[ -n "$platform" ] || fail "empty ${platform_file}"
+
+fetch=0
+artifact_src=""
+args=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fetch)
+      fetch=1
+      shift
+      ;;
+    --artifact)
+      [ $# -ge 2 ] || fail "--artifact requires a path"
+      artifact_src="$2"
+      shift 2
+      ;;
+    --artifact=*)
+      artifact_src="${1#--artifact=}"
+      shift
+      ;;
+    --)
+      shift
+      args+=("$@")
+      break
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+artifact_name=""
+runner=""
+
+case "$platform" in
+  jar)
+    artifact_name="bosatsu.jar"
+    runner="java"
+    ;;
+  node)
+    artifact_name="bosatsu_node.js"
+    runner="node"
+    ;;
+  native)
+    os_name="$(uname -s)"
+    case "$os_name" in
+      Darwin)
+        artifact_name="bosatsu-macos"
+        ;;
+      Linux)
+        artifact_name="bosatsu-linux"
+        ;;
+      *)
+        fail "unsupported OS for native platform: ${os_name}"
+        ;;
+    esac
+    ;;
+  *)
+    fail "unknown platform: ${platform} (expected jar, node, or native)"
+    ;;
+esac
+
+install_dir="${repo_root}/.bosatsuc/cli/${version}"
+artifact_path="${install_dir}/${artifact_name}"
+
+resolve_repo() {
+  local url
+  url="$(git config --get remote.origin.url 2>/dev/null || true)"
+
+  case "$url" in
+    git@github.com:*)
+      url="${url#git@github.com:}"
+      url="${url%.git}"
+      printf '%s\n' "$url"
+      ;;
+    https://github.com/*)
+      url="${url#https://github.com/}"
+      url="${url%.git}"
+      printf '%s\n' "$url"
+      ;;
+    *)
+      printf '%s\n' "johnynek/bosatsu"
+      ;;
+  esac
+}
+
+install_from_artifact() {
+  local src="$1"
+  [ -f "$src" ] || fail "artifact not found: ${src}"
+  mkdir -p "$install_dir"
+  cp "$src" "$artifact_path"
+  if [ "$platform" = "native" ]; then
+    chmod +x "$artifact_path"
+  fi
+}
+
+fetch_from_github() {
+  command -v curl >/dev/null 2>&1 || fail "curl not found"
+  local repo
+  repo="$(resolve_repo)"
+  local url
+  url="https://github.com/${repo}/releases/download/v${version}/${artifact_name}"
+  mkdir -p "$install_dir"
+  echo "Downloading ${url}"
+  curl -fL "$url" -o "$artifact_path"
+  if [ "$platform" = "native" ]; then
+    chmod +x "$artifact_path"
+  fi
+}
+
+if [ -n "$artifact_src" ]; then
+  install_from_artifact "$artifact_src"
+elif [ ! -f "$artifact_path" ]; then
+  if [ "$fetch" -eq 1 ]; then
+    fetch_from_github
+  else
+    fail "missing ${artifact_path}; re-run with --fetch or --artifact <path>"
+  fi
+fi
+
+case "$platform" in
+  jar)
+    command -v java >/dev/null 2>&1 || fail "java not found"
+    exec java -jar "$artifact_path" "${args[@]}"
+    ;;
+  node)
+    command -v node >/dev/null 2>&1 || fail "node not found"
+    export NODE_OPTIONS="--no-deprecation${NODE_OPTIONS:+ $NODE_OPTIONS}"
+    exec node "$artifact_path" "${args[@]}"
+    ;;
+  native)
+    exec "$artifact_path" "${args[@]}"
+    ;;
+  *)
+    fail "unhandled platform: ${platform}"
+    ;;
+esac

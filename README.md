@@ -63,3 +63,6 @@ or for a specific benchmark
 ```
 bench/jmh:run -i 3 -wi 3 -f1 -t1 .*SomeBench.*
 ```
+
+## Release
+See [release.md](release.md) for the release workflow and tagging steps.
