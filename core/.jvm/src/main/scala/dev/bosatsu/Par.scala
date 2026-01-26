@@ -41,18 +41,18 @@ object Par {
   def noParallelism[A](fn: EC ?=> A): A =
     fn(using ecFromExecutionContext(using DirectEC.directEC))
 
-  @inline def start[A](a: => A)(implicit ec: EC): F[A] =
+  inline def start[A](a: => A)(implicit ec: EC): F[A] =
     Future(a)
 
-  @inline def await[A](f: F[A]): A =
+  inline def await[A](f: F[A]): A =
     Await.result(f, Duration.Inf)
 
-  @inline def promise[A]: P[A] = Promise[A]()
+  inline def promise[A]: P[A] = Promise[A]()
 
-  @inline def complete[A](p: P[A], f: F[A]): Unit = {
+  inline def complete[A](p: P[A], f: F[A]): Unit = {
     p.completeWith(f)
     ()
   }
 
-  @inline def toF[A](pa: P[A]): F[A] = pa.future
+  inline def toF[A](pa: P[A]): F[A] = pa.future
 }
