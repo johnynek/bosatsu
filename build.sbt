@@ -125,7 +125,15 @@ lazy val cli = (project in file("cli"))
           List("--libc=musl")
         else
           Nil
-      staticOpt ++ muslOpt
+      val clibPaths =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_CLIB_PATH")
+          .toList
+          .flatMap(_.split(java.io.File.pathSeparator).toList)
+          .map(_.trim)
+          .filter(_.nonEmpty)
+          .map(p => s"-H:CLibraryPath=$p")
+      staticOpt ++ muslOpt ++ clibPaths
     },
     nativeImageJvm := "graalvm-java21",
     nativeImageVersion := "21.0.2",

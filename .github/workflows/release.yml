@@ -105,12 +105,25 @@ jobs:
         with:
           java-version: "17"
       - name: Install musl toolchain
-        run: sudo apt-get update && sudo apt-get install -y musl-tools zlib1g-dev
+        run: sudo apt-get update && sudo apt-get install -y musl-tools build-essential
+      - name: Build musl zlib
+        run: |
+          set -euo pipefail
+          zlib_version="1.3.1"
+          curl -fsSL "https://zlib.net/zlib-${zlib_version}.tar.gz" -o /tmp/zlib.tar.gz
+          rm -rf /tmp/zlib-src
+          mkdir -p /tmp/zlib-src
+          tar -xzf /tmp/zlib.tar.gz -C /tmp/zlib-src --strip-components=1
+          cd /tmp/zlib-src
+          CC=musl-gcc ./configure --static --prefix=/usr/local/musl
+          make -j"$(nproc)"
+          sudo make install
       - name: Build native image (linux static)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
           BOSATSU_STATIC_NATIVE_IMAGE: "true"
           BOSATSU_NATIVE_IMAGE_LIBC: "musl"
+          BOSATSU_NATIVE_IMAGE_CLIB_PATH: "/usr/local/musl/lib:/usr/local/musl/lib64"
           CC: musl-gcc
         run: |
           sbt "++3.8.1; cli/nativeImage"
