@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   verify_tag:
@@ -225,9 +226,10 @@ jobs:
             release_assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Commit core_conf.json changes back to main
+      - name: Create PR for core_conf.json changes
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Changes after bosatsu lib publish:"
           git status
@@ -243,5 +245,13 @@ jobs:
             exit 0
           fi
 
+          branch="release/conf-${GITHUB_REF_NAME}"
+          git checkout -b "$branch"
           git commit -m "Update lib conf.jsons for ${GITHUB_REF_NAME}"
-          git push origin HEAD:main
+          git push -u origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Update lib conf.jsons for ${GITHUB_REF_NAME}" \
+            --body "Automated updates for ${GITHUB_REF_NAME} release."
