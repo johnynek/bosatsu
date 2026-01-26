@@ -455,11 +455,11 @@ object PythonGen {
         for {
           nm <- Env.topLevelName(name)
           res <- inner match {
-            case fn: FnExpr[K] => ops.topFn(nm, fn, None)
+            case fn: Lambda[K] => ops.topFn(nm, fn, None)
             case _             => ops.loop(inner, None).map(nm := _)
           }
         } yield res
-      case fn: FnExpr[K] =>
+      case fn: Lambda[K] =>
         for {
           nm <- Env.topLevelName(name)
           res <- ops.topFn(nm, fn, None)
@@ -1659,7 +1659,7 @@ object PythonGen {
       // if expr is a Lambda handle it
       def topFn(
           name: Code.Ident,
-          expr: FnExpr[K],
+          expr: Lambda[K],
           slotName: Option[Code.Ident]
       ): Env[Statement] =
         expr match {
@@ -1811,7 +1811,7 @@ object PythonGen {
                   // $COVERAGE-ON$
                 }
             }.flatten
-          case Let(localOrBind, fn: FnExpr[K], in) =>
+          case Let(localOrBind, fn: Lambda[K], in) =>
             val inF = loop(in, slotName)
 
             localOrBind match {
@@ -1835,7 +1835,7 @@ object PythonGen {
                   }
             }
           case Let(localOrBind, notFn, in) =>
-            // we know that notFn is not FnExpr here
+            // we know that notFn is not Lambda here
             doLet(localOrBind, notFn, loop(in, slotName), slotName)
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
