@@ -1,20 +1,20 @@
 package dev.bosatsu.analysis
 
-import cats.data.NonEmptyList
-
 /**
  * A derivation graph captures the complete provenance of a computation.
  *
  * Given any value in the computation, you can:
  * - Trace backwards through `dependencies` to see where it came from
  * - Trace forwards through `usages` to see where it's used
- * - Map to source locations via `nodes` and their `Region`s
+ * - Access the original AST via `nodes` for full type/region info
  *
  * This enables "spreadsheet-style" debugging: click any value to see
  * its complete derivation chain back to inputs.
+ *
+ * @tparam T The tag type of the AST nodes (typically Declaration or Region)
  */
-final case class DerivationGraph(
-    nodes: Map[Long, ProvenanceNode],
+final case class DerivationGraph[T](
+    nodes: Map[Long, ProvenanceNode[T]],
     dependencies: Map[Long, Set[Long]], // node -> nodes it depends on
     usages: Map[Long, Set[Long]],       // node -> nodes that use it
     roots: Set[Long]                    // entry points (exported bindings)
@@ -103,7 +103,7 @@ final case class DerivationGraph(
    * Merge two derivation graphs.
    * Used when combining analysis from multiple expressions.
    */
-  def ++(other: DerivationGraph): DerivationGraph = {
+  def ++(other: DerivationGraph[T]): DerivationGraph[T] = {
     val mergedDeps = (dependencies.keySet ++ other.dependencies.keySet)
       .map { k =>
         k -> (dependencies.getOrElse(k, Set.empty) ++
@@ -129,7 +129,7 @@ final case class DerivationGraph(
   /**
    * Filter the graph to only include nodes reachable from the given roots.
    */
-  def reachableFrom(nodeIds: Set[Long]): DerivationGraph = {
+  def reachableFrom(nodeIds: Set[Long]): DerivationGraph[T] = {
     val reachable = nodeIds.flatMap(id => allDependencies(id) + id)
     DerivationGraph(
       nodes.filter { case (id, _) => reachable.contains(id) },
@@ -145,7 +145,7 @@ object DerivationGraph {
   /**
    * An empty derivation graph.
    */
-  val empty: DerivationGraph = DerivationGraph(
+  def empty[T]: DerivationGraph[T] = DerivationGraph(
     Map.empty,
     Map.empty,
     Map.empty,
@@ -155,9 +155,9 @@ object DerivationGraph {
   /**
    * Builder for constructing a derivation graph incrementally.
    */
-  final class Builder {
+  final class Builder[T] {
     private var nextId: Long = 0L
-    private var nodes: Map[Long, ProvenanceNode] = Map.empty
+    private var nodes: Map[Long, ProvenanceNode[T]] = Map.empty
     private var deps: Map[Long, Set[Long]] = Map.empty
     private var usages: Map[Long, Set[Long]] = Map.empty
     private var roots: Set[Long] = Set.empty
@@ -168,7 +168,7 @@ object DerivationGraph {
       id
     }
 
-    def addNode(node: ProvenanceNode): Unit = {
+    def addNode(node: ProvenanceNode[T]): Unit = {
       nodes = nodes + (node.id -> node)
     }
 
@@ -189,6 +189,6 @@ object DerivationGraph {
       roots = roots + id
     }
 
-    def build(): DerivationGraph = DerivationGraph(nodes, deps, usages, roots)
+    def build(): DerivationGraph[T] = DerivationGraph(nodes, deps, usages, roots)
   }
 }

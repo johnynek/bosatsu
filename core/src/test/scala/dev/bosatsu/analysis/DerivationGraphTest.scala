@@ -1,14 +1,20 @@
 package dev.bosatsu.analysis
 
-import dev.bosatsu.{Region, Identifier}
-import cats.data.NonEmptyList
+import dev.bosatsu.{Region, Identifier, Lit, TypedExpr, HasRegion}
+import dev.bosatsu.rankn.Type
 import org.scalacheck.{Gen, Prop}
 import org.scalacheck.Prop.forAll
 
 class DerivationGraphTest extends munit.ScalaCheckSuite {
 
-  // Generators for property-based testing
+  // Use Region as the tag type for test nodes
+  given HasRegion[Region] = HasRegion.instance(identity)
 
+  // Helper to create a literal node for testing
+  def mkLiteral(id: Long, region: Region, value: Long): ProvenanceNode[Region] =
+    ProvenanceNode(id, TypedExpr.Literal(Lit(value), Type.IntType, region))
+
+  // Generators for property-based testing
   val regionGen: Gen[Region] = for {
     start <- Gen.choose(0, 1000)
     length <- Gen.choose(1, 100)
@@ -17,28 +23,19 @@ class DerivationGraphTest extends munit.ScalaCheckSuite {
   val bindableGen: Gen[Identifier.Bindable] =
     Gen.alphaLowerStr.filter(_.nonEmpty).map(Identifier.Name(_))
 
-  val literalNodeGen: Gen[ProvenanceNode.Literal] = for {
+  def literalNodeGen: Gen[ProvenanceNode[Region]] = for {
     id <- Gen.choose(0L, 10000L)
     region <- regionGen
-    repr <- Gen.alphaNumStr
-  } yield ProvenanceNode.Literal(id, region, repr)
-
-  val localVarNodeGen: Gen[ProvenanceNode.LocalVar] = for {
-    id <- Gen.choose(0L, 10000L)
-    region <- regionGen
-    name <- bindableGen
-    definedAt <- Gen.option(Gen.choose(0L, 10000L))
-  } yield ProvenanceNode.LocalVar(id, region, name, definedAt)
-
-  val nodeGen: Gen[ProvenanceNode] = Gen.oneOf(literalNodeGen, localVarNodeGen)
+    value <- Gen.choose(0L, 1000L)
+  } yield mkLiteral(id, region, value)
 
   // Simple graph for testing
-  def simpleGraph: DerivationGraph = {
+  def simpleGraph: DerivationGraph[Region] = {
     // Graph: 0 -> 1 -> 2, 0 -> 3
-    val node0 = ProvenanceNode.Literal(0L, Region(0, 10), "result")
-    val node1 = ProvenanceNode.Literal(1L, Region(10, 20), "sum")
-    val node2 = ProvenanceNode.Literal(2L, Region(20, 30), "a")
-    val node3 = ProvenanceNode.Literal(3L, Region(30, 40), "b")
+    val node0 = mkLiteral(0L, Region(0, 10), 100)
+    val node1 = mkLiteral(1L, Region(10, 20), 50)
+    val node2 = mkLiteral(2L, Region(20, 30), 10)
+    val node3 = mkLiteral(3L, Region(30, 40), 20)
 
     DerivationGraph(
       nodes = Map(0L -> node0, 1L -> node1, 2L -> node2, 3L -> node3),
@@ -49,9 +46,9 @@ class DerivationGraphTest extends munit.ScalaCheckSuite {
   }
 
   test("empty graph has no nodes") {
-    assertEquals(DerivationGraph.empty.nodes.size, 0)
-    assertEquals(DerivationGraph.empty.dependencies.size, 0)
-    assertEquals(DerivationGraph.empty.usages.size, 0)
+    assertEquals(DerivationGraph.empty[Region].nodes.size, 0)
+    assertEquals(DerivationGraph.empty[Region].dependencies.size, 0)
+    assertEquals(DerivationGraph.empty[Region].usages.size, 0)
   }
 
   test("directDependencies returns correct dependencies") {
@@ -114,14 +111,14 @@ class DerivationGraphTest extends munit.ScalaCheckSuite {
   }
 
   test("graph merge combines all elements") {
-    val g1 = DerivationGraph(
-      nodes = Map(0L -> ProvenanceNode.Literal(0L, Region(0, 1), "a")),
+    val g1 = DerivationGraph[Region](
+      nodes = Map(0L -> mkLiteral(0L, Region(0, 1), 1)),
       dependencies = Map(0L -> Set(1L)),
       usages = Map(1L -> Set(0L)),
       roots = Set(0L)
     )
-    val g2 = DerivationGraph(
-      nodes = Map(1L -> ProvenanceNode.Literal(1L, Region(1, 2), "b")),
+    val g2 = DerivationGraph[Region](
+      nodes = Map(1L -> mkLiteral(1L, Region(1, 2), 2)),
       dependencies = Map.empty,
       usages = Map.empty,
       roots = Set(1L)
@@ -147,9 +144,10 @@ class DerivationGraphTest extends munit.ScalaCheckSuite {
 
   property("builder creates consistent graph") {
     forAll(Gen.listOf(literalNodeGen)) { nodes =>
-      val builder = new DerivationGraph.Builder
+      val builder = new DerivationGraph.Builder[Region]
       nodes.foreach { n =>
-        val node = n.copy(id = builder.freshId())
+        val id = builder.freshId()
+        val node = ProvenanceNode(id, n.expr)
         builder.addNode(node)
       }
       val graph = builder.build()
@@ -161,12 +159,12 @@ class DerivationGraphTest extends munit.ScalaCheckSuite {
 
   property("dependencies and usages are consistent") {
     forAll(Gen.choose(1, 10)) { n =>
-      val builder = new DerivationGraph.Builder
+      val builder = new DerivationGraph.Builder[Region]
 
       // Create n nodes in a chain: 0 -> 1 -> 2 -> ... -> n-1
       val ids = (0 until n).map { i =>
         val id = builder.freshId()
-        builder.addNode(ProvenanceNode.Literal(id, Region(0, 1), s"node$i"))
+        builder.addNode(mkLiteral(id, Region(0, 1), i.toLong))
         id
       }
 

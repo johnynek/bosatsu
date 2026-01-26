@@ -27,7 +27,7 @@ object ProvenanceCLI {
   def analyzeSource(
       source: String,
       packageName: PackageName = PackageName.parts("Provenance")
-  ): Either[String, (DerivationGraph, Doc)] = {
+  ): Either[String, (DerivationGraph[Declaration], Doc)] = {
     given HasRegion[Declaration] = HasRegion.instance(_.region)
 
     val locationMap = LocationMap(source)
@@ -69,6 +69,8 @@ object ProvenanceCLI {
       nodeId: Long,
       packageName: PackageName = PackageName.parts("Provenance")
   ): Either[String, Doc] = {
+    given HasRegion[Declaration] = HasRegion.instance(_.region)
+
     analyzeSource(source, packageName).flatMap { case (graph, _) =>
       graph.nodes.get(nodeId) match {
         case None =>
@@ -85,7 +87,7 @@ object ProvenanceCLI {
   /**
    * Format a derivation graph for display.
    */
-  def formatGraph(graph: DerivationGraph, mapper: SourceMapper): Doc = {
+  def formatGraph[T](graph: DerivationGraph[T], mapper: SourceMapper)(implicit hr: HasRegion[T]): Doc = {
     val header = Doc.text(s"Derivation Graph (${graph.nodes.size} nodes)") +
       Doc.hardLine + Doc.text("=" * 40) + Doc.hardLine + Doc.hardLine
 
@@ -126,6 +128,6 @@ object ProvenanceCLI {
   /**
    * Quick analysis for testing - returns just the graph.
    */
-  def quickAnalyze(source: String): Either[String, DerivationGraph] =
+  def quickAnalyze(source: String): Either[String, DerivationGraph[Declaration]] =
     analyzeSource(source).map(_._1)
 }

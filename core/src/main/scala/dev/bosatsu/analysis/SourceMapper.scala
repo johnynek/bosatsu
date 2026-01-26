@@ -1,6 +1,6 @@
 package dev.bosatsu.analysis
 
-import dev.bosatsu.{Region, LocationMap}
+import dev.bosatsu.{Region, LocationMap, TypedExpr, HasRegion}
 import org.typelevel.paiges.Doc
 
 /**
@@ -62,11 +62,11 @@ class SourceMapper(locationMap: LocationMap) {
   /**
    * Format a provenance node with its source location and dependencies.
    */
-  def formatNode(
-      node: ProvenanceNode,
-      deps: Set[ProvenanceNode],
+  def formatNode[T](
+      node: ProvenanceNode[T],
+      deps: Set[ProvenanceNode[T]],
       colorize: LocationMap.Colorize = LocationMap.Colorize.None
-  ): Doc = {
+  )(implicit hr: HasRegion[T]): Doc = {
     val locOpt = locate(node.region)
     val locStr = locOpt.map(_.span).getOrElse("unknown")
 
@@ -91,43 +91,49 @@ class SourceMapper(locationMap: LocationMap) {
   }
 
   /**
+   * Get a brief description of a node for chain display.
+   */
+  def briefDescription[T](node: ProvenanceNode[T]): String = {
+    node.expr match {
+      case lit: TypedExpr.Literal[_] =>
+        val repr = lit.lit.repr
+        s"literal: ${repr.take(20)}${if (repr.length > 20) "..." else ""}"
+      case local: TypedExpr.Local[_] =>
+        s"local: ${local.name.sourceCodeRepr}"
+      case global: TypedExpr.Global[_] =>
+        s"global: ${global.pack.asString}::${global.name.sourceCodeRepr}"
+      case _: TypedExpr.App[_] =>
+        "application"
+      case let: TypedExpr.Let[_] =>
+        s"let: ${let.arg.sourceCodeRepr}"
+      case lam: TypedExpr.AnnotatedLambda[_] =>
+        s"lambda(${lam.args.toList.map(_._1.sourceCodeRepr).mkString(", ")})"
+      case m: TypedExpr.Match[_] =>
+        s"match (${m.branches.size} branches)"
+      case _: TypedExpr.Generic[_] =>
+        "generic"
+      case ann: TypedExpr.Annotation[_] =>
+        s"annotation: ${ann.coerce}"
+    }
+  }
+
+  /**
    * Format a derivation chain from a node back to its leaves.
    *
    * @param chain List of (nodeId, depth) pairs from derivationChain
    * @param graph The derivation graph containing the nodes
    */
-  def formatDerivationChain(
+  def formatDerivationChain[T](
       chain: List[(Long, Int)],
-      graph: DerivationGraph
-  ): Doc = {
+      graph: DerivationGraph[T]
+  )(implicit hr: HasRegion[T]): Doc = {
     val lines = chain.map { case (nodeId, depth) =>
       val nodeOpt = graph.nodes.get(nodeId)
       nodeOpt match {
         case Some(node) =>
           val indent = "  " * depth
           val locStr = locate(node.region).map(_.span).getOrElse("unknown")
-          val brief = node match {
-            case ProvenanceNode.Literal(_, _, repr) =>
-              s"literal: ${repr.take(20)}${if (repr.length > 20) "..." else ""}"
-            case ProvenanceNode.LocalVar(_, _, name, _) =>
-              s"local: ${name.sourceCodeRepr}"
-            case ProvenanceNode.GlobalRef(_, _, pkg, name) =>
-              s"global: $pkg::${name.sourceCodeRepr}"
-            case ProvenanceNode.Application(_, _, _, _) =>
-              "application"
-            case ProvenanceNode.LetBinding(_, _, name, _, _) =>
-              s"let: ${name.sourceCodeRepr}"
-            case ProvenanceNode.Lambda(_, _, params, _) =>
-              s"lambda(${params.toList.map(_.sourceCodeRepr).mkString(", ")})"
-            case ProvenanceNode.Match(_, _, _, branches) =>
-              s"match (${branches.size} branches)"
-            case ProvenanceNode.IfThenElse(_, _, _, _, _) =>
-              "if-then-else"
-            case ProvenanceNode.StructConstruction(_, _, structName, _) =>
-              s"struct: $structName"
-            case ProvenanceNode.Annotation(_, _, _, tpe) =>
-              s"annotation: $tpe"
-          }
+          val brief = briefDescription(node)
           Doc.text(s"$indent[$nodeId] $brief at $locStr")
         case None =>
           Doc.text(s"[$nodeId] <unknown node>")
@@ -139,7 +145,7 @@ class SourceMapper(locationMap: LocationMap) {
   /**
    * Get a human-readable explanation for why a value has its current derivation.
    */
-  def explainValue(nodeId: Long, graph: DerivationGraph): Doc = {
+  def explainValue[T](nodeId: Long, graph: DerivationGraph[T])(implicit hr: HasRegion[T]): Doc = {
     graph.nodes.get(nodeId) match {
       case None =>
         Doc.text(s"Unknown node: $nodeId")

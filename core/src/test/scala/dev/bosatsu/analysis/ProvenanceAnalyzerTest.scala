@@ -15,7 +15,8 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       val graph = ProvenanceAnalyzer.analyze(te)
 
       assertEquals(graph.nodes.size, 1)
-      assert(graph.nodes.values.head.isInstanceOf[ProvenanceNode.Literal])
+      val node = graph.nodes.values.head
+      assert(node.expr.isInstanceOf[TypedExpr.Literal[_]], s"Expected literal, got ${node.nodeType}")
       assertEquals(graph.findLeaves.size, 1)
       assertEquals(graph.findRoots.size, 1)
     }
@@ -26,8 +27,13 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       val graph = ProvenanceAnalyzer.analyze(te)
 
       assertEquals(graph.nodes.size, 1)
-      val node = graph.nodes.values.head.asInstanceOf[ProvenanceNode.Literal]
-      assert(node.repr.contains("hello"))
+      val node = graph.nodes.values.head
+      node.expr match {
+        case TypedExpr.Literal(lit, _, _) =>
+          assert(lit.repr.contains("hello"), s"Expected 'hello' in repr, got ${lit.repr}")
+        case other =>
+          fail(s"Expected literal, got $other")
+      }
     }
   }
 
@@ -59,8 +65,8 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       assert(graph.nodes.nonEmpty, "Should have some nodes")
 
       // The graph should track the computation
-      val hasApp = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.Application])
-      val hasLit = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.Literal])
+      val hasApp = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.App[_]])
+      val hasLit = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.Literal[_]])
 
       // After optimization, the application may be inlined to just the literal
       assert(hasApp || hasLit, "Should have application or literal node")
@@ -73,9 +79,7 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
     """.stripMargin) { te =>
       val graph = ProvenanceAnalyzer.analyze(te)
 
-      val lambdaNodes = graph.nodes.values.collect {
-        case l: ProvenanceNode.Lambda => l
-      }
+      val lambdaNodes = graph.nodes.values.filter(_.expr.isInstanceOf[TypedExpr.AnnotatedLambda[_]])
       assert(lambdaNodes.nonEmpty, "Should have a lambda node")
     }
   }
@@ -95,9 +99,9 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
 
       // The expression should be a lambda containing a match
       // Due to optimization, we may get a Lambda, Match, or both
-      val hasLambda = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.Lambda])
-      val hasMatch = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.Match])
-      val hasGlobalRef = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.GlobalRef])
+      val hasLambda = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.AnnotatedLambda[_]])
+      val hasMatch = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.Match[_]])
+      val hasGlobalRef = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.Global[_]])
 
       // We should have at least one of these node types
       assert(hasLambda || hasMatch || hasGlobalRef,
@@ -113,9 +117,7 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       val graph = ProvenanceAnalyzer.analyze(te)
 
       // Struct construction appears as an application
-      val appNodes = graph.nodes.values.collect {
-        case a: ProvenanceNode.Application => a
-      }
+      val appNodes = graph.nodes.values.filter(_.expr.isInstanceOf[TypedExpr.App[_]])
       assert(appNodes.nonEmpty, "Struct construction should appear as application")
     }
   }
@@ -176,8 +178,9 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       val graph = ProvenanceAnalyzer.analyze(te)
 
       graph.nodes.values.foreach { node =>
-        assert(node.region.start >= 0, "Region start should be non-negative")
-        assert(node.region.end > node.region.start, "Region should have positive length")
+        val region = node.region
+        assert(region.start >= 0, "Region start should be non-negative")
+        assert(region.end > region.start, "Region should have positive length")
       }
     }
   }

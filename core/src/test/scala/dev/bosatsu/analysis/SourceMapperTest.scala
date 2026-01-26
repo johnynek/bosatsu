@@ -1,10 +1,22 @@
 package dev.bosatsu.analysis
 
-import dev.bosatsu.{Region, LocationMap, Identifier}
+import dev.bosatsu.{Region, LocationMap, Identifier, Lit, TypedExpr, HasRegion}
+import dev.bosatsu.rankn.Type
 import org.scalacheck.{Gen, Prop}
 import org.scalacheck.Prop.forAll
 
 class SourceMapperTest extends munit.ScalaCheckSuite {
+
+  // Use Region as the tag type for test nodes
+  given HasRegion[Region] = HasRegion.instance(identity)
+
+  // Helper to create a literal node for testing
+  def mkLiteral(id: Long, region: Region, value: Long): ProvenanceNode[Region] =
+    ProvenanceNode(id, TypedExpr.Literal(Lit(value), Type.IntType, region))
+
+  // Helper to create a local var node for testing
+  def mkLocal(id: Long, region: Region, name: Identifier.Bindable): ProvenanceNode[Region] =
+    ProvenanceNode(id, TypedExpr.Local(name, Type.IntType, region))
 
   test("locate returns correct line and column for single-line region") {
     val source = "x = 42"
@@ -67,8 +79,8 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
     val source = "x = 42"
     val mapper = SourceMapper.fromSource(source)
 
-    val node = ProvenanceNode.Literal(0L, Region(4, 6), "42")
-    val deps = Set.empty[ProvenanceNode]
+    val node = mkLiteral(0L, Region(4, 6), 42)
+    val deps = Set.empty[ProvenanceNode[Region]]
 
     val doc = mapper.formatNode(node, deps)
     val output = doc.render(80)
@@ -82,13 +94,8 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
     val source = "x = 42\ny = x"
     val mapper = SourceMapper.fromSource(source)
 
-    val literalNode = ProvenanceNode.Literal(0L, Region(4, 6), "42")
-    val varNode = ProvenanceNode.LocalVar(
-      1L,
-      Region(11, 12),
-      Identifier.Name("x"),
-      Some(0L)
-    )
+    val literalNode = mkLiteral(0L, Region(4, 6), 42)
+    val varNode = mkLocal(1L, Region(11, 12), Identifier.Name("x"))
 
     val doc = mapper.formatNode(varNode, Set(literalNode))
     val output = doc.render(80)
@@ -99,10 +106,10 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
 
   test("formatDerivationChain shows depth correctly") {
     // Create a simple graph: node 0 depends on node 1
-    val graph = DerivationGraph(
+    val graph = DerivationGraph[Region](
       nodes = Map(
-        0L -> ProvenanceNode.LocalVar(0L, Region(0, 1), Identifier.Name("y"), Some(1L)),
-        1L -> ProvenanceNode.Literal(1L, Region(4, 6), "42")
+        0L -> mkLocal(0L, Region(0, 1), Identifier.Name("y")),
+        1L -> mkLiteral(1L, Region(4, 6), 42)
       ),
       dependencies = Map(0L -> Set(1L)),
       usages = Map(1L -> Set(0L)),
@@ -123,9 +130,9 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
   }
 
   test("explainValue provides full explanation") {
-    val graph = DerivationGraph(
+    val graph = DerivationGraph[Region](
       nodes = Map(
-        0L -> ProvenanceNode.Literal(0L, Region(0, 2), "42")
+        0L -> mkLiteral(0L, Region(0, 2), 42)
       ),
       dependencies = Map.empty,
       usages = Map.empty,
@@ -143,7 +150,7 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
   }
 
   test("explainValue handles unknown node") {
-    val graph = DerivationGraph.empty
+    val graph = DerivationGraph.empty[Region]
     val mapper = SourceMapper.fromSource("")
 
     val doc = mapper.explainValue(999L, graph)

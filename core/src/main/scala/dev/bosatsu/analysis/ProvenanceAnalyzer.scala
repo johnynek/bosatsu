@@ -1,7 +1,7 @@
 package dev.bosatsu.analysis
 
 import dev.bosatsu._
-import cats.data.{NonEmptyList, State}
+import cats.data.State
 import cats.implicits._
 
 /**
@@ -23,8 +23,8 @@ object ProvenanceAnalyzer {
    * @param tag Extracts the Region from the tag type
    * @return A DerivationGraph showing all value derivations with source locations
    */
-  def analyze[T](expr: TypedExpr[T])(implicit tag: HasRegion[T]): DerivationGraph = {
-    val initialState = AnalysisState.empty
+  def analyze[T](expr: TypedExpr[T])(implicit tag: HasRegion[T]): DerivationGraph[T] = {
+    val initialState = AnalysisState.empty[T]
     val (finalState, rootId) = analyzeExpr(expr, Map.empty).run(initialState).value
     finalState.builder.addRoot(rootId)
     finalState.builder.build()
@@ -35,8 +35,8 @@ object ProvenanceAnalyzer {
    */
   def analyzeBindings[T](
       bindings: List[(Identifier.Bindable, TypedExpr[T])]
-  )(implicit tag: HasRegion[T]): DerivationGraph = {
-    val initialState = AnalysisState.empty
+  )(implicit tag: HasRegion[T]): DerivationGraph[T] = {
+    val initialState = AnalysisState.empty[T]
 
     val (finalState, _) = bindings.foldLeft((initialState, Map.empty[Identifier.Bindable, Long])) {
       case ((state, env), (name, expr)) =>
@@ -49,26 +49,26 @@ object ProvenanceAnalyzer {
   }
 
   // Internal state for the analysis
-  private case class AnalysisState(
-      builder: DerivationGraph.Builder
+  private case class AnalysisState[T](
+      builder: DerivationGraph.Builder[T]
   )
 
   private object AnalysisState {
-    def empty: AnalysisState = AnalysisState(new DerivationGraph.Builder)
+    def empty[T]: AnalysisState[T] = AnalysisState(new DerivationGraph.Builder[T])
   }
 
-  private type Analysis[A] = State[AnalysisState, A]
+  private type Analysis[T, A] = State[AnalysisState[T], A]
 
-  private def freshId: Analysis[Long] =
+  private def freshId[T]: Analysis[T, Long] =
     State(s => (s, s.builder.freshId()))
 
-  private def addNode(node: ProvenanceNode): Analysis[Unit] =
+  private def addNode[T](node: ProvenanceNode[T]): Analysis[T, Unit] =
     State.modify(s => { s.builder.addNode(node); s })
 
-  private def addDep(from: Long, to: Long): Analysis[Unit] =
+  private def addDep[T](from: Long, to: Long): Analysis[T, Unit] =
     State.modify(s => { s.builder.addDependency(from, to); s })
 
-  private def addDeps(from: Long, tos: Iterable[Long]): Analysis[Unit] =
+  private def addDeps[T](from: Long, tos: Iterable[Long]): Analysis[T, Unit] =
     State.modify(s => { s.builder.addDependencies(from, tos); s })
 
   /**
@@ -81,127 +81,94 @@ object ProvenanceAnalyzer {
   private def analyzeExpr[T](
       expr: TypedExpr[T],
       env: Map[Identifier.Bindable, Long]
-  )(implicit tag: HasRegion[T]): Analysis[Long] = {
-    val region = tag.region(expr.tag)
+  )(implicit tag: HasRegion[T]): Analysis[T, Long] = {
     // Helper to recursively analyze with the same HasRegion instance
-    def recurse(e: TypedExpr[T], newEnv: Map[Identifier.Bindable, Long]): Analysis[Long] =
+    def recurse(e: TypedExpr[T], newEnv: Map[Identifier.Bindable, Long]): Analysis[T, Long] =
       analyzeExpr(e, newEnv)(using tag)
 
     expr match {
-      case TypedExpr.Literal(lit, _, _) =>
+      case lit: TypedExpr.Literal[T] =>
         for {
-          id <- freshId
-          _ <- addNode(ProvenanceNode.Literal(id, region, lit.repr))
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, lit))
         } yield id
 
-      case TypedExpr.Local(name, _, _) =>
+      case local: TypedExpr.Local[T] =>
         for {
-          id <- freshId
-          definedAt = env.get(name)
-          _ <- addNode(ProvenanceNode.LocalVar(id, region, name, definedAt))
+          id <- freshId[T]
+          definedAt = env.get(local.name)
+          _ <- addNode(ProvenanceNode(id, local))
           _ <- definedAt.traverse_(defId => addDep(id, defId))
         } yield id
 
-      case TypedExpr.Global(pack, name, _, _) =>
+      case global: TypedExpr.Global[T] =>
         for {
-          id <- freshId
-          _ <- addNode(ProvenanceNode.GlobalRef(id, region, pack.asString, name))
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, global))
         } yield id
 
-      case TypedExpr.App(fn, args, _, _) =>
+      case app: TypedExpr.App[T] =>
         for {
-          fnId <- recurse(fn, env)
-          argIds <- args.traverse(arg => recurse(arg, env))
-          id <- freshId
-          _ <- addNode(ProvenanceNode.Application(id, region, fnId, argIds))
+          fnId <- recurse(app.fn, env)
+          argIds <- app.args.traverse(arg => recurse(arg, env))
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, app))
           _ <- addDep(id, fnId)
           _ <- addDeps(id, argIds.toList)
         } yield id
 
-      case TypedExpr.Let(name, boundExpr, inExpr, _, _) =>
+      case let: TypedExpr.Let[T] =>
         for {
-          boundId <- recurse(boundExpr, env)
+          boundId <- recurse(let.expr, env)
           // Extend environment with the new binding
-          newEnv = env + (name -> boundId)
-          inId <- recurse(inExpr, newEnv)
-          id <- freshId
-          _ <- addNode(ProvenanceNode.LetBinding(id, region, name, boundId, inId))
+          newEnv = env + (let.arg -> boundId)
+          inId <- recurse(let.in, newEnv)
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, let))
           _ <- addDep(id, inId) // The let's value is the body's value
         } yield id
 
-      case TypedExpr.AnnotatedLambda(args, body, _) =>
+      case lam: TypedExpr.AnnotatedLambda[T] =>
         for {
-          // Create placeholder IDs for parameters
-          paramIds <- args.traverse { case (name, _) =>
-            for {
-              paramId <- freshId
-              _ <- addNode(ProvenanceNode.LocalVar(paramId, region, name, None))
-            } yield (name, paramId)
+          // Create placeholder IDs for parameters (they're inputs, not derived)
+          paramIds <- lam.args.traverse { case (name, _) =>
+            freshId[T].map(id => (name, id))
           }
           // Extend environment with parameters
           newEnv = env ++ paramIds.toList.toMap
-          bodyId <- recurse(body, newEnv)
-          id <- freshId
-          _ <- addNode(ProvenanceNode.Lambda(id, region, args.map(_._1), bodyId))
+          bodyId <- recurse(lam.expr, newEnv)
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, lam))
           _ <- addDep(id, bodyId)
         } yield id
 
-      case TypedExpr.Match(scrutinee, branches, _) =>
+      case m: TypedExpr.Match[T] =>
         for {
-          scrutId <- recurse(scrutinee, env)
-          branchResults <- branches.traverse { case (pattern, branchExpr) =>
+          scrutId <- recurse(m.arg, env)
+          branchIds <- m.branches.traverse { case (pattern, branchExpr) =>
             // Extract names bound by the pattern
             val patternBindings = pattern.names
             // Create placeholder IDs for pattern bindings
             val patternEnv = patternBindings.map(name => name -> -1L).toMap
-            for {
-              branchId <- recurse(branchExpr, env ++ patternEnv)
-            } yield ProvenanceNode.MatchBranch(pattern.toString, branchId)
+            recurse(branchExpr, env ++ patternEnv)
           }
-          id <- freshId
-          _ <- addNode(ProvenanceNode.Match(id, region, scrutId, branchResults))
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, m))
           _ <- addDep(id, scrutId)
-          _ <- addDeps(id, branchResults.toList.map(_.bodyId))
+          _ <- addDeps(id, branchIds.toList)
         } yield id
 
-      case TypedExpr.Generic(_, inner) =>
+      case gen: TypedExpr.Generic[T] =>
         // Generic just adds type quantification, the value is the inner expression
-        recurse(inner, env)
+        recurse(gen.in, env)
 
-      case TypedExpr.Annotation(inner, tpe) =>
+      case ann: TypedExpr.Annotation[T] =>
         for {
-          innerId <- recurse(inner, env)
-          id <- freshId
-          _ <- addNode(ProvenanceNode.Annotation(
-            id,
-            region,
-            innerId,
-            tpe.toString
-          ))
+          innerId <- recurse(ann.term, env)
+          id <- freshId[T]
+          _ <- addNode(ProvenanceNode(id, ann))
           _ <- addDep(id, innerId)
         } yield id
     }
-  }
-}
-
-/**
- * Typeclass for extracting Region from a tag type.
- */
-trait HasRegion[T] {
-  def region(t: T): Region
-}
-
-object HasRegion {
-  def apply[T](implicit ev: HasRegion[T]): HasRegion[T] = ev
-
-  def instance[T](f: T => Region): HasRegion[T] = new HasRegion[T] {
-    def region(t: T): Region = f(t)
-  }
-
-  // Common instances
-  implicit val regionHasRegion: HasRegion[Region] = instance(identity)
-
-  implicit val declarationHasRegion: HasRegion[Declaration] = instance { decl =>
-    decl.region
   }
 }

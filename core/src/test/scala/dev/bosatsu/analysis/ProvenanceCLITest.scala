@@ -1,6 +1,6 @@
 package dev.bosatsu.analysis
 
-import dev.bosatsu.{Region, Identifier}
+import dev.bosatsu.{Region, Identifier, TypedExpr}
 
 class ProvenanceCLITest extends munit.FunSuite {
 
@@ -145,7 +145,7 @@ class ProvenanceCLITest extends munit.FunSuite {
     assert(result.isRight, s"Should succeed: $result")
 
     val (graph, _) = result.toOption.get
-    val hasLambda = graph.nodes.values.exists(_.isInstanceOf[ProvenanceNode.Lambda])
+    val hasLambda = graph.nodes.values.exists(_.expr.isInstanceOf[TypedExpr.AnnotatedLambda[_]])
     // Lambda might be optimized, so just check we have nodes
     assert(graph.nodes.nonEmpty)
   }
