@@ -13,7 +13,7 @@ def find_git_directory(start_path):
         current_path = os.path.dirname(current_path)
     raise FileNotFoundError("No .git directory found in current or parent directories.")
 
-def write_cc_conf(rootdir):
+def write_cc_conf(rootdir, version):
       # Detect operating system
       uname = subprocess.check_output(["uname"], text=True).strip()
       if uname == "Darwin":
@@ -24,7 +24,7 @@ def write_cc_conf(rootdir):
           os_type = "unknown"
 
       # Determine Bosatsu directory
-      bosatsu_dir = os.path.join(rootdir, ".bosatsuc", subprocess.check_output(["../bosatsuj", "version", "-g"], text=True).strip())
+      bosatsu_dir = os.path.join(rootdir, ".bosatsuc", version)
 
       # Initialize flags, IFLAGS, and LIBS
       flags = ["-flto", "-O3"]  # Adjust flags as needed
@@ -65,15 +65,22 @@ def main():
     parser.add_argument('--include', action='append', required=True, help="Header files to include.")
     parser.add_argument('--lib', action='append', required=True, help="Library files to include.")
     parser.add_argument('--version', required=True, help="Version directory name.")
+    parser.add_argument(
+        '--root',
+        help="Path to the repo root where .bosatsuc should be installed; defaults to locating .git."
+    )
 
     args = parser.parse_args()
 
     # Find the .git directory
-    try:
-        git_root = find_git_directory(os.getcwd())
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
+    if args.root is not None:
+        git_root = args.root
+    else:
+        try:
+            git_root = find_git_directory(os.getcwd())
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
 
     # Create the .bosatsuc/ directory if it doesn't exist
     bosatsuc_dir = os.path.join(git_root, '.bosatsuc')
@@ -90,7 +97,7 @@ def main():
     os.makedirs(include_dir)
     os.makedirs(lib_dir)
 
-    write_cc_conf(git_root)
+    write_cc_conf(git_root, args.version)
     # Copy the include files
     for include_file in args.include:
         if not os.path.isfile(include_file):

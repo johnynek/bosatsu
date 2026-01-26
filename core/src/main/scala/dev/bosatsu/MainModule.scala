@@ -17,6 +17,7 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathParseError
 }
+import dev.bosatsu.cruntime
 import org.typelevel.paiges.Document
 
 import codegen.Transpiler
@@ -936,6 +937,16 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             library.Command
               .opts(platformIO)
               .map(FromOutput("lib", _))
+          )
+        }
+        .orElse {
+          Opts.subcommand(
+            "c-runtime",
+            "tools for installing the bosatsu c runtime"
+          )(
+            cruntime.Command
+              .opts(platformIO)
+              .map(FromOutput("c-runtime", _))
           )
         }
     }

@@ -69,7 +69,10 @@ lazy val base =
         version,
         scalaVersion,
         sbtVersion,
-        headCommit
+        headCommit,
+        BuildInfoKey.action("cRuntimeArchiveHash") {
+          sys.env.getOrElse("BOSATSU_C_RUNTIME_HASH", "")
+        }
       ),
       buildInfoPackage := "dev.bosatsu"
     )
