@@ -246,9 +246,14 @@ jobs:
           fi
 
           branch="release/conf-${GITHUB_REF_NAME}"
-          git checkout -b "$branch"
+          git checkout -B "$branch"
           git commit -m "Update lib conf.jsons for ${GITHUB_REF_NAME}"
-          git push -u origin "$branch"
+          git push -u --force-with-lease origin "$branch"
+
+          if gh pr view "$branch" >/dev/null 2>&1; then
+            echo "PR already exists for ${branch}, skipping create."
+            exit 0
+          fi
 
           gh pr create \
             --base main \
