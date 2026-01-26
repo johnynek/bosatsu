@@ -75,7 +75,6 @@ while [ $# -gt 0 ]; do
 done
 
 artifact_name=""
-runner=""
 
 case "$platform" in
   java)
@@ -108,27 +107,6 @@ esac
 install_dir="${repo_root}/.bosatsuc/cli/${version}"
 artifact_path="${install_dir}/${artifact_name}"
 
-resolve_repo() {
-  local url
-  url="$(git config --get remote.origin.url 2>/dev/null || true)"
-
-  case "$url" in
-    git@github.com:*)
-      url="${url#git@github.com:}"
-      url="${url%.git}"
-      printf '%s\n' "$url"
-      ;;
-    https://github.com/*)
-      url="${url#https://github.com/}"
-      url="${url%.git}"
-      printf '%s\n' "$url"
-      ;;
-    *)
-      printf '%s\n' "johnynek/bosatsu"
-      ;;
-  esac
-}
-
 install_from_artifact() {
   local src="$1"
   [ -f "$src" ] || fail "artifact not found: ${src}"
@@ -141,10 +119,8 @@ install_from_artifact() {
 
 fetch_from_github() {
   command -v curl >/dev/null 2>&1 || fail "curl not found"
-  local repo
-  repo="$(resolve_repo)"
   local url
-  url="https://github.com/${repo}/releases/download/v${version}/${artifact_name}"
+  url="https://github.com/johnynek/bosatsu/releases/download/v${version}/${artifact_name}"
   mkdir -p "$install_dir"
   echo "Downloading ${url}"
   curl -fL "$url" -o "$artifact_path"
@@ -161,6 +137,10 @@ elif [ ! -f "$artifact_path" ]; then
   else
     fail "missing ${artifact_path}; re-run with --fetch or --artifact <path>"
   fi
+fi
+
+if [ ! -f "$artifact_path" ]; then
+  fail "missing ${artifact_path} after installation"
 fi
 
 case "$platform" in
