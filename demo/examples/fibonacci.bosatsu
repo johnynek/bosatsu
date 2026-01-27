@@ -7,12 +7,11 @@ export result
 def fib(n: Int) -> Int:
   # Use int_loop to iterate: state is (a, b) where a=fib(i), b=fib(i+1)
   # Start with (0, 1) and iterate n times
-  # int_loop returns (final_counter, final_state), so .snd gets state, .fst gets a
-  int_loop(n, (0, 1), (i, acc) ->
+  # int_loop returns the final state (a tuple), so destructure it
+  (result, _) = int_loop(n, (0, 1), (i, acc) ->
     (a, b) = acc
     (i.sub(1), (b, a.add(b))))
-  .snd
-  .fst
+  result
 
 # Export result for demo: fib(20) = 6765
 result = fib(20)
