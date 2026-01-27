@@ -1,9 +1,6 @@
-# Change Log
+# Changelog
 
-All notable changes to the "bosatsu" extension will be documented in this file.
+## 0.0.1 - 2026-01-26
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
-
-## [Unreleased]
-
-- Initial release
+- Initial release.
+- Syntax highlighting for Bosatsu: keywords, functions, structs/enums, comments, numbers, strings, chars, and interpolation.
