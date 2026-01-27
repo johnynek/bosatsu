@@ -262,17 +262,23 @@ Branch: `feat/phase4-dom-primitives`
 - Total: 1063 coreJS tests passing (including 28 UI tests)
 - Browser integration test covers: createElement, appendChild, setAttribute, createTextNode, addEventListener, VNode tree rendering
 
-## Phase 5: Simple Reactive Simulation (TODO)
+## Phase 5: Simple Reactive Simulation ✅ DONE
 **Demo: Interactive slider → compute → display**
 
-- [ ] State management with reactive updates
-- [ ] JsGen-based law evaluation (not Scala.js interpreter)
-- [ ] Connect state changes to DOM updates
-- [ ] `ReactiveStateTest.scala` - Property tests
-- [ ] `ReactiveStateGen.scala` - Generators for state and updates
-- [ ] Demo: Tax calculator with income slider, shows tax_rate and total_tax
-- [ ] Performance benchmark: JsGen vs Scala.js interpreter
-- [ ] `docs/pr-guides/phase-5-reactive-pr-guide.md`
+Branch: `feat/phase5-reactive-state`
+
+- [x] State management with reactive updates (`ReactiveState.scala` - MutableState, ComputedState, StateStore)
+- [x] Connect state changes to DOM updates (`StateBinding.scala` - TextBinding, AttributeBinding, InputBinding)
+- [x] `ReactiveStateTest.scala` - Property tests (15 tests passing)
+- [x] `ReactiveStateGen.scala` - Generators for state and updates
+- [x] Demo: Tax calculator with income slider, shows tax_rate and total_tax (`demo/tax-calculator.html`)
+- [x] `docs/pr-guides/phase-5-reactive-pr-guide.md`
+- [ ] JsGen-based law evaluation (deferred - requires TypedExpr integration)
+- [ ] Performance benchmark: JsGen vs Scala.js interpreter (deferred to Phase 6)
+
+**Test Results:**
+- Total: 15 ReactiveState tests passing
+- Tax calculator demo shows reactive state updates in real-time
 
 ## Phase 6: Simulation Applets Full (TODO)
 **Upgrade from Scala.js interpreter to JsGen**
@@ -377,17 +383,19 @@ Branch: `feat/phase4-dom-primitives`
 
 # Current Status
 
-**Phase 3.5 is complete** - JS/WASM interop demo works with hybrid architecture proven.
+**Phase 5 is complete** - Full reactive state management with DOM bindings and tax calculator demo.
 
 **Completed:**
 - Phase 1: Core Infrastructure ✅
 - Phase 2: Simulation Applets Core ✅
 - Phase 3: JsGen "Hello World" ✅
 - Phase 3.5: JS/WASM Interop Demo ✅
+- Phase 4: Basic DOM Primitives ✅
+- Phase 5: Simple Reactive Simulation ✅
 
 **Next recommended work:**
 1. Add property tests for JsGen (remaining Phase 3 items)
-2. Start Phase 4 (Basic DOM Primitives) or Phase 5 (Simple Reactive Simulation)
+2. Start Phase 6 (Simulation Applets Full) - "Why?" buttons, "What if?" toggles, parameter sweeps
 
 ---
 
