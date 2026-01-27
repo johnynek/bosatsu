@@ -119,9 +119,16 @@ object ProvenanceAnalyzer {
 
       case let: TypedExpr.Let[T] =>
         for {
-          boundId <- recurse(let.expr, env)
-          // Extend environment with the new binding
-          newEnv = env + (let.arg -> boundId)
+          // For recursive lets, we need to add the binding to env BEFORE analyzing the expr
+          // so self-references can be tracked
+          preId <- if (let.recursive) freshId[T] else State.pure[AnalysisState[T], Long](0L)
+          preEnv = if (let.recursive) env + (let.arg -> preId) else env
+          boundId <- recurse(let.expr, preEnv)
+          // For recursive bindings, add dependency from the pre-allocated ID to the actual expr
+          _ <- if (let.recursive) addDep(preId, boundId) else State.pure[AnalysisState[T], Unit](())
+          // Use the bound ID (or pre-allocated ID for recursive) for the environment
+          actualBoundId = if (let.recursive) preId else boundId
+          newEnv = env + (let.arg -> actualBoundId)
           inId <- recurse(let.in, newEnv)
           id <- freshId[T]
           _ <- addNode(ProvenanceNode(id, let))
@@ -130,9 +137,15 @@ object ProvenanceAnalyzer {
 
       case lam: TypedExpr.AnnotatedLambda[T] =>
         for {
-          // Create placeholder IDs for parameters (they're inputs, not derived)
+          // Create IDs for parameters and add nodes for them (they're inputs, not derived)
+          // We use the lambda's tag for parameter nodes since parameters don't have their own TypedExpr
           paramIds <- lam.args.traverse { case (name, _) =>
-            freshId[T].map(id => (name, id))
+            for {
+              paramId <- freshId[T]
+              // Add a node for the parameter - use a Local reference with the same tag as the lambda
+              paramNode = ProvenanceNode(paramId, TypedExpr.Local[T](name, lam.result, lam.tag))
+              _ <- addNode(paramNode)
+            } yield (name, paramId)
           }
           // Extend environment with parameters
           newEnv = env ++ paramIds.toList.toMap
@@ -148,9 +161,21 @@ object ProvenanceAnalyzer {
           branchIds <- m.branches.traverse { case (pattern, branchExpr) =>
             // Extract names bound by the pattern
             val patternBindings = pattern.names
-            // Create placeholder IDs for pattern bindings
-            val patternEnv = patternBindings.map(name => name -> -1L).toMap
-            recurse(branchExpr, env ++ patternEnv)
+            // Create proper IDs and nodes for pattern bindings
+            // Pattern bindings derive from the scrutinee
+            for {
+              patternEnv <- patternBindings.toList.traverse { name =>
+                for {
+                  bindingId <- freshId[T]
+                  // Create a node for the pattern binding - it derives from the scrutinee
+                  // Use a Local reference with the match's tag
+                  bindingNode = ProvenanceNode(bindingId, TypedExpr.Local[T](name, m.result, m.tag))
+                  _ <- addNode(bindingNode)
+                  _ <- addDep(bindingId, scrutId) // Pattern binding depends on scrutinee
+                } yield (name, bindingId)
+              }
+              branchId <- recurse(branchExpr, env ++ patternEnv.toMap)
+            } yield branchId
           }
           id <- freshId[T]
           _ <- addNode(ProvenanceNode(id, m))

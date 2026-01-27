@@ -133,8 +133,13 @@ final case class DerivationGraph[T](
     val reachable = nodeIds.flatMap(id => allDependencies(id) + id)
     DerivationGraph(
       nodes.filter { case (id, _) => reachable.contains(id) },
-      dependencies.filter { case (id, _) => reachable.contains(id) },
-      usages.filter { case (id, _) => reachable.contains(id) },
+      // Filter both keys and values to remove stale references
+      dependencies
+        .filter { case (id, _) => reachable.contains(id) }
+        .map { case (id, deps) => id -> deps.filter(reachable.contains) },
+      usages
+        .filter { case (id, _) => reachable.contains(id) }
+        .map { case (id, uses) => id -> uses.filter(reachable.contains) },
       nodeIds.intersect(nodes.keySet)
     )
   }

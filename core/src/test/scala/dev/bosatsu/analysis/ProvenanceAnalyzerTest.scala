@@ -142,10 +142,7 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
       graph.dependencies.foreach { case (from, tos) =>
         assert(graph.nodes.contains(from), s"Source node $from should exist")
         tos.foreach { to =>
-          // to might be -1 for unresolved references in nested scopes
-          if (to >= 0) {
-            assert(graph.nodes.contains(to), s"Target node $to should exist")
-          }
+          assert(graph.nodes.contains(to), s"Target node $to should exist (from $from)")
         }
       }
     }
@@ -201,7 +198,7 @@ class ProvenanceAnalyzerTest extends munit.ScalaCheckSuite {
 
           // If A depends on B, then B is used by A
           graph.dependencies.forall { case (from, tos) =>
-            tos.filter(_ >= 0).forall { to =>
+            tos.forall { to =>
               graph.usages.getOrElse(to, Set.empty).contains(from)
             }
           }
