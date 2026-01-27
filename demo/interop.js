@@ -103,17 +103,21 @@ export function unpatchJS() {
 }
 
 /**
- * Validate fib input (simple range check)
+ * Call the Bosatsu-generated orchestrator to validate fib input
+ * This demonstrates Bosatsu JS logic working alongside WASM
  */
 export function validateFibInput(n) {
-  return Number.isInteger(n) && n >= 0 && n <= 40;
+  // Bosatsu Bool is [0] for false, [1] for true
+  const result = globalThis.Demo_Orchestrator$validate_fib_input(n);
+  return result[0] === 1;
 }
 
 /**
- * Validate factorial input (simple range check)
+ * Call the Bosatsu-generated orchestrator to validate factorial input
  */
 export function validateFactInput(n) {
-  return Number.isInteger(n) && n >= 0 && n <= 20;
+  const result = globalThis.Demo_Orchestrator$validate_fact_input(n);
+  return result[0] === 1;
 }
 
 /**

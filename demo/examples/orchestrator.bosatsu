@@ -2,10 +2,17 @@ package Demo/Orchestrator
 
 from Demo/Compute import fib, factorial
 
-export compute_fib_sequence, compute_factorial_table
+export compute_fib_sequence, compute_factorial_table, validate_fib_input, validate_fact_input
 
 # Orchestration logic compiled to JS
 # The actual fib/factorial calls will be redirected to WASM at runtime
+
+# Validation functions - run in JS, demonstrate Bosatsu logic
+def validate_fib_input(n: Int) -> Bool:
+  n.ge(0).and(n.le(40))
+
+def validate_fact_input(n: Int) -> Bool:
+  n.ge(0).and(n.le(20))
 
 # Compute fibonacci sequence from 0 to n
 # Returns a list of (index, value) pairs
