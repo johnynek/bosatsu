@@ -11,29 +11,79 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+
     env:
       BOSATSU_CI: "true"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
-      - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v6"
-      - name: "java 17 setup"
-        uses: "olafurpg/setup-scala@v14"
+      - uses: actions/checkout@v4
+
+      - uses: coursier/cache-action@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          java-version: "17"
-      - name: "build app"
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.50'
+
+      - name: Build jsui
         run: |
           export NODE_OPTIONS=--openssl-legacy-provider
-          sbt "jsuiJS/fullOptJS::webpack; docs/paradox"
-          mkdir web_deploy
-          mkdir web_deploy/compiler
-          cp -a docs/target/paradox/site/main/* web_deploy
+          sbt "jsuiJS/fullOptJS::webpack"
+
+      - name: Build documentation
+        run: sbt "docs/paradox"
+
+      - name: Create deployment directory
+        run: mkdir -p web_deploy/compiler web_deploy/demo/examples
+
+      - name: Build demo artifacts - JavaScript
+        run: |
+          sbt "cli/run transpile js --input demo/examples/fibonacci.bosatsu --outdir web_deploy/demo/examples"
+
+      - name: Build demo artifacts - C
+        run: |
+          sbt "cli/run transpile c --main Demo/Fibonacci --input demo/examples/fibonacci.bosatsu --output fibonacci.c --outdir web_deploy/demo/examples"
+
+      - name: Build WASM from C
+        run: |
+          emcc web_deploy/demo/examples/fibonacci.c \
+            -I c_runtime \
+            c_runtime/bosatsu_runtime.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
+            -sWASM=1 \
+            -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -sEXPORTED_FUNCTIONS='["_main"]' \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME='Module' \
+            -o web_deploy/demo/examples/fibonacci_wasm.js
+
+      - name: Assemble deployment
+        run: |
+          # Copy documentation (paradox output)
+          cp -a docs/target/paradox/site/main/* web_deploy/
+
+          # Landing page
+          cp web/index.html web_deploy/
+
+          # Compiler UI
           cp jsui/index.html web_deploy/compiler/
           cp jsui/app.css web_deploy/compiler/
           cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
-      - name: Deploy
+          # Demo page
+          cp demo/index.html web_deploy/demo/
+          cp demo/demo.css web_deploy/demo/
+          cp demo/demo.js web_deploy/demo/
+          cp demo/examples/fibonacci.bosatsu web_deploy/demo/examples/
+
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
