@@ -244,17 +244,23 @@ This proves the hybrid architecture works:
 - Runtime interop via JS/WASM bridge
 - Foundation for simulation applets (heavy physics in WASM, UI in JS)
 
-## Phase 4: Basic DOM Primitives (TODO)
+## Phase 4: Basic DOM Primitives ✅ DONE
 **Building blocks for BosatsuUI**
 
-- [ ] `VNode.scala` - Virtual DOM types (Element, Text, Component)
-- [ ] `DOMRuntime.scala` - Scala.js runtime for createElement, setAttribute, addEventListener
-- [ ] `DOMCodegen.scala` - Generate native JS DOM manipulation code via JsGen
-- [ ] `VNodeGen.scala` - ScalaCheck generators for VNode trees
-- [ ] `VNodeTest.scala` - Property tests
-- [ ] Integration: render static VNode tree to real DOM (JSDOM)
-- [ ] Integration: event handler fires and logs to console
-- [ ] `docs/pr-guides/phase-4-dom-pr-guide.md`
+Branch: `feat/phase4-dom-primitives`
+
+- [x] `VNode.scala` - Virtual DOM types (Element, Text, Component)
+- [x] `DOMRuntime.scala` - Scala.js runtime for createElement, setAttribute, addEventListener (uses js.Dynamic)
+- [x] `DOMCodegen.scala` - Generate native JS DOM manipulation code via JsGen
+- [x] `VNodeGen.scala` - ScalaCheck generators for VNode trees
+- [x] `VNodeTest.scala` - Property tests (22 tests passing)
+- [ ] Integration: render static VNode tree to real DOM (JSDOM) - deferred to browser E2E tests
+- [ ] Integration: event handler fires and logs to console - deferred to browser E2E tests
+- [x] `docs/pr-guides/phase-4-dom-pr-guide.md`
+
+**Notes:**
+- DOMRuntime uses `js.Dynamic` to avoid adding scalajs-dom dependency
+- Integration tests requiring JSDOM deferred; basic functionality verified via renderToString tests
 
 ## Phase 5: Simple Reactive Simulation (TODO)
 **Demo: Interactive slider → compute → display**

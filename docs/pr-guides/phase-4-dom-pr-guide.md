@@ -39,7 +39,25 @@ el.addEventListener("click", (event) => { ... });
 el.appendChild(childEl);
 ```
 
-### 3. Test Files
+### 3. DOMRuntime.scala - Scala.js DOM Runtime
+
+Location: `core/.js/src/main/scala/dev/bosatsu/ui/DOMRuntime.scala`
+
+A Scala.js runtime for actual DOM manipulation, using raw JS interop (`js.Dynamic`) to avoid external dependencies:
+
+- **createElement/createTextNode** - Create DOM nodes
+- **setAttribute/removeAttribute/setAttributes** - Attribute manipulation
+- **addEventListener/removeEventListener** - Event handling
+- **appendChild/removeChild/replaceChild/insertBefore** - Tree manipulation
+- **querySelector/querySelectorAll/getElementById** - DOM queries
+- **addClass/removeClass/toggleClass/hasClass** - CSS class manipulation
+- **setStyle** - Inline style manipulation
+- **render(VNode)** - Render a VNode tree to real DOM nodes
+- **mount/mountById** - Mount a VNode tree to a container element
+
+This file is Scala.js-specific (in `.js/src/main/scala/`) and uses `js.Dynamic` for all DOM operations, making it dependency-free while still providing type-safe Scala APIs.
+
+### 4. Test Files
 
 - **VNodeGen.scala** - ScalaCheck generators for VNode trees
 - **VNodeTest.scala** - Property-based tests (22 tests)
@@ -81,7 +99,24 @@ el.appendChild(childEl);
 
 **Dependencies:** PR 1 (VNode types), Phase 3 (Code.scala)
 
-### PR 3: VNode Generators & Tests
+### PR 3: DOMRuntime (Scala.js Platform-Specific)
+
+**Files:**
+- `core/.js/src/main/scala/dev/bosatsu/ui/DOMRuntime.scala`
+
+**Changes:**
+- Scala.js DOM manipulation runtime using `js.Dynamic`
+- VNode rendering to actual DOM
+- Mount functions for container elements
+- Event handling with preventDefault/stopPropagation
+
+**Tests:** Requires browser environment (JSDOM or real browser)
+
+**Reviewable in:** ~10 min
+
+**Dependencies:** PR 1 (VNode types)
+
+### PR 4: VNode Generators & Tests
 
 **Files:**
 - `core/src/test/scala/dev/bosatsu/ui/VNodeGen.scala`
@@ -158,6 +193,24 @@ val html = DOMCodegen.renderToString(button)
 val module = DOMCodegen.generateModule(list, "ListModule")
 ```
 
+### Using DOMRuntime (Scala.js only)
+
+```scala
+import dev.bosatsu.ui.{DOMRuntime, VNode}
+
+// Create a VNode tree
+val app = VNode.div(
+  VNode.h1(VNode.text("Hello, World!")),
+  VNode.p(VNode.text("Welcome to BosatsuUI"))
+)
+
+// Mount to a container (requires browser environment)
+DOMRuntime.mount(app, "#app")
+
+// Or mount by ID
+DOMRuntime.mountById(app, "app")
+```
+
 ## Future Work (Phase 5+)
 
 - Event handler execution (requires Bosatsu runtime integration)
@@ -172,11 +225,17 @@ This is a new module with no breaking changes to existing code.
 ## Verification
 
 ```bash
-# Run UI tests
+# Run UI tests (JVM - VNode, DOMCodegen)
 sbt "coreJVM/testOnly dev.bosatsu.ui.*"
 
-# Check compilation
+# Check JVM compilation
 sbt "coreJVM/compile"
+
+# Check JS compilation (includes DOMRuntime)
+sbt "coreJS/compile"
+
+# Run full JS test suite
+sbt "coreJS/test"
 ```
 
 ## References
