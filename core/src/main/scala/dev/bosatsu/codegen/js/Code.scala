@@ -103,6 +103,13 @@ object Code {
 
     case object And extends BinOp("&&")
     case object Or extends BinOp("||")
+
+    // Bitwise operators
+    case object BitAnd extends BinOp("&")
+    case object BitOr extends BinOp("|")
+    case object BitXor extends BinOp("^")
+    case object BitShiftLeft extends BinOp("<<")
+    case object BitShiftRight extends BinOp(">>")
   }
 
   sealed abstract class PrefixOp(val repr: String) {
@@ -113,6 +120,7 @@ object Code {
     case object Neg extends PrefixOp("-")
     case object Pos extends PrefixOp("+")
     case object TypeOf extends PrefixOp("typeof ")
+    case object BitNot extends PrefixOp("~")
   }
 
   // Statements

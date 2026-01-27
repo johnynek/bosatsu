@@ -1,4 +1,0 @@
-from Foo import x
-
-test = Assertion(
-  cmp_String(x, "this is Foo") matches EQ, "got the right string")

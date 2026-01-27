@@ -132,11 +132,20 @@ case object JsTranspiler extends Transpiler {
       case Some(loop) => moduleIOMonad.raiseError(CircularPackagesFound(loop))
       case None =>
         // ns.compiled is SortedMap[S, Map[PackageName, List[(Bindable, Matchless.Expr[S])]]]
-        // We iterate over all packages and generate JS for each
+        // We iterate over all packages and generate JS for each, in topological order
+        // so that dependencies are defined before dependents
         val allPackages: Set[PackageName] = ns.compiled.values.flatMap(_.keys).toSet
 
+        // Get packages in topological order (dependencies first)
+        val topoOrderedPackages: List[PackageName] =
+          ns.topoSort.layers.flatMap(_.toList).map(_._2).filter(allPackages.contains).toList
+
+        // First, write the runtime library
+        val runtimePath = resolve(args.outDir, List("_runtime.js"))
+        val runtimeDoc = Doc.text(JsGen.renderRuntime)
+
         // Render each package to a JS file
-        val packageDocs: List[(P, Doc)] = allPackages.toList.sorted.flatMap { pack =>
+        val packageDocs: List[(P, Doc)] = topoOrderedPackages.flatMap { pack =>
           // Collect all bindings for this package from all compiled sources
           val bindings: List[(Identifier.Bindable, dev.bosatsu.Matchless.Expr[S])] =
             ns.compiled.values.flatMap(_.get(pack).toList.flatten).toList
@@ -150,11 +159,84 @@ case object JsTranspiler extends Transpiler {
               case Some(_) =>
                 val outPath = resolve(args.outDir, pathParts)
                 val jsCode = JsGen.renderModule(bindings)
-                val doc = Doc.text(jsCode)
+                // Prepend runtime import
+                val depth = pack.parts.length
+                val runtimeImport = "../" * depth + "_runtime.js"
+                val importLine = s"""// Import runtime\n// require("./$runtimeImport") or import from "./$runtimeImport"\n\n"""
+                val doc = Doc.text(importLine + jsCode)
                 List((outPath, doc))
             }
           }
         }
+
+        // Add runtime to the output
+        val allDocs = (runtimePath -> runtimeDoc) :: packageDocs
+
+        // Also generate a bundled file with all code for testing
+        val bundlePath = resolve(args.outDir, List("_bundle.js"))
+
+        // Functions provided by the JS runtime - skip generating these from Bosatsu source
+        val runtimeProvidedFunctions: Set[String] = Set(
+          "foldl_List", "range", "flat_map_List"
+        )
+
+        // Use 'var' for all bindings - allows redefinition and creates true globals
+        // This is necessary because:
+        // 1. Multiple packages may define the same name (e.g., 'not' in BinInt and Bool)
+        // 2. Generated code references names directly without qualification
+        // 3. 'var' at top level creates real global variables accessible anywhere
+        //
+        // Later definitions shadow earlier ones, which is acceptable since:
+        // - Same-named functions in different packages are usually unrelated
+        // - Tests use qualified names in _tests registry
+        val packageBlocks: List[String] = topoOrderedPackages.flatMap { pack =>
+          val bindings: List[(Identifier.Bindable, dev.bosatsu.Matchless.Expr[S])] =
+            ns.compiled.values.flatMap(_.get(pack).toList.flatten).toList
+
+          if (bindings.isEmpty) Nil
+          else {
+            bindings.flatMap { case (name, expr) =>
+              val escapedBase = JsGen.escape(name).name
+              // Use package-qualified name to avoid collisions
+              val qualifiedName = JsGen.qualifiedName(pack, name).name
+
+              // Skip Predef functions that are provided by the runtime
+              val isRuntimeProvided = pack == PackageName.PredefName && runtimeProvidedFunctions.contains(escapedBase)
+              if (isRuntimeProvided) None
+              else {
+                // Use exprToJsWithTopLevel to pre-bind the qualified name for recursive references
+                val qualifiedIdent = JsGen.qualifiedName(pack, name)
+                val (_, jsExpr) = JsGen.Env.run(JsGen.exprToJsWithTopLevel(expr, name, qualifiedIdent))
+                val rendered = Code.render(jsExpr)
+
+                // Use qualified name to avoid collisions between packages
+                val varDef = s"var $qualifiedName = $rendered;"
+
+                // Check if this is a test binding and register it
+                val n = name match {
+                  case Identifier.Name(s) => s
+                  case Identifier.Backticked(s) => s
+                  case op: Identifier.Operator => op.asString
+                }
+                val isTest = n == "test" || n == "tests" || n.startsWith("test_") || n.endsWith("_test")
+                val testReg = if (isTest) {
+                  // Register test immediately after definition so we capture the right value
+                  // even if a later package redefines the same name
+                  s"""\n_tests["${pack.asString}::$n"] = $qualifiedName;"""
+                } else ""
+
+                Some(varDef + testReg)
+              }
+            }
+          }
+        }
+
+        val testsHeader = "// Test registry\nvar _tests = {};\n\n"
+        val bundledCode = JsGen.renderRuntime + "\n\n" + testsHeader + "// Generated code\n" + packageBlocks.mkString("\n")
+        val bundleDoc = Doc.text(bundledCode)
+
+        // Add bundle to docs
+        val withBundle = allDocs :+ (bundlePath -> bundleDoc)
 
         // Add entry point if in main mode
         val withEntry: F[List[(P, Doc)]] = args.mode match {
@@ -191,11 +273,11 @@ case object JsTranspiler extends Transpiler {
                   entryName,
                   args.outputMode
                 )
-                moduleIOMonad.pure(packageDocs :+ (mainPath -> mainDoc))
+                moduleIOMonad.pure(withBundle :+ (mainPath -> mainDoc))
               }
             }
           case Mode.Library =>
-            moduleIOMonad.pure(packageDocs)
+            moduleIOMonad.pure(withBundle)
         }
 
         withEntry
