@@ -210,8 +210,9 @@ case object JsTranspiler extends Transpiler {
                 val (_, jsExpr) = JsGen.Env.run(JsGen.exprToJsWithTopLevel(expr, name, qualifiedIdent))
                 val rendered = Code.render(jsExpr)
 
-                // Use qualified name to avoid collisions between packages
-                val varDef = s"var $qualifiedName = $rendered;"
+                // Use globalThis to ensure variables are accessible when loaded via ES module import()
+                // (var declarations become module-scoped in ES modules)
+                val varDef = s"globalThis.$qualifiedName = $rendered;"
 
                 // Check if this is a test binding and register it
                 val n = name match {
@@ -223,7 +224,7 @@ case object JsTranspiler extends Transpiler {
                 val testReg = if (isTest) {
                   // Register test immediately after definition so we capture the right value
                   // even if a later package redefines the same name
-                  s"""\n_tests["${pack.asString}::$n"] = $qualifiedName;"""
+                  s"""\nglobalThis._tests["${pack.asString}::$n"] = globalThis.$qualifiedName;"""
                 } else ""
 
                 Some(varDef + testReg)
@@ -232,7 +233,7 @@ case object JsTranspiler extends Transpiler {
           }
         }
 
-        val testsHeader = "// Test registry\nvar _tests = {};\n\n"
+        val testsHeader = "// Test registry\nglobalThis._tests = {};\n\n"
         val bundledCode = JsGen.renderRuntime + "\n\n" + testsHeader + "// Generated code\n" + packageBlocks.mkString("\n")
         val bundleDoc = Doc.text(bundledCode)
 
