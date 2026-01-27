@@ -38,20 +38,35 @@ export async function loadBosatsuJS() {
 export async function loadBosatsuWASM() {
   try {
     console.log('Loading WASM module...');
-    const module = await import('./examples/compute_wasm.js');
-    console.log('WASM JS loader imported, module keys:', Object.keys(module));
 
-    // Emscripten MODULARIZE exports the factory function
-    // It might be the default export or named export depending on settings
-    const createModule = module.default || module.createModule || module;
-    console.log('createModule type:', typeof createModule);
+    // Emscripten with MODULARIZE outputs a global factory function
+    // We need to load it as a script, not as an ES module
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = './examples/compute_wasm.js';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
 
-    if (typeof createModule !== 'function') {
-      throw new Error('createModule is not a function: ' + typeof createModule);
+    console.log('WASM JS loader script loaded');
+
+    // The factory function should now be available as globalThis.createModule
+    if (typeof globalThis.createModule !== 'function') {
+      throw new Error('createModule not found after loading script');
     }
 
     console.log('Calling createModule()...');
-    wasm = await createModule();
+    wasm = await globalThis.createModule({
+      // Tell emscripten where to find the .wasm file
+      locateFile: (path) => {
+        console.log('locateFile called for:', path);
+        if (path.endsWith('.wasm')) {
+          return './examples/' + path;
+        }
+        return path;
+      }
+    });
     console.log('WASM module created, calling _wasm_init...');
 
     wasm._wasm_init();
