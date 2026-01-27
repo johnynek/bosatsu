@@ -18,6 +18,9 @@
 /* GC initialization - no-op for malloc-based stub */
 #define GC_INIT() ((void)0)
 
+/* GC_init function (lowercase) - also no-op */
+static inline void GC_init(void) { /* no-op */ }
+
 /* GC_MALLOC: allocates zeroed memory (like calloc) */
 #define GC_MALLOC(size) calloc(1, size)
 
