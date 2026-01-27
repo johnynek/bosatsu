@@ -131,16 +131,124 @@ Commits: `05fecfec`, `7123b6c2`
 - [ ] `CodeTest.scala` - Unit tests for JS AST rendering edge cases
 - [ ] `docs/pr-guides/phase-3-jsgen-pr-guide.md` - PR breakdown for upstream submission
 
-## Phase 3.5: JS/WASM Interop Demo (TODO)
-**Demo: Bosatsu generates both JS and WASM, they work together**
+## Phase 3.5: JS/WASM Interop Demo (TODO) 🔥
+**Demo: Bosatsu JS code calls Bosatsu WASM code - true hybrid architecture**
 
-- [ ] Generate JS (via JsGen) for UI/orchestration code
-- [ ] Generate C (via ClangGen) → compile to WASM for compute
-- [ ] Create typed interface between JS and WASM
-- [ ] `InteropTest.scala` - Property tests
-- [ ] Demo: Slider input → WASM computes heavy math → JS updates DOM
-- [ ] Document interop patterns and FFI conventions
-- [ ] `docs/pr-guides/phase-3.5-interop-pr-guide.md`
+### Goal
+Show that the same language (Bosatsu) can be split across compilation targets:
+- **Compute-heavy code** → C → WASM (fast, sandboxed)
+- **Orchestration/UI code** → JS (DOM access, event handling)
+- **They interoperate** via a typed FFI boundary
+
+### Demo Structure
+
+```
+demo/examples/
+├── compute.bosatsu       # Heavy math, compiled to WASM
+├── orchestrator.bosatsu  # UI logic, compiled to JS (imports compute)
+└── interop.html          # Shows them working together
+```
+
+### File: `compute.bosatsu` (→ WASM)
+```bosatsu
+package Demo/Compute
+
+export fib, factorial, is_prime
+
+# Compute-heavy functions ideal for WASM
+def fib(n: Int) -> Int:
+  int_loop(n, (0, 1), (i, acc) ->
+    (a, b) = acc
+    (i.sub(1), (b, a.add(b)))).fst
+
+def factorial(n: Int) -> Int:
+  int_loop(n, 1, (i, acc) -> (i.sub(1), acc.times(i))).snd
+
+def is_prime(n: Int) -> Bool:
+  # Check divisibility from 2 to sqrt(n)
+  match n.cmp_Int(2):
+    LT: False
+    EQ: True
+    GT:
+      int_loop(n.sub(1), True, (i, is_p) ->
+        match i.cmp_Int(1):
+          GT:
+            match n.mod_Int(i).cmp_Int(0):
+              EQ: (0, False)  # Found divisor
+              _: (i.sub(1), is_p)
+          _: (0, is_p)
+      ).snd
+```
+
+### File: `orchestrator.bosatsu` (→ JS)
+```bosatsu
+package Demo/Orchestrator
+
+# This file's generated JS will call the WASM exports
+# The FFI bridge is created at runtime in demo.js
+
+from Demo/Compute import fib, factorial
+
+export compute_and_format
+
+def compute_and_format(n: Int, op: String) -> String:
+  result = match op:
+    "fib": fib(n)
+    "factorial": factorial(n)
+    _: 0
+  concat(op, concat("(", concat(int_to_string(n), concat(") = ", int_to_string(result)))))
+```
+
+### Implementation Tasks
+
+**Build System:**
+- [ ] Update `scripts/build_demo.sh` to compile both files
+- [ ] `compute.bosatsu` → C → WASM with exported functions (`_fib`, `_factorial`, `_is_prime`)
+- [ ] `orchestrator.bosatsu` → JS bundle
+- [ ] Configure emscripten to export individual functions (not just `_main`)
+
+**FFI Bridge (`demo/interop.js`):**
+- [ ] Load WASM module and extract exported functions
+- [ ] Create JS shim that the orchestrator's imports resolve to
+- [ ] Wire: `Demo_Compute$fib` in JS → calls `Module._fib` in WASM
+- [ ] Handle type conversions (Bosatsu Int ↔ WASM i32/i64)
+
+**Demo UI (`demo/interop.html`):**
+- [ ] Slider for input value (n)
+- [ ] Dropdown to select operation (fib, factorial, is_prime)
+- [ ] "Compute" button that:
+  1. Reads n from slider
+  2. Calls JS orchestrator
+  3. Orchestrator calls WASM compute
+  4. Result flows back up
+  5. Displays in UI
+- [ ] Show which code ran where (JS vs WASM)
+- [ ] Performance comparison toggle (run same code in pure JS vs WASM)
+
+**C Code Changes (may be needed):**
+- [ ] Modify ClangGen to export functions with predictable names (not just `main`)
+- [ ] Add `EMSCRIPTEN_KEEPALIVE` or `-sEXPORTED_FUNCTIONS` for each export
+- [ ] Ensure Bosatsu Int representation is compatible with JS BigInt
+
+**Testing:**
+- [ ] `InteropTest.scala` - Property tests:
+  - `forAll(genInt)(n => jsResult(fib(n)) == wasmResult(fib(n)))` (semantic equivalence)
+  - `forAll(genInteropCall)(call => roundTrip(call) preserves value)` (FFI correctness)
+- [ ] Browser test: Playwright/Puppeteer script that exercises the demo
+
+### Success Criteria
+1. User moves slider, clicks compute
+2. JS orchestrator code (from `orchestrator.bosatsu`) executes
+3. It calls WASM function (from `compute.bosatsu`)
+4. Result displays correctly
+5. Console shows "Computed fib(20) via WASM: 6765"
+
+### Key Insight
+This proves the hybrid architecture works:
+- Same source language (Bosatsu)
+- Different compilation targets chosen per module
+- Runtime interop via JS/WASM bridge
+- Foundation for simulation applets (heavy physics in WASM, UI in JS)
 
 ## Phase 4: Basic DOM Primitives (TODO)
 **Building blocks for BosatsuUI**
