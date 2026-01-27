@@ -1,0 +1,10 @@
+export x,
+
+# testing an implicit package name
+
+x = 1
+y = x
+# now we shadow x with a different type
+x = "this is Foo"
+
+ignore = y
