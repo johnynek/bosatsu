@@ -948,8 +948,8 @@ var _string_to_Int = (bstr) => {
   return isNaN(n) ? [0] : [1, n];
 };
 
-// char_to_String - char is already a single-char string
-var _char_to_String = (c) => [1, c, [0]];
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
 
 // trace - log message and return value
 var _trace = (msg, value) => {

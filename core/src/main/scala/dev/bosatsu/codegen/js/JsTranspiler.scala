@@ -162,7 +162,8 @@ case object JsTranspiler extends Transpiler {
                 // Prepend runtime import
                 val depth = pack.parts.length
                 val runtimeImport = "../" * depth + "_runtime.js"
-                val importLine = s"""// Import runtime\n// require("./$runtimeImport") or import from "./$runtimeImport"\n\n"""
+                // Use CommonJS require - for ESM, use: import "./$runtimeImport"
+                val importLine = s"""// Runtime import (for standalone module use)\nif (typeof require !== 'undefined') { require("./$runtimeImport"); }\n\n"""
                 val doc = Doc.text(importLine + jsCode)
                 List((outPath, doc))
             }
