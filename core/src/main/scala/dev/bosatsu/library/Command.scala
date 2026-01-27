@@ -107,25 +107,26 @@ object Command {
           Opts.option[Version]("version", "the initial version to use"),
           topLevelOpt
         ).mapN { (name, repoUri, rootDir, ver, repoRootF) =>
-          val conf = LibConfig.init(name, repoUri, ver)
-          val writeJson = confOutput(rootDir, conf)
-
           repoRootF
             .flatMap { gitRoot =>
-              val path = libsPath(gitRoot)
               for {
-                lib0 <- readLibs(path)
-                relDir <- platformIO.relativize(gitRoot, rootDir) match {
+                cwd <- platformIO.pathF(".")
+                rootDirAbs = platformIO.resolve(cwd, rootDir)
+                relDir <- platformIO.relativize(gitRoot, rootDirAbs) match {
                   case Some(value) => moduleIOMonad.pure(value)
                   case None        =>
                     moduleIOMonad.raiseError(
                       CliException.Basic(
-                        show"$rootDir is not a subdir of $gitRoot"
+                        show"$rootDirAbs is not a subdir of $gitRoot"
                       )
                     )
                 }
+                path = libsPath(gitRoot)
+                lib0 <- readLibs(path)
                 lib1 = lib0.updated(name, show"$relDir")
                 out1 = Output.JsonOutput(Json.Writer.write(lib1), Some(path))
+                conf = LibConfig.init(name, repoUri, ver)
+                writeJson = confOutput(rootDirAbs, conf)
               } yield Output.many(out1, writeJson)
             }
         }

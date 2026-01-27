@@ -206,7 +206,8 @@ lazy val cliJS =
         fs2io.value,
         catsEffect.value,
         http4sCore.value,
-        http4sEmber.value
+        http4sEmber.value,
+        munit.value % Test
       )
     )
     .jsSettings(
