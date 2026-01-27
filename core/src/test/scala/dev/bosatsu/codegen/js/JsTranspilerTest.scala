@@ -35,7 +35,8 @@ class JsTranspilerTest extends FunSuite {
 
     // Should produce valid const declarations
     assert(result.contains("const x = 42"), s"Expected x binding, got: $result")
-    assert(result.contains("const y = \"hello\""), s"Expected y binding, got: $result")
+    // Strings are converted to Bosatsu string representation
+    assert(result.contains("const y = _js_to_bosatsu_string(\"hello\")"), s"Expected y binding with Bosatsu string, got: $result")
     assert(result.contains("const add ="), s"Expected add binding, got: $result")
     assert(result.contains("=>"), s"Expected arrow function, got: $result")
   }

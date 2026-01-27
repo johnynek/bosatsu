@@ -37,14 +37,25 @@ class JsGenTest extends ScalaCheckSuite {
     assertRenders(Literal(Lit.Integer(0)), "0")
   }
 
-  test("Literal string renders correctly") {
-    assertRenders(Literal(Lit.Str("hello")), "\"hello\"")
-    assertRenders(Literal(Lit.Str("")), "\"\"")
+  test("Literal string renders as Bosatsu string") {
+    // Strings are converted to Bosatsu's internal string representation
+    val helloResult = JsGen.renderExpr(Literal(Lit.Str("hello")))
+    assert(helloResult.contains("_js_to_bosatsu_string"), s"Expected Bosatsu string conversion, got: $helloResult")
+    assert(helloResult.contains("\"hello\""), s"Expected hello in string, got: $helloResult")
+
+    val emptyResult = JsGen.renderExpr(Literal(Lit.Str("")))
+    assert(emptyResult.contains("_js_to_bosatsu_string"), s"Expected Bosatsu string conversion, got: $emptyResult")
   }
 
-  test("Literal char renders correctly") {
-    assertRenders(Literal(Lit.Chr("a")), "\"a\"")
-    assertRenders(Literal(Lit.Chr("\n")), "\"\\n\"")
+  test("Literal char renders as Bosatsu char (single-element string)") {
+    // Chars are represented as [1, char, [0]] (single-element linked list)
+    val aResult = JsGen.renderExpr(Literal(Lit.Chr("a")))
+    assert(aResult.contains("[1,"), s"Expected array with cons tag, got: $aResult")
+    assert(aResult.contains("\"a\""), s"Expected char 'a' in array, got: $aResult")
+    assert(aResult.contains("[0]"), s"Expected nil terminator, got: $aResult")
+
+    val newlineResult = JsGen.renderExpr(Literal(Lit.Chr("\n")))
+    assert(newlineResult.contains("[1,"), s"Expected array with cons tag, got: $newlineResult")
   }
 
   // ==================
@@ -236,7 +247,8 @@ class JsGenTest extends ScalaCheckSuite {
     )
     val result = JsGen.renderModule(bindings)
     assert(result.contains("const x = 42"), s"Expected x binding, got: $result")
-    assert(result.contains("const y = \"hello\""), s"Expected y binding, got: $result")
+    // Strings are converted to Bosatsu string representation
+    assert(result.contains("const y = _js_to_bosatsu_string(\"hello\")"), s"Expected y binding with Bosatsu string, got: $result")
   }
 
   // ==================

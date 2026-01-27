@@ -396,10 +396,12 @@ object Code {
       whileDoc + par(toDoc(cond)) + Doc.space + toDoc(body)
 
     case ForLoop(init, cond, update, body) =>
+      // For loop format: for (init; cond; update) body
+      // All semicolons are required even when clauses are empty
       val initDoc = init.map(i => toDoc(i)).getOrElse(Doc.empty)
       val condDoc = cond.map(toDoc).getOrElse(Doc.empty)
       val updateDoc = update.map(toDoc).getOrElse(Doc.empty)
-      forDoc + par(initDoc + Doc.space + condDoc + semicolon + Doc.space + updateDoc) + Doc.space + toDoc(body)
+      forDoc + par(initDoc + semicolon + Doc.space + condDoc + semicolon + Doc.space + updateDoc) + Doc.space + toDoc(body)
 
     case Throw(value) => throwDoc + toDoc(value) + semicolon
 
