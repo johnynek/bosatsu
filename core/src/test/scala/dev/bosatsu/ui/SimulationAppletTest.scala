@@ -273,6 +273,30 @@ class SimulationAppletTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("SweepConfig stepSize preserves floating point precision") {
+    // This test catches the bug where integer division was used
+    val config = ParameterSweep.SweepConfig("x", 0.0, 1.0, 10)
+    val stepSize = config.stepSize
+    // stepSize should be exactly 0.1, not 0 (which integer division would give)
+    assert(Math.abs(stepSize - 0.1) < 0.0001, s"stepSize was $stepSize, expected 0.1")
+  }
+
+  test("SweepConfig stepSize works for small ranges") {
+    val config = ParameterSweep.SweepConfig("y", 0.0, 0.001, 10)
+    val stepSize = config.stepSize
+    assert(Math.abs(stepSize - 0.0001) < 0.00001, s"stepSize was $stepSize, expected 0.0001")
+  }
+
+  test("SweepConfig values are evenly spaced") {
+    val config = ParameterSweep.SweepConfig("z", 0.0, 1.0, 4)
+    val values = config.values
+    // Should be [0.0, 0.25, 0.5, 0.75, 1.0]
+    val expected = List(0.0, 0.25, 0.5, 0.75, 1.0)
+    values.zip(expected).foreach { case (actual, exp) =>
+      assert(Math.abs(actual - exp) < 0.0001, s"value $actual != expected $exp")
+    }
+  }
+
   // =========================================================================
   // EmbedGenerator Tests
   // =========================================================================
