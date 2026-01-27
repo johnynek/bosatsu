@@ -254,13 +254,13 @@ Branch: `feat/phase4-dom-primitives`
 - [x] `DOMCodegen.scala` - Generate native JS DOM manipulation code via JsGen
 - [x] `VNodeGen.scala` - ScalaCheck generators for VNode trees
 - [x] `VNodeTest.scala` - Property tests (22 tests passing)
-- [ ] Integration: render static VNode tree to real DOM (JSDOM) - deferred to browser E2E tests
-- [ ] Integration: event handler fires and logs to console - deferred to browser E2E tests
+- [x] `DOMRuntimeTest.scala` - JS-specific unit tests (6 tests)
+- [x] `demo/dom-test.html` - Browser integration test (createElement, setAttribute, addEventListener, VNode rendering)
 - [x] `docs/pr-guides/phase-4-dom-pr-guide.md`
 
-**Notes:**
-- DOMRuntime uses `js.Dynamic` to avoid adding scalajs-dom dependency
-- Integration tests requiring JSDOM deferred; basic functionality verified via renderToString tests
+**Test Results:**
+- Total: 1063 coreJS tests passing (including 28 UI tests)
+- Browser integration test covers: createElement, appendChild, setAttribute, createTextNode, addEventListener, VNode tree rendering
 
 ## Phase 5: Simple Reactive Simulation (TODO)
 **Demo: Interactive slider → compute → display**
