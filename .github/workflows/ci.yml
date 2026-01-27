@@ -124,6 +124,12 @@ jobs:
       - name: "run bosatsu tests"
         run: |
           ./bosatsu_node test --input_dir test_workspace/ --package_root test_workspace/
+      - name: "run lib test"
+        run: |
+          mkdir node_out_lib
+          ./bosatsu_node lib test --outdir node_out_lib
+          echo "now test without a given outdir"
+          ./bosatsu_node lib test
     strategy:
       matrix:
         java:
@@ -161,6 +167,8 @@ jobs:
         run: |
           mkdir c_out_lib
           ./bosatsuj lib test --outdir c_out_lib
+          echo "now test without a given outdir"
+          ./bosatsuj lib test
     timeout-minutes: 30
   libPublishDryRun:
     needs: testC
