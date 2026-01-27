@@ -45,11 +45,11 @@ jobs:
       # ===== Simple Multi-Target Demo (fibonacci) =====
       - name: Build demo artifacts - JavaScript
         run: |
-          sbt "cli/run transpile --input demo/examples/fibonacci.bosatsu js --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input test_workspace/Prog.bosatsu --input demo/examples/fibonacci.bosatsu js --outdir web_deploy/demo/examples"
 
       - name: Build demo artifacts - C
         run: |
-          sbt "cli/run transpile --input demo/examples/fibonacci.bosatsu c --main Demo/Fibonacci --output fibonacci.c --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input test_workspace/Prog.bosatsu --input demo/examples/fibonacci.bosatsu c --main Demo/Fibonacci --output fibonacci.c --outdir web_deploy/demo/examples"
 
       - name: Build WASM from C
         run: |
@@ -57,6 +57,7 @@ jobs:
             -I c_runtime \
             c_runtime/bosatsu_runtime.c \
             c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Prog.c \
             -sWASM=1 \
             -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
             -sEXPORTED_FUNCTIONS='["_main"]' \
