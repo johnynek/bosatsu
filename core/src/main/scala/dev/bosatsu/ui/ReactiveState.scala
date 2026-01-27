@@ -77,13 +77,29 @@ final class MutableState[A](initial: A) extends StateValue[A] {
  * A computed value derived from other state values.
  *
  * Automatically updates when dependencies change.
+ * Call dispose() when the computed state is no longer needed to prevent memory leaks.
  */
 final class ComputedState[A](compute: () => A, deps: Seq[StateValue[_]]) extends StateValue[A] {
   private var cachedValue: A = compute()
   private val listeners = mutable.Set[A => Unit]()
+  private var disposed = false
   private val depSubscriptions: Seq[Subscription] = deps.map { dep =>
     dep.asInstanceOf[StateValue[Any]].subscribe(_ => recompute())
   }
+
+  /**
+   * Dispose this computed state, cancelling all dependency subscriptions.
+   * After disposal, the state will no longer update when dependencies change.
+   */
+  def dispose(): Unit = {
+    if (!disposed) {
+      depSubscriptions.foreach(_.cancel())
+      listeners.clear()
+      disposed = true
+    }
+  }
+
+  def isDisposed: Boolean = disposed
 
   def get: A = cachedValue
 
@@ -136,7 +152,11 @@ final class StateStore {
   }
 
   def computed[A](name: String, compute: () => A, deps: Seq[String]): StateValue[A] = {
-    val depStates = deps.flatMap(get[Any])
+    val depStates = deps.map { depName =>
+      get[Any](depName).getOrElse(
+        throw new IllegalArgumentException(s"Missing dependency '$depName' for computed state '$name'")
+      )
+    }
     val state = new ComputedState[A](compute, depStates)
     states(name) = state
     state

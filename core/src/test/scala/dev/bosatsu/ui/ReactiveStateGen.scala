@@ -10,7 +10,8 @@ object ReactiveStateGen {
   // Generator for state names
   val genStateName: Gen[String] = for {
     first <- Gen.alphaChar
-    rest <- Gen.listOfN(Gen.choose(0, 10).sample.getOrElse(5), Gen.alphaNumChar)
+    len <- Gen.choose(0, 10)
+    rest <- Gen.listOfN(len, Gen.alphaNumChar)
   } yield (first :: rest).mkString
 
   // Generator for integer state values

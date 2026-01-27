@@ -44,13 +44,15 @@ object VNodeGen {
   // Generator for valid CSS class names
   val genClassName: Gen[String] = for {
     first <- Gen.alphaChar
-    rest <- Gen.listOfN(Gen.choose(0, 15).sample.getOrElse(5), Gen.alphaNumChar)
+    len <- Gen.choose(0, 15)
+    rest <- Gen.listOfN(len, Gen.alphaNumChar)
   } yield (first :: rest).mkString
 
   // Generator for valid HTML id
   val genId: Gen[String] = for {
     first <- Gen.alphaChar
-    rest <- Gen.listOfN(Gen.choose(0, 10).sample.getOrElse(5), Gen.alphaNumChar)
+    len <- Gen.choose(0, 10)
+    rest <- Gen.listOfN(len, Gen.alphaNumChar)
   } yield (first :: rest).mkString
 
   // Generator for attribute values

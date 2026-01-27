@@ -1,0 +1,21 @@
+package TaxSim/Main
+
+from Bosatsu/Prog import Main, Prog, pure, ignore_env
+
+export main, tax_rate, income, deductions, taxable, tax, net
+
+# Base assumptions - these can be toggled with "What if?" UI
+tax_rate = 25  # as percentage (25 = 25%)
+income = 100000
+deductions = 15000
+
+# Computed values - these will show "Why?" explanations
+taxable = income.sub(deductions)
+tax = taxable.times(tax_rate).div(100)
+net = income.sub(tax)
+
+# Result
+result = net
+
+# Main entry point
+main = Main(pure(result).ignore_env())

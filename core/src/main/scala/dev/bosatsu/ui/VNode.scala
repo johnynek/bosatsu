@@ -58,7 +58,7 @@ object VNode {
    * @param render Function that produces the component's VNode tree
    * @param key Optional key for efficient list reconciliation
    */
-  final case class Component[T](
+  final case class Component(
       name: String,
       props: Map[String, AttributeValue],
       render: () => VNode,
