@@ -3,557 +3,383 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bosatsu JS/WASM Interop Demo</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <title>Bosatsu WASM Computation Demo</title>
   <style>
     :root {
-      --primary: #2563eb;
-      --primary-dark: #1d4ed8;
-      --success: #16a34a;
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --border: #e2e8f0;
-      --text: #1e293b;
-      --text-muted: #64748b;
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --success: #22c55e;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.6;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
+      min-height: 100vh;
       padding: 2rem;
     }
 
-    header {
-      text-align: center;
+    .container { max-width: 900px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    header p { color: var(--muted); }
+
+    .architecture {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
       margin-bottom: 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
 
-    header h1 {
-      font-size: 2rem;
-      margin-bottom: 0.5rem;
-    }
-
-    header p {
-      color: var(--text-muted);
-    }
-
-    .demo-section {
-      background: var(--card-bg);
+    .arch-box {
+      background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
+      padding: 1rem 1.5rem;
+      text-align: center;
+    }
+
+    .arch-box.js { border-color: #fbbf24; }
+    .arch-box.wasm { border-color: #6366f1; }
+    .arch-box .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
+    .arch-box .tech { font-weight: bold; font-size: 1.1rem; margin: 0.25rem 0; }
+    .arch-box .desc { font-size: 0.8rem; color: var(--muted); }
+
+    .arrow { color: var(--muted); font-size: 1.5rem; }
+
+    .demo-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
       padding: 1.5rem;
       margin-bottom: 1.5rem;
     }
 
-    .demo-section h2 {
-      font-size: 1.25rem;
+    .demo-card h2 {
+      font-size: 1.1rem;
       margin-bottom: 1rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
 
-    .source-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
-
-    @media (max-width: 768px) {
-      .source-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .source-panel {
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .source-panel h3 {
-      background: var(--bg);
-      padding: 0.5rem 1rem;
-      font-size: 0.875rem;
-      border-bottom: 1px solid var(--border);
-    }
-
-    pre {
-      margin: 0;
-      padding: 1rem;
-      overflow-x: auto;
-      font-size: 0.875rem;
-      line-height: 1.5;
-    }
-
-    code {
-      font-family: 'SF Mono', Consolas, monospace;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1rem;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 0.5rem;
-    }
-
-    .tab {
-      padding: 0.5rem 1rem;
-      border: none;
-      background: none;
-      cursor: pointer;
-      font-size: 0.875rem;
-      color: var(--text-muted);
-      border-radius: 4px;
-      transition: all 0.2s;
-    }
-
-    .tab:hover {
-      background: var(--bg);
-    }
-
-    .tab.active {
-      background: var(--primary);
-      color: white;
-    }
-
-    .tab-content {
-      display: none;
-    }
-
-    .tab-content.active {
-      display: block;
-    }
-
-    .controls {
+    .input-group {
       display: flex;
       gap: 1rem;
       align-items: center;
-      flex-wrap: wrap;
       margin-bottom: 1rem;
     }
 
-    .controls label {
-      font-size: 0.875rem;
-    }
+    label { font-size: 0.9rem; color: var(--muted); }
 
-    .controls input[type="number"] {
-      width: 80px;
-      padding: 0.5rem;
+    input[type="number"] {
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      color: var(--text);
       font-size: 1rem;
+      width: 100px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--primary);
     }
 
     button {
-      padding: 0.5rem 1rem;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.875rem;
-      transition: all 0.2s;
-    }
-
-    .btn-primary {
       background: var(--primary);
       color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
     }
 
-    .btn-primary:hover {
-      background: var(--primary-dark);
-    }
+    button:hover { background: var(--primary-dark); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .btn-secondary {
+    .result {
       background: var(--bg);
-      border: 1px solid var(--border);
-    }
-
-    .btn-secondary:hover {
-      background: var(--border);
-    }
-
-    .results {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', monospace;
       margin-top: 1rem;
     }
 
-    .result-card {
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result-row:last-child { border-bottom: none; }
+    .result-label { color: var(--muted); }
+    .result-value { font-weight: bold; }
+    .result-value.large { font-size: 1.5rem; color: var(--success); }
+
+    .sequence {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .sequence-item {
       background: var(--bg);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      padding: 1rem;
-    }
-
-    .result-card h4 {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 0.5rem;
-    }
-
-    .result-card .value {
-      font-size: 1.5rem;
-      font-weight: bold;
-    }
-
-    .result-card .time {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-    }
-
-    .match {
-      color: var(--success);
+      padding: 0.25rem 0.5rem;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.8rem;
     }
 
     .status {
-      padding: 0.5rem 1rem;
-      background: var(--bg);
-      border-radius: 4px;
-      font-size: 0.875rem;
-    }
-
-    .status.loading {
-      color: var(--primary);
-    }
-
-    .status.ready {
-      color: var(--success);
-    }
-
-    .status.error {
-      color: #dc2626;
-    }
-
-    .architecture {
-      display: flex;
-      gap: 2rem;
-      justify-content: center;
-      padding: 1rem;
-      background: var(--bg);
-      border-radius: 4px;
-      margin-top: 1rem;
-    }
-
-    .arch-box {
-      text-align: center;
-      padding: 1rem;
-    }
-
-    .arch-box .label {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-    }
-
-    .arch-box .content {
-      font-weight: bold;
-      margin: 0.5rem 0;
-    }
-
-    .arch-arrow {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      color: var(--text-muted);
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
     }
+
+    .status.loading { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+    .status.ready { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+    .status.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid transparent;
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .code-block {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--muted);
+    }
+
+    .code-block .keyword { color: #c084fc; }
+    .code-block .function { color: #60a5fa; }
+    .code-block .number { color: #fbbf24; }
+    .code-block .comment { color: #64748b; }
+
+    footer {
+      text-align: center;
+      margin-top: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--primary); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Bosatsu JS/WASM Interop Demo</h1>
-      <p>Same Bosatsu code compiled to JavaScript and WebAssembly, working together</p>
+      <h1>Bosatsu WASM Computation</h1>
+      <p>JavaScript UI calling WebAssembly for fast computation</p>
     </header>
 
-    <!-- Architecture Overview -->
-    <section class="demo-section">
-      <h2>Architecture</h2>
-      <div class="architecture">
-        <div class="arch-box">
-          <div class="label">Source</div>
-          <div class="content">compute.bosatsu</div>
-          <div class="label">fib, factorial</div>
-        </div>
-        <div class="arch-arrow">-></div>
-        <div class="arch-box">
-          <div class="label">C Target</div>
-          <div class="content">compute.c</div>
-          <div class="label">Bosatsu C runtime</div>
-        </div>
-        <div class="arch-arrow">-></div>
-        <div class="arch-box">
-          <div class="label">Emscripten</div>
-          <div class="content">compute.wasm</div>
-          <div class="label">WebAssembly</div>
-        </div>
+    <!-- Architecture Diagram -->
+    <div class="architecture">
+      <div class="arch-box js">
+        <div class="label">Frontend</div>
+        <div class="tech">JavaScript</div>
+        <div class="desc">UI &amp; Orchestration</div>
       </div>
-      <div class="architecture" style="margin-top: 0.5rem;">
-        <div class="arch-box">
-          <div class="label">Source</div>
-          <div class="content">orchestrator.bosatsu</div>
-          <div class="label">imports Demo/Compute</div>
-        </div>
-        <div class="arch-arrow">-></div>
-        <div class="arch-box">
-          <div class="label">JS Target</div>
-          <div class="content">orchestrator.js</div>
-          <div class="label">Native implementation</div>
-        </div>
-        <div class="arch-arrow">-></div>
-        <div class="arch-box">
-          <div class="label">FFI Bridge</div>
-          <div class="content">interop.js</div>
-          <div class="label">Patches JS to call WASM</div>
-        </div>
+      <div class="arrow">→</div>
+      <div class="arch-box wasm">
+        <div class="label">Compute</div>
+        <div class="tech">WebAssembly</div>
+        <div class="desc">Bosatsu → C → WASM</div>
       </div>
-    </section>
+    </div>
 
-    <!-- Source Code -->
-    <section class="demo-section">
-      <h2>Bosatsu Source Code</h2>
-      <div class="source-grid">
-        <div class="source-panel">
-          <h3>compute.bosatsu (Compiled to WASM)</h3>
-          <pre><code class="language-python" id="compute-source">Loading...</code></pre>
-        </div>
-        <div class="source-panel">
-          <h3>orchestrator.bosatsu (Compiled to JS)</h3>
-          <pre><code class="language-python" id="orchestrator-source">Loading...</code></pre>
-        </div>
-      </div>
-    </section>
+    <!-- WASM Status -->
+    <div id="status" class="status loading">
+      <div class="spinner"></div>
+      <span>Loading WASM module...</span>
+    </div>
 
-    <!-- Generated Code -->
-    <section class="demo-section">
-      <h2>Generated Code</h2>
-      <div class="tabs">
-        <button class="tab active" data-tab="js-tab">JavaScript</button>
-        <button class="tab" data-tab="c-tab">C</button>
-        <button class="tab" data-tab="wasm-tab">WASM Wrapper</button>
+    <!-- Fibonacci Demo -->
+    <div class="demo-card">
+      <h2>Fibonacci Sequence</h2>
+      <div class="input-group">
+        <label>Compute fib(0) to fib(n):</label>
+        <input type="number" id="fib-n" value="20" min="0" max="40">
+        <button id="fib-btn" disabled>Compute</button>
       </div>
-      <div id="js-tab" class="tab-content active">
-        <pre><code class="language-javascript" id="js-code">Loading...</code></pre>
-      </div>
-      <div id="c-tab" class="tab-content">
-        <pre><code class="language-c" id="c-code">Loading...</code></pre>
-      </div>
-      <div id="wasm-tab" class="tab-content">
-        <pre><code class="language-c" id="wasm-wrapper-code">Loading...</code></pre>
-      </div>
-    </section>
+      <div id="fib-result" class="result" style="display: none;"></div>
+    </div>
 
-    <!-- Interactive Demo -->
-    <section class="demo-section">
-      <h2>Try It</h2>
-      <div id="wasm-status" class="status loading">Loading WASM module...</div>
-
-      <div class="controls" style="margin-top: 1rem;">
-        <label>
-          Input n:
-          <input type="number" id="input-n" value="20" min="0" max="40">
-        </label>
-        <button class="btn-primary" id="btn-run">Run Both</button>
-        <button class="btn-secondary" id="btn-benchmark">Benchmark</button>
+    <!-- Factorial Demo -->
+    <div class="demo-card">
+      <h2>Factorial</h2>
+      <div class="input-group">
+        <label>Compute n!:</label>
+        <input type="number" id="fact-n" value="12" min="0" max="20">
+        <button id="fact-btn" disabled>Compute</button>
       </div>
+      <div id="fact-result" class="result" style="display: none;"></div>
+    </div>
 
-      <div class="results">
-        <div class="result-card">
-          <h4>fib(n) - JavaScript</h4>
-          <div class="value" id="fib-js-result">-</div>
-          <div class="time" id="fib-js-time"></div>
-        </div>
-        <div class="result-card">
-          <h4>fib(n) - WASM</h4>
-          <div class="value" id="fib-wasm-result">-</div>
-          <div class="time" id="fib-wasm-time"></div>
-        </div>
-        <div class="result-card">
-          <h4>factorial(n) - JavaScript</h4>
-          <div class="value" id="fact-js-result">-</div>
-          <div class="time" id="fact-js-time"></div>
-        </div>
-        <div class="result-card">
-          <h4>factorial(n) - WASM</h4>
-          <div class="value" id="fact-wasm-result">-</div>
-          <div class="time" id="fact-wasm-time"></div>
-        </div>
-      </div>
+    <!-- Bosatsu Source -->
+    <div class="demo-card">
+      <h2>Bosatsu Source (compiled to WASM)</h2>
+      <div class="code-block"><span class="keyword">package</span> Demo/Compute
 
-      <div id="match-status" style="margin-top: 1rem;"></div>
-    </section>
+<span class="keyword">export</span> fib, factorial
+
+<span class="comment"># Fibonacci using int_loop for efficient iteration</span>
+<span class="keyword">def</span> <span class="function">fib</span>(n: Int) -> Int:
+  int_loop(n, (<span class="number">0</span>, <span class="number">1</span>), (i, acc) ->
+    (a, b) = acc
+    (i.sub(<span class="number">1</span>), (b, a.add(b))))
+    .fst
+
+<span class="comment"># Factorial using int_loop</span>
+<span class="keyword">def</span> <span class="function">factorial</span>(n: Int) -> Int:
+  int_loop(n, <span class="number">1</span>, (i, acc) ->
+    (i.sub(<span class="number">1</span>), acc.times(i))).snd</div>
+    </div>
+
+    <footer>
+      <a href="../">Back to Bosatsu</a> ·
+      <a href="https://github.com/johnynek/bosatsu">GitHub</a>
+    </footer>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script type="module">
-    import { initWasmBridge, benchmark } from './interop.js';
+    // ============================================
+    // JavaScript UI calling WASM for computation
+    // ============================================
 
-    // Load source files
-    async function loadSources() {
+    let wasm = null;
+
+    async function initWasm() {
       try {
-        const [compute, orchestrator] = await Promise.all([
-          fetch('./examples/compute.bosatsu').then(r => r.text()),
-          fetch('./examples/orchestrator.bosatsu').then(r => r.text())
-        ]);
-        document.getElementById('compute-source').textContent = compute;
-        document.getElementById('orchestrator-source').textContent = orchestrator;
-      } catch (e) {
-        console.error('Failed to load sources:', e);
-      }
+        // Load the Emscripten-generated module
+        const { default: createModule } = await import('./examples/compute_wasm.js');
+        wasm = await createModule();
 
-      // Load generated code (may not exist if not built yet)
-      try {
-        const [js, c, wrapper] = await Promise.all([
-          fetch('./examples/Demo/Compute/index.js').then(r => r.text()).catch(() => '// Not generated yet'),
-          fetch('./examples/compute.c').then(r => r.text()).catch(() => '// Not generated yet'),
-          fetch('./wasm_wrapper.c').then(r => r.text()).catch(() => '// See demo/wasm_wrapper.c')
-        ]);
+        // Initialize Bosatsu runtime (GC, static values)
+        wasm._wasm_init();
 
-        // Show just a snippet of JS if it's large
-        document.getElementById('js-code').textContent = js.length > 2000 ? js.slice(0, 2000) + '\n\n// ... truncated' : js;
-        document.getElementById('c-code').textContent = c.length > 2000 ? c.slice(0, 2000) + '\n\n// ... truncated' : c;
-        document.getElementById('wasm-wrapper-code').textContent = wrapper;
-      } catch (e) {
-        console.error('Failed to load generated code:', e);
-      }
+        // Update UI
+        document.getElementById('status').className = 'status ready';
+        document.getElementById('status').innerHTML = '<span>WASM ready</span>';
+        document.getElementById('fib-btn').disabled = false;
+        document.getElementById('fact-btn').disabled = false;
 
-      hljs.highlightAll();
-    }
-
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.tab).classList.add('active');
-      });
-    });
-
-    // Initialize WASM
-    let wasmReady = false;
-    let jsFib = null;
-    let jsFactorial = null;
-
-    async function init() {
-      await loadSources();
-
-      // Load JS module first
-      try {
-        // The generated JS exports are globals after loading
-        await import('./examples/Demo/Compute/index.js');
-        jsFib = globalThis.Demo_Compute$fib;
-        jsFactorial = globalThis.Demo_Compute$factorial;
-      } catch (e) {
-        console.warn('JS module not loaded:', e);
-      }
-
-      // Try to load WASM
-      try {
-        await initWasmBridge('./examples/compute_wasm.js');
-        wasmReady = true;
-        document.getElementById('wasm-status').textContent = 'WASM module ready';
-        document.getElementById('wasm-status').className = 'status ready';
       } catch (e) {
         console.error('Failed to load WASM:', e);
-        document.getElementById('wasm-status').textContent = 'WASM module not available (run build_demo.sh first)';
-        document.getElementById('wasm-status').className = 'status error';
+        document.getElementById('status').className = 'status error';
+        document.getElementById('status').innerHTML =
+          '<span>WASM failed to load. Run build_demo.sh first.</span>';
       }
     }
 
-    // Run button
-    document.getElementById('btn-run').addEventListener('click', async () => {
-      const n = parseInt(document.getElementById('input-n').value, 10);
+    // Fibonacci: compute sequence and show results
+    document.getElementById('fib-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('fib-n').value, 10);
+      const resultDiv = document.getElementById('fib-result');
 
-      // Run JS
-      if (jsFib) {
-        const start = performance.now();
-        const result = jsFib(n);
-        const time = performance.now() - start;
-        document.getElementById('fib-js-result').textContent = result;
-        document.getElementById('fib-js-time').textContent = `${time.toFixed(3)} ms`;
+      // Time the computation
+      const start = performance.now();
+      const sequence = [];
+      for (let i = 0; i <= n; i++) {
+        sequence.push(wasm._wasm_fib(i));
       }
+      const elapsed = performance.now() - start;
 
-      if (jsFactorial) {
-        const start = performance.now();
-        const result = jsFactorial(n);
-        const time = performance.now() - start;
-        document.getElementById('fact-js-result').textContent = result;
-        document.getElementById('fact-js-time').textContent = `${time.toFixed(3)} ms`;
-      }
-
-      // Run WASM
-      if (wasmReady) {
-        const results = benchmark(n);
-        document.getElementById('fib-wasm-result').textContent = results.fib.wasm;
-        document.getElementById('fib-wasm-time').textContent = `${results.fib.wasmTime.toFixed(3)} ms`;
-        document.getElementById('fact-wasm-result').textContent = results.factorial.wasm;
-        document.getElementById('fact-wasm-time').textContent = `${results.factorial.wasmTime.toFixed(3)} ms`;
-
-        // Check if results match
-        const fibMatch = results.fib.js === results.fib.wasm;
-        const factMatch = results.factorial.js === results.factorial.wasm;
-        if (fibMatch && factMatch) {
-          document.getElementById('match-status').innerHTML =
-            '<span class="match">JS and WASM results match - same Bosatsu code, different compilation targets!</span>';
-        }
-      }
+      // Display results
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `
+        <div class="result-row">
+          <span class="result-label">fib(${n})</span>
+          <span class="result-value large">${sequence[n].toLocaleString()}</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Time (${n + 1} computations)</span>
+          <span class="result-value">${elapsed.toFixed(2)} ms</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Avg per call</span>
+          <span class="result-value">${(elapsed / (n + 1)).toFixed(4)} ms</span>
+        </div>
+        <div style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">Sequence:</div>
+        <div class="sequence">
+          ${sequence.map((v, i) => `<span class="sequence-item">${v}</span>`).join('')}
+        </div>
+      `;
     });
 
-    // Benchmark button
-    document.getElementById('btn-benchmark').addEventListener('click', async () => {
-      if (!wasmReady) {
-        alert('WASM module not loaded');
-        return;
+    // Factorial: compute and show result
+    document.getElementById('fact-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('fact-n').value, 10);
+      const resultDiv = document.getElementById('fact-result');
+
+      // Time the computation
+      const start = performance.now();
+      const result = wasm._wasm_factorial(n);
+      const elapsed = performance.now() - start;
+
+      // Also compute the sequence
+      const sequence = [];
+      for (let i = 0; i <= n; i++) {
+        sequence.push(wasm._wasm_factorial(i));
       }
 
-      const n = parseInt(document.getElementById('input-n').value, 10);
-
-      // Run multiple times for more accurate timing
-      const iterations = 100;
-      let jsFibTime = 0, wasmFibTime = 0;
-      let jsFactTime = 0, wasmFactTime = 0;
-      let fibResult, factResult;
-
-      for (let i = 0; i < iterations; i++) {
-        const results = benchmark(n);
-        jsFibTime += results.fib.jsTime;
-        wasmFibTime += results.fib.wasmTime;
-        jsFactTime += results.factorial.jsTime;
-        wasmFactTime += results.factorial.wasmTime;
-        fibResult = results.fib;
-        factResult = results.factorial;
-      }
-
-      document.getElementById('fib-js-result').textContent = fibResult.js;
-      document.getElementById('fib-js-time').textContent = `avg: ${(jsFibTime / iterations).toFixed(3)} ms`;
-      document.getElementById('fib-wasm-result').textContent = fibResult.wasm;
-      document.getElementById('fib-wasm-time').textContent = `avg: ${(wasmFibTime / iterations).toFixed(3)} ms`;
-
-      document.getElementById('fact-js-result').textContent = factResult.js;
-      document.getElementById('fact-js-time').textContent = `avg: ${(jsFactTime / iterations).toFixed(3)} ms`;
-      document.getElementById('fact-wasm-result').textContent = factResult.wasm;
-      document.getElementById('fact-wasm-time').textContent = `avg: ${(wasmFactTime / iterations).toFixed(3)} ms`;
-
-      document.getElementById('match-status').innerHTML =
-        `Benchmark: ${iterations} iterations. ` +
-        `Fib speedup: ${(jsFibTime / wasmFibTime).toFixed(2)}x, ` +
-        `Factorial speedup: ${(jsFactTime / wasmFactTime).toFixed(2)}x`;
+      // Display results
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `
+        <div class="result-row">
+          <span class="result-label">${n}!</span>
+          <span class="result-value large">${result.toLocaleString()}</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Time</span>
+          <span class="result-value">${elapsed.toFixed(4)} ms</span>
+        </div>
+        <div style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">Factorials 0! to ${n}!:</div>
+        <div class="sequence">
+          ${sequence.map((v, i) => `<span class="sequence-item">${i}!=${v}</span>`).join('')}
+        </div>
+      `;
     });
 
-    init();
+    // Initialize on load
+    initWasm();
   </script>
 </body>
 </html>
