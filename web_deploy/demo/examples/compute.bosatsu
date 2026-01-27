@@ -1,0 +1,56 @@
+package Demo/Compute
+
+from Bosatsu/Prog import Main, Prog, pure, ignore_env
+
+export main, fib, factorial, collatz_steps
+
+# Compute-heavy functions - these will be compiled to WASM
+# for better performance on intensive calculations
+
+# Fibonacci using int_loop for efficient iteration
+# fib(0) = 0, fib(1) = 1, fib(n) = fib(n-1) + fib(n-2)
+def fib(n: Int) -> Int:
+  (a, _) = int_loop(n, (0, 1), (i, acc) ->
+    (a, b) = acc
+    (i.sub(1), (b, a.add(b))))
+  a
+
+# Factorial using int_loop
+# factorial(0) = 1, factorial(n) = n * factorial(n-1)
+def factorial(n: Int) -> Int:
+  int_loop(n, 1, (i, acc) ->
+    (i.sub(1), acc.times(i)))
+
+# Collatz sequence: count steps to reach 1 for a single number
+# if n is even: n -> n/2, if n is odd: n -> 3n+1
+def collatz_single(n: Int) -> Int:
+  # Run up to 1000 iterations (enough for any n < 10 million)
+  (_, steps) = int_loop(1000, (n, 0), (remaining, state) ->
+    (value, steps) = state
+    match cmp_Int(value, 1):
+      case GT:
+        # value > 1, continue the sequence
+        new_value = match mod_Int(value, 2):
+          case 0: div(value, 2)
+          case _: value.times(3).add(1)
+        (remaining.sub(1), (new_value, steps.add(1)))
+      case _:
+        # value <= 1, done - just pass through
+        (remaining.sub(1), (value, steps)))
+  steps
+
+# Compute Collatz steps for ALL numbers from 1 to n, return max steps found
+# This is very compute-intensive: O(n * avg_steps)
+# For n=100000, this computes ~100000 Collatz sequences
+def collatz_steps(n: Int) -> Int:
+  # Count from n down to 1, tracking max steps seen
+  int_loop(n, 0, (i, max_steps) ->
+    current = n.sub(i).add(1)
+    steps = collatz_single(current)
+    new_max = match cmp_Int(steps, max_steps):
+      case GT: steps
+      case _: max_steps
+    (i.sub(1), new_max))
+
+# Main entry point for C (required by transpiler, not used by WASM wrapper)
+main = Main(pure(0).ignore_env())

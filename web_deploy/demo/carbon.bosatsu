@@ -1,0 +1,32 @@
+package CarbonFootprint
+
+# Transportation (miles per year)
+car_miles = 12000
+car_mpg = 28
+flights_per_year = 4
+
+# Home energy (monthly)
+electricity_kwh = 900
+natural_gas_therms = 50
+
+# Emission factors (lbs CO2)
+gas_emission_factor = 20
+electricity_factor = 1
+gas_heat_factor = 12
+flight_emissions = 1100
+
+# Calculate emissions
+gallons_used = car_miles.div(car_mpg)
+car_emissions = gallons_used.times(gas_emission_factor)
+flight_total = flights_per_year.times(flight_emissions)
+transport_total = car_emissions.add(flight_total)
+
+electricity_annual = electricity_kwh.times(12)
+electricity_emissions = electricity_annual.times(electricity_factor)
+gas_annual = natural_gas_therms.times(12)
+gas_emissions = gas_annual.times(gas_heat_factor)
+home_total = electricity_emissions.add(gas_emissions)
+
+# Total footprint
+total_footprint = transport_total.add(home_total)
+monthly_average = total_footprint.div(12)

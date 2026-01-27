@@ -1,0 +1,25 @@
+package Demo/Fibonacci
+
+from Bosatsu/Prog import Main, Prog, println, pure, ignore_env, await
+
+export main, fib
+
+# Fibonacci using int_loop for efficient iteration
+# fib(0) = 0, fib(1) = 1, fib(n) = fib(n-1) + fib(n-2)
+def fib(n: Int) -> Int:
+  # Use int_loop to iterate: state is (a, b) where a=fib(i), b=fib(i+1)
+  # Start with (0, 1) and iterate n times
+  # int_loop returns the final state (a tuple), so destructure it
+  (a, _) = int_loop(n, (0, 1), (i, acc) ->
+    (a, b) = acc
+    (i.sub(1), (b, a.add(b))))
+  a
+
+# Main entry point for C: prints fib(20) = 6765
+main = Main(
+  (
+    result = fib(20)
+    _ <- println("fib(20) = ${int_to_String(result)}").ignore_env().await()
+    pure(0)
+  ).ignore_env()
+)

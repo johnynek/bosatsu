@@ -1,0 +1,20 @@
+package LoanCalculator
+
+# Loan assumptions
+principal = 250000
+annual_rate = 7
+years = 30
+
+# Derived calculations
+monthly_rate = annual_rate.div(1200)
+num_payments = years.times(12)
+
+# Monthly payment calculation (simplified)
+# P * r * (1+r)^n / ((1+r)^n - 1)
+# Using approximation for demo
+monthly_payment = principal.times(monthly_rate).add(principal.div(num_payments))
+
+# Total cost analysis
+total_paid = monthly_payment.times(num_payments)
+total_interest = total_paid.sub(principal)
+interest_ratio = total_interest.times(100).div(principal)

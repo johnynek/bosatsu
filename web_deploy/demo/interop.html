@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bosatsu Multi-Target Demo</title>
+  <style>
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --js-color: #f7df1e;
+      --wasm-color: #654ff0;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --success: #22c55e;
+      --error: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container { max-width: 1000px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    header p { color: var(--muted); }
+
+    .architecture {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .arch-title {
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .arch-flow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .arch-box {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      text-align: center;
+      min-width: 120px;
+    }
+
+    .arch-box.bosatsu { border-color: var(--success); }
+    .arch-box.js { border-color: var(--js-color); }
+    .arch-box.wasm { border-color: var(--wasm-color); }
+
+    .arch-box .label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .arch-box .name { font-weight: bold; font-size: 0.9rem; }
+    .arch-box .detail { font-size: 0.75rem; color: var(--muted); }
+
+    .arrow { color: var(--muted); }
+
+    .status-bar {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      padding: 0.5rem 1rem;
+      background: var(--card);
+      border-radius: 6px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .status-dot.ready { background: var(--success); }
+    .status-dot.loading { background: var(--js-color); animation: pulse 1s infinite; }
+
+    @keyframes pulse { 50% { opacity: 0.5; } }
+
+    .demo-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .demo-card h2 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    label { font-size: 0.9rem; color: var(--muted); }
+
+    input[type="number"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      color: var(--text);
+      font-size: 1rem;
+      width: 80px;
+    }
+
+    input.invalid { border-color: var(--error); }
+
+    .validation-msg {
+      font-size: 0.8rem;
+      color: var(--error);
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.6rem 1.25rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover:not(:disabled) { background: var(--primary-dark); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .mode-toggle {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+    }
+
+    .mode-btn {
+      padding: 0.4rem 0.75rem;
+      font-size: 0.8rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+
+    .mode-btn.active { background: var(--primary); border-color: var(--primary); }
+
+    .result {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result-value {
+      font-size: 1.75rem;
+      font-weight: bold;
+      color: var(--success);
+      font-family: 'SF Mono', monospace;
+    }
+
+    .result-timing {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .execution-badge {
+      font-size: 0.7rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+
+    .execution-badge.js { background: rgba(247, 223, 30, 0.2); color: var(--js-color); }
+    .execution-badge.wasm { background: rgba(101, 79, 240, 0.2); color: #a5b4fc; }
+
+    .sequence {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+
+    .seq-item {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.2rem 0.5rem;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.75rem;
+    }
+
+    .code-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .code-section { grid-template-columns: 1fr; }
+    }
+
+    .code-panel h3 {
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .code-panel h3 .tag {
+      font-size: 0.65rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+    }
+
+    .code-panel h3 .tag.js { background: rgba(247, 223, 30, 0.2); color: var(--js-color); }
+    .code-panel h3 .tag.wasm { background: rgba(101, 79, 240, 0.2); color: #a5b4fc; }
+
+    .code-block {
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.5;
+    }
+
+    .code-block .kw { color: #c084fc; }
+    .code-block .fn { color: #60a5fa; }
+    .code-block .num { color: #fbbf24; }
+    .code-block .cmt { color: #64748b; }
+    .code-block .str { color: #86efac; }
+
+    footer {
+      text-align: center;
+      margin-top: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--primary); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Bosatsu Multi-Target Compilation</h1>
+      <p>Same language, compiled to JavaScript and WebAssembly, working together</p>
+    </header>
+
+    <!-- Architecture -->
+    <div class="architecture">
+      <div class="arch-title">Data Flow: Bosatsu orchestration (JS) calls Bosatsu computation (WASM)</div>
+      <div class="arch-flow">
+        <div class="arch-box bosatsu">
+          <div class="label">Source</div>
+          <div class="name">orchestrator.bosatsu</div>
+          <div class="detail">validation, sequencing</div>
+        </div>
+        <span class="arrow">→</span>
+        <div class="arch-box js">
+          <div class="label">Compiled to</div>
+          <div class="name">JavaScript</div>
+          <div class="detail">runs in browser</div>
+        </div>
+        <span class="arrow">→ calls →</span>
+        <div class="arch-box wasm">
+          <div class="label">Compiled to</div>
+          <div class="name">WebAssembly</div>
+          <div class="detail">via C</div>
+        </div>
+        <span class="arrow">←</span>
+        <div class="arch-box bosatsu">
+          <div class="label">Source</div>
+          <div class="name">compute.bosatsu</div>
+          <div class="detail">fib, factorial</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-bar">
+      <div class="status-item">
+        <div id="js-status" class="status-dot loading"></div>
+        <span>Bosatsu → JS</span>
+      </div>
+      <div class="status-item">
+        <div id="wasm-status" class="status-dot loading"></div>
+        <span>Bosatsu → WASM</span>
+      </div>
+      <div class="status-item">
+        <div id="bridge-status" class="status-dot"></div>
+        <span>JS↔WASM Bridge</span>
+      </div>
+    </div>
+
+    <!-- Fibonacci Demo -->
+    <div class="demo-card">
+      <h2>Fibonacci Sequence</h2>
+      <div class="input-row">
+        <label>n =</label>
+        <input type="number" id="fib-n" value="15" min="0" max="40">
+        <span id="fib-validation" class="validation-msg"></span>
+        <button id="fib-btn" disabled>Compute Sequence</button>
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="wasm" data-target="fib">WASM</button>
+          <button class="mode-btn" data-mode="js" data-target="fib">Pure JS</button>
+        </div>
+      </div>
+      <div id="fib-result" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Factorial Demo -->
+    <div class="demo-card">
+      <h2>Factorial Table</h2>
+      <div class="input-row">
+        <label>n =</label>
+        <input type="number" id="fact-n" value="12" min="0" max="20">
+        <span id="fact-validation" class="validation-msg"></span>
+        <button id="fact-btn" disabled>Compute Table</button>
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="wasm" data-target="fact">WASM</button>
+          <button class="mode-btn" data-mode="js" data-target="fact">Pure JS</button>
+        </div>
+      </div>
+      <div id="fact-result" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Collatz Demo -->
+    <div class="demo-card">
+      <h2>Collatz Conjecture (Compute Intensive)</h2>
+      <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Computes Collatz sequence steps for ALL numbers from 1 to n, returns max steps found.
+        This is O(n × avg_steps) — try 10,000+ to see WASM vs JS performance difference.
+      </p>
+      <div class="input-row">
+        <label>n =</label>
+        <input type="number" id="collatz-n" value="10000" min="1" max="100000">
+        <span id="collatz-validation" class="validation-msg"></span>
+        <button id="collatz-btn" disabled>Compute Max Steps</button>
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="wasm" data-target="collatz">WASM</button>
+          <button class="mode-btn" data-mode="js" data-target="collatz">Pure JS</button>
+        </div>
+      </div>
+      <div id="collatz-result" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Source Code -->
+    <div class="demo-card">
+      <h2>Bosatsu Source Code</h2>
+      <div class="code-section">
+        <div class="code-panel">
+          <h3>orchestrator.bosatsu <span class="tag js">→ JS</span></h3>
+          <div class="code-block"><span class="kw">package</span> Demo/Orchestrator
+
+<span class="kw">from</span> Demo/Compute <span class="kw">import</span> fib, factorial
+
+<span class="cmt"># Validation logic (runs in JS)</span>
+<span class="kw">def</span> <span class="fn">validate_fib_input</span>(n: Int) -> Bool:
+  <span class="kw">match</span> cmp_Int(n, <span class="num">0</span>):
+    <span class="kw">case</span> LT: False
+    <span class="kw">case</span> _: cmp_Int(n, <span class="num">40</span>) <span class="kw">matches</span> LT | EQ
+
+<span class="cmt"># Orchestration (runs in JS, calls WASM)</span>
+<span class="kw">def</span> <span class="fn">compute_fib_sequence</span>(n: Int) -> List[(Int, Int)]:
+  range(n.add(<span class="num">1</span>)).map(i -> (i, fib(i)))</div>
+        </div>
+        <div class="code-panel">
+          <h3>compute.bosatsu <span class="tag wasm">→ WASM</span></h3>
+          <div class="code-block"><span class="kw">package</span> Demo/Compute
+
+<span class="kw">export</span> fib, factorial
+
+<span class="cmt"># Heavy computation (runs in WASM)</span>
+<span class="kw">def</span> <span class="fn">fib</span>(n: Int) -> Int:
+  int_loop(n, (<span class="num">0</span>, <span class="num">1</span>), (i, acc) ->
+    (a, b) = acc
+    (i.sub(<span class="num">1</span>), (b, a.add(b))))
+    .fst
+
+<span class="kw">def</span> <span class="fn">factorial</span>(n: Int) -> Int:
+  int_loop(n, <span class="num">1</span>, (i, acc) ->
+    (i.sub(<span class="num">1</span>), acc.times(i))).snd</div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <a href="../">← Back to Bosatsu</a> ·
+      <a href="https://github.com/johnynek/bosatsu">GitHub</a>
+    </footer>
+  </div>
+
+  <script type="module">
+    import {
+      loadBosatsuJS,
+      loadBosatsuWASM,
+      patchJStoUseWASM,
+      unpatchJS,
+      validateFibInput,
+      validateFactInput,
+      computeFibSequence,
+      computeFactorialTable
+    } from './interop.js';
+
+    // Track which mode we're in for each demo
+    let fibMode = 'wasm';
+    let factMode = 'wasm';
+    let collatzMode = 'wasm';
+
+    // Initialize
+    async function init() {
+      try {
+        // Load Bosatsu JS
+        await loadBosatsuJS();
+        document.getElementById('js-status').classList.remove('loading');
+        document.getElementById('js-status').classList.add('ready');
+
+        // Load WASM
+        await loadBosatsuWASM();
+        document.getElementById('wasm-status').classList.remove('loading');
+        document.getElementById('wasm-status').classList.add('ready');
+
+        // Set up bridge (patch JS to use WASM)
+        patchJStoUseWASM();
+        document.getElementById('bridge-status').classList.add('ready');
+
+        // Enable buttons
+        document.getElementById('fib-btn').disabled = false;
+        document.getElementById('fact-btn').disabled = false;
+        document.getElementById('collatz-btn').disabled = false;
+
+      } catch (e) {
+        console.error('Initialization failed:', e);
+        // Show error in UI
+        const statusBar = document.querySelector('.status-bar');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'status-item';
+        errorDiv.style.color = 'var(--error)';
+        errorDiv.textContent = 'Error: ' + e.message;
+        statusBar.appendChild(errorDiv);
+      }
+    }
+
+    // Mode toggle buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        const target = btn.dataset.target;
+
+        // Update button states
+        btn.parentElement.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Update mode and patch/unpatch
+        if (target === 'fib') {
+          fibMode = mode;
+        } else if (target === 'fact') {
+          factMode = mode;
+        } else if (target === 'collatz') {
+          collatzMode = mode;
+        }
+
+        // Apply the appropriate patch based on current modes
+        if (fibMode === 'wasm' || factMode === 'wasm' || collatzMode === 'wasm') {
+          patchJStoUseWASM();
+        }
+        if (fibMode === 'js' && factMode === 'js' && collatzMode === 'js') {
+          unpatchJS();
+        }
+      });
+    });
+
+    // Fibonacci validation on input
+    document.getElementById('fib-n').addEventListener('input', (e) => {
+      const n = parseInt(e.target.value, 10);
+      const valid = !isNaN(n) && validateFibInput(n);
+      document.getElementById('fib-validation').textContent = valid ? '' : 'Must be 0-40';
+      e.target.classList.toggle('invalid', !valid);
+    });
+
+    // Factorial validation on input
+    document.getElementById('fact-n').addEventListener('input', (e) => {
+      const n = parseInt(e.target.value, 10);
+      const valid = !isNaN(n) && validateFactInput(n);
+      document.getElementById('fact-validation').textContent = valid ? '' : 'Must be 0-20';
+      e.target.classList.toggle('invalid', !valid);
+    });
+
+    // Fibonacci compute
+    document.getElementById('fib-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('fib-n').value, 10);
+      if (!validateFibInput(n)) return;
+
+      // Ensure correct mode
+      if (fibMode === 'wasm') patchJStoUseWASM();
+      else unpatchJS();
+
+      const start = performance.now();
+      const sequence = computeFibSequence(n);
+      const elapsed = performance.now() - start;
+
+      const last = sequence[sequence.length - 1];
+      document.getElementById('fib-result').style.display = 'block';
+      document.getElementById('fib-result').innerHTML = `
+        <div class="result-header">
+          <div>
+            <div style="color: var(--muted); font-size: 0.85rem;">fib(${n}) =</div>
+            <div class="result-value">${last.value.toLocaleString()}</div>
+          </div>
+          <div style="text-align: right;">
+            <span class="execution-badge ${fibMode}">${fibMode === 'wasm' ? 'WASM' : 'Pure JS'}</span>
+            <div class="result-timing">${elapsed.toFixed(2)} ms for ${n + 1} values</div>
+          </div>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--muted);">Sequence:</div>
+        <div class="sequence">
+          ${sequence.map(s => `<span class="seq-item">${s.value}</span>`).join('')}
+        </div>
+      `;
+
+      // Re-patch for other demo if needed
+      if (factMode === 'wasm' || collatzMode === 'wasm') patchJStoUseWASM();
+    });
+
+    // Factorial compute
+    document.getElementById('fact-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('fact-n').value, 10);
+      if (!validateFactInput(n)) return;
+
+      // Ensure correct mode
+      if (factMode === 'wasm') patchJStoUseWASM();
+      else unpatchJS();
+
+      const start = performance.now();
+      const table = computeFactorialTable(n);
+      const elapsed = performance.now() - start;
+
+      const last = table[table.length - 1];
+      document.getElementById('fact-result').style.display = 'block';
+      document.getElementById('fact-result').innerHTML = `
+        <div class="result-header">
+          <div>
+            <div style="color: var(--muted); font-size: 0.85rem;">${n}! =</div>
+            <div class="result-value">${last.value.toLocaleString()}</div>
+          </div>
+          <div style="text-align: right;">
+            <span class="execution-badge ${factMode}">${factMode === 'wasm' ? 'WASM' : 'Pure JS'}</span>
+            <div class="result-timing">${elapsed.toFixed(2)} ms</div>
+          </div>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--muted);">Table:</div>
+        <div class="sequence">
+          ${table.map(s => `<span class="seq-item">${s.index}!=${s.value}</span>`).join('')}
+        </div>
+      `;
+
+      // Re-patch for other demo if needed
+      if (fibMode === 'wasm' || collatzMode === 'wasm') patchJStoUseWASM();
+    });
+
+    // Collatz validation on input
+    document.getElementById('collatz-n').addEventListener('input', (e) => {
+      const n = parseInt(e.target.value, 10);
+      const valid = !isNaN(n) && n >= 1 && n <= 100000;
+      document.getElementById('collatz-validation').textContent = valid ? '' : 'Must be 1-100000';
+      e.target.classList.toggle('invalid', !valid);
+    });
+
+    // Collatz compute
+    document.getElementById('collatz-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('collatz-n').value, 10);
+      if (isNaN(n) || n < 1 || n > 100000) return;
+
+      // Ensure correct mode
+      if (collatzMode === 'wasm') patchJStoUseWASM();
+      else unpatchJS();
+
+      const btn = document.getElementById('collatz-btn');
+      btn.textContent = 'Computing...';
+      btn.disabled = true;
+
+      // Use setTimeout to allow UI to update before heavy computation
+      setTimeout(() => {
+        const start = performance.now();
+        const maxSteps = globalThis.Demo_Compute$collatz_steps(n);
+        const elapsed = performance.now() - start;
+
+        btn.textContent = 'Compute Max Steps';
+        btn.disabled = false;
+
+        document.getElementById('collatz-result').style.display = 'block';
+        document.getElementById('collatz-result').innerHTML = `
+          <div class="result-header">
+            <div>
+              <div style="color: var(--muted); font-size: 0.85rem;">Max Collatz steps for any number 1 to ${n.toLocaleString()}:</div>
+              <div class="result-value">${maxSteps}</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="execution-badge ${collatzMode}">${collatzMode === 'wasm' ? 'WASM' : 'Pure JS'}</span>
+              <div class="result-timing">${elapsed.toFixed(2)} ms for ${n.toLocaleString()} sequences</div>
+            </div>
+          </div>
+          <div style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;">
+            This computed Collatz sequence lengths for every number from 1 to ${n.toLocaleString()}.
+          </div>
+        `;
+
+        // Re-patch for other demos if needed
+        if (fibMode === 'wasm' || factMode === 'wasm') patchJStoUseWASM();
+      }, 10);
+    });
+
+    init();
+  </script>
+</body>
+</html>
