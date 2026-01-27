@@ -2,7 +2,7 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Getting started · Bosatsu Documentation</title>
+<title>Getting started (new repo) · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
@@ -31,13 +31,13 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-348af575
+0.0.0+1-4e9efeb4
 </div>
 </div>
 <div class="nav-toc">
 <ul>
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="getting_started.html" class="active page">Getting started</a></li>
+  <li><a href="getting_started.html" class="active page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
@@ -72,13 +72,13 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-348af575
+0.0.0+1-4e9efeb4
 </div>
 </div>
 <div class="nav-toc">
 <ul>
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="getting_started.html" class="active page">Getting started</a></li>
+  <li><a href="getting_started.html" class="active page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
@@ -98,7 +98,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Getting started</li>
+  <li>Getting started (new repo)</li>
 </ul>
 </div>
 </div>
@@ -106,63 +106,72 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#getting-started" name="getting-started" class="anchor"><span class="anchor-link"></span></a>Getting started</h1>
-<p>You can try basic expressions using this <a href="https://johnynek.github.io/bosatsu/compiler/">in-browser Bosatsu compiler</a>.</p>
-<p>To work locally, clone the <a href="https://github.com/johnynek/bosatsu">bosatsu repo</a>, <a href="https://www.scala-sbt.org/1.x/docs/Setup.html">install sbt</a>, then build the compiler:</p>
-<pre><code>sbt cli/assembly
+<h1><a href="#getting-started-new-repo-" name="getting-started-new-repo-" class="anchor"><span class="anchor-link"></span></a>Getting started (new repo)</h1>
+<p>This guide shows how to start a brand new Bosatsu repository using the <code>bosatsu</code> launcher script and a pinned CLI release. It assumes you have <code>git</code> and <code>curl</code> installed. For the CLI runtime, pick one of:</p>
+<ul>
+  <li><code>native</code> (recommended on macOS/Linux)</li>
+  <li><code>java</code> (requires a JVM)</li>
+  <li><code>node</code> (requires Node.js)</li>
+</ul>
+<h2><a href="#1-create-a-new-git-repo" name="1-create-a-new-git-repo" class="anchor"><span class="anchor-link"></span></a>1) Create a new git repo</h2>
+<pre class="prettyprint"><code class="language-sh">mkdir my-bosatsu-project
+cd my-bosatsu-project
+git init
 </code></pre>
-<p>If that completes successfully, you can run <code>./bosatsuj</code> if you have java installed. Running with no arguments prints the help message. You should see something like:</p>
-<pre><code>Missing expected command (eval or check or test or json or transpile)!
-
-Usage:
-    bosatsu eval
-    bosatsu check
-    bosatsu test
-    bosatsu json
-    bosatsu transpile
-
-a total and functional programming language
-
-version: 0.1.0-SNAPSHOT
-scala-version: 3.7.4
-git-sha: 1d068c4f3c16807aeb42565d4fc7c45b401e96a4
-
-Options and flags:
-    --help
-        Display this help text.
-
-Subcommands:
-    eval
-        evaluate an expression and print the output
-    check
-        type check a set of packages
-    test
-        test a set of bosatsu modules
-    json
-        json writing and transformation tools
-    transpile
-        transpile bosatsu into another language
+<h2><a href="#2-add-the-bosatsu-launcher" name="2-add-the-bosatsu-launcher" class="anchor"><span class="anchor-link"></span></a>2) Add the <code>bosatsu</code> launcher</h2>
+<p>Download the launcher script and make it executable:</p>
+<pre class="prettyprint"><code class="language-sh">curl -L -o bosatsu https://raw.githubusercontent.com/johnynek/bosatsu/main/bosatsu
+chmod +x bosatsu
 </code></pre>
-<p>Now try running an example program:</p>
-<pre><code>./bosatsuj eval --main Euler/One::computed --input test_workspace/euler1.bosatsu
+<h2><a href="#3-find-the-latest-release-version" name="3-find-the-latest-release-version" class="anchor"><span class="anchor-link"></span></a>3) Find the latest release version</h2>
+<p>Open the latest release page and note the version:</p>
+<pre><code>https://github.com/johnynek/bosatsu/releases/latest/
 </code></pre>
-<p>The command <code>./bosatsuj</code> has pretty complete help if you run it with no arguments. If you have <a href="https://www.graalvm.org/reference-manual/native-image/">graal native-image</a> on your path, after building with <code>sbt cli/assembly</code> you can build the native image:</p>
-<pre><code>./build_native.sh
+<p>Example of a direct asset URL from a release:</p>
+<pre><code>https://github.com/johnynek/bosatsu/releases/download/v0.0.15/bosatsu
 </code></pre>
-<p>Now you should have <code>./bosatsu</code> available which is <em>MUCH</em> faster to use than <code>./bosatsuj</code> which has to pay the JVM startup cost on each call, e.g.:</p>
-<pre><code>oscar@oscar-XPS-13-7390:~/oss/bosatsu$ time bosatsu eval --main Euler/One::computed --input test_workspace/euler1.bosatsu 
-233168: Bosatsu/Predef::Int
-
-real    0m0.161s
-user    0m0.085s
-sys     0m0.051s
-oscar@oscar-XPS-13-7390:~/oss/bosatsu$ time ./bosatsuj eval --main Euler/One::computed --input test_workspace/euler1.bosatsu 
-233168: Bosatsu/Predef::Int
-
-real    0m2.260s
-user    0m4.621s
-sys     0m0.155s
+<p>(The exact asset filename varies by platform; the launcher handles this for you.)</p>
+<h2><a href="#4-pin-the-bosatsu-release-version" name="4-pin-the-bosatsu-release-version" class="anchor"><span class="anchor-link"></span></a>4) Pin the Bosatsu release version</h2>
+<p>Create <code>.bosatsu_version</code> with the latest Bosatsu release tag (without the leading <code>v</code>). For example, if the latest release is <code>v0.0.15</code>, write <code>0.0.15</code>:</p>
+<pre class="prettyprint"><code class="language-sh">printf &#39;%s\n&#39; &#39;0.0.15&#39; &gt; .bosatsu_version
 </code></pre>
+<h2><a href="#5-choose-a-platform-per-machine-" name="5-choose-a-platform-per-machine-" class="anchor"><span class="anchor-link"></span></a>5) Choose a platform (per-machine)</h2>
+<p>Create <code>.bosatsu_platform</code> with one of <code>native</code>, <code>java</code>, or <code>node</code>. Start with <code>native</code> on macOS/Linux.</p>
+<pre class="prettyprint"><code class="language-sh">printf &#39;%s\n&#39; &#39;native&#39; &gt; .bosatsu_platform
+</code></pre>
+<p>If you are on Windows, use <code>java</code> or <code>node</code> instead of <code>native</code>.</p>
+<h2><a href="#6-ignore-per-machine-cache-files" name="6-ignore-per-machine-cache-files" class="anchor"><span class="anchor-link"></span></a>6) Ignore per-machine/cache files</h2>
+<p>You generally want <code>.bosatsu_platform</code> to be per-machine, and the download cache should stay out of git. Add both to <code>.gitignore</code>:</p>
+<pre class="prettyprint"><code class="language-sh">cat &gt;&gt; .gitignore &lt;&lt;&#39;EOF&#39;
+.bosatsu_platform
+.bosatsuc/
+EOF
+</code></pre>
+<p>Commit <code>.bosatsu_version</code> so everyone uses the same CLI release.</p>
+<h2><a href="#7-fetch-the-cli" name="7-fetch-the-cli" class="anchor"><span class="anchor-link"></span></a>7) Fetch the CLI</h2>
+<p>Download the release artifact for your platform:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu --fetch
+</code></pre>
+<p>This will download into <code>.bosatsuc/cli/&lt;version&gt;/</code> based on the value in <code>.bosatsu_version</code> and your chosen platform.</p>
+<h2><a href="#8-install-the-c-runtime" name="8-install-the-c-runtime" class="anchor"><span class="anchor-link"></span></a>8) Install the C runtime</h2>
+<pre class="prettyprint"><code class="language-sh">./bosatsu c-runtime install
+</code></pre>
+<h2><a href="#9-initialize-a-library-config" name="9-initialize-a-library-config" class="anchor"><span class="anchor-link"></span></a>9) Initialize a library config</h2>
+<p>Pick a source root for your Bosatsu packages (e.g. <code>src</code>) and initialize the library config:</p>
+<pre class="prettyprint"><code class="language-sh">mkdir -p src
+./bosatsu lib init \
+  --name mylib \
+  --repo_uri &lt;your repo URL&gt; \
+  --src_root src \
+  --version 0.1.0
+</code></pre>
+<p>Notes:</p>
+<ul>
+  <li><code>lib init</code> searches for <code>.git</code> to find the repo root. If you need to override  that, add <code>--repo_root &lt;path&gt;</code>.</li>
+  <li>It writes <code>bosatsu_libs.json</code> in the repo root and <code>src/mylib_conf.json</code> in the  source root you selected.</li>
+</ul>
+<h2><a href="#10-add-code" name="10-add-code" class="anchor"><span class="anchor-link"></span></a>10) Add code</h2>
+<p>Put your <code>.bosatsu</code> files under <code>src/</code> and use <code>./bosatsu --help</code> to explore the available commands (check, eval, test, json, transpile, lib, etc.).</p>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/getting_started.md">here</a>.
 </div>
@@ -172,6 +181,28 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="getting_started.html#getting-started-new-repo-" class="header">Getting started (new repo)</a>
+  <ul>
+    <li><a href="getting_started.html#1-create-a-new-git-repo" class="header">1) Create a new git repo</a></li>
+    <li><a href="getting_started.html#2-add-the-bosatsu-launcher" class="header">2) Add the <code>bosatsu</code> launcher</a></li>
+    <li><a href="getting_started.html#3-find-the-latest-release-version" class="header">3) Find the latest release version</a></li>
+    <li><a href="getting_started.html#4-pin-the-bosatsu-release-version" class="header">4) Pin the Bosatsu release version</a></li>
+    <li><a href="getting_started.html#5-choose-a-platform-per-machine-" class="header">5) Choose a platform (per-machine)</a></li>
+    <li><a href="getting_started.html#6-ignore-per-machine-cache-files" class="header">6) Ignore per-machine/cache files</a></li>
+    <li><a href="getting_started.html#7-fetch-the-cli" class="header">7) Fetch the CLI</a></li>
+    <li><a href="getting_started.html#8-install-the-c-runtime" class="header">8) Install the C runtime</a></li>
+    <li><a href="getting_started.html#9-initialize-a-library-config" class="header">9) Initialize a library config</a></li>
+    <li><a href="getting_started.html#10-add-code" class="header">10) Add code</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
 </div>
 </div>
 
@@ -234,7 +265,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-348af575', '')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-4e9efeb4', '')});</script>
 
 
 </html>
