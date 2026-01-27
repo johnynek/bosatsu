@@ -138,7 +138,7 @@ jobs:
           path: bosatsu-linux
 
   native_macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     needs: prepare
     steps:
       - name: Check out code
@@ -156,6 +156,9 @@ jobs:
         run: |
           sbt "++3.8.1; cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-macos
+          uname -m
+          file bosatsu-macos
+          file bosatsu-macos | grep -q "arm64" || { echo "Expected arm64 binary"; exit 1; }
       - name: Upload macos native image
         uses: actions/upload-artifact@v4
         with:
