@@ -289,17 +289,19 @@ case object JsTranspiler extends Transpiler {
       entryName: String,
       outputMode: OutputMode
   ): Doc = {
+    // Escape the entry name to match how it's exported from the module
+    val escapedName = JsGen.escape(Identifier.unsafeBindable(entryName)).name
     outputMode match {
       case OutputMode.ESModule =>
-        Doc.text(s"""import { $entryName } from "$modulePath";""") +
+        Doc.text(s"""import { $escapedName } from "$modulePath";""") +
           Doc.hardLine +
           Doc.hardLine +
-          Doc.text(s"$entryName();")
+          Doc.text(s"$escapedName();")
       case OutputMode.CommonJS =>
-        Doc.text(s"""const { $entryName } = require("$modulePath");""") +
+        Doc.text(s"""const { $escapedName } = require("$modulePath");""") +
           Doc.hardLine +
           Doc.hardLine +
-          Doc.text(s"$entryName();")
+          Doc.text(s"$escapedName();")
     }
   }
 }

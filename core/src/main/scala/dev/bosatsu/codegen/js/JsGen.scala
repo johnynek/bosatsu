@@ -399,16 +399,36 @@ object JsGen {
         Env.pure(Code.IndexAccess(Code.Ident("_slots"), Code.IntLiteral(idx)))
 
       case Lambda(captures, recName, args, body) =>
-        // Generate an arrow function
+        // Generate a function
         // If there are captures, wrap in a closure that binds them to _slots
+        // If there's a recName, use a named function expression for self-recursion
         for {
           captureExprs <- captures.traverse(exprToJs)
+          // Bind recName if present so body can reference it
+          recIdent <- recName match {
+            case Some(name) => Env.bind(name).map(Some(_))
+            case None => Env.pure(None)
+          }
           argIdents <- args.toList.traverse(Env.bind)
           bodyJs <- exprToJs(body)
           _ <- args.toList.traverse_(Env.unbind)
+          _ <- recName match {
+            case Some(name) => Env.unbind(name)
+            case None => Env.pure(())
+          }
         } yield {
           val argNames = argIdents.map(_.name)
-          val innerFn = Code.ArrowFunction(argNames, Left(bodyJs))
+
+          // If we have a recName, use a named function expression
+          val innerFn = recIdent match {
+            case Some(ident) =>
+              // Use named function expression: (function name(args) { return body; })
+              val returnStmt = Code.Return(Some(bodyJs))
+              val block = Code.Block(cats.data.NonEmptyList.one(returnStmt))
+              Code.Function(Some(ident.name), argNames, block)
+            case None =>
+              Code.ArrowFunction(argNames, Left(bodyJs))
+          }
 
           if (captures.isEmpty) {
             innerFn
@@ -668,7 +688,8 @@ object JsGen {
 
               case LitStr(expect) :: tail =>
                 // Literal followed by more - check startsWith and continue
-                val expectLen = expect.codePointCount(0, expect.length)
+                // Use .length (UTF-16 code units) to match JavaScript's string indexing
+                val expectLen = expect.length
                 val startsCheck = if (offset == Code.IntLiteral(0)) {
                   strIdent.dot("startsWith")(Code.StringLiteral(expect))
                 } else {
@@ -829,8 +850,8 @@ object JsGen {
     val allCode = if (statements.isEmpty) {
       Code.Statements(Nil)
     } else {
-      val exportStmt = Code.Export(exports.head) // Simplified - export each separately
-      Code.Statements(statements :+ exportStmt)
+      val exportStmts = exports.map(Code.Export(_))
+      Code.Statements(statements ++ exportStmts)
     }
 
     Code.render(allCode)
@@ -936,11 +957,12 @@ var _trace = (msg, value) => {
   return value;
 };
 
-// cmp_String - compare two Bosatsu strings, return 0 (LT), 1 (EQ), or 2 (GT)
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
 var _cmp_String = (a, b) => {
   const sa = _bosatsu_to_js_string(a);
   const sb = _bosatsu_to_js_string(b);
-  return sa < sb ? 0 : (sa === sb ? 1 : 2);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
 };
 
 // partition_String - split string on first occurrence of separator
