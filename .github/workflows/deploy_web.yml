@@ -21,10 +21,9 @@ jobs:
 
       - uses: coursier/cache-action@v6
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Setup Scala and sbt
+        uses: olafurpg/setup-scala@v14
         with:
-          distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Emscripten
