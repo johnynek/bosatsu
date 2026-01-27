@@ -16,6 +16,7 @@ let wasmLoaded = false;
 // Original JS implementations (saved before patching)
 let originalFib = null;
 let originalFactorial = null;
+let originalCollatz = null;
 
 /**
  * Load the Bosatsu-generated JS modules
@@ -89,6 +90,7 @@ export function patchJStoUseWASM() {
   // Replace the JS implementations with WASM calls
   globalThis.Demo_Compute$fib = (n) => wasm._wasm_fib(n);
   globalThis.Demo_Compute$factorial = (n) => wasm._wasm_factorial(n);
+  globalThis.Demo_Compute$collatz_steps = (n) => wasm._wasm_collatz(n);
 
   console.log('JS patched to use WASM for compute');
 }

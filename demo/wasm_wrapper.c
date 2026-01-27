@@ -25,6 +25,7 @@
 // Note: C codegen generates direct functions, not closures
 extern BValue ___bsts_g_Demo_l_Compute_l_fib(BValue n);
 extern BValue ___bsts_g_Demo_l_Compute_l_factorial(BValue n);
+extern BValue ___bsts_g_Demo_l_Compute_l_collatz__steps(BValue n);
 
 /**
  * Compute fibonacci number
@@ -55,6 +56,23 @@ int wasm_factorial(int n) {
 
     // Call the function directly (C codegen produces direct functions, not closures)
     BValue result = ___bsts_g_Demo_l_Compute_l_factorial(n_val);
+
+    // Convert result back to int
+    return bsts_integer_to_int32(result);
+}
+
+/**
+ * Compute Collatz sequence steps
+ * @param n - The starting number
+ * @return Number of steps to reach 1
+ */
+WASM_EXPORT
+int wasm_collatz(int n) {
+    // Convert n to BValue
+    BValue n_val = bsts_integer_from_int(n);
+
+    // Call the function directly
+    BValue result = ___bsts_g_Demo_l_Compute_l_collatz__steps(n_val);
 
     // Convert result back to int
     return bsts_integer_to_int32(result);

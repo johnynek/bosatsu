@@ -84,7 +84,7 @@ jobs:
             c_runtime/bosatsu_ext_Bosatsu_l_Prog.c \
             -sWASM=1 \
             -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
-            -sEXPORTED_FUNCTIONS='["_wasm_init","_wasm_fib","_wasm_factorial"]' \
+            -sEXPORTED_FUNCTIONS='["_wasm_init","_wasm_fib","_wasm_factorial","_wasm_collatz"]' \
             -sMODULARIZE=1 \
             -sEXPORT_NAME='createModule' \
             -sALLOW_MEMORY_GROWTH=1 \

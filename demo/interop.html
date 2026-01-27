@@ -374,6 +374,26 @@
       <div id="fact-result" class="result" style="display: none;"></div>
     </div>
 
+    <!-- Collatz Demo -->
+    <div class="demo-card">
+      <h2>Collatz Conjecture (Compute Intensive)</h2>
+      <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Computes Collatz sequence steps for ALL numbers from 1 to n, returns max steps found.
+        This is O(n × avg_steps) — try 10,000+ to see WASM vs JS performance difference.
+      </p>
+      <div class="input-row">
+        <label>n =</label>
+        <input type="number" id="collatz-n" value="10000" min="1" max="100000">
+        <span id="collatz-validation" class="validation-msg"></span>
+        <button id="collatz-btn" disabled>Compute Max Steps</button>
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="wasm" data-target="collatz">WASM</button>
+          <button class="mode-btn" data-mode="js" data-target="collatz">Pure JS</button>
+        </div>
+      </div>
+      <div id="collatz-result" class="result" style="display: none;"></div>
+    </div>
+
     <!-- Source Code -->
     <div class="demo-card">
       <h2>Bosatsu Source Code</h2>
@@ -435,6 +455,7 @@
     // Track which mode we're in for each demo
     let fibMode = 'wasm';
     let factMode = 'wasm';
+    let collatzMode = 'wasm';
 
     // Initialize
     async function init() {
@@ -456,6 +477,7 @@
         // Enable buttons
         document.getElementById('fib-btn').disabled = false;
         document.getElementById('fact-btn').disabled = false;
+        document.getElementById('collatz-btn').disabled = false;
 
       } catch (e) {
         console.error('Initialization failed:', e);
@@ -482,15 +504,17 @@
         // Update mode and patch/unpatch
         if (target === 'fib') {
           fibMode = mode;
-        } else {
+        } else if (target === 'fact') {
           factMode = mode;
+        } else if (target === 'collatz') {
+          collatzMode = mode;
         }
 
         // Apply the appropriate patch based on current modes
-        if (fibMode === 'wasm' || factMode === 'wasm') {
+        if (fibMode === 'wasm' || factMode === 'wasm' || collatzMode === 'wasm') {
           patchJStoUseWASM();
         }
-        if (fibMode === 'js' && factMode === 'js') {
+        if (fibMode === 'js' && factMode === 'js' && collatzMode === 'js') {
           unpatchJS();
         }
       });
@@ -545,7 +569,7 @@
       `;
 
       // Re-patch for other demo if needed
-      if (factMode === 'wasm') patchJStoUseWASM();
+      if (factMode === 'wasm' || collatzMode === 'wasm') patchJStoUseWASM();
     });
 
     // Factorial compute
@@ -581,7 +605,59 @@
       `;
 
       // Re-patch for other demo if needed
-      if (fibMode === 'wasm') patchJStoUseWASM();
+      if (fibMode === 'wasm' || collatzMode === 'wasm') patchJStoUseWASM();
+    });
+
+    // Collatz validation on input
+    document.getElementById('collatz-n').addEventListener('input', (e) => {
+      const n = parseInt(e.target.value, 10);
+      const valid = !isNaN(n) && n >= 1 && n <= 100000;
+      document.getElementById('collatz-validation').textContent = valid ? '' : 'Must be 1-100000';
+      e.target.classList.toggle('invalid', !valid);
+    });
+
+    // Collatz compute
+    document.getElementById('collatz-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('collatz-n').value, 10);
+      if (isNaN(n) || n < 1 || n > 100000) return;
+
+      // Ensure correct mode
+      if (collatzMode === 'wasm') patchJStoUseWASM();
+      else unpatchJS();
+
+      const btn = document.getElementById('collatz-btn');
+      btn.textContent = 'Computing...';
+      btn.disabled = true;
+
+      // Use setTimeout to allow UI to update before heavy computation
+      setTimeout(() => {
+        const start = performance.now();
+        const maxSteps = globalThis.Demo_Compute$collatz_steps(n);
+        const elapsed = performance.now() - start;
+
+        btn.textContent = 'Compute Max Steps';
+        btn.disabled = false;
+
+        document.getElementById('collatz-result').style.display = 'block';
+        document.getElementById('collatz-result').innerHTML = `
+          <div class="result-header">
+            <div>
+              <div style="color: var(--muted); font-size: 0.85rem;">Max Collatz steps for any number 1 to ${n.toLocaleString()}:</div>
+              <div class="result-value">${maxSteps}</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="execution-badge ${collatzMode}">${collatzMode === 'wasm' ? 'WASM' : 'Pure JS'}</span>
+              <div class="result-timing">${elapsed.toFixed(2)} ms for ${n.toLocaleString()} sequences</div>
+            </div>
+          </div>
+          <div style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;">
+            This computed Collatz sequence lengths for every number from 1 to ${n.toLocaleString()}.
+          </div>
+        `;
+
+        // Re-patch for other demos if needed
+        if (fibMode === 'wasm' || factMode === 'wasm') patchJStoUseWASM();
+      }, 10);
     });
 
     init();

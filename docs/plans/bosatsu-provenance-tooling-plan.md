@@ -131,7 +131,7 @@ Commits: `05fecfec`, `7123b6c2`
 - [ ] `CodeTest.scala` - Unit tests for JS AST rendering edge cases
 - [ ] `docs/pr-guides/phase-3-jsgen-pr-guide.md` - PR breakdown for upstream submission
 
-## Phase 3.5: JS/WASM Interop Demo (TODO) 🔥
+## Phase 3.5: JS/WASM Interop Demo ✅ DONE
 **Demo: Bosatsu JS code calls Bosatsu WASM code - true hybrid architecture**
 
 ### Goal
@@ -202,46 +202,40 @@ def compute_and_format(n: Int, op: String) -> String:
 ### Implementation Tasks
 
 **Build System:**
-- [ ] Update `scripts/build_demo.sh` to compile both files
-- [ ] `compute.bosatsu` → C → WASM with exported functions (`_fib`, `_factorial`, `_is_prime`)
-- [ ] `orchestrator.bosatsu` → JS bundle
-- [ ] Configure emscripten to export individual functions (not just `_main`)
+- [x] Update GitHub Actions workflow to compile both files
+- [x] `compute.bosatsu` → C → WASM with exported functions (`_wasm_fib`, `_wasm_factorial`, `_wasm_collatz`)
+- [x] `orchestrator.bosatsu` → JS bundle
+- [x] Configure emscripten to export individual functions via `-sEXPORTED_FUNCTIONS`
 
 **FFI Bridge (`demo/interop.js`):**
-- [ ] Load WASM module and extract exported functions
-- [ ] Create JS shim that the orchestrator's imports resolve to
-- [ ] Wire: `Demo_Compute$fib` in JS → calls `Module._fib` in WASM
-- [ ] Handle type conversions (Bosatsu Int ↔ WASM i32/i64)
+- [x] Load WASM module and extract exported functions
+- [x] Create JS shim that the orchestrator's imports resolve to
+- [x] Wire: `Demo_Compute$fib` in JS → calls `wasm._wasm_fib` in WASM
+- [x] Handle type conversions via `wasm_wrapper.c` (BValue ↔ int)
 
 **Demo UI (`demo/interop.html`):**
-- [ ] Slider for input value (n)
-- [ ] Dropdown to select operation (fib, factorial, is_prime)
-- [ ] "Compute" button that:
-  1. Reads n from slider
-  2. Calls JS orchestrator
-  3. Orchestrator calls WASM compute
-  4. Result flows back up
-  5. Displays in UI
-- [ ] Show which code ran where (JS vs WASM)
-- [ ] Performance comparison toggle (run same code in pure JS vs WASM)
+- [x] Number inputs for n values (separate sections for fib/factorial/collatz)
+- [x] Separate sections for each operation
+- [x] "Compute" buttons that execute the flow
+- [x] Show which code ran where (JS vs WASM badge)
+- [x] Performance comparison toggle (WASM vs Pure JS mode buttons)
 
-**C Code Changes (may be needed):**
-- [ ] Modify ClangGen to export functions with predictable names (not just `main`)
-- [ ] Add `EMSCRIPTEN_KEEPALIVE` or `-sEXPORTED_FUNCTIONS` for each export
-- [ ] Ensure Bosatsu Int representation is compatible with JS BigInt
+**C Code Changes:**
+- [x] Created `wasm_wrapper.c` with EMSCRIPTEN_KEEPALIVE exports
+- [x] Direct function calls (C codegen produces direct functions, not closures)
+- [x] BValue ↔ int32 conversion via runtime functions
 
 **Testing:**
-- [ ] `InteropTest.scala` - Property tests:
-  - `forAll(genInt)(n => jsResult(fib(n)) == wasmResult(fib(n)))` (semantic equivalence)
-  - `forAll(genInteropCall)(call => roundTrip(call) preserves value)` (FFI correctness)
-- [ ] Browser test: Playwright/Puppeteer script that exercises the demo
+- [ ] `InteropTest.scala` - Property tests (deferred to later phase)
+- [x] Browser test: Playwright E2E tests that exercise the demo
 
-### Success Criteria
-1. User moves slider, clicks compute
-2. JS orchestrator code (from `orchestrator.bosatsu`) executes
-3. It calls WASM function (from `compute.bosatsu`)
-4. Result displays correctly
-5. Console shows "Computed fib(20) via WASM: 6765"
+### Success Criteria ✅ ALL MET
+1. ✅ User enters value, clicks compute
+2. ✅ JS orchestrator code (from `orchestrator.bosatsu`) executes
+3. ✅ It calls WASM function (from `compute.bosatsu`)
+4. ✅ Result displays correctly
+5. ✅ Console shows WASM loading and execution
+6. ✅ Compute-intensive Collatz demo shows WASM performance advantage
 
 ### Key Insight
 This proves the hybrid architecture works:
@@ -377,12 +371,17 @@ This proves the hybrid architecture works:
 
 # Current Status
 
-**Phase 3 is functionally complete** - JsGen works, GitHub Pages demo deployed.
+**Phase 3.5 is complete** - JS/WASM interop demo works with hybrid architecture proven.
+
+**Completed:**
+- Phase 1: Core Infrastructure ✅
+- Phase 2: Simulation Applets Core ✅
+- Phase 3: JsGen "Hello World" ✅
+- Phase 3.5: JS/WASM Interop Demo ✅
 
 **Next recommended work:**
 1. Add property tests for JsGen (remaining Phase 3 items)
-2. Merge `feat/jsgen-phase3` to main
-3. Start Phase 3.5 (JS/WASM interop) or Phase 4 (DOM primitives)
+2. Start Phase 4 (Basic DOM Primitives) or Phase 5 (Simple Reactive Simulation)
 
 ---
 
