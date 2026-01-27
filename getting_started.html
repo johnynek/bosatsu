@@ -31,7 +31,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e7dde30
+0.0.0+1-8c14bff5
 </div>
 </div>
 <div class="nav-toc">
@@ -72,7 +72,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e7dde30
+0.0.0+1-8c14bff5
 </div>
 </div>
 <div class="nav-toc">
@@ -171,7 +171,23 @@ EOF
   <li>It writes <code>bosatsu_libs.json</code> in the repo root and <code>src/mylib_conf.json</code> in the  source root you selected.</li>
 </ul>
 <h2><a href="#10-add-code" name="10-add-code" class="anchor"><span class="anchor-link"></span></a>10) Add code</h2>
-<p>Put your <code>.bosatsu</code> files under <code>src/</code> and use <code>./bosatsu --help</code> to explore the available commands (check, eval, test, json, transpile, lib, etc.).</p>
+<p>Put your <code>.bosatsu</code> files under <code>src/</code>. For example, create <code>src/MyLib/Hello.bosatsu</code> with a type, a function, and a test:</p>
+<pre class="prettyprint"><code class="language-bosatsu">package MyLib/Hello
+
+enum Mood: Happy, Sad
+
+def greet(m: Mood) -&gt; String:
+  match m:
+    Happy: &quot;hello&quot;
+    Sad: &quot;cheer up&quot;
+
+test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet Happy&quot;)
+</code></pre>
+<p>Use <code>./bosatsu --help</code> to explore the available commands (check, eval, test, json, transpile, lib, etc.).</p>
+<h2><a href="#11-run-tests" name="11-run-tests" class="anchor"><span class="anchor-link"></span></a>11) Run tests</h2>
+<p>From the repo root:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+</code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/getting_started.md">here</a>.
 </div>
@@ -198,6 +214,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
     <li><a href="getting_started.html#8-install-the-c-runtime" class="header">8) Install the C runtime</a></li>
     <li><a href="getting_started.html#9-initialize-a-library-config" class="header">9) Initialize a library config</a></li>
     <li><a href="getting_started.html#10-add-code" class="header">10) Add code</a></li>
+    <li><a href="getting_started.html#11-run-tests" class="header">11) Run tests</a></li>
   </ul></li>
 </ul>
 </div>
@@ -265,7 +282,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7e7dde30', '')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-8c14bff5', '')});</script>
 
 
 </html>
