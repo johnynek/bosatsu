@@ -1,7 +1,25 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+// Helper to capture console logs
+function setupConsoleCapture(page: Page) {
+  const logs: string[] = [];
+  page.on('console', msg => {
+    const text = `[${msg.type()}] ${msg.text()}`;
+    logs.push(text);
+    // Also print to stdout for CI visibility
+    console.log(text);
+  });
+  page.on('pageerror', err => {
+    const text = `[PAGE ERROR] ${err.message}`;
+    logs.push(text);
+    console.log(text);
+  });
+  return logs;
+}
 
 test.describe('JS/WASM Interop Demo', () => {
   test.beforeEach(async ({ page }) => {
+    setupConsoleCapture(page);
     await page.goto('/demo/interop.html');
   });
 
@@ -31,6 +49,14 @@ test.describe('JS/WASM Interop Demo', () => {
     // Set input and compute
     await page.locator('#fib-n').fill('10');
     await page.locator('#fib-btn').click();
+
+    // Wait a moment for computation
+    await page.waitForTimeout(500);
+
+    // Debug: log the result element's content and visibility
+    const resultVisible = await page.locator('#fib-result').isVisible();
+    const resultContent = await page.locator('#fib-result').textContent();
+    console.log(`[DEBUG] #fib-result visible: ${resultVisible}, content: "${resultContent}"`);
 
     // Check result - fib(10) = 55
     await expect(page.locator('#fib-result')).toContainText('55');
