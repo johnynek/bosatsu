@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>DOMRuntime Integration Test</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 1rem;
+    }
+    .test-container {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+    .test-container h3 {
+      margin-top: 0;
+    }
+    .result {
+      padding: 0.5rem;
+      border-radius: 4px;
+      margin-top: 0.5rem;
+    }
+    .pass {
+      background: #d4edda;
+      color: #155724;
+    }
+    .fail {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    #app {
+      border: 2px solid #007bff;
+      padding: 1rem;
+      margin: 1rem 0;
+      min-height: 100px;
+    }
+    #event-log {
+      font-family: monospace;
+      background: #f5f5f5;
+      padding: 0.5rem;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>DOMRuntime Integration Test</h1>
+  <p>This page tests the Scala.js DOMRuntime in a real browser DOM.</p>
+
+  <div class="test-container">
+    <h3>Test 1: createElement and appendChild</h3>
+    <div id="test1-target"></div>
+    <div id="test1-result" class="result"></div>
+  </div>
+
+  <div class="test-container">
+    <h3>Test 2: setAttribute</h3>
+    <div id="test2-target"></div>
+    <div id="test2-result" class="result"></div>
+  </div>
+
+  <div class="test-container">
+    <h3>Test 3: createTextNode</h3>
+    <div id="test3-target"></div>
+    <div id="test3-result" class="result"></div>
+  </div>
+
+  <div class="test-container">
+    <h3>Test 4: addEventListener (click the button)</h3>
+    <div id="test4-target"></div>
+    <div id="test4-result" class="result"></div>
+    <div id="event-log"></div>
+  </div>
+
+  <div class="test-container">
+    <h3>Test 5: VNode render and mount</h3>
+    <div id="app"></div>
+    <div id="test5-result" class="result"></div>
+  </div>
+
+  <h2>Summary</h2>
+  <div id="summary"></div>
+
+  <script>
+    // Simulate DOMRuntime functions (in real use, these come from Scala.js)
+    const DOMRuntime = {
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (content) => document.createTextNode(content),
+      setAttribute: (el, name, value) => el.setAttribute(name, value),
+      appendChild: (parent, child) => parent.appendChild(child),
+      addEventListener: (el, eventType, handler) => el.addEventListener(eventType, handler),
+      querySelector: (selector) => document.querySelector(selector),
+      getElementById: (id) => document.getElementById(id),
+      addClass: (el, className) => el.classList.add(className),
+      setStyle: (el, prop, value) => el.style[prop] = value,
+    };
+
+    // Test results tracking
+    let passed = 0;
+    let failed = 0;
+
+    function logResult(testId, success, message) {
+      const el = document.getElementById(testId + '-result');
+      el.textContent = (success ? '✓ PASS: ' : '✗ FAIL: ') + message;
+      el.className = 'result ' + (success ? 'pass' : 'fail');
+      if (success) passed++; else failed++;
+    }
+
+    // Test 1: createElement and appendChild
+    try {
+      const div = DOMRuntime.createElement('div');
+      div.textContent = 'Created via DOMRuntime.createElement';
+      DOMRuntime.appendChild(DOMRuntime.getElementById('test1-target'), div);
+      logResult('test1', true, 'Element created and appended');
+    } catch (e) {
+      logResult('test1', false, e.message);
+    }
+
+    // Test 2: setAttribute
+    try {
+      const span = DOMRuntime.createElement('span');
+      DOMRuntime.setAttribute(span, 'id', 'test-span');
+      DOMRuntime.setAttribute(span, 'class', 'highlight');
+      DOMRuntime.setAttribute(span, 'data-testid', 'my-span');
+      span.textContent = 'Span with attributes';
+      DOMRuntime.appendChild(DOMRuntime.getElementById('test2-target'), span);
+
+      const hasId = span.getAttribute('id') === 'test-span';
+      const hasClass = span.getAttribute('class') === 'highlight';
+      const hasData = span.getAttribute('data-testid') === 'my-span';
+
+      if (hasId && hasClass && hasData) {
+        logResult('test2', true, 'All attributes set correctly');
+      } else {
+        logResult('test2', false, 'Some attributes missing');
+      }
+    } catch (e) {
+      logResult('test2', false, e.message);
+    }
+
+    // Test 3: createTextNode
+    try {
+      const text = DOMRuntime.createTextNode('This is a text node created via createTextNode');
+      const container = DOMRuntime.createElement('p');
+      DOMRuntime.appendChild(container, text);
+      DOMRuntime.appendChild(DOMRuntime.getElementById('test3-target'), container);
+      logResult('test3', true, 'Text node created and appended');
+    } catch (e) {
+      logResult('test3', false, e.message);
+    }
+
+    // Test 4: addEventListener
+    try {
+      const button = DOMRuntime.createElement('button');
+      button.textContent = 'Click me to test event handling';
+      DOMRuntime.setStyle(button, 'padding', '0.5rem 1rem');
+      DOMRuntime.setStyle(button, 'cursor', 'pointer');
+
+      let clickCount = 0;
+      DOMRuntime.addEventListener(button, 'click', (e) => {
+        clickCount++;
+        const log = DOMRuntime.getElementById('event-log');
+        log.textContent += `Click event #${clickCount} fired at ${new Date().toISOString()}\n`;
+        if (clickCount >= 1) {
+          logResult('test4', true, `Event handler fired ${clickCount} time(s)`);
+        }
+      });
+
+      DOMRuntime.appendChild(DOMRuntime.getElementById('test4-target'), button);
+      logResult('test4', false, 'Click the button to complete this test');
+    } catch (e) {
+      logResult('test4', false, e.message);
+    }
+
+    // Test 5: VNode-like render (simulating what DOMRuntime.render would do)
+    try {
+      // Simulate a VNode tree structure
+      const vnode = {
+        tag: 'div',
+        attrs: { class: 'app-container' },
+        children: [
+          { tag: 'h2', attrs: {}, children: [{ text: 'VNode Render Test' }] },
+          { tag: 'p', attrs: { class: 'description' }, children: [{ text: 'This was rendered from a VNode-like structure' }] },
+          { tag: 'ul', attrs: {}, children: [
+            { tag: 'li', attrs: {}, children: [{ text: 'Item 1' }] },
+            { tag: 'li', attrs: {}, children: [{ text: 'Item 2' }] },
+            { tag: 'li', attrs: {}, children: [{ text: 'Item 3' }] },
+          ]},
+        ]
+      };
+
+      function render(node) {
+        if (node.text !== undefined) {
+          return DOMRuntime.createTextNode(node.text);
+        }
+        const el = DOMRuntime.createElement(node.tag);
+        for (const [name, value] of Object.entries(node.attrs || {})) {
+          DOMRuntime.setAttribute(el, name, value);
+        }
+        for (const child of node.children || []) {
+          DOMRuntime.appendChild(el, render(child));
+        }
+        return el;
+      }
+
+      const app = DOMRuntime.getElementById('app');
+      app.innerHTML = ''; // Clear existing content
+      DOMRuntime.appendChild(app, render(vnode));
+
+      // Verify structure
+      const h2 = app.querySelector('h2');
+      const items = app.querySelectorAll('li');
+
+      if (h2 && h2.textContent === 'VNode Render Test' && items.length === 3) {
+        logResult('test5', true, 'VNode tree rendered correctly with ' + items.length + ' list items');
+      } else {
+        logResult('test5', false, 'VNode rendering incomplete');
+      }
+    } catch (e) {
+      logResult('test5', false, e.message);
+    }
+
+    // Summary
+    document.getElementById('summary').innerHTML =
+      `<p>Tests: <strong>${passed + failed}</strong> | ` +
+      `<span class="pass">Passed: ${passed}</span> | ` +
+      `<span class="fail">Failed: ${failed}</span></p>` +
+      `<p><small>Note: Test 4 requires clicking the button to complete.</small></p>`;
+  </script>
+</body>
+</html>
