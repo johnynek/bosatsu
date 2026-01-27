@@ -18,6 +18,7 @@ jobs:
           - '17'
     timeout-minutes: 30
   testPY:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
@@ -44,6 +45,7 @@ jobs:
           - '3.9'
     timeout-minutes: 30
   testJS:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
@@ -62,6 +64,7 @@ jobs:
           - '17'
     timeout-minutes: 30
   testWithCoverageReport:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
@@ -85,6 +88,7 @@ jobs:
           - '17'
     timeout-minutes: 30
   buildWithGraal:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
@@ -105,6 +109,7 @@ jobs:
         java:
           - '17'
   testWithNode:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
@@ -124,6 +129,7 @@ jobs:
         java:
           - '17'
   testC:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -157,6 +163,7 @@ jobs:
           ./bosatsuj lib test --outdir c_out_lib
     timeout-minutes: 30
   libPublishDryRun:
+    needs: testC
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
