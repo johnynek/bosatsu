@@ -52,6 +52,42 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     val start = Path(js.Dynamic.global.process.cwd().asInstanceOf[String])
     moduleIOMonad.tailRecM(start)(searchStep)
   }
+
+  def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
+    val baseDirF =
+      gitTopLevel.map(_.map(resolve(_, ".bosatsuc" :: "tmp" :: Nil)))
+
+    val tempDirF = baseDirF.flatMap {
+      case Some(base) =>
+        FilesIO.createDirectories(base) *>
+          FilesIO.createTempDirectory(
+            dir = Some(base),
+            prefix = name,
+            permissions = None
+          )
+      case None =>
+        FilesIO.createTempDirectory(
+          dir = None,
+          prefix = name,
+          permissions = None
+        )
+    }
+
+    def cleanup(path: Path): IO[Unit] =
+      FilesIO.deleteRecursively(path).handleErrorWith { err =>
+        errorln(
+          s"warning: failed to delete temp dir ${path.toString}: ${err.getMessage}"
+        )
+      }
+
+    tempDirF.flatMap { tempDir =>
+      fn(tempDir).attempt.flatMap {
+        case Right(a) => cleanup(tempDir).as(a)
+        case Left(e)  => cleanup(tempDir) *> IO.raiseError(e)
+      }
+    }
+  }
+
   def system(cmd: String, args: List[String]): IO[Unit] = {
     import fs2.io.process.ProcessBuilder
     ProcessBuilder(cmd, args).withCurrentWorkingDirectory

@@ -110,6 +110,26 @@ object MemoryMain {
               }
           }
       }
+
+    def remove(path: Chain[String]): State =
+      path.uncons match {
+        case None => this
+        case Some((h, t)) =>
+          children.get(h) match {
+            case None => this
+            case Some(Right(_)) =>
+              if (t.isEmpty) copy(children = children - h) else this
+            case Some(Left(s)) =>
+              if (t.isEmpty) copy(children = children - h)
+              else {
+                val s1 = s.remove(t)
+                val nextChildren =
+                  if (s1.children.isEmpty) children - h
+                  else children.updated(h, Left(s1))
+                copy(children = nextChildren)
+              }
+          }
+      }
   }
 
   object State {
@@ -186,6 +206,60 @@ object MemoryMain {
         )
 
       def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
+
+      def withTempPrefix[A](name: String)(fn: Path => F[A]): F[A] = {
+        def candidateName(idx: Int): String =
+          if (idx == 0) name else s"${name}_$idx"
+
+        def pickCandidate(state: State, base: Path, idx: Int): Path = {
+          val candidate = base :+ candidateName(idx)
+          state.get(candidate) match {
+            case None    => candidate
+            case Some(_) => pickCandidate(state, base, idx + 1)
+          }
+        }
+
+        def allocate(base: Path): F[Path] =
+          StateT { state =>
+            state.withDir(base) match {
+              case None =>
+                innerMonad.raiseError(
+                  new Exception(
+                    s"could not create temp base directory: ${pathToString(base)}"
+                  )
+                )
+              case Some(withBase) =>
+                val candidate = pickCandidate(withBase, base, 0)
+                withBase.withDir(candidate) match {
+                  case Some(s2) => innerMonad.pure((s2, candidate))
+                  case None     =>
+                    innerMonad.raiseError(
+                      new Exception(
+                        s"could not create temp directory: ${pathToString(candidate)}"
+                      )
+                    )
+                }
+            }
+          }
+
+        def cleanup(path: Path): F[Unit] =
+          StateT.modify { state =>
+            state.remove(path)
+          }
+
+        val baseDirF: F[Path] =
+          gitTopLevel.map {
+            case Some(root) => resolve(root, ".bosatsuc" :: "tmp" :: Nil)
+            case None       => Chain(".bosatsuc", "tmp")
+          }
+
+        baseDirF.flatMap(allocate).flatMap { tempDir =>
+          fn(tempDir).attempt.flatMap {
+            case Right(a) => cleanup(tempDir).as(a)
+            case Left(e)  => cleanup(tempDir) *> moduleIOMonad.raiseError(e)
+          }
+        }
+      }
 
       def withEC[A](fn: Par.EC ?=> F[A]): F[A] =
         StateT { state =>
