@@ -1,0 +1,18 @@
+package Demo/Orchestrator
+
+from Demo/Compute import fib, factorial
+
+export run_fib, run_factorial, run_both
+
+# Orchestration functions that delegate to compute module
+# When compiled to JS, these imports will be bridged to WASM at runtime
+
+def run_fib(n: Int) -> Int:
+  fib(n)
+
+def run_factorial(n: Int) -> Int:
+  factorial(n)
+
+# Compute both and return as tuple
+def run_both(n: Int) -> (Int, Int):
+  (fib(n), factorial(n))

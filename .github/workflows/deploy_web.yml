@@ -43,6 +43,7 @@ jobs:
       - name: Create deployment directory
         run: mkdir -p web_deploy/compiler web_deploy/demo/examples
 
+      # ===== Simple Multi-Target Demo (fibonacci) =====
       - name: Build demo artifacts - JavaScript
         run: |
           sbt "cli/run transpile js --input demo/examples/fibonacci.bosatsu --outdir web_deploy/demo/examples"
@@ -64,6 +65,32 @@ jobs:
             -sEXPORT_NAME='Module' \
             -o web_deploy/demo/examples/fibonacci_wasm.js
 
+      # ===== JS/WASM Interop Demo =====
+      - name: Build interop demo - Compile compute.bosatsu to C
+        run: |
+          sbt "cli/run transpile c --input demo/examples/compute.bosatsu --output compute.c --outdir web_deploy/demo/examples"
+
+      - name: Build interop demo - Compile both to JS
+        run: |
+          sbt "cli/run transpile js --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu --outdir web_deploy/demo/examples"
+
+      - name: Build interop demo - Compile C to WASM with wrapper
+        run: |
+          emcc web_deploy/demo/examples/compute.c \
+            demo/wasm_wrapper.c \
+            -I c_runtime \
+            c_runtime/bosatsu_runtime.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
+            c_runtime/bosatsu_generated.c \
+            -sWASM=1 \
+            -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -sEXPORTED_FUNCTIONS='["_wasm_init","_wasm_fib","_wasm_factorial"]' \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME='ComputeModule' \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -O2 \
+            -o web_deploy/demo/examples/compute_wasm.js
+
       - name: Assemble deployment
         run: |
           # Copy documentation (paradox output)
@@ -77,11 +104,31 @@ jobs:
           cp jsui/app.css web_deploy/compiler/
           cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
-          # Demo page
+          # Demo page (simple multi-target)
           cp demo/index.html web_deploy/demo/
           cp demo/demo.css web_deploy/demo/
           cp demo/demo.js web_deploy/demo/
           cp demo/examples/fibonacci.bosatsu web_deploy/demo/examples/
+
+          # Interop demo (JS/WASM working together)
+          cp demo/interop.html web_deploy/demo/
+          cp demo/interop.js web_deploy/demo/
+          cp demo/wasm_wrapper.c web_deploy/demo/
+          cp demo/examples/compute.bosatsu web_deploy/demo/examples/
+          cp demo/examples/orchestrator.bosatsu web_deploy/demo/examples/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm ci
+          npx playwright install chromium
+
+      - name: Run E2E tests
+        run: npm test
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
