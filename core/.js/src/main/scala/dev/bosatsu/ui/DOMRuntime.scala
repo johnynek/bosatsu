@@ -83,10 +83,12 @@ object DOMRuntime {
    * @param element The target element
    * @param eventType Event type (e.g., "click", "input")
    * @param handler Event handler function
+   * @return The wrapped JS handler, needed for removeEventListener
    */
-  def addEventListener(element: Element, eventType: String, handler: Event => Unit): Unit = {
+  def addEventListener(element: Element, eventType: String, handler: Event => Unit): js.Function1[js.Dynamic, Unit] = {
     val jsHandler: js.Function1[js.Dynamic, Unit] = (e: js.Dynamic) => handler(e)
     element.addEventListener(eventType, jsHandler)
+    jsHandler
   }
 
   /**

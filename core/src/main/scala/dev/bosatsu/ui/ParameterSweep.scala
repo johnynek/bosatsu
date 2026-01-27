@@ -29,17 +29,15 @@ object ParameterSweep {
       maxValue: A,
       steps: Int,
       description: String = ""
-  )(implicit ord: Ordering[A], num: Numeric[A]) {
+  )(implicit ord: Ordering[A], frac: Fractional[A]) {
     def stepSize: A = {
-      import num._
-      val range = maxValue - minValue
-      fromInt(toInt(range) / steps)
+      val range = frac.minus(maxValue, minValue)
+      frac.div(range, frac.fromInt(steps))
     }
 
     def values: List[A] = {
-      import num._
       (0 to steps).map { i =>
-        minValue + fromInt(i) * stepSize
+        frac.plus(minValue, frac.times(frac.fromInt(i), stepSize))
       }.toList
     }
   }

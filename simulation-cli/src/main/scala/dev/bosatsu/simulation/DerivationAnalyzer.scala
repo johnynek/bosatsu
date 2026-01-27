@@ -327,12 +327,7 @@ object DerivationAnalyzer {
         s"let mut _mut$id in ${boolExprToFormula(in)}"
     }
 
-  // Helper for LocalAnon pattern matching
-  private object LocalAnon {
-    def unapply(la: Matchless.LocalAnon): Option[Long] = Some(la.ident)
-  }
-
-  /**
+/**
    * Infer the value type from an expression.
    */
   def inferType[A](expr: Matchless.Expr[A]): String =
