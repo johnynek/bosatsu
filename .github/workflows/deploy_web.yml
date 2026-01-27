@@ -45,11 +45,11 @@ jobs:
       # ===== Simple Multi-Target Demo (fibonacci) =====
       - name: Build demo artifacts - JavaScript
         run: |
-          sbt "cli/run transpile js --input demo/examples/fibonacci.bosatsu --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input demo/examples/fibonacci.bosatsu js --outdir web_deploy/demo/examples"
 
       - name: Build demo artifacts - C
         run: |
-          sbt "cli/run transpile c --main Demo/Fibonacci --input demo/examples/fibonacci.bosatsu --output fibonacci.c --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input demo/examples/fibonacci.bosatsu c --main Demo/Fibonacci --output fibonacci.c --outdir web_deploy/demo/examples"
 
       - name: Build WASM from C
         run: |
@@ -67,11 +67,11 @@ jobs:
       # ===== JS/WASM Interop Demo (Bosatsu JS orchestrator + WASM compute) =====
       - name: Build interop demo - Compile both files to JS bundle
         run: |
-          sbt "cli/run transpile js --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu js --outdir web_deploy/demo/examples"
 
       - name: Build interop demo - Compile compute.bosatsu to C
         run: |
-          sbt "cli/run transpile c --input demo/examples/compute.bosatsu --output compute.c --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input demo/examples/compute.bosatsu c --output compute.c --outdir web_deploy/demo/examples"
 
       - name: Build interop demo - Compile C to WASM
         run: |
