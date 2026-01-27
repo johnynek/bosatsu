@@ -65,12 +65,16 @@ jobs:
             -sEXPORT_NAME='Module' \
             -o web_deploy/demo/examples/fibonacci_wasm.js
 
-      # ===== WASM Computation Demo (JS UI + WASM compute) =====
-      - name: Build WASM demo - Compile compute.bosatsu to C
+      # ===== JS/WASM Interop Demo (Bosatsu JS orchestrator + WASM compute) =====
+      - name: Build interop demo - Compile both files to JS bundle
+        run: |
+          sbt "cli/run transpile js --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu --outdir web_deploy/demo/examples"
+
+      - name: Build interop demo - Compile compute.bosatsu to C
         run: |
           sbt "cli/run transpile c --input demo/examples/compute.bosatsu --output compute.c --outdir web_deploy/demo/examples"
 
-      - name: Build WASM demo - Compile C to WASM
+      - name: Build interop demo - Compile C to WASM
         run: |
           emcc web_deploy/demo/examples/compute.c \
             demo/wasm_wrapper.c \
@@ -106,10 +110,12 @@ jobs:
           cp demo/demo.js web_deploy/demo/
           cp demo/examples/fibonacci.bosatsu web_deploy/demo/examples/
 
-          # WASM computation demo (JS UI + WASM)
+          # JS/WASM interop demo (Bosatsu JS orchestrator + WASM compute)
           cp demo/interop.html web_deploy/demo/
+          cp demo/interop.js web_deploy/demo/
           cp demo/wasm_wrapper.c web_deploy/demo/
           cp demo/examples/compute.bosatsu web_deploy/demo/examples/
+          cp demo/examples/orchestrator.bosatsu web_deploy/demo/examples/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
