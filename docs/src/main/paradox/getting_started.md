@@ -116,5 +116,29 @@ Notes:
 
 ## 10) Add code
 
-Put your `.bosatsu` files under `src/` and use `./bosatsu --help` to explore the
-available commands (check, eval, test, json, transpile, lib, etc.).
+Put your `.bosatsu` files under `src/`. For example, create
+`src/MyLib/Hello.bosatsu` with a type, a function, and a test:
+
+```bosatsu
+package MyLib/Hello
+
+enum Mood: Happy, Sad
+
+def greet(m: Mood) -> String:
+  match m:
+    Happy: "hello"
+    Sad: "cheer up"
+
+test = Assertion(greet(Happy) matches "hello", "greet Happy")
+```
+
+Use `./bosatsu --help` to explore the available commands (check, eval, test,
+json, transpile, lib, etc.).
+
+## 11) Run tests
+
+From the repo root:
+
+```sh
+./bosatsu lib test
+```
