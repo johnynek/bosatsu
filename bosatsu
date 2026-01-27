@@ -146,15 +146,27 @@ fi
 case "$platform" in
   java)
     command -v java >/dev/null 2>&1 || fail "java not found"
-    exec java -jar "$artifact_path" "${args[@]}"
+    if [ "${#args[@]}" -eq 0 ]; then
+      exec java -jar "$artifact_path"
+    else
+      exec java -jar "$artifact_path" "${args[@]}"
+    fi
     ;;
   node)
     command -v node >/dev/null 2>&1 || fail "node not found"
     export NODE_OPTIONS="--no-deprecation${NODE_OPTIONS:+ $NODE_OPTIONS}"
-    exec node "$artifact_path" "${args[@]}"
+    if [ "${#args[@]}" -eq 0 ]; then
+      exec node "$artifact_path"
+    else
+      exec node "$artifact_path" "${args[@]}"
+    fi
     ;;
   native)
-    exec "$artifact_path" "${args[@]}"
+    if [ "${#args[@]}" -eq 0 ]; then
+      exec "$artifact_path"
+    else
+      exec "$artifact_path" "${args[@]}"
+    fi
     ;;
   *)
     fail "unhandled platform: ${platform} (expected java, node, or native)"
