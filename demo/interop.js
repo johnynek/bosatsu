@@ -103,20 +103,17 @@ export function unpatchJS() {
 }
 
 /**
- * Call the Bosatsu-generated orchestrator to validate fib input
+ * Validate fib input (simple range check)
  */
 export function validateFibInput(n) {
-  // Bosatsu Bool is [0] for false, [1] for true
-  const result = globalThis.Demo_Orchestrator$validate_fib_input(n);
-  return result[0] === 1;
+  return Number.isInteger(n) && n >= 0 && n <= 40;
 }
 
 /**
- * Call the Bosatsu-generated orchestrator to validate factorial input
+ * Validate factorial input (simple range check)
  */
 export function validateFactInput(n) {
-  const result = globalThis.Demo_Orchestrator$validate_fact_input(n);
-  return result[0] === 1;
+  return Number.isInteger(n) && n >= 0 && n <= 20;
 }
 
 /**
