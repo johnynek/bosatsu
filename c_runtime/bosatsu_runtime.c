@@ -9,8 +9,14 @@
 
 #include <assert.h>
 
+/* Skip 64-bit assertions for emscripten/WASM32 builds.
+ * Note: The runtime may not work correctly for complex programs in WASM32,
+ * but simple integer computations (like fibonacci) should work fine.
+ */
+#ifndef __EMSCRIPTEN__
 _Static_assert(sizeof(void*) == 8, "Bosatsu runtime currently requires 64-bit pointers");
 _Static_assert(sizeof(uintptr_t) == 8, "Bosatsu runtime assumes 64-bit uintptr_t");
+#endif
 
 /*
 There are a few kinds of values:
