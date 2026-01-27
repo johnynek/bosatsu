@@ -103,6 +103,7 @@ lazy val cli = (project in file("cli"))
         http4sEmber.value,
         fs2core.value,
         fs2io.value,
+        slf4jNop.value,
         jawnParser.value % Test,
         jawnAst.value % Test,
         jython.value % Test,

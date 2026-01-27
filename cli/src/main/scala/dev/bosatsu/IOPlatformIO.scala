@@ -94,6 +94,22 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
 
+  override def gitTopLevel: IO[Option[Path]] = {
+    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
+      fsDataType(current).flatMap {
+        case Some(PlatformIO.FSDataType.Dir) =>
+          fsDataType(resolve(current, ".git"))
+            .map {
+              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
+              case _ => Left(resolve(current, ".."))
+            }
+        case _ => moduleIOMonad.pure(Right(None))
+      }
+
+    val start = Paths.get(".").toAbsolutePath.normalize
+    moduleIOMonad.tailRecM(start)(searchStep)
+  }
+
   override val parallelF: cats.Parallel[IO] = IO.parallelForIO
 
   private val parResource: Resource[IO, Par.EC] =
@@ -195,13 +211,19 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     // Create a Blaze client resource
     import org.http4s._
     import fs2.io.file.{Files, Path => Fs2Path, CopyFlags, CopyFlag}
+    import org.http4s.client.middleware.FollowRedirect
+    import org.http4s.headers.`User-Agent`
 
     val filesIO = Files[IO]
 
     import org.http4s.ember.client.EmberClientBuilder
 
     val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
-      EmberClientBuilder.default[IO].build
+      EmberClientBuilder
+        .default[IO]
+        .withMaxResponseHeaderSize(64 * 1024)
+        .build
+        .map(FollowRedirect(maxRedirects = 10))
 
     val hashFile: fs2.Pipe[IO, Byte, HashValue[A]] =
       in =>
@@ -228,7 +250,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
         Resource.eval(IO(Uri.unsafeFromString(uri)))
       ).tupled.use { case (client, tempPath, uri) =>
         // Create an HTTP GET request
-        val request = Request[IO](method = Method.GET, uri = uri)
+        val request =
+          Request[IO](method = Method.GET, uri = uri)
+            .putHeaders(`User-Agent`(ProductId("bosatsu", None)))
 
         // Stream the response body and write it to the specified file path
         client
@@ -256,7 +280,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
               filesIO.move(
                 source = Fs2Path.fromNioPath(tempPath),
                 target = Fs2Path.fromNioPath(path),
-                CopyFlags(CopyFlag.AtomicMove)
+                CopyFlags(CopyFlag.AtomicMove, CopyFlag.ReplaceExisting)
               )
             } else {
               IO.raiseError(
