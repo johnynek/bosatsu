@@ -6,6 +6,9 @@
 			"include": "#keywords"
 		},
 		{
+			"include": "#char_literal"
+		},
+		{
 			"include": "#double_quote_strings"
 		},
 		{
@@ -18,7 +21,10 @@
 			"include": "#def_name"
 		},
 		{
-			"match": "\\b([1-9]+[0-9]*|0)",
+			"include": "#capitalized_identifiers"
+		},
+		{
+			"match": "\\b\\d[\\d_]*\\b",
 			"name": "constant.numeric.integer.decimal.bosatsu"
 		},
 		{ "include": "#struct" },
@@ -51,32 +57,128 @@
 		    ]
 		},
 		"double_quote_strings": {
-			"name": "string.quoted.double.bosatsu",
+			"name": "meta.string.quoted.double.bosatsu",
 			"begin": "\"",
+			"beginCaptures": {
+				"0": {
+					"name": "string.quoted.double.bosatsu"
+				}
+			},
 			"end": "\"",
+			"endCaptures": {
+				"0": {
+					"name": "string.quoted.double.bosatsu"
+				}
+			},
 			"patterns": [
+				{
+					"include": "#interpolation"
+				},
 				{
 					"name": "constant.character.escape.bosatsu",
 					"match": "\\\\."
+				},
+				{
+					"name": "string.quoted.double.bosatsu",
+					"match": "[^\\\\$\\\"]+"
+				},
+				{
+					"name": "string.quoted.double.bosatsu",
+					"match": "\\$"
 				}
 			]
 		},
 		"single_quote_strings": {
-			"name": "string.quoted.single.bosatsu",
+			"name": "meta.string.quoted.single.bosatsu",
 			"begin": "'",
+			"beginCaptures": {
+				"0": {
+					"name": "string.quoted.single.bosatsu"
+				}
+			},
 			"end": "'",
+			"endCaptures": {
+				"0": {
+					"name": "string.quoted.single.bosatsu"
+				}
+			},
 			"patterns": [
+				{
+					"include": "#interpolation"
+				},
 				{
 					"name": "constant.character.escape.bosatsu",
 					"match": "\\\\."
+				},
+				{
+					"name": "string.quoted.single.bosatsu",
+					"match": "[^\\\\$']+"
+				},
+				{
+					"name": "string.quoted.single.bosatsu",
+					"match": "\\$"
 				}
 			]
+		},
+		"interpolation": {
+			"patterns": [
+				{
+					"name": "meta.interpolation.string.bosatsu",
+					"begin": "\\$\\{",
+					"beginCaptures": {
+						"0": {
+							"name": "punctuation.definition.interpolation.begin.bosatsu"
+						}
+					},
+					"contentName": "source.bosatsu",
+					"end": "\\}",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.interpolation.end.bosatsu"
+						}
+					},
+					"patterns": [
+						{
+							"include": "$self"
+						}
+					]
+				},
+				{
+					"name": "meta.interpolation.char.bosatsu",
+					"begin": "\\$\\.\\{",
+					"beginCaptures": {
+						"0": {
+							"name": "punctuation.definition.interpolation.begin.bosatsu"
+						}
+					},
+					"contentName": "source.bosatsu",
+					"end": "\\}",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.interpolation.end.bosatsu"
+						}
+					},
+					"patterns": [
+						{
+							"include": "$self"
+						}
+					]
+				}
+			]
+		},
+		"char_literal": {
+			"name": "constant.character.bosatsu",
+			"match": "\\.(?:'([^'\\\\\\n]|\\\\.)'|\\\"([^\\\"\\\\\\n]|\\\\.)\\\")"
 		},
 		"comment_line": {
 			"name": "comment.line.number-sign.bosatsu",
 			"begin": "#",
-			"end": "\\n",
-			"contentName": "punctuation.definition.comment.python"
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.comment.bosatsu"
+				}
+			},
+			"end": "$"
 		},
 		"def_name": {
 			"name": "meta.function.bosatsu",
@@ -87,17 +189,20 @@
 				}
 			},
 			"patterns": [
-              {
-			    "begin": "(?<=def\\b)\\s+(?!operator)([^(\\[]+)",
+			  {
+				"begin": "(?<=def\\b)\\s+(operator)\\s+([^\\s(\\[]+)",
 				"beginCaptures": {
 					"1": {
+						"name": "storage.type.function.bosatsu"
+					},
+					"2": {
 						"name": "entity.name.function.bosatsu"
 					}
 				},
 				"end": "[(\\[]"
 			  },
-			  {
-				"begin": "(?<=def\\b)\\s+(operator)\\s+([^(]*)",
+              {
+			    "begin": "(?<=def\\b)\\s+(?!operator\\b)([^(\\[]+)",
 				"beginCaptures": {
 					"1": {
 						"name": "entity.name.function.bosatsu"
@@ -108,10 +213,14 @@
 			],
 			"end": "(?<=\\))(\\s*->.?*)?(:\\s*)",
 			"endCaptures": {
-				"3": {
+				"2": {
 					"name": "punctuation.definition.parameters.begin.bosatsu"
 				}
 			}
+		},
+		"capitalized_identifiers": {
+			"name": "entity.name.type.bosatsu",
+			"match": "\\b[A-Z][A-Za-z0-9_]*\\b"
 		},
 		"struct": {
 			"name": "meta.class.bosatsu",
@@ -128,7 +237,7 @@
 		},
 		"unit_struct": {
 			"name": "meta.class.bosatsu",
-			"begin": "^\\s*(struct)\\s+([^\\s\\(\\[]*)(\\[[^\\]]*\\])?[\\t\\0x20]*",
+			"begin": "^\\s*(struct)\\s+([^\\s\\(\\[]*)(\\[[^\\]]*\\])?[\\t ]*",
 			"beginCaptures": {
 				"1": {
 					"name": "storage.type.class.bosatsu"
