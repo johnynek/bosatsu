@@ -72,7 +72,7 @@ export function unpatchJS() {
  */
 export function validateFibInput(n) {
   // Bosatsu Bool is [0] for false, [1] for true
-  const result = globalThis.Demo_Orchestrator$validate__fib__input(n);
+  const result = globalThis.Demo_Orchestrator$validate_fib_input(n);
   return result[0] === 1;
 }
 
@@ -80,7 +80,7 @@ export function validateFibInput(n) {
  * Call the Bosatsu-generated orchestrator to validate factorial input
  */
 export function validateFactInput(n) {
-  const result = globalThis.Demo_Orchestrator$validate__fact__input(n);
+  const result = globalThis.Demo_Orchestrator$validate_fact_input(n);
   return result[0] === 1;
 }
 
@@ -89,7 +89,7 @@ export function validateFactInput(n) {
  * Returns array of [index, value] pairs
  */
 export function computeFibSequence(n) {
-  const bosatsuList = globalThis.Demo_Orchestrator$compute__fib__sequence(n);
+  const bosatsuList = globalThis.Demo_Orchestrator$compute_fib_sequence(n);
   return bosatsuListToArray(bosatsuList).map(pair => ({
     index: pair[0],
     value: pair[1]
@@ -101,7 +101,7 @@ export function computeFibSequence(n) {
  * Returns array of [index, value] pairs
  */
 export function computeFactorialTable(n) {
-  const bosatsuList = globalThis.Demo_Orchestrator$compute__factorial__table(n);
+  const bosatsuList = globalThis.Demo_Orchestrator$compute_factorial_table(n);
   return bosatsuListToArray(bosatsuList).map(pair => ({
     index: pair[0],
     value: pair[1]
