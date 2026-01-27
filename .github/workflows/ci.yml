@@ -156,6 +156,30 @@ jobs:
           mkdir c_out_lib
           ./bosatsuj lib test --outdir c_out_lib
     timeout-minutes: 30
+  libPublishDryRun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v6"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-scala@v14"
+        with:
+          java-version: "${{matrix.java}}"
+      - name: "build assembly"
+        run: 'sbt "++3.8.1; cli/assembly"'
+      - name: "dry run bosatsu lib publish"
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+          OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish
+          GIT_SHA: ${{ github.sha }}
+          URI_BASE: https://example.invalid/
+        run: |
+          chmod +x scripts/publish_bosatsu_libs.sh
+          scripts/publish_bosatsu_libs.sh
+    strategy:
+      matrix:
+        java:
+          - '17'
 name: ci
 on:
   pull_request: {}
