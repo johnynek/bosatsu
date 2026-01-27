@@ -11,29 +11,126 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+
     env:
       BOSATSU_CI: "true"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
-      - uses: "actions/checkout@v2.1.0"
-      - uses: "coursier/cache-action@v6"
-      - name: "java 17 setup"
-        uses: "olafurpg/setup-scala@v14"
+      - uses: actions/checkout@v4
+
+      - uses: coursier/cache-action@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          java-version: "17"
-      - name: "build app"
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.50'
+
+      - name: Build jsui
         run: |
           export NODE_OPTIONS=--openssl-legacy-provider
-          sbt "jsuiJS/fullOptJS::webpack; docs/paradox"
-          mkdir web_deploy
-          mkdir web_deploy/compiler
-          cp -a docs/target/paradox/site/main/* web_deploy
+          sbt "jsuiJS/fullOptJS::webpack"
+
+      - name: Build documentation
+        run: sbt "docs/paradox"
+
+      - name: Create deployment directory
+        run: mkdir -p web_deploy/compiler web_deploy/demo/examples
+
+      # ===== Simple Multi-Target Demo (fibonacci) =====
+      - name: Build demo artifacts - JavaScript
+        run: |
+          sbt "cli/run transpile js --input demo/examples/fibonacci.bosatsu --outdir web_deploy/demo/examples"
+
+      - name: Build demo artifacts - C
+        run: |
+          sbt "cli/run transpile c --main Demo/Fibonacci --input demo/examples/fibonacci.bosatsu --output fibonacci.c --outdir web_deploy/demo/examples"
+
+      - name: Build WASM from C
+        run: |
+          emcc web_deploy/demo/examples/fibonacci.c \
+            -I c_runtime \
+            c_runtime/bosatsu_runtime.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
+            -sWASM=1 \
+            -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -sEXPORTED_FUNCTIONS='["_main"]' \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME='Module' \
+            -o web_deploy/demo/examples/fibonacci_wasm.js
+
+      # ===== JS/WASM Interop Demo (Bosatsu JS orchestrator + WASM compute) =====
+      - name: Build interop demo - Compile both files to JS bundle
+        run: |
+          sbt "cli/run transpile js --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu --outdir web_deploy/demo/examples"
+
+      - name: Build interop demo - Compile compute.bosatsu to C
+        run: |
+          sbt "cli/run transpile c --input demo/examples/compute.bosatsu --output compute.c --outdir web_deploy/demo/examples"
+
+      - name: Build interop demo - Compile C to WASM
+        run: |
+          emcc web_deploy/demo/examples/compute.c \
+            demo/wasm_wrapper.c \
+            -I c_runtime \
+            c_runtime/bosatsu_runtime.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
+            c_runtime/bosatsu_generated.c \
+            -sWASM=1 \
+            -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -sEXPORTED_FUNCTIONS='["_wasm_init","_wasm_fib","_wasm_factorial"]' \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME='createModule' \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -O2 \
+            -o web_deploy/demo/examples/compute_wasm.js
+
+      - name: Assemble deployment
+        run: |
+          # Copy documentation (paradox output)
+          cp -a docs/target/paradox/site/main/* web_deploy/
+
+          # Landing page
+          cp web/index.html web_deploy/
+
+          # Compiler UI
           cp jsui/index.html web_deploy/compiler/
           cp jsui/app.css web_deploy/compiler/
           cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/bosatsu-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
 
-      - name: Deploy
+          # Demo page (simple multi-target)
+          cp demo/index.html web_deploy/demo/
+          cp demo/demo.css web_deploy/demo/
+          cp demo/demo.js web_deploy/demo/
+          cp demo/examples/fibonacci.bosatsu web_deploy/demo/examples/
+
+          # JS/WASM interop demo (Bosatsu JS orchestrator + WASM compute)
+          cp demo/interop.html web_deploy/demo/
+          cp demo/interop.js web_deploy/demo/
+          cp demo/wasm_wrapper.c web_deploy/demo/
+          cp demo/examples/compute.bosatsu web_deploy/demo/examples/
+          cp demo/examples/orchestrator.bosatsu web_deploy/demo/examples/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm ci
+          npx playwright install chromium
+
+      - name: Run E2E tests
+        run: npm test
+
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

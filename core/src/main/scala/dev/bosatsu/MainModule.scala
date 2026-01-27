@@ -184,6 +184,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         .combineAllK(
           codegen.python.PythonTranspiler.opts(platformIO) ::
             codegen.clang.ClangTranspiler.opts(platformIO) ::
+            codegen.js.JsTranspiler.opts(platformIO) ::
             Nil
         )
 

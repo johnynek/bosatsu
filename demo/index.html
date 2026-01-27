@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bosatsu Multi-Target Demo</title>
+  <link rel="stylesheet" href="demo.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+  <header>
+    <h1>Bosatsu Compilation Demo</h1>
+    <p>One program, multiple targets: JavaScript, C, and WebAssembly</p>
+    <nav>
+      <a href="../">&larr; Back to Home</a>
+      &nbsp;|&nbsp;
+      <a href="interop.html">JS/WASM Interop Demo &rarr;</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="source">
+      <h2>Bosatsu Source</h2>
+      <pre><code class="language-python" id="source-code">Loading...</code></pre>
+    </section>
+
+    <section class="outputs">
+      <div class="tabs">
+        <button class="tab active" data-target="js">JavaScript</button>
+        <button class="tab" data-target="c">C</button>
+        <button class="tab" data-target="wasm">WebAssembly</button>
+      </div>
+
+      <div class="tab-content" id="js">
+        <h3>Generated JavaScript</h3>
+        <pre><code class="language-javascript" id="js-code">Loading...</code></pre>
+        <button id="run-js" class="run-btn">Run JavaScript</button>
+        <div class="result" id="js-result"></div>
+      </div>
+
+      <div class="tab-content hidden" id="c">
+        <h3>Generated C</h3>
+        <pre><code class="language-c" id="c-code">Loading...</code></pre>
+        <p class="note">C code requires the Bosatsu runtime and can be compiled with:
+          <code>gcc -o fib fibonacci.c -I c_runtime c_runtime/*.c -lgc</code>
+        </p>
+      </div>
+
+      <div class="tab-content hidden" id="wasm">
+        <h3>WebAssembly (from C via Emscripten)</h3>
+        <div id="wasm-info" class="wasm-info">
+          <p>The C code is compiled to WebAssembly using Emscripten, allowing it to run in the browser.</p>
+          <p>This demonstrates Bosatsu's ability to target native platforms through C and then WebAssembly.</p>
+        </div>
+        <button id="run-wasm" class="run-btn">Run WebAssembly</button>
+        <div class="result" id="wasm-result"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      <a href="https://github.com/johnynek/bosatsu">Bosatsu on GitHub</a> |
+      <a href="../compiler/">Try the Web Compiler</a>
+    </p>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/c.min.js"></script>
+  <script src="demo.js"></script>
+</body>
+</html>

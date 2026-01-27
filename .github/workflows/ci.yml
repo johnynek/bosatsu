@@ -63,6 +63,7 @@ jobs:
     timeout-minutes: 30
   testWithCoverageReport:
     runs-on: ubuntu-latest
+    environment: ci
     steps:
       - uses: "actions/checkout@v2.1.0"
         with:
