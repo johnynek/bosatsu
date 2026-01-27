@@ -36,11 +36,31 @@ export async function loadBosatsuJS() {
  * Load the WASM module compiled from Bosatsu
  */
 export async function loadBosatsuWASM() {
-  const { default: createModule } = await import('./examples/compute_wasm.js');
-  wasm = await createModule();
-  wasm._wasm_init();
-  wasmLoaded = true;
-  console.log('Bosatsu WASM loaded');
+  try {
+    console.log('Loading WASM module...');
+    const module = await import('./examples/compute_wasm.js');
+    console.log('WASM JS loader imported, module keys:', Object.keys(module));
+
+    // Emscripten MODULARIZE exports the factory function
+    // It might be the default export or named export depending on settings
+    const createModule = module.default || module.createModule || module;
+    console.log('createModule type:', typeof createModule);
+
+    if (typeof createModule !== 'function') {
+      throw new Error('createModule is not a function: ' + typeof createModule);
+    }
+
+    console.log('Calling createModule()...');
+    wasm = await createModule();
+    console.log('WASM module created, calling _wasm_init...');
+
+    wasm._wasm_init();
+    wasmLoaded = true;
+    console.log('Bosatsu WASM loaded successfully');
+  } catch (error) {
+    console.error('WASM loading failed:', error);
+    throw error;
+  }
 }
 
 /**

@@ -457,6 +457,13 @@
 
       } catch (e) {
         console.error('Initialization failed:', e);
+        // Show error in UI
+        const statusBar = document.querySelector('.status-bar');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'status-item';
+        errorDiv.style.color = 'var(--error)';
+        errorDiv.textContent = 'Error: ' + e.message;
+        statusBar.appendChild(errorDiv);
       }
     }
 
