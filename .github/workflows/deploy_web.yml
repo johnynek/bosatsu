@@ -68,11 +68,11 @@ jobs:
       # ===== JS/WASM Interop Demo (Bosatsu JS orchestrator + WASM compute) =====
       - name: Build interop demo - Compile both files to JS bundle
         run: |
-          sbt "cli/run transpile --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu js --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input test_workspace/Prog.bosatsu --input demo/examples/compute.bosatsu --input demo/examples/orchestrator.bosatsu js --outdir web_deploy/demo/examples"
 
       - name: Build interop demo - Compile compute.bosatsu to C
         run: |
-          sbt "cli/run transpile --input demo/examples/compute.bosatsu c --output compute.c --outdir web_deploy/demo/examples"
+          sbt "cli/run transpile --input test_workspace/Prog.bosatsu --input demo/examples/compute.bosatsu c --main Demo/Compute --output compute.c --outdir web_deploy/demo/examples"
 
       - name: Build interop demo - Compile C to WASM
         run: |
@@ -81,7 +81,7 @@ jobs:
             -I c_runtime \
             c_runtime/bosatsu_runtime.c \
             c_runtime/bosatsu_ext_Bosatsu_l_Predef.c \
-            c_runtime/bosatsu_generated.c \
+            c_runtime/bosatsu_ext_Bosatsu_l_Prog.c \
             -sWASM=1 \
             -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
             -sEXPORTED_FUNCTIONS='["_wasm_init","_wasm_fib","_wasm_factorial"]' \
