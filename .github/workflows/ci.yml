@@ -124,6 +124,11 @@ jobs:
       - name: "run bosatsu tests"
         run: |
           ./bosatsu_node test --input_dir test_workspace/ --package_root test_workspace/
+      - name: "install boehm"
+        run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
+      - name: "install c runtime"
+        run: |
+          make -C c_runtime install VERSION=$(git rev-parse HEAD)
       - name: "run lib test"
         run: |
           mkdir node_out_lib
