@@ -249,8 +249,11 @@ object Code {
       if (v < 0) par(Doc.text(v.toString))
       else Doc.text(v.toString)
     case DoubleLiteral(v) =>
-      if (v < 0) par(Doc.text(v.toString))
-      else Doc.text(v.toString)
+      // Ensure double always has decimal point (JS toString may omit it for whole numbers)
+      val str = v.toString
+      val withDecimal = if (str.contains('.') || str.contains('e') || str.contains('E')) str else str + ".0"
+      if (v < 0) par(Doc.text(withDecimal))
+      else Doc.text(withDecimal)
     case StringLiteral(v) => quoteDoc + Doc.text(escapeString(v)) + quoteDoc
     case BoolLiteral(true) => trueDoc
     case BoolLiteral(false) => falseDoc
