@@ -21,6 +21,16 @@ import SimulationApplet._
 object ParameterSweep {
 
   /**
+   * Escape HTML special characters to prevent XSS.
+   */
+  private def escapeHTML(s: String): String =
+    s.replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace("\"", "&quot;")
+      .replace("'", "&#39;")
+
+  /**
    * Configuration for a parameter sweep.
    */
   case class SweepConfig[A](
@@ -76,8 +86,9 @@ object ParameterSweep {
       initialValue: Double,
       containerId: String
   ): List[Statement] = {
-    val sliderId = s"sweep-$parameterName"
-    val valueId = s"sweep-value-$parameterName"
+    val escapedName = escapeHTML(parameterName)
+    val sliderId = s"sweep-$escapedName"
+    val valueId = s"sweep-value-$escapedName"
 
     List(
       // Create container
@@ -85,7 +96,7 @@ object ParameterSweep {
       Assignment(PropertyAccess(Ident("sweepDiv"), "className"), StringLiteral("parameter-sweep")),
       Assignment(PropertyAccess(Ident("sweepDiv"), "innerHTML"), StringLiteral(
         s"""<div class="sweep-header">
-           |  <span class="sweep-name">$parameterName</span>
+           |  <span class="sweep-name">$escapedName</span>
            |  <span class="sweep-value" id="$valueId">$initialValue</span>
            |</div>
            |<input type="range" id="$sliderId" class="sweep-slider"
