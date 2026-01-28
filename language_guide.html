@@ -31,7 +31,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c55771f
+0.0.0+1-520e55eb
 </div>
 </div>
 <div class="nav-toc">
@@ -72,7 +72,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c55771f
+0.0.0+1-520e55eb
 </div>
 </div>
 <div class="nav-toc">
@@ -107,7 +107,37 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#language-guide" name="language-guide" class="anchor"><span class="anchor-link"></span></a>Language Guide</h1>
-<p>This is a brief language guide to describe Bosatsu syntax.</p>
+<p>This guide is a quick tour of Bosatsu syntax. For installation and running code, see <a href="getting_started.html">Getting started</a>.</p>
+<h2><a href="#quick-start-5-minutes-" name="quick-start-5-minutes-" class="anchor"><span class="anchor-link"></span></a>Quick start (5 minutes)</h2>
+<p>A tiny, complete file:</p>
+<pre class="prettyprint"><code class="language-bosatsu">package Demo/Hello
+
+enum Mood: Happy, Sad
+
+def greet(m: Mood) -&gt; String:
+  match m:
+    case Happy: &quot;hello&quot;
+    case Sad: &quot;cheer up&quot;
+
+test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet&quot;)
+</code></pre>
+<p>Run tests from the repo root:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+</code></pre>
+<h2><a href="#source-files-and-packages" name="source-files-and-packages" class="anchor"><span class="anchor-link"></span></a>Source files and packages</h2>
+<p>Each file declares exactly one package at the top:</p>
+<pre class="prettyprint"><code class="language-bosatsu">package Animals/Favorites
+</code></pre>
+<p>All external names must be explicitly imported, and all values are private unless exported:</p>
+<pre class="prettyprint"><code class="language-bosatsu">package Animals/Report
+
+from Animals/Favorites import mammals
+export most_fav
+
+most_fav = match mammals:
+  case [head, *tail]: head
+  case []: &quot;who knows?&quot;
+</code></pre>
 <h2><a href="#literals" name="literals" class="anchor"><span class="anchor-link"></span></a>Literals</h2>
 <h3><a href="#signed-big-integers" name="signed-big-integers" class="anchor"><span class="anchor-link"></span></a>Signed big integers</h3>
 <p>Like Python, Bosatsu supports literal signed big integers.</p>
@@ -119,38 +149,86 @@ z = -1024
 <p>Bosatsu files are UTF-8 files and between <code>&quot;</code> or <code>&#39;</code> characters we can create any unicode string:</p>
 <pre><code>message1 = &#39;bar&#39;
 message2 = &quot;this has &#39;single quotes&#39;&quot;
-
 </code></pre>
 <p>There is string interpolation syntax:</p>
-<pre><code>profile = &#39;my favorite animal is ${animal}&#39;
+<pre><code>profile = &quot;my favorite animal is ${animal}&quot;
 </code></pre>
 <p>Where <code>animal</code> would be any expression that has type <code>String</code>.</p>
-<h3><a href="#lists" name="lists" class="anchor"><span class="anchor-link"></span></a>Lists</h3>
+<h3><a href="#lists-and-list-comprehensions" name="lists-and-list-comprehensions" class="anchor"><span class="anchor-link"></span></a>Lists and list comprehensions</h3>
 <p>Like Python, Bosatsu supports a syntax for literal lists:</p>
 <pre><code>favorite_animals = [&quot;elephant&quot;, &quot;humpback whale&quot;, &quot;dog&quot;]
 </code></pre>
 <p>Unlike Python, but like all of Bosatsu, lists are immutable values. In addition to ability to construct lists from items, we can also &ldquo;splice&rdquo; in other lists:</p>
 <pre><code>new_favorites = [&quot;mammoth&quot;, *favorite_animals]
 </code></pre>
+<p>We can also build lists with comprehensions:</p>
+<pre><code>squares = [times(i, i) for i in range(10)]
+</code></pre>
 <p>Just as we can build up lists literally, we can also use match to tear them down which we discuss more later:</p>
 <pre><code>top_animal = match new_favorites:
   case [most_fav, *rest]: most_fav
   case []: &quot;no favorites, :(&quot;
 </code></pre>
-<h2><a href="#variables" name="variables" class="anchor"><span class="anchor-link"></span></a>Variables</h2>
+<h2><a href="#bindings" name="bindings" class="anchor"><span class="anchor-link"></span></a>Bindings</h2>
 <p>All bindings start with a lowercase character and do not contain whitespace.</p>
 <p>All bindings point to immutable values, because all values are immutable in Bosatsu. Bindings, however, are almost like mutable variables due to the ability to shadow:</p>
-<pre><code><br/>def increment_by_2(x):
+<pre><code>def increment_by_2(x):
   x = add(x, 1)
   x = add(x, 1)
   x
-
 </code></pre>
 <p>This is a legal program. Don&rsquo;t think of x being mutated (since it isn&rsquo;t if it is captured by an anonymous function). Think of each new line being a new variable that happens to have the same value.</p>
 <p>Note this is a difference from python: in python capturing works by reference, not by value, so if the original value is changed, so is the capture. Not so in Bosatsu: lexical scope is always in play.</p>
 <p>We recommend not changing the type of a name in a given scope (and may enforce this in the future).</p>
+<h2><a href="#functions" name="functions" class="anchor"><span class="anchor-link"></span></a>Functions</h2>
+<p>As we have seen in above examples, each function returns a single value which is the final expression in the function block. The reason for this difference with Python is that in Bosatsu, there are no side-effects. There is no reason to compute something if it is not going to be returned, and as such, the last line of every def is the return value. Like Python chooses to omit return in <code>lambda</code> expressions, we remove <code>return</code> entirely from Bosatsu.</p>
+<p>Bosatsu has 32 function arities (Fn1..Fn32). A <code>def</code> with N parameters defines an FnN, and each arity is a distinct type. There is no automatic currying. If you want a function that returns a function, write that explicitly with a lambda.</p>
+<p>So, we can write:</p>
+<pre><code>def add_with_three(x, y):
+  add(add(x, y), 3)
+</code></pre>
+<p>Bosatsu has anonymous function syntax. The above is almost exactly the same as:</p>
+<pre><code>add_with_three = (x, y) -&gt; add(add(x, y), 3)
+</code></pre>
+<p>A few forms to know:</p>
+<pre><code>inc = x -&gt; add(x, 1)                 # Fn1
+add2 = (x, y) -&gt; add(x, y)           # Fn2
+add_curried = x -&gt; y -&gt; add(x, y)    # Fn1 returning Fn1
+add_tuple = ((x, y)) -&gt; add(x, y)    # Fn1 taking a tuple
+</code></pre>
+<p>Note the distinction between <code>(x, y) -&gt; ...</code> (Fn2) and <code>((x, y)) -&gt; ...</code> (Fn1 that takes a tuple).</p>
+<h3><a href="#scope-difference-for-defs" name="scope-difference-for-defs" class="anchor"><span class="anchor-link"></span></a>Scope difference for defs</h3>
+<p>Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded loops there are strict rules on accessing defs inside themselves. If you don&rsquo;t intend to write a recursive def, then you can never reuse or access the def&rsquo;s name anywhere inside the body. Specifically, shadowing the def name is not allowed. To write a recursive def see the section on recursive functions below.</p>
+<h3><a href="#method-syntax" name="method-syntax" class="anchor"><span class="anchor-link"></span></a>Method syntax</h3>
+<p>Bosatsu does not have methods, only functions, it does however have method syntax.</p>
+<pre><code>form1 = add(x, y)
+form2 = x.add(y)
+</code></pre>
+<p>The above two forms are equivalent. <code>foo.bar</code> means pass <code>foo</code> as the first argument to <code>bar</code>. This scales to more arguments:</p>
+<pre><code>form3 = f(x, y, z)
+form4 = x.f(y, z)
+</code></pre>
+<h3><a href="#recursive-functions" name="recursive-functions" class="anchor"><span class="anchor-link"></span></a>Recursive functions</h3>
+<p>We have very limited support for recursion so that we may prove that all recursive functions terminate. Here is an example:</p>
+<pre><code>def len(lst):
+  recur lst:
+    case []: 0
+    case [_, *tail]: len(tail).add(1)
+</code></pre>
+<p>In the above, we see the <code>recur</code> syntax. This is a normal match with two restrictions: 1. it can only be on a literal parameter of the nearest enclosing <code>def</code>, 2. a function may have at most one recur in a body, which is not enclosed by an inner def. Inside the branches of such a recur, recursion on the enclosing <code>def</code> is permitted if it meets certain constraints which prevent unbounded loops:</p>
+<p>In at least one branch of the recur match there must be a recursive call that must take a substructure of the argument the recur is matching on. In the above example, tail is a substructure of lst, and is used in the same parameter as list appeared in.</p>
+<p>These are strict rules, but they guarantee that each recursive function terminates in a finite number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much as possible and limit the number of arguments as much as possible.</p>
+<p>Tail recursive loops are optimized into loops, which are safe for cases where recursion depth is high. If you can, prefer to use tail recursive loops:</p>
+<pre><code>def len(lst):
+  def loop(acc, lst):
+    recur lst:
+      case []: acc
+      case [_, *tail]: loop(acc.add(1), tail)
+
+  loop(0, lst)
+</code></pre>
 <h2><a href="#pattern-matching" name="pattern-matching" class="anchor"><span class="anchor-link"></span></a>Pattern Matching</h2>
-<p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later.</p>
+<p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later. Use <code>case</code> in every match branch.</p>
 <p>Here are some examples:</p>
 <pre><code>result0 = match &quot;foo&quot;:
   case &quot;baz&quot;:
@@ -195,51 +273,6 @@ short = [&quot;foo&quot;, &quot;bar&quot;] matches [&quot;foo&quot;, *_]
 </code></pre>
 <p>The caveat is that you cannot have any bindings in the pattern when used as a matches expression.</p>
 <p>A key feature of Bosatsu pattern matching: at least one branch must match. The compiler will check this and fail to compile any code that could fail to match at runtime. The error will list the branches that are not covered.</p>
-<h2><a href="#functions" name="functions" class="anchor"><span class="anchor-link"></span></a>Functions</h2>
-<p>As we have seen in above examples, each function returns a single value which is the final expression in the function block. The reason for this difference with Python is that in Bosatsu, there are no side-effects. There is no reason to compute something if it is not going to be returned, and as such, the last line of every def would be a return. Like Python chooses to omit return in <code>lambda</code> expressions, we choose to remove <code>return</code> entirely from bosatsu.</p>
-<p>All functions internally are functions of a single value returning a single value. We have syntax to call multiple variable functions, but that is just syntactic sugar over curried functions.</p>
-<p>So, we can write:</p>
-<pre><code>def add_with_three(x, y):
-  add_Int(add_Int(x, y), 3)
-</code></pre>
-<p>using the <code>add_Int</code> function from the <code>Bosatsu/Predef</code>. Bosatsu also has anonymous function syntax similar to Haskell. The above is almost exactly the same as:</p>
-<pre><code>add_with_three = (x, y) -&gt; add_Int(add_Int(x, y), 3)
-</code></pre>
-<p>or even</p>
-<pre><code>add_with_three = x -&gt; y -&gt; add_Int(add_Int(x, y), 3)
-</code></pre>
-<p>The first of these functions has type <code>(Int, Int) -&gt; Int</code>, which is to say, given two integers (the two on the left) we can produce a new integer (always! Remember Bosatsu is total, no exceptions!). The second has type <code>Int -&gt; Int -&gt; Int</code>, or with parentheses: <code>Int -&gt; (Int -&gt; Int)</code>, which means given an <code>Int</code> we return a function from <code>Int -&gt; Int</code>.</p>
-<h3><a href="#scope-difference-for-defs" name="scope-difference-for-defs" class="anchor"><span class="anchor-link"></span></a>Scope difference for defs</h3>
-<p>Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded loops there are strict rules on accessing defs inside themselves. If you don&rsquo;t intend to write a recursive def, then you can never reuse or access the defs name anywhere inside the body. Specifically, shadowing the def name is not allowed. To write a recursive def see the section on recursive functions below.</p>
-<h3><a href="#method-syntax" name="method-syntax" class="anchor"><span class="anchor-link"></span></a>Method syntax</h3>
-<p>Bosatu does not have methods, only functions, it does however have method syntax.</p>
-<pre><code>form1 = add(x, y)
-form2 = x.add(y)
-</code></pre>
-<p>The above to forms are equivalent. <code>foo.bar</code> means pass <code>foo</code> as the first argument to <code>bar</code>. Since all functions are functions of a single argument:</p>
-<pre><code>inc10 = add(10)
-inc10_again = 10.add()
-</code></pre>
-<p>both of these two values <code>inc10</code> and <code>inc10_again</code> have the type <code>Int -&gt; Int</code> and do the same thing: they add <code>10</code> to an integer.</p>
-<h3><a href="#recursive-functions" name="recursive-functions" class="anchor"><span class="anchor-link"></span></a>Recursive functions</h3>
-<p>We have very limited support for recursion so that we may prove that all recursive functions terminate. Here is an example:</p>
-<pre><code>def len(lst):
-  recur lst:
-    case []: 0
-    case [_, *tail]: len(tail).add(1)
-</code></pre>
-<p>In the above, we see the <code>recur</code> syntax. This is a normal match with two restrictions: 1. it can only be on a literal parameter of the nearest enclosing def, 2. a function may have at most one recur in a body, which is not enclosed by a inner def. Inside the branches of such a recur, recursion on the enclosing def is permitted if it meets certain constraints which prevent unbounded loops:</p>
-<p>In at least one branch of the recur match there must be a recursive call that must take a substructure of the argument the recur is matching on. In the above example, tail is a substructure of lst, and is used in the same parameter as list appeared in.</p>
-<p>These are strict rules, but they guarantee that each recursive function terminates in a finite number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much as possible and limit the number of arguments as much as possible.</p>
-<p>Tail recursive loops are optimized into loops, which are safe for cases where recursion depth is high. If you can, prefer to use tail recursive loops:</p>
-<pre><code>def len(lst):
-  def loop(acc, lst):
-    recur lst:
-      case []: acc
-      case [_, *tail]: loop(acc.add(1), tail)
-
-  loop(0, lst)
-</code></pre>
 <h2><a href="#custom-data-types" name="custom-data-types" class="anchor"><span class="anchor-link"></span></a>Custom Data Types</h2>
 <p>All type names start with an uppercase character. We can think of a definition as two things:</p>
 <ol>
@@ -263,7 +296,7 @@ my_file_rec = File {
   hash: HashResult(&quot;b9f32037daab5a0aff8e437ff1dd0f0d&quot;)
 }
 </code></pre>
-<p>You can only use one syntax: all unamed tuple-like, or all names dict-like.</p>
+<p>You can only use one syntax: all unnamed tuple-like, or all names dict-like.</p>
 <p>Like Rust, if a value is already in scope matching a field name, we can omit the colon:</p>
 <pre><code>name = &quot;readme.txt&quot;
 size = 10240
@@ -271,7 +304,7 @@ hash = HashResult(&quot;b9f32037daab5a0aff8e437ff1dd0f0d&quot;)
 
 my_file_rec = File { name, modified_time: 1540951025, size, hash }
 </code></pre>
-<p>There are no methods in bosatsu, only functions. We cannot define methods on <code>struct</code>s or <code>enum</code>s. The only thing we can do with a struct or enum is match it:</p>
+<p>There are no methods in Bosatsu, only functions. We cannot define methods on <code>struct</code>s or <code>enum</code>s. The only thing we can do with a struct or enum is match it:</p>
 <pre><code>nm = match my_file:
   case File(name, _, _, _): name
 
@@ -307,24 +340,24 @@ num_str = Tuple2(1, &quot;1&quot;)
 struct Pair(fst: a, snd: a)
 
 neg = Pair(1, -1)
-
 </code></pre>
 <p>Sometimes it is important to assign type parameters in a specific order. In those cases we can manually write them:</p>
-<pre><code># put the right side type parameter first, otherwise, we would have gotten b first in left to right order.
+<pre><code># put the right side type parameter first, otherwise, we would have gotten b
+# first in left to right order.
 struct Tuple[a, b](fst: b, snd: a)
 </code></pre>
 <p>Types are assigned left to right when they are omitted.</p>
 <h3><a href="#limited-recursion-in-custom-data-types" name="limited-recursion-in-custom-data-types" class="anchor"><span class="anchor-link"></span></a>Limited Recursion in Custom Data Types</h3>
 <p>Types must form a directed acyclic graph (DAG) with the exception that they may refer to themselves in covariant positions (i.e. not in the inputs to functions).</p>
-<p>An example of a type that does not refer to itself in the covariant position is:</p>
+<p>An example of a type that does not refer to itself in a covariant position is:</p>
 <pre><code>struct W(fn: W[a, b] -&gt; a -&gt; b)
 </code></pre>
-<p>Here <code>W</code> is in scope inside the definition of W. The types, like packages, must form an acyclic graph. If we allow types like the above, we actually open the door to recursion at the value level since we allow the y-combinator to be typed. By banning some recursive types, the type of fix-point combinators becomes infinite, and thus ill-typed. This restriction is currently required to preserve totality in Bosatsu (a more advanced language can allow more recursion that it can prove does not violate totality).</p>
-<p>An import recursive type we can write is <code>List</code>. Indeed in Predef we will find a standard linked list:</p>
+<p>Here <code>W</code> is in scope inside the definition of W. The types, like packages, must form an acyclic graph. If we allow types like the above, we open the door to recursion at the value level since we allow the Y-combinator to be typed. By banning some recursive types, the type of fix-point combinators becomes infinite, and thus ill-typed. This restriction is currently required to preserve totality in Bosatsu (a more advanced language can allow more recursion that it can prove  does not violate totality).</p>
+<p>An important recursive type we can write is <code>List</code>. In Predef we will find a standard linked list:</p>
 <pre><code>enum List:
-  Empty, NonEmpty(head: a, tail: List[a])
+  EmptyList, NonEmptyList(head: a, tail: List[a])
 </code></pre>
-<p>Data-structures have two simple rules: 1. they must form a DAG 2. if they refer to themselves, they do so in covariant positions (roughly, not as inputs to  functions).</p>
+<p>Data-structures have two simple rules: 1. they must form a DAG 2. if they refer to themselves, they do so in covariant positions (roughly, not  as inputs to functions).</p>
 <h3><a href="#tuples" name="tuples" class="anchor"><span class="anchor-link"></span></a>Tuples</h3>
 <p>A built-in family of structs are tuples, which you can think of as either lists with potentially a different type in each position and a statically known size, or as an anonymous struct. We write and match them exactly as you might imagine:</p>
 <pre><code>x = (1, &quot;2&quot;, [&quot;three&quot;])
@@ -347,7 +380,7 @@ match x:
 <p>In the above example, <code>GoodOrBad</code> has a single type parameter <code>a</code>. So <code>Bad(1)</code> and <code>Good(1)</code> are of the same type.</p>
 <h3><a href="#pattern-matching-on-custom-types" name="pattern-matching-on-custom-types" class="anchor"><span class="anchor-link"></span></a>Pattern Matching on Custom Types</h3>
 <p>As we have already seen examples of, Bosatsu features powerful pattern matching. Literal values, such as integers or strings, as well as lists and tuples can appear in pattern matches. Patterns can be nested and combined in unions. There is a special wildcard term that can appear in a pattern match that is written as <code>_</code>. The wildcard matches everything but introduces no new bindings.</p>
-<p>On restriction is that all match expressions in Bosatsu must be complete matches. It is a compilation error if a pattern match can fail. Remember, Bosatsu is a total language, so we must check for match totality in order to preserve totality of our functions.</p>
+<p>One restriction is that all match expressions in Bosatsu must be complete matches. It is a compilation error if a pattern match can fail. Remember, Bosatsu is a total language, so we must check for match totality in order to preserve totality of our functions.</p>
 <p>Here are some examples of pattern matches:</p>
 <pre><code>enum Either: Left(a), Right(b)
 
@@ -367,9 +400,14 @@ match y:
 Left(x) | Right(x) = y
 </code></pre>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
-<p>Type variables are all lower case. There is an explicit syntax for function type: <code>a -&gt; b</code>. There is support for universal quantification sometimes called generic values or generic functions: <code>forall a. a -&gt; List[a]</code>.</p>
+<p>Type variables are all lower case. There is an explicit syntax for function types: <code>a -&gt; b</code> for Fn1. For higher arities, use tuple-style argument lists: <code>(a, b) -&gt; c</code> for Fn2, <code>(a, b, c) -&gt; d</code> for Fn3, and so on.</p>
+<p>To write a function that takes a tuple as its single argument, use an extra layer of parentheses in both values and types. For example:</p>
+<pre><code># Fn1 taking a tuple
+add_tuple: ((Int, Int)) -&gt; Int = ((x, y)) -&gt; add(x, y)
+</code></pre>
+<p>There is support for universal quantification sometimes called generic values or generic functions: <code>forall a. a -&gt; List[a]</code>.</p>
 <h2><a href="#the-bosatsu-predef" name="the-bosatsu-predef" class="anchor"><span class="anchor-link"></span></a>The Bosatsu Predef</h2>
-<p>The predef includes Int, String, List, Option, Either types and some associated functions.</p>
+<p>The predef includes Int, String, List, Option, Either types and some associated functions. It also defines the built-in test types <code>Assertion</code> and <code>TestSuite</code>.</p>
 <h2><a href="#packages" name="packages" class="anchor"><span class="anchor-link"></span></a>Packages</h2>
 <p>All names are private unless exported. All names from external packages must be imported. There can be no cycles in the dependency graph of Bosatsu packages.</p>
 <pre><code>package Animals/Favorites
@@ -378,7 +416,6 @@ export mammals, birds
 mammals = [&quot;elephant&quot;, &quot;whale&quot;, &quot;dog&quot;]
 
 birds = [&quot;African grey parrot&quot;, &quot;macaw&quot;]
-
 </code></pre>
 <p>In some other package:</p>
 <pre><code>package Animals/Report
@@ -389,10 +426,9 @@ export most_fav
 most_fav = match mammals:
   case [head, *tail]: head
   case []: &quot;who knows?&quot;
-
 </code></pre>
-<p>We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use <code>Type()</code> where as <code>Type</code> exports only the type to be visible.</p>
-<pre><code><br/>package Great/Types
+<p>We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use <code>Type()</code> whereas <code>Type</code> exports only the type to be visible.</p>
+<pre><code>package Great/Types
 
 export ClearOption(), OpaqueOption, foldO, noneO, someO
 
@@ -408,14 +444,13 @@ def someO(a): OSome(a)
 def foldO(oo, if_none, if_some):
   match oo:
     case ONone: if_none
-    case oSome(a): if_some(a)
-
+    case OSome(a): if_some(a)
 </code></pre>
-<p>Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and fold function to tear it down, but we can&rsquo;t explicitly pattern match on the types.</p>
+<p>Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and a fold function to tear it down, but we can&rsquo;t explicitly pattern match on the types.</p>
 <p>Sometimes such opacity is useful to enforce modularity.</p>
 <h2><a href="#external-functions-and-values" name="external-functions-and-values" class="anchor"><span class="anchor-link"></span></a>External functions and values</h2>
 <p>There is syntax for declaring external values and functions. This is obviously dangerous since it gives the user a chance to violate totality. Use with caution.</p>
-<p>An example function we cannot implement in bosatsu is:</p>
+<p>An example function we cannot implement in Bosatsu is:</p>
 <pre><code>def int_loop(int_v: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
   if cmp_Int(int_v, 0) matches GT:
     (next_i, next_state) = fn(int_v, state)
@@ -425,13 +460,20 @@ def foldO(oo, if_none, if_some):
     else:
       next_state
   else:
-    a
+    state
 </code></pre>
 <p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of inputs in the same position. This gives a simple proof that the loop will terminate.</p>
 <p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is indeed total.</p>
-<pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; Tuple2[Int, a]) -&gt; a
+<pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
 </code></pre>
 <p>External values and types work exactly like internally defined types from any other point of view.</p>
+<h1><a href="#note-on-totality" name="note-on-totality" class="anchor"><span class="anchor-link"></span></a>Note on Totality</h1>
+<p>Totality is an interesting property that limits a language from being turing complete, however, it is not obvious if that is much of a practical limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.</p>
+<p>One can easily argue that total languages are still too big. For instance imagine a function with type <code>a -&gt; Either[a, b]</code> which takes an <code>a</code> and either returns a final <code>b</code> value or the next step <code>a</code> that we should call again. If we have a non-total language we could repeatedly call the function when we have left to build <code>a -&gt; b</code>. In a total language, we could build a</p>
+<pre><code>def repeat(n: Int, fn: a -&gt; Either[a, b]) -&gt; (a -&gt; Either[a, b])
+</code></pre>
+<p>to repeat <code>n</code> times the fn unless we find a b and build a function of the same type that loops more times. By repeatedly applying this function: <code>repeat(1000, repeat(1000, ... repeat(1000, fn)...</code> we can make an exponentially large number of attempts. So we could easily build a function that would take <code>2^128</code> attempts which would take longer than the life of the sun to complete. Is this meaningfully different from an infinite loop?</p>
+<p>Our view is that the main value of totality is that we know that all functions can complete and return a value of their declared type. Therefore, the only possible error in running is exhausting memory, which is a risk in virtually every programming language.</p>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/language_guide.md">here</a>.
 </div>
@@ -448,15 +490,18 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="language_guide.html#language-guide" class="header">Language Guide</a>
   <ul>
+    <li><a href="language_guide.html#quick-start-5-minutes-" class="header">Quick start (5 minutes)</a></li>
+    <li><a href="language_guide.html#source-files-and-packages" class="header">Source files and packages</a></li>
     <li><a href="language_guide.html#literals" class="header">Literals</a></li>
-    <li><a href="language_guide.html#variables" class="header">Variables</a></li>
-    <li><a href="language_guide.html#pattern-matching" class="header">Pattern Matching</a></li>
+    <li><a href="language_guide.html#bindings" class="header">Bindings</a></li>
     <li><a href="language_guide.html#functions" class="header">Functions</a></li>
+    <li><a href="language_guide.html#pattern-matching" class="header">Pattern Matching</a></li>
     <li><a href="language_guide.html#custom-data-types" class="header">Custom Data Types</a></li>
     <li><a href="language_guide.html#types" class="header">Types</a></li>
     <li><a href="language_guide.html#the-bosatsu-predef" class="header">The Bosatsu Predef</a></li>
     <li><a href="language_guide.html#packages" class="header">Packages</a></li>
     <li><a href="language_guide.html#external-functions-and-values" class="header">External functions and values</a></li>
+    <li><a href="language_guide.html#note-on-totality" class="header">Note on Totality</a></li>
   </ul></li>
 </ul>
 </div>
@@ -524,7 +569,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-9c55771f', '')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-520e55eb', '')});</script>
 
 
 </html>

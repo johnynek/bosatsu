@@ -31,7 +31,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c55771f
+0.0.0+1-520e55eb
 </div>
 </div>
 <div class="nav-toc">
@@ -72,7 +72,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c55771f
+0.0.0+1-520e55eb
 </div>
 </div>
 <div class="nav-toc">
@@ -113,20 +113,20 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>simplicity</li>
   <li>usability</li>
 </ol>
-<p>These are roughly in priority order: correctness is more important than simplicity: we don&rsquo;t want to sacrifice correctness for usability. Similarly, generally, we prefer simplicity to usability. Some features which can increase usability make a language considerably more complex. In general, we will be skeptical of such trades.</p>
+<p>These are in priority order: we won’t trade correctness for usability, and we’re skeptical of features that add complexity just for convenience.</p>
 <h2><a href="#relationship-to-python" name="relationship-to-python" class="anchor"><span class="anchor-link"></span></a>Relationship to Python</h2>
-<p>The main user experience of the language is inspired by Python. It is a bit of a mystery that despite Python being currently one of the fastest growing languages, as well as already being incredibly popular, that it has not been more influential in language design. No other language in the top 20 most commonly used languages is very syntactically similar to Python. Put succinctly, we want Bosatsu to by a minimalistic statically typed Python.</p>
-<p>A goal in that package relationships should be clear in Bosatsu. All external names must be explicitly imported, and all values are private unless exported. To see the dependencies between packages no type inference is required.</p>
+<p>The user experience is inspired by Python, but Bosatsu is a minimal, statically typed, total language. All external names must be explicitly imported, and all values are private unless exported. This keeps package dependencies explicit without type inference.</p>
 <h2><a href="#problem-domain-for-bosatsu" name="problem-domain-for-bosatsu" class="anchor"><span class="anchor-link"></span></a>Problem domain for Bosatsu</h2>
-<p>In the current programming landscape, the vast majority of code is either in Turing complete languages or very anemic data-structure languages (JSON, YAML, TOML). Bosatsu is exploring an intermediate space. Bosatsu is not designed as a general purpose language. Bosatsu is a total language: all functions return values. This rules out both infinite loops and non-explicit failure possibilities (exceptions, crashes, etc&hellip;). The goal of Bosatsu is somewhat similar to Google&rsquo;s <a href="https://github.com/bazelbuild/starlark">Starlark</a> language, a Python like language for configuration and embedded applications. Starlark is used to configure bazel builds, but you can imagine configuring systems currently configured with yaml or json, or replacing general purpose languages in systems configured with those (e.g. Scala&rsquo;s sbt is configured with scala).</p>
+<p>Bosatsu targets the space between general-purpose languages and data formats like JSON/YAML/TOML. It is total (all functions terminate), immutable, and has no side effects or exceptions. Functions have fixed arity (Fn1..Fn32); there is no implicit currying.</p>
+<p>The goal is similar to <a href="https://github.com/bazelbuild/starlark">Starlark</a>: a Python-like language for configuration and embedded scripting.</p>
 <h2><a href="#differences-with-starlark" name="differences-with-starlark" class="anchor"><span class="anchor-link"></span></a>Differences with Starlark</h2>
-<p>The biggest three differences between Bosatsu and Starlark are:</p>
+<p>The three biggest differences are:</p>
 <ol>
   <li>Bosatsu is statically typed</li>
   <li>all values are immutable</li>
-  <li>there are no side-effects.</li>
+  <li>there are no side effects</li>
 </ol>
-<p>The smaller differences come from adding features found in functional programming that Python lacks: a more powerful anonymous function syntax as well as the ability to define enums similar to Rust.</p>
+<p>Bosatsu also adds features common in functional languages: algebraic data types and exhaustive pattern matching.</p>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design.md">here</a>.
 </div>
@@ -213,7 +213,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-9c55771f', '')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-520e55eb', '')});</script>
 
 
 </html>
