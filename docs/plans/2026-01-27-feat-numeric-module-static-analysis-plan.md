@@ -897,6 +897,33 @@ def derivationGraphTransitive(): Unit = {
 4. **Mixed Int/Double**: Type error or implicit coercion?
    - **Recommendation**: Type error; explicit `from_Int` required
 
+## Future Improvements
+
+### esbuild for ES Module Bundling
+
+**Status**: Not started
+**Priority**: Low (current approach works)
+
+Currently, `SimulationCommand` uses `JsGen.renderStatements()` to generate JavaScript without ES6 exports, suitable for embedding directly in HTML `<script>` tags.
+
+**Future improvement**: Add esbuild as a build step to:
+- Keep using `JsGen.renderModule()` which produces proper ES modules with imports/exports
+- Use esbuild to bundle the module into a single self-contained HTML file
+- Benefit from tree-shaking, minification, and proper module resolution
+
+**Why not our job**: Module bundling is a well-solved problem. Using a dedicated bundler (esbuild, Rollup, Vite) is more principled than implementing our own string concatenation or module inlining.
+
+**Implementation sketch**:
+```bash
+# Generate ES module
+bosatsu-sim loan.bosatsu config.bosatsu --format=esm -o loan.js
+
+# Bundle with esbuild
+esbuild loan.js --bundle --format=iife --outfile=loan-bundle.js
+
+# Wrap in HTML (or use esbuild HTML plugin)
+```
+
 ## References
 
 ### Internal

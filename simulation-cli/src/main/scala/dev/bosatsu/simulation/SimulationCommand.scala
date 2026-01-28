@@ -194,13 +194,10 @@ case class SimulationCommand(
     // Use renderStatements (not renderModule) to avoid ES6 exports
     // This is the principled approach - we generate the correct code structure
     // rather than stripping exports with regex afterwards
-    val rawComputeJs = JsGen.renderStatements(packageBindings)
-
-    // Remove package prefix for standalone HTML
-    // TODO: This should also be done principally by modifying the Code AST
-    // For now, this is a simple prefix removal that doesn't involve complex parsing
-    val packagePrefix = JsGen.escapePackage(simPackage.name) + "\\$"
-    val computeJs = rawComputeJs.replaceAll(packagePrefix, "")
+    //
+    // For proper module bundling (imports/exports), use a bundler like esbuild
+    // as a separate build step - that's not our job here.
+    val computeJs = JsGen.renderStatements(packageBindings)
 
     // Build analysis for UI generation
     val analyses = funcParams.map { case (paramName, paramType) =>
