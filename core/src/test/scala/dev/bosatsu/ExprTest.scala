@@ -62,7 +62,8 @@ class ExprTest extends munit.ScalaCheckSuite {
         val (lets, res) = let.flatten
         assertEquals(Expr.lets(lets.toList, res), let)
 
-        if (i == res) {
+        val exprEq = cats.Eq.fromUniversalEquals[Expr[Int]]
+        if (exprEq.eqv(i, res)) {
           assertEquals(lets.length, 1)
           assertEquals(lets.head, (n, r, b, tag))
         } else {

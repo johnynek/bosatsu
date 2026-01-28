@@ -283,7 +283,7 @@ object PackageCustoms {
 
     def internalDeps(te: TypedExpr[A]): Set[Bindable] =
       TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
-        case (pn, i: Identifier.Bindable) if pn == pack.name => i
+        case (pn, i: Identifier.Bindable) if pn === pack.name => i
       }
 
     def depsOf(n: Node): Iterable[Node] =

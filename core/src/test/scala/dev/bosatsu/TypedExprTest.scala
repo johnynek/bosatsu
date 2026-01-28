@@ -812,7 +812,8 @@ x = Foo
 
       if (identMap.nonEmpty) {
         val te1 = TypedExpr.substituteTypeVar(te, identMap)
-        assert(te1 != te, s"mapping: $identMap, $bounds")
+        val teEq = cats.Eq.fromUniversalEquals[TypedExpr[Unit]]
+        assert(!teEq.eqv(te1, te), s"mapping: $identMap, $bounds")
       }
     }
   }

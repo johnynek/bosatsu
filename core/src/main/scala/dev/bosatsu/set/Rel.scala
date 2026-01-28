@@ -1,6 +1,6 @@
 package dev.bosatsu.set
 
-sealed abstract class Rel { lhs =>
+sealed abstract class Rel derives CanEqual { lhs =>
 
   import Rel.{Sub, Super, Same, Intersects, Disjoint}
 

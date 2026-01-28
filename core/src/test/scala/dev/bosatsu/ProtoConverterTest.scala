@@ -123,7 +123,8 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
         // we are only sorting the left because we expect the right
         // to come out sorted
-        l.sortBy(_.name.asString) == r
+        Eq.fromUniversalEquals[List[Package.Interface]]
+          .eqv(l.sortBy(_.name.asString), r)
     }
 
   test("we can roundtrip interfaces through proto") {

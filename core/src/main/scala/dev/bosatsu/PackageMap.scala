@@ -323,7 +323,7 @@ object PackageMap {
               val r2 = i2.isRenamed
               if (r1 && !r2) ImportMap.Unify.Left
               else if (!r1 && r2) ImportMap.Unify.Right
-              else if ((i1 == i2) && !r1) {
+              else if ((i1 === i2) && !r1) {
                 // explicitly importing from predef is allowed.
                 // choose one, doesn't matter which they are the same
                 ImportMap.Unify.Left
@@ -550,7 +550,7 @@ object PackageMap {
   ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
     // if we have passed in a use supplied predef, don't use the internal one
     val useInternalPredef = !ifs.exists { (p: Package.Interface) =>
-      p.name == PackageName.PredefName
+      p.name === PackageName.PredefName
     }
     // Now we have completed all IO, here we do all the checks we need for correctness
     val parsed =

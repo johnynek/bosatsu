@@ -43,7 +43,7 @@ case class ImportMap[A, B](toMap: SortedMap[Identifier, (A, ImportedName[B])]) {
 object ImportMap {
   def empty[A, B]: ImportMap[A, B] = ImportMap(SortedMap.empty)
 
-  sealed abstract class Unify
+  sealed abstract class Unify derives CanEqual
   object Unify {
     case object Error extends Unify
     case object Left extends Unify

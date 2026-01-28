@@ -1,6 +1,7 @@
 package dev.bosatsu.set
 
 import org.scalacheck.Prop.forAll
+import cats.Eq
 import org.scalacheck.{Arbitrary, Gen}
 
 import cats.syntax.all._
@@ -87,7 +88,12 @@ abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>
     def <:>(that: S): Rel = {
       val res = relatable.relate(self, that)
       if (strictEquals) {
-        assertEquals(self == that, res == Same, s"self = $self, that = $that")
+        val eqS = Eq.fromUniversalEquals[S]
+        assertEquals(
+          eqS.eqv(self, that),
+          res == Same,
+          s"self = $self, that = $that"
+        )
       }
       res
     }
@@ -207,7 +213,12 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
     def <:>(that: S): Rel = {
       val res = relatable.relate(self, that)
       if (strictEquals) {
-        assertEquals(self == that, res == Same, s"self = $self, that = $that")
+        val eqS = Eq.fromUniversalEquals[S]
+        assertEquals(
+          eqS.eqv(self, that),
+          res == Same,
+          s"self = $self, that = $that"
+        )
       }
       res
     }
@@ -348,7 +359,11 @@ abstract class SetGenRelLaws[A](implicit
     def relatable = setgenrellaws.relatable
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
-      else Left((s1, s2) => if (a == (s1 | s2)) Rel.Same else Rel.Super)
+      else
+        Left((s1, s2) =>
+          if (Eq.fromUniversalEquals[S].eqv(a, (s1 | s2))) Rel.Same
+          else Rel.Super
+        )
 
     def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 

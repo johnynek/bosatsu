@@ -892,15 +892,36 @@ object LibConfig {
         s"invalid version ordering: $prevVersion not < $nextVersion"
       )
 
+      given cats.Eq[proto.Version] = cats.Eq.fromUniversalEquals
+
+      def sameVersion(
+          left: Option[proto.Version],
+          right: Option[proto.Version]
+      ): Boolean =
+        (left, right) match {
+          case (Some(l), Some(r)) => l === r
+          case (None, None)       => true
+          case _                  => false
+        }
+
       if (prevVersion.major == nextVersion.major) {
         if (prevVersion.minor == nextVersion.minor) {
           if (prevVersion.patch == nextVersion.patch) {
             // must be pre-release
             val all = allDescriptors.filterNot { desc =>
-              (desc.version != prevOptV) &&
-              (desc.version != history.previousMajor.flatMap(_.version)) &&
-              (desc.version != history.previousMinor.flatMap(_.version)) &&
-              (desc.version != history.previousPrerelease.flatMap(_.version))
+              (!sameVersion(desc.version, prevOptV)) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMajor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMinor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousPrerelease.flatMap(_.version)
+              ))
             }
             proto.LibHistory(
               previousMajor = history.previousMajor,
@@ -912,9 +933,15 @@ object LibConfig {
           } else {
             // we are bumping patch
             val all = allDescriptors.filterNot { desc =>
-              (desc.version != prevOptV) &&
-              (desc.version != history.previousMajor.flatMap(_.version)) &&
-              (desc.version != history.previousMinor.flatMap(_.version))
+              (!sameVersion(desc.version, prevOptV)) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMajor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMinor.flatMap(_.version)
+              ))
             }
             proto.LibHistory(
               previousMajor = history.previousMajor,
@@ -926,8 +953,11 @@ object LibConfig {
         } else {
           // we are bumping minor
           val all = allDescriptors.filterNot { desc =>
-            (desc.version != prevOptV) &&
-            (desc.version != history.previousMajor.flatMap(_.version))
+            (!sameVersion(desc.version, prevOptV)) &&
+            (!sameVersion(
+              desc.version,
+              history.previousMajor.flatMap(_.version)
+            ))
           }
           proto.LibHistory(
             previousMajor = history.previousMajor,
@@ -937,7 +967,7 @@ object LibConfig {
         }
       } else {
         // we are bumping major versions
-        val all = allDescriptors.filterNot(_.version != prevOptV)
+        val all = allDescriptors.filter(desc => sameVersion(desc.version, prevOptV))
         proto.LibHistory(
           previousMajor = Some(prevDesc),
           others = all.sortBy(_.version.map(Version.fromProto(_)))

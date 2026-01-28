@@ -7,7 +7,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
 import cats.syntax.all._
 
-sealed abstract class Kind {
+sealed abstract class Kind derives CanEqual {
   def toDoc: Doc = Kind.toDoc(this)
 
   def toArgs: List[Kind.Arg] = {
@@ -23,7 +23,7 @@ sealed abstract class Kind {
   }
 
   def withVar(v: Variance): Kind.Arg =
-    if (isType && (v == Variance.in)) Kind.invariantTypeArg
+    if (isType && (v === Variance.in)) Kind.invariantTypeArg
     else Kind.Arg(v, this)
 
   def in: Kind.Arg = withVar(Variance.in)
@@ -31,7 +31,7 @@ sealed abstract class Kind {
   def contra: Kind.Arg = withVar(Variance.contra)
   def phantom: Kind.Arg = withVar(Variance.phantom)
 
-  def isType: Boolean = this == Kind.Type
+  def isType: Boolean = this === Kind.Type
 
   // is order == 1, this is called a "generic" type in some language
   @tailrec
@@ -96,7 +96,7 @@ object Kind {
       case (Cons(Arg(v1, a1), b1), Cons(Arg(v2, a2), b2)) =>
         // since kind itself is contravariant in the argument to the function
         // we switch the order of the check in the a2 and a1
-        ((v1 + v2) == v1) &&
+        ((v1 + v2) === v1) &&
         leftSubsumesRight(a2, a1) &&
         leftSubsumesRight(b1, b2)
       case _ => false
@@ -462,7 +462,7 @@ object Kind {
       case cons =>
         // to get associativity right, need parens
         val inner = toDoc(cons)
-        if (a.variance != Variance.in) par(inner) else inner
+        if (a.variance =!= Variance.in) par(inner) else inner
     })
 
   def toDoc(k: Kind): Doc =

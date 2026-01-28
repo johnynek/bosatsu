@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Foldable}
+import cats.{Applicative, Eq, Foldable, Order}
 import cats.data.NonEmptyList
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -12,7 +12,7 @@ import cats.implicits._
 
 import Identifier.{Bindable, Constructor}
 
-sealed abstract class Pattern[+N, +T] {
+sealed abstract class Pattern[+N, +T] derives CanEqual {
   def mapName[U](fn: N => U): Pattern[U, T] =
     (new Pattern.InvariantPattern(this)).mapStruct[U] { (n, parts) =>
       Pattern.PositionalStruct(fn(n), parts)
@@ -302,11 +302,16 @@ sealed abstract class Pattern[+N, +T] {
 }
 
 object Pattern {
+  implicit def patternOrder[N: Order, T: Order]: Order[Pattern[N, T]] = {
+    val ordN: Ordering[N] = Order[N].toOrdering
+    val ordT: Ordering[T] = Order[T].toOrdering
+    Order.fromOrdering(patternOrdering(using ordN, ordT))
+  }
 
   /** Represents the different patterns that are all for structs (2, 3) Foo(2,
     * 3) etc...
     */
-  sealed abstract class StructKind {
+  sealed abstract class StructKind derives CanEqual {
     def namedStyle: Option[StructKind.Style] =
       this match {
         case StructKind.Tuple                  => None
@@ -315,9 +320,9 @@ object Pattern {
       }
   }
   object StructKind {
-    sealed abstract class Style
+    sealed abstract class Style derives CanEqual
     object Style {
-      sealed abstract class FieldKind {
+      sealed abstract class FieldKind derives CanEqual {
         def field: Bindable
       }
       object FieldKind {
@@ -342,7 +347,7 @@ object Pattern {
         extends NamedKind
   }
 
-  sealed abstract class StrPart {
+  sealed abstract class StrPart derives CanEqual {
     import StrPart._
 
     def substitute(table: Map[Bindable, Bindable]): StrPart =
@@ -389,7 +394,7 @@ object Pattern {
 
   /** represents items in a list pattern
     */
-  sealed abstract class ListPart[+A] {
+  sealed abstract class ListPart[+A] derives CanEqual {
     def map[B](fn: A => B): ListPart[B]
   }
   object ListPart {
@@ -518,7 +523,7 @@ object Pattern {
   case class Var(name: Bindable) extends Pattern[Nothing, Nothing]
   case class StrPat(parts: NonEmptyList[StrPart])
       extends Pattern[Nothing, Nothing] {
-    def isEmpty: Boolean = this == StrPat.Empty
+    def isEmpty: Boolean = this === StrPat.Empty
 
     lazy val isTotal: Boolean = {
       import StrPart.{LitStr, WildChar, NamedChar}
@@ -705,6 +710,8 @@ object Pattern {
     val Empty: StrPat = fromLitStr("")
     val Wild: StrPat = StrPat(NonEmptyList.one(StrPart.WildStr))
 
+    given cats.Eq[StrPat] = cats.Eq.fromUniversalEquals
+
     def fromSeqPattern(sp: SeqPattern[Int]): StrPat = {
       def lit(rev: List[Int]): List[StrPart.LitStr] =
         if (rev.isEmpty) Nil
@@ -786,10 +793,10 @@ object Pattern {
         case Annotation(SinglyNamed(b), _) => Some(b)
         case Named(b, inner)               =>
           if (inner.names.isEmpty) Some(b)
-          else unapply(inner).filter(_ == b)
+          else unapply(inner).filter(_ === b)
         case Union(SinglyNamed(b), r) =>
           r.foldM(b) { (b, pat) =>
-            unapply(pat).filter(_ == b)
+            unapply(pat).filter(_ === b)
           }
         case _ => None
       }

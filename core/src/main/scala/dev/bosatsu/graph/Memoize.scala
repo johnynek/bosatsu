@@ -62,17 +62,17 @@ object Memoize {
 
     new Function[A, B] { self =>
       def apply(a: A) =
-        cache.get(a) match {
-          case null =>
-            // if this function is circular fn will loop here blowing
-            // the stack
-            val res = fn(a, self)
-            val _ = cache.put(a, res)
-            // doesn't matter if won this race or not
-            // two people can concurrently race.
-            res
-          case res =>
-            res
+        val cached = cache.get(a)
+        if (cached.asInstanceOf[AnyRef] eq null) {
+          // if this function is circular fn will loop here blowing
+          // the stack
+          val res = fn(a, self)
+          val _ = cache.put(a, res)
+          // doesn't matter if won this race or not
+          // two people can concurrently race.
+          res
+        } else {
+          cached
         }
     }
   }

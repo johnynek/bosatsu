@@ -66,8 +66,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       val applied = Type.applyAll(ts, args)
       val free0 = Type.freeBoundTyVars(ts :: args)
       val free1 = Type.freeBoundTyVars(applied :: Nil)
+      val setEq = cats.Eq.fromUniversalEquals[Set[Type.Var]]
       assert(
-        free1.toSet == free0.toSet,
+      setEq.eqv(free1.toSet, free0.toSet),
         s"applied = ${Type.typeParser.render(applied)}, (${Type.typeParser
             .render(ts)})[${args.iterator.map(Type.typeParser.render(_)).mkString(", ")}]})"
       )

@@ -398,7 +398,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                       pat match {
                         case None                          => Nil
                         case Some(PositionalStruct(n, ps)) =>
-                          assert(n == name)
+                          assert(n === name)
                           assert(ps.size == paramSize)
                           ps :: Nil
                         case Some(Pattern.Union(h, t)) =>
@@ -490,11 +490,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           right: Pattern[Cons, Type]
       ): List[Pattern[Cons, Type]] =
         (left, right) match {
-          case (_, _) if left == right => left :: Nil
+          case (_, _) if left === right => left :: Nil
           case (Var(va), Var(vb)) => Var(Ordering[Bindable].min(va, vb)) :: Nil
           case (Var(_), v)        => v :: Nil
           case (v, Var(_))        => v :: Nil
-          case (Named(va, pa), Named(vb, pb)) if va == vb =>
+          case (Named(va, pa), Named(vb, pb)) if va === vb =>
             intersection(pa, pb).map(Named(va, _))
           case (Named(_, pa), r)        => intersection(pa, r)
           case (l, Named(_, pb))        => intersection(l, pb)
@@ -503,7 +503,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (Annotation(p, _), t)    => intersection(p, t)
           case (t, Annotation(p, _))    => intersection(t, p)
           case (Literal(a), Literal(b)) =>
-            if (a == b) left :: Nil
+            if (a === b) left :: Nil
             else Nil
           case (Literal(Lit.Str(s)), p @ StrPat(_)) =>
             if (p.matches(s)) left :: Nil
@@ -525,7 +525,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (lp: ListPatCons, pos @ PositionalStruct(_, _)) =>
             intersection(pos, lp)
           case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
-            if (ln == rn) {
+            if (ln === rn) {
               val la = lps.size
               if (rps.size == la) {
                 // the arity must match or check expr fails
@@ -625,7 +625,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 val u = Pattern.flatten(right).toList
                 unifyUnion(differenceAll(left :: Nil, u))
               case (PositionalStruct(ln, lp), PositionalStruct(rn, rp))
-                  if ln == rn =>
+                  if ln === rn =>
                 val la = lp.size
                 if (rp.size == la) {
                   // the arity must match or check expr fails
@@ -691,7 +691,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       def relate(a0: Pattern[Cons, Type], b0: Pattern[Cons, Type]): Rel = {
         def loop(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Rel =
           (a, b) match {
-            case _ if a == b           => Rel.Same
+            case _ if a === b          => Rel.Same
             case (Named(_, p), _)      => loop(p, b)
             case (_, Named(_, p))      => loop(a, p)
             case (Annotation(p, _), _) => loop(p, b)
@@ -752,7 +752,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   Pattern.PositionalStruct(ln, lp),
                   Pattern.PositionalStruct(rn, rp)
                 ) =>
-              if ((ln == rn) && (lp.size == rp.size)) {
+              if ((ln === rn) && (lp.size == rp.size)) {
                 (lp.zip(rp).foldLeft(Rel.Same: Rel) { case (acc, (l, r)) =>
                   acc.lazyCombine(loop(l, r))
                 })

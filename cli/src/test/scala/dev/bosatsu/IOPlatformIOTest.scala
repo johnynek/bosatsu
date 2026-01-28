@@ -13,7 +13,8 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
       def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
         // we are only sorting the left because we expect the right
         // to come out sorted
-        l.sortBy(_.name.asString) == r
+        Eq.fromUniversalEquals[List[Package.Interface]]
+          .eqv(l.sortBy(_.name.asString), r)
     }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {

@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Foldable
+import cats.{Eq, Foldable}
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.pattern.StrPart
@@ -146,6 +146,8 @@ object TypedExprNormalization {
       scope: Scope[A],
       typeEnv: TypeEnv[V]
   )(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
+    given Eq[A] = Eq.fromUniversalEquals
+
     val kindOf: Type => Option[Kind] =
       Type.kindOfOption { case const @ Type.TyConst(_) =>
         typeEnv.getType(const).map(_.kindOf)
@@ -161,7 +163,7 @@ object TypedExprNormalization {
       case Generic(quant, in) =>
         val sin = normalize1(namerec, in, scope, typeEnv).get
         val g1 = TypedExpr.normalizeQuantVars(quant, sin)
-        if (g1 == te) None
+        if (g1 === te) None
         else Some(g1)
       case Annotation(term, tpe) =>
         // if we annotate twice, we can ignore the inner annotation
@@ -175,12 +177,12 @@ object TypedExprNormalization {
             val inst = TypedExpr.instantiateTo(gen, rho, kindOf)
             // we compare thes to te because instantiate
             // can add an Annotation back
-            if (inst != te) Some(inst)
+            if ((inst: TypedExpr[A]) =!= te) Some(inst)
             else None
           case (notSameTpe, _) =>
             val nt = Type.normalize(tpe)
             if (notSameTpe eq term) {
-              if (nt == tpe) None
+              if (nt === tpe) None
               else Some(Annotation(term, nt))
             } else Some(Annotation(notSameTpe, nt))
         }
@@ -199,7 +201,7 @@ object TypedExprNormalization {
             if (e1.notFree(n)) {
               // n is not used.
               val next = anons.next()
-              changed = changed || (next != n)
+              changed = changed || (next =!= n)
               next
             } else {
               n
@@ -289,7 +291,7 @@ object TypedExprNormalization {
         None
       case Global(p, n: Constructor, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
-        if (tpe == tpe0) None
+        if (tpe === tpe0) None
         else Some(Global(p, n, tpe, tag))
       case Global(p, n: Bindable, tpe0, tag) =>
         scope.getGlobal(p, n).flatMap {
@@ -300,7 +302,7 @@ object TypedExprNormalization {
             Some(te)
           case _ =>
             val tpe = Type.normalize(tpe0)
-            if (tpe == tpe0) None
+            if (tpe === tpe0) None
             else Some(Global(p, n, tpe, tag))
         }
       case Local(n, tpe0, tag) =>
@@ -309,7 +311,7 @@ object TypedExprNormalization {
         // is too late here, we want to do that when
         // we have another potential optimization?
         val tpe = Type.normalize(tpe0)
-        if (tpe == tpe0) None
+        if (tpe === tpe0) None
         else Some(Local(n, tpe, tag))
       case Impl.IntAlgebraic.Optimized(optIA) =>
         Some(optIA.toTypedExpr)
@@ -344,7 +346,7 @@ object TypedExprNormalization {
               typeEnv
             )
           case _ =>
-            if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+            if ((f1 eq fn) && (tpe === tpe0) && (a1 eq args)) None
             else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>
@@ -465,7 +467,7 @@ object TypedExprNormalization {
               // TODO: we can still replace total matches with _
               // such as Foo(_, _, _) for structs or unions that are total
               val p1 = p.filterVars(freeT1)
-              val c1 = if (p1 == p) c else (c + 1)
+              val c1 = if (p1 === p) c else (c + 1)
               (c1, (p1, t1))
             }
         // due to total matches, the last branch without any bindings
@@ -523,8 +525,8 @@ object TypedExprNormalization {
         (scope.getLocal(b), scope1.getLocal(b)) match {
           case (None, None)                             => true
           case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
-            (r1 == r2) &&
-            (t1.void == t2.void) &&
+            (r1 === r2) &&
+            (t1.void === t2.void) &&
             scopeMatches(t1.freeVarsDup.toSet, s1, s2)
           case _ => false
         }
@@ -731,7 +733,7 @@ object TypedExprNormalization {
     def maybeEvalMatch[A](
         m: Match[? <: A],
         scope: Scope[A]
-    ): Option[TypedExpr[A]] =
+    )(using Eq[A]): Option[TypedExpr[A]] = {
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length
@@ -749,7 +751,8 @@ object TypedExprNormalization {
           def filterPat(pat: Pat): Option[Option[Pat]] =
             pat match {
               case ps @ Pattern.PositionalStruct((p0, c0), args0) =>
-                if (p0 == p && c0 == c && args0.length == alen) Some(Some(ps))
+                if (p0 === p && c0 === c && args0.length == alen)
+                  Some(Some(ps))
                 else Some(None) // we definitely don't match this branch
               case Pattern.Named(n, p) =>
                 filterPat(p).map { p1 =>
@@ -845,7 +848,7 @@ object TypedExprNormalization {
                 case h :: t =>
                   // more than one branch might match, wait till runtime
                   val m1 = Match(m.arg, NonEmptyList(h, t), m.tag)
-                  if (m1 == m) None
+                  if ((m1: TypedExpr[A]) === m) None
                   else Some(m1)
               }
             }
@@ -863,7 +866,7 @@ object TypedExprNormalization {
                 Some((v, li) :: Nil)
               case Pattern.Annotation(p, _) => makeLet(p)
               case Pattern.Literal(litj)    =>
-                if (li == litj) Some(Nil)
+                if (li === litj) Some(Nil)
                 else None
               case Pattern.Union(h, t) =>
                 (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
@@ -892,6 +895,7 @@ object TypedExprNormalization {
                 }
             }
       }
+    }
 
     sealed abstract class IntAlgebraic[A] {
       lazy val toTypedExpr: TypedExpr[A] = {
@@ -1129,7 +1133,7 @@ object TypedExprNormalization {
           None
         } else {
           val ia1 = toAlg(norm, table)
-          if (ia1.toTypedExpr.void == root.toTypedExpr.void) {
+          if (ia1.toTypedExpr.void === root.toTypedExpr.void) {
             // since the AST of RingOpt isn't the same as TypedExpr
             // we can improve the RingOpt AST but the resulting TypedExpr
             // AST may be exactly the same. Unfortunately, this check

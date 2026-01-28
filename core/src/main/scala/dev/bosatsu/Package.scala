@@ -31,10 +31,10 @@ final case class Package[A, B, C, +D](
     that match {
       case p: Package[_, _, _, _] =>
         (this eq p) || {
-          (name == p.name) &&
-          (imports == p.imports) &&
-          (exports == p.exports) &&
-          (program == p.program)
+          name.equals(p.name) &&
+          imports.equals(p.imports) &&
+          exports.equals(p.exports) &&
+          program.equals(p.program)
         }
       case _ => false
     }
@@ -54,7 +54,7 @@ final case class Package[A, B, C, +D](
       i: ImportedName[T]
   ): Option[NonEmptyList[ExportedName[C]]] = {
     val iname = i.originalName
-    NonEmptyList.fromList(exports.filter(_.name == iname))
+    NonEmptyList.fromList(exports.filter(_.name === iname))
   }
 
   def visibleDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
@@ -160,7 +160,7 @@ object Package {
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
     tp.lets.filter { case (_, _, te) =>
-      te.getType == Type.TestType
+      te.getType === (Type.TestType: Type)
     }.lastOption
 
   def mainValue[A](

@@ -26,7 +26,7 @@ import cats.implicits._
 
 /** Represents the syntactic version of Expr
   */
-sealed abstract class Declaration {
+sealed abstract class Declaration derives CanEqual {
   import Declaration._
 
   def region: Region
@@ -456,7 +456,7 @@ object Declaration {
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
 
-  sealed abstract class ApplyKind
+  sealed abstract class ApplyKind derives CanEqual
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
@@ -1216,7 +1216,7 @@ object Declaration {
       }
   }
 
-  sealed abstract class PatternBindKind
+  sealed abstract class PatternBindKind derives CanEqual
   object PatternBindKind {
 
     case object Equals extends PatternBindKind
@@ -1271,12 +1271,14 @@ object Declaration {
       Literal(l)(using r)
     }
 
-  sealed abstract private class ParseMode
+  sealed abstract private class ParseMode derives CanEqual
   private object ParseMode {
     case object Decl extends ParseMode
     case object NB extends ParseMode
     case object BranchArg extends ParseMode
     case object ComprehensionSource extends ParseMode
+
+    given cats.Eq[ParseMode] = cats.Eq.fromUniversalEquals
   }
   /*
    * This is not fully type-safe but we do it for efficiency:
@@ -1353,10 +1355,11 @@ object Declaration {
         // since x -> y: t will parse like x -> (y: t)
         // if we are in a branch arg, we can't parse annotations on the body of the lambda
         val lambBody =
-          if (pm == ParseMode.BranchArg)
+          if (pm === ParseMode.BranchArg)
             recArgIndy.asInstanceOf[Indy[Declaration]]
           else recIndy
-        val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind
+        val ternaryElseP =
+          if (pm === ParseMode.BranchArg) recArg else recNonBind
 
         val allNonBind: P[NonBinding] =
           P.defer(
@@ -1423,7 +1426,7 @@ object Declaration {
         }
         // lower priority than calls is type annotation
         val annotated: P[NonBinding] =
-          if (pm == ParseMode.BranchArg) applied
+          if (pm === ParseMode.BranchArg) applied
           else {
             val an: P[NonBinding => NonBinding] =
               TypeRef.annotationParser
@@ -1500,11 +1503,11 @@ object Declaration {
             }
 
         val finalNonBind: P[NonBinding] =
-          if (pm != ParseMode.ComprehensionSource)
+          if (pm =!= ParseMode.ComprehensionSource)
             postOperators(matched).maybeAp(ternary)
           else postOperators(matched)
 
-        if (pm != ParseMode.Decl) finalNonBind
+        if (pm =!= ParseMode.Decl) finalNonBind
         else {
           val finalBind: P[Declaration] = P.defer(
             P.oneOf(

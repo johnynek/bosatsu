@@ -303,7 +303,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
           .compile
           .lastOrError
           .flatMap { computedHash =>
-            if (computedHash == hash) {
+            if (computedHash === hash) {
               // move it atomically to output
               FilesIO.move(
                 source = tempPath,
@@ -333,7 +333,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def resolve(p: Path, c: String): Path = p.resolve(c)
   def resolve(p: Path, c: Path): Path = p.resolve(c)
   def relativize(root: Path, pf: Path): Option[Path] =
-    if (root == Path(".") && !pf.isAbsolute) Some(pf)
+    if (pathOrdering.equiv(root, Path(".")) && !pf.isAbsolute) Some(pf)
     else if (pf.startsWith(root)) Some(root.relativize(pf))
     else None
 

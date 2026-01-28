@@ -141,7 +141,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         def getMain(
             ps: List[(Path, PackageName)]
         ): IO[(PackageName, Option[Bindable])] =
-          ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
+          ps.collectFirst {
+            case (path, pn) if pathOrdering.equiv(path, mainFile) => pn
+          }
+            match {
             case Some(p) => moduleIOMonad.pure((p, None))
             case None    =>
               moduleIOMonad.raiseError(
@@ -200,7 +203,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
     }
 
-    sealed abstract class JsonMode
+    sealed abstract class JsonMode derives CanEqual
     object JsonMode {
       case object Write extends JsonMode
       case class Apply(in: JsonInput) extends JsonMode
@@ -605,7 +608,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 .map { case (_, p) => p }
                 // TODO currently we recompile predef in every run, so every interface includes
                 // predef, we filter that out
-                .filter(_.name != PackageName.PredefName)
+                .filter(_.name =!= PackageName.PredefName)
                 .toList
                 .sortBy(_.name)
           } yield Output.CompileOut(packList, ifout, output)
@@ -662,7 +665,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       def run = withEC {
         for {
           (ifaces, packs0) <- inputs.loadAndCompile(errColor)
-          packs = packs0.filterNot(_.name == PackageName.PredefName)
+          packs = packs0.filterNot(_.name === PackageName.PredefName)
         } yield Output.ShowOutput(packs, ifaces, output)
       }
     }
@@ -697,14 +700,14 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               }
             }
             .flatMap(rankn.Type.constantsOf)
-            .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
+            .collect { case rankn.Type.Const.Defined(p, _) if p =!= pn => p }
             .toList
         )
       }
 
       private def norm(lst: List[PackageName]): List[PackageName] =
         lst
-          .filterNot(_ == PackageName.PredefName)
+          .filterNot(_ === PackageName.PredefName)
           .distinct
           .sorted
 
@@ -1128,7 +1131,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
                 }
 
               val srcNode = nm(src).find { case (_, sk, _, _) =>
-                sk == Some(k)
+                sk === Some(k)
               }.get
               val dstNode = nm(dst).sortBy(rec => (rec._2, rec._1)).head
               s"${srcNode._3} -> ${dstNode._3};"

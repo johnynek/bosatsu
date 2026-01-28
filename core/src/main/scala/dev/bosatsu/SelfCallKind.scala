@@ -1,9 +1,10 @@
 package dev.bosatsu
 
 import cats.Semigroup
+import cats.syntax.all._
 import Identifier.Bindable
 
-sealed abstract class SelfCallKind {
+sealed abstract class SelfCallKind derives CanEqual {
   import SelfCallKind._
 
   // if you have two branches in match what is the result
@@ -36,6 +37,8 @@ object SelfCallKind {
   case object TailCall extends SelfCallKind
   case object NonTailCall extends SelfCallKind
 
+  given cats.Eq[SelfCallKind] = cats.Eq.fromUniversalEquals
+
   val branchSemigroup: Semigroup[SelfCallKind] =
     Semigroup.instance(_.merge(_))
 
@@ -46,7 +49,7 @@ object SelfCallKind {
     te match {
       case TypedExpr.Generic(_, in)    => isFn(n, in)
       case TypedExpr.Annotation(te, _) => isFn(n, te)
-      case TypedExpr.Local(vn, _, _)   => vn == n
+      case TypedExpr.Local(vn, _, _)   => vn === n
       case _                           => false
     }
 
@@ -59,7 +62,7 @@ object SelfCallKind {
       case TypedExpr.AnnotatedLambda(as, body, _) =>
         // let fn = x -> fn(x) in fn(1)
         // is a tail-call
-        if (as.exists(_._1 == n)) {
+        if (as.exists(_._1 === n)) {
           // shadow
           SelfCallKind.NoCall
         } else {
@@ -67,7 +70,7 @@ object SelfCallKind {
         }
       case TypedExpr.Global(_, _, _, _) => SelfCallKind.NoCall
       case TypedExpr.Local(vn, _, _)    =>
-        if (vn != n) SelfCallKind.NoCall
+        if (vn =!= n) SelfCallKind.NoCall
         else SelfCallKind.NonTailCall
       case TypedExpr.App(fn, args, _, _) =>
         val argsCall = args
@@ -79,7 +82,7 @@ object SelfCallKind {
           else apply(n, fn).callNotTail
         )
       case TypedExpr.Let(arg, ex, in, rec, _) =>
-        if (arg == n) {
+        if (arg === n) {
           // shadow
           if (rec.isRecursive) {
             // shadow still in scope in ex

@@ -12,7 +12,7 @@ import dev.bosatsu.rankn.Type
 
 import Identifier.{Bindable, Constructor}
 
-sealed abstract class Expr[T] {
+sealed abstract class Expr[T] derives CanEqual {
   def tag: T
 
   /** All the free variables in this expression in order encountered and with

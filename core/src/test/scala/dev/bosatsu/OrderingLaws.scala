@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Order
+import cats.{Eq, Order}
 import munit.Assertions._
 
 object OrderingLaws {
@@ -13,7 +13,8 @@ object OrderingLaws {
     if (ord.gt(a, b) && ord.gt(b, c)) assert(ord.gt(a, c), s"$a $b $c")
     if (ord.equiv(a, b) && ord.equiv(b, c)) assert(ord.equiv(a, c), s"$a $b $c")
 
-    if (a == b) assert(ord.equiv(a, b))
+    val eqA = Eq.fromUniversalEquals[A]
+    if (eqA.eqv(a, b)) assert(ord.equiv(a, b))
     if (ord.lteq(a, b) && ord.gteq(a, b)) assert(ord.equiv(a, b))
 
     assertEquals(ord.lt(a, b), !ord.gteq(a, b))
