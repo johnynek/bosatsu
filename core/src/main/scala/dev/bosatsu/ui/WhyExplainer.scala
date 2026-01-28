@@ -351,4 +351,16 @@ object WhyExplainer {
       )
     ))
   }
+
+  /**
+   * Generate all required functions for derivation explanation.
+   * This includes both _formatDerivationHeader and _explainDerivation.
+   * Use this method to ensure all required functions are defined together.
+   */
+  def generateDerivationFunctions(): List[Statement] = {
+    List(
+      generateFormatDerivationHeaderFunction(),
+      generateExplainDerivationFunction()
+    )
+  }
 }
