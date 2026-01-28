@@ -10,6 +10,7 @@ borrows from [Python](https://www.python.org/), [Haskell](https://www.haskell.or
 [Dhall](https://hackage.haskell.org/package/dhall) and [Rust](https://www.rust-lang.org/en-US/).
 
 Please see the [documentation site](https://johnynek.github.io/bosatsu/)
+and the [Getting started guide](docs/src/main/paradox/getting_started.md)
 or try basic expressions using this [in-browser Bosatsu compiler](https://johnynek.github.io/bosatsu/compiler/).
 
 ## An example of Bosatsu
@@ -46,23 +47,6 @@ test = Assertion(computed == 233168, "expected 233168")
 Please feel free to file an issue to discuss making a change to Bosatsu or
 to ask a question about how Bosatsu might be useful for a use-case that is
 interesting to you.
-
-## Development notes:
-
-Bosatsu is developed in Scala. We use `sbt` as the build system. To build
-bosatsu, run `sbt cli/assembly` and then the script `./bosatsuj` should print
-help (see the documentation link above for more help). `sbt test` should run
-all the tests.
-
-### How to run the benchmarks
-At the `sbt` prompt:
-```
-bench/jmh:run -i 3 -wi 3 -f1 -t1
-```
-or for a specific benchmark
-```
-bench/jmh:run -i 3 -wi 3 -f1 -t1 .*SomeBench.*
-```
 
 ## Release
 See [release.md](release.md) for the release workflow and tagging steps.
