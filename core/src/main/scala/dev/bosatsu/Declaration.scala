@@ -68,6 +68,15 @@ sealed abstract class Declaration {
             Declaration
           ]]].document(b)
         }
+      case ForInBinding(pat, inExpr, body, rest) =>
+        val head =
+          Doc.text("for ") + Document[Pattern.Parsed].document(pat) + Doc
+            .text(" in ") + inExpr.toDoc + Doc.char(':')
+        val bodyDoc =
+          body.sepDoc + Document[OptIndent[Declaration]].document(body)
+        head + bodyDoc + Doc.line + Document[Padding[Declaration]].document(
+          rest
+        )
       case LeftApply(pat, _, arg, body) =>
         Document[Pattern.Parsed].document(pat) + Doc.text(
           " <- "
@@ -238,6 +247,14 @@ sealed abstract class Declaration {
           val acc0 = loop(v, bound, acc)
           val bound1 = bound ++ n.names
           loop(in.padded, bound1, acc0)
+        case ForInBinding(pat, inExpr, body, rest) =>
+          val accNames = Declaration.forLoopBindings(body.get)
+          val accSet = accNames.toSet
+          val acc1 = loop(inExpr, bound, acc)
+          val boundBody = bound ++ accSet ++ pat.names
+          val acc2 = loop(body.get, boundBody, acc1)
+          val boundRest = bound ++ accSet
+          loop(rest.padded, boundRest, acc2)
         case Comment(c)   => loop(c.on.padded, bound, acc)
         case CommentNB(c) => loop(c.on.padded, bound, acc)
         case DefFn(d)     =>
@@ -353,6 +370,10 @@ sealed abstract class Declaration {
         case Binding(BindingStatement(n, v, in)) =>
           val acc0 = loop(v, acc ++ n.names)
           loop(in.padded, acc0)
+        case ForInBinding(pat, inExpr, body, rest) =>
+          val acc1 = loop(inExpr, acc)
+          val acc2 = loop(body.get, acc1 ++ pat.names)
+          loop(rest.padded, acc2)
         case Comment(c)   => loop(c.on.padded, acc)
         case CommentNB(c) => loop(c.on.padded, acc)
         case DefFn(d)     =>
@@ -443,6 +464,13 @@ sealed abstract class Declaration {
               d.result._2.map(_.replaceRegions(r))
             )
           )
+        )(using r)
+      case ForInBinding(pat, inExpr, body, rest) =>
+        ForInBinding(
+          pat,
+          inExpr.replaceRegionsNB(r),
+          body.map(_.replaceRegions(r)),
+          rest.map(_.replaceRegions(r))
         )(using r)
       case LeftApply(p, _, right, b) =>
         LeftApply(p, r, right.replaceRegionsNB(r), b.map(_.replaceRegions(r)))
@@ -645,6 +673,22 @@ object Declaration {
             .mapN { (b, r) =>
               DefFn(DefStatement(nm, ta, args, rtype, (b, r)))(using decl.region)
             }
+        case ForInBinding(pat, inExpr, body, rest) =>
+          val accNames = Declaration.forLoopBindings(body.get)
+          val bodyNames = pat.names ::: accNames
+          if (bodyNames.exists(masks)) None
+          else {
+            val in1 = loop(inExpr)
+            val bodyRes =
+              if (bodyNames.exists(shadows)) Some(body)
+              else body.traverse(loopDec)
+            val restRes =
+              if (accNames.exists(shadows)) Some(rest)
+              else rest.traverse(loopDec)
+            (in1, bodyRes, restRes).mapN { (i1, b1, r1) =>
+              ForInBinding(pat, i1, b1, r1)(using decl.region)
+            }
+          }
         case LeftApply(n, r, v, in) =>
           val thisNames = n.names
           if (thisNames.exists(masks)) None
@@ -665,6 +709,46 @@ object Declaration {
       }
 
     loopDec(in)
+  }
+
+  /** Collect all names bound by `=` bindings in a declaration.
+    * Used to desugar for-loops.
+    */
+  def forLoopBindings(body: Declaration): List[Bindable] = {
+    import scala.collection.mutable.{HashSet, ListBuffer}
+
+    val seen = HashSet.empty[Bindable]
+    val buf = ListBuffer.empty[Bindable]
+
+    def addAll(ns: List[Bindable]): Unit =
+      ns.foreach { n =>
+        if (!seen(n)) {
+          seen += n
+          buf += n
+        }
+      }
+
+    def loopDecl(d: Declaration): Unit =
+      d match {
+        case Binding(BindingStatement(pat, _, in)) =>
+          addAll(pat.names)
+          loopDecl(in.padded)
+        case ForInBinding(_, _, body, rest) =>
+          loopDecl(body.get)
+          loopDecl(rest.padded)
+        case Comment(c) =>
+          loopDecl(c.on.padded)
+        case DefFn(defstmt) =>
+          // def bodies are not evaluated here, so only traverse the rest
+          loopDecl(defstmt.result._2.padded)
+        case LeftApply(_, _, _, res) =>
+          loopDecl(res.padded)
+        case _: NonBinding =>
+          ()
+      }
+
+    loopDecl(body)
+    buf.toList
   }
 
   private val identDoc: Document[Identifier] =
@@ -800,6 +884,13 @@ object Declaration {
       binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[
         Declaration
       ]]
+  )(using val region: Region)
+      extends Declaration
+  case class ForInBinding(
+      item: Pattern.Parsed,
+      inExpr: NonBinding,
+      body: OptIndent[Declaration],
+      rest: Padding[Declaration]
   )(using val region: Region)
       extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit
@@ -1155,6 +1246,20 @@ object Declaration {
       }
   }
 
+  def forP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[ForInBinding] = {
+    val head =
+      Indy
+        .lift(Parser.keySpace("for") *> Pattern.bindParser <* maybeSpace)
+        .cutThen(Indy.lift(Parser.keySpace("in")).cutRight(arg))
+    OptIndent
+      .block(head, expr)
+      .cutThen(restP(expr))
+      .region
+      .map { case (r, (((pat, inExpr), body), rest)) =>
+        ForInBinding(pat, inExpr, body, rest)(using r)
+      }
+  }
+
   /** These are keywords inside declarations (if, match, def) that cannot be
     * used by identifiers
     */
@@ -1168,6 +1273,7 @@ object Declaration {
       "match",
       "matches",
       "def",
+      "for",
       "recur",
       "struct",
       "enum"
@@ -1512,6 +1618,7 @@ object Declaration {
               defP(recIndy)(indent) ::
                 // these are not ambiguous with patterns
                 commentP(recIndy)(indent) ::
+                forP(recArgIndy, recIndy)(indent) ::
                 /*
                  * challenge is that not all Declarations are Patterns, and not
                  * all Patterns are Declarations. So, bindings, which are: pattern = declaration

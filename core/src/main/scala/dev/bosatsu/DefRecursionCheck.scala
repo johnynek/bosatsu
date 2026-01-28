@@ -497,6 +497,12 @@ object DefRecursionCheck {
           checkForIllegalBindsSt(pat.names, decl) *>
             checkDecl(thisDecl) *>
             filterNames(pat.names)(checkDecl(next.padded))
+        case ForInBinding(loopPat, inExpr, body, rest) =>
+          val loopNames = loopPat.names
+          checkDecl(inExpr) *>
+            checkForIllegalBindsSt(loopNames, decl) *>
+            filterNames(loopNames)(checkDecl(body.get)) *>
+            checkDecl(rest.padded)
         case Comment(cs) =>
           checkDecl(cs.on.padded)
         case CommentNB(cs) =>

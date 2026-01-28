@@ -262,6 +262,109 @@ final class SourceConverter(
         }
     }
 
+  private def appendResult(
+      body: Declaration,
+      result: Declaration.NonBinding
+  ): Declaration = {
+    import Declaration._
+
+    body match {
+      case Binding(BindingStatement(pat, value, in)) =>
+        Binding(
+          BindingStatement(pat, value, in.map(appendResult(_, result)))
+        )(using body.region)
+      case ForInBinding(pat, inExpr, bodyOI, rest) =>
+        ForInBinding(
+          pat,
+          inExpr,
+          bodyOI,
+          rest.map(appendResult(_, result))
+        )(using body.region)
+      case Comment(c) =>
+        Comment(CommentStatement(c.message, c.on.map(appendResult(_, result))))(
+          using body.region
+        )
+      case DefFn(defstmt) =>
+        val (fnBody, rest) = defstmt.result
+        val rest1 = rest.map(appendResult(_, result))
+        DefFn(defstmt.copy(result = (fnBody, rest1)))(using body.region)
+      case LeftApply(p, r, fn, res) =>
+        LeftApply(p, r, fn, res.map(appendResult(_, result)))
+      case nb: NonBinding =>
+        val region = nb.region + result.region
+        val bind =
+          BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]](
+            Pattern.WildCard,
+            nb,
+            Padding[Declaration](0, result)
+          )
+        Binding(bind)(using region)
+    }
+  }
+
+  private def normalizeForLoopBody(
+      body: Declaration,
+      accNames: Set[Bindable],
+      usedNames: Set[Bindable]
+  ): Declaration = {
+    import Declaration._
+
+    val nameIter = unusedNames(usedNames)
+
+    def nextTmp(): Bindable = nameIter.next()
+
+    def needsTemp(pat: Pattern.Parsed): Boolean = {
+      val ns = pat.names
+      ns.lengthCompare(1) > 0 && ns.exists(accNames)
+    }
+
+    def loop(d: Declaration): Declaration =
+      d match {
+        case Binding(BindingStatement(pat, value, in)) =>
+          val in1 = in.map(loop)
+          if (needsTemp(pat)) {
+            val tmp = nextTmp()
+            val tmpPat: Pattern.Parsed = Pattern.Var(tmp)
+            val tmpVar = Var(tmp)(using value.region)
+
+            val innerBind =
+              BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]](
+                pat,
+                tmpVar,
+                in1
+              )
+            val innerDecl = Binding(innerBind)(using d.region)
+            val outerBind =
+              BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]](
+                tmpPat,
+                value,
+                Padding(1, innerDecl)
+              )
+            Binding(outerBind)(using d.region)
+          } else {
+            Binding(BindingStatement(pat, value, in1))(using d.region)
+          }
+        case ForInBinding(pat, inExpr, bodyOI, rest) =>
+          ForInBinding(
+            pat,
+            inExpr,
+            bodyOI.map(loop),
+            rest.map(loop)
+          )(using d.region)
+        case Comment(c) =>
+          Comment(CommentStatement(c.message, c.on.map(loop)))(using d.region)
+        case DefFn(defstmt) =>
+          val rest1 = defstmt.result._2.map(loop)
+          DefFn(defstmt.copy(result = (defstmt.result._1, rest1)))(using d.region)
+        case LeftApply(p, r, fn, res) =>
+          LeftApply(p, r, fn, res.map(loop))
+        case nb: NonBinding =>
+          nb
+      }
+
+    loop(body)
+  }
+
   private def fromDecl(
       decl: Declaration,
       bound: Set[Bindable],
@@ -323,6 +426,99 @@ final class SourceConverter(
           }
 
         solvePat(pat, loop(value))
+      case fib @ ForInBinding(loopPat, inExpr, body, Padding(_, rest)) =>
+        val accNames = Declaration.forLoopBindings(body.get)
+        NonEmptyList.fromList(accNames) match {
+          case None =>
+            val err = SourceConverter.ForLoopNoBindings(fib.region)
+            SourceConverter.addError(withBound(rest, Nil), err)
+          case Some(accNel) =>
+            val accList = accNel.toList
+            val missing = accList.filterNot(bound)
+            val missingErr =
+              NonEmptyList.fromList(missing).map { ne =>
+                SourceConverter.ForLoopMissingInit(ne, fib.region)
+              }
+
+            def accPattern(names: NonEmptyList[Bindable]): Pattern.Parsed =
+              names.toList match {
+                case h :: Nil => Pattern.Var(h)
+                case many     => Pattern.tuple(many.map(Pattern.Var(_)))
+              }
+
+            def accExpr(
+                names: NonEmptyList[Bindable],
+                region: Region
+            ): Declaration.NonBinding =
+              names.toList match {
+                case h :: Nil =>
+                  Declaration.Var(h)(using region)
+                case many =>
+                  Declaration.TupleCons(
+                    many.map(n => Declaration.Var(n)(using region))
+                  )(using region)
+              }
+
+            val accPat = accPattern(accNel)
+            val accReturn = accExpr(accNel, fib.region)
+            val usedNames =
+              bound ++ loopPat.names.toSet ++ accList.toSet ++ body.get.allNames ++
+                rest.allNames
+            val normBody = normalizeForLoopBody(body.get, accList.toSet, usedNames)
+            val bodyWithReturn = appendResult(normBody, accReturn)
+            val lambdaDecl = Declaration.Lambda(
+              NonEmptyList.of(accPat, loopPat),
+              bodyWithReturn
+            )(using fib.region)
+            val accInitDecl = accExpr(accNel, fib.region)
+
+            val foldFn: Expr[Declaration] =
+              Expr.Global(
+                PackageName.PredefName,
+                Identifier.Name("foldl_List"),
+                fib
+              )
+            val foldExprRes =
+              (loop(inExpr), loop(accInitDecl), loop(lambdaDecl)).parMapN {
+                (lst, init, lam) =>
+                  Expr.buildApp(foldFn, lst :: init :: lam :: Nil, fib)
+              }
+            val foldWithErr = missingErr.fold(foldExprRes) { err =>
+              SourceConverter.addError(foldExprRes, err)
+            }
+
+            val erest = withBound(rest, accList)
+            val assignRegion = fib.region
+            def solvePat(
+                pat: Pattern.Parsed,
+                rrhs: Result[Expr[Declaration]]
+            ): Result[Expr[Declaration]] =
+              pat match {
+                case Pattern.Var(arg) =>
+                  (erest, rrhs).parMapN { (e, rhs) =>
+                    Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, fib)
+                  }
+                case Pattern.Annotation(pat, tpe) =>
+                  toType(tpe, assignRegion).flatMap { realTpe =>
+                    val newRhs = rrhs.map { r =>
+                      Expr.Annotation(r, realTpe, r.tag)
+                    }
+                    solvePat(pat, newRhs)
+                  }
+                case Pattern.Named(nm, p) =>
+                  (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
+                    Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, fib)
+                  }
+                case pat =>
+                  (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
+                    (newPattern, e, rhs) =>
+                      val expBranches = NonEmptyList.of((newPattern, e))
+                      Expr.Match(rhs, expBranches, fib)
+                  }
+              }
+
+            solvePat(accPat, foldWithErr)
+        }
       case Comment(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.replaceTag(decl))
       case CommentNB(CommentStatement(_, Padding(_, decl))) =>
@@ -2021,6 +2217,20 @@ object SourceConverter {
           )
           .render(80)
       }
+  }
+
+  final case class ForLoopNoBindings(region: Region) extends Error {
+    def message = "for loop has no bindings"
+  }
+
+  final case class ForLoopMissingInit(
+      names: NonEmptyList[Bindable],
+      region: Region
+  ) extends Error {
+    def message = {
+      val ns = names.toList.map(_.sourceCodeRepr).mkString(", ")
+      s"for loop bindings not initialized: $ns"
+    }
   }
 
   final case class NonBindingPattern(

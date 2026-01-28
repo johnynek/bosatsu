@@ -411,6 +411,112 @@ same = sum0.eq_Int(sum1)
 
   }
 
+  test("for loops desugar to foldl_List") {
+    evalTest(
+      List("""
+package Foo
+
+sum = (
+  total = 0
+  for x in range(4):
+    total = add(total, x)
+    total
+  total
+)
+main = sum
+"""),
+      "Foo",
+      VInt(6)
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+result = (
+  sum = 0
+  count = 0
+  for x in [1, 2, 3]:
+    (count, sum) = (add(count, 1), add(sum, x))
+    (count, sum)
+  (sum, count)
+)
+main = result
+"""),
+      "Foo",
+      ProductValue.fromList(List(VInt(6), VInt(3)))
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+pair = (
+  x = 0
+  y = 1
+  for _ in range(5):
+    (x, y) = (y, add(x, y))
+    (x, y)
+  (x, y)
+)
+main = pair
+"""),
+      "Foo",
+      ProductValue.fromList(List(VInt(5), VInt(8)))
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+triple = (
+  a = 1
+  b = 2
+  c = 3
+  for _ in range(2):
+    (a, b, c) = (b, c, add(a, c))
+    (a, b, c)
+  (a, b, c)
+)
+main = triple
+"""),
+      "Foo",
+      ProductValue.fromList(List(VInt(3), VInt(4), VInt(6)))
+    )
+  }
+
+  test("for loop errors on missing init or no bindings") {
+    evalFail(List("""
+package Foo
+
+main = (
+  for x in [1, 2]:
+    x
+  0
+)
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(msg.contains("for loop has no bindings"))
+      ()
+    }
+
+    evalFail(List("""
+package Foo
+
+main = (
+  x = 0
+  for n in [1, 2]:
+    (x, y) = (n, add(x, n))
+    (x, y)
+  x
+)
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(msg.contains("for loop bindings not initialized: y"))
+      ()
+    }
+  }
+
   test("test Int functions") {
     evalTest(
       List("""

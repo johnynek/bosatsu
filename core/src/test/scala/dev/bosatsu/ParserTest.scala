@@ -1113,6 +1113,30 @@ x""",
     )
   }
 
+  test("we can parse for loops") {
+    val src = """sum = 0
+for x in xs:
+  sum = add(sum, x)
+  sum
+sum"""
+
+    roundTrip(Declaration.parser(""), src)
+
+    val parsed = unsafeParse(Declaration.parser(""), src)
+    parsed match {
+      case Declaration.Binding(
+            BindingStatement(
+              _,
+              _,
+              Padding(_, Declaration.ForInBinding(_, _, _, _))
+            )
+          ) =>
+        ()
+      case other =>
+        fail(s"expected ForInBinding, got: $other")
+    }
+  }
+
   test("we can parse if") {
     import Declaration._
 

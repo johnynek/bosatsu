@@ -432,6 +432,18 @@ object Generators {
         Declaration.LeftApply(p, emptyRegion, value, in)
       }
 
+  def forInGen(
+      patGen: Gen[Pattern.Parsed],
+      inGen: Gen[NonBinding],
+      bodyGen: Gen[Declaration],
+      restGen: Gen[Declaration]
+  ): Gen[Declaration.ForInBinding] =
+    Gen
+      .zip(patGen, inGen, optIndent(bodyGen), padding(restGen, 1))
+      .map { case (p, inExpr, body, rest) =>
+        Declaration.ForInBinding(p, inExpr, body, rest)(using emptyRegion)
+      }
+
   def padding[T](tgen: Gen[T], min: Int = 0): Gen[Padding[T]] =
     Gen
       .zip(Gen.choose(min, 10), tgen)
@@ -928,7 +940,8 @@ object Generators {
           bindGen(pat, recNon, padding(recur, 1))
             .map(Binding(_)(using emptyRegion))
         ),
-        (1, leftApplyGen(pat, recNon, recur))
+        (1, leftApplyGen(pat, recNon, recur)),
+        (1, forInGen(pat, recNon, recur, recur))
       )
   }
 
@@ -958,6 +971,9 @@ object Generators {
         case LeftApply(_, _, r, b) =>
           // todo, we should really interleave shrinking r and b
           r #:: b.padded #:: LazyList.empty
+        case ForInBinding(_, inExpr, body, rest) =>
+          val next = inExpr #:: body.get #:: rest.padded #:: LazyList.empty
+          next #::: next.flatMap(shrinkDecl.shrink)
         case Match(_, _, args) =>
           args.get.toList.to(LazyList).flatMap { case (_, decl) =>
             decl.get #:: LazyList.from(shrinkDecl.shrink(decl.get))
