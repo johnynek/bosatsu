@@ -824,12 +824,14 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Playwright test: change config → different UI (30 tests pass)
 
 ### Phase 7: "Why?" Provenance
-- [ ] ProvenanceExtractor.scala extracts derivations from TypedExpr
-- [ ] Formulas generated from TypedExpr structure (not string parsing)
-- [ ] exprToFormula handles binary ops: add → +, sub → -, times → ×, div → ÷
-- [ ] "Why?" button shows derivation chain
-- [ ] Chain traces from output back to inputs
-- [ ] Playwright test: click "Why?" → see formula
+- [x] ProvenanceExtractor.scala extracts derivations from TypedExpr
+- [x] Formulas generated from TypedExpr structure (not string parsing)
+- [x] exprToFormula handles binary ops: add → +, sub → -, times → ×, div → ÷
+- [x] "Why?" button shows derivation chain
+- [x] Chain traces from output back to inputs
+- [x] Value substitution in Why modal (formula → substituted → result)
+- [x] Runtime value capture with timestamps
+- [x] Playwright test: click "Why?" → see formula (30 tests pass)
 
 ### Phase 8: "What if?" Toggles
 - [ ] AssumptionConfig added to config schema

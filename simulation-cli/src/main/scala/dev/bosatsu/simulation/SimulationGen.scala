@@ -212,15 +212,39 @@ function _formatValue(v) {
   return String(v);
 }
 
-// Format derivation header for "Why?" display
+// Substitute variable names in formula with their actual values
+function _substituteValues(formula) {
+  let result = formula;
+  Object.keys(_derivations).forEach(name => {
+    const d = _derivations[name];
+    if (d.value !== undefined) {
+      // Replace whole-word matches only using word boundaries
+      const regex = new RegExp('\\\\b' + name + '\\\\b', 'g');
+      result = result.replace(regex, _formatValue(d.value));
+    }
+  });
+  return result;
+}
+
+// Format derivation header for "Why?" display with value substitution
 function _formatDerivationHeader(d) {
   switch (d.type) {
     case 'assumption':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">assumption</span>';
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
     case 'computed':
-      return '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span> → <span class="value">' + _formatValue(d.value) + '</span>';
     case 'conditional':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">conditional</span>';
+      // Show: name = formula = substituted = value
+      const substituted = _substituteValues(d.formula);
+      const isSubstituted = substituted !== d.formula;
+      let result = '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span>';
+      if (isSubstituted) {
+        result += '<br>&nbsp;&nbsp;= <span class="substituted">' + substituted + '</span>';
+      }
+      result += '<br>&nbsp;&nbsp;= <span class="value">' + _formatValue(d.value) + '</span>';
+      if (d.type === 'conditional') {
+        result += ' <span class="tag">conditional</span>';
+      }
+      return result;
     default:
       return d.name + ' = ' + _formatValue(d.value);
   }
