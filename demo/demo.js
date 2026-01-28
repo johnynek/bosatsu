@@ -11,7 +11,6 @@
 
 async function init() {
   // Load source files
-  // JS transpiler outputs to _bundle.js which contains all generated code
   const loadFile = async (url, description) => {
     try {
       const response = await fetch(url);
@@ -24,11 +23,17 @@ async function init() {
     }
   };
 
-  const [source, jsCode, cCode] = await Promise.all([
+  // Load runtime and fibonacci module separately
+  // The JS transpiler outputs ES modules to Demo/Package/index.js
+  const [source, runtimeCode, fibCode, cCode] = await Promise.all([
     loadFile('examples/fibonacci.bosatsu', 'Bosatsu source'),
-    loadFile('examples/_bundle.js', 'Generated JavaScript'),
+    loadFile('examples/_runtime.js', 'Bosatsu runtime'),
+    loadFile('examples/Demo/Fibonacci/index.js', 'Generated JavaScript'),
     loadFile('examples/fibonacci.c', 'Generated C code')
   ]);
+
+  // Combine runtime and fibonacci code for display
+  const jsCode = `// === Bosatsu Runtime ===\n${runtimeCode}\n\n// === Demo/Fibonacci ===\n${fibCode}`;
 
   document.getElementById('source-code').textContent = source;
   document.getElementById('js-code').textContent = jsCode;
@@ -83,9 +88,8 @@ async function init() {
 }
 
 async function runJS(code) {
-  // The generated JS exports values with names like Demo_Fibonacci$result
-  // Package parts are joined with _ and binding name follows $
-  // So Demo/Fibonacci::result becomes Demo_Fibonacci$result
+  // The generated JS is an ES module with runtime and fibonacci code
+  // We need to strip the ES module syntax and evaluate it as a script
 
   // Check if code looks like generated output
   if (code.includes('// Generated JavaScript not available') || code.includes('// Run the build script')) {
@@ -93,9 +97,15 @@ async function runJS(code) {
   }
 
   try {
-    // The bundled code uses 'var' declarations which create globals
-    // Wrap in a function to evaluate and return the result
-    const fn = new Function(code + '\nreturn Demo_Fibonacci$result;');
+    // Remove ES module exports and imports (convert to script-style)
+    let scriptCode = code
+      .replace(/^export \{[^}]*\};?$/gm, '')  // Remove export statements
+      .replace(/^import [^;]*;$/gm, '')        // Remove import statements
+      .replace(/if \(typeof require !== 'undefined'\) \{ require\([^)]*\); \}/g, '');  // Remove Node.js require
+
+    // The fibonacci module defines 'fib' as a const - we just need to call it
+    // Add a call to fib(20) at the end to get the result
+    const fn = new Function(scriptCode + '\nreturn fib(20);');
     const result = fn();
 
     // Handle Bosatsu Int representation (could be BigInt or object)
@@ -106,31 +116,7 @@ async function runJS(code) {
     }
     return result;
   } catch (e) {
-    // If the expected variable doesn't exist, try to find what's available
     console.error('JS execution error:', e);
-
-    // Try to evaluate and list available bindings for debugging
-    try {
-      const evalFn = new Function(code + `
-        // Look for any Demo_Fibonacci or result bindings
-        const bindings = [];
-        for (const key in this) {
-          if (key.includes('Demo') || key.includes('Fibonacci') || key.includes('result')) {
-            try {
-              bindings.push(key + ' = ' + JSON.stringify(this[key]));
-            } catch (e) {
-              bindings.push(key + ' = [circular or complex]');
-            }
-          }
-        }
-        return bindings.length > 0 ? bindings.join('\\n') : 'No matching bindings found';
-      `);
-      const available = evalFn();
-      console.log('Available bindings:\n', available);
-    } catch (e2) {
-      // Ignore secondary error
-    }
-
     throw new Error('Could not execute generated JavaScript: ' + e.message);
   }
 }

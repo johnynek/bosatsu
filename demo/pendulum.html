@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pendulum - Bosatsu Simulation</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #0f0f1a;
+        color: #e0e0e0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .simulation-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        max-width: 500px;
+        margin: 0 auto;
+        width: 100%;
+        padding: 16px;
+      }
+
+      .canvas-wrapper {
+        position: relative;
+        background: #1a1a2e;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .controls {
+        margin-top: 16px;
+        padding: 16px;
+        background: #1a1a2e;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      .slider-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .slider-label {
+        width: 80px;
+        font-size: 14px;
+        color: #a0a0a0;
+      }
+
+      .slider-input {
+        flex: 1;
+        -webkit-appearance: none;
+        height: 6px;
+        background: #2a2a4e;
+        border-radius: 3px;
+        outline: none;
+      }
+
+      .slider-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        background: #667eea;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: transform 0.1s;
+      }
+
+      .slider-input::-webkit-slider-thumb:hover {
+        transform: scale(1.1);
+      }
+
+      .slider-value {
+        width: 60px;
+        text-align: right;
+        font-size: 14px;
+        font-weight: 500;
+        color: #667eea;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      button {
+        flex: 1;
+        padding: 10px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .btn-primary {
+        background: #667eea;
+        color: white;
+      }
+
+      .btn-primary:hover {
+        background: #5a6fd6;
+      }
+
+      .btn-secondary {
+        background: #2a2a4e;
+        color: #e0e0e0;
+      }
+
+      .btn-secondary:hover {
+        background: #3a3a5e;
+      }
+
+      .energy-display {
+        display: flex;
+        justify-content: space-around;
+        padding: 12px;
+        margin-top: 12px;
+        background: #0f0f1a;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .energy-item {
+        text-align: center;
+      }
+
+      .energy-label {
+        color: #a0a0a0;
+        margin-bottom: 4px;
+      }
+
+      .energy-value {
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .energy-kinetic {
+        color: #e94560;
+      }
+      .energy-potential {
+        color: #667eea;
+      }
+      .energy-total {
+        color: #48bb78;
+      }
+
+      .footer {
+        margin-top: 16px;
+        text-align: center;
+        font-size: 12px;
+        color: #606080;
+      }
+
+      .footer a {
+        color: #667eea;
+        text-decoration: none;
+      }
+
+      .footer a:hover {
+        text-decoration: underline;
+      }
+
+      .stats {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="simulation-container">
+      <div class="canvas-wrapper">
+        <canvas id="canvas" width="400" height="400"></canvas>
+        <div class="stats" id="stats"></div>
+      </div>
+
+      <div class="controls">
+        <div class="slider-row">
+          <span class="slider-label">Length</span>
+          <input type="range" class="slider-input" id="length" min="50" max="200" value="150" />
+          <span class="slider-value" id="length-value">150px</span>
+        </div>
+
+        <div class="slider-row">
+          <span class="slider-label">Gravity</span>
+          <input
+            type="range"
+            class="slider-input"
+            id="gravity"
+            min="1"
+            max="30"
+            value="9.8"
+            step="0.1"
+          />
+          <span class="slider-value" id="gravity-value">9.8</span>
+        </div>
+
+        <div class="slider-row">
+          <span class="slider-label">Damping</span>
+          <input
+            type="range"
+            class="slider-input"
+            id="damping"
+            min="90"
+            max="100"
+            value="99.5"
+            step="0.1"
+          />
+          <span class="slider-value" id="damping-value">99.5%</span>
+        </div>
+
+        <div class="energy-display">
+          <div class="energy-item">
+            <div class="energy-label">Kinetic</div>
+            <div class="energy-value energy-kinetic" id="energy-kinetic">0</div>
+          </div>
+          <div class="energy-item">
+            <div class="energy-label">Potential</div>
+            <div class="energy-value energy-potential" id="energy-potential">0</div>
+          </div>
+          <div class="energy-item">
+            <div class="energy-label">Total</div>
+            <div class="energy-value energy-total" id="energy-total">0</div>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button class="btn-secondary" id="reset">Reset</button>
+          <button class="btn-primary" id="toggle">Pause</button>
+        </div>
+      </div>
+
+      <div class="footer">
+        Built with <a href="https://github.com/johnynek/bosatsu" target="_blank">Bosatsu</a>
+        | <a href="../">&larr; Back to Home</a>
+      </div>
+    </div>
+
+    <script>
+      // ==========================================================================
+      // PENDULUM SIMULATION
+      // ==========================================================================
+
+      // State
+      const state = {
+        angle: Math.PI / 4, // Start at 45 degrees
+        angularVelocity: 0,
+        length: 150,
+        gravity: 9.8,
+        damping: 0.995,
+        running: true,
+        width: 400,
+        height: 400,
+        trail: [],
+      }
+
+      // Parse URL params
+      const params = new URLSearchParams(window.location.search)
+      if (params.has('length')) state.length = parseFloat(params.get('length'))
+      if (params.has('gravity')) state.gravity = parseFloat(params.get('gravity'))
+      if (params.has('damping')) state.damping = parseFloat(params.get('damping')) / 100
+      if (params.has('angle')) state.angle = (parseFloat(params.get('angle')) * Math.PI) / 180
+
+      // DOM elements
+      const canvas = document.getElementById('canvas')
+      const ctx = canvas.getContext('2d')
+      const lengthSlider = document.getElementById('length')
+      const gravitySlider = document.getElementById('gravity')
+      const dampingSlider = document.getElementById('damping')
+      const lengthValue = document.getElementById('length-value')
+      const gravityValue = document.getElementById('gravity-value')
+      const dampingValue = document.getElementById('damping-value')
+      const toggleBtn = document.getElementById('toggle')
+      const resetBtn = document.getElementById('reset')
+      const statsEl = document.getElementById('stats')
+      const energyKinetic = document.getElementById('energy-kinetic')
+      const energyPotential = document.getElementById('energy-potential')
+      const energyTotal = document.getElementById('energy-total')
+
+      // Sync UI
+      lengthSlider.value = state.length
+      gravitySlider.value = state.gravity
+      dampingSlider.value = state.damping * 100
+      lengthValue.textContent = state.length + 'px'
+      gravityValue.textContent = state.gravity.toFixed(1)
+      dampingValue.textContent = (state.damping * 100).toFixed(1) + '%'
+
+      // ==========================================================================
+      // PHYSICS
+      // ==========================================================================
+
+      function updatePhysics(dt) {
+        if (!state.running) return
+
+        // Angular acceleration = -g/L * sin(angle)
+        const angularAcceleration = -(state.gravity / (state.length / 100)) * Math.sin(state.angle)
+
+        // Update with damping
+        state.angularVelocity = (state.angularVelocity + angularAcceleration * dt) * state.damping
+        state.angle += state.angularVelocity * dt
+
+        // Calculate bob position for trail
+        const pivotX = state.width / 2
+        const pivotY = state.height / 4
+        const bobX = pivotX + state.length * Math.sin(state.angle)
+        const bobY = pivotY + state.length * Math.cos(state.angle)
+
+        // Update trail
+        state.trail.unshift({ x: bobX, y: bobY, age: 0 })
+        state.trail = state.trail.map((p) => ({ ...p, age: p.age + 1 })).filter((p) => p.age < 50)
+      }
+
+      function calculateEnergy() {
+        const kinetic = 0.5 * Math.pow(state.length * state.angularVelocity, 2)
+        const potential = state.gravity * state.length * (1 - Math.cos(state.angle))
+        return { kinetic, potential, total: kinetic + potential }
+      }
+
+      // ==========================================================================
+      // RENDERING
+      // ==========================================================================
+
+      function render() {
+        // Clear with gradient
+        const gradient = ctx.createLinearGradient(0, 0, 0, state.height)
+        gradient.addColorStop(0, '#0f0f1a')
+        gradient.addColorStop(1, '#1a1a2e')
+        ctx.fillStyle = gradient
+        ctx.fillRect(0, 0, state.width, state.height)
+
+        // Pivot point
+        const pivotX = state.width / 2
+        const pivotY = state.height / 4
+
+        // Bob position
+        const bobX = pivotX + state.length * Math.sin(state.angle)
+        const bobY = pivotY + state.length * Math.cos(state.angle)
+
+        // Draw trail
+        state.trail.forEach((point) => {
+          const alpha = 1 - point.age / 50
+          ctx.beginPath()
+          ctx.arc(point.x, point.y, 3, 0, Math.PI * 2)
+          ctx.fillStyle = `rgba(102, 126, 234, ${alpha * 0.5})`
+          ctx.fill()
+        })
+
+        // Draw reference line (equilibrium)
+        ctx.beginPath()
+        ctx.setLineDash([5, 5])
+        ctx.moveTo(pivotX, pivotY)
+        ctx.lineTo(pivotX, pivotY + state.length)
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)'
+        ctx.lineWidth = 1
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Draw rod
+        ctx.beginPath()
+        ctx.moveTo(pivotX, pivotY)
+        ctx.lineTo(bobX, bobY)
+        ctx.strokeStyle = '#4a5568'
+        ctx.lineWidth = 3
+        ctx.stroke()
+
+        // Draw pivot
+        ctx.beginPath()
+        ctx.arc(pivotX, pivotY, 8, 0, Math.PI * 2)
+        ctx.fillStyle = '#2d3748'
+        ctx.fill()
+        ctx.strokeStyle = '#4a5568'
+        ctx.lineWidth = 2
+        ctx.stroke()
+
+        // Draw bob with gradient
+        const bobGradient = ctx.createRadialGradient(bobX - 5, bobY - 5, 0, bobX, bobY, 20)
+        bobGradient.addColorStop(0, '#818cf8')
+        bobGradient.addColorStop(1, '#667eea')
+
+        ctx.beginPath()
+        ctx.arc(bobX, bobY, 20, 0, Math.PI * 2)
+        ctx.fillStyle = bobGradient
+        ctx.fill()
+
+        // Draw highlight
+        ctx.beginPath()
+        ctx.arc(bobX - 5, bobY - 5, 5, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(255,255,255,0.3)'
+        ctx.fill()
+
+        // Draw velocity indicator
+        const velScale = 20
+        if (Math.abs(state.angularVelocity) > 0.01) {
+          ctx.beginPath()
+          ctx.moveTo(bobX, bobY)
+          ctx.lineTo(
+            bobX + (state.length * state.angularVelocity * Math.cos(state.angle) * velScale) / 100,
+            bobY - (state.length * state.angularVelocity * Math.sin(state.angle) * velScale) / 100
+          )
+          ctx.strokeStyle = 'rgba(233, 69, 96, 0.8)'
+          ctx.lineWidth = 2
+          ctx.stroke()
+
+          // Arrow head
+          const arrowAngle = Math.atan2(
+            -state.angularVelocity * Math.sin(state.angle),
+            state.angularVelocity * Math.cos(state.angle)
+          )
+          const arrowX =
+            bobX + (state.length * state.angularVelocity * Math.cos(state.angle) * velScale) / 100
+          const arrowY =
+            bobY - (state.length * state.angularVelocity * Math.sin(state.angle) * velScale) / 100
+
+          ctx.beginPath()
+          ctx.moveTo(arrowX, arrowY)
+          ctx.lineTo(
+            arrowX - 8 * Math.cos(arrowAngle - 0.4),
+            arrowY - 8 * Math.sin(arrowAngle - 0.4)
+          )
+          ctx.moveTo(arrowX, arrowY)
+          ctx.lineTo(
+            arrowX - 8 * Math.cos(arrowAngle + 0.4),
+            arrowY - 8 * Math.sin(arrowAngle + 0.4)
+          )
+          ctx.stroke()
+        }
+      }
+
+      // ==========================================================================
+      // ANIMATION LOOP
+      // ==========================================================================
+
+      let lastTime = performance.now()
+      let frameCount = 0
+      let fps = 0
+      let lastFpsUpdate = lastTime
+
+      function animate(currentTime) {
+        const dt = Math.min((currentTime - lastTime) / 1000, 0.1)
+        lastTime = currentTime
+
+        frameCount++
+        if (currentTime - lastFpsUpdate > 1000) {
+          fps = frameCount
+          frameCount = 0
+          lastFpsUpdate = currentTime
+        }
+
+        updatePhysics(dt)
+        render()
+
+        // Update stats
+        const angleDeg = ((state.angle * 180) / Math.PI).toFixed(1)
+        statsEl.textContent = `${fps} fps | θ: ${angleDeg}°`
+
+        // Update energy display
+        const energy = calculateEnergy()
+        energyKinetic.textContent = energy.kinetic.toFixed(0)
+        energyPotential.textContent = energy.potential.toFixed(0)
+        energyTotal.textContent = energy.total.toFixed(0)
+
+        requestAnimationFrame(animate)
+      }
+
+      // ==========================================================================
+      // EVENT HANDLERS
+      // ==========================================================================
+
+      lengthSlider.addEventListener('input', (e) => {
+        state.length = parseFloat(e.target.value)
+        lengthValue.textContent = state.length + 'px'
+      })
+
+      gravitySlider.addEventListener('input', (e) => {
+        state.gravity = parseFloat(e.target.value)
+        gravityValue.textContent = state.gravity.toFixed(1)
+      })
+
+      dampingSlider.addEventListener('input', (e) => {
+        state.damping = parseFloat(e.target.value) / 100
+        dampingValue.textContent = (state.damping * 100).toFixed(1) + '%'
+      })
+
+      toggleBtn.addEventListener('click', () => {
+        state.running = !state.running
+        toggleBtn.textContent = state.running ? 'Pause' : 'Resume'
+        toggleBtn.classList.toggle('btn-primary', state.running)
+        toggleBtn.classList.toggle('btn-secondary', !state.running)
+      })
+
+      resetBtn.addEventListener('click', () => {
+        state.angle = Math.PI / 4
+        state.angularVelocity = 0
+        state.trail = []
+        state.running = true
+        toggleBtn.textContent = 'Pause'
+        toggleBtn.classList.add('btn-primary')
+        toggleBtn.classList.remove('btn-secondary')
+      })
+
+      // Start
+      requestAnimationFrame(animate)
+    </script>
+  </body>
+</html>
