@@ -102,7 +102,8 @@ object Command {
           Opts.option[P](
             "src_root",
             help =
-              "path to the src root for the bosatsu packages in this library"
+              "path to the src root for the bosatsu packages in this library " +
+                "(relative paths are interpreted relative to the repo root)"
           ),
           Opts.option[Version]("version", "the initial version to use"),
           topLevelOpt
@@ -110,8 +111,7 @@ object Command {
           repoRootF
             .flatMap { gitRoot =>
               for {
-                cwd <- platformIO.pathF(".")
-                rootDirAbs = platformIO.resolve(cwd, rootDir)
+                rootDirAbs = platformIO.resolve(gitRoot, rootDir)
                 relDir <- platformIO.relativize(gitRoot, rootDirAbs) match {
                   case Some(value) => moduleIOMonad.pure(value)
                   case None        =>
