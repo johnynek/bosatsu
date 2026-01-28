@@ -494,4 +494,194 @@ $sweepSliders
       .replace("\n", "\\n")
       .replace("\r", "\\r")
       .replace("\t", "\\t")
+
+  /**
+   * Generate HTML for a function-based simulation.
+   *
+   * This is the principled approach where:
+   * - The simulation is a pure function
+   * - Function parameters ARE the inputs
+   * - Return type fields ARE the outputs
+   * - TypedExpr.freeVarsSet provides dependency analysis
+   */
+  def generateFunctionBased(
+      funcName: String,
+      funcParams: List[(String, String)],
+      analyses: List[DerivationAnalyzer.AnalyzedBinding],
+      computeJs: String,
+      config: SimConfig
+  ): String = {
+    // 1. Generate derivation state (for input params)
+    val derivationState = generateDerivationState(analyses)
+
+    // 2. Generate JavaScript that calls the function
+    val callArgs = funcParams.map { case (name, _) => s"""_getState("$name")""" }.mkString(", ")
+
+    val recomputeJs = s"""
+// The compiled function from Bosatsu
+$computeJs
+
+// Recompute by calling the function with current input values
+function _recompute() {
+  // Call the function with input values
+  const result = $funcName($callArgs);
+
+  // Update result displays
+  console.log("$funcName result:", result);
+
+  // For structs, result is an object or array
+  // Try to display result fields
+  const resultDiv = document.getElementById('results');
+  if (resultDiv) {
+    if (typeof result === 'object' && result !== null) {
+      let html = '';
+      // Handle struct (named fields) or tuple (array)
+      if (Array.isArray(result)) {
+        result.forEach((val, i) => {
+          html += '<div class="result-item"><span class="result-label">field_' + i + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+        });
+      } else {
+        Object.entries(result).forEach(([key, val]) => {
+          html += '<div class="result-item"><span class="result-label">' + key + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+        });
+      }
+      resultDiv.innerHTML = html;
+    } else {
+      resultDiv.textContent = _formatValue(result);
+    }
+  }
+
+  // Update input derivations
+${funcParams.map { case (name, _) =>
+      s"""  _derivations["$name"].value = _getState("$name");"""
+    }.mkString("\n")}
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}"""
+
+    // 3. Generate UI for inputs
+    val uiJs = generateFunctionBasedUI(funcParams, config)
+
+    // 4. Combine all JS
+    val fullJs = s"""${JsGen.runtimeCode}
+
+// Derivation state tracking for inputs
+$derivationState
+
+// Function and recomputation
+$recomputeJs
+
+// UI initialization
+$uiJs
+"""
+
+    // 5. Build initial state from function params (using defaults from config eventually)
+    // For now, use simple defaults
+    val initialState = funcParams.map { case (name, tpe) =>
+      val defaultVal = tpe match {
+        case "Int" => "0"
+        case "Double" => "0.0"
+        case "Bool" => "true"
+        case _ => "0"
+      }
+      name -> defaultVal
+    }.toMap
+
+    // 6. Generate embed config
+    val embedConfig = EmbedGenerator.EmbedConfig(
+      title = config.title,
+      theme = config.theme,
+      showWhyButtons = config.showWhy,
+      showWhatIfToggles = config.showWhatIf,
+      showParameterSweeps = config.showSweeps
+    )
+
+    // 7. Generate HTML
+    EmbedGenerator.generateEmbed(embedConfig, initialState, fullJs)
+  }
+
+  /**
+   * Generate UI initialization for function-based simulation.
+   */
+  private def generateFunctionBasedUI(
+      funcParams: List[(String, String)],
+      config: SimConfig
+  ): String = {
+    // Generate input controls for each parameter
+    val inputControls = funcParams.map { case (name, tpe) =>
+      val inputType = tpe match {
+        case "Int" | "Double" => "number"
+        case "Bool" => "checkbox"
+        case _ => "text"
+      }
+      s"""  addInputControl("$name", "$inputType", "inputs");"""
+    }.mkString("\n")
+
+    s"""// Add input control for a function parameter
+function addInputControl(name, inputType, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'input-control';
+
+  if (inputType === 'checkbox') {
+    div.innerHTML = '<label class="input-label"><span class="input-name">' + name + '</span><input type="checkbox" class="input-checkbox" checked /></label>';
+    const input = div.querySelector('input');
+    input.onchange = () => {
+      _setState(name, input.checked);
+      _recompute();
+    };
+  } else {
+    div.innerHTML = '<label class="input-label"><span class="input-name">' + name + '</span><input type="' + inputType + '" class="input-field" value="0" /></label>';
+    const input = div.querySelector('input');
+    input.oninput = () => {
+      const val = inputType === 'number' ? parseFloat(input.value) : input.value;
+      if (!isNaN(val) || inputType !== 'number') {
+        _setState(name, val);
+        _recompute();
+      }
+    };
+  }
+
+  container.appendChild(div);
+}
+
+// Initialize UI
+function init() {
+  // Create inputs section
+  const main = document.querySelector('main');
+  if (main) {
+    const inputsDiv = document.createElement('div');
+    inputsDiv.id = 'inputs';
+    inputsDiv.className = 'inputs-section';
+    inputsDiv.innerHTML = '<h3>Inputs</h3>';
+    main.insertBefore(inputsDiv, main.firstChild);
+
+    const resultsDiv = document.createElement('div');
+    resultsDiv.id = 'results';
+    resultsDiv.className = 'results-section';
+    resultsDiv.innerHTML = '<h3>Results</h3><p>Adjust inputs to see results.</p>';
+    main.appendChild(resultsDiv);
+  }
+
+  // Add input controls
+$inputControls
+
+  // Initial computation
+  _recompute();
+}"""
+  }
 }

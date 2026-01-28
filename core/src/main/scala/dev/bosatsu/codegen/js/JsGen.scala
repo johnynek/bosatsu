@@ -922,7 +922,7 @@ object JsGen {
     Code.render(Code.Const(ident.name, jsExpr))
   }
 
-  /** Render multiple bindings as an ES module */
+  /** Render multiple bindings as an ES module (with exports) */
   def renderModule[A](bindings: List[(Bindable, Matchless.Expr[A])]): String = {
     val statements = bindings.map { case (name, expr) =>
       val (_, jsExpr) = Env.run(exprToJs(expr))
@@ -942,6 +942,19 @@ object JsGen {
     }
 
     Code.render(allCode)
+  }
+
+  /** Render bindings as statements only (no ES module exports).
+    * Use this for embedding in HTML where exports would cause errors.
+    */
+  def renderStatements[A](bindings: List[(Bindable, Matchless.Expr[A])]): String = {
+    val statements = bindings.map { case (name, expr) =>
+      val (_, jsExpr) = Env.run(exprToJs(expr))
+      val ident = escape(name)
+      Code.Const(ident.name, jsExpr)
+    }
+
+    Code.render(Code.Statements(statements))
   }
 
   // ==================
