@@ -24,21 +24,18 @@ object DaemonCli {
     def run: IO[ExitCode] = {
       val socket = socketPath.getOrElse(DaemonServer.defaultSocketPath)
 
-      // For now, create an empty trace since we don't have trace file parsing yet
-      // In a full implementation, we'd parse the trace file
-      val emptyTrace = ProvenanceTrace(
-        nodes = Map.empty,
-        resultNodeId = NodeId("result"),
-        sourceFile = traceFile.toString
-      )
+      DaemonServer.loadTrace(traceFile).flatMap {
+        case Left(err) =>
+          IO.println(s"Failed to load trace: $err").as(ExitCode.Error)
 
-      val config = DaemonServer.Config(socket, emptyTrace, traceFile.toString)
-
-      IO.println(s"Starting daemon on ${socket}...") *>
-        DaemonServer.run(config).as(ExitCode.Success)
-          .handleErrorWith { err =>
-            IO.println(s"Daemon error: ${err.getMessage}").as(ExitCode.Error)
-          }
+        case Right(trace) =>
+          val config = DaemonServer.Config(socket, trace, traceFile.toString)
+          IO.println(s"Starting daemon with ${trace.nodeCount} nodes on ${socket}...") *>
+            DaemonServer.run(config).as(ExitCode.Success)
+              .handleErrorWith { err =>
+                IO.println(s"Daemon error: ${err.getMessage}").as(ExitCode.Error)
+              }
+      }
     }
   }
 

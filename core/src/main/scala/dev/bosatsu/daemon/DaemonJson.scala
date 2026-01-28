@@ -53,6 +53,28 @@ object DaemonJson {
         JObject(List("type" -> JString("literal")))
     }
 
+  implicit val traceNodeWriter: Writer[TraceNode] =
+    Writer.from { node =>
+      JObject(List(
+        "id" -> JString(node.id.value),
+        "value" -> JString(node.value),
+        "source" -> sourceTypeWriter.write(node.source),
+        "bindingName" -> node.bindingName.fold[Json](JNull)(JString(_)),
+        "location" -> node.location.fold[Json](JNull)(sourceLocationWriter.write),
+        "dependencies" -> JArray(node.dependencies.map(d => JString(d.value)).toVector),
+        "usedBy" -> JArray(node.usedBy.map(u => JString(u.value)).toVector)
+      ))
+    }
+
+  implicit val provenanceTraceWriter: Writer[ProvenanceTrace] =
+    Writer.from { trace =>
+      JObject(List(
+        "nodes" -> JArray(trace.nodes.values.toVector.map(traceNodeWriter.write)),
+        "resultNodeId" -> JString(trace.resultNodeId.value),
+        "sourceFile" -> JString(trace.sourceFile)
+      ))
+    }
+
   implicit val nodeSummaryWriter: Writer[ResponseData.NodeSummary] =
     Writer.from { ns =>
       JObject(List(
@@ -211,6 +233,72 @@ object DaemonJson {
         } yield SourceLocation(file, line, column)
     }
 
+  implicit val sourceTypeReader: Reader[SourceType] =
+    new Reader.Obj[SourceType] {
+      def describe = "SourceType"
+      def readObj(from: Reader.FromObj) =
+        from.field[String]("type").flatMap {
+          case "pure" =>
+            from.optional[String]("expression").map(SourceType.Pure(_))
+          case "operation" =>
+            for {
+              interface <- from.field[String]("interface")
+              method <- from.field[String]("method")
+            } yield SourceType.Operation(interface, method)
+          case "binding" =>
+            from.field[String]("name").map(SourceType.Binding(_))
+          case "parameter" =>
+            Right(SourceType.Parameter)
+          case "literal" =>
+            Right(SourceType.Literal)
+          case other =>
+            Left((s"unknown source type: $other", from.j, from.path))
+        }
+    }
+
+  implicit val traceNodeReader: Reader[TraceNode] =
+    new Reader.Obj[TraceNode] {
+      def describe = "TraceNode"
+      def readObj(from: Reader.FromObj) =
+        for {
+          id <- from.field[String]("id").map(NodeId(_))
+          value <- from.field[String]("value")
+          source <- from.field[SourceType]("source")
+          bindingName <- from.optional[String]("bindingName")
+          location <- from.optional[SourceLocation]("location")
+          dependencies <- from.field[List[String]]("dependencies").map(_.map(NodeId(_)))
+          usedBy <- from.field[List[String]]("usedBy").map(_.map(NodeId(_)))
+        } yield TraceNode(id, value, source, bindingName, location, dependencies, usedBy)
+    }
+
+  implicit val provenanceTraceReader: Reader[ProvenanceTrace] =
+    new Reader.Obj[ProvenanceTrace] {
+      def describe = "ProvenanceTrace"
+      def readObj(from: Reader.FromObj) =
+        for {
+          nodesList <- from.field[List[TraceNode]]("nodes")
+          resultNodeId <- from.field[String]("resultNodeId").map(NodeId(_))
+          sourceFile <- from.field[String]("sourceFile")
+        } yield ProvenanceTrace(
+          nodes = nodesList.map(n => n.id -> n).toMap,
+          resultNodeId = resultNodeId,
+          sourceFile = sourceFile
+        )
+    }
+
+  // List reader for TraceNode
+  implicit val traceNodeListReader: Reader[List[TraceNode]] =
+    new Reader[List[TraceNode]] {
+      def describe = "List[TraceNode]"
+      def read(path: Json.Path, j: Json) = j match {
+        case JArray(items) =>
+          items.toList.zipWithIndex.traverse { case (item, idx) =>
+            traceNodeReader.read(path.index(idx), item)
+          }
+        case _ => Left((s"expected array for $describe", j, path))
+      }
+    }
+
   implicit val daemonCommandReader: Reader[DaemonCommand] =
     new Reader.Obj[DaemonCommand] {
       def describe = "DaemonCommand"
@@ -274,6 +362,18 @@ object DaemonJson {
 
   def renderResponse(response: DaemonResponse): String =
     daemonResponseWriter.write(response).render
+
+  def parseTrace(jsonStr: String): Either[String, ProvenanceTrace] =
+    Json.parserFile.parseAll(jsonStr) match {
+      case Left(err) => Left(s"JSON parse error: $err")
+      case Right(json) =>
+        provenanceTraceReader.read(Json.Path.Root, json).left.map {
+          case (msg, _, path) => s"$msg at ${path.show}"
+        }
+    }
+
+  def renderTrace(trace: ProvenanceTrace): String =
+    provenanceTraceWriter.write(trace).render
 
   def renderCommand(command: DaemonCommand): String = {
     val json = command match {

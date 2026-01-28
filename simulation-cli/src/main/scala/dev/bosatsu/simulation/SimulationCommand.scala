@@ -2,27 +2,37 @@ package dev.bosatsu.simulation
 
 import cats.effect.IO
 import cats.implicits._
-import cats.data.{ValidatedNel, Validated}
+import cats.data.{NonEmptyList, ValidatedNel, Validated}
 import com.monovore.decline._
 import java.nio.file.{Files, Path, Paths}
 
 import dev.bosatsu.{
   Package,
+  PackageMap,
   PackageName,
   LocationMap,
-  Matchless,
   Identifier,
-  RecursionKind,
-  Pattern
+  Pattern,
+  Par,
+  TypedExpr,
+  HasRegion,
+  Region,
+  MatchlessFromTypedExpr
 }
 import dev.bosatsu.codegen.js.JsGen
 import dev.bosatsu.ui.EmbedGenerator
 import dev.bosatsu.Parser
+import dev.bosatsu.analysis.{ProvenanceAnalyzer, DerivationGraph}
 
 /**
  * Command-line interface for bosatsu-sim.
  *
- * Parses arguments and runs the simulation HTML generation.
+ * Uses the principled Bosatsu compilation pipeline:
+ * 1. Parse to Package.Parsed
+ * 2. Type-check via PackageMap.typeCheckParsed (produces TypedExpr with analysis)
+ * 3. Analyze with ProvenanceAnalyzer for derivation tracking
+ * 4. Compile to Matchless IR via MatchlessFromTypedExpr.compile
+ * 5. Generate JavaScript via JsGen.renderModule
  */
 case class SimulationCommand(
     input: Path,
@@ -35,24 +45,65 @@ case class SimulationCommand(
 ) {
 
   def run: IO[Unit] = {
+    given ec: Par.EC = Par.ecFromExecutionContext(
+      using scala.concurrent.ExecutionContext.global
+    )
+
     for {
       // Read input file
       inputContent <- IO(Files.readString(input))
       fileName = input.getFileName.toString
-      packageName = fileName.stripSuffix(".bosatsu").replace("-", "_")
+      packageNameStr = fileName.stripSuffix(".bosatsu").replace("-", "_")
+      packageName = PackageName.parse(packageNameStr).getOrElse(
+        PackageName.parse("Main").get
+      )
 
-      // Parse the Bosatsu file
+      // Parse the Bosatsu file (packageName hint is optional, file declares its own package)
       parsed <- IO.fromEither(
-        Parser.parse(Package.parser(Some(PackageName.parse(packageName).getOrElse(
-          PackageName.parse("Main").get
-        ))), inputContent).toEither.leftMap { errs =>
+        Parser.parse(Package.parser(None), inputContent).toEither.leftMap { errs =>
           val errMsg = errs.toList.map(_.showContext(LocationMap.Colorize.None).renderTrim(80)).mkString("; ")
           new RuntimeException(s"Parse errors: $errMsg")
         }
       )
+      parsedPackage = parsed._2
+      actualPackageName = parsedPackage.name  // Use the declared package name
+      locationMap = LocationMap(inputContent)
 
-      // Generate HTML from the parsed package
-      htmlContent = generateSimulationHtml(parsed._2, fileName)
+      // Type check using the principled pipeline
+      // This gives us TypedExpr with full type information and analysis
+      typeChecked <- IO.fromEither {
+        val packWithLoc = NonEmptyList.one(((packageNameStr, locationMap), parsedPackage))
+        PackageMap.typeCheckParsed(packWithLoc, Nil, packageNameStr).toEither.leftMap { errs =>
+          // Build source map for error messages
+          val sourceMap: Map[PackageName, (LocationMap, String)] = Map(
+            actualPackageName -> (locationMap, packageNameStr)
+          )
+          val errMsg = errs.toList.map(_.message(sourceMap, LocationMap.Colorize.None)).mkString("; ")
+          new RuntimeException(s"Type check errors: $errMsg")
+        }
+      }
+
+      // Get the typed package using the actual declared name
+      typedPackage = typeChecked.toMap.get(actualPackageName).getOrElse(
+        throw new RuntimeException(s"Package $actualPackageName not found after type checking")
+      )
+
+      // Get TypedExpr bindings for analysis
+      typedBindings = typedPackage.lets.map { case (name, _, expr) => (name, expr) }
+
+      // Extract display formulas from parsed AST (for human-readable formulas)
+      bindingsMap = extractBindingValues(parsedPackage)
+
+      // Check if this is an animation
+      isAnimation = bindingsMap.get("simulation_type").exists(_.contains("animation")) ||
+                   (bindingsMap.contains("canvas_width") && bindingsMap.contains("canvas_height"))
+
+      // Generate HTML based on simulation type
+      htmlContent = if (isAnimation) {
+        generateAnimationHtml(bindingsMap, fileName)
+      } else {
+        generateCalculatorHtml(typedBindings, typedPackage, typeChecked, bindingsMap, fileName)
+      }
 
       // Write output
       _ <- IO(Files.writeString(output, htmlContent))
@@ -60,19 +111,107 @@ case class SimulationCommand(
     } yield ()
   }
 
-  private def generateSimulationHtml(
-      parsed: Package.Parsed,
+  /**
+   * Extract binding values from parsed statements for UI display.
+   * This is needed for things like canvas dimensions, physics expressions, etc.
+   */
+  private def extractBindingValues(parsed: Package.Parsed): Map[String, String] = {
+    import dev.bosatsu.Statement
+    import dev.bosatsu.Declaration
+
+    parsed.program.flatMap {
+      case Statement.Bind(bind) =>
+        bind.name match {
+          case Pattern.Var(name) =>
+            val formula = exprToDisplayString(bind.value)
+            Some(name.asString -> formula)
+          case _ => None
+        }
+      case _ => None
+    }.toMap
+  }
+
+  /**
+   * Convert a declaration to a display string (for formulas, UI labels, etc.)
+   */
+  private def exprToDisplayString(expr: dev.bosatsu.Declaration.NonBinding): String = {
+    import dev.bosatsu.Declaration._
+
+    expr match {
+      case Literal(lit) =>
+        lit match {
+          case dev.bosatsu.Lit.Integer(i) => i.toString
+          case dev.bosatsu.Lit.Str(s) => s""""$s""""
+          case dev.bosatsu.Lit.Chr(c) => s"'$c'"
+        }
+      case Var(name) => name.asString
+      case Apply(fn, args, _) =>
+        val fnStr = exprToDisplayString(fn)
+        val argsStr = args.toList.map(exprToDisplayString).mkString(", ")
+        s"$fnStr($argsStr)"
+      case ApplyOp(left, op, right) =>
+        val leftStr = exprToDisplayString(left)
+        val rightStr = exprToDisplayString(right)
+        s"$leftStr ${op.asString} $rightStr"
+      case Parens(inner) =>
+        inner match {
+          case nb: NonBinding => s"(${exprToDisplayString(nb)})"
+          case _ => inner.toDoc.renderTrim(80)
+        }
+      case IfElse(_, _) => "if-else"
+      case ann @ Annotation(term, _) => exprToDisplayString(term)
+      case _ => expr.toDoc.renderTrim(80)
+    }
+  }
+
+  /**
+   * Generate animation HTML - physics and rendering are defined in the .bosatsu file.
+   */
+  private def generateAnimationHtml(
+      params: Map[String, String],
       fileName: String
   ): String = {
-    // Extract bindings from the parsed statements
-    // For a simple simulation, we extract let bindings directly from the statements
-    val bindings = extractBindings(parsed)
+    val canvasWidth = params.getOrElse("canvas_width", "552").toIntOption.getOrElse(552)
+    val canvasHeight = params.getOrElse("canvas_height", "300").toIntOption.getOrElse(300)
 
-    // Generate analyzed bindings (simplified - just extract names and formulas from source)
-    val analyses = bindings.map { case (name, formula) =>
-      val deps = extractDepsFromFormula(formula, bindings.map(_._1).toSet)
+    AnimationTemplates.generate(
+      title = title.getOrElse(fileName.stripSuffix(".bosatsu").replace("_", " ").capitalize),
+      theme = theme,
+      params = params,
+      canvasWidth = canvasWidth,
+      canvasHeight = canvasHeight
+    )
+  }
+
+  /**
+   * Generate calculator HTML using the principled Bosatsu compilation pipeline.
+   *
+   * Uses:
+   * - TypedExpr for analysis (via ProvenanceAnalyzer)
+   * - MatchlessFromTypedExpr for IR compilation
+   * - JsGen for JavaScript generation
+   *
+   * This is the proper way to go from Bosatsu to JavaScript, using
+   * existing infrastructure rather than reimplementing code generation.
+   */
+  private def generateCalculatorHtml(
+      typedBindings: List[(Identifier.Bindable, TypedExpr[Any])],
+      typedPackage: Package.Typed[Any],
+      fullPackageMap: PackageMap.Inferred,
+      displayFormulas: Map[String, String],
+      fileName: String
+  )(implicit ec: Par.EC): String = {
+    import dev.bosatsu.codegen.js.Code
+
+    val knownBindings = typedBindings.map(_._1).toSet
+
+    // Use TypedExpr.freeVarsDup for dependency analysis
+    // This is the principled way to extract dependencies
+    val analyses = typedBindings.map { case (name, expr) =>
+      val deps = TypedExpr.freeVarsSet(List(expr)).intersect(knownBindings)
       val kind = if (deps.isEmpty) DerivationAnalyzer.Assumption else DerivationAnalyzer.Computation
-      val valueType = inferTypeFromFormula(formula)
+      val formula = displayFormulas.getOrElse(name.asString, name.asString)
+      val valueType = inferTypeFromTypedExpr(expr)
 
       DerivationAnalyzer.AnalyzedBinding(
         name,
@@ -83,17 +222,20 @@ case class SimulationCommand(
       )
     }
 
-    // Generate JS code from the source (simplified version)
-    val jsBindings = bindings.map { case (name, formula) =>
-      val jsName = JsGen.escape(name).name
-      val jsValue = formulaToJs(formula, bindings.map(_._1).toSet)
-      s"const $jsName = $jsValue;"
-    }
+    // Compile to Matchless IR using the full PackageMap (includes Predef with type info)
+    // This handles all operators (add, sub, times, div) properly via PredefExternal
+    val matchlessCompiled = MatchlessFromTypedExpr.compile((),
+      PackageMap.toAnyTyped(fullPackageMap)
+    )
 
-    // Build the full JS with derivation tracking
-    val computeJs = jsBindings.mkString("\n")
+    val packageBindings = matchlessCompiled.getOrElse(typedPackage.name, Nil)
+    val rawComputeJs = JsGen.renderModule(packageBindings)
 
-    // Use SimulationGen to create the full HTML
+    // Post-process to remove package prefix for standalone HTML
+    // JsGen generates qualified names like "LoanCalculator$years" but we need just "years"
+    val packagePrefix = JsGen.escapePackage(typedPackage.name) + "\\$"
+    val computeJs = rawComputeJs.replaceAll(packagePrefix, "")
+
     val config = SimulationGen.SimConfig(
       title = title.getOrElse(fileName.stripSuffix(".bosatsu")),
       theme = theme match {
@@ -109,120 +251,20 @@ case class SimulationCommand(
   }
 
   /**
-   * Extract top-level let bindings from parsed statements.
+   * Infer type from TypedExpr for UI purposes.
+   * Uses the actual type information from the type checker.
    */
-  private def extractBindings(parsed: Package.Parsed): List[(Identifier.Bindable, String)] = {
-    import dev.bosatsu.Statement
-    import dev.bosatsu.Declaration
-
-    parsed.program.flatMap {
-      case Statement.Bind(bind) =>
-        // Extract the name from the pattern
-        bind.name match {
-          case Pattern.Var(name) =>
-            // Get the formula as a string representation
-            val formula = exprToString(bind.value)
-            Some((name, formula))
-          case _ =>
-            // Skip complex patterns
-            None
-        }
-      case Statement.Def(_) =>
-        // Skip function definitions for now
-        None
-      case _ => None
+  private def inferTypeFromTypedExpr(expr: TypedExpr[Any]): String = {
+    val tpe = expr.getType
+    // Check if it's an Int type
+    tpe match {
+      case dev.bosatsu.rankn.Type.TyConst(tc) if tc.toDefined.name.asString == "Int" => "number"
+      case dev.bosatsu.rankn.Type.TyConst(tc) if tc.toDefined.name.asString == "String" => "string"
+      case dev.bosatsu.rankn.Type.TyConst(tc) if tc.toDefined.name.asString == "Bool" => "boolean"
+      case _ => "any"
     }
   }
 
-  /**
-   * Convert a Declaration expression to a string formula.
-   */
-  private def exprToString(expr: dev.bosatsu.Declaration.NonBinding): String = {
-    import dev.bosatsu.Declaration._
-
-    expr match {
-      case Literal(lit) =>
-        lit match {
-          case dev.bosatsu.Lit.Integer(i) => i.toString
-          case dev.bosatsu.Lit.Str(s) => s""""$s""""
-          case dev.bosatsu.Lit.Chr(c) => s"'$c'"
-        }
-      case Var(name) => name.asString
-      case Apply(fn, args, _) =>
-        val fnStr = exprToString(fn)
-        val argsStr = args.toList.map(exprToString).mkString(", ")
-        s"$fnStr($argsStr)"
-      case ApplyOp(left, op, right) =>
-        val leftStr = exprToString(left)
-        val rightStr = exprToString(right)
-        s"($leftStr ${op.asString} $rightStr)"
-      case Parens(inner) =>
-        inner match {
-          case nb: NonBinding => exprToString(nb)
-          case _ => inner.toDoc.renderTrim(80)
-        }
-      case IfElse(_, _) =>
-        "if-else"  // Simplified
-      case ann @ Annotation(term, _) =>
-        exprToString(term)
-      case _ =>
-        expr.toDoc.renderTrim(80)
-    }
-  }
-
-  /**
-   * Extract dependencies from a formula string.
-   */
-  private def extractDepsFromFormula(
-      formula: String,
-      knownBindings: Set[Identifier.Bindable]
-  ): Set[Identifier.Bindable] = {
-    // Simple heuristic: find identifiers that match known bindings
-    knownBindings.filter { b =>
-      val nameStr = b.asString
-      formula.contains(nameStr) && formula != nameStr
-    }
-  }
-
-  /**
-   * Infer type from formula string.
-   */
-  private def inferTypeFromFormula(formula: String): String = {
-    if (formula.matches("-?\\d+")) "number"
-    else if (formula.matches("-?\\d+\\.\\d+")) "number"
-    else if (formula == "true" || formula == "false") "boolean"
-    else if (formula.startsWith("\"")) "string"
-    else "any"
-  }
-
-  /**
-   * Convert a formula to JavaScript.
-   */
-  private def formulaToJs(
-      formula: String,
-      knownBindings: Set[Identifier.Bindable]
-  ): String = {
-    // Handle Bosatsu method-style arithmetic: x.add(y), x.sub(y), x.times(y), x.div(y)
-    var js = formula
-
-    // Pattern: x.add(y) -> (x + y)
-    js = """\b(\w+)\.add\(([^)]+)\)""".r.replaceAllIn(js, m => s"(${m.group(1)} + ${m.group(2)})")
-    js = """\b(\w+)\.sub\(([^)]+)\)""".r.replaceAllIn(js, m => s"(${m.group(1)} - ${m.group(2)})")
-    js = """\b(\w+)\.times\(([^)]+)\)""".r.replaceAllIn(js, m => s"(${m.group(1)} * ${m.group(2)})")
-    js = """\b(\w+)\.div\(([^)]+)\)""".r.replaceAllIn(js, m => s"Math.trunc(${m.group(1)} / ${m.group(2)})")
-
-    // Handle chained operations like income.sub(deductions) where income is a binding
-    // Replace binding names with their escaped JS names
-    knownBindings.foreach { b =>
-      val nameStr = b.asString
-      val escaped = JsGen.escape(b).name
-      if (nameStr != escaped) {
-        js = js.replaceAll(s"\\b${java.util.regex.Pattern.quote(nameStr)}\\b", escaped)
-      }
-    }
-
-    js
-  }
 }
 
 object SimulationCommand {
@@ -238,7 +280,6 @@ object SimulationCommand {
     }
   }
 
-  // Implicit for Path parsing
   implicit val pathArgument: Argument[Path] = new Argument[Path] {
     def read(string: String): ValidatedNel[String, Path] =
       try {
@@ -254,18 +295,14 @@ object SimulationCommand {
     val output = Opts
       .option[Path]("output", "Output HTML file", "o")
       .withDefault(Paths.get("output.html"))
-    val titleOpt =
-      Opts.option[String]("title", "Page title", "t").orNone
+    val titleOpt = Opts.option[String]("title", "Page title", "t").orNone
     val themeOpt = Opts
       .option[String]("theme", "Theme: light or dark")
       .withDefault("light")
       .map(Theme.fromString)
-    val noWhy =
-      Opts.flag("no-why", "Disable Why? buttons").orFalse
-    val noWhatIf =
-      Opts.flag("no-what-if", "Disable What if? toggles").orFalse
-    val sweeps =
-      Opts.flag("sweeps", "Enable parameter sweeps").orFalse
+    val noWhy = Opts.flag("no-why", "Disable Why? buttons").orFalse
+    val noWhatIf = Opts.flag("no-what-if", "Disable What if? toggles").orFalse
+    val sweeps = Opts.flag("sweeps", "Enable parameter sweeps").orFalse
 
     (input, output, titleOpt, themeOpt, noWhy, noWhatIf, sweeps).mapN {
       (i, o, t, th, nw, nwi, s) =>

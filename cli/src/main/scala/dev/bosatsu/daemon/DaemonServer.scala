@@ -34,6 +34,17 @@ object DaemonServer {
     traceFile: String
   )
 
+  /** Load a trace from a JSON file */
+  def loadTrace(tracePath: Path): IO[Either[String, ProvenanceTrace]] =
+    Files[IO].readAll(tracePath)
+      .through(fs2.text.utf8.decode)
+      .compile
+      .string
+      .map(DaemonJson.parseTrace)
+      .handleErrorWith { err =>
+        IO.pure(Left(s"Failed to read trace file: ${err.getMessage}"))
+      }
+
   /** Run the daemon server */
   def run(config: Config): IO[Unit] = {
     val initialState = DaemonState.initial(config.trace, config.traceFile)

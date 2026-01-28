@@ -62,10 +62,20 @@ $recomputeJs
 $uiJs
 """
 
-    // 5. Build initial state from assumptions
+    // 5. Build initial state from assumptions (extract actual values from computeJs)
+    val valuePattern = """const\s+(\w+)\s*=\s*([^;]+);""".r
+    val valueMap = valuePattern.findAllMatchIn(computeJs).map { m =>
+      m.group(1) -> m.group(2).trim
+    }.toMap
+
     val initialState = analyses
       .filter(_.kind == DerivationAnalyzer.Assumption)
-      .map(a => a.name.asString -> "undefined")
+      .map { a =>
+        val name = a.name.asString
+        val escaped = JsGen.escape(a.name).name
+        val value = valueMap.getOrElse(escaped, "undefined")
+        name -> value
+      }
       .toMap
 
     // 6. Generate embed config
@@ -123,17 +133,40 @@ Object.keys(_derivations).forEach(name => {
     // Sort bindings topologically by dependencies
     val sorted = topologicalSort(analyses)
 
+    // Separate assumptions from computations
+    val assumptions = sorted.filter(_.kind == DerivationAnalyzer.Assumption)
+    val computations = sorted.filter(_.kind != DerivationAnalyzer.Assumption)
+
+    // Read assumptions from state
+    val readStmts = assumptions.map { a =>
+      val name = a.name.asString
+      val escaped = JsGen.escape(a.name).name
+      s"  const $escaped = _getState('$name');"
+    }
+
+    // Compute derived values (in topological order)
+    val computeStmts = computations.map { a =>
+      val escaped = JsGen.escape(a.name).name
+      val formula = a.formula
+      s"  const $escaped = ${formulaToJs(formula)};"
+    }
+
+    // Update derivations and state
     val updateStmts = sorted.map { a =>
       val name = a.name.asString
       val escaped = JsGen.escape(a.name).name
-      s"""  // Update $name
-  if (typeof $escaped !== 'undefined') {
-    _derivations["$name"].value = $escaped;
-    _setState("$name", $escaped);
-  }"""
+      s"""  _derivations["$name"].value = $escaped;
+  _setState("$name", $escaped);"""
     }
 
     s"""function _recompute() {
+  // Read current assumption values from state
+${readStmts.mkString("\n")}
+
+  // Compute derived values
+${computeStmts.mkString("\n")}
+
+  // Update all derivations and state
 ${updateStmts.mkString("\n")}
 
   // Update UI displays
@@ -363,6 +396,67 @@ $sweepSliders
 
     analyses.foreach(visit)
     result.reverse
+  }
+
+  /**
+   * Convert a Bosatsu formula to JavaScript.
+   * Handles function call syntax like add(a, b), sub(a, b), times(a, b), div(a, b)
+   */
+  private def formulaToJs(formula: String): String = {
+    var result = formula
+    var changed = true
+    var iterations = 0
+    while (changed && iterations < 20) {
+      val before = result
+      result = replaceFunction(result, "add", (a, b) => s"($a + $b)")
+      result = replaceFunction(result, "sub", (a, b) => s"($a - $b)")
+      result = replaceFunction(result, "times", (a, b) => s"($a * $b)")
+      result = replaceFunction(result, "div", (a, b) => s"Math.trunc($a / $b)")
+      changed = before != result
+      iterations += 1
+    }
+    result
+  }
+
+  /**
+   * Replace a function call with two arguments using a custom replacement.
+   */
+  private def replaceFunction(s: String, fnName: String, replacement: (String, String) => String): String = {
+    val fnPattern = (fnName + "\\(").r
+    var result = s
+    var idx = 0
+    while (idx < result.length) {
+      fnPattern.findFirstMatchIn(result.substring(idx)) match {
+        case Some(m) =>
+          val start = idx + m.start
+          val argsStart = start + fnName.length + 1
+          // Find matching closing paren and split args
+          var depth = 1
+          var i = argsStart
+          var commaPos = -1
+          while (i < result.length && depth > 0) {
+            result.charAt(i) match {
+              case '(' => depth += 1
+              case ')' => depth -= 1
+              case ',' if depth == 1 && commaPos == -1 => commaPos = i
+              case _ =>
+            }
+            i += 1
+          }
+          if (depth == 0 && commaPos > 0) {
+            val arg1 = result.substring(argsStart, commaPos).trim
+            val arg2 = result.substring(commaPos + 1, i - 1).trim
+            val replaced = replacement(arg1, arg2)
+            result = result.substring(0, start) + replaced + result.substring(i)
+            idx = start + replaced.length
+          } else {
+            idx = idx + m.end
+          }
+        case None =>
+          idx = result.length
+      }
+    }
+    result
   }
 
   /**
