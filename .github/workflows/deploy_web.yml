@@ -91,6 +91,13 @@ jobs:
             -O2 \
             -o web_deploy/demo/examples/compute_wasm.js
 
+      # ===== Generate Provenance Demos from Bosatsu source =====
+      - name: Generate provenance demos with simulation-cli
+        run: |
+          sbt "simulationCli/run demo/loan_calculator.bosatsu -o web_deploy/demo/loan-calculator.html --title Loan_Calculator"
+          sbt "simulationCli/run demo/investment.bosatsu -o web_deploy/demo/investment.html --title Investment_Calculator"
+          sbt "simulationCli/run demo/carbon.bosatsu -o web_deploy/demo/carbon-footprint.html --title Carbon_Footprint_Calculator"
+
       - name: Assemble deployment
         run: |
           # Copy documentation (paradox output)
@@ -117,14 +124,13 @@ jobs:
           cp demo/examples/compute.bosatsu web_deploy/demo/examples/
           cp demo/examples/orchestrator.bosatsu web_deploy/demo/examples/
 
-          # Provenance demos (Why? + What if? calculators)
-          cp demo/tax-calculator.html web_deploy/demo/
-          cp demo/loan-calculator.html web_deploy/demo/
+          # Copy Bosatsu source files for provenance demos (HTML already generated above)
           cp demo/loan_calculator.bosatsu web_deploy/demo/
-          cp demo/investment.html web_deploy/demo/
           cp demo/investment.bosatsu web_deploy/demo/
-          cp demo/carbon-footprint.html web_deploy/demo/
           cp demo/carbon.bosatsu web_deploy/demo/
+
+          # Static demos (hand-written, not generated from Bosatsu)
+          cp demo/tax-calculator.html web_deploy/demo/
           cp demo/bouncing-ball.html web_deploy/demo/
           cp demo/pendulum.html web_deploy/demo/
 

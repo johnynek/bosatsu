@@ -116,15 +116,7 @@
     .what-if-toggle .toggle-btn.active { background: #27ae60; }
     .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
     .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
-    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
-    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
-    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
-    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
-    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
-    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
-    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
-    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
-    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+
 
   </style>
 </head>
@@ -134,7 +126,7 @@
     <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
-    <div class="sweep-section" id="parameter-sweeps"></div>
+    
   </div>
   <script>
     // BosatsuUI Reactive Runtime
@@ -192,13 +184,6 @@
     // Applet-specific code
 // Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
-
-// Basic arithmetic operations from Bosatsu Predef
-var add = (a, b) => a + b;
-var sub = (a, b) => a - b;
-var times = (a, b) => a * b;
-var div = (a, b) => Math.floor(a / b);
-
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
@@ -878,15 +863,7 @@ function init() {
   addWhatIfToggle("flight_emissions", "number", "what-if-toggles");
 
   // Add parameter sweep sliders
-  addSweepSlider("car_miles", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("car_mpg", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("flights_per_year", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("electricity_kwh", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("natural_gas_therms", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("gas_emission_factor", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("electricity_factor", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("gas_heat_factor", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("flight_emissions", 0, 100, 1, 50, "parameter-sweeps");
+
 
   // Initial computation
   _recompute();
