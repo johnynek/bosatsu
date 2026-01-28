@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Carbon Footprint Calculator</title>
+  <title>carbon</title>
   <style>
     :root {
       --bg-color: #f5f5f5;
@@ -122,8 +122,8 @@
 </head>
 <body>
   <div class="applet-container">
-    <h1 class="applet-title">Carbon Footprint Calculator</h1>
-    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    <h1 class="applet-title">carbon</h1>
+    
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
     
@@ -131,15 +131,15 @@
   <script>
     // BosatsuUI Reactive Runtime
     const _state = {
-      natural_gas_therms: undefined,
-      car_miles: undefined,
-      car_mpg: undefined,
-      flight_emissions: undefined,
-      flights_per_year: undefined,
-      electricity_factor: undefined,
-      gas_emission_factor: undefined,
-      electricity_kwh: undefined,
-      gas_heat_factor: undefined
+      natural_gas_therms: 50,
+      car_miles: 12000,
+      car_mpg: 28,
+      flight_emissions: 1100,
+      flights_per_year: 4,
+      electricity_factor: 1,
+      gas_emission_factor: 20,
+      electricity_kwh: 900,
+      gas_heat_factor: 12
     };
     const _listeners = {
       gas_heat_factor: [],
@@ -564,120 +564,85 @@ const gas_emission_factor = 20;
 const electricity_factor = 1;
 const gas_heat_factor = 12;
 const flight_emissions = 1100;
-const gallons_used = div(car_miles, car_mpg);
-const car_emissions = times(gallons_used, gas_emission_factor);
-const flight_total = times(flights_per_year, flight_emissions);
-const transport_total = add(car_emissions, flight_total);
-const electricity_annual = times(electricity_kwh, 12);
-const electricity_emissions = times(electricity_annual, electricity_factor);
-const gas_annual = times(natural_gas_therms, 12);
-const gas_emissions = times(gas_annual, gas_heat_factor);
-const home_total = add(electricity_emissions, gas_emissions);
-const total_footprint = add(transport_total, home_total);
-const monthly_average = div(total_footprint, 12);
+const gallons_used = Math.trunc(car_miles / car_mpg);
+const car_emissions = (gallons_used * gas_emission_factor);
+const flight_total = (flights_per_year * flight_emissions);
+const transport_total = (car_emissions + flight_total);
+const electricity_annual = (electricity_kwh * 12);
+const electricity_emissions = (electricity_annual * electricity_factor);
+const gas_annual = (natural_gas_therms * 12);
+const gas_emissions = (gas_annual * gas_heat_factor);
+const home_total = (electricity_emissions + gas_emissions);
+const total_footprint = (transport_total + home_total);
+const monthly_average = Math.trunc(total_footprint / 12);
 
 // Recomputation logic
 function _recompute() {
-  // Update car_miles
-  if (typeof car_miles !== 'undefined') {
-    _derivations["car_miles"].value = car_miles;
-    _setState("car_miles", car_miles);
-  }
-  // Update car_mpg
-  if (typeof car_mpg !== 'undefined') {
-    _derivations["car_mpg"].value = car_mpg;
-    _setState("car_mpg", car_mpg);
-  }
-  // Update flights_per_year
-  if (typeof flights_per_year !== 'undefined') {
-    _derivations["flights_per_year"].value = flights_per_year;
-    _setState("flights_per_year", flights_per_year);
-  }
-  // Update electricity_kwh
-  if (typeof electricity_kwh !== 'undefined') {
-    _derivations["electricity_kwh"].value = electricity_kwh;
-    _setState("electricity_kwh", electricity_kwh);
-  }
-  // Update natural_gas_therms
-  if (typeof natural_gas_therms !== 'undefined') {
-    _derivations["natural_gas_therms"].value = natural_gas_therms;
-    _setState("natural_gas_therms", natural_gas_therms);
-  }
-  // Update gas_emission_factor
-  if (typeof gas_emission_factor !== 'undefined') {
-    _derivations["gas_emission_factor"].value = gas_emission_factor;
-    _setState("gas_emission_factor", gas_emission_factor);
-  }
-  // Update electricity_factor
-  if (typeof electricity_factor !== 'undefined') {
-    _derivations["electricity_factor"].value = electricity_factor;
-    _setState("electricity_factor", electricity_factor);
-  }
-  // Update gas_heat_factor
-  if (typeof gas_heat_factor !== 'undefined') {
-    _derivations["gas_heat_factor"].value = gas_heat_factor;
-    _setState("gas_heat_factor", gas_heat_factor);
-  }
-  // Update flight_emissions
-  if (typeof flight_emissions !== 'undefined') {
-    _derivations["flight_emissions"].value = flight_emissions;
-    _setState("flight_emissions", flight_emissions);
-  }
-  // Update gallons_used
-  if (typeof gallons_used !== 'undefined') {
-    _derivations["gallons_used"].value = gallons_used;
-    _setState("gallons_used", gallons_used);
-  }
-  // Update car_emissions
-  if (typeof car_emissions !== 'undefined') {
-    _derivations["car_emissions"].value = car_emissions;
-    _setState("car_emissions", car_emissions);
-  }
-  // Update flight_total
-  if (typeof flight_total !== 'undefined') {
-    _derivations["flight_total"].value = flight_total;
-    _setState("flight_total", flight_total);
-  }
-  // Update transport_total
-  if (typeof transport_total !== 'undefined') {
-    _derivations["transport_total"].value = transport_total;
-    _setState("transport_total", transport_total);
-  }
-  // Update electricity_annual
-  if (typeof electricity_annual !== 'undefined') {
-    _derivations["electricity_annual"].value = electricity_annual;
-    _setState("electricity_annual", electricity_annual);
-  }
-  // Update electricity_emissions
-  if (typeof electricity_emissions !== 'undefined') {
-    _derivations["electricity_emissions"].value = electricity_emissions;
-    _setState("electricity_emissions", electricity_emissions);
-  }
-  // Update gas_annual
-  if (typeof gas_annual !== 'undefined') {
-    _derivations["gas_annual"].value = gas_annual;
-    _setState("gas_annual", gas_annual);
-  }
-  // Update gas_emissions
-  if (typeof gas_emissions !== 'undefined') {
-    _derivations["gas_emissions"].value = gas_emissions;
-    _setState("gas_emissions", gas_emissions);
-  }
-  // Update home_total
-  if (typeof home_total !== 'undefined') {
-    _derivations["home_total"].value = home_total;
-    _setState("home_total", home_total);
-  }
-  // Update total_footprint
-  if (typeof total_footprint !== 'undefined') {
-    _derivations["total_footprint"].value = total_footprint;
-    _setState("total_footprint", total_footprint);
-  }
-  // Update monthly_average
-  if (typeof monthly_average !== 'undefined') {
-    _derivations["monthly_average"].value = monthly_average;
-    _setState("monthly_average", monthly_average);
-  }
+  // Read current assumption values from state
+  const car_miles = _getState('car_miles');
+  const car_mpg = _getState('car_mpg');
+  const flights_per_year = _getState('flights_per_year');
+  const electricity_kwh = _getState('electricity_kwh');
+  const natural_gas_therms = _getState('natural_gas_therms');
+  const gas_emission_factor = _getState('gas_emission_factor');
+  const electricity_factor = _getState('electricity_factor');
+  const gas_heat_factor = _getState('gas_heat_factor');
+  const flight_emissions = _getState('flight_emissions');
+
+  // Compute derived values
+  const gallons_used = Math.trunc(car_miles / car_mpg);
+  const car_emissions = (gallons_used * gas_emission_factor);
+  const flight_total = (flights_per_year * flight_emissions);
+  const transport_total = (car_emissions + flight_total);
+  const electricity_annual = (electricity_kwh * 12);
+  const electricity_emissions = (electricity_annual * electricity_factor);
+  const gas_annual = (natural_gas_therms * 12);
+  const gas_emissions = (gas_annual * gas_heat_factor);
+  const home_total = (electricity_emissions + gas_emissions);
+  const total_footprint = (transport_total + home_total);
+  const monthly_average = Math.trunc(total_footprint / 12);
+
+  // Update all derivations and state
+  _derivations["car_miles"].value = car_miles;
+  _setState("car_miles", car_miles);
+  _derivations["car_mpg"].value = car_mpg;
+  _setState("car_mpg", car_mpg);
+  _derivations["flights_per_year"].value = flights_per_year;
+  _setState("flights_per_year", flights_per_year);
+  _derivations["electricity_kwh"].value = electricity_kwh;
+  _setState("electricity_kwh", electricity_kwh);
+  _derivations["natural_gas_therms"].value = natural_gas_therms;
+  _setState("natural_gas_therms", natural_gas_therms);
+  _derivations["gas_emission_factor"].value = gas_emission_factor;
+  _setState("gas_emission_factor", gas_emission_factor);
+  _derivations["electricity_factor"].value = electricity_factor;
+  _setState("electricity_factor", electricity_factor);
+  _derivations["gas_heat_factor"].value = gas_heat_factor;
+  _setState("gas_heat_factor", gas_heat_factor);
+  _derivations["flight_emissions"].value = flight_emissions;
+  _setState("flight_emissions", flight_emissions);
+  _derivations["gallons_used"].value = gallons_used;
+  _setState("gallons_used", gallons_used);
+  _derivations["car_emissions"].value = car_emissions;
+  _setState("car_emissions", car_emissions);
+  _derivations["flight_total"].value = flight_total;
+  _setState("flight_total", flight_total);
+  _derivations["transport_total"].value = transport_total;
+  _setState("transport_total", transport_total);
+  _derivations["electricity_annual"].value = electricity_annual;
+  _setState("electricity_annual", electricity_annual);
+  _derivations["electricity_emissions"].value = electricity_emissions;
+  _setState("electricity_emissions", electricity_emissions);
+  _derivations["gas_annual"].value = gas_annual;
+  _setState("gas_annual", gas_annual);
+  _derivations["gas_emissions"].value = gas_emissions;
+  _setState("gas_emissions", gas_emissions);
+  _derivations["home_total"].value = home_total;
+  _setState("home_total", home_total);
+  _derivations["total_footprint"].value = total_footprint;
+  _setState("total_footprint", total_footprint);
+  _derivations["monthly_average"].value = monthly_average;
+  _setState("monthly_average", monthly_average);
 
   // Update UI displays
   Object.keys(_derivations).forEach(name => {

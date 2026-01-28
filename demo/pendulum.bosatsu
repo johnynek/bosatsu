@@ -1,0 +1,46 @@
+package Pendulum/Main
+
+# Pendulum Physics Simulation
+# Physics expressions defined here get compiled to JS
+
+simulation_type = "animation"
+state_type = "angular"
+
+# Canvas dimensions
+canvas_width = 552
+canvas_height = 350
+
+# Pendulum properties
+pendulum_length = 200
+bob_radius = 20
+
+# Physics parameters
+gravity = 10
+damping = 99
+
+# Initial state (angle in milliradians: 785 = 0.785 rad = 45 degrees)
+initial_angle = 785
+initial_angular_velocity = 0
+
+# Pivot point
+pivot_x = 276
+pivot_y = 50
+
+# Physics expressions for pendulum motion
+# angle and angularVelocity are in milliradians
+physics_angular_accel = "-(gravity / (pendulumLength / 100)) * Math.sin(angle / 1000) * 1000"
+physics_angular_velocity = "(angularVelocity + angularAccel * dt) * (damping / 100)"
+physics_angle = "angle + angularVelocity * dt"
+
+# Position derived from angle
+physics_bob_x = "pivotX + pendulumLength * Math.sin(angle / 1000)"
+physics_bob_y = "pivotY + pendulumLength * Math.cos(angle / 1000)"
+
+# Rendering
+shape_type = "pendulum"
+rod_color = "#4a5568"
+bob_color = "#667eea"
+bob_highlight = "#764ba2"
+
+# Export result (required by Bosatsu)
+result = gravity

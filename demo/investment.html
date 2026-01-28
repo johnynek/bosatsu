@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Investment Calculator</title>
+  <title>investment</title>
   <style>
     :root {
       --bg-color: #f5f5f5;
@@ -122,8 +122,8 @@
 </head>
 <body>
   <div class="applet-container">
-    <h1 class="applet-title">Investment Calculator</h1>
-    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    <h1 class="applet-title">investment</h1>
+    
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
     
@@ -131,10 +131,10 @@
   <script>
     // BosatsuUI Reactive Runtime
     const _state = {
-      initial_investment: undefined,
-      monthly_contribution: undefined,
-      annual_return: undefined,
-      investment_years: undefined
+      initial_investment: 10000,
+      monthly_contribution: 500,
+      annual_return: 8,
+      investment_years: 20
     };
     const _listeners = {
       initial_investment: [],
@@ -485,77 +485,58 @@ const initial_investment = 10000;
 const monthly_contribution = 500;
 const annual_return = 8;
 const investment_years = 20;
-const months = times(investment_years, 12);
-const monthly_return = div(annual_return, 1200);
-const total_contributions = add(initial_investment, times(monthly_contribution, months));
-const growth_multiplier = div(add(100, annual_return), 100);
-const years_growth = times(growth_multiplier, investment_years);
-const estimated_value = div(times(total_contributions, years_growth), 10);
-const total_gains = sub(estimated_value, total_contributions);
-const gain_percentage = div(times(total_gains, 100), total_contributions);
+const months = (investment_years * 12);
+const monthly_return = Math.trunc(annual_return / 1200);
+const total_contributions = (initial_investment + (monthly_contribution * months));
+const growth_multiplier = Math.trunc((100 + annual_return) / 100);
+const years_growth = (growth_multiplier * investment_years);
+const estimated_value = Math.trunc((total_contributions * years_growth) / 10);
+const total_gains = (estimated_value - total_contributions);
+const gain_percentage = Math.trunc((total_gains * 100) / total_contributions);
 
 // Recomputation logic
 function _recompute() {
-  // Update initial_investment
-  if (typeof initial_investment !== 'undefined') {
-    _derivations["initial_investment"].value = initial_investment;
-    _setState("initial_investment", initial_investment);
-  }
-  // Update monthly_contribution
-  if (typeof monthly_contribution !== 'undefined') {
-    _derivations["monthly_contribution"].value = monthly_contribution;
-    _setState("monthly_contribution", monthly_contribution);
-  }
-  // Update annual_return
-  if (typeof annual_return !== 'undefined') {
-    _derivations["annual_return"].value = annual_return;
-    _setState("annual_return", annual_return);
-  }
-  // Update investment_years
-  if (typeof investment_years !== 'undefined') {
-    _derivations["investment_years"].value = investment_years;
-    _setState("investment_years", investment_years);
-  }
-  // Update months
-  if (typeof months !== 'undefined') {
-    _derivations["months"].value = months;
-    _setState("months", months);
-  }
-  // Update monthly_return
-  if (typeof monthly_return !== 'undefined') {
-    _derivations["monthly_return"].value = monthly_return;
-    _setState("monthly_return", monthly_return);
-  }
-  // Update total_contributions
-  if (typeof total_contributions !== 'undefined') {
-    _derivations["total_contributions"].value = total_contributions;
-    _setState("total_contributions", total_contributions);
-  }
-  // Update growth_multiplier
-  if (typeof growth_multiplier !== 'undefined') {
-    _derivations["growth_multiplier"].value = growth_multiplier;
-    _setState("growth_multiplier", growth_multiplier);
-  }
-  // Update years_growth
-  if (typeof years_growth !== 'undefined') {
-    _derivations["years_growth"].value = years_growth;
-    _setState("years_growth", years_growth);
-  }
-  // Update estimated_value
-  if (typeof estimated_value !== 'undefined') {
-    _derivations["estimated_value"].value = estimated_value;
-    _setState("estimated_value", estimated_value);
-  }
-  // Update total_gains
-  if (typeof total_gains !== 'undefined') {
-    _derivations["total_gains"].value = total_gains;
-    _setState("total_gains", total_gains);
-  }
-  // Update gain_percentage
-  if (typeof gain_percentage !== 'undefined') {
-    _derivations["gain_percentage"].value = gain_percentage;
-    _setState("gain_percentage", gain_percentage);
-  }
+  // Read current assumption values from state
+  const initial_investment = _getState('initial_investment');
+  const monthly_contribution = _getState('monthly_contribution');
+  const annual_return = _getState('annual_return');
+  const investment_years = _getState('investment_years');
+
+  // Compute derived values
+  const months = (investment_years * 12);
+  const monthly_return = Math.trunc(annual_return / 1200);
+  const total_contributions = (initial_investment + (monthly_contribution * months));
+  const growth_multiplier = Math.trunc((100 + annual_return) / 100);
+  const years_growth = (growth_multiplier * investment_years);
+  const estimated_value = Math.trunc((total_contributions * years_growth) / 10);
+  const total_gains = (estimated_value - total_contributions);
+  const gain_percentage = Math.trunc((total_gains * 100) / total_contributions);
+
+  // Update all derivations and state
+  _derivations["initial_investment"].value = initial_investment;
+  _setState("initial_investment", initial_investment);
+  _derivations["monthly_contribution"].value = monthly_contribution;
+  _setState("monthly_contribution", monthly_contribution);
+  _derivations["annual_return"].value = annual_return;
+  _setState("annual_return", annual_return);
+  _derivations["investment_years"].value = investment_years;
+  _setState("investment_years", investment_years);
+  _derivations["months"].value = months;
+  _setState("months", months);
+  _derivations["monthly_return"].value = monthly_return;
+  _setState("monthly_return", monthly_return);
+  _derivations["total_contributions"].value = total_contributions;
+  _setState("total_contributions", total_contributions);
+  _derivations["growth_multiplier"].value = growth_multiplier;
+  _setState("growth_multiplier", growth_multiplier);
+  _derivations["years_growth"].value = years_growth;
+  _setState("years_growth", years_growth);
+  _derivations["estimated_value"].value = estimated_value;
+  _setState("estimated_value", estimated_value);
+  _derivations["total_gains"].value = total_gains;
+  _setState("total_gains", total_gains);
+  _derivations["gain_percentage"].value = gain_percentage;
+  _setState("gain_percentage", gain_percentage);
 
   // Update UI displays
   Object.keys(_derivations).forEach(name => {
