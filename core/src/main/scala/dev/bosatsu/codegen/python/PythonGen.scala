@@ -476,16 +476,6 @@ object PythonGen {
 
     // if we have a top level let rec with the same name, handle it more cleanly
     me match {
-      case Let(Right(n1), inner, Local(n2))
-          if ((n1 === name) && (n2 === name)) =>
-        // we can just bind now at the top level
-        for {
-          nm <- Env.topLevelName(name)
-          res <- inner match {
-            case fn: Lambda[K] => ops.topFn(nm, fn, None, None)
-            case _             => ops.loop(inner, None, None).map(nm := _)
-          }
-        } yield res
       // NOTE: MatchlessFromTypedExpr lifts free variables into Lambda.captures,
       // so top-level bindings that produce functions show up as Lambda (or the
       // let-rec pattern above). We don't expect general Let-chains ending in a
