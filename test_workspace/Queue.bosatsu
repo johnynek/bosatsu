@@ -28,22 +28,22 @@ def push(Queue(f, b): Queue[a], item: a) -> Queue[a]:
 
 def unpush(queue: Queue[a]) -> Option[(a, Queue[a])]:
   match queue:
-    Queue([h, *t], b): Some((h, Queue(t, b)))
-    Queue([], b):
+    case Queue([h, *t], b): Some((h, Queue(t, b)))
+    case Queue([], b):
       match b.reverse():
-        []: None
-        [h, *t]: Some((h, Queue(t, [])))
+        case []: None
+        case [h, *t]: Some((h, Queue(t, [])))
 
 def pop_value(queue: Queue[a]) -> Option[a]:
   match unpush(queue):
-    Some((a, _)): Some(a)
-    None: None
+    case Some((a, _)): Some(a)
+    case None: None
 
 # drop an item off and return the rest, or empty
 def pop(queue: Queue[a]) -> Queue[a]:
   match unpush(queue):
-    Some((_, queue)): queue
-    None: empty
+    case Some((_, queue)): queue
+    case None: empty
 
 def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: (b, a) -> b) -> b:
   front = f.foldl_List(init, fold_fn)
@@ -56,15 +56,15 @@ def eq_Queue(eq_fn: (a, a) -> Bool)(left: Queue[a], right: Queue[a]) -> Bool:
   res = left.fold_Queue((True, right), \(g, right), al ->
     if g:
         match unpush(right):
-          None: (False, empty)
-          Some((ar, right)):
+          case None: (False, empty)
+          case Some((ar, right)):
             (eq_fn(al, ar), right)
     else:
           (False, empty)
     )
   match res:
-    (True, Queue([], [])): True
-    _: False
+    case (True, Queue([], [])): True
+    case _: False
 
 def to_List(Queue(f, b): Queue[a]) -> List[a]:
   f.concat(b.reverse())
@@ -75,9 +75,9 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
 
 def eq_Opt(eq_inner)(a, b):
     match (a, b):
-        (Some(a), Some(b)): eq_inner(a, b)
-        (None, None): True
-        _: False
+        case (Some(a), Some(b)): eq_inner(a, b)
+        case (None, None): True
+        case _: False
 
 eq_oi = eq_Opt(eq_Int)
 eq_qi = eq_Queue(eq_Int)

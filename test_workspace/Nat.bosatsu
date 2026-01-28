@@ -22,8 +22,8 @@ def cmp_Nat(a: Nat, b: Nat) -> Comparison:
 def times2(n: Nat) -> Nat:
   def loop(n: Nat, acc: Nat):
       recur n:
-        Zero: acc
-        Succ(prev):
+        case Zero: acc
+        case Succ(prev):
           # 2*(n + 1) = 2*n + 1 + 1
           loop(prev, Succ(Succ(acc)))
   loop(n, Zero)
@@ -31,16 +31,16 @@ def times2(n: Nat) -> Nat:
 def add(n1: Nat, n2: Nat) -> Nat:
   def loop(n1: Nat, n2: Nat):
     recur n1:
-      Zero: n2
-      Succ(prev_n1): loop(prev_n1, Succ(n2))
+      case Zero: n2
+      case Succ(prev_n1): loop(prev_n1, Succ(n2))
 
   if n2 matches Zero: n1
   else: loop(n1, n2)
 
 def sub_Nat(n1: Nat, n2: Nat) -> Nat:
   recur n2:
-    Zero: n1
-    Succ(prev_n2):
+    case Zero: n1
+    case Succ(prev_n2):
       # (n1 + 1) - (n2 + 1) == (n1 - n2)
       match n1:
         case Zero: Zero
@@ -53,11 +53,11 @@ def mult(n1: Nat, n2: Nat) -> Nat:
   # n1 * n2 + (n1 + n2 + 1 + c)
   def loop(n1: Nat, n2: Nat, c: Nat):
     recur n1:
-      Zero: c
-      Succ(n1):
+      case Zero: c
+      case Succ(n1):
         match n2:
-          Zero: c
-          Succ(n2):
+          case Zero: c
+          case Succ(n2):
             c1 = Succ(add(add(n1, n2), c))
             loop(n1, n2, c1)
 
@@ -118,8 +118,8 @@ def exp(base: Nat, power: Nat) -> Nat:
 def to_Int(n: Nat) -> Int:
     def loop(acc: Int, n: Nat):
       recur n:
-        Zero: acc
-        Succ(n): loop(acc + 1, n)
+        case Zero: acc
+        case Succ(n): loop(acc + 1, n)
     loop(0, n)
 
 def to_Nat(i: Int) -> Nat:

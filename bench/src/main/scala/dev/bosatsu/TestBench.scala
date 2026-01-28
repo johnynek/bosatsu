@@ -86,8 +86,8 @@ package Euler4
 
 def operator >(a, b):
   match a.cmp_Int(b):
-    GT: True
-    _ : False
+    case GT: True
+    case _ : False
 
 operator - = sub
 
@@ -98,8 +98,8 @@ def max_of(n, fn):
   int_loop(n, None, \i, res ->
     next_i = i.sub(1)
     res1 = match fn(i):
-      None: res
-      Some(m1) as sm1:
+      case None: res
+      case Some(m1) as sm1:
         match res:
           case None: sm1
           case Some(m) as sm: sm1 if m1 > m else sm
@@ -110,8 +110,8 @@ def max_of(n, fn):
 def first_of(n, fn):
   int_loop(n, None, \i, _ ->
     match fn(i):
-      None: (i - 1, None)
-      nonNone: (0, nonNone))
+      case None: (i - 1, None)
+      case nonNone: (0, nonNone))
 
 def digit_list(n):
   rev_list = int_loop(n, [], \n, acc ->
@@ -124,11 +124,11 @@ def digit_list(n):
 def is_palindrome(lst, eq_fn):
   (res, _) = lst.foldLeft((True, reverse(lst)), \res, item ->
     match res:
-      (False, _): res
-      (_, []):
+      case (False, _): res
+      case (_, []):
         # can't really happen, the lists are the same length
         (False, [])
-      (True, [h, *t]): (eq_fn(item, h), t))
+      case (True, [h, *t]): (eq_fn(item, h), t))
   res
 
 def num_is_palindrome(n):
@@ -142,8 +142,8 @@ def product_palindrome(n1, n2):
 max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
 
 max_pal = match max_pal_opt:
-  Some(m): m
-  None: 0
+  case Some(m): m
+  case None: 0
 """),
       "Euler4"
     )

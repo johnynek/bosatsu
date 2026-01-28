@@ -13,21 +13,21 @@ def operator &&(a, b):
     else: False
 
 fb = match combine:
-    "foo: ${f} bar: ${b}":
+    case "foo: ${f} bar: ${b}":
         (f == foo) && (b == bar)
-    _: False
+    case _: False
 
 test0 = Assertion(fb, "foo-bar match")
 
 def get_foos(s) -> List[String]:
     recur s:
-        "${_}foo: (${foo})${rest}": [foo, *get_foos(rest)]
-        _: []
+        case "${_}foo: (${foo})${rest}": [foo, *get_foos(rest)]
+        case _: []
 
 test1 = match get_foos("foo: (1) foo: (2)"):
-            ["1", "2"]: Assertion(True, "get_foos")
-            [one]: Assertion(False, "get_foos: ${one}")
-            _: Assertion(False, "get_foos")
+            case ["1", "2"]: Assertion(True, "get_foos")
+            case [one]: Assertion(False, "get_foos: ${one}")
+            case _: Assertion(False, "get_foos")
 
 test2_bool = "unnamed match example" matches "unnamed ${_} example"
 

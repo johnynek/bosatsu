@@ -83,8 +83,8 @@ Just as we can build up lists literally, we can also use match to tear them down
 more later:
 ```
 top_animal = match new_favorites:
-  [most_fav, *rest]: most_fav
-  []: "no favorites, :("
+  case [most_fav, *rest]: most_fav
+  case []: "no favorites, :("
 ```
 
 ## Variables
@@ -115,45 +115,45 @@ addition to user defined types as discussed later.
 Here are some examples:
 ```
 result0 = match "foo":
-  "baz":
+  case "baz":
     "we matched baz"
-  "foo":
+  case "foo":
     "we matched foo"
-  _:
+  case _:
     "hmmm, didn't match"
 
 result1 = match "foo":
-  "f${rest}":
+  case "f${rest}":
     "we start with f followed by ${rest}"
-  _:
+  case _:
     "hmmm, didn't match"
 
 result2 = match ["foo", "bar"]:
-  ["f${rest}", "baz"]:
+  case ["f${rest}", "baz"]:
     "this won't match"
-  ["f${rest}", *_]:
+  case ["f${rest}", *_]:
     "we start with f followed by ${rest}"
-  _:
+  case _:
     "hmmm, didn't match"
 
 result3 = match [False, True, True]:
-  [*_, True, *_]: "at least one is true"
-  _: "all items are false, or the list is empty"
+  case [*_, True, *_]: "at least one is true"
+  case _: "all items are false, or the list is empty"
 
 result4 = match [False, True, True]:
-  [*_, True, *tail]:
+  case [*_, True, *tail]:
     match tail:
-      []: "True with tail empty"
-      [True]: "True with tail == [True] (this branch matches)"
-      _: "True with something else"
-  _: "all items are false, or the list is empty"
+      case []: "True with tail empty"
+      case [True]: "True with tail == [True] (this branch matches)"
+      case _: "True with something else"
+  case _: "all items are false, or the list is empty"
 ```
 
 A common shorthand for checking if something matches is:
 ```
 long = match ["foo", "bar"]:
-  ["foo", *_]: True
-  _: False
+  case ["foo", *_]: True
+  case _: False
 
 short = ["foo", "bar"] matches ["foo", *_]
 ```
@@ -221,8 +221,8 @@ terminate. Here is an example:
 ```
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]: len(tail).add(1)
+    case []: 0
+    case [_, *tail]: len(tail).add(1)
 ```
 In the above, we see the `recur` syntax. This is a normal match with two restrictions: 1. it can only be
 on a literal parameter of the nearest enclosing def, 2. a function may have at most one recur in a
@@ -243,8 +243,8 @@ depth is high. If you can, prefer to use tail recursive loops:
 def len(lst):
   def loop(acc, lst):
     recur lst:
-      []: acc
-      [_, *tail]: loop(acc.add(1), tail)
+      case []: acc
+      case [_, *tail]: loop(acc.add(1), tail)
 
   loop(0, lst)
 ```
@@ -291,19 +291,19 @@ my_file_rec = File { name, modified_time: 1540951025, size, hash }
 There are no methods in bosatsu, only functions. We cannot define methods on `struct`s or `enum`s. The only thing we can do with a struct or enum is match it:
 ```
 nm = match my_file:
-  File(name, _, _, _): name
+  case File(name, _, _, _): name
 
 # same as the above but ignoring trailing fields
 nm = match my_file:
-  File(name, ...): name
+  case File(name, ...): name
 
 # same as the above but using records
 nm = match my_file:
-  File { name: n, ... }: n
+  case File { name: n, ... }: n
 
 # same, but omit the colon to bind the field name
 nm = match my_file:
-  File { name, ... }: name
+  case File { name, ... }: name
 ```
 
 All matches in Bosatsu are total: one of the branches must match.
@@ -375,7 +375,7 @@ x = (1, "2", ["three"])
 (a, b, c) = x
 # or we can use match syntax if that is more appropriate
 match x:
-  (x, y, z): do_something(x, y, z)
+  case (x, y, z): do_something(x, y, z)
 ```
 
 ### Enums
@@ -409,16 +409,16 @@ Here are some examples of pattern matches:
 enum Either: Left(a), Right(b)
 
 match x:
-  Left(Left(Left(_)) | Right(_)): 0
-  Left(Left(Right(_))): 1
-  Right(_): 2
+  case Left(Left(Left(_)) | Right(_)): 0
+  case Left(Left(Right(_))): 1
+  case Right(_): 2
 
 match y:
-  Left(Left(x)) | Right(x):
+  case Left(Left(x)) | Right(x):
     # here we require that the bindings in the left and right sides of
     # the union are the same and that they have the same type
     Some(x)
-  Left(Right(_)): None
+  case Left(Right(_)): None
 
 # if we can write a match in a single arm, we can write it as a binding:
 Left(x) | Right(x) = y
@@ -451,8 +451,8 @@ from Animals/Favorites import mammals
 export most_fav
 
 most_fav = match mammals:
-  [head, *tail]: head
-  []: "who knows?"
+  case [head, *tail]: head
+  case []: "who knows?"
 
 ```
 
@@ -475,8 +475,8 @@ def someO(a): OSome(a)
 
 def foldO(oo, if_none, if_some):
   match oo:
-    ONone: if_none
-    oSome(a): if_some(a)
+    case ONone: if_none
+    case oSome(a): if_some(a)
 
 ```
 Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and fold function to tear it down, but we can't explicitly pattern match on the types.
