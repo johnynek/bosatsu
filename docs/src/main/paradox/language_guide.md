@@ -1,6 +1,6 @@
 # Language Guide
 This guide is a quick tour of Bosatsu syntax. For installation and running code, see
-[Getting started](getting_started.md).
+[Getting started](getting_started.html).
 
 ## Quick start (5 minutes)
 A tiny, complete file:

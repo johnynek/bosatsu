@@ -2,7 +2,7 @@
 
 Like [Dhall](https://dhall-lang.org/) Bosatsu can be used as a configuration
 language. This assumes you have installed the Bosatsu CLI; see
-[Getting started](getting_started.md).
+[Getting started](getting_started.html).
 
 As an example, in the project repo try the following:
 ```

@@ -2,7 +2,7 @@
 
 Bosatsu can currently be interpreted using the `eval` subcommand, or it can be
 compiled to Python using the `transpile` subcommand. This assumes you have
-installed the Bosatsu CLI; see [Getting started](getting_started.md).
+installed the Bosatsu CLI; see [Getting started](getting_started.html).
 
 For instance, to compile all our test code into Python:
 ```
