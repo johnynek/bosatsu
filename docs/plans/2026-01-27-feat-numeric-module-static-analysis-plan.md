@@ -805,14 +805,52 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] "Why?" explanations show original formulas
 - [x] Dependencies correctly identified
 
-### Phase 5: Principled Input Semantics
+### Phase 5: Principled Input Semantics ✅ PARTIAL
 - [x] Simulations defined as functions, not top-level bindings (`demo/loan_calculator_func.bosatsu`)
 - [x] Config file schema defined as Bosatsu (`demo/loan_calculator_func.sim.bosatsu`)
-- [ ] SimulationCommand compiles config + simulation together
-- [ ] SimulationCommand evaluates config to extract SimConfig value
-- [ ] SimulationCommand uses `TypedExpr.freeVarsSet` for dependency extraction
-- [ ] Generated JS calls function with slider values
-- [ ] "Why?" explanations derived from function body TypedExpr
+- [x] SimulationCommand compiles config + simulation together
+- [x] Generated JS calls function with slider values
+- [ ] SimulationCommand evaluates config to extract SimConfig value (Phase 6)
+- [ ] "Why?" explanations derived from function body TypedExpr (Phase 7)
+
+### Phase 6: Config File Evaluation
+- [ ] `config` binding evaluated from `.sim.bosatsu`
+- [ ] ConfigExtractor.scala converts Value → SimConfig case class
+- [ ] Slider labels come from `InputConfig.label`
+- [ ] Slider ranges come from `InputConfig.min_value/max_value`
+- [ ] Default values come from `InputConfig.default_value`
+- [ ] Result labels come from `OutputConfig.label`
+- [ ] No hardcoded HTML generation - all driven by config
+- [ ] Playwright test: change config → different UI
+
+### Phase 7: "Why?" Provenance
+- [ ] ProvenanceExtractor.scala extracts derivations from TypedExpr
+- [ ] Formulas generated from TypedExpr structure (not string parsing)
+- [ ] exprToFormula handles binary ops: add → +, sub → -, times → ×, div → ÷
+- [ ] "Why?" button shows derivation chain
+- [ ] Chain traces from output back to inputs
+- [ ] Playwright test: click "Why?" → see formula
+
+### Phase 8: "What if?" Toggles
+- [ ] AssumptionConfig added to config schema
+- [ ] Multiple function variants in simulation file
+- [ ] "What if?" toggles rendered in UI
+- [ ] Clicking toggle switches calculation variant
+- [ ] Results update immediately
+- [ ] Playwright test: toggle assumption → different result
+
+### Phase 9: Parameter Sweeps
+- [ ] SweepConfig added to config schema
+- [ ] Sweep runs function across input range
+- [ ] Results plotted on canvas
+- [ ] Current input value highlighted on curve
+- [ ] Changing input shows position on sweep curve
+- [ ] Playwright test: sweep chart renders correctly
+
+### Phase 10: Canvas Visualization (Optional)
+- [ ] Canvas element in generated HTML
+- [ ] Visualization updates on input change
+- [ ] Supports basic shapes: rect, circle, line, text
 
 ## Test Plan
 
@@ -896,6 +934,681 @@ def derivationGraphTransitive(): Unit = {
 
 4. **Mixed Int/Double**: Type error or implicit coercion?
    - **Recommendation**: Type error; explicit `from_Int` required
+
+---
+
+## REMAINING PHASES: BurritoScript Feature Parity
+
+**Added 2026-01-28**: Complete roadmap to match BurritoScript simulation capabilities.
+
+### Phase 6: Config File Evaluation
+
+**Goal**: Actually USE the `.sim.bosatsu` config to drive UI generation
+
+**Current state**: Config file is parsed and type-checked but values are NOT extracted.
+
+#### 6.1 Evaluate Config Binding
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationCommand.scala`
+
+The config file defines a `config` binding of type `SimConfig`. We need to evaluate it to extract the actual values.
+
+```scala
+// After type checking both files together:
+val configPackage = typeChecked.toMap.get(configParsed._2.name).getOrElse(
+  throw new RuntimeException(s"Config package not found")
+)
+
+// Evaluate the 'config' binding to get runtime Value
+val configValue: Value = Evaluation.evaluateLet(
+  configPackage,
+  Identifier.Name("config")
+)
+
+// Convert Value to Scala case class
+val simConfig: SimConfig = extractSimConfig(configValue)
+```
+
+#### 6.2 Value Extraction
+
+**New file**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/ConfigExtractor.scala`
+
+```scala
+package dev.bosatsu.simulation
+
+import dev.bosatsu.Value
+
+case class InputConfig(
+  label: String,
+  defaultValue: Int,
+  minValue: Int,
+  maxValue: Int,
+  step: Int,
+  widget: String
+)
+
+case class OutputConfig(
+  label: String,
+  format: String,
+  primary: Boolean
+)
+
+case class SimConfig(
+  name: String,
+  description: String,
+  packageName: String,
+  functionName: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+object ConfigExtractor {
+  def extractSimConfig(value: Value): SimConfig = {
+    // Value is a struct (ProductValue)
+    // Extract fields by position matching struct definition order
+    value match {
+      case Value.ProductValue(_, fields) =>
+        SimConfig(
+          name = extractString(fields(0)),
+          description = extractString(fields(1)),
+          packageName = extractString(fields(2)),
+          functionName = extractString(fields(3)),
+          inputs = extractInputList(fields(4)),
+          outputs = extractOutputList(fields(5))
+        )
+      case _ => throw new RuntimeException(s"Expected SimConfig struct, got: $value")
+    }
+  }
+
+  private def extractString(v: Value): String = v match {
+    case Value.Str(s) => s
+    case _ => throw new RuntimeException(s"Expected String, got: $v")
+  }
+
+  private def extractInt(v: Value): Int = v match {
+    case Value.IntValue(i) => i.toInt
+    case _ => throw new RuntimeException(s"Expected Int, got: $v")
+  }
+
+  private def extractBool(v: Value): Boolean = v match {
+    case Value.True => true
+    case Value.False => false
+    case _ => throw new RuntimeException(s"Expected Bool, got: $v")
+  }
+
+  private def extractInputList(v: Value): List[(String, InputConfig)] = {
+    // List is represented as nested ConsValue or EmptyList
+    extractList(v).map { item =>
+      // Each item is a tuple (String, InputConfig)
+      val (name, configValue) = extractTuple2(item)
+      (extractString(name), extractInputConfig(configValue))
+    }
+  }
+
+  private def extractInputConfig(v: Value): InputConfig = v match {
+    case Value.ProductValue(_, fields) =>
+      InputConfig(
+        label = extractString(fields(0)),
+        defaultValue = extractInt(fields(1)),
+        minValue = extractInt(fields(2)),
+        maxValue = extractInt(fields(3)),
+        step = extractInt(fields(4)),
+        widget = extractString(fields(5))
+      )
+    case _ => throw new RuntimeException(s"Expected InputConfig struct")
+  }
+
+  // ... similar for extractOutputList, extractOutputConfig
+}
+```
+
+#### 6.3 Use Config in HTML Generation
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationGen.scala`
+
+Update `generateFunctionBased` to use extracted config:
+
+```scala
+def generateFunctionBased(
+  funcName: String,
+  funcParams: List[(String, String)],
+  config: SimConfig,  // NEW: use config instead of hardcoded values
+  computeJs: String,
+  simConfig: SimConfig
+): String = {
+  // Use config.name for title
+  // Use config.inputs for slider generation
+  // Use config.outputs for result display
+
+  val inputControls = config.inputs.map { case (paramName, inputConfig) =>
+    s"""
+    <div class="control-group">
+      <label class="control-label">${inputConfig.label}: <span class="value-display" id="${paramName}-value">${inputConfig.defaultValue}</span></label>
+      <input type="range" id="${paramName}-slider"
+        min="${inputConfig.minValue}" max="${inputConfig.maxValue}"
+        step="${inputConfig.step}" value="${inputConfig.defaultValue}"
+        oninput="_setState('$paramName', parseInt(this.value)); document.getElementById('${paramName}-value').textContent = this.value; _recompute();">
+    </div>
+    """
+  }.mkString("\n")
+
+  // ...
+}
+```
+
+#### 6.4 Acceptance Criteria
+
+- [ ] `config` binding evaluated from `.sim.bosatsu`
+- [ ] Slider labels come from `InputConfig.label`
+- [ ] Slider ranges come from `InputConfig.min_value/max_value`
+- [ ] Default values come from `InputConfig.default_value`
+- [ ] Result labels come from `OutputConfig.label`
+- [ ] No hardcoded HTML generation - all driven by config
+- [ ] Playwright test: change config → different UI
+
+---
+
+### Phase 7: "Why?" Provenance from TypedExpr
+
+**Goal**: Generate derivation explanations from function body's TypedExpr
+
+**Key insight**: The TypedExpr IS the dependency graph. `TypedExpr.freeVarsSet` already extracts dependencies. We just need to make it human-readable.
+
+#### 7.1 Dependency Extraction
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/ProvenanceExtractor.scala`
+
+```scala
+package dev.bosatsu.simulation
+
+import dev.bosatsu.{TypedExpr, Identifier}
+import dev.bosatsu.Identifier.Bindable
+
+case class Derivation(
+  name: String,
+  formula: String,           // Human-readable: "principal × monthly_rate + principal / num_payments"
+  dependencies: Set[String], // Direct dependencies
+  kind: DerivationKind       // Input, Intermediate, Output
+)
+
+sealed trait DerivationKind
+case object Input extends DerivationKind        // Function parameter
+case object Intermediate extends DerivationKind // Let binding in function body
+case object Output extends DerivationKind       // Struct field in return
+
+object ProvenanceExtractor {
+
+  /**
+   * Extract derivations from a function's TypedExpr.
+   *
+   * @param funcExpr The TypedExpr.AnnotatedLambda for the function
+   * @return Map from binding name to its derivation
+   */
+  def extractDerivations(funcExpr: TypedExpr[Any]): Map[String, Derivation] = {
+    funcExpr match {
+      case TypedExpr.AnnotatedLambda(params, body, _) =>
+        // Parameters are inputs
+        val inputDerivations = params.toList.map { case (name, _) =>
+          name.asString -> Derivation(
+            name = name.asString,
+            formula = name.asString,  // Inputs are just their name
+            dependencies = Set.empty,
+            kind = Input
+          )
+        }.toMap
+
+        // Extract let bindings from body
+        val bodyDerivations = extractFromBody(body, params.toList.map(_._1).toSet)
+
+        inputDerivations ++ bodyDerivations
+
+      case _ => Map.empty
+    }
+  }
+
+  private def extractFromBody(
+    expr: TypedExpr[Any],
+    scope: Set[Bindable]
+  ): Map[String, Derivation] = {
+    expr match {
+      case TypedExpr.Let(name, value, body, _, _) =>
+        // This binding
+        val deps = TypedExpr.freeVarsSet(List(value)).intersect(scope)
+        val formula = exprToFormula(value)
+        val derivation = Derivation(
+          name = name.asString,
+          formula = formula,
+          dependencies = deps.map(_.asString),
+          kind = Intermediate
+        )
+
+        // Continue with body, adding this binding to scope
+        Map(name.asString -> derivation) ++ extractFromBody(body, scope + name)
+
+      case TypedExpr.App(_, _, _, _) =>
+        // Struct constructor at the end - extract output fields
+        extractOutputFields(expr, scope)
+
+      case _ => Map.empty
+    }
+  }
+
+  /**
+   * Convert TypedExpr to human-readable formula.
+   * Uses the actual AST structure, not string manipulation.
+   */
+  private def exprToFormula(expr: TypedExpr[Any]): String = {
+    expr match {
+      case TypedExpr.Local(name, _, _) =>
+        name.asString
+
+      case TypedExpr.App(TypedExpr.App(fn, List(left), _, _), List(right), _, _) =>
+        // Binary operation: fn(left)(right)
+        val op = fn match {
+          case TypedExpr.Global(_, name, _, _) => name.asString match {
+            case "add" | "add_Int" => "+"
+            case "sub" | "sub_Int" => "-"
+            case "times" | "times_Int" => "×"
+            case "div" | "div_Int" => "÷"
+            case other => other
+          }
+          case _ => "?"
+        }
+        s"${exprToFormula(left)} $op ${exprToFormula(right)}"
+
+      case TypedExpr.Literal(lit, _, _) =>
+        lit.unboxToAny.toString
+
+      case _ =>
+        "..." // Complex expression - simplify for display
+    }
+  }
+}
+```
+
+#### 7.2 Generate "Why?" JavaScript
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationGen.scala`
+
+```scala
+def generateWhyExplanations(derivations: Map[String, Derivation]): String = {
+  val derivationJson = derivations.map { case (name, d) =>
+    s""""$name": {
+      "formula": "${escapeString(d.formula)}",
+      "dependencies": [${d.dependencies.map(n => s""""$n"""").mkString(", ")}],
+      "kind": "${d.kind.toString.toLowerCase}"
+    }"""
+  }.mkString(",\n  ")
+
+  s"""
+  const _derivations = {
+    $derivationJson
+  };
+
+  function showWhy(name) {
+    const d = _derivations[name];
+    if (!d) return;
+
+    // Build explanation chain
+    let explanation = [];
+    let visited = new Set();
+
+    function trace(n) {
+      if (visited.has(n)) return;
+      visited.add(n);
+      const deriv = _derivations[n];
+      if (!deriv) return;
+
+      explanation.push({
+        name: n,
+        formula: deriv.formula,
+        value: _getState(n),
+        kind: deriv.kind
+      });
+
+      deriv.dependencies.forEach(trace);
+    }
+
+    trace(name);
+
+    // Show modal with explanation
+    showWhyModal(name, explanation.reverse());
+  }
+  """
+}
+```
+
+#### 7.3 Acceptance Criteria
+
+- [ ] Derivations extracted from TypedExpr.AnnotatedLambda
+- [ ] Formulas generated from TypedExpr structure (not string parsing)
+- [ ] "Why?" button shows derivation chain
+- [ ] Chain traces from output back to inputs
+- [ ] Playwright test: click "Why?" → see formula
+
+---
+
+### Phase 8: "What if?" Assumption Toggles
+
+**Goal**: Let users toggle between computation variants
+
+**BurritoScript approach**: Runtime `state.assumption()` with callbacks
+**Bosatsu approach**: Multiple explicit functions - simpler, more explicit
+
+#### 8.1 Config Schema Extension
+
+**File**: `demo/tax_economy.sim.bosatsu`
+
+```bosatsu
+package TaxEconomy/Config
+
+struct AssumptionConfig(
+  name: String,
+  description: String,
+  variants: List[(String, String)]  # (variant_name, function_suffix)
+)
+
+struct SimConfig(
+  # ... existing fields ...
+  assumptions: List[AssumptionConfig]
+)
+
+config = SimConfig(
+  # ... existing ...
+  assumptions = [
+    AssumptionConfig(
+      "Labor Response",
+      "How do taxes affect labor participation?",
+      [
+        ("Elastic", "_elastic"),
+        ("Inelastic", "_inelastic"),
+        ("Threshold", "_threshold")
+      ]
+    ),
+    AssumptionConfig(
+      "Investment Response",
+      "How do taxes affect investment?",
+      [
+        ("Sensitive", "_sensitive"),
+        ("Resilient", "_resilient")
+      ]
+    )
+  ]
+)
+```
+
+#### 8.2 Multiple Function Variants in Simulation
+
+**File**: `demo/tax_economy.bosatsu`
+
+```bosatsu
+package TaxEconomy
+
+# Base calculation
+def calculate(taxRate: Int, population: Int) -> EconomyResult:
+  laborParticipation = calculate_labor_inelastic(taxRate)
+  investment = calculate_investment_resilient(taxRate)
+  # ... rest of calculation
+
+# Variants for labor response
+def calculate_labor_elastic(taxRate: Int) -> Int:
+  # Participation drops significantly with higher taxes
+  630.sub(taxRate.times(189).div(1000))
+
+def calculate_labor_inelastic(taxRate: Int) -> Int:
+  # People work regardless of taxes
+  630.sub(taxRate.times(32).div(1000))
+
+def calculate_labor_threshold(taxRate: Int) -> Int:
+  # Drops sharply above 50%
+  match taxRate.cmp_Int(500):
+    GT -> 441
+    _ -> 630
+
+# Variants for investment response
+def calculate_investment_sensitive(taxRate: Int) -> Int:
+  # Investment flees high taxes (exponential decay approximation)
+  1000.sub(taxRate.times(taxRate).div(500))
+
+def calculate_investment_resilient(taxRate: Int) -> Int:
+  # Investment is sticky
+  1000.sub(taxRate.times(300).div(1000))
+```
+
+#### 8.3 "What if?" UI Generation
+
+```scala
+def generateWhatIfToggles(assumptions: List[AssumptionConfig]): String = {
+  assumptions.map { assumption =>
+    val buttons = assumption.variants.map { case (label, suffix) =>
+      s"""<button class="toggle-btn" data-assumption="${assumption.name}" data-variant="$suffix" onclick="setAssumption('${assumption.name}', '$suffix')">$label</button>"""
+    }.mkString("\n")
+
+    s"""
+    <div class="what-if-toggle">
+      <div class="toggle-label">
+        <span class="toggle-name">What if: ${assumption.description}</span>
+      </div>
+      <div class="toggle-buttons">
+        $buttons
+      </div>
+    </div>
+    """
+  }.mkString("\n")
+}
+
+// JavaScript to handle assumption switching
+val whatIfJs = """
+const _assumptions = {};
+
+function setAssumption(name, variant) {
+  _assumptions[name] = variant;
+  // Update button states
+  document.querySelectorAll(`[data-assumption="${name}"]`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.variant === variant);
+  });
+  // Recompute with new variant
+  _recompute();
+}
+
+function getCurrentVariantFunction(baseName, assumptionName) {
+  const variant = _assumptions[assumptionName] || '';
+  return window[baseName + variant];
+}
+"""
+```
+
+#### 8.4 Acceptance Criteria
+
+- [ ] Config supports `assumptions` list
+- [ ] Multiple function variants in simulation file
+- [ ] "What if?" toggles rendered in UI
+- [ ] Clicking toggle switches calculation variant
+- [ ] Results update immediately
+- [ ] Playwright test: toggle assumption → different result
+
+---
+
+### Phase 9: Parameter Sweeps
+
+**Goal**: Visualize output across input range (Laffer curve)
+
+#### 9.1 Config Schema Extension
+
+```bosatsu
+struct SweepConfig(
+  inputParam: String,      # Which input to sweep
+  minValue: Int,
+  maxValue: Int,
+  steps: Int,
+  outputParam: String,     # Which output to plot
+  chartType: String        # "line", "area", "bar"
+)
+
+struct SimConfig(
+  # ... existing ...
+  sweeps: List[SweepConfig]
+)
+
+config = SimConfig(
+  # ... existing ...
+  sweeps = [
+    SweepConfig("taxRate", 0, 1000, 100, "governmentRevenue", "line")
+  ]
+)
+```
+
+#### 9.2 Sweep Execution JavaScript
+
+```scala
+def generateSweepCode(sweeps: List[SweepConfig], funcName: String): String = {
+  sweeps.map { sweep =>
+    s"""
+    function runSweep_${sweep.inputParam}_${sweep.outputParam}() {
+      const results = [];
+      const min = ${sweep.minValue};
+      const max = ${sweep.maxValue};
+      const steps = ${sweep.steps};
+      const step = (max - min) / steps;
+
+      // Save current input values
+      const savedInputs = {};
+      ${/* save all inputs */}
+
+      for (let i = 0; i <= steps; i++) {
+        const x = min + i * step;
+        _setState('${sweep.inputParam}', Math.round(x));
+        const result = $funcName(${/* all input getters */});
+        results.push({ x: x, y: result.${sweep.outputParam} });
+      }
+
+      // Restore inputs
+      ${/* restore all inputs */}
+
+      return results;
+    }
+    """
+  }.mkString("\n")
+}
+```
+
+#### 9.3 Chart Rendering
+
+Use lightweight charting - either:
+- Raw Canvas API (no dependencies)
+- Or embed Chart.js/uPlot as optional dependency
+
+```scala
+def generateChartCode(): String = """
+function renderSweepChart(canvasId, data, options) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Clear
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, width, height);
+
+  // Find bounds
+  const xMin = Math.min(...data.map(d => d.x));
+  const xMax = Math.max(...data.map(d => d.x));
+  const yMin = Math.min(...data.map(d => d.y));
+  const yMax = Math.max(...data.map(d => d.y));
+
+  // Draw line
+  ctx.beginPath();
+  ctx.strokeStyle = '#8b5cf6';
+  ctx.lineWidth = 2;
+
+  data.forEach((point, i) => {
+    const px = 50 + (point.x - xMin) / (xMax - xMin) * (width - 100);
+    const py = height - 50 - (point.y - yMin) / (yMax - yMin) * (height - 100);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+
+  ctx.stroke();
+
+  // Draw current point marker
+  // ...
+}
+"""
+```
+
+#### 9.4 Acceptance Criteria
+
+- [ ] Config supports `sweeps` list
+- [ ] Sweep runs function across input range
+- [ ] Results plotted on canvas
+- [ ] Current input value highlighted on curve
+- [ ] Changing input shows position on sweep curve
+- [ ] Playwright test: sweep chart renders correctly
+
+---
+
+### Phase 10: Canvas Visualization (Optional)
+
+**Goal**: Custom visualizations beyond charts
+
+**Approach TBD**: Two options:
+
+**Option A: Bosatsu DSL for drawing**
+```bosatsu
+def render(state: EconomyState) -> List[DrawCommand]:
+  [
+    FillRect(0, 0, 500, 400, "#1a1a2e"),
+    Line(points_from_laffer(state.taxRate), "#8b5cf6"),
+    Circle(tax_to_x(state.taxRate), revenue_to_y(state.revenue), 10, "#ef4444")
+  ]
+```
+
+**Option B: Separate JS for rendering**
+- Bosatsu for computation only
+- JavaScript template for visualization
+- Cleaner separation of concerns
+
+**Recommendation**: Start with Option B - matches current architecture, avoids scope creep.
+
+#### 10.1 Acceptance Criteria (if implemented)
+
+- [ ] Canvas element in generated HTML
+- [ ] Visualization updates on input change
+- [ ] Supports basic shapes: rect, circle, line, text
+- [ ] Animation frame loop for smooth updates
+
+---
+
+## Updated File Changes Summary
+
+| File | Phase | Action | Description |
+|------|-------|--------|-------------|
+| `simulation-cli/.../ConfigExtractor.scala` | 6 | NEW | Extract SimConfig from Value |
+| `simulation-cli/.../SimulationCommand.scala` | 6 | MODIFY | Evaluate config binding |
+| `simulation-cli/.../SimulationGen.scala` | 6 | MODIFY | Use config for HTML generation |
+| `simulation-cli/.../ProvenanceExtractor.scala` | 7 | NEW | Extract derivations from TypedExpr |
+| `simulation-cli/.../SimulationGen.scala` | 7 | MODIFY | Generate "Why?" explanations |
+| `demo/tax_economy.bosatsu` | 8 | NEW | Multi-variant simulation |
+| `demo/tax_economy.sim.bosatsu` | 8 | NEW | Config with assumptions |
+| `simulation-cli/.../SimulationGen.scala` | 8 | MODIFY | Generate "What if?" toggles |
+| `simulation-cli/.../SimulationGen.scala` | 9 | MODIFY | Generate sweep code + charts |
+| `tests/e2e/tax-economy.spec.ts` | 8-9 | NEW | E2E tests for new features |
+
+---
+
+## Implementation Order
+
+| Phase | Dependencies | Estimated Effort | Priority |
+|-------|--------------|------------------|----------|
+| 6 (Config eval) | None | Small | **P0 - Do first** |
+| 7 ("Why?") | Phase 6 | Medium | **P0 - Core feature** |
+| 8 ("What if?") | Phase 6 | Medium | P1 |
+| 9 (Sweeps) | Phase 6 | Medium | P1 |
+| 10 (Canvas) | Phase 9 | Large | P2 - Defer |
+
+**Suggested order**: 6 → 7 → 8 → 9 → 10
+
+---
 
 ## Future Improvements
 
