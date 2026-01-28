@@ -20,6 +20,16 @@ import SimulationApplet._
 object WhatIfToggle {
 
   /**
+   * Escape HTML special characters to prevent XSS.
+   */
+  private def escapeHTML(s: String): String =
+    s.replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace("\"", "&quot;")
+      .replace("'", "&#39;")
+
+  /**
    * Configuration for a "What if?" toggle.
    */
   case class ToggleConfig[A](
@@ -105,14 +115,15 @@ object WhatIfToggle {
   }
 
   private def generateBooleanToggle(name: String, containerId: String): List[Statement] = {
+    val escapedName = escapeHTML(name)
     List(
       Const("toggleDiv", Call(PropertyAccess(Ident("document"), "createElement"), List(StringLiteral("div")))),
       Assignment(PropertyAccess(Ident("toggleDiv"), "className"), StringLiteral("what-if-toggle")),
       Assignment(PropertyAccess(Ident("toggleDiv"), "innerHTML"), StringLiteral(
         s"""<label class="toggle-label">
-           |  <span class="toggle-name">What if $name were </span>
-           |  <button class="toggle-btn" data-assumption="$name" data-value="true">true</button>
-           |  <button class="toggle-btn" data-assumption="$name" data-value="false">false</button>
+           |  <span class="toggle-name">What if $escapedName were </span>
+           |  <button class="toggle-btn" data-assumption="$escapedName" data-value="true">true</button>
+           |  <button class="toggle-btn" data-assumption="$escapedName" data-value="false">false</button>
            |  <span class="toggle-hint">?</span>
            |</label>""".stripMargin
       )),
@@ -153,13 +164,14 @@ object WhatIfToggle {
   }
 
   private def generateNumberToggle(name: String, containerId: String): List[Statement] = {
+    val escapedName = escapeHTML(name)
     List(
       Const("toggleDiv", Call(PropertyAccess(Ident("document"), "createElement"), List(StringLiteral("div")))),
       Assignment(PropertyAccess(Ident("toggleDiv"), "className"), StringLiteral("what-if-toggle")),
       Assignment(PropertyAccess(Ident("toggleDiv"), "innerHTML"), StringLiteral(
         s"""<label class="toggle-label">
-           |  <span class="toggle-name">What if $name were </span>
-           |  <input type="number" class="toggle-input" data-assumption="$name" />
+           |  <span class="toggle-name">What if $escapedName were </span>
+           |  <input type="number" class="toggle-input" data-assumption="$escapedName" />
            |  <span class="toggle-hint">?</span>
            |</label>""".stripMargin
       )),
@@ -197,13 +209,14 @@ object WhatIfToggle {
   }
 
   private def generateTextToggle(name: String, containerId: String): List[Statement] = {
+    val escapedName = escapeHTML(name)
     List(
       Const("toggleDiv", Call(PropertyAccess(Ident("document"), "createElement"), List(StringLiteral("div")))),
       Assignment(PropertyAccess(Ident("toggleDiv"), "className"), StringLiteral("what-if-toggle")),
       Assignment(PropertyAccess(Ident("toggleDiv"), "innerHTML"), StringLiteral(
         s"""<label class="toggle-label">
-           |  <span class="toggle-name">What if $name were </span>
-           |  <input type="text" class="toggle-input" data-assumption="$name" />
+           |  <span class="toggle-name">What if $escapedName were </span>
+           |  <input type="text" class="toggle-input" data-assumption="$escapedName" />
            |  <span class="toggle-hint">?</span>
            |</label>""".stripMargin
       )),
