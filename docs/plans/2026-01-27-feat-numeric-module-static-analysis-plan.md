@@ -627,6 +627,160 @@ final case class DerivationGraph[T](
 
 **Expected improvement**: 5-50x for repeated queries on same nodes.
 
+### Phase 5: Principled Input Semantics
+
+**Goal**: Fix the semantic contradiction where bindings are both "fixed values" and "user-editable"
+
+**Problem (2026-01-28)**: The current design has:
+```bosatsu
+principal = 250000  # This IS 250000, always in Bosatsu semantics
+```
+But the UI lets users "change" principal. This violates Bosatsu's explicit semantics.
+
+**Solution**: Use **function-based simulations** with config files
+
+#### 5.1 Function-Based Simulations
+
+**New .bosatsu pattern:**
+```bosatsu
+package LoanCalculator
+
+# The simulation is a pure function - parameters ARE the inputs
+def calculate(principal: Int, annual_rate: Int, years: Int) -> {
+  monthly_payment: Int,
+  total_interest: Int,
+  interest_ratio: Int
+}:
+  monthly_rate = annual_rate.div(1200)
+  num_payments = years.times(12)
+  monthly_payment = principal.times(monthly_rate).add(principal.div(num_payments))
+  total_paid = monthly_payment.times(num_payments)
+  total_interest = total_paid.sub(principal)
+  interest_ratio = total_interest.times(100).div(principal)
+  { monthly_payment, total_interest, interest_ratio }
+```
+
+#### 5.2 Config File as Bosatsu
+
+**Better approach**: Use Bosatsu for config files too (type-checked, single language)
+
+**File**: `loan_calculator_func.sim.bosatsu`
+```bosatsu
+package LoanCalculator/Config
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+config = SimConfig(
+  "Loan Calculator",
+  "Calculate monthly payments and total interest",
+  "LoanCalculator",
+  "calculate",
+  [
+    ("principal", InputConfig("Loan Principal ($)", 250000, 10000, 1000000, 10000, "slider")),
+    ("annual_rate", InputConfig("Interest Rate (bp)", 700, 100, 2000, 25, "slider")),
+    ("years", InputConfig("Loan Term", 30, 5, 40, 5, "slider"))
+  ],
+  [
+    ("monthly_payment", OutputConfig("Monthly Payment", "currency", True)),
+    ("total_interest", OutputConfig("Total Interest", "currency", False))
+  ]
+)
+```
+
+**Advantages of Bosatsu config:**
+- Type-checked at compile time
+- Single language (no JSON)
+- Can use comments
+- Can use richer types (enums for widget types, etc.)
+
+#### 5.3 SimulationCommand Changes
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationCommand.scala`
+
+```scala
+// Compile BOTH files together
+val packages = PackageMap.compile(
+  List(simulationPath, configPath),
+  ...
+)
+
+// Config is evaluated to extract SimConfig value
+val configPackage = packages.getPackage(PackageName("LoanCalculator/Config"))
+val configValue = evaluate(configPackage, "config")
+
+// Simulation function found via config
+val simPackage = packages.getPackage(PackageName(configValue.packageName))
+val funcDef = simPackage.program.lets.find { case (name, _, _) =>
+  name.asString == configValue.functionName
+}
+
+// Extract dependencies from TypedExpr (already exists!)
+val funcBody: TypedExpr[_] = funcDef._3
+val deps = TypedExpr.freeVarsSet(List(funcBody))
+
+// Generate JS that calls function with slider values
+```
+
+**Key insight**: We use `TypedExpr.freeVarsSet` (already exists) for dependency extraction. No new analysis infrastructure needed - the type-checked AST IS the dependency graph.
+
+#### 5.4 Generated JavaScript Pattern
+
+```javascript
+// Generated from function-based simulation
+function calculate(principal, annual_rate, years) {
+  const monthly_rate = Math.trunc(annual_rate / 1200);
+  const num_payments = years * 12;
+  const monthly_payment = Math.trunc(principal * monthly_rate + Math.trunc(principal / num_payments));
+  const total_paid = monthly_payment * num_payments;
+  const total_interest = total_paid - principal;
+  return { monthly_payment, total_interest };
+}
+
+// UI calls function with current input values
+function recompute() {
+  const result = calculate(
+    getInputValue('principal'),
+    getInputValue('annual_rate'),
+    getInputValue('years')
+  );
+  updateOutput('monthly_payment', result.monthly_payment);
+  updateOutput('total_interest', result.total_interest);
+}
+```
+
+#### 5.5 Provenance from Function Body
+
+"Why?" explanations extracted from TypedExpr of function body:
+- `monthly_payment` depends on `principal`, `monthly_rate`, `num_payments`
+- `monthly_rate` = `annual_rate / 1200`
+- etc.
+
+The computation graph IS the provenance - no separate tracking needed.
+
+---
+
 ## Acceptance Criteria
 
 ### Phase 1: Bosatsu/Numeric ✅ COMPLETE
@@ -650,6 +804,15 @@ final case class DerivationGraph[T](
 - [x] Loan calculator generates readable JavaScript
 - [x] "Why?" explanations show original formulas
 - [x] Dependencies correctly identified
+
+### Phase 5: Principled Input Semantics
+- [x] Simulations defined as functions, not top-level bindings (`demo/loan_calculator_func.bosatsu`)
+- [x] Config file schema defined as Bosatsu (`demo/loan_calculator_func.sim.bosatsu`)
+- [ ] SimulationCommand compiles config + simulation together
+- [ ] SimulationCommand evaluates config to extract SimConfig value
+- [ ] SimulationCommand uses `TypedExpr.freeVarsSet` for dependency extraction
+- [ ] Generated JS calls function with slider values
+- [ ] "Why?" explanations derived from function body TypedExpr
 
 ## Test Plan
 
