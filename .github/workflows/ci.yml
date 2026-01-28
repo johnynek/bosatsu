@@ -5,9 +5,12 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run JVM tests"
         run: |
           sbt "coreJVM/test; cli/test; doc; paradox"
@@ -24,9 +27,12 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "python setup"
         uses: "actions/setup-python@v2"
         with:
@@ -51,9 +57,12 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run coreJS tests"
         run: |
           sbt "coreJS/test; jsapiJS/compile"
@@ -72,9 +81,12 @@ jobs:
           fetch-depth: 0
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run tests with coverage"
         run: |
           sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
@@ -93,10 +105,13 @@ jobs:
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
-      - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build native image"
         run: |
           sbt "cli/nativeImage"
@@ -114,10 +129,13 @@ jobs:
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
-      - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build node"
         run: |
           sbt "cliJSJS/fullOptJS"
@@ -148,10 +166,13 @@ jobs:
           - '17'
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - name: "java setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "install boehm"
@@ -182,9 +203,12 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "++3.8.1; cli/assembly"'
       - name: "dry run bosatsu lib publish"
