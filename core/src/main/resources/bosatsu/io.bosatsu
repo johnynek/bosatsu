@@ -1,0 +1,17 @@
+package Bosatsu/IO
+
+from Bosatsu/Predef import String
+
+export (
+  IO,
+  pure, flatMap,
+  capture
+)
+
+external struct IO[a]
+
+external def pure[a](value: a) -> IO[a]
+
+external def flatMap[a, b](io: IO[a], f: a -> IO[b]) -> IO[b]
+
+external def capture[a](name: String, value: a) -> IO[a]

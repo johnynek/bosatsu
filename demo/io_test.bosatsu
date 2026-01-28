@@ -1,0 +1,25 @@
+package IoTest
+
+from Bosatsu/IO import IO, pure, flatMap, capture
+
+export simple_io, chain_io, tracked_add, main
+
+# Simple test of IO operations
+def simple_io(x: Int) -> IO[Int]:
+  pure(x)
+
+# Test chaining with flatMap
+def chain_io(x: Int, y: Int) -> IO[Int]:
+  flatMap(pure(x), (a) ->
+    flatMap(pure(y), (b) ->
+      pure(add(a, b))))
+
+# Test with capture for provenance tracking
+def tracked_add(x: Int, y: Int) -> IO[Int]:
+  flatMap(capture("a", x), (a) ->
+    flatMap(capture("b", y), (b) ->
+      flatMap(capture("sum", add(a, b)), (sum) ->
+        pure(sum))))
+
+# Main test function - returns IO containing the result
+main = tracked_add(3, 5)
