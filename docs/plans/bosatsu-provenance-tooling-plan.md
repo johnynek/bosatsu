@@ -402,6 +402,38 @@ Branch: `feat/phase6-simulation-applets`
 - [ ] Cross-platform testing (Linux, macOS, Windows)
 - [ ] Fuzz testing: Run fuzzer on CLI commands and parsers
 
+## Phase 14: Extensible External Functions (TODO)
+**Modularize tooling to support external function libraries beyond Predef**
+
+Currently, `DerivationAnalyzer` and `SimulationGen` have hardcoded knowledge of Predef functions (`add`, `sub`, `times`, `div`). This phase modularizes the formula extraction and JS generation to support:
+- User-defined external modules (e.g., `Bosatsu/Numeric` with `+.`, `-.`, etc.)
+- Domain-specific function libraries (e.g., financial calculations, physics, statistics)
+- Plugin architecture for registering new external function handlers
+
+### Tasks
+
+- [ ] `ExternalRegistry.scala` - Registry for external function intrinsics
+  - Map `(PackageName, FunctionName) -> FormulaHandler`
+  - Map `(PackageName, FunctionName) -> JsGenHandler`
+- [ ] Refactor `DerivationAnalyzer.exprToFormula` to use registry
+  - Move hardcoded `add`, `sub`, `times`, `div` patterns to Predef handler
+  - Add handler for `Bosatsu/Numeric` module (`+.`, `-.`, `*.`, `/.`)
+- [ ] Refactor `SimulationGen.formulaToJs` to use registry
+  - Move hardcoded replacements to registry-based lookup
+  - Support custom JS generation per external function
+- [ ] `ExternalRegistryTest.scala` - Property tests for registry operations
+- [ ] Example: Register `Bosatsu/Numeric` handlers
+  - Formula: `+.(a, b)` → `a + b` (same as Predef, but for Doubles)
+  - JS: `BinExpr(a, +, b)` without integer truncation
+- [ ] Documentation: How to add support for new external modules
+
+### Design Principles
+
+1. **Backward compatible**: Existing Predef-based code works unchanged
+2. **Zero overhead for defaults**: Predef handlers registered at startup
+3. **Discoverable**: CLI option to list registered external handlers
+4. **Testable**: Each handler can be unit tested in isolation
+
 ---
 
 # Current Status
