@@ -3,7 +3,7 @@ package dev.bosatsu.codegen.js
 import munit.ScalaCheckSuite
 import org.scalacheck.{Gen, Prop}
 import org.scalacheck.Prop.forAll
-import dev.bosatsu.{Identifier, Lit, Matchless}
+import dev.bosatsu.{Identifier, Lit, Matchless, PackageName}
 import dev.bosatsu.Identifier.Name
 import cats.data.NonEmptyList
 
@@ -282,6 +282,180 @@ class JsGenTest extends ScalaCheckSuite {
       val first = ident.name.head
       (first.isLetter || first == '_' || first == '$') &&
         ident.name.forall(c => c.isLetterOrDigit || c == '_' || c == '$')
+    }
+  }
+
+  // ==================
+  // Additional Coverage Tests
+  // ==================
+
+  test("escape handles Backticked identifiers") {
+    val backticked = Identifier.Backticked("myVar")
+    val ident = JsGen.escape(backticked)
+    assertEquals(ident.name, "myVar")
+  }
+
+  test("escape handles names starting with digit") {
+    val name = Name("123abc")
+    val ident = JsGen.escape(name)
+    // Should prefix with underscore
+    assert(ident.name.startsWith("_"), s"Expected underscore prefix, got: ${ident.name}")
+  }
+
+  test("escape handles empty base name") {
+    // A backticked empty string would result in empty escaped name
+    val backticked = Identifier.Backticked("")
+    val ident = JsGen.escape(backticked)
+    // Should have underscore prefix
+    assertEquals(ident.name, "_")
+  }
+
+  test("escapePackage creates valid module name") {
+    val pack = PackageName.parse("Bosatsu/Predef").get
+    val result = JsGen.escapePackage(pack)
+    assertEquals(result, "Bosatsu_Predef")
+  }
+
+  test("qualifiedName creates unique identifier") {
+    val pack = PackageName.parse("Bosatsu/Nat").get
+    val name = bindable("times2")
+    val ident = JsGen.qualifiedName(pack, name)
+    assert(ident.name.contains("Bosatsu_Nat"), s"Expected package prefix, got: ${ident.name}")
+    assert(ident.name.contains("times2"), s"Expected name, got: ${ident.name}")
+  }
+
+  // ==================
+  // Env Monad Tests (using map/flatMap directly)
+  // ==================
+
+  test("Env.bind creates unique identifier") {
+    val env = JsGen.Env.bind(bindable("x"))
+    val (state, ident) = JsGen.Env.run(env)
+    assertEquals(ident.name, "x")
+    assert(state.bindings.contains(bindable("x")))
+  }
+
+  test("Env handles shadowing correctly") {
+    import cats.syntax.all._
+    given cats.Monad[JsGen.Env] = JsGen.Env.envMonad
+
+    val env = JsGen.Env.bind(bindable("x")).flatMap { id1 =>
+      JsGen.Env.bind(bindable("x")).flatMap { id2 =>
+        JsGen.Env.deref(bindable("x")).map { result =>
+          (id1, id2, result)
+        }
+      }
+    }
+    val (_, tuple) = JsGen.Env.run(env)
+    // Shadowed binding should have different name
+    assertNotEquals(tuple._1.name, tuple._2.name)
+    assertEquals(tuple._3.name, tuple._2.name)
+  }
+
+  test("Env.unbind restores shadowed binding") {
+    import cats.syntax.all._
+    given cats.Monad[JsGen.Env] = JsGen.Env.envMonad
+
+    val env = JsGen.Env.bind(bindable("x")).flatMap { id1 =>
+      JsGen.Env.bind(bindable("x")).flatMap { id2 =>
+        JsGen.Env.unbind(bindable("x")).flatMap { _ =>
+          JsGen.Env.deref(bindable("x")).map { result =>
+            (id1, id2, result)
+          }
+        }
+      }
+    }
+    val (_, tuple) = JsGen.Env.run(env)
+    // After unbind, should get original binding
+    assertEquals(tuple._3.name, tuple._1.name)
+  }
+
+  test("Env.newTmp generates unique temporary names") {
+    import cats.syntax.all._
+    given cats.Monad[JsGen.Env] = JsGen.Env.envMonad
+
+    val env = JsGen.Env.newTmp.flatMap { t1 =>
+      JsGen.Env.newTmp.flatMap { t2 =>
+        JsGen.Env.newTmp.map { t3 =>
+          (t1, t2, t3)
+        }
+      }
+    }
+    val (_, tuple) = JsGen.Env.run(env)
+    assertNotEquals(tuple._1.name, tuple._2.name)
+    assertNotEquals(tuple._2.name, tuple._3.name)
+    assert(tuple._1.name.startsWith("_tmp"))
+  }
+
+  test("Env.anonName returns consistent name for same id") {
+    import cats.syntax.all._
+    given cats.Monad[JsGen.Env] = JsGen.Env.envMonad
+
+    val env = JsGen.Env.anonName(42L).flatMap { a1 =>
+      JsGen.Env.anonName(42L).map { a2 =>
+        (a1, a2)
+      }
+    }
+    val (_, tuple) = JsGen.Env.run(env)
+    assertEquals(tuple._1.name, tuple._2.name) // Same ID -> same name
+  }
+
+  test("Env.anonName creates different names for different ids") {
+    import cats.syntax.all._
+    given cats.Monad[JsGen.Env] = JsGen.Env.envMonad
+
+    val env = JsGen.Env.anonName(42L).flatMap { a1 =>
+      JsGen.Env.anonName(43L).map { a2 =>
+        (a1, a2)
+      }
+    }
+    val (_, tuple) = JsGen.Env.run(env)
+    assertNotEquals(tuple._1.name, tuple._2.name)
+  }
+
+  test("Env.deref returns escaped name for unbound variable") {
+    val env = JsGen.Env.deref(bindable("unbound"))
+    val (_, ident) = JsGen.Env.run(env)
+    assertEquals(ident.name, "unbound")
+  }
+
+  // ==================
+  // EqualsLit Test
+  // ==================
+
+  test("EqualsLit comparison renders") {
+    val eq = EqualsLit(Local(bindable("x")), Lit.Integer(42))
+    val ifExpr = If(eq, Literal(Lit.Integer(1)), Literal(Lit.Integer(2)))
+    val result = JsGen.renderExpr(ifExpr)
+    assert(result.contains("42"), s"Expected literal comparison, got: $result")
+    assert(result.contains("===") || result.contains("=="), s"Expected equality operator, got: $result")
+  }
+
+  // ==================
+  // Additional Reserved Word Tests
+  // ==================
+
+  test("All common JS reserved words are escaped") {
+    val reservedWords = List("class", "function", "var", "let", "const", "this", "super", "return", "if", "else")
+    reservedWords.foreach { word =>
+      val ident = JsGen.escape(Name(word))
+      assertNotEquals(ident.name, word, s"Reserved word '$word' should be escaped")
+    }
+  }
+
+  test("Common browser globals are escaped") {
+    val globals = List("window", "document", "console")
+    globals.foreach { word =>
+      val ident = JsGen.escape(Name(word))
+      assertNotEquals(ident.name, word, s"Browser global '$word' should be escaped")
+    }
+  }
+
+  test("Standard library names are escaped") {
+    val stdLibNames = List("Array", "Object", "String", "Number", "Boolean", "Function", "Math", "JSON")
+    stdLibNames.foreach { word =>
+      val ident = JsGen.escape(Name(word))
+      assertNotEquals(ident.name, word, s"Standard library name '$word' should be escaped")
     }
   }
 }
