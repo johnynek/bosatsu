@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Investment Calculator</title>
+  <style>
+    :root {
+      --bg-color: #f5f5f5;
+      --text-color: #333333;
+      --accent-color: #667eea;
+      --surface-color: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 1rem;
+      background: var(--bg-color);
+      color: var(--text-color);
+    }
+    .applet-container {
+      background: var(--surface-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .applet-title {
+      margin: 0 0 1rem 0;
+      font-size: 1.5rem;
+      color: var(--text-color);
+    }
+    .simulation-canvas {
+      width: 100%;
+      border-radius: 8px;
+      background: #1a1a2e;
+    }
+    .controls-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(0,0,0,0.1);
+    }
+    .control-group {
+      margin: 0.75rem 0;
+    }
+    .control-label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.875rem;
+      color: var(--text-color);
+      opacity: 0.8;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 8px;
+      -webkit-appearance: none;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      background: var(--accent-color);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .value-display {
+      font-family: monospace;
+      font-weight: bold;
+      color: var(--accent-color);
+    }
+    .button-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .btn-secondary {
+      background: #6c757d;
+    }
+    .why-button { margin-left: 8px; padding: 2px 8px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .why-button:hover { background: #5568d8; }
+    .why-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .why-modal.hidden { display: none; }
+    .why-modal-content { background: white; border-radius: 12px; padding: 24px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .why-modal-content h3 { margin-top: 0; color: #333; }
+    .why-modal-content .derivation { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: monospace; }
+    .why-modal-content .assumption { background: #e8f5e9; border-left: 3px solid #27ae60; }
+    .why-modal-content .computed { background: #e3f2fd; border-left: 3px solid #2196f3; }
+    .why-modal-content .conditional { background: #fff3e0; border-left: 3px solid #ff9800; }
+    .why-modal-content .name { font-weight: bold; color: #333; }
+    .why-modal-content .value { color: #667eea; }
+    .why-modal-content .formula { color: #666; }
+    .why-modal-content .tag { font-size: 10px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; }
+    .why-modal-content .close-btn { margin-top: 16px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .why-modal-content .close-btn:hover { background: #5568d8; }
+    .what-if-toggle { padding: 12px; margin: 8px 0; background: #f5f5f5; border-radius: 8px; }
+    .what-if-toggle .toggle-label { display: flex; align-items: center; gap: 8px; }
+    .what-if-toggle .toggle-name { color: #666; font-style: italic; }
+    .what-if-toggle .toggle-btn { padding: 4px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .what-if-toggle .toggle-btn:hover { background: #5568d8; }
+    .what-if-toggle .toggle-btn.active { background: #27ae60; }
+    .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
+    .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
+    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
+    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
+    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
+    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
+    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
+    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
+    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
+    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+
+  </style>
+</head>
+<body>
+  <div class="applet-container">
+    <h1 class="applet-title">Investment Calculator</h1>
+    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    <div class="controls-section" id="controls"></div>
+    <div class="what-if-section" id="what-if-toggles"></div>
+    <div class="sweep-section" id="parameter-sweeps"></div>
+  </div>
+  <script>
+    // BosatsuUI Reactive Runtime
+    const _state = {
+      initial_investment: undefined,
+      monthly_contribution: undefined,
+      annual_return: undefined,
+      investment_years: undefined
+    };
+    const _listeners = {
+      initial_investment: [],
+      monthly_contribution: [],
+      annual_return: [],
+      investment_years: []
+    };
+    const _derivations = {};
+
+    function _getState(name) { return _state[name]; }
+    function _setState(name, value) {
+      if (_state[name] !== value) {
+        _state[name] = value;
+        _listeners[name].forEach(fn => fn(value));
+      }
+    }
+    function _subscribe(name, fn) {
+      _listeners[name].push(fn);
+      fn(_state[name]);
+    }
+    function _setDerivation(name, derivation) {
+      _derivations[name] = derivation;
+    }
+    function _getDerivation(name) {
+      return _derivations[name];
+    }
+    function _setAssumption(name, value) {
+      _setState(name, value);
+      // Trigger recomputation of derived values
+      Object.keys(_derivations).forEach(k => {
+        if (_derivations[k].deps && _derivations[k].deps.some(d => d.name === name)) {
+          // Would recompute here in full implementation
+        }
+      });
+    }
+
+    // Applet-specific code
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Basic arithmetic operations from Bosatsu Predef
+var add = (a, b) => a + b;
+var sub = (a, b) => a - b;
+var times = (a, b) => a * b;
+var div = (a, b) => Math.floor(a / b);
+
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
+
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
+
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
+
+// Derivation state tracking
+const _derivations = {
+  "initial_investment": {
+    type: "assumption",
+    name: "initial_investment",
+    formula: "10000",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "monthly_contribution": {
+    type: "assumption",
+    name: "monthly_contribution",
+    formula: "500",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "annual_return": {
+    type: "assumption",
+    name: "annual_return",
+    formula: "8",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "investment_years": {
+    type: "assumption",
+    name: "investment_years",
+    formula: "20",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "months": {
+    type: "computed",
+    name: "months",
+    formula: "times(investment_years, 12)",
+    valueType: "any",
+    deps: ["investment_years"],
+    value: undefined
+  },
+  "monthly_return": {
+    type: "computed",
+    name: "monthly_return",
+    formula: "div(annual_return, 1200)",
+    valueType: "any",
+    deps: ["annual_return"],
+    value: undefined
+  },
+  "total_contributions": {
+    type: "computed",
+    name: "total_contributions",
+    formula: "add(initial_investment, times(monthly_contribution, months))",
+    valueType: "any",
+    deps: ["months", "monthly_contribution", "initial_investment"],
+    value: undefined
+  },
+  "growth_multiplier": {
+    type: "computed",
+    name: "growth_multiplier",
+    formula: "div(add(100, annual_return), 100)",
+    valueType: "any",
+    deps: ["annual_return"],
+    value: undefined
+  },
+  "years_growth": {
+    type: "computed",
+    name: "years_growth",
+    formula: "times(growth_multiplier, investment_years)",
+    valueType: "any",
+    deps: ["investment_years", "growth_multiplier"],
+    value: undefined
+  },
+  "estimated_value": {
+    type: "computed",
+    name: "estimated_value",
+    formula: "div(times(total_contributions, years_growth), 10)",
+    valueType: "any",
+    deps: ["total_contributions", "years_growth"],
+    value: undefined
+  },
+  "total_gains": {
+    type: "computed",
+    name: "total_gains",
+    formula: "sub(estimated_value, total_contributions)",
+    valueType: "any",
+    deps: ["estimated_value", "total_contributions"],
+    value: undefined
+  },
+  "gain_percentage": {
+    type: "computed",
+    name: "gain_percentage",
+    formula: "div(times(total_gains, 100), total_contributions)",
+    valueType: "any",
+    deps: ["total_contributions", "total_gains"],
+    value: undefined
+  }
+};
+
+// Register derivations with the reactive state system
+Object.keys(_derivations).forEach(name => {
+  _setDerivation(name, _derivations[name]);
+});
+
+// Computation code (from JsGen)
+const initial_investment = 10000;
+const monthly_contribution = 500;
+const annual_return = 8;
+const investment_years = 20;
+const months = times(investment_years, 12);
+const monthly_return = div(annual_return, 1200);
+const total_contributions = add(initial_investment, times(monthly_contribution, months));
+const growth_multiplier = div(add(100, annual_return), 100);
+const years_growth = times(growth_multiplier, investment_years);
+const estimated_value = div(times(total_contributions, years_growth), 10);
+const total_gains = sub(estimated_value, total_contributions);
+const gain_percentage = div(times(total_gains, 100), total_contributions);
+
+// Recomputation logic
+function _recompute() {
+  // Update initial_investment
+  if (typeof initial_investment !== 'undefined') {
+    _derivations["initial_investment"].value = initial_investment;
+    _setState("initial_investment", initial_investment);
+  }
+  // Update monthly_contribution
+  if (typeof monthly_contribution !== 'undefined') {
+    _derivations["monthly_contribution"].value = monthly_contribution;
+    _setState("monthly_contribution", monthly_contribution);
+  }
+  // Update annual_return
+  if (typeof annual_return !== 'undefined') {
+    _derivations["annual_return"].value = annual_return;
+    _setState("annual_return", annual_return);
+  }
+  // Update investment_years
+  if (typeof investment_years !== 'undefined') {
+    _derivations["investment_years"].value = investment_years;
+    _setState("investment_years", investment_years);
+  }
+  // Update months
+  if (typeof months !== 'undefined') {
+    _derivations["months"].value = months;
+    _setState("months", months);
+  }
+  // Update monthly_return
+  if (typeof monthly_return !== 'undefined') {
+    _derivations["monthly_return"].value = monthly_return;
+    _setState("monthly_return", monthly_return);
+  }
+  // Update total_contributions
+  if (typeof total_contributions !== 'undefined') {
+    _derivations["total_contributions"].value = total_contributions;
+    _setState("total_contributions", total_contributions);
+  }
+  // Update growth_multiplier
+  if (typeof growth_multiplier !== 'undefined') {
+    _derivations["growth_multiplier"].value = growth_multiplier;
+    _setState("growth_multiplier", growth_multiplier);
+  }
+  // Update years_growth
+  if (typeof years_growth !== 'undefined') {
+    _derivations["years_growth"].value = years_growth;
+    _setState("years_growth", years_growth);
+  }
+  // Update estimated_value
+  if (typeof estimated_value !== 'undefined') {
+    _derivations["estimated_value"].value = estimated_value;
+    _setState("estimated_value", estimated_value);
+  }
+  // Update total_gains
+  if (typeof total_gains !== 'undefined') {
+    _derivations["total_gains"].value = total_gains;
+    _setState("total_gains", total_gains);
+  }
+  // Update gain_percentage
+  if (typeof gain_percentage !== 'undefined') {
+    _derivations["gain_percentage"].value = gain_percentage;
+    _setState("gain_percentage", gain_percentage);
+  }
+
+  // Update UI displays
+  Object.keys(_derivations).forEach(name => {
+    const el = document.getElementById('val-' + name);
+    if (el && _derivations[name].value !== undefined) {
+      el.textContent = _formatValue(_derivations[name].value);
+    }
+  });
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// Format derivation header for "Why?" display
+function _formatDerivationHeader(d) {
+  switch (d.type) {
+    case 'assumption':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">assumption</span>';
+    case 'computed':
+      return '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span> → <span class="value">' + _formatValue(d.value) + '</span>';
+    case 'conditional':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">conditional</span>';
+    default:
+      return d.name + ' = ' + _formatValue(d.value);
+  }
+}
+
+// UI initialization
+// Add "Why?" button next to a value display
+function addWhyButton(valueName, elementId) {
+  const container = document.getElementById(elementId);
+  if (!container) return;
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Why?';
+  btn.className = 'why-button';
+  btn.onclick = () => showWhyExplanation(valueName);
+  container.parentElement.appendChild(btn);
+}
+
+// Show "Why?" modal with derivation chain
+function showWhyExplanation(valueName) {
+  const d = _getDerivation(valueName);
+  if (!d) return;
+
+  const html = _explainDerivation(d, 0);
+  document.getElementById('why-explanation').innerHTML = html;
+  document.getElementById('why-modal').classList.remove('hidden');
+}
+
+// Recursively explain derivation
+function _explainDerivation(d, depth) {
+  const marginLeft = depth * 20;
+  const cls = d.type;
+  const header = _formatDerivationHeader(d);
+  let result = '<div class="derivation ' + cls + '" style="margin-left: ' + marginLeft + 'px">' + header + '</div>';
+
+  if (d.deps && d.deps.length > 0) {
+    d.deps.forEach(depName => {
+      const dep = _getDerivation(depName);
+      if (dep) {
+        result += _explainDerivation(dep, depth + 1);
+      }
+    });
+  }
+
+  return result;
+}
+
+// Add "What if?" toggle for an assumption
+function addWhatIfToggle(name, inputType, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'what-if-toggle';
+
+  if (inputType === 'checkbox') {
+    div.innerHTML = '<label class="toggle-label"><span class="toggle-name">What if ' + name + ' were </span><button class="toggle-btn" data-value="true">true</button><button class="toggle-btn" data-value="false">false</button><span class="toggle-hint">?</span></label>';
+    div.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const newVal = btn.dataset.value === 'true';
+        _setAssumption(name, newVal);
+        _recompute();
+      };
+    });
+  } else {
+    div.innerHTML = '<label class="toggle-label"><span class="toggle-name">What if ' + name + ' were </span><input type="' + inputType + '" class="toggle-input" /><span class="toggle-hint">?</span></label>';
+    const input = div.querySelector('input');
+    input.oninput = () => {
+      const newVal = inputType === 'number' ? parseFloat(input.value) : input.value;
+      if (!isNaN(newVal) || inputType !== 'number') {
+        _setAssumption(name, newVal);
+        _recompute();
+      }
+    };
+  }
+
+  container.appendChild(div);
+}
+
+// Add parameter sweep slider
+function addSweepSlider(name, min, max, step, initial, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'parameter-sweep';
+  div.innerHTML = '<div class="sweep-header"><span class="sweep-name">' + name + '</span><span class="sweep-value" id="sweep-val-' + name + '">' + initial + '</span></div><input type="range" class="sweep-slider" min="' + min + '" max="' + max + '" step="' + step + '" value="' + initial + '" /><div class="sweep-bounds"><span>' + min + '</span><span>' + max + '</span></div>';
+
+  const slider = div.querySelector('input');
+  slider.oninput = () => {
+    const val = parseFloat(slider.value);
+    document.getElementById('sweep-val-' + name).textContent = val;
+    _setAssumption(name, val);
+    _recompute();
+  };
+
+  container.appendChild(div);
+}
+
+// Initialize UI
+function init() {
+  // Create "Why?" modal
+  const modal = document.createElement('div');
+  modal.id = 'why-modal';
+  modal.className = 'why-modal hidden';
+  modal.innerHTML = '<div class="why-modal-content"><h3>Why this value?</h3><div id="why-explanation"></div><button id="why-modal-close" class="close-btn">Close</button></div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('why-modal-close').onclick = () => {
+    document.getElementById('why-modal').classList.add('hidden');
+  };
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  };
+
+  // Create value displays
+  const controlsDiv = document.getElementById('controls');
+  if (controlsDiv) {
+    Object.keys(_derivations).forEach(name => {
+      const d = _derivations[name];
+      const div = document.createElement('div');
+      div.className = 'control-group';
+      div.innerHTML = '<span class="control-label">' + name + ':</span> <span class="value-display" id="val-' + name + '">' + _formatValue(d.value) + '</span>';
+      controlsDiv.appendChild(div);
+    });
+  }
+
+  // Add "Why?" buttons
+  addWhyButton("months", "val-months");
+  addWhyButton("monthly_return", "val-monthly_return");
+  addWhyButton("total_contributions", "val-total_contributions");
+  addWhyButton("growth_multiplier", "val-growth_multiplier");
+  addWhyButton("years_growth", "val-years_growth");
+  addWhyButton("estimated_value", "val-estimated_value");
+  addWhyButton("total_gains", "val-total_gains");
+  addWhyButton("gain_percentage", "val-gain_percentage");
+
+  // Add "What if?" toggles
+  addWhatIfToggle("initial_investment", "number", "what-if-toggles");
+  addWhatIfToggle("monthly_contribution", "number", "what-if-toggles");
+  addWhatIfToggle("annual_return", "number", "what-if-toggles");
+  addWhatIfToggle("investment_years", "number", "what-if-toggles");
+
+  // Add parameter sweep sliders
+  addSweepSlider("initial_investment", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("monthly_contribution", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("annual_return", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("investment_years", 0, 100, 1, 50, "parameter-sweeps");
+
+  // Initial computation
+  _recompute();
+}
+
+
+    // Initialize
+    if (typeof init === 'function') init();
+  </script>
+</body>
+</html>

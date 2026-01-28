@@ -117,6 +117,16 @@ jobs:
           cp demo/examples/compute.bosatsu web_deploy/demo/examples/
           cp demo/examples/orchestrator.bosatsu web_deploy/demo/examples/
 
+          # Provenance demos (Why? + What if? calculators)
+          cp demo/tax-calculator.html web_deploy/demo/
+          cp demo/loan-calculator.html web_deploy/demo/
+          cp demo/loan_calculator.bosatsu web_deploy/demo/
+          cp demo/investment.html web_deploy/demo/
+          cp demo/investment.bosatsu web_deploy/demo/
+          cp demo/carbon-footprint.html web_deploy/demo/
+          cp demo/carbon.bosatsu web_deploy/demo/
+          cp demo/bouncing-ball.html web_deploy/demo/
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
