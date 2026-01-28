@@ -15,9 +15,17 @@ Phase 8 implements a provenance debugger daemon for Bosatsu, ported from Burrito
 │  │           DaemonProtocol.scala                       │   │
 │  │  - NodeId, SourceLocation, SourceType               │   │
 │  │  - TraceNode, ProvenanceTrace                       │   │
-│  │  - DaemonCommand ADT (16 commands)                  │   │
+│  │  - DaemonCommand ADT (14 commands)                  │   │
 │  │  - DaemonResponse, ResponseData                     │   │
 │  │  - DaemonState                                      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                          │                                  │
+│                          ▼                                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │           DaemonJson.scala                          │   │
+│  │  - JSON serialization for protocol types            │   │
+│  │  - parseCommand / renderResponse                    │   │
+│  │  - Uses existing Json AST                           │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                          │                                  │
 │                          ▼                                  │
@@ -30,10 +38,18 @@ Phase 8 implements a provenance debugger daemon for Bosatsu, ported from Burrito
 │                          │                                  │
 │                          ▼                                  │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │           DaemonServer.scala (TODO)                  │   │
-│  │  - Unix socket listener                             │   │
+│  │           DaemonServer.scala                         │   │
+│  │  - Unix socket listener (fs2-io)                    │   │
 │  │  - JSON command/response protocol                   │   │
 │  │  - State persistence via Ref[IO, State]             │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                          │                                  │
+│                          ▼                                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │           DaemonCli.scala                            │   │
+│  │  - CLI for daemon commands                          │   │
+│  │  - start/stop/status subcommands                    │   │
+│  │  - list/explain/deps/etc subcommands               │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -41,12 +57,20 @@ Phase 8 implements a provenance debugger daemon for Bosatsu, ported from Burrito
 
 ## Files Created
 
-### Main Source Files
+### Core Source Files
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `core/src/main/scala/dev/bosatsu/daemon/DaemonProtocol.scala` | Protocol types (commands, responses, state) | ~250 |
-| `core/src/main/scala/dev/bosatsu/daemon/CommandHandler.scala` | Command processing logic | ~220 |
+| `core/src/main/scala/dev/bosatsu/daemon/DaemonProtocol.scala` | Protocol types (commands, responses, state) | ~306 |
+| `core/src/main/scala/dev/bosatsu/daemon/CommandHandler.scala` | Command processing logic | ~340 |
+| `core/src/main/scala/dev/bosatsu/daemon/DaemonJson.scala` | JSON serialization | ~310 |
+
+### CLI Source Files
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| `cli/src/main/scala/dev/bosatsu/daemon/DaemonServer.scala` | Unix socket server | ~130 |
+| `cli/src/main/scala/dev/bosatsu/daemon/DaemonCli.scala` | CLI command parsing | ~220 |
 
 ### Test Files
 
@@ -54,6 +78,7 @@ Phase 8 implements a provenance debugger daemon for Bosatsu, ported from Burrito
 |------|---------|-------|
 | `core/src/test/scala/dev/bosatsu/daemon/DaemonGen.scala` | ScalaCheck generators | - |
 | `core/src/test/scala/dev/bosatsu/daemon/CommandHandlerTest.scala` | Property tests | 27 |
+| `core/src/test/scala/dev/bosatsu/daemon/DaemonJsonTest.scala` | JSON roundtrip tests | 18 |
 
 ## Commands Implemented
 
@@ -76,7 +101,7 @@ Phase 8 implements a provenance debugger daemon for Bosatsu, ported from Burrito
 
 ## Test Coverage
 
-All 27 property tests passing:
+All 45 tests passing (27 CommandHandler + 18 JSON):
 
 ```
 + CommandHandler.list returns all nodes: OK, passed 100 tests.
@@ -106,6 +131,11 @@ All 27 property tests passing:
 + CommandHandler.shutdown sets shouldShutdown flag: OK, passed 100 tests.
 + CommandHandler.non-shutdown commands don't set shutdown flag: OK, passed 100 tests.
 + CommandHandler.read-only commands preserve state: OK, passed 100 tests.
++ DaemonJson.parseCommand roundtrips for all commands: OK, passed 100 tests.
++ DaemonJson.renderResponse produces parseable JSON: OK, passed 100 tests.
++ DaemonJson.parseCommand parses list command
++ DaemonJson.parseCommand parses explain with nodeId
++ ... (and 13 more JSON tests)
 ```
 
 ## Design Decisions
@@ -127,43 +157,58 @@ Commands like `Explain` can operate on:
 
 This matches BurritoScript's behavior for interactive exploration.
 
-### 3. Value Representation
+### 3. JSON Using Existing Infrastructure
 
-Values are stored as JSON strings for flexibility. The `formatValueBrief` function provides concise display for listings.
+Uses the project's existing `Json` AST with `Reader/Writer` type classes for consistency. No external JSON library needed.
 
-## Remaining Work (Phase 8 continuation)
+### 4. Unix Socket Protocol
 
-1. **DaemonServer** - Unix socket server using fs2
-2. **DaemonClient** - Client for CLI to communicate with daemon
-3. **DaemonCommand CLI** - Integration with Bosatsu CLI
-4. **JSON serialization** - Proper JSON encoding/decoding
-5. **Source file reading** - For `Snippet` command
+The daemon uses Unix domain sockets for IPC:
+- Line-based protocol (one JSON command/response per line)
+- Server maintains state via cats-effect `Ref`
+- Clean shutdown via `SignallingRef`
 
-## Usage Example (planned)
+## Remaining Work (Future Enhancement)
+
+1. **Trace File Parsing** - Parse actual trace files (currently uses empty trace)
+2. **Source File Reading** - Read source files for `Snippet` command
+3. **Interactive Mode** - REPL-style interface
+
+## Usage
 
 ```bash
 # Start daemon with a trace file
 bosatsu daemon start trace.json
 
-# Explore the trace
-bosatsu list              # List all nodes
-bosatsu explain           # Explain result node
-bosatsu deps n5           # Show dependencies of n5
-bosatsu snippet n5        # Show code with scope
+# Check status
+bosatsu daemon status
 
-# Interactive mode
-bosatsu debug file.bosatsu
-debug> explain
-debug> deps n3
-debug> quit
+# Explore the trace
+bosatsu daemon list              # List all nodes
+bosatsu daemon list --values     # List with values
+bosatsu daemon explain           # Explain result node
+bosatsu daemon explain n5        # Explain specific node
+bosatsu daemon deps n5           # Show dependencies of n5
+bosatsu daemon usages n5         # Show what uses n5
+bosatsu daemon focus n5          # Set focus to n5
+bosatsu daemon unfocus           # Clear focus
+bosatsu daemon value n5          # Show full value
+bosatsu daemon source n5         # Show source location
+bosatsu daemon find "42"         # Find nodes with value "42"
+
+# Stop daemon
+bosatsu daemon stop
 ```
 
 ## Verification
 
 ```bash
 # Compile
-nix-shell --run "sbt coreJVM/compile"
+nix-shell --run "sbt cli/compile"
 
 # Run tests
 nix-shell --run "sbt 'coreJVM/testOnly dev.bosatsu.daemon.*'"
+
+# View help
+nix-shell --run "sbt 'cli/runMain dev.bosatsu.Main daemon --help'"
 ```
