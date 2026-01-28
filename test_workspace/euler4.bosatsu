@@ -48,7 +48,7 @@ def first_of(n: Int, fn: Int -> Option[a]) -> Option[a]:
 
 # we use int_loop here since we are recuring on Int
 def digit_list(n):
-  rev_list = int_loop(n, [], \n, acc ->
+  rev_list = int_loop(n, [], (n, acc) ->
     this_digit = n.mod_Int(10)
     next_acc = [this_digit, *acc]
     next_n = n.div(10)

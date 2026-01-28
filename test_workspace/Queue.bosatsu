@@ -53,7 +53,7 @@ def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
   Queue(b, f)
 
 def eq_Queue(eq_fn: (a, a) -> Bool)(left: Queue[a], right: Queue[a]) -> Bool:
-  res = left.fold_Queue((True, right), \(g, right), al ->
+  res = left.fold_Queue((True, right), ((g, right), al) ->
     if g:
         match unpush(right):
           case None: (False, empty)
@@ -171,8 +171,8 @@ queue_laws = suite_Prop(
 tests = TestSuite("queue tests", [
   Assertion(eq_oi(q12.pop_value(), Some(1)), "1"),
   Assertion(q12.fold_Queue(0,add).eq_Int(3), "fold_Queue add"),
-  Assertion(q12.fold_Queue(0,\_, x -> x).eq_Int(2), "take the second"),
-  Assertion(q12.fold_Queue(0,\x, _ -> x).eq_Int(0), "take the first"),
+  Assertion(q12.fold_Queue(0, (_, x) -> x).eq_Int(2), "take the second"),
+  Assertion(q12.fold_Queue(0, (x, _) -> x).eq_Int(0), "take the first"),
   Assertion(q12.reverse_Queue().reverse_Queue().eq_qi(q12), "reverse is idempotent"),
   Assertion(q12.eq_qi(from_List([1, 2])), "from list [1, 2]"),
   Assertion(q12.push(3).eq_qi(from_List([1, 2, 3])), "from list [1, 2, 3]"),

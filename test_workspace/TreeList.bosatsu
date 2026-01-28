@@ -62,7 +62,7 @@ operator - = sub
 
 def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   # since int_loop stops at 0, we use 1 based indexing here
-  (_, item) = int_loop(idx + 1, (trees, None), \idx, (trees, _) ->
+  (_, item) = int_loop(idx + 1, (trees, None), (idx, (trees, _)) ->
     if eq_Int(idx, 1): (0, ([], head(TreeList(trees))))
     else:
       match trees:
@@ -79,7 +79,7 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   item
 
 def from_List(list: List[a]) -> TreeList[a]:
-  list.reverse().foldl_List(empty, \lst, h -> cons(h, lst))
+  list.reverse().foldl_List(empty, (lst, h) -> cons(h, lst))
 
 def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   def loop(trees, init):
@@ -90,10 +90,10 @@ def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   loop(trees, init)
 
 def to_List(list: TreeList[a]) -> List[a]:
-  fold(list, [], \l, h -> [h, *l]).reverse()
+  fold(list, [], (l, h) -> [h, *l]).reverse()
 
 def eq_TreeList(fn)(a, b):
-  (res, _) = a.fold((True, b), \(current, b), h ->
+  (res, _) = a.fold((True, b), ((current, b), h) ->
     if current:
       match decons(b):
         case None: (False, empty)

@@ -30,7 +30,7 @@ operator == = eq_Int
 
 # sum 0 to n on the given function
 def sum(fn, n):
-  int_loop(n, 0, \i, r ->
+  int_loop(n, 0, (i, r) ->
     i = i - 1
     (i, r + fn(i)))
 

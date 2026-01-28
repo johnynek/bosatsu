@@ -95,7 +95,7 @@ operator - = sub
 # the maximum value of the function for inputs greater than 0
 # if the starting number is <= 0, we return None
 def max_of(n, fn):
-  int_loop(n, None, \i, res ->
+  int_loop(n, None, (i, res) ->
     next_i = i.sub(1)
     res1 = match fn(i):
       case None: res
@@ -108,13 +108,13 @@ def max_of(n, fn):
 # return the first defined value from largest to smallest
 # of the given function, if it is defined
 def first_of(n, fn):
-  int_loop(n, None, \i, _ ->
+  int_loop(n, None, (i, _) ->
     match fn(i):
       case None: (i - 1, None)
       case nonNone: (0, nonNone))
 
 def digit_list(n):
-  rev_list = int_loop(n, [], \n, acc ->
+  rev_list = int_loop(n, [], (n, acc) ->
     this_digit = n.mod_Int(10)
     next_acc = [this_digit, *acc]
     next_n = n.div(10)
@@ -122,7 +122,7 @@ def digit_list(n):
   reverse(rev_list)
 
 def is_palindrome(lst, eq_fn):
-  (res, _) = lst.foldLeft((True, reverse(lst)), \res, item ->
+  (res, _) = lst.foldLeft((True, reverse(lst)), (res, item) ->
     match res:
       case (False, _): res
       case (_, []):
@@ -139,7 +139,7 @@ def product_palindrome(n1, n2):
   prod = n1.times(n2)
   Some(prod) if num_is_palindrome(prod) else None
 
-max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
+max_pal_opt = max_of(99, n1 -> first_of(99, product_palindrome(n1)))
 
 max_pal = match max_pal_opt:
   case Some(m): m
