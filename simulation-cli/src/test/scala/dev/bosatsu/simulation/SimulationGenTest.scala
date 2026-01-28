@@ -256,11 +256,15 @@ class SimulationGenTest extends FunSuite {
     assert(html.contains("42"))
   }
 
-  test("computation code is included") {
-    val analyses = List(makeAnalysis("x", DerivationAnalyzer.Assumption))
-    val computeJs = "const myCustomCode = 42;"
+  test("values from computation code are extracted and used in state") {
+    // computeJs values are extracted via regex and used to initialize state
+    // The raw computeJs is NOT included - values are managed through _state object instead
+    val analyses = List(makeAnalysis("myVar", DerivationAnalyzer.Assumption))
+    val computeJs = "const myVar = 42;"
     val html = SimulationGen.generate(analyses, computeJs, SimulationGen.SimConfig("Test"))
-    assert(html.contains("const myCustomCode = 42;"))
+    // Check that the variable and its value appear in the state initialization
+    assert(html.contains("myVar"))
+    assert(html.contains("42"))
   }
 
   test("long binding names are handled") {

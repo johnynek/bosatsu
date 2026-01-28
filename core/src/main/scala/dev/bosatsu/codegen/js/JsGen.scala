@@ -444,9 +444,23 @@ object JsGen {
               Code.Assignment(Code.Ident("_cur"), Code.Ident("_cur").bracket(Code.IntLiteral(2)))
             ))
           ),
-          // Convert JS array back to Bosatsu list and flatten traces
+          // Convert JS array back to Bosatsu list: arr.reduceRight((acc, item) => [1, item, acc], [0])
+          // Bosatsu list format: [0] = empty, [1, head, tail] = non-empty
           Code.Return(Some(Code.ObjectLiteral(List(
-            "value" -> Code.Call(Code.Ident("_js_array_to_bosatsu_list"), List(Code.Ident("_results"))),
+            "value" -> Code.Call(
+              Code.Ident("_results").dot("reduceRight"),
+              List(
+                Code.ArrowFunction(
+                  List("_acc", "_item"),
+                  Left(Code.ArrayLiteral(List(
+                    Code.IntLiteral(1),
+                    Code.Ident("_item"),
+                    Code.Ident("_acc")
+                  )))
+                ),
+                Code.ArrayLiteral(List(Code.IntLiteral(0)))  // Initial value: empty list
+              )
+            ),
             "trace" -> Code.Call(Code.Ident("_traces").dot("flat"), Nil)
           ))))
         ))), 1),
