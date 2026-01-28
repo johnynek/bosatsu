@@ -300,16 +300,22 @@ Branch: `feat/phase6-simulation-applets`
 - Core UI tests: 148 passing
 - Simulation CLI tests: 155 passing
 
-## Phase 7: BosatsuPermissions (TODO)
+## Phase 7: BosatsuPermissions ✅ DONE
 **Shared permission layer for Service, UI, Explorer**
 
-- [ ] `Permission.scala` - Permission declaration types
-- [ ] `PermissionAnalyzer.scala` - Static analysis of required permissions from TypedExpr
-- [ ] `CallGraphPermissions.scala` - Permission propagation through call graph
-- [ ] `PermissionChecker.scala` - Runtime permission checking
-- [ ] `PermissionGen.scala`, `PermissionAnalyzerTest.scala`, `PermissionCheckerTest.scala`
-- [ ] Integration: analyze function, extract required permissions
-- [ ] `docs/pr-guides/phase-7-permissions-pr-guide.md`
+Branch: `feat/phase6-simulation-applets`
+
+- [x] `Permission.scala` - Permission declaration types (SimplePermission, ScopedPermission, Scope, PermissionTemplate)
+- [x] `PermissionAnalyzer.scala` - Static analysis of required permissions from Matchless IR
+- [x] `CallGraphPermissions.scala` - Permission propagation through call graph
+- [x] `PermissionChecker.scala` - Runtime permission checking with scope-based access control
+- [x] `PermissionGen.scala`, `PermissionAnalyzerTest.scala`, `PermissionCheckerTest.scala`
+- [x] Integration: analyze function, extract required permissions
+- [x] `docs/pr-guides/phase-7-permissions-pr-guide.md`
+
+**Test Results:**
+- Total: 44 permission tests passing
+- Covers: scope checking, permission hierarchy, call graph propagation, template resolution
 
 ## Phase 8: Debugger Daemon (TODO)
 
@@ -391,7 +397,7 @@ Branch: `feat/phase6-simulation-applets`
 
 # Current Status
 
-**Phase 6 is complete** - Full simulation applets with provenance tracking UI and bosatsu-sim CLI.
+**Phase 7 is complete** - Permission system for static analysis and runtime checking.
 
 **Completed:**
 - Phase 1: Core Infrastructure ✅
@@ -401,10 +407,11 @@ Branch: `feat/phase6-simulation-applets`
 - Phase 4: Basic DOM Primitives ✅
 - Phase 5: Simple Reactive Simulation ✅
 - Phase 6: Simulation Applets Full ✅
+- Phase 7: BosatsuPermissions ✅
 
 **Next recommended work:**
 1. Add property tests for JsGen (remaining Phase 3 items)
-2. Start Phase 7 (BosatsuPermissions) - Permission analysis and checking
+2. Start Phase 8 (Debugger Daemon) - Interactive debugging server
 
 ---
 
