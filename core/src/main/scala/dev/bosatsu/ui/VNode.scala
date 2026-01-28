@@ -84,16 +84,16 @@ object VNode {
 
   // Common HTML elements
 
-  def div(children: VNode*): Element = el("div", children: _*)
-  def span(children: VNode*): Element = el("span", children: _*)
-  def p(children: VNode*): Element = el("p", children: _*)
-  def h1(children: VNode*): Element = el("h1", children: _*)
-  def h2(children: VNode*): Element = el("h2", children: _*)
-  def h3(children: VNode*): Element = el("h3", children: _*)
-  def button(children: VNode*): Element = el("button", children: _*)
+  def div(children: VNode*): Element = el("div", children*)
+  def span(children: VNode*): Element = el("span", children*)
+  def p(children: VNode*): Element = el("p", children*)
+  def h1(children: VNode*): Element = el("h1", children*)
+  def h2(children: VNode*): Element = el("h2", children*)
+  def h3(children: VNode*): Element = el("h3", children*)
+  def button(children: VNode*): Element = el("button", children*)
   def input(): Element = el("input")
-  def ul(children: VNode*): Element = el("ul", children: _*)
-  def li(children: VNode*): Element = el("li", children: _*)
+  def ul(children: VNode*): Element = el("ul", children*)
+  def li(children: VNode*): Element = el("li", children*)
 }
 
 /**

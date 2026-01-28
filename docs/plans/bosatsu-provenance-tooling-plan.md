@@ -317,17 +317,26 @@ Branch: `feat/phase6-simulation-applets`
 - Total: 44 permission tests passing
 - Covers: scope checking, permission hierarchy, call graph propagation, template resolution
 
-## Phase 8: Debugger Daemon (TODO)
+## Phase 8: Debugger Daemon (IN PROGRESS)
+**Provenance debugger daemon for stateful debugging across CLI invocations**
 
-- [ ] DaemonProtocol command/response ADT
-- [ ] DaemonState with Ref[IO, State]
+Branch: `feat/phase6-simulation-applets`
+
+- [x] `DaemonProtocol.scala` - Protocol types (NodeId, SourceLocation, SourceType, TraceNode, ProvenanceTrace, DaemonCommand ADT with 14 commands, DaemonResponse, ResponseData, DaemonState)
+- [x] `CommandHandler.scala` - Pure command handling logic (no I/O)
+- [x] All command handlers (list, explain, deps, usages, find, path, value, source, snippet, eval, focus, unfocus, status, shutdown)
+- [x] `DaemonGen.scala` - ScalaCheck generators for all daemon types
+- [x] `CommandHandlerTest.scala` - 27 property tests
+- [x] `docs/pr-guides/phase-8-daemon-pr-guide.md`
 - [ ] DaemonServer with fs2 Unix sockets
-- [ ] DaemonClient for CLI
+- [ ] DaemonClient for CLI communication
 - [ ] DaemonCommand CLI integration
-- [ ] All command handlers (list, explain, deps, usages, find, path, value, source, snippet, focus)
-- [ ] JSON output mode
-- [ ] `DaemonProtocolGen.scala`, `DaemonProtocolTest.scala`, `DaemonStateTest.scala`, `DaemonServerTest.scala`
-- [ ] `docs/pr-guides/phase-8-daemon-pr-guide.md`
+- [ ] JSON serialization/deserialization
+- [ ] Source file reading for Snippet command
+
+**Test Results:**
+- Total: 27 property tests passing
+- Covers: all 14 commands, state transitions, focus handling, error cases
 
 ## Phase 9: TLA+ Formal Verification (TODO)
 
