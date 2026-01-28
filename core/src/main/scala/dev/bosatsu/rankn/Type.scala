@@ -908,6 +908,7 @@ object Type {
     }
   }
   val IntType: Type.TyConst = TyConst(Const.predef("Int"))
+  val DoubleType: Type.TyConst = TyConst(Const.predef("Double"))
   val ListType: Type.TyConst = TyConst(Const.predef("List"))
   val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
   val StrType: Type.TyConst = TyConst(Const.predef("String"))
@@ -1520,6 +1521,7 @@ object Type {
     (FnType.FnKinds ::: Tuple.Kinds ::: List(
       BoolType -> Kind.Type,
       DictType -> Kind(Kind.Type.in, Kind.Type.co),
+      DoubleType -> Kind.Type,
       IntType -> Kind.Type,
       ListType -> Kind(Kind.Type.co),
       StrType -> Kind.Type,

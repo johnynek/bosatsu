@@ -396,7 +396,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             (mainPackageName, value) <- mainPackage.getMain(names)
             out <-
               if (packs.toMap.contains(mainPackageName)) {
-                val ev = Evaluation(packs, Predef.jvmExternals)
+                val ev = Evaluation(packs, Predef.jvmExternals ++ Numeric.jvmExternals)
 
                 val res = value match {
                   case None        => ev.evaluateMain(mainPackageName)
@@ -639,7 +639,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
           val testPackages: List[PackageName] =
             testIt.toList.sorted.distinct
-          val ev = Evaluation(packs, Predef.jvmExternals)
+          val ev = Evaluation(packs, Predef.jvmExternals ++ Numeric.jvmExternals)
           val res0 = testPackages.map(p => (p, ev.evalTest(p)))
           val res =
             if (testPacks.isEmpty) res0.filter { case (_, testRes) =>

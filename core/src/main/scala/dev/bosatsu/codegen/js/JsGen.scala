@@ -314,9 +314,78 @@ object JsGen {
     }
   }
 
+  // ==================
+  // Numeric Intrinsics
+  // ==================
+
+  /**
+   * Intrinsic functions from Bosatsu/Numeric that are inlined as native JS operations.
+   * These use symbolic operators (+., -., *., /.) to distinguish from Int ops.
+   * Operations bypass RingOpt algebraic expansion - preserves original formulas.
+   */
+  object NumericExternal {
+    import PredefExternal.IntrinsicFn
+
+    val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
+
+    // Compare function for Doubles - returns [0] (LT), [1] (EQ), or [2] (GT)
+    private val cmpDoubleFn: IntrinsicFn = {
+      case List(a, b) =>
+        Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
+          Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
+            Code.ArrayLiteral(List(Code.IntLiteral(2)))))
+      case args => throw new IllegalArgumentException(s"cmp_Double expects 2 args, got ${args.length}")
+    }
+
+    /** Map of intrinsic function names to (implementation, arity) */
+    val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // Arithmetic - symbolic operators for Double (use Operator for symbolic names)
+      Identifier.Operator("+.") -> ((args: List[Code.Expression]) => args.head + args(1), 2),
+      Identifier.Operator("-.") -> ((args: List[Code.Expression]) => args.head - args(1), 2),
+      Identifier.Operator("*.") -> ((args: List[Code.Expression]) => args.head * args(1), 2),
+      Identifier.Operator("/.") -> ((args: List[Code.Expression]) =>
+        // Double division - no truncation needed
+        Code.BinExpr(args.head, Code.BinOp.Div, args(1)), 2),
+
+      // Conversion (use Name for regular identifiers)
+      Identifier.Name("from_Int") -> ((args: List[Code.Expression]) =>
+        // JS numbers are already floats, no conversion needed
+        args.head, 1),
+      Identifier.Name("to_Int") -> ((args: List[Code.Expression]) =>
+        // Truncate to integer
+        Code.Call(Code.Ident("Math").dot("trunc"), List(args.head)), 1),
+
+      // Comparison
+      Identifier.Name("cmp_Double") -> (cmpDoubleFn, 2),
+      Identifier.Name("eq_Double") -> ((args: List[Code.Expression]) =>
+        Code.Ternary(args.head === args(1), Code.ArrayLiteral(List(Code.IntLiteral(1))),
+          Code.ArrayLiteral(List(Code.IntLiteral(0)))), 2),
+
+      // Unary operations
+      Identifier.Name("neg_Double") -> ((args: List[Code.Expression]) =>
+        Code.PrefixExpr(Code.PrefixOp.Neg, args.head), 1),
+      Identifier.Name("abs_Double") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("abs"), List(args.head)), 1)
+    )
+
+    /** Check if an expression is a numeric external and extract its function */
+    def unapply[A](expr: Expr[A]): Option[(IntrinsicFn, Int)] =
+      expr match {
+        case Matchless.Global(_, pack, name) if pack == NumericPackage => results.get(name)
+        case _ => None
+      }
+
+    /** Create a lambda wrapper for a standalone intrinsic reference */
+    def makeLambda(arity: Int)(fn: IntrinsicFn): Code.Expression =
+      PredefExternal.makeLambda(arity)(fn)
+  }
+
   /** These are values replaced with JS operations (for intrinsicValues method) */
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
-    Map((PackageName.PredefName, PredefExternal.results.keySet))
+    Map(
+      PackageName.PredefName -> PredefExternal.results.keySet,
+      NumericExternal.NumericPackage -> NumericExternal.results.keySet
+    )
 
   // ==================
   // Code Generation
@@ -372,6 +441,10 @@ object JsGen {
       case PredefExternal((fn, arity)) =>
         // Standalone reference to a predef intrinsic - wrap in lambda
         Env.pure(PredefExternal.makeLambda(arity)(fn))
+
+      case NumericExternal((fn, arity)) =>
+        // Standalone reference to a numeric intrinsic - wrap in lambda
+        Env.pure(NumericExternal.makeLambda(arity)(fn))
 
       case Global(_, pack, name) =>
         // Runtime-provided functions from Predef - use unqualified names
@@ -441,6 +514,12 @@ object JsGen {
 
       case App(PredefExternal((fn, _)), args) =>
         // Inline application of predef intrinsic
+        for {
+          argsJs <- args.toList.traverse(exprToJs)
+        } yield fn(argsJs)
+
+      case App(NumericExternal((fn, _)), args) =>
+        // Inline application of numeric intrinsic
         for {
           argsJs <- args.toList.traverse(exprToJs)
         } yield fn(argsJs)
