@@ -87,8 +87,10 @@ object ParameterSweep {
       containerId: String
   ): List[Statement] = {
     val escapedName = escapeHTML(parameterName)
-    val sliderId = s"sweep-$escapedName"
-    val valueId = s"sweep-value-$escapedName"
+    // Use unescaped name for element IDs (getElementById must match exactly)
+    // Only escape for display text, not for ID attributes
+    val sliderId = s"sweep-$parameterName"
+    val valueId = s"sweep-value-$parameterName"
 
     List(
       // Create container

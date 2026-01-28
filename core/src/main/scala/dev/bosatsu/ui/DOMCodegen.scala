@@ -89,8 +89,8 @@ object DOMCodegen {
 
       val listenerFn = listenerBody match {
         case single :: Nil =>
-          // Single statement can use expression form
-          ArrowFunction(List("event"), UndefinedLiteral)
+          // Single statement can use expression form - use the actual statement
+          ArrowFunction(List("event"), Block(NonEmptyList.one(single)))
         case _ =>
           // Multiple statements need block form
           ArrowFunction(

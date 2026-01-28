@@ -217,6 +217,79 @@ object WhyExplainer {
   }
 
   /**
+   * Generate the _formatDerivationHeader JS helper function.
+   * This formats the header text for a derivation node.
+   */
+  def generateFormatDerivationHeaderFunction(): Statement = {
+    Const("_formatDerivationHeader", Function(
+      None,
+      List("d"),
+      block(
+        IfStatement(
+          BinExpr(PropertyAccess(Ident("d"), "type"), BinOp.Eq, StringLiteral("assumption")),
+          block(Return(Some(BinExpr(
+            BinExpr(
+              BinExpr(
+                StringLiteral("<span class=\"name\">"),
+                BinOp.Plus,
+                PropertyAccess(Ident("d"), "name")
+              ),
+              BinOp.Plus,
+              StringLiteral("</span> = <span class=\"value\">")
+            ),
+            BinOp.Plus,
+            BinExpr(
+              PropertyAccess(Ident("d"), "value"),
+              BinOp.Plus,
+              StringLiteral("</span> <span class=\"tag\">assumption</span>")
+            )
+          )))),
+          None
+        ),
+        IfStatement(
+          BinExpr(PropertyAccess(Ident("d"), "type"), BinOp.Eq, StringLiteral("computed")),
+          block(Return(Some(BinExpr(
+            BinExpr(
+              BinExpr(
+                BinExpr(
+                  StringLiteral("<span class=\"name\">"),
+                  BinOp.Plus,
+                  PropertyAccess(Ident("d"), "name")
+                ),
+                BinOp.Plus,
+                StringLiteral("</span> = <span class=\"formula\">")
+              ),
+              BinOp.Plus,
+              PropertyAccess(Ident("d"), "formula")
+            ),
+            BinOp.Plus,
+            BinExpr(
+              StringLiteral("</span> → <span class=\"value\">"),
+              BinOp.Plus,
+              BinExpr(
+                PropertyAccess(Ident("d"), "value"),
+                BinOp.Plus,
+                StringLiteral("</span>")
+              )
+            )
+          )))),
+          None
+        ),
+        // Default: conditional
+        Return(Some(BinExpr(
+          BinExpr(
+            StringLiteral("<span class=\"name\">"),
+            BinOp.Plus,
+            PropertyAccess(Ident("d"), "name")
+          ),
+          BinOp.Plus,
+          StringLiteral("</span>")
+        )))
+      )
+    ))
+  }
+
+  /**
    * Generate the _explainDerivation JS helper function.
    */
   def generateExplainDerivationFunction(): Statement = {

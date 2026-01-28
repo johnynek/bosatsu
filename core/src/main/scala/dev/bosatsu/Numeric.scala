@@ -69,7 +69,9 @@ object NumericImpl {
   def cmp(a: Value, b: Value): Value = {
     val da = d(a)
     val db = d(b)
-    if (da < db) Comparison.LT
+    // NaN comparisons: NaN is unordered, treat as GT for consistency with IEEE 754 totalOrder
+    if (da.isNaN || db.isNaN) Comparison.GT
+    else if (da < db) Comparison.LT
     else if (da > db) Comparison.GT
     else Comparison.EQ
   }

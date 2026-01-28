@@ -58,7 +58,8 @@ object EmbedGenerator {
       showWhyButtons: Boolean = true,
       showWhatIfToggles: Boolean = true,
       showParameterSweeps: Boolean = true,
-      libraryMode: Boolean = false
+      libraryMode: Boolean = false,
+      showCanvas: Boolean = false  // Only show canvas for animations, not calculators
   )
 
   /**
@@ -215,9 +216,13 @@ object EmbedGenerator {
   }
 
   private def generateHTML(config: EmbedConfig): String = {
+    val canvasHtml = if (config.showCanvas) {
+      s"""<canvas id="simulation-canvas" class="simulation-canvas" width="${config.width - 48}" height="${config.height}"></canvas>"""
+    } else ""
+
     s"""  <div class="applet-container">
        |    <h1 class="applet-title">${escapeHTML(config.title)}</h1>
-       |    <canvas id="simulation-canvas" class="simulation-canvas" width="${config.width - 48}" height="${config.height}"></canvas>
+       |    $canvasHtml
        |    <div class="controls-section" id="controls"></div>
        |    ${if (config.showWhatIfToggles) """<div class="what-if-section" id="what-if-toggles"></div>""" else ""}
        |    ${if (config.showParameterSweeps) """<div class="sweep-section" id="parameter-sweeps"></div>""" else ""}
@@ -225,8 +230,9 @@ object EmbedGenerator {
   }
 
   private def generateJS(config: EmbedConfig, initialState: Map[String, String], appletJS: String): String = {
-    val stateInit = initialState.map { case (k, v) => s"      $k: $v" }.mkString(",\n")
-    val listenersInit = initialState.keys.map(k => s"      $k: []").mkString(",\n")
+    // Quote keys to handle special characters in state names
+    val stateInit = initialState.map { case (k, v) => s"""      "$k": $v""" }.mkString(",\n")
+    val listenersInit = initialState.keys.map(k => s"""      "$k": []""").mkString(",\n")
 
     s"""    // BosatsuUI Reactive Runtime
        |    const _state = {

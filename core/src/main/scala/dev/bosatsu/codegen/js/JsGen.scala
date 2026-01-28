@@ -329,11 +329,19 @@ object JsGen {
     val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
 
     // Compare function for Doubles - returns [0] (LT), [1] (EQ), or [2] (GT)
+    // NaN comparisons return GT for consistency with IEEE 754 totalOrder
     private val cmpDoubleFn: IntrinsicFn = {
       case List(a, b) =>
-        Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
-          Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
-            Code.ArrayLiteral(List(Code.IntLiteral(2)))))
+        // Check for NaN first - Number.isNaN(a) || Number.isNaN(b) => GT
+        val isNaN = Code.BinExpr(
+          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(a)),
+          Code.BinOp.Or,
+          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(b))
+        )
+        Code.Ternary(isNaN, Code.ArrayLiteral(List(Code.IntLiteral(2))),
+          Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
+            Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
+              Code.ArrayLiteral(List(Code.IntLiteral(2))))))
       case args => throw new IllegalArgumentException(s"cmp_Double expects 2 args, got ${args.length}")
     }
 
