@@ -312,4 +312,223 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
     assert(found.isDefined, "Should find expression")
     assert(found.get.isInstanceOf[TypedExpr.Literal[?]], "Should find literal, not let")
   }
+
+  // =========================================================================
+  // SourceLocation tests
+  // =========================================================================
+
+  test("SourceLocation.toString includes span and snippet") {
+    val source = "x = 42"
+    val mapper = SourceMapper.fromSource(source)
+    val locOpt = mapper.locate(Region(4, 6))
+
+    assert(locOpt.isDefined)
+    val loc = locOpt.get
+    val str = loc.toString
+
+    // toString should include the span and snippet
+    assert(str.contains("["), "Should have bracket")
+    assert(str.contains("]"), "Should have closing bracket")
+    assert(str.contains(":"), "Should have colon for line:col format")
+  }
+
+  test("SourceLocation.span formats correctly for multi-line") {
+    val source = "line1\nline2\nline3"
+    val mapper = SourceMapper.fromSource(source)
+    val locOpt = mapper.locate(Region(0, source.length - 1))
+
+    assert(locOpt.isDefined)
+    val loc = locOpt.get
+
+    // Multi-line span should show both start and end
+    val span = loc.span
+    assert(!loc.isSingleLine, "Should be multi-line")
+    assert(span.contains("-"), "Should have dash for range")
+  }
+
+  // =========================================================================
+  // briefDescription tests for different TypedExpr types
+  // =========================================================================
+
+  test("briefDescription handles literal with long repr") {
+    val source = "x"
+    val mapper = SourceMapper.fromSource(source)
+    // Create a literal with a long value that will be truncated
+    val longLit = Lit.Str("this is a very long string that should be truncated")
+    val node = ProvenanceNode(0L, TypedExpr.Literal(longLit, Type.StrType, Region(0, 1)))
+
+    val desc = mapper.briefDescription(node)
+    assert(desc.contains("literal:"), "Should indicate literal")
+    assert(desc.contains("..."), "Should truncate long value")
+  }
+
+  test("briefDescription handles global reference") {
+    val source = "x"
+    val mapper = SourceMapper.fromSource(source)
+    val globalExpr = TypedExpr.Global[Region](
+      dev.bosatsu.PackageName.parts("Foo", "Bar"),
+      Identifier.Name("baz"),
+      Type.IntType,
+      Region(0, 1)
+    )
+    val node = ProvenanceNode(0L, globalExpr)
+
+    val desc = mapper.briefDescription(node)
+    assert(desc.contains("global:"), "Should indicate global")
+    assert(desc.contains("Foo/Bar"), "Should include package name")
+    assert(desc.contains("baz"), "Should include identifier")
+  }
+
+  test("briefDescription handles application") {
+    val source = "f(x)"
+    val mapper = SourceMapper.fromSource(source)
+    val fn = TypedExpr.Local[Region](Identifier.Name("f"), Type.IntType, Region(0, 1))
+    val arg = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(2, 3))
+    val appExpr = TypedExpr.App[Region](
+      fn,
+      cats.data.NonEmptyList.one(arg),
+      Type.IntType,
+      Region(0, 4)
+    )
+    val node = ProvenanceNode(0L, appExpr)
+
+    val desc = mapper.briefDescription(node)
+    assertEquals(desc, "application")
+  }
+
+  test("briefDescription handles let expression") {
+    val source = "let x = 1 in x"
+    val mapper = SourceMapper.fromSource(source)
+    val inner = TypedExpr.Literal[Region](Lit(1), Type.IntType, Region(8, 9))
+    val varRef = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(13, 14))
+    val letExpr = TypedExpr.Let[Region](
+      Identifier.Name("x"),
+      inner,
+      varRef,
+      dev.bosatsu.RecursionKind.NonRecursive,
+      Region(0, 14)
+    )
+    val node = ProvenanceNode(0L, letExpr)
+
+    val desc = mapper.briefDescription(node)
+    assert(desc.contains("let:"), "Should indicate let")
+    assert(desc.contains("x"), "Should include binding name")
+  }
+
+  test("briefDescription handles lambda") {
+    val source = "\\x -> x"
+    val mapper = SourceMapper.fromSource(source)
+    val body = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(6, 7))
+    val lambdaExpr = TypedExpr.AnnotatedLambda[Region](
+      cats.data.NonEmptyList.one((Identifier.Name("x"), Type.IntType)),
+      body,
+      Region(0, 7)
+    )
+    val node = ProvenanceNode(0L, lambdaExpr)
+
+    val desc = mapper.briefDescription(node)
+    assert(desc.contains("lambda"), "Should indicate lambda")
+    assert(desc.contains("x"), "Should include argument name")
+  }
+
+  test("briefDescription handles generic") {
+    val source = "x"
+    val mapper = SourceMapper.fromSource(source)
+    val inner = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(0, 1))
+    val quantification = Type.Quantification.ForAll(
+      cats.data.NonEmptyList.one((Type.Var.Bound("a"), dev.bosatsu.Kind.Type))
+    )
+    val genericExpr = TypedExpr.Generic[Region](quantification, inner)
+    val node = ProvenanceNode(0L, genericExpr)
+
+    val desc = mapper.briefDescription(node)
+    assertEquals(desc, "generic")
+  }
+
+  test("briefDescription handles annotation") {
+    val source = "x"
+    val mapper = SourceMapper.fromSource(source)
+    val inner = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(0, 1))
+    val annExpr = TypedExpr.Annotation[Region](inner, Type.IntType)
+    val node = ProvenanceNode(0L, annExpr)
+
+    val desc = mapper.briefDescription(node)
+    assert(desc.contains("annotation:"), "Should indicate annotation")
+  }
+
+  // =========================================================================
+  // formatDerivationChain edge cases
+  // =========================================================================
+
+  test("formatDerivationChain handles missing nodes") {
+    val graph = DerivationGraph.empty[Region]
+    val source = "x"
+    val mapper = SourceMapper.fromSource(source)
+
+    // Pass a chain with node IDs that don't exist in the graph
+    val chain = List((999L, 0), (1000L, 1))
+    val doc = mapper.formatDerivationChain(chain, graph)
+    val output = doc.render(80)
+
+    // Should indicate unknown nodes
+    assert(output.contains("[999]"), "Should reference node ID")
+    assert(output.contains("unknown"), "Should indicate unknown node")
+  }
+
+  // =========================================================================
+  // ExpressionMapper edge cases
+  // =========================================================================
+
+  test("ExpressionMapper.expressionAt handles out-of-bounds line") {
+    val source = "x = 1"
+    val literalExpr = TypedExpr.Literal[Region](Lit(1), Type.IntType, Region(4, 5))
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    // Line 100 is way out of bounds
+    val found = mapper.expressionAt(100, 1)
+    assert(found.isEmpty, "Should return None for out-of-bounds line")
+  }
+
+  test("ExpressionMapper.locate delegates to SourceMapper") {
+    val source = "x = 42"
+    val literalExpr = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(4, 6))
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    val locOpt = mapper.locate(literalExpr)
+    assert(locOpt.isDefined, "Should find location")
+    assertEquals(locOpt.get.line, 1)
+  }
+
+  test("ExpressionMapper.locate with region delegates correctly") {
+    val source = "x = 42"
+    val literalExpr = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(4, 6))
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    val locOpt = mapper.locate(Region(4, 6))
+    assert(locOpt.isDefined, "Should find location for region")
+  }
+
+  test("ExpressionMapper handles nested expressions correctly") {
+    val source = "match x: case 1: 2"
+    //           0         1
+    //           012345678901234567
+    val arg = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(6, 7))
+    val branchResult = TypedExpr.Literal[Region](Lit(2), Type.IntType, Region(17, 18))
+    val pattern = (
+      dev.bosatsu.Pattern.Literal(Lit(1)),
+      branchResult
+    )
+    val matchExpr = TypedExpr.Match[Region](
+      arg,
+      cats.data.NonEmptyList.one(pattern),
+      Region(0, 18)
+    )
+
+    val mapper = ExpressionMapper.fromTypedExpr(matchExpr, source)
+
+    // Should index all three: match, arg, branchResult
+    assert(mapper.expressionForRegion(Region(0, 18)).isDefined, "Should find match")
+    assert(mapper.expressionForRegion(Region(6, 7)).isDefined, "Should find arg")
+    assert(mapper.expressionForRegion(Region(17, 18)).isDefined, "Should find branch result")
+  }
 }
