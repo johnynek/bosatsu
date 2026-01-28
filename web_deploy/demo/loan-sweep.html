@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loan Calculator</title>
+  <title>Loan Calculator with Sweeps</title>
   <style>
     :root {
       --bg-color: #f5f5f5;
@@ -125,17 +125,31 @@
     .assumption-toggle .variant-btn { padding: 8px 16px; background: #e3e7f5; color: #333; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
     .assumption-toggle .variant-btn:hover { background: #667eea; color: white; }
     .assumption-toggle .variant-btn.active { background: #667eea; color: white; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); }
-
+    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
+    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
+    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
+    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
+    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
+    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
+    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
+    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+    .sweeps-section { margin-top: 24px; }
+    .sweeps-section h3 { color: #667eea; font-size: 1.1rem; margin-bottom: 12px; }
+    .sweep-chart-container { background: #fff; border-radius: 8px; padding: 16px; margin: 12px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .sweep-chart-header { margin-bottom: 12px; }
+    .sweep-chart-title { font-weight: 500; color: #333; }
+    .sweep-chart-container canvas { display: block; border-radius: 4px; }
 
   </style>
 </head>
 <body>
   <div class="applet-container">
-    <h1 class="applet-title">Loan Calculator</h1>
+    <h1 class="applet-title">Loan Calculator with Sweeps</h1>
     
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
-    
+    <div class="sweep-section" id="parameter-sweeps"></div>
   </div>
   <script>
     // BosatsuUI Reactive Runtime
@@ -599,6 +613,177 @@ function init() {
   addOutputDisplay("interest_ratio", "Interest Ratio", false, "results");
 
 
+
+
+  // Add sweep charts section
+  const sweepsDiv = document.createElement('div');
+  sweepsDiv.id = 'sweeps';
+  sweepsDiv.className = 'sweeps-section';
+  sweepsDiv.innerHTML = '<h3>Parameter Sweeps</h3>';
+  if (appletContainer) appletContainer.appendChild(sweepsDiv);
+
+
+  // Sweep chart for annual_rate vs monthly_payment
+  const chartDiv_0 = document.createElement('div');
+  chartDiv_0.className = 'sweep-chart-container';
+  chartDiv_0.innerHTML = '<div class="sweep-chart-header"><span class="sweep-chart-title">monthly_payment vs annual_rate</span></div><canvas id="sweep-chart-0" width="500" height="200"></canvas>';
+  document.getElementById('sweeps').appendChild(chartDiv_0);
+
+  // Run sweep and render chart
+  (function() {
+    const canvas = document.getElementById('sweep-chart-0');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 40;
+
+    // Run sweep
+    const sweepData = [];
+    const min = 100;
+    const max = 1000;
+    const steps = 20;
+    const step = (max - min) / steps;
+
+    // Save current input value
+    const savedValue = _getState('annual_rate');
+
+    for (let i = 0; i <= steps; i++) {
+      const x = min + i * step;
+      _setState('annual_rate', Math.round(x));
+      const result = calculate(_getState("principal"), _getState("annual_rate"), _getState("years"));
+      // Extract output value (handle array or object result)
+      const y = Array.isArray(result) ? result[0] : (result.monthly_payment || result);
+      sweepData.push({ x: x, y: typeof y === 'number' ? y : 0 });
+    }
+
+    // Restore input value
+    _setState('annual_rate', savedValue);
+
+    // Find bounds
+    const xMin = min;
+    const xMax = max;
+    const yValues = sweepData.map(d => d.y);
+    const yMin = Math.min(...yValues);
+    const yMax = Math.max(...yValues);
+    const yRange = yMax - yMin || 1;
+
+    // Clear canvas
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw grid
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (height - 2 * padding) * i / 5;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+    }
+
+    // Draw axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+
+    // Draw line
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    sweepData.forEach((point, i) => {
+      const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // Draw current point marker
+    const currentX = savedValue;
+    const currentY = sweepData.find(d => Math.abs(d.x - currentX) < step / 2)?.y || 0;
+    const markerX = padding + (currentX - xMin) / (xMax - xMin) * (width - 2 * padding);
+    const markerY = height - padding - (currentY - yMin) / yRange * (height - 2 * padding);
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw axis labels
+    ctx.fillStyle = '#666';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(min.toString(), padding, height - 10);
+    ctx.fillText(max.toString(), width - padding, height - 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+    ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+
+    // Store render function for updates
+    window._renderSweep_0 = function() {
+      // Re-render with updated current point
+      const newX = _getState('annual_rate');
+      const newY = sweepData.find(d => Math.abs(d.x - newX) < step / 2)?.y || 0;
+
+      // Redraw (simple version - clears and redraws everything)
+      ctx.fillStyle = '#f8f9fa';
+      ctx.fillRect(0, 0, width, height);
+
+      // Grid
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding + (height - 2 * padding) * i / 5;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+
+      // Axes
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.lineTo(width - padding, height - padding);
+      ctx.stroke();
+
+      // Line
+      ctx.strokeStyle = '#667eea';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      sweepData.forEach((point, i) => {
+        const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+        const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      // Current point marker
+      const mx = padding + (newX - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const my = height - padding - (newY - yMin) / yRange * (height - 2 * padding);
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(mx, my, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Labels
+      ctx.fillStyle = '#666';
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(min.toString(), padding, height - 10);
+      ctx.fillText(max.toString(), width - padding, height - 10);
+      ctx.textAlign = 'right';
+      ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+      ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+    };
+  })();
 
 
 

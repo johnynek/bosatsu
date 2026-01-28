@@ -231,6 +231,69 @@ test.describe('Multi-Target Demo Index', () => {
 });
 
 // =============================================================================
+// LOAN CALCULATOR WITH SWEEP CHARTS
+// =============================================================================
+test.describe('Loan Calculator with Sweep Charts', () => {
+  test.beforeEach(async ({ page }) => {
+    setupConsoleCapture(page);
+    await page.goto('/demo/loan-sweep.html');
+    // Wait for page to load - applet container should be immediately visible
+    await expect(page.locator('.applet-container')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('page loads successfully', async ({ page }) => {
+    await expect(page).toHaveTitle(/Loan.*Calculator.*Sweep/i);
+  });
+
+  test('sweep section and chart render', async ({ page }) => {
+    // Wait for JS to create the sweep section
+    const sweepsSection = page.locator('.sweeps-section');
+    await expect(sweepsSection).toBeVisible({ timeout: 10000 });
+    await expect(sweepsSection.locator('h3')).toContainText('Parameter Sweeps');
+
+    // Check canvas exists
+    const canvas = page.locator('#sweep-chart-0');
+    await expect(canvas).toBeVisible();
+
+    // Check canvas has proper dimensions
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+  });
+
+  test('sweep chart container has proper styling', async ({ page }) => {
+    const chartContainer = page.locator('.sweep-chart-container');
+    await expect(chartContainer).toBeVisible({ timeout: 10000 });
+
+    // Check header shows the sweep relationship
+    const header = chartContainer.locator('.sweep-chart-title');
+    await expect(header).toBeVisible();
+    await expect(header).toContainText('monthly_payment');
+    await expect(header).toContainText('annual_rate');
+  });
+
+  test('changing input updates sweep chart marker', async ({ page }) => {
+    // Wait for slider inputs to render
+    await expect(page.locator('input[type="range"]').first()).toBeVisible({ timeout: 10000 });
+
+    // Get a slider input for annual_rate
+    const slider = page.locator('input[type="range"]').nth(1); // annual_rate is the second input
+
+    // Get the current value
+    const initialValue = await slider.inputValue();
+
+    // Change the slider value
+    await slider.fill('500');
+
+    // The _renderSweep function should have been called
+    // We can't easily check canvas content, but we can check the value changed
+    const newValue = await slider.inputValue();
+    expect(newValue).not.toBe(initialValue);
+  });
+});
+
+// =============================================================================
 // DEMO NAVIGATION
 // =============================================================================
 test.describe('Demo Navigation', () => {

@@ -848,7 +848,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Results plotted on canvas
 - [x] Current input value highlighted on curve
 - [x] Changing input shows position on sweep curve
-- [ ] Playwright test: sweep chart renders correctly
+- [x] Playwright test: sweep chart renders correctly
 
 ### Phase 10: Canvas Visualization (Optional)
 - [ ] Canvas element in generated HTML

@@ -767,7 +767,7 @@ $uiJs
     // Generate input controls with proper labels, ranges, and defaults
     val inputControls = simConfig.inputs.map { case (name, inputConfig) =>
       val label = escapeJs(inputConfig.label)
-      s"""  addConfiguredInput("$name", "$label", ${inputConfig.minValue}, ${inputConfig.maxValue}, ${inputConfig.step}, ${inputConfig.defaultValue}, "inputs");"""
+      s"""  addConfiguredInput("$name", "$label", ${inputConfig.minValue}, ${inputConfig.maxValue}, ${inputConfig.step}, ${inputConfig.defaultValue}, "controls");"""
     }.mkString("\n")
 
     // Generate output displays with proper labels
@@ -853,31 +853,23 @@ function getVariant(name) {
 
 // Initialize UI
 function init() {
-  // Create layout sections
-  const main = document.querySelector('main');
-  if (main) {
-    // Clear existing content
-    main.innerHTML = '';
+  // Get container - EmbedGenerator creates #controls for inputs
+  const controlsContainer = document.getElementById('controls');
+  const appletContainer = document.querySelector('.applet-container');
 
-    // Inputs section
-    const inputsDiv = document.createElement('div');
-    inputsDiv.id = 'inputs';
-    inputsDiv.className = 'inputs-section';
-    inputsDiv.innerHTML = '<h3>Inputs</h3>';
-    main.appendChild(inputsDiv);
-
-    // Results section
-    const resultsDiv = document.createElement('div');
-    resultsDiv.id = 'results';
-    resultsDiv.className = 'results-section';
-    resultsDiv.innerHTML = '<h3>Results</h3>';
-    main.appendChild(resultsDiv);
+  // Create results section after controls
+  const resultsDiv = document.createElement('div');
+  resultsDiv.id = 'results';
+  resultsDiv.className = 'results-section';
+  resultsDiv.innerHTML = '<h3>Results</h3>';
+  if (controlsContainer && appletContainer) {
+    controlsContainer.after(resultsDiv);
   }
 
-  // Add configured input controls
+  // Add configured input controls to #controls
 $inputControls
 
-  // Add output displays
+  // Add output displays to #results
 $outputDisplays
 
 ${if (simConfig.assumptions.nonEmpty) s"""
@@ -886,7 +878,7 @@ ${if (simConfig.assumptions.nonEmpty) s"""
   assumptionsDiv.id = 'assumptions';
   assumptionsDiv.className = 'assumptions-section';
   assumptionsDiv.innerHTML = '<h3>What if...?</h3>';
-  document.querySelector('main').appendChild(assumptionsDiv);
+  if (appletContainer) appletContainer.appendChild(assumptionsDiv);
 
   // Add assumption toggle buttons
 ${generateAssumptionToggles(simConfig.assumptions)}
@@ -898,7 +890,7 @@ ${if (simConfig.sweeps.nonEmpty) s"""
   sweepsDiv.id = 'sweeps';
   sweepsDiv.className = 'sweeps-section';
   sweepsDiv.innerHTML = '<h3>Parameter Sweeps</h3>';
-  document.querySelector('main').appendChild(sweepsDiv);
+  if (appletContainer) appletContainer.appendChild(sweepsDiv);
 
 ${generateSweepCharts(simConfig.sweeps, simConfig.functionName, simConfig.inputs.map(_._1))}
 """ else ""}
