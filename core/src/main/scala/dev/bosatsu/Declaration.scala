@@ -1153,9 +1153,7 @@ object Declaration {
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
-    // TODO: make this strict
-    val bp = (P.string("case") *> Parser.spaces).?.with1 *> Pattern.matchParser
-    // val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+    val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
     val branch = OptIndent.block(Indy.lift(bp), withTrailingExpr)
 
     val left =

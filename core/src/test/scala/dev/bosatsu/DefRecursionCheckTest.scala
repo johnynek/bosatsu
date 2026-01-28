@@ -471,7 +471,7 @@ def anything0[a, b](box: Box[a]) -> b:
     case Box(b):
       # shadow to trick
       match Box(b):
-        b: anything0(b)
+        case b: anything0(b)
 
 bottom: forall a. a = anything0(Box(1)) 
 
@@ -485,7 +485,7 @@ def anything0[a, b](box: Box[a]) -> b:
     case Box(b):
       # shadow to trick
       recur Box(b):
-        b: anything0(b)
+        case b: anything0(b)
 
 bottom: forall a. a = anything0(Box(1)) 
 

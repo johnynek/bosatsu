@@ -288,8 +288,8 @@ enum Eith: L(left), R(right)
 def run(y, x):
   z = y
   match x:
-    L(_): z
-    R(r): r
+    case L(_): z
+    case R(r): r
 """,
       """#
 struct Tup2(a, b)
@@ -297,8 +297,8 @@ enum Eith: L(left), R(right)
 
 def run(y, x):
   match x:
-    L(_): y
-    R(r): r
+    case L(_): y
+    case R(r): r
 """
     )
   }

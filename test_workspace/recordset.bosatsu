@@ -98,25 +98,25 @@ def equals(compare, x, y):
 
 def cmp_Bool(x, y):
   match (x, y):
-    (True, False): GT
-    (False, True): LT
-    _: EQ
+    case (True, False): GT
+    case (False, True): LT
+    case _: EQ
 
 def equal_List(is_equal, l1, l2):
   recur l1:
-    []: match l2:
-      []: True
-      _: False
-    [h1, *r1]: match l2:
-      []: False
-      [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
+    case []: match l2:
+      case []: True
+      case _: False
+    case [h1, *r1]: match l2:
+      case []: False
+      case [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
 def equal_RowEntry(re1, re2):
   match (re1, re2):
-    (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
-    (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
-    (REString(RecordValue(x1)), REString(RecordValue(x2))): cmp_String.equals(x1, x2)
-    _: False
+    case (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
+    case (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
+    case (REString(RecordValue(x1)), REString(RecordValue(x2))): cmp_String.equals(x1, x2)
+    case _: False
 
 equal_rows = (a, b) -> equal_List(equal_RowEntry, a, b)
 
