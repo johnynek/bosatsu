@@ -474,64 +474,6 @@ object PythonGen {
   ): Env[Statement] = {
     val ops = new Impl.Ops(packName, remap, ns)
 
-    def peelLets(
-        expr: Expr[K],
-        acc: List[(Either[LocalAnon, Bindable], Expr[K])]
-    ): (List[(Either[LocalAnon, Bindable], Expr[K])], Expr[K]) =
-      expr match {
-        case Let(arg, value, in) =>
-          peelLets(in, (arg, value) :: acc)
-        case other => (acc.reverse, other)
-      }
-
-    def compileLets(
-        lets: List[(Either[LocalAnon, Bindable], Expr[K])]
-    ): Env[(List[Statement], List[Bindable])] =
-      lets match {
-        case Nil => Env.pure((Nil, Nil))
-        case (arg, value) :: tail =>
-          arg match {
-            case Right(b) =>
-              val stmtAndBind: Env[(Statement, List[Bindable])] =
-                value match {
-                  case fn: Lambda[K] =>
-                    Env
-                      .bind(b)
-                      .flatMap { bi =>
-                        ops.topFn(bi, fn, None, None).map((_, b :: Nil))
-                      }
-                  case _ =>
-                    for {
-                      ve <- ops.loop(value, None, None)
-                      bi <- Env.bind(b)
-                    } yield (bi := ve, b :: Nil)
-                }
-
-              stmtAndBind.flatMap { case (stmt, binds) =>
-                compileLets(tail).map { case (restStmts, restBinds) =>
-                  (stmt :: restStmts, binds ::: restBinds)
-                }
-              }
-            case Left(LocalAnon(l)) =>
-              val stmtF: Env[Statement] =
-                value match {
-                  case fn: Lambda[K] =>
-                    Env.nameForAnon(l).flatMap(ops.topFn(_, fn, None, None))
-                  case _ =>
-                    for {
-                      ve <- ops.loop(value, None, None)
-                      bi <- Env.nameForAnon(l)
-                    } yield bi := ve
-                }
-
-              stmtF.flatMap { stmt =>
-                compileLets(tail).map { case (restStmts, restBinds) =>
-                  (stmt :: restStmts, restBinds)
-                }
-              }
-          }
-      }
-
     // if we have a top level let rec with the same name, handle it more cleanly
     me match {
       case Let(Right(n1), inner, Local(n2))
@@ -544,23 +486,10 @@ object PythonGen {
             case _             => ops.loop(inner, None, None).map(nm := _)
           }
         } yield res
-      case let @ Let(_, _, _) =>
-        val (lets, last) = peelLets(let, Nil)
-        last match {
-          case fn: Lambda[K] =>
-            for {
-              compiled <- compileLets(lets)
-              (letStmts, binds) = compiled
-              nm <- Env.topLevelName(name)
-              defStmt <- ops.topFn(nm, fn, None, None)
-              _ <- binds.reverse.traverse_(Env.unbind(_))
-            } yield Code.blockFromList(letStmts ::: defStmt :: Nil)
-          case _ =>
-            for {
-              ve <- ops.loop(let, None, None)
-              nm <- Env.topLevelName(name)
-            } yield nm := ve
-        }
+      // NOTE: MatchlessFromTypedExpr lifts free variables into Lambda.captures,
+      // so top-level bindings that produce functions show up as Lambda (or the
+      // let-rec pattern above). We don't expect general Let-chains ending in a
+      // Lambda here, so we fall through to ops.loop below.
       case fn: Lambda[K] =>
         for {
           nm <- Env.topLevelName(name)
