@@ -1,0 +1,23 @@
+package Investment
+
+# Investment assumptions
+initial_investment = 10000
+monthly_contribution = 500
+annual_return = 8
+investment_years = 20
+
+# Calculations
+months = investment_years.times(12)
+monthly_return = annual_return.div(1200)
+
+# Total contributions
+total_contributions = initial_investment.add(monthly_contribution.times(months))
+
+# Simple compound growth estimate
+growth_multiplier = 100.add(annual_return).div(100)
+years_growth = growth_multiplier.times(investment_years)
+estimated_value = total_contributions.times(years_growth).div(10)
+
+# Gains analysis
+total_gains = estimated_value.sub(total_contributions)
+gain_percentage = total_gains.times(100).div(total_contributions)
