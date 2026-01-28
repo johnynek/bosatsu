@@ -3,7 +3,7 @@ package dev.bosatsu
 import cats.Eq
 import cats.effect.{IO, Resource}
 import java.io.File
-import java.nio.file.Path
+import java.nio.file.{Files, Path, Paths}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -57,6 +57,23 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
         } yield ()
       }
     }
+  }
+
+  test("relativize handles src and ./src under an absolute root") {
+    val root = Files.createTempDirectory("bosatsu-io-platform").toAbsolutePath
+    val srcAbs = IOPlatformIO.resolve(root, Paths.get("src"))
+    val srcDotAbs = IOPlatformIO.resolve(root, Paths.get("./src"))
+
+    val relSrc = IOPlatformIO.relativize(root, srcAbs)
+    assert(relSrc.nonEmpty)
+    assertEquals(IOPlatformIO.resolve(root, relSrc.get).normalize, srcAbs.normalize)
+
+    val relDotSrc = IOPlatformIO.relativize(root, srcDotAbs)
+    assert(relDotSrc.nonEmpty)
+    assertEquals(
+      IOPlatformIO.resolve(root, relDotSrc.get).normalize,
+      srcDotAbs.normalize
+    )
   }
 
 }

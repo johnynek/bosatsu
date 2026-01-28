@@ -19,21 +19,21 @@ def is_even(b: BinNat) -> Bool:
 # this is O(log(b)) operation
 def toInt(b: BinNat) -> Int:
   recur b:
-    Zero: 0
-    Odd(n): toInt(n).times(2).add(1)
-    Even(n): toInt(n).times(2).add(2)
+    case Zero: 0
+    case Odd(n): toInt(n).times(2).add(1)
+    case Even(n): toInt(n).times(2).add(2)
 
 # This is an O(b) operation
 def toNat(b: BinNat) -> Nat:
   recur b:
-    Zero: NatZero
-    Odd(n): NatSucc(toNat(n).times2_Nat())
-    Even(n): NatSucc(NatSucc(toNat(n).times2_Nat()))
+    case Zero: NatZero
+    case Odd(n): NatSucc(toNat(n).times2_Nat())
+    case Even(n): NatSucc(NatSucc(toNat(n).times2_Nat()))
 
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
 def toBinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
-  fns = int_loop(n, [], \n, fns ->
+  fns = int_loop(n, [], (n, fns) ->
     is_even = n.and_Int(1) matches 0
     (hfn, dec) = (n -> Even(n), n -> n.sub(1)) if is_even else (n -> Odd(n), n -> n)
     fns = [hfn, *fns]
@@ -90,13 +90,13 @@ def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
 # Return the next number
 def next(b: BinNat) -> BinNat:
   recur b:
-    Odd(half):
+    case Odd(half):
       # (2n + 1) + 1 = 2(n + 1)
       Even(half)
-    Even(half1):
+    case Even(half1):
       # 2(n + 1) + 1
       Odd(next(half1))
-    Zero: Odd(Zero)
+    case Zero: Odd(Zero)
 
 # Return the previous number if the number is > 0, else return 0
 def prev(b: BinNat) -> BinNat:
@@ -111,36 +111,36 @@ def prev(b: BinNat) -> BinNat:
 
 def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
   recur left:
-    Odd(left) as odd:
+    case Odd(left) as odd:
       match right:
-        Odd(right):
+        case Odd(right):
           # 2left + 1 + 2right + 1 = 2((left + right) + 1)
           Even(add_BinNat(left, right))
-        Even(right):
+        case Even(right):
           # 2left + 1 + 2(right + 1) = 2((left + right) + 1) + 1
           Odd(add_BinNat(left, right.next()))
-        Zero: odd
-    Even(left) as even:
+        case Zero: odd
+    case Even(left) as even:
       match right:
-        Odd(right):
+        case Odd(right):
           # 2(left + 1) + 2right + 1 = 2((left + right) + 1) + 1
           Odd(add_BinNat(left, right.next()))
-        Even(right):
+        case Even(right):
           # 2(left + 1) + 2(right + 1) = 2((left + right + 1) + 1)
           Even(add_BinNat(left, right.next()))
-        Zero: even
-    Zero: right
+        case Zero: even
+    case Zero: right
 
 # multiply by 2
 def times2(b: BinNat) -> BinNat:
   recur b:
-    Odd(n):
+    case Odd(n):
       #2(2n + 1) = Even(2n)
       Even(times2(n))
-    Even(n):
+    case Even(n):
       #2(2(n + 1)) = 2((2n + 1) + 1)
       Even(Odd(n))
-    Zero: Zero
+    case Zero: Zero
 
 # 2n - 1 if it is defined
 def doub_prev(b: BinNat) -> Option[BinNat]:
@@ -207,18 +207,18 @@ def div2(b: BinNat) -> BinNat:
 # multiply two BinNat together
 def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
   recur left:
-    Zero: Zero
-    Odd(left):
+    case Zero: Zero
+    case Odd(left):
       match right:
-        Zero: Zero
-        right:
+        case Zero: Zero
+        case right:
           # (2l + 1) * r = 2lr + r
           prod = times_BinNat(left, right)
           times2(prod).add_BinNat(right)
-    Even(left):
+    case Even(left):
       match right:
-        Zero: Zero
-        right:
+        case Zero: Zero
+        case right:
           # 2(l + 1) * n = 2(l*n + n)
           prod = times_BinNat(left, right)
           times2(prod.add_BinNat(right))
@@ -293,8 +293,8 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   # use the Nat as a trick to prove termination
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
     recur cnt_Nat:
-      NatZero: init
-      NatSucc(prevNat):
+      case NatZero: init
+      case NatSucc(prevNat):
         cnt = prev(cnt)
         init = fn(init, cnt)
         loop(init, cnt, prevNat)
@@ -307,8 +307,8 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
 def fib(b: BinNat) -> BinNat:
     def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
         recur n:
-            NatZero: cur
-            NatSucc(n):
+            case NatZero: cur
+            case NatSucc(n):
                 sum = add_BinNat(cur, next)
                 loop(n, next, sum)
     one = Odd(Zero)
@@ -367,8 +367,8 @@ test = TestSuite(
     ]]),
     Assertion(10.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(110), "10*11 = 110"),
     Assertion(0.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(0), "0*11 = 0"),
-    Assertion(fold_left_BinNat(\n, _ -> n.next(), Zero, 10.toBinNat()).toInt().eq_Int(10), "1 + ... + 1 = 10"),
-    Assertion(fold_left_BinNat(\n1, n2 -> n1.add_BinNat(n2), Zero, 4.toBinNat()).toInt().eq_Int(6), "1+2+3=6"),
+    Assertion(fold_left_BinNat((n, _) -> n.next(), Zero, 10.toBinNat()).toInt().eq_Int(10), "1 + ... + 1 = 10"),
+    Assertion(fold_left_BinNat((n1, n2) -> n1.add_BinNat(n2), Zero, 4.toBinNat()).toInt().eq_Int(6), "1+2+3=6"),
     Assertion(fib(Zero).toInt().eq_Int(1), "fib(0) == 1"),
     Assertion(fib(one).toInt().eq_Int(1), "fib(1) == 1"),
     Assertion(fib(two).toInt().eq_Int(2), "fib(2) == 2"),

@@ -14,11 +14,11 @@ def operator >(a, b):
 
 def max_opt(o1, o2):
     match o1:
-        None: o2
-        Some(v1) as s1:
+        case None: o2
+        case Some(v1) as s1:
             match o2:
-                None: s1
-                Some(v2) as s2:
+                case None: s1
+                case Some(v2) as s2:
                     s2 if v2 > v1 else s1
 
 # given a maximum value, and a function to Option[Int], return
@@ -27,8 +27,8 @@ def max_opt(o1, o2):
 def max_of(n: Int, fn: Int -> Option[Int]) -> Option[Int]:
     def loop(nat: Nat, n: Int, max: Option[Int]):
         recur nat:
-            Zero: max_opt(max, fn(n))
-            Succ(prev_nat):
+            case Zero: max_opt(max, fn(n))
+            case Succ(prev_nat):
               next_max = max_opt(max, fn(n))
               prev_int = n.sub(1)
               loop(prev_nat, prev_int, next_max)
@@ -39,16 +39,16 @@ def max_of(n: Int, fn: Int -> Option[Int]) -> Option[Int]:
 def first_of(n: Int, fn: Int -> Option[a]) -> Option[a]:
     def loop(nat, n):
         recur nat:
-            Zero: fn(n)
-            Succ(prev_nat):
+            case Zero: fn(n)
+            case Succ(prev_nat):
                 match fn(n):
-                    None: loop(prev_nat, n.sub(1))
-                    notNone: notNone
+                    case None: loop(prev_nat, n.sub(1))
+                    case notNone: notNone
     loop(to_Nat(n), n)
 
 # we use int_loop here since we are recuring on Int
 def digit_list(n):
-  rev_list = int_loop(n, [], \n, acc ->
+  rev_list = int_loop(n, [], (n, acc) ->
     this_digit = n.mod_Int(10)
     next_acc = [this_digit, *acc]
     next_n = n.div(10)
@@ -70,7 +70,7 @@ def product_palindrome(n1, n2):
 max_pal_opt = max_of(99, n1 -> first_of(99, n2 -> product_palindrome(n1, n2)))
 
 max_pal = match max_pal_opt:
-              Some(m): m
-              None: 0
+              case Some(m): m
+              case None: 0
 
 test = Assertion(max_pal.eq_Int(9009), "maximum palindrome")

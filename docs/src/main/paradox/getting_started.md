@@ -1,65 +1,144 @@
-# Getting started
-You can try basic expressions using this [in-browser Bosatsu compiler](https://johnynek.github.io/bosatsu/compiler/).
+# Getting started (new repo)
 
-To work locally, clone the [bosatsu repo](https://github.com/johnynek/bosatsu), [install sbt](https://www.scala-sbt.org/1.x/docs/Setup.html), then build the compiler:
-```
-sbt cli/assembly
-```
-If that completes successfully, you can run `./bosatsuj` if you have java installed. Running with no
-arguments prints the help message. You should see something like:
-```
-Missing expected command (eval or check or test or json or transpile)!
+This guide shows how to start a brand new Bosatsu repository using the `bosatsu`
+launcher script and a pinned CLI release. It assumes you have `git` and `curl`
+installed. For the CLI runtime, pick one of:
 
-Usage:
-    bosatsu eval
-    bosatsu check
-    bosatsu test
-    bosatsu json
-    bosatsu transpile
+- `native` (recommended on macOS/Linux)
+- `java` (requires a JVM)
+- `node` (requires Node.js)
 
-a total and functional programming language
+## 1) Create a new git repo
 
-version: 0.1.0-SNAPSHOT
-scala-version: 3.7.4
-git-sha: 1d068c4f3c16807aeb42565d4fc7c45b401e96a4
-
-Options and flags:
-    --help
-        Display this help text.
-
-Subcommands:
-    eval
-        evaluate an expression and print the output
-    check
-        type check a set of packages
-    test
-        test a set of bosatsu modules
-    json
-        json writing and transformation tools
-    transpile
-        transpile bosatsu into another language
+```sh
+mkdir my-bosatsu-project
+cd my-bosatsu-project
+git init
 ```
 
-Now try running an example program:
-```
-./bosatsuj eval --main Euler/One::computed --input test_workspace/euler1.bosatsu
-```
-The command `./bosatsuj` has pretty complete help if you run it with no arguments. If you have [graal native-image](https://www.graalvm.org/reference-manual/native-image/) on your path, after building with `sbt cli/assembly` you can build the native image:
-```
-./build_native.sh
-```
-Now you should have `./bosatsu` available which is *MUCH* faster to use than `./bosatsuj` which has to pay the JVM startup cost on each call, e.g.:
-```
-oscar@oscar-XPS-13-7390:~/oss/bosatsu$ time bosatsu eval --main Euler/One::computed --input test_workspace/euler1.bosatsu 
-233168: Bosatsu/Predef::Int
+## 2) Add the `bosatsu` launcher
 
-real    0m0.161s
-user    0m0.085s
-sys     0m0.051s
-oscar@oscar-XPS-13-7390:~/oss/bosatsu$ time ./bosatsuj eval --main Euler/One::computed --input test_workspace/euler1.bosatsu 
-233168: Bosatsu/Predef::Int
+Download the launcher script and make it executable:
 
-real    0m2.260s
-user    0m4.621s
-sys     0m0.155s
+```sh
+curl -L -o bosatsu https://raw.githubusercontent.com/johnynek/bosatsu/main/bosatsu
+chmod +x bosatsu
+```
+
+## 3) Find the latest release version
+
+Open the latest release page and note the version:
+
+```
+https://github.com/johnynek/bosatsu/releases/latest/
+```
+
+Example of a direct asset URL from a release:
+
+```
+https://github.com/johnynek/bosatsu/releases/download/v0.0.15/bosatsu
+```
+
+(The exact asset filename varies by platform; the launcher handles this for
+you.)
+
+## 4) Pin the Bosatsu release version
+
+Create `.bosatsu_version` with the latest Bosatsu release tag (without the
+leading `v`). For example, if the latest release is `v0.0.15`, write `0.0.15`:
+
+```sh
+printf '%s\n' '0.0.15' > .bosatsu_version
+```
+
+## 5) Choose a platform (per-machine)
+
+Create `.bosatsu_platform` with one of `native`, `java`, or `node`. Start with
+`native` on macOS/Linux.
+
+```sh
+printf '%s\n' 'native' > .bosatsu_platform
+```
+
+If you are on Windows, use `java` or `node` instead of `native`.
+
+## 6) Ignore per-machine/cache files
+
+You generally want `.bosatsu_platform` to be per-machine, and the download cache
+should stay out of git. Add both to `.gitignore`:
+
+```sh
+cat >> .gitignore <<'EOF'
+.bosatsu_platform
+.bosatsuc/
+EOF
+```
+
+Commit `.bosatsu_version` so everyone uses the same CLI release.
+
+## 7) Fetch the CLI
+
+Download the release artifact for your platform:
+
+```sh
+./bosatsu --fetch
+```
+
+This will download into `.bosatsuc/cli/<version>/` based on the value in
+`.bosatsu_version` and your chosen platform.
+
+## 8) Install the C runtime
+
+```sh
+./bosatsu c-runtime install
+```
+
+## 9) Initialize a library config
+
+Pick a source root for your Bosatsu packages (e.g. `src`) and initialize the
+library config:
+
+```sh
+mkdir -p src
+./bosatsu lib init \
+  --name mylib \
+  --repo_uri <your repo URL> \
+  --src_root src \
+  --version 0.1.0
+```
+
+Notes:
+
+- `lib init` searches for `.git` to find the repo root. If you need to override
+  that, add `--repo_root <path>`.
+- It writes `bosatsu_libs.json` in the repo root and `src/mylib_conf.json` in the
+  source root you selected.
+
+## 10) Add code
+
+Put your `.bosatsu` files under `src/`. For example, create
+`src/MyLib/Hello.bosatsu` with a type, a function, and a test:
+
+```bosatsu
+package MyLib/Hello
+
+enum Mood: Happy, Sad
+
+def greet(m: Mood) -> String:
+  match m:
+    case Happy: "hello"
+    case Sad: "cheer up"
+
+test = Assertion(greet(Happy) matches "hello", "greet Happy")
+```
+
+Use `./bosatsu --help` to explore the available commands (check, eval, test,
+json, transpile, lib, etc.).
+
+## 11) Run tests
+
+From the repo root:
+
+```sh
+./bosatsu lib test
 ```

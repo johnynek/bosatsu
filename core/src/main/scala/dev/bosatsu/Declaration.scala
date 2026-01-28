@@ -114,9 +114,6 @@ sealed abstract class Declaration {
           ) :: falseCase.toDoc :: Nil
         )
       case Lambda(args, body) =>
-        // slash style:
-        // val argDoc = Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_)))
-        // bare style:
         val argDoc = args match {
           case NonEmptyList(one, Nil) =>
             val od = Document[Pattern.Parsed].document(one)
@@ -1115,14 +1112,6 @@ object Declaration {
   }
 
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
-    val params =
-      Indy.lift(P.char('\\') *> maybeSpace *> Pattern.bindParser.nonEmptyList)
-
-    val withSlash = OptIndent
-      .blockLike(params, parser, maybeSpace.with1 *> rightArrow)
-      .region
-      .map { case (r, (args, body)) => Lambda(args, body.get)(using r) }
-
     val noSlashParamsArrow =
       // patterns are ambiguous with expressions wo se need backtracking
       MaybeTupleOrParens.parser(
@@ -1148,14 +1137,12 @@ object Declaration {
         Lambda(args, body.get)(using r)
       }
 
-    withSlash <+> noSlash
+    noSlash
   }
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
-    // TODO: make this strict
-    val bp = (P.string("case") *> Parser.spaces).?.with1 *> Pattern.matchParser
-    // val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+    val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
     val branch = OptIndent.block(Indy.lift(bp), withTrailingExpr)
 
     val left =

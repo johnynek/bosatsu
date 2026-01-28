@@ -153,6 +153,11 @@ trait PlatformIO[F[_], Path] {
 
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
+
+  /** Create a temporary directory with the given prefix, run the function, then
+    * delete the directory (best-effort) before returning the original result.
+    */
+  def withTempPrefix[A](name: String)(fn: Path => F[A]): F[A]
 }
 
 object PlatformIO {

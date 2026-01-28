@@ -102,30 +102,31 @@ object Command {
           Opts.option[P](
             "src_root",
             help =
-              "path to the src root for the bosatsu packages in this library"
+              "path to the src root for the bosatsu packages in this library " +
+                "(relative paths are interpreted relative to the repo root)"
           ),
           Opts.option[Version]("version", "the initial version to use"),
           topLevelOpt
         ).mapN { (name, repoUri, rootDir, ver, repoRootF) =>
-          val conf = LibConfig.init(name, repoUri, ver)
-          val writeJson = confOutput(rootDir, conf)
-
           repoRootF
             .flatMap { gitRoot =>
-              val path = libsPath(gitRoot)
               for {
-                lib0 <- readLibs(path)
-                relDir <- platformIO.relativize(gitRoot, rootDir) match {
+                rootDirAbs = platformIO.resolve(gitRoot, rootDir)
+                relDir <- platformIO.relativize(gitRoot, rootDirAbs) match {
                   case Some(value) => moduleIOMonad.pure(value)
                   case None        =>
                     moduleIOMonad.raiseError(
                       CliException.Basic(
-                        show"$rootDir is not a subdir of $gitRoot"
+                        show"$rootDirAbs is not a subdir of $gitRoot"
                       )
                     )
                 }
+                path = libsPath(gitRoot)
+                lib0 <- readLibs(path)
                 lib1 = lib0.updated(name, show"$relDir")
                 out1 = Output.JsonOutput(Json.Writer.write(lib1), Some(path))
+                conf = LibConfig.init(name, repoUri, ver)
+                writeJson = confOutput(rootDirAbs, conf)
               } yield Output.many(out1, writeJson)
             }
         }
@@ -636,23 +637,42 @@ object Command {
             ClangTranspiler.Output(o, Some((e, conf)))
           }
 
-        (
-          ClangTranspiler.justOptsGivenModeOutput(
-            (
-              ConfigConf.opts,
-              // we want to run the test after generating it
-              ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
-              clangOut
-            ).tupled,
-            platformIO
-          ) { case (_, test, out) => (test, out) },
-          Colorize.optsConsoleDefault
-        ).mapN { case (((fcc, _, _), trans), colorize) =>
-          for {
-            cc <- fcc
-            // build is the same as test, Transpiler controls the difference
-            msg <- cc.build(colorize, trans)
-          } yield (Output.Basic(msg, None): Output[P])
+        val testArgs =
+          (
+            ConfigConf.opts,
+            // we want to run the test after generating it
+            ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
+            clangOut,
+            ClangTranspiler.EmitMode.opts,
+            ClangTranspiler.GenExternalsMode.opts,
+            Transpiler.outDir[P].orNone
+          ).tupled
+
+        (testArgs, Colorize.optsConsoleDefault).mapN {
+          case ((fcc, test, out, emit, gen, outDirOpt), colorize) =>
+            def useOutDir(outDir: P): F[Output[P]] = {
+              val trans = Transpiler.optioned(ClangTranspiler) {
+                ClangTranspiler.Arguments(
+                  test,
+                  emit,
+                  gen,
+                  out,
+                  outDir,
+                  platformIO
+                )
+              }
+              for {
+                cc <- fcc
+                // build is the same as test, Transpiler controls the difference
+                msg <- cc.build(colorize, trans)
+              } yield (Output.Basic(msg, None): Output[P])
+            }
+
+            outDirOpt match {
+              case Some(outDir) => useOutDir(outDir)
+              case None =>
+                platformIO.withTempPrefix("test_outdir")(useOutDir)
+            }
         }
       }
 

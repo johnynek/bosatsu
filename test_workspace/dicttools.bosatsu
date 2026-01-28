@@ -5,6 +5,6 @@ export merge
 def merge(left: Dict[k, v], right: Dict[k, v], fn: (v, v) -> v) -> Dict[k, v]:
   right.items().foldl_List(left, (d, (k, v)) ->
     match d.get_key(k):
-      None:     d.add_key(k, v)
-      Some(v0): d.add_key(k, fn(v0, v))
+      case None:     d.add_key(k, v)
+      case Some(v0): d.add_key(k, fn(v0, v))
   )

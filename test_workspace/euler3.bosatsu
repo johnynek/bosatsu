@@ -15,24 +15,24 @@ def divides(a, b): b.mod_Int(a) == 0
 
 def smallest_factor(n):
   match n:
-    1: 1
-    _:
-      int_loop(n, -1, \i, _ ->
+    case 1: 1
+    case _:
+      int_loop(n, -1, (i, _) ->
         trial = n - i + 2
         if trial.divides(n): (0, trial)
         else: (i - 1, -1))
 
 def all_factors(n):
-  int_loop(n, [], \i, facs ->
+  int_loop(n, [], (i, facs) ->
     next_factor = smallest_factor(i)
     next_facs = [next_factor, *facs]
     match i.div(next_factor):
-      1: (0, next_facs)
-      smaller: (smaller, next_facs))
+      case 1: (0, next_facs)
+      case smaller: (smaller, next_facs))
 
 def largest_factor(n):
   match all_factors(n):
-    []: n
-    [h, *_]: h
+    case []: n
+    case [h, *_]: h
 
 test = Assertion(largest_factor(number) == 6857, "trial")

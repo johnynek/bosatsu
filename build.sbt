@@ -103,6 +103,7 @@ lazy val cli = (project in file("cli"))
         http4sEmber.value,
         fs2core.value,
         fs2io.value,
+        slf4jNop.value,
         jawnParser.value % Test,
         jawnAst.value % Test,
         jython.value % Test,
@@ -221,7 +222,8 @@ lazy val cliJS =
         fs2io.value,
         catsEffect.value,
         http4sCore.value,
-        http4sEmber.value
+        http4sEmber.value,
+        munit.value % Test
       )
     )
     .jsSettings(

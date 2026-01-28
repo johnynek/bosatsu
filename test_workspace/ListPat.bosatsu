@@ -5,8 +5,8 @@ def any(as: List[Bool]) -> Bool:
 
 def one_count(is, acc):
     recur is:
-        [*_, 1, *rest]: one_count(rest, acc.add(1))
-        _: acc
+        case [*_, 1, *rest]: one_count(rest, acc.add(1))
+        case _: acc
 
 tests = TestSuite("ListPat tests", [
   Assertion(any([]) matches False, "any([])"),

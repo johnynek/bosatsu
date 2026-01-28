@@ -9,6 +9,7 @@ import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import scala.util.{Failure, Success, Try}
+import scala.scalajs.js
 
 import cats.syntax.all._
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
@@ -35,6 +36,58 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     }
 
   def pathToString(p: Path): String = p.toString
+
+  override def gitTopLevel: IO[Option[Path]] = {
+    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
+      fsDataType(current).flatMap {
+        case Some(PlatformIO.FSDataType.Dir) =>
+          fsDataType(resolve(current, ".git"))
+            .map {
+              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
+              case _ => Left(resolve(current, ".."))
+            }
+        case _ => moduleIOMonad.pure(Right(None))
+      }
+
+    val start = Path(js.Dynamic.global.process.cwd().asInstanceOf[String])
+    moduleIOMonad.tailRecM(start)(searchStep)
+  }
+
+  def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
+    val baseDirF =
+      gitTopLevel.map(_.map(resolve(_, ".bosatsuc" :: "tmp" :: Nil)))
+
+    val tempDirF = baseDirF.flatMap {
+      case Some(base) =>
+        FilesIO.createDirectories(base) *>
+          FilesIO.createTempDirectory(
+            dir = Some(base),
+            prefix = name,
+            permissions = None
+          )
+      case None =>
+        FilesIO.createTempDirectory(
+          dir = None,
+          prefix = name,
+          permissions = None
+        )
+    }
+
+    def cleanup(path: Path): IO[Unit] =
+      FilesIO.deleteRecursively(path).handleErrorWith { err =>
+        errorln(
+          s"warning: failed to delete temp dir ${path.toString}: ${err.getMessage}"
+        )
+      }
+
+    tempDirF.flatMap { tempDir =>
+      fn(tempDir).attempt.flatMap {
+        case Right(a) => cleanup(tempDir).as(a)
+        case Left(e)  => cleanup(tempDir) *> IO.raiseError(e)
+      }
+    }
+  }
+
   def system(cmd: String, args: List[String]): IO[Unit] = {
     import fs2.io.process.ProcessBuilder
     ProcessBuilder(cmd, args).withCurrentWorkingDirectory
@@ -190,9 +243,15 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     // Create a Blaze client resource
     import org.http4s._
     import fs2.io.file.{Files, CopyFlags, CopyFlag}
+    import org.http4s.client.middleware.FollowRedirect
+    import org.http4s.headers.`User-Agent`
 
     val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
-      org.http4s.ember.client.EmberClientBuilder.default[IO].build
+      org.http4s.ember.client.EmberClientBuilder
+        .default[IO]
+        .withMaxResponseHeaderSize(64 * 1024)
+        .build
+        .map(FollowRedirect(maxRedirects = 10))
 
     val hashFile: fs2.Pipe[IO, Byte, HashValue[A]] =
       in =>
@@ -219,7 +278,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
         Resource.eval(IO(Uri.unsafeFromString(uri)))
       ).tupled.use { case (client, tempPath, uri) =>
         // Create an HTTP GET request
-        val request = Request[IO](method = Method.GET, uri = uri)
+        val request =
+          Request[IO](method = Method.GET, uri = uri)
+            .putHeaders(`User-Agent`(ProductId("bosatsu", None)))
 
         // Stream the response body and write it to the specified file path
         client
@@ -248,7 +309,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
                 source = tempPath,
                 target = path,
                 // Reflink tries to do an atomic copy, and falls back to non-atomic if not
-                CopyFlags(CopyFlag.Reflink)
+                CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
               )
             } else {
               IO.raiseError(

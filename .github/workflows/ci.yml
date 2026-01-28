@@ -5,9 +5,12 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run JVM tests"
         run: |
           sbt "coreJVM/test; cli/test; doc; paradox"
@@ -18,14 +21,18 @@ jobs:
           - '17'
     timeout-minutes: 30
   testPY:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "python setup"
         uses: "actions/setup-python@v2"
         with:
@@ -44,14 +51,18 @@ jobs:
           - '3.9'
     timeout-minutes: 30
   testJS:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run coreJS tests"
         run: |
           sbt "coreJS/test; jsapiJS/compile"
@@ -62,6 +73,7 @@ jobs:
           - '17'
     timeout-minutes: 30
   testWithCoverageReport:
+    needs: test
     runs-on: ubuntu-latest
     environment: ci
     steps:
@@ -70,9 +82,12 @@ jobs:
           fetch-depth: 0
       - uses: "coursier/cache-action@v6"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-scala@v14"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "run tests with coverage"
         run: |
           sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
@@ -86,14 +101,18 @@ jobs:
           - '17'
     timeout-minutes: 30
   buildWithGraal:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
-      - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build native image"
         run: |
           sbt "cli/nativeImage"
@@ -106,25 +125,41 @@ jobs:
         java:
           - '17'
   testWithNode:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v6"
-      - name: "graalvm setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build node"
         run: |
           sbt "cliJSJS/fullOptJS"
       - name: "run bosatsu tests"
         run: |
           ./bosatsu_node test --input_dir test_workspace/ --package_root test_workspace/
+      - name: "install boehm"
+        run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
+      - name: "install c runtime"
+        run: |
+          make -C c_runtime install VERSION=$(git rev-parse HEAD)
+      - name: "run lib test"
+        run: |
+          mkdir node_out_lib
+          ./bosatsu_node lib test --outdir node_out_lib
+          echo "now test without a given outdir"
+          ./bosatsu_node lib test
     strategy:
       matrix:
         java:
           - '17'
   testC:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -132,10 +167,13 @@ jobs:
           - '17'
     steps:
       - uses: "actions/checkout@v2.1.0"
-      - name: "java setup"
-        uses: "olafurpg/setup-scala@v14"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
         with:
+          distribution: "temurin"
           java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "install boehm"
@@ -156,7 +194,37 @@ jobs:
         run: |
           mkdir c_out_lib
           ./bosatsuj lib test --outdir c_out_lib
+          echo "now test without a given outdir"
+          ./bosatsuj lib test
     timeout-minutes: 30
+  libPublishDryRun:
+    needs: testC
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v6"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "build assembly"
+        run: 'sbt "++3.8.1; cli/assembly"'
+      - name: "dry run bosatsu lib publish"
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+          OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish
+          GIT_SHA: ${{ github.sha }}
+          URI_BASE: https://example.invalid/
+        run: |
+          chmod +x scripts/publish_bosatsu_libs.sh
+          scripts/publish_bosatsu_libs.sh
+    strategy:
+      matrix:
+        java:
+          - '17'
 name: ci
 on:
   pull_request: {}

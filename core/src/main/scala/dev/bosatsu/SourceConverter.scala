@@ -639,12 +639,12 @@ final class SourceConverter(
           case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
             /*
              * { x: y for p in z} ==
-             * z.foldl_List(empty_Dict(stringOrder), \dict, p ->
+             * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
              *   dict.add_key(x, y)
              *   )
              *
              * { x: y for p in z if w } =
-             * z.foldl_List(empty_Dict(stringOrder), \dict, p ->
+             * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
              *   if w: dict.add_key(x, y)
              *   else: dict
              *   )

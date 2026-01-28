@@ -40,7 +40,7 @@ this is a safe encoding.
 Char values are stored as unicode code points with a trailing 1.
 
 String values encodings, string values are like ref-counted structs with
-a length and char* holding the utf-8 bytes. We could also potentially optimize
+a length, a base pointer, and an offset into the utf-8 bytes. We could also potentially optimize
 short strings by packing them literally into 63 bits with a length.
 
 Integer values are either pure values (signed values packed into 63 bits),
@@ -102,7 +102,7 @@ DEFINE_BSTS_ENUM(Enum0,);
 #include "bosatsu_generated.h"
 
 DEFINE_BSTS_OBJ(External, void* external;);
-DEFINE_BSTS_OBJ(BSTS_String, size_t len; char* bytes;);
+DEFINE_BSTS_OBJ(BSTS_String, size_t len; size_t offset; char* bytes;);
 DEFINE_BSTS_OBJ(BSTS_Integer, size_t len; _Bool sign; uint32_t* words;);
 
 typedef struct {
@@ -251,6 +251,13 @@ void* get_external(BValue v) {
   return ext->external;
 }
 
+static char bsts_empty_string_bytes[1] = {0};
+
+static inline char* bsts_string_data_ptr(BSTS_String* str) {
+  if (str->len == 0) return bsts_empty_string_bytes;
+  return str->bytes + str->offset;
+}
+
 BValue bsts_string_mut(size_t len) {
   BSTS_String* str = GC_malloc(sizeof(BSTS_String));
   if (str == NULL) {
@@ -258,6 +265,11 @@ BValue bsts_string_mut(size_t len) {
       abort();
   }
   str->len = len;
+  str->offset = 0;
+  if (len == 0) {
+    str->bytes = bsts_empty_string_bytes;
+    return (BValue)str;
+  }
   char* bytes = GC_malloc_atomic(sizeof(char) * len);
   if (bytes == NULL) {
       perror("failed to GC_malloc in bsts_string_mut");
@@ -270,7 +282,9 @@ BValue bsts_string_mut(size_t len) {
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
   BSTS_String* str = (BSTS_String*)bsts_string_mut(len);
-  memcpy(str->bytes, bytes, len);
+  if (len > 0) {
+    memcpy(str->bytes, bytes, len);
+  }
   return (BValue)str;
 }
 
@@ -278,7 +292,13 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
   BSTS_String* str = GC_malloc_atomic(sizeof(BSTS_String));
   str->len = len;
-  str->bytes = bytes;
+  str->offset = 0;
+  if (len == 0 && bytes == NULL) {
+    str->bytes = bsts_empty_string_bytes;
+  }
+  else {
+    str->bytes = bytes;
+  }
   return (BValue)str;
 }
 
@@ -334,9 +354,11 @@ _Bool bsts_string_equals(BValue left, BValue right) {
 
   size_t llen = lstr->len;
   if (llen == rstr->len) {
+    char* lbytes = bsts_string_data_ptr(lstr);
+    char* rbytes = bsts_string_data_ptr(rstr);
     return (strncmp(
-      lstr->bytes,
-      rstr->bytes,
+      lbytes,
+      rbytes,
       llen) == 0);
   }
   else {
@@ -355,7 +377,9 @@ int bsts_string_cmp(BValue left, BValue right) {
   size_t llen = lstr->len;
   size_t rlen = rstr->len;
   size_t min_len = (llen <= rlen) ? llen : rlen;
-  int cmp = strncmp(lstr->bytes, rstr->bytes, min_len);
+  char* lbytes = bsts_string_data_ptr(lstr);
+  char* rbytes = bsts_string_data_ptr(rstr);
+  int cmp = strncmp(lbytes, rbytes, min_len);
 
   if (cmp == 0) {
     return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
@@ -372,7 +396,7 @@ size_t bsts_string_utf8_len(BValue str) {
 
 char* bsts_string_utf8_bytes(BValue str) {
   BSTS_String* strptr = GET_STRING(str);
-  return strptr->bytes;
+  return bsts_string_data_ptr(strptr);
 }
 
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
@@ -437,7 +461,8 @@ int bsts_string_code_point_bytes(BValue value, int offset) {
     if (str == NULL) {
         return -1;
     }
-    return bsts_utf8_code_point_bytes(str->bytes, offset, str->len);
+    char* bytes = bsts_string_data_ptr(str);
+    return bsts_utf8_code_point_bytes(bytes, offset, str->len);
 }
 
 /**
@@ -454,7 +479,8 @@ BValue bsts_string_char_at(BValue value, int offset) {
     }
 
     // cast to an unsigned char for the math below
-    unsigned char *s = (unsigned char*)(str->bytes + offset);
+    char* bytes = bsts_string_data_ptr(str);
+    unsigned char *s = (unsigned char*)(bytes + offset);
     unsigned char c = s[0];
     int remaining = str->len - offset;
     uint32_t code_point = 0;
@@ -496,7 +522,7 @@ BValue bsts_string_char_at(BValue value, int offset) {
 BValue bsts_string_substring(BValue value, int start, int end) {
   BSTS_String* str = GET_STRING(value);
   size_t len = str->len;
-  if (len < end || end < start) {
+  if (start < 0 || end < start || (size_t)end > len) {
     // this is invalid
     return 0;
   }
@@ -506,13 +532,19 @@ BValue bsts_string_substring(BValue value, int start, int end) {
     return bsts_string_from_utf8_bytes_static(0, "");
   }
   else {
-    // TODO: we could keep track of an offset into the string to optimize
-    // we could avoid the copy and just keep the original ptr to allocated data
-    return bsts_string_from_utf8_bytes_copy(new_len, str->bytes + start);
+    // Keep the base pointer and track the offset to avoid copying.
+    BSTS_String* res = GC_malloc(sizeof(BSTS_String));
+    if (res == NULL) {
+      perror("failed to GC_malloc in bsts_string_substring");
+      abort();
+    }
+    res->len = new_len;
+    res->offset = str->offset + (size_t)start;
+    res->bytes = str->bytes;
+    return (BValue)res;
   }
 }
 
-// this takes ownership since it can possibly reuse (if it is a static string, or count is 1)
 // (String, int) -> String
 BValue bsts_string_substring_tail(BValue value, int byte_offset) {
   return bsts_string_substring(value, byte_offset, (int)bsts_string_utf8_len(value));
@@ -524,6 +556,8 @@ int bsts_string_find(BValue haystack, BValue needle, int start) {
 
     size_t haystack_len = haystack_str->len;
     size_t needle_len = needle_str->len;
+    char* haystack_bytes = bsts_string_data_ptr(haystack_str);
+    char* needle_bytes = bsts_string_data_ptr(needle_str);
     if (needle_len == 0) {
         // Empty needle matches at start
         return (start <= (int)haystack_len) ? start : -1;
@@ -537,11 +571,11 @@ int bsts_string_find(BValue haystack, BValue needle, int start) {
 
     // The maximum valid start index is haystack_len - needle_len
     for (size_t i = (size_t)start; i <= haystack_len - needle_len; i++) {
-        if (haystack_str->bytes[i] == needle_str->bytes[0]) {
+        if (haystack_bytes[i] == needle_bytes[0]) {
             // Potential match found, check the rest of the needle
             size_t j;
             for (j = 1; j < needle_len; j++) {
-                if (haystack_str->bytes[i + j] != needle_str->bytes[j]) {
+                if (haystack_bytes[i + j] != needle_bytes[j]) {
                     break;
                 }
             }
@@ -562,6 +596,8 @@ int bsts_string_rfind(BValue haystack, BValue needle, int start) {
 
     size_t hlen = h->len;
     size_t nlen = n->len;
+    char* hbytes = bsts_string_data_ptr(h);
+    char* nbytes = bsts_string_data_ptr(n);
 
     if (nlen == 0) {
         if (hlen == 0) return 0;
@@ -578,10 +614,10 @@ int bsts_string_rfind(BValue haystack, BValue needle, int start) {
                            : (start > (int)max_pos ? max_pos : (size_t)start);
 
     for (;; ) {
-        if (h->bytes[i] == n->bytes[0]) {
+        if (hbytes[i] == nbytes[0]) {
             size_t j = 1;
             for (; j < nlen; j++) {
-                if (h->bytes[i + j] != n->bytes[j]) break;
+                if (hbytes[i + j] != nbytes[j]) break;
             }
             if (j == nlen) return (int)i;
         }
@@ -1117,10 +1153,11 @@ BValue bsts_integer_to_string(BValue v) {
 
         // Now, reverse the digits to get the correct order
         BSTS_String* res = (BSTS_String*)bsts_string_mut(digit_count);
+        char* out = bsts_string_data_ptr(res);
 
         // reverse the data
         for (size_t i = 0; i < digit_count; i++) {
-            res->bytes[i] = digits[digit_count - i - 1];
+            out[i] = digits[digit_count - i - 1];
         }
 
         // Free temporary allocations
