@@ -46,6 +46,21 @@ object ConfigExtractor {
     variants: List[(String, String)]  // (display_label, function_suffix)
   )
 
+  /**
+   * Configuration for parameter sweeps (e.g., Laffer curve visualization).
+   *
+   * Example usage in Bosatsu:
+   *   SweepConfig("taxRate", 0, 1000, 100, "governmentRevenue", "line")
+   */
+  case class SweepConfig(
+    inputParam: String,    // Which input to sweep
+    minValue: Int,
+    maxValue: Int,
+    steps: Int,
+    outputParam: String,   // Which output to plot
+    chartType: String      // "line", "area", "bar"
+  )
+
   case class SimConfig(
     name: String,
     description: String,
@@ -53,7 +68,8 @@ object ConfigExtractor {
     functionName: String,
     inputs: List[(String, InputConfig)],
     outputs: List[(String, OutputConfig)],
-    assumptions: List[AssumptionConfig] = Nil  // Optional, for function variant toggles
+    assumptions: List[AssumptionConfig] = Nil,  // Optional, for function variant toggles
+    sweeps: List[SweepConfig] = Nil             // Optional, for parameter sweep charts
   )
 
   /**
@@ -78,6 +94,11 @@ object ConfigExtractor {
         } else {
           Nil
         }
+        val sweeps = if (p.values.length >= 8) {
+          extractSweepList(p.get(7))
+        } else {
+          Nil
+        }
         SimConfig(
           name = extractString(p.get(0)),
           description = extractString(p.get(1)),
@@ -85,7 +106,8 @@ object ConfigExtractor {
           functionName = extractString(p.get(3)),
           inputs = extractInputList(p.get(4)),
           outputs = extractOutputList(p.get(5)),
-          assumptions = assumptions
+          assumptions = assumptions,
+          sweeps = sweeps
         )
       case other =>
         throw new RuntimeException(s"Expected SimConfig struct (ProductValue with 6+ fields), got: $other")
@@ -243,5 +265,44 @@ object ConfigExtractor {
       case None =>
         throw new RuntimeException(s"Expected List for variants, got: $v")
     }
+  }
+
+  /**
+   * Extract a List[SweepConfig] from a Bosatsu List value.
+   */
+  private def extractSweepList(v: Value): List[SweepConfig] = {
+    VList.unapply(v) match {
+      case Some(items) =>
+        items.map(extractSweepConfig)
+      case None =>
+        throw new RuntimeException(s"Expected List for sweeps, got: $v")
+    }
+  }
+
+  /**
+   * Extract SweepConfig from a ProductValue.
+   *
+   * Matches struct:
+   *   struct SweepConfig(
+   *     input_param: String,
+   *     min_value: Int,
+   *     max_value: Int,
+   *     steps: Int,
+   *     output_param: String,
+   *     chart_type: String
+   *   )
+   */
+  private def extractSweepConfig(v: Value): SweepConfig = v match {
+    case p: ProductValue if p.values.length >= 6 =>
+      SweepConfig(
+        inputParam = extractString(p.get(0)),
+        minValue = extractInt(p.get(1)),
+        maxValue = extractInt(p.get(2)),
+        steps = extractInt(p.get(3)),
+        outputParam = extractString(p.get(4)),
+        chartType = extractString(p.get(5))
+      )
+    case other =>
+      throw new RuntimeException(s"Expected SweepConfig struct (ProductValue with 6 fields), got: $other")
   }
 }

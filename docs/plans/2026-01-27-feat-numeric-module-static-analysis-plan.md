@@ -843,11 +843,11 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Playwright test: toggle assumption → different result (30 tests pass)
 
 ### Phase 9: Parameter Sweeps
-- [ ] SweepConfig added to config schema
-- [ ] Sweep runs function across input range
-- [ ] Results plotted on canvas
-- [ ] Current input value highlighted on curve
-- [ ] Changing input shows position on sweep curve
+- [x] SweepConfig added to config schema
+- [x] Sweep runs function across input range
+- [x] Results plotted on canvas
+- [x] Current input value highlighted on curve
+- [x] Changing input shows position on sweep curve
 - [ ] Playwright test: sweep chart renders correctly
 
 ### Phase 10: Canvas Visualization (Optional)

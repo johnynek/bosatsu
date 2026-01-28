@@ -249,5 +249,11 @@ object ParameterSweep {
       |.parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
       |.parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
       |.sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
-      |.sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }""".stripMargin
+      |.sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+      |.sweeps-section { margin-top: 24px; }
+      |.sweeps-section h3 { color: #667eea; font-size: 1.1rem; margin-bottom: 12px; }
+      |.sweep-chart-container { background: #fff; border-radius: 8px; padding: 16px; margin: 12px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+      |.sweep-chart-header { margin-bottom: 12px; }
+      |.sweep-chart-title { font-weight: 500; color: #333; }
+      |.sweep-chart-container canvas { display: block; border-radius: 4px; }""".stripMargin
 }

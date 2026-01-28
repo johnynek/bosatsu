@@ -892,6 +892,17 @@ ${if (simConfig.assumptions.nonEmpty) s"""
 ${generateAssumptionToggles(simConfig.assumptions)}
 """ else ""}
 
+${if (simConfig.sweeps.nonEmpty) s"""
+  // Add sweep charts section
+  const sweepsDiv = document.createElement('div');
+  sweepsDiv.id = 'sweeps';
+  sweepsDiv.className = 'sweeps-section';
+  sweepsDiv.innerHTML = '<h3>Parameter Sweeps</h3>';
+  document.querySelector('main').appendChild(sweepsDiv);
+
+${generateSweepCharts(simConfig.sweeps, simConfig.functionName, simConfig.inputs.map(_._1))}
+""" else ""}
+
   // Initial computation
   _recompute();
 }"""
@@ -914,6 +925,186 @@ ${generateAssumptionToggles(simConfig.assumptions)}
 
       s"""  addAssumptionToggle("$name", "$description", "$defaultVariant", `$buttons`, "assumptions");"""
     }.mkString("\n")
+  }
+
+  /**
+   * Generate JavaScript for parameter sweep charts.
+   * Creates canvas-based line charts that show output across input range.
+   */
+  private def generateSweepCharts(
+      sweeps: List[ConfigExtractor.SweepConfig],
+      funcName: String,
+      inputParams: List[String]
+  ): String = {
+    sweeps.zipWithIndex.map { case (sweep, idx) =>
+      val canvasId = s"sweep-chart-$idx"
+      val inputParam = escapeJs(sweep.inputParam)
+      val outputParam = escapeJs(sweep.outputParam)
+
+      s"""
+  // Sweep chart for $inputParam vs $outputParam
+  const chartDiv_$idx = document.createElement('div');
+  chartDiv_$idx.className = 'sweep-chart-container';
+  chartDiv_$idx.innerHTML = '<div class="sweep-chart-header"><span class="sweep-chart-title">$outputParam vs $inputParam</span></div><canvas id="$canvasId" width="500" height="200"></canvas>';
+  document.getElementById('sweeps').appendChild(chartDiv_$idx);
+
+  // Run sweep and render chart
+  (function() {
+    const canvas = document.getElementById('$canvasId');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 40;
+
+    // Run sweep
+    const sweepData = [];
+    const min = ${sweep.minValue};
+    const max = ${sweep.maxValue};
+    const steps = ${sweep.steps};
+    const step = (max - min) / steps;
+
+    // Save current input value
+    const savedValue = _getState('$inputParam');
+
+    for (let i = 0; i <= steps; i++) {
+      const x = min + i * step;
+      _setState('$inputParam', Math.round(x));
+      const result = $funcName(${inputParams.map(p => s"""_getState("$p")""").mkString(", ")});
+      // Extract output value (handle array or object result)
+      const y = Array.isArray(result) ? result[${outputParam.toIntOption.getOrElse(0)}] : (result.$outputParam || result);
+      sweepData.push({ x: x, y: typeof y === 'number' ? y : 0 });
+    }
+
+    // Restore input value
+    _setState('$inputParam', savedValue);
+
+    // Find bounds
+    const xMin = min;
+    const xMax = max;
+    const yValues = sweepData.map(d => d.y);
+    const yMin = Math.min(...yValues);
+    const yMax = Math.max(...yValues);
+    const yRange = yMax - yMin || 1;
+
+    // Clear canvas
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw grid
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (height - 2 * padding) * i / 5;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+    }
+
+    // Draw axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+
+    // Draw line
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    sweepData.forEach((point, i) => {
+      const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // Draw current point marker
+    const currentX = savedValue;
+    const currentY = sweepData.find(d => Math.abs(d.x - currentX) < step / 2)?.y || 0;
+    const markerX = padding + (currentX - xMin) / (xMax - xMin) * (width - 2 * padding);
+    const markerY = height - padding - (currentY - yMin) / yRange * (height - 2 * padding);
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw axis labels
+    ctx.fillStyle = '#666';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(min.toString(), padding, height - 10);
+    ctx.fillText(max.toString(), width - padding, height - 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+    ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+
+    // Store render function for updates
+    window._renderSweep_$idx = function() {
+      // Re-render with updated current point
+      const newX = _getState('$inputParam');
+      const newY = sweepData.find(d => Math.abs(d.x - newX) < step / 2)?.y || 0;
+
+      // Redraw (simple version - clears and redraws everything)
+      ctx.fillStyle = '#f8f9fa';
+      ctx.fillRect(0, 0, width, height);
+
+      // Grid
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding + (height - 2 * padding) * i / 5;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+
+      // Axes
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.lineTo(width - padding, height - padding);
+      ctx.stroke();
+
+      // Line
+      ctx.strokeStyle = '#667eea';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      sweepData.forEach((point, i) => {
+        const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+        const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      // Current point marker
+      const mx = padding + (newX - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const my = height - padding - (newY - yMin) / yRange * (height - 2 * padding);
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(mx, my, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Labels
+      ctx.fillStyle = '#666';
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(min.toString(), padding, height - 10);
+      ctx.fillText(max.toString(), width - padding, height - 10);
+      ctx.textAlign = 'right';
+      ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+      ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+    };
+  })();
+"""
+    }.mkString("")
   }
 
   /**
