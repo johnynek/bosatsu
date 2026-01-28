@@ -14,7 +14,10 @@ import dev.bosatsu.{
   Identifier,
   Par,
   TypedExpr,
-  MatchlessFromTypedExpr
+  MatchlessFromTypedExpr,
+  Evaluation,
+  Predef,
+  Numeric
 }
 import dev.bosatsu.codegen.js.JsGen
 import dev.bosatsu.ui.EmbedGenerator
@@ -86,6 +89,29 @@ case class SimulationCommand(
         throw new RuntimeException(s"Package ${inputParsed._2.name} not found after type checking")
       )
 
+      // Get the config package
+      configPackage = typeChecked.toMap.get(configParsed._2.name).getOrElse(
+        throw new RuntimeException(s"Config package ${configParsed._2.name} not found after type checking")
+      )
+
+      // Evaluate the 'config' binding from the config package to get runtime Value
+      ev = Evaluation(PackageMap.toAnyTyped(typeChecked), Predef.jvmExternals ++ Numeric.jvmExternals)
+      configValue <- IO.fromEither {
+        ev.evaluateName(configParsed._2.name, Identifier.Name("config")) match {
+          case Some((evalValue, _)) => Right(evalValue.value)  // Force evaluation
+          case None => Left(new RuntimeException(
+            s"No 'config' binding found in ${configParsed._2.name}. " +
+            "Config file must have: config = SimConfig(...)"
+          ))
+        }
+      }
+
+      // Extract SimConfig from Value
+      simConfig = ConfigExtractor.extractSimConfig(configValue)
+      _ <- IO(println(s"Config loaded: ${simConfig.name} (function: ${simConfig.functionName})"))
+      _ <- IO(println(s"  Inputs: ${simConfig.inputs.map(_._1).mkString(", ")}"))
+      _ <- IO(println(s"  Outputs: ${simConfig.outputs.map(_._1).mkString(", ")}"))
+
       // Find the function definition in the simulation package
       funcDefs = simPackage.lets.filter { case (name, _, expr) =>
         // Look for function definitions (TypedExpr.AnnotatedLambda)
@@ -115,13 +141,13 @@ case class SimulationCommand(
       bodyDeps = TypedExpr.freeVarsSet(List(funcBody))
       _ <- IO(println(s"Function body dependencies: ${bodyDeps.map(_.asString).mkString(", ")}"))
 
-      // Generate HTML using the function-based approach
+      // Generate HTML using the function-based approach with config values
       htmlContent = generateFunctionBasedHtml(
         simPackage,
         typeChecked,
         funcName,
         funcParams,
-        input.getFileName.toString
+        simConfig
       )
 
       // Write output
@@ -182,7 +208,7 @@ case class SimulationCommand(
       fullPackageMap: PackageMap.Inferred,
       funcName: String,
       funcParams: List[(String, String)],
-      fileName: String
+      simConfig: ConfigExtractor.SimConfig
   )(implicit ec: Par.EC): String = {
     // Compile to Matchless IR
     val matchlessCompiled = MatchlessFromTypedExpr.compile((),
@@ -199,19 +225,19 @@ case class SimulationCommand(
     // as a separate build step - that's not our job here.
     val computeJs = JsGen.renderStatements(packageBindings)
 
-    // Build analysis for UI generation
-    val analyses = funcParams.map { case (paramName, paramType) =>
+    // Build analysis for UI generation - use config inputs
+    val analyses = simConfig.inputs.map { case (paramName, inputConfig) =>
       DerivationAnalyzer.AnalyzedBinding(
         Identifier.Name(paramName),
         DerivationAnalyzer.Assumption,  // Function params are inputs (assumptions)
         Set.empty,
         paramName,  // Display formula is just the name for inputs
-        if (paramType == "Int") "number" else "any"
+        "number"    // All inputs are numeric for now
       )
     }
 
-    val config = SimulationGen.SimConfig(
-      title = title.getOrElse(fileName.stripSuffix(".bosatsu")),
+    val genConfig = SimulationGen.SimConfig(
+      title = title.getOrElse(simConfig.name),
       theme = theme match {
         case SimulationCommand.Theme.Light => EmbedGenerator.LightTheme
         case SimulationCommand.Theme.Dark  => EmbedGenerator.DarkTheme
@@ -221,13 +247,14 @@ case class SimulationCommand(
       showSweeps = showSweeps
     )
 
-    // Generate with function call pattern instead of top-level bindings
-    SimulationGen.generateFunctionBased(
+    // Generate with function call pattern using config for UI metadata
+    SimulationGen.generateFunctionBasedWithConfig(
       funcName,
       funcParams,
+      simConfig,
       analyses,
       computeJs,
-      config
+      genConfig
     )
   }
 }

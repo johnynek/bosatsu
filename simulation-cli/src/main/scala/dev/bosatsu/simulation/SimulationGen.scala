@@ -613,6 +613,216 @@ $uiJs
   }
 
   /**
+   * Generate HTML for a function-based simulation using config values.
+   *
+   * This is the fully principled approach where:
+   * - The simulation is a pure function
+   * - UI metadata (labels, ranges, defaults) come from the config file
+   * - No hardcoded values
+   */
+  def generateFunctionBasedWithConfig(
+      funcName: String,
+      funcParams: List[(String, String)],
+      simConfig: ConfigExtractor.SimConfig,
+      analyses: List[DerivationAnalyzer.AnalyzedBinding],
+      computeJs: String,
+      config: SimConfig
+  ): String = {
+    // 1. Generate derivation state (for input params)
+    val derivationState = generateDerivationState(analyses)
+
+    // 2. Generate JavaScript that calls the function
+    val callArgs = funcParams.map { case (name, _) => s"""_getState("$name")""" }.mkString(", ")
+
+    // 3. Build output field info from config
+    val outputFields = simConfig.outputs.map { case (name, outputConfig) =>
+      (name, outputConfig.label, outputConfig.format, outputConfig.primary)
+    }
+
+    val recomputeJs = s"""
+// The compiled function from Bosatsu
+$computeJs
+
+// Recompute by calling the function with current input values
+function _recompute() {
+  // Call the function with input values
+  const result = $funcName($callArgs);
+
+  // Update result displays
+  console.log("$funcName result:", result);
+
+  // Update output displays
+${outputFields.zipWithIndex.map { case ((name, label, format, primary), idx) =>
+      s"""  const el_$name = document.getElementById('result-$name');
+  if (el_$name) {
+    const value = Array.isArray(result) ? result[$idx] : result.$name;
+    el_$name.querySelector('.result-value').textContent = _formatOutput(value, "$format");
+  }"""
+    }.mkString("\n")}
+
+  // Update input derivations
+${funcParams.map { case (name, _) =>
+      s"""  if (_derivations["$name"]) _derivations["$name"].value = _getState("$name");"""
+    }.mkString("\n")}
+}
+
+// Format an output value based on format type
+function _formatOutput(v, format) {
+  if (v === undefined || v === null) return '—';
+  switch (format) {
+    case 'currency':
+      return '$$' + _formatNumber(v);
+    case 'percent':
+      return v + '%';
+    default:
+      return _formatNumber(v);
+  }
+}
+
+// Format a number with commas
+function _formatNumber(v) {
+  if (typeof v !== 'number') return String(v);
+  return v.toLocaleString();
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}"""
+
+    // 4. Generate UI with config-driven inputs and outputs
+    val uiJs = generateConfigDrivenUI(simConfig, config)
+
+    // 5. Combine all JS
+    val fullJs = s"""${JsGen.runtimeCode}
+
+// Derivation state tracking for inputs
+$derivationState
+
+// Function and recomputation
+$recomputeJs
+
+// UI initialization
+$uiJs
+"""
+
+    // 6. Build initial state from config defaults
+    val initialState = simConfig.inputs.map { case (name, inputConfig) =>
+      name -> inputConfig.defaultValue.toString
+    }.toMap
+
+    // 7. Generate embed config
+    val embedConfig = EmbedGenerator.EmbedConfig(
+      title = config.title,
+      theme = config.theme,
+      showWhyButtons = config.showWhy,
+      showWhatIfToggles = config.showWhatIf,
+      showParameterSweeps = config.showSweeps
+    )
+
+    // 8. Generate HTML
+    EmbedGenerator.generateEmbed(embedConfig, initialState, fullJs)
+  }
+
+  /**
+   * Generate UI initialization using config values for labels, ranges, and defaults.
+   */
+  private def generateConfigDrivenUI(
+      simConfig: ConfigExtractor.SimConfig,
+      config: SimConfig
+  ): String = {
+    // Generate input controls with proper labels, ranges, and defaults
+    val inputControls = simConfig.inputs.map { case (name, inputConfig) =>
+      val label = escapeJs(inputConfig.label)
+      s"""  addConfiguredInput("$name", "$label", ${inputConfig.minValue}, ${inputConfig.maxValue}, ${inputConfig.step}, ${inputConfig.defaultValue}, "inputs");"""
+    }.mkString("\n")
+
+    // Generate output displays with proper labels
+    val outputDisplays = simConfig.outputs.map { case (name, outputConfig) =>
+      val label = escapeJs(outputConfig.label)
+      val primary = if (outputConfig.primary) "true" else "false"
+      s"""  addOutputDisplay("$name", "$label", $primary, "results");"""
+    }.mkString("\n")
+
+    s"""// Add a configured input control with label, range, and default
+function addConfiguredInput(name, label, min, max, step, defaultVal, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'control-group';
+
+  div.innerHTML = '<label class="control-label">' + label + ': <span class="value-display" id="' + name + '-value">' + defaultVal.toLocaleString() + '</span></label>' +
+    '<input type="range" id="' + name + '-slider" min="' + min + '" max="' + max + '" step="' + step + '" value="' + defaultVal + '">';
+
+  const slider = div.querySelector('input');
+  slider.oninput = () => {
+    const val = parseInt(slider.value);
+    document.getElementById(name + '-value').textContent = val.toLocaleString();
+    _setState(name, val);
+    _recompute();
+  };
+
+  container.appendChild(div);
+}
+
+// Add an output display with label
+function addOutputDisplay(name, label, isPrimary, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.id = 'result-' + name;
+  div.className = isPrimary ? 'result-item primary' : 'result-item';
+  div.innerHTML = '<span class="result-label">' + label + ':</span> <span class="result-value">—</span>';
+
+  container.appendChild(div);
+}
+
+// Initialize UI
+function init() {
+  // Create layout sections
+  const main = document.querySelector('main');
+  if (main) {
+    // Clear existing content
+    main.innerHTML = '';
+
+    // Inputs section
+    const inputsDiv = document.createElement('div');
+    inputsDiv.id = 'inputs';
+    inputsDiv.className = 'inputs-section';
+    inputsDiv.innerHTML = '<h3>Inputs</h3>';
+    main.appendChild(inputsDiv);
+
+    // Results section
+    const resultsDiv = document.createElement('div');
+    resultsDiv.id = 'results';
+    resultsDiv.className = 'results-section';
+    resultsDiv.innerHTML = '<h3>Results</h3>';
+    main.appendChild(resultsDiv);
+  }
+
+  // Add configured input controls
+$inputControls
+
+  // Add output displays
+$outputDisplays
+
+  // Initial computation
+  _recompute();
+}"""
+  }
+
+  /**
    * Generate UI initialization for function-based simulation.
    */
   private def generateFunctionBasedUI(

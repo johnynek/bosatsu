@@ -805,23 +805,23 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] "Why?" explanations show original formulas
 - [x] Dependencies correctly identified
 
-### Phase 5: Principled Input Semantics ✅ PARTIAL
+### Phase 5: Principled Input Semantics ✅ COMPLETE
 - [x] Simulations defined as functions, not top-level bindings (`demo/loan_calculator_func.bosatsu`)
 - [x] Config file schema defined as Bosatsu (`demo/loan_calculator_func.sim.bosatsu`)
 - [x] SimulationCommand compiles config + simulation together
 - [x] Generated JS calls function with slider values
-- [ ] SimulationCommand evaluates config to extract SimConfig value (Phase 6)
+- [x] SimulationCommand evaluates config to extract SimConfig value (Phase 6 complete)
 - [ ] "Why?" explanations derived from function body TypedExpr (Phase 7)
 
-### Phase 6: Config File Evaluation
-- [ ] `config` binding evaluated from `.sim.bosatsu`
-- [ ] ConfigExtractor.scala converts Value → SimConfig case class
-- [ ] Slider labels come from `InputConfig.label`
-- [ ] Slider ranges come from `InputConfig.min_value/max_value`
-- [ ] Default values come from `InputConfig.default_value`
-- [ ] Result labels come from `OutputConfig.label`
-- [ ] No hardcoded HTML generation - all driven by config
-- [ ] Playwright test: change config → different UI
+### Phase 6: Config File Evaluation ✅ COMPLETE
+- [x] `config` binding evaluated from `.sim.bosatsu`
+- [x] ConfigExtractor.scala converts Value → SimConfig case class
+- [x] Slider labels come from `InputConfig.label`
+- [x] Slider ranges come from `InputConfig.min_value/max_value`
+- [x] Default values come from `InputConfig.default_value`
+- [x] Result labels come from `OutputConfig.label`
+- [x] No hardcoded HTML generation - all driven by config
+- [x] Playwright test: change config → different UI (30 tests pass)
 
 ### Phase 7: "Why?" Provenance
 - [ ] ProvenanceExtractor.scala extracts derivations from TypedExpr
@@ -940,6 +940,84 @@ def derivationGraphTransitive(): Unit = {
 ## REMAINING PHASES: BurritoScript Feature Parity
 
 **Added 2026-01-28**: Complete roadmap to match BurritoScript simulation capabilities.
+
+### Key Architectural Principle: Static Analysis + Runtime Tracking
+
+**Bosatsu's superpower** (like BurritoScript's) is that we have a typed AST (TypedExpr) with excellent properties for static analysis. However, "Why?" explanations need BOTH:
+
+| Aspect | Static Analysis (Build Time) | Runtime Tracking (Execution Time) |
+|--------|------------------------------|-----------------------------------|
+| **What it provides** | Structure, dependencies, formulas | Actual values at each point |
+| **When it runs** | Compile/generation time | Every time inputs change |
+| **Bosatsu source** | TypedExpr, freeVarsSet | IOMonad + Generated JavaScript |
+| **BurritoScript analog** | Effect AST analysis | async/await → Effect monad |
+
+**The pattern**:
+1. **Static analysis walks TypedExpr** to determine WHERE to track (binding names, dependency order, formula structure)
+2. **Code generation inserts tracking hooks** at those predetermined points
+3. **Runtime execution captures values** via IOMonad (Bosatsu's equivalent to BurritoScript's async/await)
+4. **"Why?" UI combines both**: static formulas + runtime values = rich explanations
+
+### IOMonad: Bosatsu's Runtime Effect System
+
+**Critical missing piece**: Bosatsu needs an IOMonad module analogous to BurritoScript's async/await.
+
+**BurritoScript approach**:
+```typescript
+// User writes async/await (looks like normal code)
+async function calculate(db: DB): Promise<Result> {
+  const rate = await db.getRate()
+  const amount = await db.getAmount()
+  return { total: rate * amount }
+}
+// Transpiled to Effect monad - captures execution structure
+```
+
+**Bosatsu needs equivalent**:
+```bosatsu
+package Bosatsu/IO
+
+# IO monad for sequencing effects with provenance tracking
+external struct IO[a]
+
+# Core operations
+external def pure[a](value: a) -> IO[a]
+external def flatMap[a, b](io: IO[a], f: a -> IO[b]) -> IO[b]
+
+# Capture a value with provenance
+external def capture[a](name: String, value: a) -> IO[a]
+
+# Run with tracking enabled
+external def runWithProvenance[a](io: IO[a]) -> { result: a, trace: ProvenanceTrace }
+```
+
+**Why IOMonad matters for "Why?" explanations**:
+1. **Pure functions** (current Bosatsu) execute immediately - no chance to intercept
+2. **IOMonad** defers execution - we can walk the structure AND capture values
+3. **TypedExpr of IO expressions** tells us the STRUCTURE (static)
+4. **Running the IO** captures VALUES at each step (runtime)
+
+**IOMonad is also needed for other effects**:
+- **Randomness** - `random()` returns `IO[Int]`, not `Int`, because it has a side effect
+- **Simulation** - Monte Carlo simulations need randomness + provenance tracking
+- **Interactivity** - User input events would be IO actions
+
+```bosatsu
+# Random is IO because each call produces different values
+external def random_Int(min: Int, max: Int) -> IO[Int]
+external def random_Double(min: Double, max: Double) -> IO[Double]
+
+# Monte Carlo simulation example
+def simulate_roll() -> IO[Int]:
+  flatMap(random_Int(1, 6), fn(die1) ->
+    flatMap(random_Int(1, 6), fn(die2) ->
+      flatMap(capture("total", die1.add(die2)), fn(total) ->
+        pure(total))))
+```
+
+**Implementation phases**:
+- **Phase 7.0** (NEW): Create Bosatsu/IO module with IOMonad
+- **Phase 7.1-7.4**: Use IOMonad for provenance tracking
 
 ### Phase 6: Config File Evaluation
 
@@ -1096,27 +1174,555 @@ def generateFunctionBased(
 }
 ```
 
-#### 6.4 Acceptance Criteria
+#### 6.4 Acceptance Criteria ✅ COMPLETE
 
-- [ ] `config` binding evaluated from `.sim.bosatsu`
-- [ ] Slider labels come from `InputConfig.label`
-- [ ] Slider ranges come from `InputConfig.min_value/max_value`
-- [ ] Default values come from `InputConfig.default_value`
-- [ ] Result labels come from `OutputConfig.label`
-- [ ] No hardcoded HTML generation - all driven by config
-- [ ] Playwright test: change config → different UI
+- [x] `config` binding evaluated from `.sim.bosatsu`
+- [x] Slider labels come from `InputConfig.label`
+- [x] Slider ranges come from `InputConfig.min_value/max_value`
+- [x] Default values come from `InputConfig.default_value`
+- [x] Result labels come from `OutputConfig.label`
+- [x] No hardcoded HTML generation - all driven by config
+- [x] Playwright test: change config → different UI (30 tests pass)
+
+---
+
+### Phase 7.0: Bosatsu/IO Module (IOMonad)
+
+**Goal**: Create an IO monad that enables runtime tracking while preserving static analysis
+
+#### WHY We Need IOMonad
+
+**The Problem with Pure Functions**:
+
+```bosatsu
+# Current pure function - executes IMMEDIATELY
+def calculate(principal: Int, rate: Int) -> Int:
+  monthly_rate = rate.div(1200)      # Computed instantly
+  monthly_payment = principal.times(monthly_rate)  # Computed instantly
+  monthly_payment                    # Returns final value
+```
+
+When this runs:
+1. We get the FINAL result: `2083`
+2. We LOSE all intermediate values (`monthly_rate = 58`)
+3. We have NO way to capture "why" - the computation already happened
+
+**BurritoScript's Solution (async/await)**:
+
+```typescript
+// BurritoScript - async/await DEFERS execution
+async function calculate(principal: number, rate: number): Promise<number> {
+  const monthly_rate = await capture('monthly_rate', rate / 1200)
+  const monthly_payment = await capture('monthly_payment', principal * monthly_rate)
+  return monthly_payment
+}
+```
+
+When this runs:
+1. Each `await` is a SUSPENSION POINT
+2. The runtime can INTERCEPT each step
+3. We capture `monthly_rate = 58`, THEN `monthly_payment = 2083`
+4. We build a provenance trace AS we execute
+
+**Bosatsu's Solution (IOMonad)**:
+
+IOMonad gives us the same capability - it DESCRIBES a computation without executing it, allowing us to:
+1. **Analyze the structure** (static) - What depends on what? What are the formulas?
+2. **Execute with tracking** (runtime) - Capture values at each step
+
+**The Key Insight**:
+
+| Approach | When Values Are Computed | Can Track? |
+|----------|--------------------------|------------|
+| Pure function | Immediately | ❌ No - already done |
+| IOMonad | Deferred until `run` called | ✅ Yes - intercept each step |
+
+```
+Pure:  calculate(250000, 700) → 2083  (lost intermediate state)
+
+IO:    calculate(250000, 700) → IO[{ ... }]  (returns description)
+       runWithTrace(io) → { result: 2083, trace: [{monthly_rate: 58}, ...] }
+```
+
+#### HOW IOMonad Enables Static Analysis + Runtime Tracking
+
+**Step 1: Write simulation with IOMonad** (user code)
+
+```bosatsu
+def calculate(principal: Int, rate: Int) -> IO[Int]:
+  flatMap(capture("monthly_rate", rate.div(1200)), fn(monthly_rate) ->
+    flatMap(capture("payment", principal.times(monthly_rate)), fn(payment) ->
+      pure(payment)))
+```
+
+**Step 2: Static analysis of TypedExpr** (build time)
+
+```scala
+// The TypedExpr for this IO function has structure we can analyze:
+TypedExpr.App(
+  TypedExpr.Global("flatMap"),
+  List(
+    TypedExpr.App(TypedExpr.Global("capture"), List("monthly_rate", ...)),  // <- binding point
+    TypedExpr.Lambda("monthly_rate",
+      TypedExpr.App(
+        TypedExpr.Global("flatMap"),
+        List(
+          TypedExpr.App(TypedExpr.Global("capture"), List("payment", ...)),  // <- binding point
+          TypedExpr.Lambda("payment", ...)
+        )
+      )
+    )
+  )
+)
+```
+
+**From this structure we extract (statically)**:
+- Binding names: `monthly_rate`, `payment`
+- Order: `monthly_rate` before `payment`
+- Dependencies: `payment` depends on `monthly_rate` (it's in scope)
+- Formulas: from the capture arguments
+
+**Step 3: Generate JavaScript with tracking** (code generation)
+
+```javascript
+// Generated from static analysis
+const _derivations = {
+  "monthly_rate": { formula: "rate ÷ 1200", deps: ["rate"] },
+  "payment": { formula: "principal × monthly_rate", deps: ["principal", "monthly_rate"] }
+};
+
+// IO execution with value capture
+function calculate(principal, rate) {
+  return function() {  // IO is a thunk
+    const _trace = [];
+    const monthly_rate = rate / 1200;
+    _trace.push({ name: "monthly_rate", value: monthly_rate });
+
+    const payment = principal * monthly_rate;
+    _trace.push({ name: "payment", value: payment });
+
+    return { value: payment, trace: _trace };
+  };
+}
+```
+
+**Step 4: "Why?" combines both** (runtime)
+
+```javascript
+function showWhy(name) {
+  const deriv = _derivations[name];  // STATIC: formula, deps
+  const value = _values[name];       // RUNTIME: captured value
+
+  // "payment = principal × monthly_rate"
+  // "= 250000 × 58"
+  // "= 2083"
+}
+```
+
+**Summary**: IOMonad is the bridge that lets us BOTH analyze structure statically AND capture values at runtime.
+
+---
+
+#### 7.0.1 Module Definition
+
+**File**: `core/src/main/resources/bosatsu/io.bosatsu`
+
+```bosatsu
+package Bosatsu/IO
+
+export (
+  IO,
+  pure, flatMap, map, sequence,
+  capture, captureFormula, trace,
+  random_Int, random_Double,
+  ProvenanceNode, ProvenanceTrace
+)
+
+# IO monad - an action that produces a value of type 'a'
+# This is Bosatsu's equivalent to async/await in BurritoScript
+external struct IO[a]
+
+# ===================
+# Core monad operations
+# ===================
+
+external def pure[a](value: a) -> IO[a]
+external def flatMap[a, b](io: IO[a], f: a -> IO[b]) -> IO[b]
+
+# Derived - map is flatMap + pure
+def map[a, b](io: IO[a], f: a -> b) -> IO[b]:
+  flatMap(io, fn(x) -> pure(f(x)))
+
+# Sequence a list of IO actions
+external def sequence[a](ios: List[IO[a]]) -> IO[List[a]]
+
+# ===================
+# Provenance tracking (for "Why?" explanations)
+# ===================
+
+external struct ProvenanceNode(
+  id: Int,
+  name: String,
+  value: String,  # Serialized value
+  dependencies: List[Int],
+  formula: String
+)
+
+external struct ProvenanceTrace(
+  nodes: List[ProvenanceNode],
+  root: Int
+)
+
+# Capture a named value with tracking
+external def capture[a](name: String, value: a) -> IO[a]
+
+# Capture with explicit formula (for "Why?" explanations)
+external def captureFormula[a](name: String, formula: String, value: a) -> IO[a]
+
+# Get current trace
+external def trace() -> IO[ProvenanceTrace]
+
+# ===================
+# Randomness (for simulations)
+# ===================
+
+# Generate random integer in range [min, max]
+external def random_Int(min: Int, max: Int) -> IO[Int]
+
+# Generate random double in range [min, max)
+# (Requires Bosatsu/Numeric Double type)
+from Bosatsu/Numeric import Double
+external def random_Double(min: Double, max: Double) -> IO[Double]
+
+# Generate random boolean with given probability of True
+external def random_Bool(probability: Double) -> IO[Bool]
+```
+
+#### 7.0.2 JVM Implementation
+
+**File**: `core/src/main/scala/dev/bosatsu/IO.scala`
+
+```scala
+package dev.bosatsu
+
+import Value._
+
+object IO {
+  val packageName = PackageName.parse("Bosatsu/IO").get
+
+  // IO is represented as a Value that wraps an effect tree
+  sealed trait IOEffect[+A]
+  case class Pure[A](value: A) extends IOEffect[A]
+  case class FlatMap[A, B](io: IOEffect[A], f: Value => IOEffect[B]) extends IOEffect[B]
+  case class Capture[A](name: String, value: A, formula: Option[String]) extends IOEffect[A]
+
+  case class ProvenanceNodeValue(
+    id: Long,
+    name: String,
+    value: Value,
+    dependencies: List[Long],
+    formula: String
+  )
+
+  case class ProvenanceTraceValue(
+    nodes: Map[Long, ProvenanceNodeValue],
+    root: Long
+  )
+
+  // Runtime interpreter that captures provenance
+  def runWithProvenance[A](io: IOEffect[A]): (A, ProvenanceTraceValue) = {
+    var nodeId = 0L
+    val nodes = scala.collection.mutable.Map[Long, ProvenanceNodeValue]()
+    var currentDeps: List[Long] = Nil
+
+    def interpret[B](effect: IOEffect[B]): B = effect match {
+      case Pure(v) => v
+      case FlatMap(io, f) =>
+        val a = interpret(io)
+        interpret(f(valueFromAny(a)).asInstanceOf[IOEffect[B]])
+      case Capture(name, value, formula) =>
+        val id = { nodeId += 1; nodeId }
+        nodes(id) = ProvenanceNodeValue(
+          id = id,
+          name = name,
+          value = valueFromAny(value),
+          dependencies = currentDeps,
+          formula = formula.getOrElse(name)
+        )
+        currentDeps = List(id)  // This value is now a dependency for next
+        value
+    }
+
+    val result = interpret(io)
+    (result, ProvenanceTraceValue(nodes.toMap, nodeId))
+  }
+
+  val jvmExternals: Externals =
+    Externals.empty
+      .add(packageName, "pure", FfiCall.Fn1 { v =>
+        ExternalValue(Pure(v))
+      })
+      .add(packageName, "flatMap", FfiCall.Fn2 { (io, f) =>
+        val ioEffect = io.asInstanceOf[ExternalValue].value.asInstanceOf[IOEffect[Any]]
+        val func = f // Bosatsu function value
+        ExternalValue(FlatMap(ioEffect, v => {
+          // Apply Bosatsu function and get resulting IO
+          val result = Evaluation.applyValue(func, v)
+          result.asInstanceOf[ExternalValue].value.asInstanceOf[IOEffect[Any]]
+        }))
+      })
+      .add(packageName, "capture", FfiCall.Fn2 { (name, value) =>
+        val nameStr = name match { case Str(s) => s; case _ => "?" }
+        ExternalValue(Capture(nameStr, value, None))
+      })
+      .add(packageName, "captureFormula", FfiCall.Fn3 { (name, formula, value) =>
+        val nameStr = name match { case Str(s) => s; case _ => "?" }
+        val formulaStr = formula match { case Str(s) => s; case _ => "?" }
+        ExternalValue(Capture(nameStr, value, Some(formulaStr)))
+      })
+      // Randomness
+      .add(packageName, "random_Int", FfiCall.Fn2 { (min, max) =>
+        val minInt = min match { case VInt(bi) => bi.intValue; case _ => 0 }
+        val maxInt = max match { case VInt(bi) => bi.intValue; case _ => 100 }
+        ExternalValue(RandomInt(minInt, maxInt))
+      })
+      .add(packageName, "random_Double", FfiCall.Fn2 { (min, max) =>
+        val minD = min.asInstanceOf[ExternalValue].value.asInstanceOf[java.lang.Double].doubleValue
+        val maxD = max.asInstanceOf[ExternalValue].value.asInstanceOf[java.lang.Double].doubleValue
+        ExternalValue(RandomDouble(minD, maxD))
+      })
+      .add(packageName, "random_Bool", FfiCall.Fn1 { prob =>
+        val p = prob.asInstanceOf[ExternalValue].value.asInstanceOf[java.lang.Double].doubleValue
+        ExternalValue(RandomBool(p))
+      })
+
+  // Additional IO effect cases for randomness
+  case class RandomInt(min: Int, max: Int) extends IOEffect[Int]
+  case class RandomDouble(min: Double, max: Double) extends IOEffect[Double]
+  case class RandomBool(probability: Double) extends IOEffect[Boolean]
+
+  // Update runWithProvenance to handle random effects
+  def runWithProvenanceExtended[A](io: IOEffect[A], rng: scala.util.Random): (A, ProvenanceTraceValue) = {
+    var nodeId = 0L
+    val nodes = scala.collection.mutable.Map[Long, ProvenanceNodeValue]()
+
+    def interpret[B](effect: IOEffect[B]): B = effect match {
+      case Pure(v) => v
+      case FlatMap(io, f) =>
+        val a = interpret(io)
+        interpret(f(valueFromAny(a)).asInstanceOf[IOEffect[B]])
+      case Capture(name, value, formula) =>
+        val id = { nodeId += 1; nodeId }
+        nodes(id) = ProvenanceNodeValue(id, name, valueFromAny(value), Nil, formula.getOrElse(name))
+        value
+      case RandomInt(min, max) =>
+        (rng.nextInt(max - min + 1) + min).asInstanceOf[B]
+      case RandomDouble(min, max) =>
+        (min + rng.nextDouble() * (max - min)).asInstanceOf[B]
+      case RandomBool(probability) =>
+        (rng.nextDouble() < probability).asInstanceOf[B]
+    }
+
+    val result = interpret(io)
+    (result, ProvenanceTraceValue(nodes.toMap, nodeId))
+  }
+}
+```
+
+#### 7.0.3 JsGen for IO
+
+**File**: `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala`
+
+Add IOExternal similar to NumericExternal:
+
+```scala
+object IOExternal {
+  val IOPackage = PackageName.parse("Bosatsu/IO").get
+
+  // IO in JS is a function: () => { value, trace }
+  val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+    Identifier.unsafeBindable("pure") -> ((args: List[Code.Expression]) =>
+      // () => ({ value: args[0], trace: [] })
+      Code.Lambda(Nil, Code.ObjectLiteral(List(
+        "value" -> args.head,
+        "trace" -> Code.ArrayLiteral(Nil)
+      ))), 1),
+
+    Identifier.unsafeBindable("flatMap") -> ((args: List[Code.Expression]) =>
+      // (io, f) => () => { const a = io(); return f(a.value)(); }
+      Code.Lambda(Nil, Code.Block(List(
+        Code.Const("_a", Code.Call(args(0), Nil)),
+        Code.Return(Code.Call(Code.Call(args(1), List(Code.Ident("_a").dot("value"))), Nil))
+      ))), 2),
+
+    Identifier.unsafeBindable("capture") -> ((args: List[Code.Expression]) =>
+      // (name, value) => () => ({ value, trace: [{ name, value }] })
+      Code.Lambda(Nil, Code.ObjectLiteral(List(
+        "value" -> args(1),
+        "trace" -> Code.ArrayLiteral(List(Code.ObjectLiteral(List(
+          "name" -> args(0),
+          "value" -> args(1)
+        ))))
+      ))), 2)
+  )
+}
+```
+
+#### 7.0.4 Simulation Functions with IO
+
+Simulations that need provenance tracking use IO:
+
+```bosatsu
+package LoanCalculator
+
+from Bosatsu/IO import IO, pure, flatMap, capture
+
+def calculate(principal: Int, annual_rate: Int, years: Int) -> IO[{ monthly_payment: Int, total_interest: Int }]:
+  # Each intermediate captures its value with provenance
+  flatMap(capture("monthly_rate", annual_rate.div(1200)), fn(monthly_rate) ->
+    flatMap(capture("num_payments", years.times(12)), fn(num_payments) ->
+      flatMap(capture("monthly_payment", principal.times(monthly_rate).add(principal.div(num_payments))), fn(monthly_payment) ->
+        flatMap(capture("total_paid", monthly_payment.times(num_payments)), fn(total_paid) ->
+          flatMap(capture("total_interest", total_paid.sub(principal)), fn(total_interest) ->
+            pure({ monthly_payment: monthly_payment, total_interest: total_interest })
+          )))))
+```
+
+**Note**: This is verbose compared to BurritoScript's async/await. Future work could add syntactic sugar.
+
+#### 7.0.5 Alternative: Do-Notation Syntax (Future)
+
+Eventually, Bosatsu could support do-notation like Haskell:
+
+```bosatsu
+# Future syntax - NOT CURRENT BOSATSU
+def calculate(principal: Int, annual_rate: Int, years: Int) -> IO[Result]:
+  do
+    monthly_rate <- capture("monthly_rate", annual_rate.div(1200))
+    num_payments <- capture("num_payments", years.times(12))
+    monthly_payment <- capture("monthly_payment", ...)
+    pure({ monthly_payment, total_interest })
+```
+
+For now, the flatMap chain works and can be statically analyzed.
+
+#### 7.0.6 Acceptance Criteria
+
+**Core IOMonad**:
+- [ ] Bosatsu/IO module compiles and is loadable
+- [ ] pure and flatMap satisfy monad laws
+- [ ] JsGen generates correct JS for IO operations
+- [ ] TypedExpr of IO functions can be statically analyzed for structure
+
+**Provenance Tracking**:
+- [ ] capture inserts provenance tracking points
+- [ ] captureFormula stores formula for "Why?" explanations
+- [ ] runWithProvenance returns both result and trace
+- [ ] Test: simple IO program runs and returns traced result
+
+**Randomness**:
+- [ ] random_Int generates integers in specified range
+- [ ] random_Double generates doubles in specified range
+- [ ] random_Bool generates booleans with specified probability
+- [ ] Random results are captured in provenance trace
+- [ ] Test: Monte Carlo simulation produces expected distribution
 
 ---
 
 ### Phase 7: "Why?" Provenance from TypedExpr
 
-**Goal**: Generate derivation explanations from function body's TypedExpr
+**Goal**: Generate derivation explanations from function body's TypedExpr with runtime value tracking (using IOMonad from Phase 7.0)
 
-**Key insight**: The TypedExpr IS the dependency graph. `TypedExpr.freeVarsSet` already extracts dependencies. We just need to make it human-readable.
+**Key architectural insight**: This is a **dual static/runtime system**:
 
-#### 7.1 Dependency Extraction
+#### Static Analysis (Build Time) - TypedExpr
+- **What it provides**: Structure, dependencies, formulas
+- **When it runs**: At compile/generation time
+- **Output**: JavaScript code with tracking hooks at predetermined points
+- **Analogy**: Like BurritoScript's Effect AST analysis
+
+```
+TypedExpr Structure → Determines:
+  - Binding names and order
+  - Dependency graph (what depends on what)
+  - Human-readable formulas (exprToFormula)
+  - WHERE to insert tracking points
+```
+
+#### Runtime Tracking (Execution Time) - ProvenanceNode-style
+- **What it provides**: Actual values at each point
+- **When it runs**: Every time inputs change
+- **Output**: Populated derivation state with real values
+- **Analogy**: Like BurritoScript's provenance.ts ProvenanceNode
+
+```
+Runtime Capture → Provides:
+  - Actual computed value at each binding
+  - Timestamp when value was computed
+  - Current scope context (for nested functions)
+```
+
+#### How They Work Together
+
+```javascript
+// STATIC: Generated at build time from TypedExpr analysis
+const _derivations = {
+  "monthly_rate": {
+    formula: "annual_rate ÷ 1200",  // From exprToFormula(TypedExpr)
+    dependencies: ["annual_rate"],   // From TypedExpr.freeVarsSet
+    kind: "intermediate"
+  },
+  "monthly_payment": {
+    formula: "principal × monthly_rate + principal ÷ num_payments",
+    dependencies: ["principal", "monthly_rate", "num_payments"],
+    kind: "output"
+  }
+};
+
+// RUNTIME: Populated during execution
+const _values = {};  // name → { value, timestamp }
+
+// Generated recompute function captures values at each step
+function recompute() {
+  const principal = getInput('principal');
+  _values['principal'] = { value: principal, timestamp: Date.now() };
+
+  const annual_rate = getInput('annual_rate');
+  _values['annual_rate'] = { value: annual_rate, timestamp: Date.now() };
+
+  const monthly_rate = Math.trunc(annual_rate / 1200);
+  _values['monthly_rate'] = { value: monthly_rate, timestamp: Date.now() };
+
+  const monthly_payment = principal * monthly_rate + Math.trunc(principal / num_payments);
+  _values['monthly_payment'] = { value: monthly_payment, timestamp: Date.now() };
+
+  return { monthly_payment, ... };
+}
+
+// "Why?" explanation uses BOTH
+function showWhy(name) {
+  const derivation = _derivations[name];  // STATIC structure
+  const value = _values[name];            // RUNTIME value
+
+  // Build explanation: "monthly_payment = 2083"
+  // "= principal × monthly_rate + principal ÷ num_payments"
+  // "= 250000 × 58 + 250000 ÷ 360"
+  // ...trace back to inputs...
+}
+```
+
+**This is exactly how BurritoScript works:**
+- `analysis.ts` walks Effect AST to determine structure (static)
+- `provenance.ts` captures values during execution (runtime)
+- The debugger combines both to show "Why?" explanations
+
+**Bosatsu advantage**: TypedExpr is richer than Effect - we have types, better source locations, and `freeVarsSet` already computed.
+
+#### 7.1 Static Analysis: Dependency Extraction
 
 **File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/ProvenanceExtractor.scala`
+
+This extracts the STATIC structure from TypedExpr at build time.
 
 ```scala
 package dev.bosatsu.simulation
@@ -1124,10 +1730,14 @@ package dev.bosatsu.simulation
 import dev.bosatsu.{TypedExpr, Identifier}
 import dev.bosatsu.Identifier.Bindable
 
+/**
+ * Static derivation info extracted from TypedExpr.
+ * This is the BUILD-TIME analysis - no values, just structure.
+ */
 case class Derivation(
   name: String,
   formula: String,           // Human-readable: "principal × monthly_rate + principal / num_payments"
-  dependencies: Set[String], // Direct dependencies
+  dependencies: Set[String], // Direct dependencies (from TypedExpr.freeVarsSet)
   kind: DerivationKind       // Input, Intermediate, Output
 )
 
@@ -1226,7 +1836,129 @@ object ProvenanceExtractor {
 }
 ```
 
-#### 7.2 Generate "Why?" JavaScript
+#### 7.2 Runtime Tracking: Code Generation
+
+**File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/ProvenanceExtractor.scala` (continued)
+
+Static analysis tells us WHERE to capture values. Now we generate code that CAPTURES values at runtime.
+
+```scala
+/**
+ * Generate JavaScript that tracks values at runtime.
+ *
+ * This transforms:
+ *   const monthly_rate = annual_rate / 1200;
+ *
+ * Into:
+ *   const monthly_rate = annual_rate / 1200;
+ *   _capture('monthly_rate', monthly_rate);
+ *
+ * The _capture function stores the value with timestamp for "Why?" explanations.
+ */
+object RuntimeTrackingGenerator {
+
+  /**
+   * Generate the value capture runtime.
+   */
+  def generateValueCaptureRuntime(): String = """
+    const _values = {};
+
+    function _capture(name, value) {
+      _values[name] = {
+        value: value,
+        timestamp: Date.now()
+      };
+      return value;  // Pass-through for chaining
+    }
+
+    function _getValue(name) {
+      const entry = _values[name];
+      return entry ? entry.value : undefined;
+    }
+  """
+
+  /**
+   * Generate a recompute function with value capture at each binding.
+   *
+   * @param funcName The simulation function name
+   * @param derivations Static derivation info (for ordering)
+   * @param computeJs The original compute JS from JsGen
+   */
+  def generateTrackedRecompute(
+    funcName: String,
+    derivations: Map[String, Derivation],
+    computeJs: String
+  ): String = {
+    // Sort by dependency order (topological sort)
+    val ordered = topologicalSort(derivations)
+
+    // Generate capture points
+    val captureStatements = ordered.flatMap { name =>
+      val d = derivations(name)
+      d.kind match {
+        case Input =>
+          // Inputs captured from UI
+          Some(s"const $name = getInput('$name'); _capture('$name', $name);")
+        case Intermediate | Output =>
+          // Intermediate values captured after computation
+          // The actual computation comes from JsGen output
+          // We just wrap assignments with _capture
+          None  // Handled by transforming computeJs
+      }
+    }
+
+    s"""
+    function _trackedRecompute() {
+      ${captureStatements.mkString("\n      ")}
+
+      // Call the generated function
+      const result = $funcName(${ordered.filter(d => derivations(d).kind == Input).mkString(", ")});
+
+      // Capture outputs
+      ${derivations.filter(_._2.kind == Output).keys.map { name =>
+        s"_capture('$name', result.$name);"
+      }.mkString("\n      ")}
+
+      return result;
+    }
+    """
+  }
+
+  /**
+   * Alternative approach: Transform JsGen output to insert capture calls.
+   *
+   * Before: const monthly_rate = Math.trunc(annual_rate / 1200);
+   * After:  const monthly_rate = _capture('monthly_rate', Math.trunc(annual_rate / 1200));
+   *
+   * This is MORE PRINCIPLED - we modify the Code.Expression AST before rendering,
+   * not the string output.
+   */
+  def insertCaptureIntoCodeAST(
+    statements: List[Code.Statement],
+    derivations: Map[String, Derivation]
+  ): List[Code.Statement] = {
+    statements.map {
+      case Code.DeclareVar(mods, ident, Some(expr)) if derivations.contains(ident.name) =>
+        // Wrap the expression: expr → _capture('name', expr)
+        val captureCall = Code.Call(
+          Code.Ident("_capture"),
+          List(Code.StrLiteral(ident.name), expr)
+        )
+        Code.DeclareVar(mods, ident, Some(captureCall))
+      case other => other
+    }
+  }
+}
+```
+
+**Key insight**: We have TWO options for runtime tracking:
+
+1. **String transformation** (simpler, less principled): Post-process generated JS
+2. **AST transformation** (recommended): Modify `Code.Statement` AST before `Code.render()`
+
+Option 2 is more in line with the "never treat symptoms with string replacement" principle.
+
+#### 7.3 Generate "Why?" JavaScript
 
 **File**: `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationGen.scala`
 
@@ -1245,8 +1977,9 @@ def generateWhyExplanations(derivations: Map[String, Derivation]): String = {
     $derivationJson
   };
 
+  // showWhy combines STATIC (derivations) and RUNTIME (values)
   function showWhy(name) {
-    const d = _derivations[name];
+    const d = _derivations[name];  // STATIC: structure from TypedExpr
     if (!d) return;
 
     // Build explanation chain
@@ -1256,35 +1989,98 @@ def generateWhyExplanations(derivations: Map[String, Derivation]): String = {
     function trace(n) {
       if (visited.has(n)) return;
       visited.add(n);
-      const deriv = _derivations[n];
+      const deriv = _derivations[n];  // STATIC: formula, dependencies, kind
+      const runtime = _values[n];      // RUNTIME: actual value, timestamp
       if (!deriv) return;
 
       explanation.push({
         name: n,
-        formula: deriv.formula,
-        value: _getState(n),
-        kind: deriv.kind
+        formula: deriv.formula,        // STATIC: "principal × monthly_rate"
+        value: runtime?.value,         // RUNTIME: 2083
+        timestamp: runtime?.timestamp, // RUNTIME: when computed
+        kind: deriv.kind               // STATIC: input/intermediate/output
       });
 
-      deriv.dependencies.forEach(trace);
+      deriv.dependencies.forEach(trace);  // STATIC: walk dependency graph
     }
 
     trace(name);
 
-    // Show modal with explanation
+    // Show modal with explanation that substitutes VALUES into FORMULAS
+    // e.g., "monthly_payment = principal × monthly_rate = 250000 × 58 = 2083"
     showWhyModal(name, explanation.reverse());
+  }
+
+  function showWhyModal(name, steps) {
+    // Build rich explanation with value substitution
+    let html = '<div class="why-explanation">';
+
+    steps.forEach((step, i) => {
+      const isLast = i === steps.length - 1;
+      const arrow = isLast ? '' : '↓';
+
+      if (step.kind === 'input') {
+        // Inputs are just their value
+        html += '<div class="why-step why-input">';
+        html += '<span class="why-name">' + step.name + '</span>';
+        html += ' = <span class="why-value">' + formatValue(step.value) + '</span>';
+        html += ' <span class="why-label">(input)</span>';
+        html += '</div>';
+      } else {
+        // Computed values show formula AND substituted values
+        html += '<div class="why-step">';
+        html += '<span class="why-name">' + step.name + '</span>';
+        html += ' = <span class="why-formula">' + step.formula + '</span>';
+        html += '<br>&nbsp;&nbsp;= <span class="why-substituted">';
+        html += substituteValues(step.formula, _values);  // Replace names with values
+        html += '</span>';
+        html += '<br>&nbsp;&nbsp;= <span class="why-value">' + formatValue(step.value) + '</span>';
+        html += '</div>';
+      }
+
+      if (!isLast) {
+        html += '<div class="why-arrow">' + arrow + '</div>';
+      }
+    });
+
+    html += '</div>';
+    openModal(html);
+  }
+
+  // Substitute variable names with their runtime values
+  function substituteValues(formula, values) {
+    let result = formula;
+    Object.entries(values).forEach(([name, entry]) => {
+      // Replace whole-word matches only
+      result = result.replace(new RegExp('\\\\b' + name + '\\\\b', 'g'), formatValue(entry.value));
+    });
+    return result;
   }
   """
 }
 ```
 
-#### 7.3 Acceptance Criteria
+#### 7.4 Acceptance Criteria
 
+**Static Analysis (Build Time)**:
 - [ ] Derivations extracted from TypedExpr.AnnotatedLambda
 - [ ] Formulas generated from TypedExpr structure (not string parsing)
-- [ ] "Why?" button shows derivation chain
+- [ ] Dependencies extracted via TypedExpr.freeVarsSet
+- [ ] exprToFormula handles binary ops: add → +, sub → -, times → ×, div → ÷
+
+**Runtime Tracking (Execution Time)**:
+- [ ] _capture() calls inserted at each binding
+- [ ] _values object populated during recompute()
+- [ ] Values captured with timestamps
+- [ ] AST transformation preferred over string manipulation
+
+**Combined "Why?" Experience**:
+- [ ] "Why?" button shows derivation chain with BOTH formula AND value
 - [ ] Chain traces from output back to inputs
-- [ ] Playwright test: click "Why?" → see formula
+- [ ] Formula shows: "monthly_payment = principal × monthly_rate"
+- [ ] Substitution shows: "= 250000 × 58"
+- [ ] Result shows: "= 2083"
+- [ ] Playwright test: click "Why?" → see formula AND values
 
 ---
 
@@ -1586,6 +2382,9 @@ def render(state: EconomyState) -> List[DrawCommand]:
 | `simulation-cli/.../ConfigExtractor.scala` | 6 | NEW | Extract SimConfig from Value |
 | `simulation-cli/.../SimulationCommand.scala` | 6 | MODIFY | Evaluate config binding |
 | `simulation-cli/.../SimulationGen.scala` | 6 | MODIFY | Use config for HTML generation |
+| `core/src/main/resources/bosatsu/io.bosatsu` | 7.0 | NEW | IOMonad module definition |
+| `core/src/main/scala/dev/bosatsu/IO.scala` | 7.0 | NEW | IOMonad JVM FFI implementation |
+| `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala` | 7.0 | MODIFY | Add IOExternal intrinsics |
 | `simulation-cli/.../ProvenanceExtractor.scala` | 7 | NEW | Extract derivations from TypedExpr |
 | `simulation-cli/.../SimulationGen.scala` | 7 | MODIFY | Generate "Why?" explanations |
 | `demo/tax_economy.bosatsu` | 8 | NEW | Multi-variant simulation |
@@ -1601,12 +2400,19 @@ def render(state: EconomyState) -> List[DrawCommand]:
 | Phase | Dependencies | Estimated Effort | Priority |
 |-------|--------------|------------------|----------|
 | 6 (Config eval) | None | Small | **P0 - Do first** |
-| 7 ("Why?") | Phase 6 | Medium | **P0 - Core feature** |
-| 8 ("What if?") | Phase 6 | Medium | P1 |
+| 7.0 (IOMonad) | None | Medium | **P0 - Foundation for provenance** |
+| 7 ("Why?") | Phase 6, 7.0 | Medium | **P0 - Core feature** |
+| 8 ("What if?") | Phase 6, 7.0 | Medium | P1 |
 | 9 (Sweeps) | Phase 6 | Medium | P1 |
 | 10 (Canvas) | Phase 9 | Large | P2 - Defer |
 
-**Suggested order**: 6 → 7 → 8 → 9 → 10
+**Suggested order**: 6 → 7.0 → 7 → 8 → 9 → 10
+
+**Why IOMonad (7.0) before "Why?" (7)**:
+- Pure functions execute immediately - no interception points
+- IOMonad defers execution, enabling value capture at each step
+- The IO structure in TypedExpr IS the dependency graph we analyze
+- Without IOMonad, we can only do static analysis (formulas) but not runtime tracking (values)
 
 ---
 
@@ -1645,8 +2451,25 @@ esbuild loan.js --bundle --format=iife --outfile=loan-bundle.js
 - `core/src/main/scala/dev/bosatsu/analysis/ProvenanceAnalyzer.scala` - Current implementation
 - `docs/plans/simulation-jsgen-investigation.md` - RingOpt root cause analysis
 
-### External
-- `/Users/steven/Documents/Code/portToBosatsu/burritoscript/src/provenance.ts` - BurritoScript provenance model
+### External - BurritoScript Architecture (Key References for Phase 7)
+
+**The dual static/runtime architecture is directly borrowed from BurritoScript:**
+
+- `/Users/steven/Documents/Code/portToBosatsu/burritoscript/src/provenance.ts` - **CRITICAL**: ProvenanceNode structure showing runtime value capture
+  - `ProvenanceNode`: id, value (RUNTIME), source, usedBy, location, timestamp, scope
+  - `ProvenanceSource` types: input, operation, pure, flatMap, parallel, match, raise
+  - `TraceBuilder`: Builds provenance traces during execution
+  - Query functions: `getDependencies()`, `getUsages()`, `findPath()`, `explainFull()`
+
+- `/Users/steven/Documents/Code/portToBosatsu/burritoscript/simulation-applets/framework/analysis.ts` - Static analysis of Effect AST
+  - `extractOpsFromEffect()`: Walks Effect AST to extract reads/writes/assumptions
+  - `buildDependencyGraph()`: Creates law dependency graph
+  - Shows how STATIC analysis determines WHERE to track
+
+- `/Users/steven/Documents/Code/portToBosatsu/burritoscript/simulation-applets/framework/simulation-codegen.ts` - Code generation from analysis
+  - `generateRuntime()`: Creates subscription metadata, canvas configs, runtime harness
+  - Shows how static analysis DRIVES code generation
+
 - `/Users/steven/Documents/Code/portToBosatsu/burritoscript/provenance-plan.md` - Provenance design doc
 
 ### Institutional Learnings Applied
