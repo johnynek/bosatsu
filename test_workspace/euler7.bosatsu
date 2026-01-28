@@ -11,7 +11,7 @@ operator - = sub
 operator == = eq_Int
 
 def int_loop_up(top, res, fn):
-  int_loop(top, res, \i, res ->
+  int_loop(top, res, (i, res) ->
     rev_i = top - i
     (next_rev, next_res) = fn(rev_i, res)
     (top - next_rev, next_res))
@@ -20,7 +20,7 @@ def divides(denom, num):
   num.mod_Int(denom).eq_Int(0)
 
 def is_prime(x):
-  int_loop_up(x, False, \i, div ->
+  int_loop_up(x, False, (i, div) ->
     nexti = i + 1
     candidate = i + 2
     match cmp_Int(candidate, x):
@@ -37,7 +37,7 @@ def none_divide(primes, x):
 def ith_prime(total):
   max_size = range(total.times(total))
   # we could do int_loop or int_loop up, this was a bit simpler
-  (ps, _) = max_size.foldl_List(([], 0), \prime_cnt, i ->
+  (ps, _) = max_size.foldl_List(([], 0), (prime_cnt, i) ->
     #2 is the first prime
     candidate = i.add(2)
     (primes, cnt) = prime_cnt

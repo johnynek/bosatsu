@@ -33,7 +33,7 @@ def toNat(b: BinNat) -> Nat:
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
 def toBinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
-  fns = int_loop(n, [], \n, fns ->
+  fns = int_loop(n, [], (n, fns) ->
     is_even = n.and_Int(1) matches 0
     (hfn, dec) = (n -> Even(n), n -> n.sub(1)) if is_even else (n -> Odd(n), n -> n)
     fns = [hfn, *fns]
@@ -367,8 +367,8 @@ test = TestSuite(
     ]]),
     Assertion(10.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(110), "10*11 = 110"),
     Assertion(0.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(0), "0*11 = 0"),
-    Assertion(fold_left_BinNat(\n, _ -> n.next(), Zero, 10.toBinNat()).toInt().eq_Int(10), "1 + ... + 1 = 10"),
-    Assertion(fold_left_BinNat(\n1, n2 -> n1.add_BinNat(n2), Zero, 4.toBinNat()).toInt().eq_Int(6), "1+2+3=6"),
+    Assertion(fold_left_BinNat((n, _) -> n.next(), Zero, 10.toBinNat()).toInt().eq_Int(10), "1 + ... + 1 = 10"),
+    Assertion(fold_left_BinNat((n1, n2) -> n1.add_BinNat(n2), Zero, 4.toBinNat()).toInt().eq_Int(6), "1+2+3=6"),
     Assertion(fib(Zero).toInt().eq_Int(1), "fib(0) == 1"),
     Assertion(fib(one).toInt().eq_Int(1), "fib(1) == 1"),
     Assertion(fib(two).toInt().eq_Int(2), "fib(2) == 2"),

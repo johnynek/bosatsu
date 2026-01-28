@@ -17,7 +17,7 @@ from Bosatsu/List import sum
 # so n = 35 is enough
 
 def fib(n):
-  range(n).foldl_List([], \revFib, _ ->
+  range(n).foldl_List([], (revFib, _) ->
     match revFib:
       case []: [1]
       case [h]: [2, h]

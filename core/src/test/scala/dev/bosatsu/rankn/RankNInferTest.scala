@@ -1297,9 +1297,9 @@ struct Bar
 (fn: forall a. a -> Bar) = _ -> Bar
 #(fn: Bar -> Bar) = x -> Bar
 
-#dontCall = \(fn: forall a. a -> Bar) -> Foo
-#dontCall = \(fn: Bar -> Bar) -> Foo
-dontCall = \(_: (forall a. a) -> Bar) -> Foo
+#dontCall = (fn: forall a. a -> Bar) -> Foo
+#dontCall = (fn: Bar -> Bar) -> Foo
+dontCall = (_: (forall a. a) -> Bar) -> Foo
 
 (main: Foo) = dontCall(fn)
 """,

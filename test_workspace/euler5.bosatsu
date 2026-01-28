@@ -11,7 +11,7 @@ operator - = sub
 operator * = times
 
 def factorial(n):
-  int_loop(n, 1, \i, p ->
+  int_loop(n, 1, (i, p) ->
     (i - 1, p * i))
 
 max_candidate = factorial(10)
@@ -20,7 +20,7 @@ max_candidate = factorial(10)
 # is divisible by all
 
 def int_loop_up(top, res, fn):
-  int_loop(top, res, \i, res ->
+  int_loop(top, res, (i, res) ->
     (next_rev, next_res) = fn(top - i, res)
     (top - next_rev, next_res))
 
@@ -33,7 +33,7 @@ factors = range(10)
 
 def keep(n): for_all(factors, f -> (f + 1).divides(n))
 
-div_all = int_loop_up(bound, 0, \i, _ ->
+div_all = int_loop_up(bound, 0, (i, _) ->
   cand = i.add(1)
   if keep(cand): (bound, cand)
   else: (i + 1, 0))

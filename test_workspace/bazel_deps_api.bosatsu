@@ -46,7 +46,7 @@ def merge_artifact(left: Artifact, right: Artifact):
   Artifact(lm.concat(rm), rr, rv, le.concat(re))
 
 def merge_deps(left: Dict[String, Dict[String, Artifact]], right: Dict[String, Dict[String, Artifact]]):
-  merge_inner = \l, r -> merge_Dict(l, r, merge_artifact)
+  merge_inner = (l, r) -> merge_Dict(l, r, merge_artifact)
   merge_Dict(left, right, merge_inner)
 
 def merge_dep_List(deps): deps.foldl_List({}, merge_deps)
@@ -72,4 +72,3 @@ standard_scala_replacements = {
         '@io_bazel_rules_scala_scala_xml//:io_bazel_rules_scala_scala_xml')
   }
 }
-

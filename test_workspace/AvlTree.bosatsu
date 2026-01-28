@@ -189,7 +189,7 @@ def module(ord: Order[a]) -> Module[a]:
 
 Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i ...} = module(Order(cmp_Int))
 
-contains_i = \tree, i -> (contains_i_opt(tree, i) matches Some(_))
+contains_i = (tree, i) -> (contains_i_opt(tree, i) matches Some(_))
 
 def not(x): False if x else True
 
@@ -235,7 +235,7 @@ size_tests = (
 )
 
 def log2(i):
-     int_loop(i, 0, \n, cnt ->
+     int_loop(i, 0, (n, cnt) ->
         rr = n.div(2)
         (rr, cnt.add(1)))
 
@@ -260,9 +260,9 @@ height_tests =(
 
 fold_left_tests = (
   TestSuite("fold_left_tests", [
-    Assertion(all_n(100).fold_left_Tree(0, \i, _ -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_left_Tree(0, (i, _) -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_left_Tree(0, max).eq_i(99), "max 100"),
-    Assertion(all_n(100).fold_left_Tree(-1, \acc, i ->
+    Assertion(all_n(100).fold_left_Tree(-1, (acc, i) ->
       match acc:
           case -1: i
           case _: acc).eq_i(0), "first is 0"),
@@ -271,9 +271,9 @@ fold_left_tests = (
 
 fold_right_tests = (
   TestSuite("fold_right_tests", [
-    Assertion(all_n(100).fold_right_Tree(0, \_, i -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_right_Tree(0, (_, i) -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_right_Tree(0, max).eq_i(99), "max 100"),
-    Assertion(all_n(100).fold_right_Tree(-1, \i, acc ->
+    Assertion(all_n(100).fold_right_Tree(-1, (i, acc) ->
       match acc:
           case -1: i
           case _: acc).eq_i(99), "last is 99"),

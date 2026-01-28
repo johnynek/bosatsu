@@ -72,7 +72,7 @@ digit = one_of([expect_int(i) for i in range(10)])
 enum Nat: Z, S(n: Nat)
 
 def to_Nat(i: Int) -> Nat:
-  int_loop(i, Z, \i, nat -> (i.sub(1), S(nat)))
+  int_loop(i, Z, (i, nat) -> (i.sub(1), S(nat)))
 
 enum Rec[a, b]: Cont(next_input: a), Done(output: b)
 
