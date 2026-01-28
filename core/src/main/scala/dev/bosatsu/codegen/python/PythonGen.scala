@@ -1239,7 +1239,7 @@ object PythonGen {
       def boolExpr(
           ix: BoolExpr[K],
           slotName: Option[Code.Ident],
-          inlineSlots: InlineSlots = None
+          inlineSlots: InlineSlots
       ): Env[ValueLike] =
         ix match {
           case EqualsLit(expr, lit) =>
@@ -1684,6 +1684,10 @@ object PythonGen {
         } yield (offsetIdent := 0).withValue(res)
       }
 
+      // InlineSlots holds resolved Python expressions, not the original
+      // Matchless Exprs. Locals/LocalAnon are immutable and already renamed
+      // to unique Python idents (shadowing-safe), and Globals are stable.
+      // Inlining these is safe because it captures the correct binding.
       private def inlineableCapture(expr: Expr[K]): Boolean =
         expr match {
           case Local(_) | Global(_, _, _) | LocalAnon(_) => true
@@ -1704,14 +1708,10 @@ object PythonGen {
         if (!allowInline) Env.pure(None)
         else {
           captures.traverse(loop(_, slotName, inlineSlots)).map { vs =>
-            val maybeExprs =
-              vs.foldRight(Option(Vector.empty[Expression])) { (v, acc) =>
-                v match {
-                  case e: Expression => acc.map(e +: _)
-                  case _             => None
-                }
-              }
-            maybeExprs
+            vs.foldRight(Option(Vector.empty[Expression])) {
+              case (e: Expression, acc) => acc.map(e +: _)
+              case _                    => None
+            }
           }
         }
       }
@@ -1725,6 +1725,10 @@ object PythonGen {
       ): Env[Statement] =
         expr match {
           case Lambda(captures, recName, args, body) =>
+            // If inlineCaptures succeeds, we don't allocate a slots tuple at all.
+            // This is safe to do even if we were passed inlineSlots, because
+            // inlineCaptures only returns Some when slotName/inlineSlots are empty.
+            // Otherwise, we must build the slots tuple via makeSlots.
             inlineCaptures(captures, slotName, inlineSlots).flatMap {
               case Some(inlined) =>
                 recName.traverse_(Env.bindTo(_, name)) *> args
@@ -1738,7 +1742,11 @@ object PythonGen {
               case None =>
                 recName.traverse_(Env.bindTo(_, name)) *> (
                   args.traverse(Env.bind(_)),
-                  makeSlots(captures, slotName, inlineSlots)(loop(body, _))
+                  // Reset inlineSlots for the new lambda: since we are creating
+                  // a slots tuple here, we could not inline all of its captures.
+                  makeSlots(captures, slotName, inlineSlots)(b =>
+                    loop(body, b, None)
+                  )
                 )
                   .mapN { case (as, (slots, body)) =>
                     Code.blockFromList(
@@ -1795,7 +1803,7 @@ object PythonGen {
       def loop(
           expr: Expr[K],
           slotName: Option[Code.Ident],
-          inlineSlots: InlineSlots = None
+          inlineSlots: InlineSlots
       ): Env[ValueLike] =
         expr match {
           case Lambda(captures, recName, args, res) =>
@@ -1820,6 +1828,10 @@ object PythonGen {
                   } yield block.withValue(defName)
               }
 
+            // If inlineCaptures succeeds, we don't allocate a slots tuple at all.
+            // This is safe to do even if we were passed inlineSlots, because
+            // inlineCaptures only returns Some when slotName/inlineSlots are empty.
+            // Otherwise, we must build the slots tuple via makeSlots.
             inlineCaptures(captures, slotName, inlineSlots).flatMap {
               case Some(inlined) =>
                 (
@@ -1834,7 +1846,11 @@ object PythonGen {
                 (
                   args.traverse(Env.bind(_)),
                   defName,
-                  makeSlots(captures, slotName, inlineSlots)(loop(res, _))
+                  // Reset inlineSlots for the new lambda: since we are creating
+                  // a slots tuple here, we could not inline all of its captures.
+                  makeSlots(captures, slotName, inlineSlots)(b =>
+                    loop(res, b, None)
+                  )
                 )
                   .flatMapN { case (args, defName, (prefix, body)) =>
                     buildLambdaValue(args, defName, prefix, body)
