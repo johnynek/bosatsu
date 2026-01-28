@@ -42,7 +42,9 @@ if [[ -f "$LIBS_JSON" ]]; then
   fi
 
   if [[ -n "$PYTHON" ]]; then
-    mapfile -t LIB_NAMES < <(
+    while IFS= read -r name; do
+      LIB_NAMES+=("$name")
+    done < <(
       "$PYTHON" - "$LIBS_JSON" <<'PY'
 import json,sys
 with open(sys.argv[1]) as f:

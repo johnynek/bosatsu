@@ -62,13 +62,13 @@ struct Traverse(
 
 applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
     a -> Some(a),
-    \fn, opt -> match opt:
-      Some(a): Some(fn(a))
-      None: None,
-    \as, bs ->
+    (fn, opt) -> match opt:
+      case Some(a): Some(fn(a))
+      case None: None,
+    (as, bs) ->
       match (as, bs):
-        (Some(a), Some(b)): Some((a, b))
-        _: None
+        case (Some(a), Some(b)): Some((a, b))
+        case _: None
   )
 
 def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[List[b]]:
@@ -76,8 +76,8 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
 
   def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:
     recur lst:
-      []: ftail
-      [h, *t]: loop(t, map(\(h, t) -> [h, *t], product(fn(h), ftail)))
+      case []: ftail
+      case [h, *t]: loop(t, map(((h, t)) -> [h, *t], product(fn(h), ftail)))
 
   map(reverse, loop(lst, pure([])))
 

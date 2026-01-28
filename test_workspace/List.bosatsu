@@ -9,8 +9,8 @@ def any(as: List[Bool]) -> Bool:
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
   recur xs:
-    []: True
-    [head, *tail]:
+    case []: True
+    case [head, *tail]:
       if fn(head): for_all(tail, fn)
       else: False
 
@@ -19,43 +19,43 @@ def sum(as: List[Int]) -> Int:
 
 def exists(xs: List[a], fn: a -> Bool) -> Bool:
     recur xs:
-        []: False
-        [head, *tail]:
+        case []: False
+        case [head, *tail]:
             if fn(head): True
             else: exists(tail, fn)
 
 def uncons(xs: List[a]) -> Option[(a, List[a])]:
     match xs:
-        []: None
-        [h, *t]: Some((h, t))
+        case []: None
+        case [h, *t]: Some((h, t))
 
 def head(xs: List[a]) -> Option[a]:
     match xs:
-        []: None
-        [h, *_]: Some(h)
+        case []: None
+        case [h, *_]: Some(h)
 
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
   recur a:
-    []: b matches []
-    [ah, *at]:
+    case []: b matches []
+    case [ah, *at]:
       match b:
-        []: False
-        [bh, *bt]:
+        case []: False
+        case [bh, *bt]:
           eq_List(fn)(at, bt) if fn(ah, bh) else False
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     recur left:
-        []: []
-        [ah, *at]:
+        case []: []
+        case [ah, *at]:
             match right:
-                []: []
-                [bh, *bt]: [(ah, bh), *zip(at, bt)]
+                case []: []
+                case [bh, *bt]: [(ah, bh), *zip(at, bt)]
 
 # tail recursive size implementation
 def size1(list, acc):
     recur list:
-        []: acc
-        [_, *t]: size1(t, Succ(acc))
+        case []: acc
+        case [_, *t]: size1(t, Succ(acc))
 
 def size(list: List[a]) -> Nat:
     size1(list, Zero)
@@ -68,11 +68,11 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
 
     def loop(list: List[a], sz: Nat):
         recur sz:
-            Zero: list
-            Succ(n):
+            case Zero: list
+            case Succ(n):
                 match list:
-                    []: []
-                    [h, *t]:
+                    case []: []
+                    case [h, *t]:
                         lesser = [ ta for ta in t if lt(ta, h) ]
                         greater = [ ta for ta in t if gteq(ta, h) ]
                         # each of the above are at most size n

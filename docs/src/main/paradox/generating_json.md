@@ -1,18 +1,20 @@
 # Generating JSON from Bosatsu Values
 
-Like [Dhall](https://dhall-lang.org/) Bosatsu can be used as a configuration language.
+Like [Dhall](https://dhall-lang.org/) Bosatsu can be used as a configuration
+language. This assumes you have installed the Bosatsu CLI; see
+[Getting started](getting_started.html).
 
-As an example, in the project repo, after running `sbt cli/assembly` try the following:
+As an example, in the project repo try the following:
 ```
-./bosatuj json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
+./bosatsu json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
 ```
-you should see: `"this is Foo"`. The json subcommand gives you the ability to render
-values as JSON.
+you should see: `"this is Foo"`. The json subcommand gives you the ability to
+render values as JSON.
 
 For a more interesting example see:
 
 ```
-./bosatsuj json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
+./bosatsu json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
 ```
 which should render:
 ```
@@ -46,4 +48,9 @@ which should render:
               "exports": [ ]
             }
         },
+          ...
+    }
+  }
+  ...
+}
 ```

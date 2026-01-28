@@ -2,26 +2,33 @@
 Bosatsu has three main themes:
 
 1. correctness
-1. simplicity
-1. usability
+2. simplicity
+3. usability
 
-These are roughly in priority order: correctness is more important than simplicity: we don't want to sacrifice correctness for usability. Similarly, generally, we prefer simplicity to usability. Some features which can increase usability make a language considerably more complex. In general, we will be skeptical of such trades.
+These are in priority order: we won’t trade correctness for usability, and we’re
+skeptical of features that add complexity just for convenience.
 
 ## Relationship to Python
-
-The main user experience of the language is inspired by Python. It is a bit of a mystery that despite Python being currently one of the fastest growing languages, as well as already being incredibly popular, that it has not been more influential in language design. No other language in the top 20 most commonly used languages is very syntactically similar to Python. Put succinctly, we want Bosatsu to by a minimalistic statically typed Python.
-
-A goal in that package relationships should be clear in Bosatsu. All external names must be explicitly imported, and all values are private unless exported. To see the dependencies between packages no type inference is required.
+The user experience is inspired by Python, but Bosatsu is a minimal, statically
+typed, total language. All external names must be explicitly imported, and all
+values are private unless exported. This keeps package dependencies explicit
+without type inference.
 
 ## Problem domain for Bosatsu
-In the current programming landscape, the vast majority of code is either in Turing complete languages or very anemic data-structure languages (JSON, YAML, TOML). Bosatsu is exploring an intermediate space. Bosatsu is not designed as a general purpose language. Bosatsu is a total language: all functions return values. This rules out both infinite loops and non-explicit failure possibilities (exceptions, crashes, etc...). The goal of Bosatsu is somewhat similar to Google's [Starlark](https://github.com/bazelbuild/starlark) language, a Python like language for configuration and embedded applications. Starlark is used to configure bazel builds, but you can imagine configuring systems currently configured with yaml or json, or replacing general purpose languages in systems configured with those (e.g. Scala's sbt is configured with scala).
+Bosatsu targets the space between general-purpose languages and data formats
+like JSON/YAML/TOML. It is total (all functions terminate), immutable, and has
+no side effects or exceptions. Functions have fixed arity (Fn1..Fn32); there is
+no implicit currying.
+
+The goal is similar to [Starlark](https://github.com/bazelbuild/starlark): a
+Python-like language for configuration and embedded scripting.
 
 ## Differences with Starlark
-The biggest three differences between Bosatsu and Starlark are:
+The three biggest differences are:
 
 1. Bosatsu is statically typed
-1. all values are immutable
-1. there are no side-effects.
+2. all values are immutable
+3. there are no side effects
 
-The smaller differences come from adding features found in functional programming that Python lacks: a more powerful anonymous function syntax as well as the ability to define enums similar to Rust.
-
+Bosatsu also adds features common in functional languages: algebraic data types
+and exhaustive pattern matching.

@@ -20,20 +20,20 @@ def rotation(left: Int, right: Int, max_diff: Int) -> Rotation:
 
 def max(i, j):
     match cmp_Int(i, j):
-        LT: j
-        _: i
+        case LT: j
+        case _: i
 
 # properly balanced trees:
 # h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33
 def height(t: Tree[a]) -> Int:
     match t:
-        Empty: 0
-        Branch { height: h, ... }: h
+        case Empty: 0
+        case Branch { height: h, ... }: h
 
 def size(t: Tree[a]) -> Int:
     match t:
-        Empty: 0
-        Branch { size: s, ... }: s
+        case Empty: 0
+        case Branch { size: s, ... }: s
 
 def branch(sz, item, left, right):
     h = max(height(left), height(right))
@@ -45,37 +45,37 @@ def branch_s(item, left, right):
 
 def balance(t: Tree[a]) -> Tree[a]:
     match t:
-        Empty: Empty
-        Branch { key: top_item, left, right, ... }:
+        case Empty: Empty
+        case Branch { key: top_item, left, right, ... }:
           match rotation(height(left), height(right), 1):
-              NoRo: t
-              RightRo:
+              case NoRo: t
+              case RightRo:
                   match left:
-                      Empty: t
-                      Branch { key: inner_item, left, right: left_right, ... }:
+                      case Empty: t
+                      case Branch { key: inner_item, left, right: left_right, ... }:
                           match rotation(height(left), height(left_right), 0):
-                              RightRo | NoRo:
+                              case RightRo | NoRo:
                                   res_r = branch_s(top_item, left_right, right)
                                   branch_s(inner_item, left, res_r)
-                              LeftRo:
+                              case LeftRo:
                                   match left_right:
-                                      Empty: trace("unreachable", t)
-                                      Branch { key: lrv, left: left_right_left, right: left_right_right, ...}:
+                                      case Empty: trace("unreachable", t)
+                                      case Branch { key: lrv, left: left_right_left, right: left_right_right, ...}:
                                           res_r = branch_s(top_item, left_right_right, right)
                                           res_l = branch_s(inner_item, left, left_right_left)
                                           branch_s(lrv, res_l, res_r)
-              LeftRo:
+              case LeftRo:
                   match right:
-                      Empty: t
-                      Branch { key: inner_item, left: right_left, right: right_right, ...}:
+                      case Empty: t
+                      case Branch { key: inner_item, left: right_left, right: right_right, ...}:
                           match rotation(height(right_left), height(right_right), 0):
-                              LeftRo | NoRo:
+                              case LeftRo | NoRo:
                                   res_l = branch_s(top_item, left, right_left)
                                   branch_s(inner_item, res_l, right_right)
-                              RightRo:
+                              case RightRo:
                                   match right_left:
-                                      Empty: trace("unreachable", t)
-                                      Branch { key: right_left_key, right: right_left_left, left: right_left_right, ... }:
+                                      case Empty: trace("unreachable", t)
+                                      case Branch { key: right_left_key, right: right_left_left, left: right_left_right, ... }:
                                           branch_s(
                                             right_left_key,
                                             branch_s(top_item, left, right_left_left),
@@ -86,14 +86,14 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     def loop(tree: Tree[a]) -> Tree[a]:
         recur tree:
-            Empty: Branch(1, 1, item, Empty, Empty)
-            Branch(s, h, item0, left, right):
+            case Empty: Branch(1, 1, item, Empty, Empty)
+            case Branch(s, h, item0, left, right):
                 match fn(item, item0):
-                    EQ: Branch(s, h, item, left, right)
-                    LT:
+                    case EQ: Branch(s, h, item, left, right)
+                    case LT:
                         left = loop(left)
                         branch(s.add(1), item0, left, right).balance()
-                    GT:
+                    case GT:
                         right = loop(right)
                         branch(s.add(1), item0, left, right).balance()
 
@@ -104,20 +104,20 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
 
     def loop(tree: Tree[a]) -> Option[a]:
         recur tree:
-            Empty: None
-            Branch { key, left, right, ... }:
+            case Empty: None
+            case Branch { key, left, right, ... }:
                 match fn(item, key):
-                    EQ: Some(key)
-                    LT: loop(left)
-                    GT: loop(right)
+                    case EQ: Some(key)
+                    case LT: loop(left)
+                    case GT: loop(right)
 
     loop(tree)
 
 def min(tree: Tree[a]) -> Option[a]:
     recur tree:
-        Empty: None
-        Branch { key, left: Empty, ... }: Some(key)
-        Branch { left, ... }: min(left)
+        case Empty: None
+        case Branch { key, left: Empty, ... }: Some(key)
+        case Branch { left, ... }: min(left)
 
 
 def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
@@ -125,19 +125,19 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     def loop(tree: Tree[a]) -> Tree[a]:
         recur tree:
-            Empty: Empty
-            Branch { size, key, left, right, ... }:
+            case Empty: Empty
+            case Branch { size, key, left, right, ... }:
                 match fn(item, key):
-                    EQ:
+                    case EQ:
                         match right:
-                            Empty: left
-                            _:
+                            case Empty: left
+                            case _:
                                 right = loop(right)
                                 branch(size.sub(1), key, left, right).balance()
-                    LT:
+                    case LT:
                         left = loop(left)
                         branch(size.sub(1), key, left, right).balance()
-                    GT:
+                    case GT:
                         right = loop(right)
                         branch(size.sub(1), key, left, right).balance()
 
@@ -145,16 +145,16 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
 def fold_left_Tree(t: Tree[a], left_v: b, fn: (b, a) -> b) -> b:
     recur t:
-        Empty: left_v
-        Branch { key, left, right, ... }:
+        case Empty: left_v
+        case Branch { key, left, right, ... }:
             v1 = fold_left_Tree(left, left_v, fn)
             v2 = fn(v1, key)
             fold_left_Tree(right, v2, fn)
 
 def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -> b) -> b:
     recur t:
-        Empty: right_v
-        Branch { key, left, right, ... }:
+        case Empty: right_v
+        case Branch { key, left, right, ... }:
             v1 = fold_right_Tree(right, right_v, fn)
             v2 = fn(key, v1)
             fold_right_Tree(left, v2, fn)
@@ -189,7 +189,7 @@ def module(ord: Order[a]) -> Module[a]:
 
 Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i ...} = module(Order(cmp_Int))
 
-contains_i = \tree, i -> (contains_i_opt(tree, i) matches Some(_))
+contains_i = (tree, i) -> (contains_i_opt(tree, i) matches Some(_))
 
 def not(x): False if x else True
 
@@ -235,7 +235,7 @@ size_tests = (
 )
 
 def log2(i):
-     int_loop(i, 0, \n, cnt ->
+     int_loop(i, 0, (n, cnt) ->
         rr = n.div(2)
         (rr, cnt.add(1)))
 
@@ -260,23 +260,23 @@ height_tests =(
 
 fold_left_tests = (
   TestSuite("fold_left_tests", [
-    Assertion(all_n(100).fold_left_Tree(0, \i, _ -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_left_Tree(0, (i, _) -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_left_Tree(0, max).eq_i(99), "max 100"),
-    Assertion(all_n(100).fold_left_Tree(-1, \acc, i ->
+    Assertion(all_n(100).fold_left_Tree(-1, (acc, i) ->
       match acc:
-          -1: i
-          _: acc).eq_i(0), "first is 0"),
+          case -1: i
+          case _: acc).eq_i(0), "first is 0"),
   ])
 )
 
 fold_right_tests = (
   TestSuite("fold_right_tests", [
-    Assertion(all_n(100).fold_right_Tree(0, \_, i -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_right_Tree(0, (_, i) -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_right_Tree(0, max).eq_i(99), "max 100"),
-    Assertion(all_n(100).fold_right_Tree(-1, \i, acc ->
+    Assertion(all_n(100).fold_right_Tree(-1, (i, acc) ->
       match acc:
-          -1: i
-          _: acc).eq_i(99), "last is 99"),
+          case -1: i
+          case _: acc).eq_i(99), "last is 99"),
   ])
 )
 

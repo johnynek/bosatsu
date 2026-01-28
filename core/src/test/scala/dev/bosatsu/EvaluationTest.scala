@@ -180,8 +180,8 @@ struct Pair(a, b)
 x = Pair(Pair(1, "1"), "2")
 
 main = match x:
-  Pair(_, "2" | "3"): "good"
-  _: "bad"
+  case Pair(_, "2" | "3"): "good"
+  case _: "bad"
 """),
       "Foo",
       Str("good")
@@ -301,8 +301,8 @@ x = [1]
 
 # test using List literals
 main = match x:
-  EmptyList: "empty"
-  NonEmptyList(...): "notempty"
+  case EmptyList: "empty"
+  case NonEmptyList(...): "notempty"
 """),
       "Foo",
       Str("notempty")
@@ -401,7 +401,7 @@ package Foo
 three = [1, 2]
 
 sum0 = three.foldl_List(0, add)
-sum1 = three.foldl_List(0, \x, y -> add(x, y))
+sum1 = three.foldl_List(0, (x, y) -> add(x, y))
 
 same = sum0.eq_Int(sum1)
 """),
@@ -726,7 +726,7 @@ def y(f):
 def ltEqZero(i):
   i.cmp_Int(0) matches (LT | EQ)
 
-fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
+fac = trace("made fac", y((f, i) -> 1 if ltEqZero(i) else f(i).times(i)))
 
 main = fac(6)
 """)) { case PackageError.KindInferenceError(_, _, _) =>
@@ -790,7 +790,7 @@ something = Yep(
   1)
 
 one = match something:
-  Yep(a): a
+  case Yep(a): a
 
 main = one
 """)) { case PackageError.TotalityCheckError(_, _) => () }
@@ -934,8 +934,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    []: acc
-    [_, *tail]: len(tail, acc.add(1))
+    case []: acc
+    case [_, *tail]: len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -951,9 +951,9 @@ enum PNat: One, Even(of: PNat), Odd(of: PNat)
 
 def toInt(pnat):
   recur pnat:
-    One: 1
-    Even(of): toInt(of).times(2)
-    Odd(of): toInt(of).times(2).add(1)
+    case One: 1
+    case Even(of): toInt(of).times(2)
+    case Odd(of): toInt(of).times(2).add(1)
 
 main = toInt(Even(Even(One)))
 """),
@@ -968,8 +968,8 @@ enum Foo: Bar, Baz
 
 def bad(foo):
   recur foo:
-    Bar: 0
-    baz: bad(baz)
+    case Bar: 0
+    case baz: bad(baz)
 
 main = bad(Bar)
 """)) { case PackageError.RecursionError(_, _) => () }
@@ -995,13 +995,13 @@ enum Nat: Zero, Succ(of: Nat)
 
 def toInt(pnat):
   recur pnat:
-    Zero: 0
-    Succ(n): toInt(n).add(1)
+    case Zero: 0
+    case Succ(n): toInt(n).add(1)
 
 def sum(nat):
   recur nat:
-    Zero: 0
-    Succ(n): sum(n).add(toInt(nat))
+    case Zero: 0
+    case Succ(n): sum(n).add(toInt(nat))
 
 main = sum(Succ(Succ(Succ(Zero))))
 """),
@@ -1018,13 +1018,13 @@ enum Nat: Zero, Succ(of: Nat)
 
 def toInt(pnat):
   recur pnat:
-    Succ(n): toInt(n).add(1)
-    Zero: 0
+    case Succ(n): toInt(n).add(1)
+    case Zero: 0
 
 def sum(nat):
   recur nat:
-    Succ(n): sum(n).add(toInt(nat))
-    Zero: 0
+    case Succ(n): sum(n).add(toInt(nat))
+    case Zero: 0
 
 main = sum(Succ(Succ(Succ(Zero))))
 """),
@@ -1040,8 +1040,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    EmptyList: acc
-    [_, *tail]: len(tail, acc.add(1))
+    case EmptyList: acc
+    case [_, *tail]: len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -1054,8 +1054,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    []: acc
-    NonEmptyList(_, tail): len(tail, acc.add(1))
+    case []: acc
+    case NonEmptyList(_, tail): len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -1153,9 +1153,9 @@ enum Nat: Z, S(p: Nat)
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1172,9 +1172,9 @@ enum Nat[a]: Z, S(p: Nat[a])
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1191,9 +1191,9 @@ enum Nat: S(p: Nat), Z
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1594,7 +1594,7 @@ main = 1 + 2 * 3
       List("""
 package A
 
-# you can't write \x: Int -> x.add(1)
+# you can't write x: Int -> x.add(1)
 # since Int -> looks like a type
 # you need to protect it in a ( )
 inc: Int -> Int = x -> x.add(1)
@@ -1782,14 +1782,14 @@ package A
 
 def fn(x):
   recur x:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
       assertEquals(te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,42)\n")
+        ), "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,47)\n")
       ()
     }
 
@@ -1798,14 +1798,14 @@ package A
 
 def fn(x):
   recur 10:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
       assertEquals(te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,43)\n")
+        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,48)\n")
       ()
     }
 
@@ -1814,14 +1814,14 @@ package A
 
 def fn(x):
   recur y:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
       assertEquals(te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,42)\n")
+        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,47)\n")
       ()
     }
 
@@ -1830,16 +1830,16 @@ package A
 
 def fn(x):
   recur x:
-    y:
+    case y:
       recur x:
-        z: 100
+        case z: 100
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
       assertEquals(te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
+        ), "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\nRegion(52,80)\n")
       ()
     }
 
@@ -1849,16 +1849,16 @@ package A
 def fn(x):
   fn = 100
   recur x:
-    y:
+    case y:
       recur x:
-        z: 100
+        case z: 100
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
       assertEquals(te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
+        ), "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,91)\n")
       ()
     }
 
@@ -2033,7 +2033,7 @@ def create_field[shape: (* -> *) -> *, t](rf: RecordField[t], fn: shape[RecordVa
 
 def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
-    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
+    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = RecordGetter(get_field, get_value) ->
       RecordField(_, to_entry) = get_field(fields)
       RecordRowEntry(to_entry(get_value(row)))
     result_fn
@@ -2078,13 +2078,13 @@ def ps[
 ](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
-  getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(PS(_, sh2) -> f1(sh2), PS(_, sh2) -> v1(sh2)))
   RestructureOutput(
-    \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
-    \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
-    PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
-    \PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
-    \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
+    sh1 -> PS(fF(sh1), reshaper1F(sh1)),
+    sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    PS(RecordGetter(PS(x,_) -> x, PS(x,_) -> x), getters2),
+    PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
+    PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
 def string_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
@@ -2135,7 +2135,7 @@ rs_empty = new_record_set.restructure(
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
+rs0 = rs.restructure(PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
 
 tests = TestSuite("reordering",
   [
@@ -2344,7 +2344,7 @@ package A
 struct Pair(first, second)
 
 # Pair does not have a field called sec
-get = \Pair { first, sec: _ } -> first
+get = Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
@@ -3047,8 +3047,8 @@ enum Thing:
 
 def bar(y, _: String, x):
   recur x:
-    Thing1: y
-    Thing2(i, t): bar(i, "boom", t)
+    case Thing1: y
+    case Thing2(i, t): bar(i, "boom", t)
 """),
       "VarSet/Recursion",
       1
@@ -3065,15 +3065,15 @@ enum Thing:
 def bar(y, _: String, x):
   x = Thing2(0, x)
   recur x:
-    Thing1: y
-    Thing2(i, t): bar(i, "boom", t)
+    case Thing1: y
+    case Thing2(i, t): bar(i, "boom", t)
 
 test = Assertion(True, "")
 """)) { case re @ PackageError.RecursionError(_, _) =>
       assertEquals(re.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,165)\n")
+        ), "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,175)\n")
       ()
     }
   }
@@ -3357,13 +3357,13 @@ package SubsumeTest
 
 def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
   match maybeFn:
-    Some(fn): fn(l1).add(fn(l2))
-    None: 0
+    case Some(fn): fn(l1).add(fn(l2))
+    case None: 0
 
 def lengths2(l1: List[Int], l2: List[String], maybeFn: forall tt. Option[List[tt] -> Int]):
   match maybeFn:
-    Some(fn): fn(l1).add(fn(l2))
-    None: 0
+    case Some(fn): fn(l1).add(fn(l2))
+    case None: 0
 
 test = Assertion(lengths([], [], None).add(lengths2([], [], None)) matches 0, "test")
 

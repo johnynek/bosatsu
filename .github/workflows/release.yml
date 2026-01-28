@@ -19,9 +19,12 @@ jobs:
           fetch-depth: 0
       - uses: coursier/cache-action@v6
       - name: Java 17 setup
-        uses: olafurpg/setup-scala@v14
+        uses: actions/setup-java@v5
         with:
+          distribution: "temurin"
           java-version: "17"
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Verify tag matches sbt version
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -70,9 +73,12 @@ jobs:
           fetch-depth: 0
       - uses: coursier/cache-action@v6
       - name: Java 17 setup
-        uses: olafurpg/setup-scala@v14
+        uses: actions/setup-java@v5
         with:
+          distribution: "temurin"
           java-version: "17"
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Build jar and node JS
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
@@ -101,9 +107,12 @@ jobs:
           fetch-depth: 0
       - uses: coursier/cache-action@v6
       - name: Java 17 setup
-        uses: olafurpg/setup-scala@v14
+        uses: actions/setup-java@v5
         with:
+          distribution: "temurin"
           java-version: "17"
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Install musl toolchain
         run: sudo apt-get update && sudo apt-get install -y musl-tools build-essential
       - name: Build musl zlib
@@ -138,7 +147,7 @@ jobs:
           path: bosatsu-linux
 
   native_macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     needs: prepare
     steps:
       - name: Check out code
@@ -147,15 +156,22 @@ jobs:
           fetch-depth: 0
       - uses: coursier/cache-action@v6
       - name: Java 17 setup
-        uses: olafurpg/setup-scala@v14
+        uses: actions/setup-java@v5
         with:
+          distribution: "temurin"
           java-version: "17"
+          architecture: "aarch64"
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Build native image (macos)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
         run: |
           sbt "++3.8.1; cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-macos
+          uname -m
+          file bosatsu-macos
+          file bosatsu-macos | grep -q "arm64" || { echo "Expected arm64 binary"; exit 1; }
       - name: Upload macos native image
         uses: actions/upload-artifact@v4
         with:
@@ -181,9 +197,12 @@ jobs:
           path: release_assets
           merge-multiple: true
       - name: Java 17 setup
-        uses: olafurpg/setup-scala@v14
+        uses: actions/setup-java@v5
         with:
+          distribution: "temurin"
           java-version: "17"
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
       - name: Build assembly for lib publish
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}

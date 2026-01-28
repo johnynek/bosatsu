@@ -14,8 +14,8 @@ def foldTree(t: Tree[a], init: b, fn: (b, a) -> b) -> b:
   # this issue...
   def loop(t: Tree[a], init: b) -> b:
     recur t:
-      Single(a): fn(init, a)
-      Branch(_, h, l, r):
+      case Single(a): fn(init, a)
+      case Branch(_, h, l, r):
         init = fn(init, h)
         init = loop(l, init)
         loop(r, init)
@@ -29,18 +29,18 @@ operator + = add
 
 def cons(head: a, TreeList(tail): TreeList[a]) -> TreeList[a]:
   match tail:
-    []: TreeList([Single(head)])
-    [Single(_) as s1]:
+    case []: TreeList([Single(head)])
+    case [Single(_) as s1]:
       TreeList([Single(head), s1])
-    [ Single(_), Branch(_, _, _, _) as b1, *t]:
+    case [ Single(_), Branch(_, _, _, _) as b1, *t]:
       TreeList([Single(head), b1, *t])
-    [Single(_) as s1, Single(_) as s2, *t]:
+    case [Single(_) as s1, Single(_) as s2, *t]:
       TreeList([Branch(3, head, s1, s2), *t])
-    [Branch(_, _, _, _), Single(_), *_]:
+    case [Branch(_, _, _, _), Single(_), *_]:
       # illegal state, we can just return empty
       empty
-    [Branch(_, _, _, _) as branch]: TreeList([Single(head), branch])
-    [Branch(s1, _, _, _) as b1, Branch(s2, _, _, _) as b2, *t]:
+    case [Branch(_, _, _, _) as branch]: TreeList([Single(head), branch])
+    case [Branch(s1, _, _, _) as b1, Branch(s2, _, _, _) as b2, *t]:
       if (eq_Int(s1, s2)):
         TreeList([Branch(s1 + s2 + 1, head, b1, b2), *t])
       else:
@@ -48,56 +48,56 @@ def cons(head: a, TreeList(tail): TreeList[a]) -> TreeList[a]:
 
 def decons(TreeList(trees): TreeList[a]) -> Option[(a, TreeList[a])]:
   match trees:
-    []: None
-    [Single(h), *t]: Some((h, TreeList(t)))
-    [Branch(_, h, b1, b2), *t]: Some((h, TreeList([b1, b2, *t])))
+    case []: None
+    case [Single(h), *t]: Some((h, TreeList(t)))
+    case [Branch(_, h, b1, b2), *t]: Some((h, TreeList([b1, b2, *t])))
 
 def head(tl: TreeList[a]) -> Option[a]:
   match decons(tl):
-    Some((h, _)): Some(h)
-    None: None
+    case Some((h, _)): Some(h)
+    case None: None
 
 operator + = add
 operator - = sub
 
 def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   # since int_loop stops at 0, we use 1 based indexing here
-  (_, item) = int_loop(idx + 1, (trees, None), \idx, (trees, _) ->
+  (_, item) = int_loop(idx + 1, (trees, None), (idx, (trees, _)) ->
     if eq_Int(idx, 1): (0, ([], head(TreeList(trees))))
     else:
       match trees:
-        []: (0, ([], None))
-        [Single(h), *rest]:
+        case []: (0, ([], None))
+        case [Single(h), *rest]:
           if eq_Int(idx, 1): (0, ([], Some(h)))
           else: (idx - 1, (rest, None))
-        [Branch(s, _, t1, t2), *rest]:
+        case [Branch(s, _, t1, t2), *rest]:
           # we can either skip just one, or skip the entire Tree
           match cmp_Int(idx, s):
-            LT | EQ: (idx - 1, ([t1, t2, *rest], None))
-            _: (idx - s, (rest, None))
+            case LT | EQ: (idx - 1, ([t1, t2, *rest], None))
+            case _: (idx - s, (rest, None))
   )
   item
 
 def from_List(list: List[a]) -> TreeList[a]:
-  list.reverse().foldl_List(empty, \lst, h -> cons(h, lst))
+  list.reverse().foldl_List(empty, (lst, h) -> cons(h, lst))
 
 def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   def loop(trees, init):
     recur trees:
-      []: init
-      [h, *t]:
+      case []: init
+      case [h, *t]:
         loop(t, h.foldTree(init, fn))
   loop(trees, init)
 
 def to_List(list: TreeList[a]) -> List[a]:
-  fold(list, [], \l, h -> [h, *l]).reverse()
+  fold(list, [], (l, h) -> [h, *l]).reverse()
 
 def eq_TreeList(fn)(a, b):
-  (res, _) = a.fold((True, b), \(current, b), h ->
+  (res, _) = a.fold((True, b), ((current, b), h) ->
     if current:
       match decons(b):
-        None: (False, empty)
-        Some((hb, tb)):
+        case None: (False, empty)
+        case Some((hb, tb)):
           if fn(h, hb): (True, tb)
           else: (False, empty)
     else: (False, empty)
@@ -106,9 +106,9 @@ def eq_TreeList(fn)(a, b):
 
 def eq_Opt(fn)(a, b):
   match (a, b):
-    (Some(a), Some(b)): fn(a, b)
-    (None, None): True
-    _: False
+    case (Some(a), Some(b)): fn(a, b)
+    case (None, None): True
+    case _: False
 
 eq_oi = eq_Opt(eq_Int)
 eq_ti = eq_TreeList(eq_Int)

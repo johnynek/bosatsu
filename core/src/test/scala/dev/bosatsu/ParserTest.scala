@@ -880,7 +880,7 @@ x"""
 
     parseTestAll(
       parser(""),
-      "(\\x -> x)(f)",
+      "(x -> x)(f)",
       Apply(
         Parens(
           Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))
@@ -892,7 +892,7 @@ x"""
 
     parseTestAll(
       parser(""),
-      "((\\x -> x)(f))",
+      "((x -> x)(f))",
       Parens(
         Apply(
           Parens(
@@ -934,7 +934,7 @@ x"""
       NonEmptyList.of(mkVar("f")),
       AParens
     )
-    parseTestAll(parser(""), "((\\x -> x))(f)", expected)
+    parseTestAll(parser(""), "((x -> x))(f)", expected)
 
     parseTestAll(parser(""), expected.toDoc.render(80), expected)
 
@@ -1522,7 +1522,7 @@ def foo(x: Integer, y: String) -> String:
   toString(x).append_str(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
 
@@ -1536,7 +1536,7 @@ def foo(x: forall f. f[a] -> f[b], y: a) -> b:
   x(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
 
@@ -1551,7 +1551,7 @@ def foo(x: forall f. f[a] -> f[b], y: a) -> b:
   x(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
       """
