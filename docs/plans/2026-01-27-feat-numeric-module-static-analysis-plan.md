@@ -789,18 +789,18 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] TypedExprNormalization does NOT match Numeric operations
 - [x] All tests pass: `sbt coreJVM/test` (1272 passed)
 
-### Phase 2: Principled ProvenanceAnalyzer
-- [ ] Returns `Either[AnalysisError, DerivationGraph]` (optional)
+### Phase 2: Principled ProvenanceAnalyzer ✅ COMPLETE
+- [x] Returns `Either[AnalysisError, DerivationGraph]` (optional - skipped, used simpler approach)
 - [x] No synthetic TypedExpr nodes created (already true)
 - [x] Pattern.envOf used for correct binding types
 - [x] All existing ProvenanceAnalyzer tests pass
 
-### Phase 3: Source Mapping
+### Phase 3: Source Mapping ✅ COMPLETE
 - [x] SourceMapper.expressionAt returns correct expression
 - [x] SourceMapper.expressionText returns source substring
 - [x] Bidirectional lookup works
 
-### Phase 4: Integration
+### Phase 4: Integration ✅ COMPLETE
 - [x] Loan calculator generates readable JavaScript
 - [x] "Why?" explanations show original formulas
 - [x] Dependencies correctly identified
@@ -811,7 +811,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] SimulationCommand compiles config + simulation together
 - [x] Generated JS calls function with slider values
 - [x] SimulationCommand evaluates config to extract SimConfig value (Phase 6 complete)
-- [ ] "Why?" explanations derived from function body TypedExpr (Phase 7)
+- [x] "Why?" explanations derived from function body TypedExpr (Phase 7)
 
 ### Phase 6: Config File Evaluation ✅ COMPLETE
 - [x] `config` binding evaluated from `.sim.bosatsu`
@@ -823,7 +823,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] No hardcoded HTML generation - all driven by config
 - [x] Playwright test: change config → different UI (30 tests pass)
 
-### Phase 7: "Why?" Provenance
+### Phase 7: "Why?" Provenance ✅ COMPLETE
 - [x] ProvenanceExtractor.scala extracts derivations from TypedExpr
 - [x] Formulas generated from TypedExpr structure (not string parsing)
 - [x] exprToFormula handles binary ops: add → +, sub → -, times → ×, div → ÷
@@ -833,7 +833,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Runtime value capture with timestamps
 - [x] Playwright test: click "Why?" → see formula (30 tests pass)
 
-### Phase 8: "What if?" Toggles
+### Phase 8: "What if?" Toggles ✅ COMPLETE
 - [x] AssumptionConfig added to config schema (ConfigExtractor)
 - [x] Multiple function variants in simulation file (supported via suffix convention)
 - [x] "What if?" toggles rendered in UI (assumption-toggle with variant-btn)
@@ -842,7 +842,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] CSS styling for assumption toggles (WhatIfToggle.toggleCSS)
 - [x] Playwright test: toggle assumption → different result (30 tests pass)
 
-### Phase 9: Parameter Sweeps
+### Phase 9: Parameter Sweeps ✅ COMPLETE
 - [x] SweepConfig added to config schema
 - [x] Sweep runs function across input range
 - [x] Results plotted on canvas
@@ -850,7 +850,7 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Changing input shows position on sweep curve
 - [x] Playwright test: sweep chart renders correctly
 
-### Phase 10: Canvas Visualization (Optional)
+### Phase 10: Canvas Visualization (Optional) ✅ COMPLETE
 - [x] Canvas element in generated HTML
 - [x] Visualization updates on input change
 - [x] Supports basic shapes: rect, circle, line, text
