@@ -280,17 +280,25 @@ Branch: `feat/phase5-reactive-state`
 - Total: 15 ReactiveState tests passing
 - Tax calculator demo shows reactive state updates in real-time
 
-## Phase 6: Simulation Applets Full (TODO)
+## Phase 6: Simulation Applets Full ✅ DONE
 **Upgrade from Scala.js interpreter to JsGen**
 
-- [ ] "Why?" buttons with derivation chain display
-- [ ] "What if?" assumption toggling UI
-- [ ] Parameter sweeps
-- [ ] Self-contained HTML embed generation (<20KB gzipped)
-- [ ] Library mode embed generation (<5KB)
-- [ ] Theme support (light/dark)
-- [ ] `SimulationEmbedTest.scala`, `WhyExplainerTest.scala`, `ParameterSweepTest.scala`
-- [ ] `docs/pr-guides/phase-6-simulation-applets-pr-guide.md`
+Branch: `feat/phase6-simulation-applets`
+
+- [x] "Why?" buttons with derivation chain display (`WhyExplainer.scala`)
+- [x] "What if?" assumption toggling UI (`WhatIfToggle.scala`)
+- [x] Parameter sweeps (`ParameterSweep.scala`)
+- [x] Self-contained HTML embed generation (~6KB gzipped, target: <20KB)
+- [x] Library mode embed generation (`EmbedGenerator.LibraryMode`)
+- [x] Theme support (light/dark)
+- [x] Tests in `SimulationAppletTest.scala`, `UIComponentsTest.scala`
+- [x] `docs/pr-guides/phase-6-simulation-applets-pr-guide.md`
+- [x] `simulation-cli` module with `bosatsu-sim` CLI
+- [x] XSS fix: HTML escaping in WhatIfToggle and ParameterSweep
+
+**Test Results:**
+- Core UI tests: 148 passing
+- Simulation CLI tests: 155 passing
 
 ## Phase 7: BosatsuPermissions (TODO)
 **Shared permission layer for Service, UI, Explorer**
@@ -383,7 +391,7 @@ Branch: `feat/phase5-reactive-state`
 
 # Current Status
 
-**Phase 5 is complete** - Full reactive state management with DOM bindings and tax calculator demo.
+**Phase 6 is complete** - Full simulation applets with provenance tracking UI and bosatsu-sim CLI.
 
 **Completed:**
 - Phase 1: Core Infrastructure ✅
@@ -392,10 +400,11 @@ Branch: `feat/phase5-reactive-state`
 - Phase 3.5: JS/WASM Interop Demo ✅
 - Phase 4: Basic DOM Primitives ✅
 - Phase 5: Simple Reactive Simulation ✅
+- Phase 6: Simulation Applets Full ✅
 
 **Next recommended work:**
 1. Add property tests for JsGen (remaining Phase 3 items)
-2. Start Phase 6 (Simulation Applets Full) - "Why?" buttons, "What if?" toggles, parameter sweeps
+2. Start Phase 7 (BosatsuPermissions) - Permission analysis and checking
 
 ---
 
