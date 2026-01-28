@@ -126,6 +126,7 @@ jobs:
           cp demo/carbon-footprint.html web_deploy/demo/
           cp demo/carbon.bosatsu web_deploy/demo/
           cp demo/bouncing-ball.html web_deploy/demo/
+          cp demo/pendulum.html web_deploy/demo/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
