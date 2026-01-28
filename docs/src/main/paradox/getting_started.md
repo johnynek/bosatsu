@@ -126,8 +126,8 @@ enum Mood: Happy, Sad
 
 def greet(m: Mood) -> String:
   match m:
-    Happy: "hello"
-    Sad: "cheer up"
+    case Happy: "hello"
+    case Sad: "cheer up"
 
 test = Assertion(greet(Happy) matches "hello", "greet Happy")
 ```
