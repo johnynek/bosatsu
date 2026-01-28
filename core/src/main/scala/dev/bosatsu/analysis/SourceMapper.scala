@@ -183,3 +183,133 @@ object SourceMapper {
   def fromSource(source: String): SourceMapper =
     new SourceMapper(LocationMap(source))
 }
+
+/**
+ * Enhanced source mapper that provides bidirectional mapping between
+ * source code positions and TypedExpr nodes.
+ *
+ * This enables:
+ * - Finding the expression at a given source location (for IDE hover/click)
+ * - Getting the original source text for an expression (for "Why?" explanations)
+ */
+class ExpressionMapper[T] private (
+    val sourceMapper: SourceMapper,
+    val source: String,
+    expressionIndex: Map[Region, TypedExpr[T]]
+)(implicit hr: HasRegion[T]) {
+
+  /**
+   * Find the smallest expression containing the given source position.
+   *
+   * @param line 1-indexed line number
+   * @param col 1-indexed column number
+   * @return The most specific expression at that location, or None
+   */
+  def expressionAt(line: Int, col: Int): Option[TypedExpr[T]] = {
+    // Convert 1-indexed line/col to 0-indexed offset
+    val offsetOpt = sourceMapper.locate(Region(0, source.length)).flatMap { _ =>
+      // Find offset by converting back from line/col
+      val lineIdx = line - 1
+      val colIdx = col - 1
+      val lines = source.split('\n')
+      if (lineIdx >= 0 && lineIdx < lines.length) {
+        val offset = lines.take(lineIdx).map(_.length + 1).sum + colIdx
+        Some(offset)
+      } else None
+    }
+
+    offsetOpt.flatMap { offset =>
+      // Find smallest region containing this offset
+      val containing = expressionIndex.toList.filter { case (region, _) =>
+        region.start <= offset && offset < region.end
+      }
+
+      // Return the smallest (most specific) expression
+      containing.minByOption { case (region, _) => region.end - region.start }.map(_._2)
+    }
+  }
+
+  /**
+   * Get the original source text for an expression.
+   *
+   * @param expr The typed expression
+   * @return The source code substring, or None if region is invalid
+   */
+  def expressionText(expr: TypedExpr[T]): Option[String] = {
+    val region = hr.region(expr.tag)
+    substring(region)
+  }
+
+  /**
+   * Get source text for a region.
+   */
+  def substring(region: Region): Option[String] = {
+    if (region.start >= 0 && region.end <= source.length && region.start < region.end) {
+      Some(source.substring(region.start, region.end))
+    } else None
+  }
+
+  /**
+   * Look up a TypedExpr by its region.
+   */
+  def expressionForRegion(region: Region): Option[TypedExpr[T]] =
+    expressionIndex.get(region)
+
+  /**
+   * Delegate to SourceMapper for location info.
+   */
+  def locate(region: Region): Option[SourceMapper#SourceLocation] =
+    sourceMapper.locate(region)
+
+  /**
+   * Delegate to SourceMapper for location info.
+   */
+  def locate(expr: TypedExpr[T]): Option[SourceMapper#SourceLocation] =
+    sourceMapper.locate(hr.region(expr.tag))
+}
+
+object ExpressionMapper {
+  import scala.collection.mutable
+
+  /**
+   * Build an ExpressionMapper from a TypedExpr tree.
+   *
+   * @param expr The root typed expression
+   * @param source The original source code string
+   */
+  def fromTypedExpr[T: HasRegion](expr: TypedExpr[T], source: String): ExpressionMapper[T] = {
+    val hr = implicitly[HasRegion[T]]
+    val index = mutable.Map[Region, TypedExpr[T]]()
+
+    def visit(e: TypedExpr[T]): Unit = {
+      index(hr.region(e.tag)) = e
+      e match {
+        case TypedExpr.Let(_, value, in, _, _) =>
+          visit(value)
+          visit(in)
+        case TypedExpr.AnnotatedLambda(_, body, _) =>
+          visit(body)
+        case TypedExpr.App(fn, args, _, _) =>
+          visit(fn)
+          args.toList.foreach(visit)
+        case TypedExpr.Match(arg, branches, _) =>
+          visit(arg)
+          branches.toList.foreach { case (_, branchExpr) => visit(branchExpr) }
+        case TypedExpr.Generic(_, in) =>
+          visit(in)
+        case TypedExpr.Annotation(term, _) =>
+          visit(term)
+        case _: TypedExpr.Literal[_] | _: TypedExpr.Local[_] | _: TypedExpr.Global[_] =>
+          // Leaf nodes - no children
+          ()
+      }
+    }
+
+    visit(expr)
+    new ExpressionMapper(
+      new SourceMapper(LocationMap(source)),
+      source,
+      index.toMap
+    )(using hr)
+  }
+}

@@ -1,0 +1,30 @@
+package LoanCalculatorNumeric
+
+from Bosatsu/Numeric import (
+  Double,
+  `+.`, `-.`, `*.`, `/.`,
+  from_Int
+)
+
+# Loan assumptions as Doubles for precise decimal arithmetic
+principal: Double = from_Int(250000)
+annual_rate: Double = from_Int(7)
+years: Double = from_Int(30)
+
+# Derived calculations using Numeric operators
+# These will NOT be algebraically expanded by RingOpt
+monthly_rate = annual_rate /. from_Int(1200)
+num_payments = years *. from_Int(12)
+
+# Monthly payment calculation (simplified approximation)
+# Real formula: P * r * (1+r)^n / ((1+r)^n - 1)
+# Simplified: P * r + P / n
+monthly_payment = (principal *. monthly_rate) +. (principal /. num_payments)
+
+# Total cost analysis
+total_paid = monthly_payment *. num_payments
+total_interest = total_paid -. principal
+interest_ratio = (total_interest *. from_Int(100)) /. principal
+
+# Final result
+result = total_paid

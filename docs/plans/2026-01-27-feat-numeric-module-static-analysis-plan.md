@@ -637,19 +637,19 @@ final case class DerivationGraph[T](
 
 ### Phase 2: Principled ProvenanceAnalyzer
 - [ ] Returns `Either[AnalysisError, DerivationGraph]` (optional)
-- [ ] No synthetic TypedExpr nodes created (already true)
-- [ ] Pattern.envOf used for correct binding types
-- [ ] All existing ProvenanceAnalyzer tests pass
+- [x] No synthetic TypedExpr nodes created (already true)
+- [x] Pattern.envOf used for correct binding types
+- [x] All existing ProvenanceAnalyzer tests pass
 
 ### Phase 3: Source Mapping
-- [ ] SourceMapper.expressionAt returns correct expression
-- [ ] SourceMapper.expressionText returns source substring
-- [ ] Bidirectional lookup works
+- [x] SourceMapper.expressionAt returns correct expression
+- [x] SourceMapper.expressionText returns source substring
+- [x] Bidirectional lookup works
 
 ### Phase 4: Integration
-- [ ] Loan calculator generates readable JavaScript
-- [ ] "Why?" explanations show original formulas
-- [ ] Dependencies correctly identified
+- [x] Loan calculator generates readable JavaScript
+- [x] "Why?" explanations show original formulas
+- [x] Dependencies correctly identified
 
 ## Test Plan
 

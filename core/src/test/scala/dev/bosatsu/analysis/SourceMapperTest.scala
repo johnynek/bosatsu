@@ -218,4 +218,98 @@ class SourceMapperTest extends munit.ScalaCheckSuite {
       }
     }
   }
+
+  // Tests for ExpressionMapper
+
+  test("ExpressionMapper.expressionText returns source substring") {
+    val source = "let x = 42 in x"
+    // Create a simple literal expression at position 8-10 (where "42" is)
+    val literalExpr = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(8, 10))
+
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+    val textOpt = mapper.expressionText(literalExpr)
+
+    assert(textOpt.isDefined, "Should find expression text")
+    assertEquals(textOpt.get, "42")
+  }
+
+  test("ExpressionMapper.substring extracts correct region") {
+    val source = "hello world"
+    val literalExpr = TypedExpr.Literal[Region](Lit(0), Type.IntType, Region(0, 5))
+
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    assertEquals(mapper.substring(Region(0, 5)), Some("hello"))
+    assertEquals(mapper.substring(Region(6, 11)), Some("world"))
+    assertEquals(mapper.substring(Region(100, 200)), None) // out of bounds
+  }
+
+  test("ExpressionMapper.expressionForRegion looks up by region") {
+    val source = "x = 1"
+    val region = Region(4, 5)
+    val literalExpr = TypedExpr.Literal[Region](Lit(1), Type.IntType, region)
+
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    assert(mapper.expressionForRegion(region).isDefined)
+    assertEquals(mapper.expressionForRegion(region).get, literalExpr)
+    assert(mapper.expressionForRegion(Region(0, 1)).isEmpty)
+  }
+
+  test("ExpressionMapper.expressionAt finds expression at position") {
+    val source = "let x = 42 in x"
+    // Position 9 is the '2' in '42'
+    val literalExpr = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(8, 10))
+
+    val mapper = ExpressionMapper.fromTypedExpr(literalExpr, source)
+
+    // Line 1, column 9 (1-indexed) should be in the literal
+    val found = mapper.expressionAt(1, 9)
+
+    assert(found.isDefined, "Should find expression at position")
+    assertEquals(found.get, literalExpr)
+  }
+
+  test("ExpressionMapper indexes nested expressions") {
+    val source = "let x = 42 in x"
+    //           0123456789012345
+    val inner = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(8, 10))
+    val varRef = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(14, 15))
+    val letExpr = TypedExpr.Let[Region](
+      Identifier.Name("x"),
+      inner,
+      varRef,
+      dev.bosatsu.RecursionKind.NonRecursive,
+      Region(0, 15)
+    )
+
+    val mapper = ExpressionMapper.fromTypedExpr(letExpr, source)
+
+    // Should find all three expressions
+    assert(mapper.expressionForRegion(Region(0, 15)).isDefined, "Should find let")
+    assert(mapper.expressionForRegion(Region(8, 10)).isDefined, "Should find literal")
+    assert(mapper.expressionForRegion(Region(14, 15)).isDefined, "Should find var ref")
+  }
+
+  test("ExpressionMapper.expressionAt returns smallest containing expression") {
+    val source = "let x = 42 in x"
+    //           0123456789012345
+    val inner = TypedExpr.Literal[Region](Lit(42), Type.IntType, Region(8, 10))
+    val varRef = TypedExpr.Local[Region](Identifier.Name("x"), Type.IntType, Region(14, 15))
+    val letExpr = TypedExpr.Let[Region](
+      Identifier.Name("x"),
+      inner,
+      varRef,
+      dev.bosatsu.RecursionKind.NonRecursive,
+      Region(0, 15)
+    )
+
+    val mapper = ExpressionMapper.fromTypedExpr(letExpr, source)
+
+    // At position 9 (the '2' in '42'), should find the literal (smallest)
+    // not the enclosing let expression
+    val found = mapper.expressionAt(1, 9)
+    assert(found.isDefined, "Should find expression")
+    assert(found.get.isInstanceOf[TypedExpr.Literal[?]], "Should find literal, not let")
+  }
 }
