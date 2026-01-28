@@ -203,20 +203,30 @@ case class SimulationCommand(
   )(implicit ec: Par.EC): String = {
     import dev.bosatsu.codegen.js.Code
 
-    val knownBindings = typedBindings.map(_._1).toSet
+    // Use displayFormulas (from parsed AST) as the source of all bindings
+    // since typedBindings may have constant-folded some bindings away
+    val allBindingNames = displayFormulas.keySet
+    val typedBindingsMap = typedBindings.map { case (name, expr) => name.asString -> expr }.toMap
 
-    // Use TypedExpr.freeVarsDup for dependency analysis
-    // This is the principled way to extract dependencies
-    val analyses = typedBindings.map { case (name, expr) =>
-      val deps = TypedExpr.freeVarsSet(List(expr)).intersect(knownBindings)
+    // Extract dependencies from formula strings
+    def extractDepsFromFormula(formula: String, scope: Set[String]): Set[String] = {
+      val identPattern = """[a-z_][a-z0-9_]*""".r
+      val foundNames = identPattern.findAllIn(formula).toSet
+      foundNames.intersect(scope)
+    }
+
+    val analyses = allBindingNames.toList.sorted.map { nameStr =>
+      val name = Identifier.Name(nameStr)
+      val formula = displayFormulas(nameStr)
+      val deps = extractDepsFromFormula(formula, allBindingNames) - nameStr
       val kind = if (deps.isEmpty) DerivationAnalyzer.Assumption else DerivationAnalyzer.Computation
-      val formula = displayFormulas.getOrElse(name.asString, name.asString)
-      val valueType = inferTypeFromTypedExpr(expr)
+      val depBindables = deps.map(n => Identifier.Name(n): Identifier.Bindable).toSet
+      val valueType = typedBindingsMap.get(nameStr).map(inferTypeFromTypedExpr).getOrElse("number")
 
       DerivationAnalyzer.AnalyzedBinding(
         name,
         kind,
-        deps,
+        depBindables,
         formula,
         valueType
       )

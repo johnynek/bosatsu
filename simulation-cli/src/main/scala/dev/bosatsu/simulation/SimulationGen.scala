@@ -45,17 +45,18 @@ object SimulationGen {
     // 3. Generate UI initialization code
     val uiJs = generateUICode(analyses, config)
 
-    // 4. Combine all JS
+    // 4. Skip JsGen's const declarations - they conflict with _recompute's state-based approach
+    // JsGen inlines values (e.g., `const monthly_rate = 7 / 1200`) which breaks interactive "What if?"
+    // Instead, _recompute handles all computation dynamically from state
+
+    // 5. Combine all JS (without JsGen computation code)
     val fullJs =
       s"""${JsGen.runtimeCode}
 
 // Derivation state tracking
 $derivationState
 
-// Computation code (from JsGen)
-$computeJs
-
-// Recomputation logic
+// Recomputation logic (replaces JsGen's const declarations)
 $recomputeJs
 
 // UI initialization
@@ -114,14 +115,27 @@ $uiJs
   }"""
     }
 
-    s"""const _derivations = {
-${entries.mkString(",\n")}
-};
+    // Note: _derivations object is created by EmbedGenerator runtime
+    // We populate it here with our analyzed derivations
+    val populateStmts = analyses.map { a =>
+      val depsArray = a.dependencies.map(d => s""""${d.asString}"""").mkString("[", ", ", "]")
+      val kindStr = a.kind match {
+        case DerivationAnalyzer.Assumption  => "assumption"
+        case DerivationAnalyzer.Computation => "computed"
+        case DerivationAnalyzer.Conditional => "conditional"
+      }
+      s"""_derivations["${a.name.asString}"] = {
+  type: "$kindStr",
+  name: "${a.name.asString}",
+  formula: "${escapeJs(a.formula)}",
+  valueType: "${a.valueType}",
+  deps: $depsArray,
+  value: undefined
+};"""
+    }
 
-// Register derivations with the reactive state system
-Object.keys(_derivations).forEach(name => {
-  _setDerivation(name, _derivations[name]);
-});"""
+    s"""// Populate derivations (object created by EmbedGenerator runtime)
+${populateStmts.mkString("\n")}"""
   }
 
   /**

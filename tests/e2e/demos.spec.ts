@@ -26,7 +26,8 @@ test.describe('Loan Calculator Demo', () => {
   });
 
   test('page loads successfully', async ({ page }) => {
-    await expect(page).toHaveTitle(/loan_calculator/i);
+    // Title can have underscore or space depending on --title flag
+    await expect(page).toHaveTitle(/Loan.Calculator/i);
     await expect(page.locator('.applet-container')).toBeVisible();
   });
 
@@ -172,6 +173,8 @@ test.describe('Multi-Target Demo Index', () => {
   test.beforeEach(async ({ page }) => {
     setupConsoleCapture(page);
     await page.goto('/demo/index.html');
+    // Wait for the page to fully initialize (source code loaded, not "Loading...")
+    await expect(page.locator('#source-code')).not.toContainText('Loading...', { timeout: 10000 });
   });
 
   test('page loads with compilation demo', async ({ page }) => {
@@ -218,9 +221,10 @@ test.describe('Multi-Target Demo Index', () => {
 
     await runBtn.click();
 
-    // Result should appear
+    // Result should appear (may show result or error message)
     const result = page.locator('#js-result');
-    await expect(result).not.toBeEmpty();
+    // Wait for any content to appear with longer timeout for JS execution
+    await expect(result).not.toBeEmpty({ timeout: 10000 });
   });
 });
 
