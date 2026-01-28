@@ -182,6 +182,13 @@
     // Applet-specific code
 // Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Basic arithmetic operations from Bosatsu Predef
+var add = (a, b) => a + b;
+var sub = (a, b) => a - b;
+var times = (a, b) => a * b;
+var div = (a, b) => Math.floor(a / b);
+
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
