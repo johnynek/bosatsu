@@ -212,7 +212,8 @@ object EmbedGenerator {
        |    }
        |${if (config.showWhyButtons) WhyExplainer.whyModalCSS.split("\n").map(l => s"    $l").mkString("\n") else ""}
        |${if (config.showWhatIfToggles) WhatIfToggle.toggleCSS.split("\n").map(l => s"    $l").mkString("\n") else ""}
-       |${if (config.showParameterSweeps) ParameterSweep.sweepCSS.split("\n").map(l => s"    $l").mkString("\n") else ""}""".stripMargin
+       |${if (config.showParameterSweeps) ParameterSweep.sweepCSS.split("\n").map(l => s"    $l").mkString("\n") else ""}
+       |${if (config.showCanvas) CanvasVisualization.canvasCSS.split("\n").map(l => s"    $l").mkString("\n") else ""}""".stripMargin
   }
 
   private def generateHTML(config: EmbedConfig): String = {
@@ -272,6 +273,8 @@ object EmbedGenerator {
        |
        |    // Applet-specific code
        |$appletJS
+       |
+       |${if (config.showCanvas) CanvasVisualization.generateCanvasAPI() else ""}
        |
        |    // Initialize
        |    if (typeof init === 'function') init();""".stripMargin

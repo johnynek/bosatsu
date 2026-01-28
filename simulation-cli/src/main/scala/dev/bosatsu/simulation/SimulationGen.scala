@@ -25,7 +25,8 @@ object SimulationGen {
       theme: EmbedGenerator.Theme = EmbedGenerator.LightTheme,
       showWhy: Boolean = true,
       showWhatIf: Boolean = true,
-      showSweeps: Boolean = false
+      showSweeps: Boolean = false,
+      showCanvas: Boolean = false
   )
 
   /**
@@ -85,7 +86,8 @@ $uiJs
       theme = config.theme,
       showWhyButtons = config.showWhy,
       showWhatIfToggles = config.showWhatIf,
-      showParameterSweeps = config.showSweeps
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
     )
 
     // 7. Generate HTML
@@ -196,6 +198,9 @@ ${updateStmts.mkString("\n")}
       el.textContent = _formatValue(_derivations[name].value);
     }
   });
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
 // Format a value for display
@@ -579,6 +584,9 @@ function _recompute() {
 ${funcParams.map { case (name, _) =>
       s"""  _derivations["$name"].value = _getState("$name");"""
     }.mkString("\n")}
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
 // Format a value for display
@@ -629,7 +637,8 @@ $uiJs
       theme = config.theme,
       showWhyButtons = config.showWhy,
       showWhatIfToggles = config.showWhatIf,
-      showParameterSweeps = config.showSweeps
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
     )
 
     // 7. Generate HTML
@@ -688,6 +697,9 @@ ${outputFields.zipWithIndex.map { case ((name, label, format, primary), idx) =>
 ${funcParams.map { case (name, _) =>
       s"""  if (_derivations["$name"]) _derivations["$name"].value = _getState("$name");"""
     }.mkString("\n")}
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
 // Format an output value based on format type
@@ -750,7 +762,8 @@ $uiJs
       theme = config.theme,
       showWhyButtons = config.showWhy,
       showWhatIfToggles = config.showWhatIf,
-      showParameterSweeps = config.showSweeps
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
     )
 
     // 8. Generate HTML

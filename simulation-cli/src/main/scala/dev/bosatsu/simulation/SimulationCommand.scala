@@ -44,7 +44,8 @@ case class SimulationCommand(
     theme: SimulationCommand.Theme,
     showWhy: Boolean,
     showWhatIf: Boolean,
-    showSweeps: Boolean
+    showSweeps: Boolean,
+    showCanvas: Boolean
 ) {
 
   def run: IO[Unit] = {
@@ -244,7 +245,8 @@ case class SimulationCommand(
       },
       showWhy = showWhy,
       showWhatIf = showWhatIf,
-      showSweeps = showSweeps
+      showSweeps = showSweeps,
+      showCanvas = showCanvas
     )
 
     // Generate with function call pattern using config for UI metadata
@@ -296,10 +298,11 @@ object SimulationCommand {
     val noWhy = Opts.flag("no-why", "Disable Why? buttons").orFalse
     val noWhatIf = Opts.flag("no-what-if", "Disable What if? toggles").orFalse
     val sweeps = Opts.flag("sweeps", "Enable parameter sweeps").orFalse
+    val canvas = Opts.flag("canvas", "Enable canvas visualization").orFalse
 
-    (input, configOpt, output, titleOpt, themeOpt, noWhy, noWhatIf, sweeps).mapN {
-      (i, c, o, t, th, nw, nwi, s) =>
-        SimulationCommand(i, c, o, t, th, !nw, !nwi, s)
+    (input, configOpt, output, titleOpt, themeOpt, noWhy, noWhatIf, sweeps, canvas).mapN {
+      (i, c, o, t, th, nw, nwi, s, cv) =>
+        SimulationCommand(i, c, o, t, th, !nw, !nwi, s, cv)
     }
   }
 

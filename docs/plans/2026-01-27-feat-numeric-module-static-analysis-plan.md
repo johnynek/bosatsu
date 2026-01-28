@@ -851,9 +851,9 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Playwright test: sweep chart renders correctly
 
 ### Phase 10: Canvas Visualization (Optional)
-- [ ] Canvas element in generated HTML
-- [ ] Visualization updates on input change
-- [ ] Supports basic shapes: rect, circle, line, text
+- [x] Canvas element in generated HTML
+- [x] Visualization updates on input change
+- [x] Supports basic shapes: rect, circle, line, text
 
 ## Test Plan
 
@@ -2371,10 +2371,10 @@ def render(state: EconomyState) -> List[DrawCommand]:
 
 #### 10.1 Acceptance Criteria (if implemented)
 
-- [ ] Canvas element in generated HTML
-- [ ] Visualization updates on input change
-- [ ] Supports basic shapes: rect, circle, line, text
-- [ ] Animation frame loop for smooth updates
+- [x] Canvas element in generated HTML
+- [x] Visualization updates on input change
+- [x] Supports basic shapes: rect, circle, line, text
+- [x] Animation frame loop for smooth updates
 
 ---
 

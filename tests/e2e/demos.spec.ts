@@ -294,6 +294,75 @@ test.describe('Loan Calculator with Sweep Charts', () => {
 });
 
 // =============================================================================
+// LOAN CALCULATOR WITH CANVAS VISUALIZATION
+// =============================================================================
+test.describe('Loan Calculator with Canvas Visualization', () => {
+  test.beforeEach(async ({ page }) => {
+    setupConsoleCapture(page);
+    await page.goto('/demo/loan-viz.html');
+    // Wait for page to load
+    await expect(page.locator('.applet-container')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('page loads with canvas element', async ({ page }) => {
+    await expect(page).toHaveTitle(/Loan.*Calculator.*Visualization/i);
+
+    // Check canvas exists
+    const canvas = page.locator('#simulation-canvas');
+    await expect(canvas).toBeVisible();
+
+    // Check canvas has proper dimensions
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+  });
+
+  test('canvas API functions are available', async ({ page }) => {
+    // Check that the canvas API functions are defined
+    const hasAPI = await page.evaluate(() => {
+      return typeof (window as any)._clear === 'function' &&
+             typeof (window as any)._rect === 'function' &&
+             typeof (window as any)._circle === 'function' &&
+             typeof (window as any)._line === 'function' &&
+             typeof (window as any)._text === 'function';
+    });
+    expect(hasAPI).toBe(true);
+  });
+
+  test('canvas drawing functions work', async ({ page }) => {
+    // Test that we can call drawing functions without errors
+    const drewShape = await page.evaluate(() => {
+      try {
+        (window as any)._clear('#ffffff');
+        (window as any)._fill('#667eea');
+        (window as any)._rect(50, 50, 100, 50);
+        (window as any)._circle(200, 75, 25);
+        (window as any)._text('Test', 250, 75);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
+    expect(drewShape).toBe(true);
+  });
+
+  test('visualization callback can be registered', async ({ page }) => {
+    // Test registering a visualization callback
+    const registered = await page.evaluate(() => {
+      let called = false;
+      (window as any)._onVisualize(() => {
+        called = true;
+      });
+      // Manually trigger a redraw
+      (window as any)._redrawVisualization();
+      return called;
+    });
+    expect(registered).toBe(true);
+  });
+});
+
+// =============================================================================
 // DEMO NAVIGATION
 // =============================================================================
 test.describe('Demo Navigation', () => {
