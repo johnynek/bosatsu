@@ -29,13 +29,31 @@ object ConfigExtractor {
     primary: Boolean
   )
 
+  /**
+   * Configuration for "What if?" assumption toggles that switch between
+   * function variants.
+   *
+   * Example usage in Bosatsu:
+   *   AssumptionConfig(
+   *     "Labor Response",
+   *     "How do taxes affect labor participation?",
+   *     [("Elastic", "_elastic"), ("Inelastic", "_inelastic")]
+   *   )
+   */
+  case class AssumptionConfig(
+    name: String,
+    description: String,
+    variants: List[(String, String)]  // (display_label, function_suffix)
+  )
+
   case class SimConfig(
     name: String,
     description: String,
     packageName: String,
     functionName: String,
     inputs: List[(String, InputConfig)],
-    outputs: List[(String, OutputConfig)]
+    outputs: List[(String, OutputConfig)],
+    assumptions: List[AssumptionConfig] = Nil  // Optional, for function variant toggles
   )
 
   /**
@@ -48,22 +66,29 @@ object ConfigExtractor {
    *     package_name: String,
    *     function_name: String,
    *     inputs: List[(String, InputConfig)],
-   *     outputs: List[(String, OutputConfig)]
+   *     outputs: List[(String, OutputConfig)],
+   *     assumptions: List[AssumptionConfig]  # Optional
    *   )
    */
   def extractSimConfig(value: Value): SimConfig = {
     value match {
       case p: ProductValue if p.values.length >= 6 =>
+        val assumptions = if (p.values.length >= 7) {
+          extractAssumptionList(p.get(6))
+        } else {
+          Nil
+        }
         SimConfig(
           name = extractString(p.get(0)),
           description = extractString(p.get(1)),
           packageName = extractString(p.get(2)),
           functionName = extractString(p.get(3)),
           inputs = extractInputList(p.get(4)),
-          outputs = extractOutputList(p.get(5))
+          outputs = extractOutputList(p.get(5)),
+          assumptions = assumptions
         )
       case other =>
-        throw new RuntimeException(s"Expected SimConfig struct (ProductValue with 6 fields), got: $other")
+        throw new RuntimeException(s"Expected SimConfig struct (ProductValue with 6+ fields), got: $other")
     }
   }
 
@@ -170,5 +195,53 @@ object ConfigExtractor {
       )
     case other =>
       throw new RuntimeException(s"Expected OutputConfig struct (ProductValue with 3 fields), got: $other")
+  }
+
+  /**
+   * Extract a List[AssumptionConfig] from a Bosatsu List value.
+   */
+  private def extractAssumptionList(v: Value): List[AssumptionConfig] = {
+    VList.unapply(v) match {
+      case Some(items) =>
+        items.map(extractAssumptionConfig)
+      case None =>
+        throw new RuntimeException(s"Expected List for assumptions, got: $v")
+    }
+  }
+
+  /**
+   * Extract AssumptionConfig from a ProductValue.
+   *
+   * Matches struct:
+   *   struct AssumptionConfig(
+   *     name: String,
+   *     description: String,
+   *     variants: List[(String, String)]
+   *   )
+   */
+  private def extractAssumptionConfig(v: Value): AssumptionConfig = v match {
+    case p: ProductValue if p.values.length >= 3 =>
+      AssumptionConfig(
+        name = extractString(p.get(0)),
+        description = extractString(p.get(1)),
+        variants = extractVariantList(p.get(2))
+      )
+    case other =>
+      throw new RuntimeException(s"Expected AssumptionConfig struct (ProductValue with 3 fields), got: $other")
+  }
+
+  /**
+   * Extract a List[(String, String)] from a Bosatsu List of tuples.
+   */
+  private def extractVariantList(v: Value): List[(String, String)] = {
+    VList.unapply(v) match {
+      case Some(items) =>
+        items.map { item =>
+          val (label, suffix) = extractTuple2(item)
+          (extractString(label), extractString(suffix))
+        }
+      case None =>
+        throw new RuntimeException(s"Expected List for variants, got: $v")
+    }
   }
 }

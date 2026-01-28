@@ -834,12 +834,13 @@ The computation graph IS the provenance - no separate tracking needed.
 - [x] Playwright test: click "Why?" → see formula (30 tests pass)
 
 ### Phase 8: "What if?" Toggles
-- [ ] AssumptionConfig added to config schema
-- [ ] Multiple function variants in simulation file
-- [ ] "What if?" toggles rendered in UI
-- [ ] Clicking toggle switches calculation variant
-- [ ] Results update immediately
-- [ ] Playwright test: toggle assumption → different result
+- [x] AssumptionConfig added to config schema (ConfigExtractor)
+- [x] Multiple function variants in simulation file (supported via suffix convention)
+- [x] "What if?" toggles rendered in UI (assumption-toggle with variant-btn)
+- [x] Clicking toggle switches calculation variant (_assumptions tracking)
+- [x] Results update immediately (_recompute on click)
+- [x] CSS styling for assumption toggles (WhatIfToggle.toggleCSS)
+- [x] Playwright test: toggle assumption → different result (30 tests pass)
 
 ### Phase 9: Parameter Sweeps
 - [ ] SweepConfig added to config schema

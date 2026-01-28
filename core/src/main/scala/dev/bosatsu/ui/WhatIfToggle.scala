@@ -257,5 +257,13 @@ object WhatIfToggle {
       |.what-if-toggle .toggle-btn:hover { background: #5568d8; }
       |.what-if-toggle .toggle-btn.active { background: #27ae60; }
       |.what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
-      |.what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }""".stripMargin
+      |.what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
+      |.assumptions-section { margin-top: 24px; }
+      |.assumptions-section h3 { color: #667eea; font-size: 1.1rem; margin-bottom: 12px; }
+      |.assumption-toggle { padding: 16px; margin: 12px 0; background: #f8f9ff; border-radius: 8px; border-left: 3px solid #667eea; }
+      |.assumption-toggle .assumption-label { color: #333; font-weight: 500; margin-bottom: 12px; }
+      |.assumption-toggle .variant-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+      |.assumption-toggle .variant-btn { padding: 8px 16px; background: #e3e7f5; color: #333; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+      |.assumption-toggle .variant-btn:hover { background: #667eea; color: white; }
+      |.assumption-toggle .variant-btn.active { background: #667eea; color: white; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); }""".stripMargin
 }

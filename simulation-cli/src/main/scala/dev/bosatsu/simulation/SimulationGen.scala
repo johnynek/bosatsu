@@ -812,6 +812,45 @@ function addOutputDisplay(name, label, isPrimary, containerId) {
   container.appendChild(div);
 }
 
+// Track current assumption variants
+const _assumptions = {};
+
+// Add assumption toggle buttons
+function addAssumptionToggle(name, description, defaultVariant, buttonsHtml, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Set default variant
+  _assumptions[name] = defaultVariant;
+
+  const div = document.createElement('div');
+  div.className = 'assumption-toggle';
+  div.innerHTML = '<div class="assumption-label">' + description + '</div>' +
+    '<div class="variant-buttons">' + buttonsHtml + '</div>';
+
+  // Add click handlers to variant buttons
+  div.querySelectorAll('.variant-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const variant = btn.dataset.variant;
+      _assumptions[name] = variant;
+
+      // Update active button state
+      div.querySelectorAll('.variant-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Recompute with new variant
+      _recompute();
+    });
+  });
+
+  container.appendChild(div);
+}
+
+// Get the current variant suffix for an assumption
+function getVariant(name) {
+  return _assumptions[name] || '';
+}
+
 // Initialize UI
 function init() {
   // Create layout sections
@@ -841,9 +880,40 @@ $inputControls
   // Add output displays
 $outputDisplays
 
+${if (simConfig.assumptions.nonEmpty) s"""
+  // Add assumption toggles section
+  const assumptionsDiv = document.createElement('div');
+  assumptionsDiv.id = 'assumptions';
+  assumptionsDiv.className = 'assumptions-section';
+  assumptionsDiv.innerHTML = '<h3>What if...?</h3>';
+  document.querySelector('main').appendChild(assumptionsDiv);
+
+  // Add assumption toggle buttons
+${generateAssumptionToggles(simConfig.assumptions)}
+""" else ""}
+
   // Initial computation
   _recompute();
 }"""
+  }
+
+  /**
+   * Generate JavaScript for assumption toggle buttons.
+   * Each assumption has multiple variants (function suffixes) that can be selected.
+   */
+  private def generateAssumptionToggles(assumptions: List[ConfigExtractor.AssumptionConfig]): String = {
+    assumptions.map { assumption =>
+      val name = escapeJs(assumption.name)
+      val description = escapeJs(assumption.description)
+      val defaultVariant = assumption.variants.headOption.map(_._2).getOrElse("")
+      val buttons = assumption.variants.map { case (label, suffix) =>
+        val escaped = escapeJs(label)
+        val escapedSuffix = escapeJs(suffix)
+        s"""<button class="variant-btn${if (suffix == defaultVariant) " active" else ""}" data-assumption="$name" data-variant="$escapedSuffix">$escaped</button>"""
+      }.mkString("")
+
+      s"""  addAssumptionToggle("$name", "$description", "$defaultVariant", `$buttons`, "assumptions");"""
+    }.mkString("\n")
   }
 
   /**
