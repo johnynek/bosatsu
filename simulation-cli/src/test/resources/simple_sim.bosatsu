@@ -1,0 +1,6 @@
+package SimpleSim
+
+# Base assumptions
+tax_rate = 25
+income = 100000
+deductions = 15000

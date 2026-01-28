@@ -1,0 +1,37 @@
+package Demo/Orchestrator
+
+from Demo/Compute import fib, factorial
+
+export compute_fib_sequence, compute_factorial_table, validate_fib_input, validate_fact_input
+
+# Orchestration logic compiled to JS
+# The actual fib/factorial calls will be redirected to WASM at runtime
+
+# Validation functions - run in JS, demonstrate Bosatsu logic
+# n >= 0 means cmp_Int(n, 0) is GT or EQ
+# n <= max means cmp_Int(n, max) is LT or EQ
+def validate_fib_input(n: Int) -> Bool:
+  match cmp_Int(n, 0):
+    case LT: False
+    case _:
+      match cmp_Int(n, 40):
+        case GT: False
+        case _: True
+
+def validate_fact_input(n: Int) -> Bool:
+  match cmp_Int(n, 0):
+    case LT: False
+    case _:
+      match cmp_Int(n, 20):
+        case GT: False
+        case _: True
+
+# Compute fibonacci sequence from 0 to n
+# Returns a list of (index, value) pairs
+def compute_fib_sequence(n: Int) -> List[(Int, Int)]:
+  map_List(range(n.add(1)), i -> (i, fib(i)))
+
+# Compute factorial table from 0 to n
+# Returns a list of (index, value) pairs
+def compute_factorial_table(n: Int) -> List[(Int, Int)]:
+  map_List(range(n.add(1)), i -> (i, factorial(i)))

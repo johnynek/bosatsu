@@ -244,29 +244,41 @@ This proves the hybrid architecture works:
 - Runtime interop via JS/WASM bridge
 - Foundation for simulation applets (heavy physics in WASM, UI in JS)
 
-## Phase 4: Basic DOM Primitives (TODO)
+## Phase 4: Basic DOM Primitives ✅ DONE
 **Building blocks for BosatsuUI**
 
-- [ ] `VNode.scala` - Virtual DOM types (Element, Text, Component)
-- [ ] `DOMRuntime.scala` - Scala.js runtime for createElement, setAttribute, addEventListener
-- [ ] `DOMCodegen.scala` - Generate native JS DOM manipulation code via JsGen
-- [ ] `VNodeGen.scala` - ScalaCheck generators for VNode trees
-- [ ] `VNodeTest.scala` - Property tests
-- [ ] Integration: render static VNode tree to real DOM (JSDOM)
-- [ ] Integration: event handler fires and logs to console
-- [ ] `docs/pr-guides/phase-4-dom-pr-guide.md`
+Branch: `feat/phase4-dom-primitives`
 
-## Phase 5: Simple Reactive Simulation (TODO)
+- [x] `VNode.scala` - Virtual DOM types (Element, Text, Component)
+- [x] `DOMRuntime.scala` - Scala.js runtime for createElement, setAttribute, addEventListener (uses js.Dynamic)
+- [x] `DOMCodegen.scala` - Generate native JS DOM manipulation code via JsGen
+- [x] `VNodeGen.scala` - ScalaCheck generators for VNode trees
+- [x] `VNodeTest.scala` - Property tests (22 tests passing)
+- [x] `DOMRuntimeTest.scala` - JS-specific unit tests (6 tests)
+- [x] `demo/dom-test.html` - Browser integration test (createElement, setAttribute, addEventListener, VNode rendering)
+- [x] `docs/pr-guides/phase-4-dom-pr-guide.md`
+
+**Test Results:**
+- Total: 1063 coreJS tests passing (including 28 UI tests)
+- Browser integration test covers: createElement, appendChild, setAttribute, createTextNode, addEventListener, VNode tree rendering
+
+## Phase 5: Simple Reactive Simulation ✅ DONE
 **Demo: Interactive slider → compute → display**
 
-- [ ] State management with reactive updates
-- [ ] JsGen-based law evaluation (not Scala.js interpreter)
-- [ ] Connect state changes to DOM updates
-- [ ] `ReactiveStateTest.scala` - Property tests
-- [ ] `ReactiveStateGen.scala` - Generators for state and updates
-- [ ] Demo: Tax calculator with income slider, shows tax_rate and total_tax
-- [ ] Performance benchmark: JsGen vs Scala.js interpreter
-- [ ] `docs/pr-guides/phase-5-reactive-pr-guide.md`
+Branch: `feat/phase5-reactive-state`
+
+- [x] State management with reactive updates (`ReactiveState.scala` - MutableState, ComputedState, StateStore)
+- [x] Connect state changes to DOM updates (`StateBinding.scala` - TextBinding, AttributeBinding, InputBinding)
+- [x] `ReactiveStateTest.scala` - Property tests (15 tests passing)
+- [x] `ReactiveStateGen.scala` - Generators for state and updates
+- [x] Demo: Tax calculator with income slider, shows tax_rate and total_tax (`demo/tax-calculator.html`)
+- [x] `docs/pr-guides/phase-5-reactive-pr-guide.md`
+- [ ] JsGen-based law evaluation (deferred - requires TypedExpr integration)
+- [ ] Performance benchmark: JsGen vs Scala.js interpreter (deferred to Phase 6)
+
+**Test Results:**
+- Total: 15 ReactiveState tests passing
+- Tax calculator demo shows reactive state updates in real-time
 
 ## Phase 6: Simulation Applets Full (TODO)
 **Upgrade from Scala.js interpreter to JsGen**
@@ -371,17 +383,19 @@ This proves the hybrid architecture works:
 
 # Current Status
 
-**Phase 3.5 is complete** - JS/WASM interop demo works with hybrid architecture proven.
+**Phase 5 is complete** - Full reactive state management with DOM bindings and tax calculator demo.
 
 **Completed:**
 - Phase 1: Core Infrastructure ✅
 - Phase 2: Simulation Applets Core ✅
 - Phase 3: JsGen "Hello World" ✅
 - Phase 3.5: JS/WASM Interop Demo ✅
+- Phase 4: Basic DOM Primitives ✅
+- Phase 5: Simple Reactive Simulation ✅
 
 **Next recommended work:**
 1. Add property tests for JsGen (remaining Phase 3 items)
-2. Start Phase 4 (Basic DOM Primitives) or Phase 5 (Simple Reactive Simulation)
+2. Start Phase 6 (Simulation Applets Full) - "Why?" buttons, "What if?" toggles, parameter sweeps
 
 ---
 

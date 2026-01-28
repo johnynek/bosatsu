@@ -140,6 +140,22 @@ lazy val cli = (project in file("cli"))
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
+lazy val simulationCli = (project in file("simulation-cli"))
+  .settings(
+    commonSettings,
+    name := "bosatsu-sim",
+    assembly / mainClass := Some("dev.bosatsu.simulation.Main"),
+    Compile / mainClass := Some("dev.bosatsu.simulation.Main"),
+    libraryDependencies ++= Seq(
+      catsEffect.value,
+      decline.value,
+      fs2io.value,
+      munit.value % Test,
+      munitScalaCheck.value % Test
+    )
+  )
+  .dependsOn(coreJVM % "compile->compile;test->test")
+
 lazy val proto =
   (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
     "proto"

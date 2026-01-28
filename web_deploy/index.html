@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bosatsu - A typed, total functional language</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    h1 {
+      margin: 0 0 0.5rem 0;
+      color: #2c3e50;
+      font-size: 2.5rem;
+    }
+
+    .tagline {
+      color: #666;
+      font-size: 1.1rem;
+      margin-bottom: 2rem;
+    }
+
+    .features {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .feature {
+      background: #f0f4ff;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      color: #4a5568;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    }
+
+    .card h2 {
+      margin: 0 0 0.75rem 0;
+      font-size: 1.25rem;
+      color: #2c3e50;
+    }
+
+    .card p {
+      margin: 0 0 1rem 0;
+      color: #666;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .card a {
+      display: inline-block;
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .card a:hover {
+      text-decoration: underline;
+    }
+
+    .card-compiler {
+      border-color: #667eea;
+      background: linear-gradient(135deg, #f0f4ff 0%, #fff 100%);
+    }
+
+    .card-demo {
+      border-color: #27ae60;
+      background: linear-gradient(135deg, #e8f6e8 0%, #fff 100%);
+    }
+
+    .card-docs {
+      border-color: #e67e22;
+      background: linear-gradient(135deg, #fef5e7 0%, #fff 100%);
+    }
+
+    .card-interop {
+      border-color: #9b59b6;
+      background: linear-gradient(135deg, #f5eef8 0%, #fff 100%);
+    }
+
+    .card-reactive {
+      border-color: #e91e63;
+      background: linear-gradient(135deg, #fce4ec 0%, #fff 100%);
+    }
+
+    .card-provenance {
+      border-color: #00bcd4;
+      background: linear-gradient(135deg, #e0f7fa 0%, #fff 100%);
+    }
+
+    .section-header {
+      margin: 2rem 0 1rem 0;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .section-header h2 {
+      margin: 0 0 0.5rem 0;
+      color: #2c3e50;
+      font-size: 1.5rem;
+    }
+
+    .section-header p {
+      color: #666;
+      margin: 0;
+    }
+
+    .provenance-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #00bcd4;
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    footer {
+      text-align: center;
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    footer a {
+      color: #667eea;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    code {
+      background: #f0f4ff;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bosatsu</h1>
+    <p class="tagline">A typed, total functional programming language designed to compile to multiple targets.</p>
+
+    <div class="features">
+      <span class="feature">Strongly Typed</span>
+      <span class="feature">Total Functions</span>
+      <span class="feature">Pattern Matching</span>
+      <span class="feature">Multi-Target</span>
+    </div>
+
+    <div class="cards">
+      <div class="card card-compiler">
+        <h2>Web Compiler</h2>
+        <p>Write and run Bosatsu code directly in your browser. Experiment with the language without installing anything.</p>
+        <a href="compiler/">Try the Compiler &rarr;</a>
+      </div>
+
+      <div class="card card-demo">
+        <h2>Multi-Target Demo</h2>
+        <p>See the same Bosatsu program compiled to JavaScript, C, and WebAssembly. Experience the power of multi-target compilation.</p>
+        <a href="demo/">View Demo &rarr;</a>
+      </div>
+
+      <div class="card card-interop">
+        <h2>JS/WASM Interop</h2>
+        <p>See JavaScript and WebAssembly working together. One module compiled to JS, another to WASM, calling each other at runtime.</p>
+        <a href="demo/interop.html">View Interop Demo &rarr;</a>
+      </div>
+
+      <div class="card card-reactive">
+        <h2>Reactive Tax Calculator</h2>
+        <p>Interactive tax calculator using BosatsuUI's reactive state. Move the slider to see progressive tax calculations update in real-time.</p>
+        <a href="demo/tax-calculator.html">Try Calculator &rarr;</a>
+      </div>
+
+      <div class="card card-docs">
+        <h2>Documentation</h2>
+        <p>Learn Bosatsu syntax, types, and features. Explore the standard library and language reference.</p>
+        <a href="docs/">Read Docs &rarr;</a>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <h2>Provenance Demos</h2>
+      <p>Interactive calculators with "Why?" explanations and "What if?" explorations. See how values are derived from assumptions.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card card-provenance">
+        <span class="provenance-badge">Why? + What if?</span>
+        <h2>Loan Calculator</h2>
+        <p>Calculate monthly payments and total interest. Click "Why?" to see the derivation chain. Use sliders to explore scenarios.</p>
+        <a href="demo/loan-calculator.html">Try Loan Calculator &rarr;</a>
+      </div>
+
+      <div class="card card-provenance">
+        <span class="provenance-badge">Why? + What if?</span>
+        <h2>Investment Calculator</h2>
+        <p>Project investment growth over time. Understand how contributions and returns combine to build wealth.</p>
+        <a href="demo/investment.html">Try Investment Calculator &rarr;</a>
+      </div>
+
+      <div class="card card-provenance">
+        <span class="provenance-badge">Why? + What if?</span>
+        <h2>Carbon Footprint</h2>
+        <p>Estimate your annual CO2 emissions from transportation and home energy. See which factors have the biggest impact.</p>
+        <a href="demo/carbon-footprint.html">Try Carbon Calculator &rarr;</a>
+      </div>
+
+      <div class="card card-reactive">
+        <h2>Tax Calculator</h2>
+        <p>Interactive progressive tax calculator. Slide to adjust income and watch tax brackets update in real-time.</p>
+        <a href="demo/tax-calculator.html">Try Tax Calculator &rarr;</a>
+      </div>
+    </div>
+
+    <footer>
+      <p>
+        <a href="https://github.com/johnynek/bosatsu">View on GitHub</a>
+        &nbsp;|&nbsp;
+        Bosatsu is open source under the Apache 2.0 license
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

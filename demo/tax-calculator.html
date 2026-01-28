@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tax Calculator - BosatsuUI Reactive Demo</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 1rem;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      margin-top: 0;
+      color: #333;
+    }
+    .input-group {
+      margin: 1.5rem 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      color: #555;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 8px;
+      -webkit-appearance: none;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      background: #007bff;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .value-display {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #007bff;
+      margin-top: 0.5rem;
+    }
+    .results {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 2px solid #eee;
+    }
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    .result-row:last-child {
+      border-bottom: none;
+    }
+    .result-label {
+      color: #666;
+    }
+    .result-value {
+      font-size: 1.25rem;
+      font-weight: bold;
+    }
+    .tax-rate {
+      color: #dc3545;
+    }
+    .total-tax {
+      color: #dc3545;
+    }
+    .net-income {
+      color: #28a745;
+    }
+    .code-info {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      color: #666;
+    }
+    code {
+      background: #e9ecef;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Tax Calculator</h1>
+    <p>BosatsuUI Reactive State Demo</p>
+
+    <div class="input-group">
+      <label for="income-slider">Annual Income</label>
+      <input type="range" id="income-slider" min="0" max="500000" step="1000" value="75000">
+      <div class="value-display">$<span id="income-display">75,000</span></div>
+    </div>
+
+    <div class="results">
+      <div class="result-row">
+        <span class="result-label">Tax Rate (Progressive)</span>
+        <span class="result-value tax-rate" id="tax-rate-display">22%</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Total Tax</span>
+        <span class="result-value total-tax" id="total-tax-display">$12,458</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Net Income</span>
+        <span class="result-value net-income" id="net-income-display">$62,542</span>
+      </div>
+    </div>
+
+    <div class="code-info">
+      <strong>How it works:</strong> This demo uses BosatsuUI's reactive state system.
+      Moving the slider updates <code>income</code> state, which triggers recalculation
+      of <code>taxRate</code>, <code>totalTax</code>, and <code>netIncome</code> as computed values.
+    </div>
+  </div>
+
+  <script>
+    // Tax calculation functions (would be generated from Bosatsu)
+    function calculateTaxRate(income) {
+      // Progressive tax brackets (simplified US 2024)
+      if (income <= 11600) return 0.10;
+      if (income <= 47150) return 0.12;
+      if (income <= 100525) return 0.22;
+      if (income <= 191950) return 0.24;
+      if (income <= 243725) return 0.32;
+      if (income <= 609350) return 0.35;
+      return 0.37;
+    }
+
+    function calculateTotalTax(income) {
+      // Progressive tax calculation (simplified)
+      let tax = 0;
+      const brackets = [
+        [11600, 0.10],
+        [47150, 0.12],
+        [100525, 0.22],
+        [191950, 0.24],
+        [243725, 0.32],
+        [609350, 0.35],
+        [Infinity, 0.37]
+      ];
+
+      let remaining = income;
+      let prevLimit = 0;
+
+      for (const [limit, rate] of brackets) {
+        if (remaining <= 0) break;
+        const taxableInBracket = Math.min(remaining, limit - prevLimit);
+        tax += taxableInBracket * rate;
+        remaining -= taxableInBracket;
+        prevLimit = limit;
+      }
+
+      return Math.round(tax);
+    }
+
+    // Reactive state system (generated from StateBinding.scala)
+    const _state = {
+      income: 75000
+    };
+
+    const _listeners = {
+      income: []
+    };
+
+    function _getState(name) {
+      return _state[name];
+    }
+
+    function _setState(name, value) {
+      if (_state[name] !== value) {
+        _state[name] = value;
+        _listeners[name].forEach(fn => fn(value));
+      }
+    }
+
+    function _subscribe(name, fn) {
+      _listeners[name].push(fn);
+      fn(_state[name]); // Initial call
+    }
+
+    // Format number with commas
+    function formatCurrency(n) {
+      return n.toLocaleString('en-US');
+    }
+
+    // Initialize bindings
+    function init() {
+      // Input binding: slider -> income state
+      document.getElementById('income-slider').addEventListener('input', (e) => {
+        _setState('income', parseInt(e.target.value));
+      });
+
+      // Output bindings: income state -> displays
+      _subscribe('income', (income) => {
+        // Update income display
+        document.getElementById('income-display').textContent = formatCurrency(income);
+
+        // Calculate and update derived values
+        const taxRate = calculateTaxRate(income);
+        const totalTax = calculateTotalTax(income);
+        const netIncome = income - totalTax;
+
+        document.getElementById('tax-rate-display').textContent = Math.round(taxRate * 100) + '%';
+        document.getElementById('total-tax-display').textContent = '$' + formatCurrency(totalTax);
+        document.getElementById('net-income-display').textContent = '$' + formatCurrency(netIncome);
+      });
+    }
+
+    // Export for testing
+    window.TaxCalculator = {
+      init,
+      getState: _getState,
+      setState: _setState,
+      subscribe: _subscribe,
+      calculateTaxRate,
+      calculateTotalTax
+    };
+
+    // Auto-initialize
+    init();
+  </script>
+</body>
+</html>

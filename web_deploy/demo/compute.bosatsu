@@ -1,0 +1,25 @@
+package Demo/Compute
+
+from Bosatsu/Prog import Main, Prog, pure, ignore_env
+
+export main, fib, factorial
+
+# Compute-heavy functions - these will be compiled to WASM
+# for better performance on intensive calculations
+
+# Fibonacci using int_loop for efficient iteration
+# fib(0) = 0, fib(1) = 1, fib(n) = fib(n-1) + fib(n-2)
+def fib(n: Int) -> Int:
+  (a, _) = int_loop(n, (0, 1), (i, acc) ->
+    (a, b) = acc
+    (i.sub(1), (b, a.add(b))))
+  a
+
+# Factorial using int_loop
+# factorial(0) = 1, factorial(n) = n * factorial(n-1)
+def factorial(n: Int) -> Int:
+  int_loop(n, 1, (i, acc) ->
+    (i.sub(1), acc.times(i)))
+
+# Main entry point for C (required by transpiler, not used by WASM wrapper)
+main = Main(pure(0).ignore_env())

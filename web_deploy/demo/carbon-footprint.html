@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carbon Footprint Calculator</title>
+  <style>
+    :root {
+      --bg-color: #f5f5f5;
+      --text-color: #333333;
+      --accent-color: #667eea;
+      --surface-color: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 1rem;
+      background: var(--bg-color);
+      color: var(--text-color);
+    }
+    .applet-container {
+      background: var(--surface-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .applet-title {
+      margin: 0 0 1rem 0;
+      font-size: 1.5rem;
+      color: var(--text-color);
+    }
+    .simulation-canvas {
+      width: 100%;
+      border-radius: 8px;
+      background: #1a1a2e;
+    }
+    .controls-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(0,0,0,0.1);
+    }
+    .control-group {
+      margin: 0.75rem 0;
+    }
+    .control-label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.875rem;
+      color: var(--text-color);
+      opacity: 0.8;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 8px;
+      -webkit-appearance: none;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      background: var(--accent-color);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .value-display {
+      font-family: monospace;
+      font-weight: bold;
+      color: var(--accent-color);
+    }
+    .button-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .btn-secondary {
+      background: #6c757d;
+    }
+    .why-button { margin-left: 8px; padding: 2px 8px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .why-button:hover { background: #5568d8; }
+    .why-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .why-modal.hidden { display: none; }
+    .why-modal-content { background: white; border-radius: 12px; padding: 24px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .why-modal-content h3 { margin-top: 0; color: #333; }
+    .why-modal-content .derivation { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: monospace; }
+    .why-modal-content .assumption { background: #e8f5e9; border-left: 3px solid #27ae60; }
+    .why-modal-content .computed { background: #e3f2fd; border-left: 3px solid #2196f3; }
+    .why-modal-content .conditional { background: #fff3e0; border-left: 3px solid #ff9800; }
+    .why-modal-content .name { font-weight: bold; color: #333; }
+    .why-modal-content .value { color: #667eea; }
+    .why-modal-content .formula { color: #666; }
+    .why-modal-content .tag { font-size: 10px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; }
+    .why-modal-content .close-btn { margin-top: 16px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .why-modal-content .close-btn:hover { background: #5568d8; }
+    .what-if-toggle { padding: 12px; margin: 8px 0; background: #f5f5f5; border-radius: 8px; }
+    .what-if-toggle .toggle-label { display: flex; align-items: center; gap: 8px; }
+    .what-if-toggle .toggle-name { color: #666; font-style: italic; }
+    .what-if-toggle .toggle-btn { padding: 4px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .what-if-toggle .toggle-btn:hover { background: #5568d8; }
+    .what-if-toggle .toggle-btn.active { background: #27ae60; }
+    .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
+    .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
+    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
+    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
+    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
+    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
+    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
+    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
+    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
+    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+
+  </style>
+</head>
+<body>
+  <div class="applet-container">
+    <h1 class="applet-title">Carbon Footprint Calculator</h1>
+    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    <div class="controls-section" id="controls"></div>
+    <div class="what-if-section" id="what-if-toggles"></div>
+    <div class="sweep-section" id="parameter-sweeps"></div>
+  </div>
+  <script>
+    // BosatsuUI Reactive Runtime
+    const _state = {
+      natural_gas_therms: undefined,
+      car_miles: undefined,
+      car_mpg: undefined,
+      flight_emissions: undefined,
+      flights_per_year: undefined,
+      electricity_factor: undefined,
+      gas_emission_factor: undefined,
+      electricity_kwh: undefined,
+      gas_heat_factor: undefined
+    };
+    const _listeners = {
+      gas_heat_factor: [],
+      natural_gas_therms: [],
+      car_miles: [],
+      car_mpg: [],
+      flights_per_year: [],
+      electricity_factor: [],
+      electricity_kwh: [],
+      gas_emission_factor: [],
+      flight_emissions: []
+    };
+    const _derivations = {};
+
+    function _getState(name) { return _state[name]; }
+    function _setState(name, value) {
+      if (_state[name] !== value) {
+        _state[name] = value;
+        _listeners[name].forEach(fn => fn(value));
+      }
+    }
+    function _subscribe(name, fn) {
+      _listeners[name].push(fn);
+      fn(_state[name]);
+    }
+    function _setDerivation(name, derivation) {
+      _derivations[name] = derivation;
+    }
+    function _getDerivation(name) {
+      return _derivations[name];
+    }
+    function _setAssumption(name, value) {
+      _setState(name, value);
+      // Trigger recomputation of derived values
+      Object.keys(_derivations).forEach(k => {
+        if (_derivations[k].deps && _derivations[k].deps.some(d => d.name === name)) {
+          // Would recompute here in full implementation
+        }
+      });
+    }
+
+    // Applet-specific code
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Basic arithmetic operations from Bosatsu Predef
+var add = (a, b) => a + b;
+var sub = (a, b) => a - b;
+var times = (a, b) => a * b;
+var div = (a, b) => Math.floor(a / b);
+
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
+
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
+
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
+
+// Derivation state tracking
+const _derivations = {
+  "car_miles": {
+    type: "assumption",
+    name: "car_miles",
+    formula: "12000",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "car_mpg": {
+    type: "assumption",
+    name: "car_mpg",
+    formula: "28",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "flights_per_year": {
+    type: "assumption",
+    name: "flights_per_year",
+    formula: "4",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "electricity_kwh": {
+    type: "assumption",
+    name: "electricity_kwh",
+    formula: "900",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "natural_gas_therms": {
+    type: "assumption",
+    name: "natural_gas_therms",
+    formula: "50",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "gas_emission_factor": {
+    type: "assumption",
+    name: "gas_emission_factor",
+    formula: "20",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "electricity_factor": {
+    type: "assumption",
+    name: "electricity_factor",
+    formula: "1",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "gas_heat_factor": {
+    type: "assumption",
+    name: "gas_heat_factor",
+    formula: "12",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "flight_emissions": {
+    type: "assumption",
+    name: "flight_emissions",
+    formula: "1100",
+    valueType: "number",
+    deps: [],
+    value: undefined
+  },
+  "gallons_used": {
+    type: "computed",
+    name: "gallons_used",
+    formula: "div(car_miles, car_mpg)",
+    valueType: "any",
+    deps: ["car_mpg", "car_miles"],
+    value: undefined
+  },
+  "car_emissions": {
+    type: "computed",
+    name: "car_emissions",
+    formula: "times(gallons_used, gas_emission_factor)",
+    valueType: "any",
+    deps: ["gas_emission_factor", "gallons_used"],
+    value: undefined
+  },
+  "flight_total": {
+    type: "computed",
+    name: "flight_total",
+    formula: "times(flights_per_year, flight_emissions)",
+    valueType: "any",
+    deps: ["flight_emissions", "flights_per_year"],
+    value: undefined
+  },
+  "transport_total": {
+    type: "computed",
+    name: "transport_total",
+    formula: "add(car_emissions, flight_total)",
+    valueType: "any",
+    deps: ["flight_total", "car_emissions"],
+    value: undefined
+  },
+  "electricity_annual": {
+    type: "computed",
+    name: "electricity_annual",
+    formula: "times(electricity_kwh, 12)",
+    valueType: "any",
+    deps: ["electricity_kwh"],
+    value: undefined
+  },
+  "electricity_emissions": {
+    type: "computed",
+    name: "electricity_emissions",
+    formula: "times(electricity_annual, electricity_factor)",
+    valueType: "any",
+    deps: ["electricity_factor", "electricity_annual"],
+    value: undefined
+  },
+  "gas_annual": {
+    type: "computed",
+    name: "gas_annual",
+    formula: "times(natural_gas_therms, 12)",
+    valueType: "any",
+    deps: ["natural_gas_therms"],
+    value: undefined
+  },
+  "gas_emissions": {
+    type: "computed",
+    name: "gas_emissions",
+    formula: "times(gas_annual, gas_heat_factor)",
+    valueType: "any",
+    deps: ["gas_annual", "gas_heat_factor"],
+    value: undefined
+  },
+  "home_total": {
+    type: "computed",
+    name: "home_total",
+    formula: "add(electricity_emissions, gas_emissions)",
+    valueType: "any",
+    deps: ["electricity_emissions", "gas_emissions"],
+    value: undefined
+  },
+  "total_footprint": {
+    type: "computed",
+    name: "total_footprint",
+    formula: "add(transport_total, home_total)",
+    valueType: "any",
+    deps: ["home_total", "transport_total"],
+    value: undefined
+  },
+  "monthly_average": {
+    type: "computed",
+    name: "monthly_average",
+    formula: "div(total_footprint, 12)",
+    valueType: "any",
+    deps: ["total_footprint"],
+    value: undefined
+  }
+};
+
+// Register derivations with the reactive state system
+Object.keys(_derivations).forEach(name => {
+  _setDerivation(name, _derivations[name]);
+});
+
+// Computation code (from JsGen)
+const car_miles = 12000;
+const car_mpg = 28;
+const flights_per_year = 4;
+const electricity_kwh = 900;
+const natural_gas_therms = 50;
+const gas_emission_factor = 20;
+const electricity_factor = 1;
+const gas_heat_factor = 12;
+const flight_emissions = 1100;
+const gallons_used = div(car_miles, car_mpg);
+const car_emissions = times(gallons_used, gas_emission_factor);
+const flight_total = times(flights_per_year, flight_emissions);
+const transport_total = add(car_emissions, flight_total);
+const electricity_annual = times(electricity_kwh, 12);
+const electricity_emissions = times(electricity_annual, electricity_factor);
+const gas_annual = times(natural_gas_therms, 12);
+const gas_emissions = times(gas_annual, gas_heat_factor);
+const home_total = add(electricity_emissions, gas_emissions);
+const total_footprint = add(transport_total, home_total);
+const monthly_average = div(total_footprint, 12);
+
+// Recomputation logic
+function _recompute() {
+  // Update car_miles
+  if (typeof car_miles !== 'undefined') {
+    _derivations["car_miles"].value = car_miles;
+    _setState("car_miles", car_miles);
+  }
+  // Update car_mpg
+  if (typeof car_mpg !== 'undefined') {
+    _derivations["car_mpg"].value = car_mpg;
+    _setState("car_mpg", car_mpg);
+  }
+  // Update flights_per_year
+  if (typeof flights_per_year !== 'undefined') {
+    _derivations["flights_per_year"].value = flights_per_year;
+    _setState("flights_per_year", flights_per_year);
+  }
+  // Update electricity_kwh
+  if (typeof electricity_kwh !== 'undefined') {
+    _derivations["electricity_kwh"].value = electricity_kwh;
+    _setState("electricity_kwh", electricity_kwh);
+  }
+  // Update natural_gas_therms
+  if (typeof natural_gas_therms !== 'undefined') {
+    _derivations["natural_gas_therms"].value = natural_gas_therms;
+    _setState("natural_gas_therms", natural_gas_therms);
+  }
+  // Update gas_emission_factor
+  if (typeof gas_emission_factor !== 'undefined') {
+    _derivations["gas_emission_factor"].value = gas_emission_factor;
+    _setState("gas_emission_factor", gas_emission_factor);
+  }
+  // Update electricity_factor
+  if (typeof electricity_factor !== 'undefined') {
+    _derivations["electricity_factor"].value = electricity_factor;
+    _setState("electricity_factor", electricity_factor);
+  }
+  // Update gas_heat_factor
+  if (typeof gas_heat_factor !== 'undefined') {
+    _derivations["gas_heat_factor"].value = gas_heat_factor;
+    _setState("gas_heat_factor", gas_heat_factor);
+  }
+  // Update flight_emissions
+  if (typeof flight_emissions !== 'undefined') {
+    _derivations["flight_emissions"].value = flight_emissions;
+    _setState("flight_emissions", flight_emissions);
+  }
+  // Update gallons_used
+  if (typeof gallons_used !== 'undefined') {
+    _derivations["gallons_used"].value = gallons_used;
+    _setState("gallons_used", gallons_used);
+  }
+  // Update car_emissions
+  if (typeof car_emissions !== 'undefined') {
+    _derivations["car_emissions"].value = car_emissions;
+    _setState("car_emissions", car_emissions);
+  }
+  // Update flight_total
+  if (typeof flight_total !== 'undefined') {
+    _derivations["flight_total"].value = flight_total;
+    _setState("flight_total", flight_total);
+  }
+  // Update transport_total
+  if (typeof transport_total !== 'undefined') {
+    _derivations["transport_total"].value = transport_total;
+    _setState("transport_total", transport_total);
+  }
+  // Update electricity_annual
+  if (typeof electricity_annual !== 'undefined') {
+    _derivations["electricity_annual"].value = electricity_annual;
+    _setState("electricity_annual", electricity_annual);
+  }
+  // Update electricity_emissions
+  if (typeof electricity_emissions !== 'undefined') {
+    _derivations["electricity_emissions"].value = electricity_emissions;
+    _setState("electricity_emissions", electricity_emissions);
+  }
+  // Update gas_annual
+  if (typeof gas_annual !== 'undefined') {
+    _derivations["gas_annual"].value = gas_annual;
+    _setState("gas_annual", gas_annual);
+  }
+  // Update gas_emissions
+  if (typeof gas_emissions !== 'undefined') {
+    _derivations["gas_emissions"].value = gas_emissions;
+    _setState("gas_emissions", gas_emissions);
+  }
+  // Update home_total
+  if (typeof home_total !== 'undefined') {
+    _derivations["home_total"].value = home_total;
+    _setState("home_total", home_total);
+  }
+  // Update total_footprint
+  if (typeof total_footprint !== 'undefined') {
+    _derivations["total_footprint"].value = total_footprint;
+    _setState("total_footprint", total_footprint);
+  }
+  // Update monthly_average
+  if (typeof monthly_average !== 'undefined') {
+    _derivations["monthly_average"].value = monthly_average;
+    _setState("monthly_average", monthly_average);
+  }
+
+  // Update UI displays
+  Object.keys(_derivations).forEach(name => {
+    const el = document.getElementById('val-' + name);
+    if (el && _derivations[name].value !== undefined) {
+      el.textContent = _formatValue(_derivations[name].value);
+    }
+  });
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// Format derivation header for "Why?" display
+function _formatDerivationHeader(d) {
+  switch (d.type) {
+    case 'assumption':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">assumption</span>';
+    case 'computed':
+      return '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span> → <span class="value">' + _formatValue(d.value) + '</span>';
+    case 'conditional':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">conditional</span>';
+    default:
+      return d.name + ' = ' + _formatValue(d.value);
+  }
+}
+
+// UI initialization
+// Add "Why?" button next to a value display
+function addWhyButton(valueName, elementId) {
+  const container = document.getElementById(elementId);
+  if (!container) return;
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Why?';
+  btn.className = 'why-button';
+  btn.onclick = () => showWhyExplanation(valueName);
+  container.parentElement.appendChild(btn);
+}
+
+// Show "Why?" modal with derivation chain
+function showWhyExplanation(valueName) {
+  const d = _getDerivation(valueName);
+  if (!d) return;
+
+  const html = _explainDerivation(d, 0);
+  document.getElementById('why-explanation').innerHTML = html;
+  document.getElementById('why-modal').classList.remove('hidden');
+}
+
+// Recursively explain derivation
+function _explainDerivation(d, depth) {
+  const marginLeft = depth * 20;
+  const cls = d.type;
+  const header = _formatDerivationHeader(d);
+  let result = '<div class="derivation ' + cls + '" style="margin-left: ' + marginLeft + 'px">' + header + '</div>';
+
+  if (d.deps && d.deps.length > 0) {
+    d.deps.forEach(depName => {
+      const dep = _getDerivation(depName);
+      if (dep) {
+        result += _explainDerivation(dep, depth + 1);
+      }
+    });
+  }
+
+  return result;
+}
+
+// Add "What if?" toggle for an assumption
+function addWhatIfToggle(name, inputType, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'what-if-toggle';
+
+  if (inputType === 'checkbox') {
+    div.innerHTML = '<label class="toggle-label"><span class="toggle-name">What if ' + name + ' were </span><button class="toggle-btn" data-value="true">true</button><button class="toggle-btn" data-value="false">false</button><span class="toggle-hint">?</span></label>';
+    div.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const newVal = btn.dataset.value === 'true';
+        _setAssumption(name, newVal);
+        _recompute();
+      };
+    });
+  } else {
+    div.innerHTML = '<label class="toggle-label"><span class="toggle-name">What if ' + name + ' were </span><input type="' + inputType + '" class="toggle-input" /><span class="toggle-hint">?</span></label>';
+    const input = div.querySelector('input');
+    input.oninput = () => {
+      const newVal = inputType === 'number' ? parseFloat(input.value) : input.value;
+      if (!isNaN(newVal) || inputType !== 'number') {
+        _setAssumption(name, newVal);
+        _recompute();
+      }
+    };
+  }
+
+  container.appendChild(div);
+}
+
+// Add parameter sweep slider
+function addSweepSlider(name, min, max, step, initial, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'parameter-sweep';
+  div.innerHTML = '<div class="sweep-header"><span class="sweep-name">' + name + '</span><span class="sweep-value" id="sweep-val-' + name + '">' + initial + '</span></div><input type="range" class="sweep-slider" min="' + min + '" max="' + max + '" step="' + step + '" value="' + initial + '" /><div class="sweep-bounds"><span>' + min + '</span><span>' + max + '</span></div>';
+
+  const slider = div.querySelector('input');
+  slider.oninput = () => {
+    const val = parseFloat(slider.value);
+    document.getElementById('sweep-val-' + name).textContent = val;
+    _setAssumption(name, val);
+    _recompute();
+  };
+
+  container.appendChild(div);
+}
+
+// Initialize UI
+function init() {
+  // Create "Why?" modal
+  const modal = document.createElement('div');
+  modal.id = 'why-modal';
+  modal.className = 'why-modal hidden';
+  modal.innerHTML = '<div class="why-modal-content"><h3>Why this value?</h3><div id="why-explanation"></div><button id="why-modal-close" class="close-btn">Close</button></div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('why-modal-close').onclick = () => {
+    document.getElementById('why-modal').classList.add('hidden');
+  };
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  };
+
+  // Create value displays
+  const controlsDiv = document.getElementById('controls');
+  if (controlsDiv) {
+    Object.keys(_derivations).forEach(name => {
+      const d = _derivations[name];
+      const div = document.createElement('div');
+      div.className = 'control-group';
+      div.innerHTML = '<span class="control-label">' + name + ':</span> <span class="value-display" id="val-' + name + '">' + _formatValue(d.value) + '</span>';
+      controlsDiv.appendChild(div);
+    });
+  }
+
+  // Add "Why?" buttons
+  addWhyButton("gallons_used", "val-gallons_used");
+  addWhyButton("car_emissions", "val-car_emissions");
+  addWhyButton("flight_total", "val-flight_total");
+  addWhyButton("transport_total", "val-transport_total");
+  addWhyButton("electricity_annual", "val-electricity_annual");
+  addWhyButton("electricity_emissions", "val-electricity_emissions");
+  addWhyButton("gas_annual", "val-gas_annual");
+  addWhyButton("gas_emissions", "val-gas_emissions");
+  addWhyButton("home_total", "val-home_total");
+  addWhyButton("total_footprint", "val-total_footprint");
+  addWhyButton("monthly_average", "val-monthly_average");
+
+  // Add "What if?" toggles
+  addWhatIfToggle("car_miles", "number", "what-if-toggles");
+  addWhatIfToggle("car_mpg", "number", "what-if-toggles");
+  addWhatIfToggle("flights_per_year", "number", "what-if-toggles");
+  addWhatIfToggle("electricity_kwh", "number", "what-if-toggles");
+  addWhatIfToggle("natural_gas_therms", "number", "what-if-toggles");
+  addWhatIfToggle("gas_emission_factor", "number", "what-if-toggles");
+  addWhatIfToggle("electricity_factor", "number", "what-if-toggles");
+  addWhatIfToggle("gas_heat_factor", "number", "what-if-toggles");
+  addWhatIfToggle("flight_emissions", "number", "what-if-toggles");
+
+  // Add parameter sweep sliders
+  addSweepSlider("car_miles", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("car_mpg", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("flights_per_year", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("electricity_kwh", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("natural_gas_therms", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("gas_emission_factor", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("electricity_factor", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("gas_heat_factor", 0, 100, 1, 50, "parameter-sweeps");
+  addSweepSlider("flight_emissions", 0, 100, 1, 50, "parameter-sweeps");
+
+  // Initial computation
+  _recompute();
+}
+
+
+    // Initialize
+    if (typeof init === 'function') init();
+  </script>
+</body>
+</html>
