@@ -116,37 +116,29 @@
     .what-if-toggle .toggle-btn.active { background: #27ae60; }
     .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
     .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
-    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
-    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
-    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
-    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
-    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
-    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
-    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
-    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
-    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+
 
   </style>
 </head>
 <body>
   <div class="applet-container">
     <h1 class="applet-title">Loan Calculator</h1>
-    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
-    <div class="sweep-section" id="parameter-sweeps"></div>
+    
   </div>
   <script>
     // BosatsuUI Reactive Runtime
     const _state = {
-      principal: undefined,
-      annual_rate: undefined,
-      years: undefined
+      "annual_rate": undefined,
+      "principal": undefined,
+      "years": 30
     };
     const _listeners = {
-      principal: [],
-      annual_rate: [],
-      years: []
+      "annual_rate": [],
+      "principal": [],
+      "years": []
     };
     const _derivations = {};
 
@@ -180,13 +172,6 @@
     // Applet-specific code
 // Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
-
-// Basic arithmetic operations from Bosatsu Predef
-var add = (a, b) => a + b;
-var sub = (a, b) => a - b;
-var times = (a, b) => a * b;
-var div = (a, b) => Math.floor(a / b);
-
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
@@ -389,144 +374,108 @@ var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty 
 
 
 // Derivation state tracking
-const _derivations = {
-  "principal": {
-    type: "assumption",
-    name: "principal",
-    formula: "250000",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "annual_rate": {
-    type: "assumption",
-    name: "annual_rate",
-    formula: "7",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "years": {
-    type: "assumption",
-    name: "years",
-    formula: "30",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "monthly_rate": {
-    type: "computed",
-    name: "monthly_rate",
-    formula: "div(annual_rate, 1200)",
-    valueType: "any",
-    deps: ["annual_rate"],
-    value: undefined
-  },
-  "num_payments": {
-    type: "computed",
-    name: "num_payments",
-    formula: "times(years, 12)",
-    valueType: "any",
-    deps: ["years"],
-    value: undefined
-  },
-  "monthly_payment": {
-    type: "computed",
-    name: "monthly_payment",
-    formula: "add(times(principal, monthly_rate), div(principal, num_payments))",
-    valueType: "any",
-    deps: ["monthly_rate", "principal", "num_payments"],
-    value: undefined
-  },
-  "total_paid": {
-    type: "computed",
-    name: "total_paid",
-    formula: "times(monthly_payment, num_payments)",
-    valueType: "any",
-    deps: ["num_payments", "monthly_payment"],
-    value: undefined
-  },
-  "total_interest": {
-    type: "computed",
-    name: "total_interest",
-    formula: "sub(total_paid, principal)",
-    valueType: "any",
-    deps: ["principal", "total_paid"],
-    value: undefined
-  },
-  "interest_ratio": {
-    type: "computed",
-    name: "interest_ratio",
-    formula: "div(times(total_interest, 100), principal)",
-    valueType: "any",
-    deps: ["principal", "total_interest"],
-    value: undefined
-  }
+// Populate derivations (object created by EmbedGenerator runtime)
+_derivations["annual_rate"] = {
+  type: "assumption",
+  name: "annual_rate",
+  formula: "7",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["interest_ratio"] = {
+  type: "computed",
+  name: "interest_ratio",
+  formula: "div(times(total_interest, 100), principal)",
+  valueType: "number",
+  deps: ["total_interest", "principal"],
+  value: undefined
+};
+_derivations["monthly_payment"] = {
+  type: "computed",
+  name: "monthly_payment",
+  formula: "add(times(principal, monthly_rate), div(principal, num_payments))",
+  valueType: "number",
+  deps: ["monthly_rate", "principal", "num_payments"],
+  value: undefined
+};
+_derivations["monthly_rate"] = {
+  type: "computed",
+  name: "monthly_rate",
+  formula: "div(annual_rate, 1200)",
+  valueType: "number",
+  deps: ["annual_rate"],
+  value: undefined
+};
+_derivations["num_payments"] = {
+  type: "computed",
+  name: "num_payments",
+  formula: "times(years, 12)",
+  valueType: "number",
+  deps: ["years"],
+  value: undefined
+};
+_derivations["principal"] = {
+  type: "assumption",
+  name: "principal",
+  formula: "250000",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["total_interest"] = {
+  type: "computed",
+  name: "total_interest",
+  formula: "sub(total_paid, principal)",
+  valueType: "number",
+  deps: ["total_paid", "principal"],
+  value: undefined
+};
+_derivations["total_paid"] = {
+  type: "computed",
+  name: "total_paid",
+  formula: "times(monthly_payment, num_payments)",
+  valueType: "number",
+  deps: ["monthly_payment", "num_payments"],
+  value: undefined
+};
+_derivations["years"] = {
+  type: "assumption",
+  name: "years",
+  formula: "30",
+  valueType: "number",
+  deps: [],
+  value: undefined
 };
 
-// Register derivations with the reactive state system
-Object.keys(_derivations).forEach(name => {
-  _setDerivation(name, _derivations[name]);
-});
-
-// Computation code (from JsGen)
-const principal = 250000;
-const annual_rate = 7;
-const years = 30;
-const monthly_rate = div(annual_rate, 1200);
-const num_payments = times(years, 12);
-const monthly_payment = add(times(principal, monthly_rate), div(principal, num_payments));
-const total_paid = times(monthly_payment, num_payments);
-const total_interest = sub(total_paid, principal);
-const interest_ratio = div(times(total_interest, 100), principal);
-
-// Recomputation logic
+// Recomputation logic (replaces JsGen's const declarations)
 function _recompute() {
-  // Update principal
-  if (typeof principal !== 'undefined') {
-    _derivations["principal"].value = principal;
-    _setState("principal", principal);
-  }
-  // Update annual_rate
-  if (typeof annual_rate !== 'undefined') {
-    _derivations["annual_rate"].value = annual_rate;
-    _setState("annual_rate", annual_rate);
-  }
-  // Update years
-  if (typeof years !== 'undefined') {
-    _derivations["years"].value = years;
-    _setState("years", years);
-  }
-  // Update monthly_rate
-  if (typeof monthly_rate !== 'undefined') {
-    _derivations["monthly_rate"].value = monthly_rate;
-    _setState("monthly_rate", monthly_rate);
-  }
-  // Update num_payments
-  if (typeof num_payments !== 'undefined') {
-    _derivations["num_payments"].value = num_payments;
-    _setState("num_payments", num_payments);
-  }
-  // Update monthly_payment
-  if (typeof monthly_payment !== 'undefined') {
-    _derivations["monthly_payment"].value = monthly_payment;
-    _setState("monthly_payment", monthly_payment);
-  }
-  // Update total_paid
-  if (typeof total_paid !== 'undefined') {
-    _derivations["total_paid"].value = total_paid;
-    _setState("total_paid", total_paid);
-  }
-  // Update total_interest
-  if (typeof total_interest !== 'undefined') {
-    _derivations["total_interest"].value = total_interest;
-    _setState("total_interest", total_interest);
-  }
-  // Update interest_ratio
-  if (typeof interest_ratio !== 'undefined') {
-    _derivations["interest_ratio"].value = interest_ratio;
-    _setState("interest_ratio", interest_ratio);
-  }
+  // Read current assumption values from state
+  const annual_rate = _getState('annual_rate');
+  const years = _getState('years');
+  const principal = _getState('principal');
+
+  // Compute derived values
+  const num_payments = (years * 12);
+  const monthly_rate = Math.trunc(annual_rate / 1200);
+  const monthly_payment = ((principal * monthly_rate) + Math.trunc(principal / num_payments));
+  const total_paid = (monthly_payment * num_payments);
+  const total_interest = (total_paid - principal);
+  const interest_ratio = Math.trunc((total_interest * 100) / principal);
+
+  // Update all derivations and state
+  _derivations["annual_rate"].value = annual_rate;
+  _setState("annual_rate", annual_rate);
+  _derivations["years"].value = years;
+  _setState("years", years);
+  _derivations["num_payments"].value = num_payments;
+  _derivations["monthly_rate"].value = monthly_rate;
+  _derivations["principal"].value = principal;
+  _setState("principal", principal);
+  _derivations["monthly_payment"].value = monthly_payment;
+  _derivations["total_paid"].value = total_paid;
+  _derivations["total_interest"].value = total_interest;
+  _derivations["interest_ratio"].value = interest_ratio;
 
   // Update UI displays
   Object.keys(_derivations).forEach(name => {
@@ -688,22 +637,20 @@ function init() {
   }
 
   // Add "Why?" buttons
+  addWhyButton("interest_ratio", "val-interest_ratio");
+  addWhyButton("monthly_payment", "val-monthly_payment");
   addWhyButton("monthly_rate", "val-monthly_rate");
   addWhyButton("num_payments", "val-num_payments");
-  addWhyButton("monthly_payment", "val-monthly_payment");
-  addWhyButton("total_paid", "val-total_paid");
   addWhyButton("total_interest", "val-total_interest");
-  addWhyButton("interest_ratio", "val-interest_ratio");
+  addWhyButton("total_paid", "val-total_paid");
 
   // Add "What if?" toggles
-  addWhatIfToggle("principal", "number", "what-if-toggles");
   addWhatIfToggle("annual_rate", "number", "what-if-toggles");
+  addWhatIfToggle("principal", "number", "what-if-toggles");
   addWhatIfToggle("years", "number", "what-if-toggles");
 
   // Add parameter sweep sliders
-  addSweepSlider("principal", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("annual_rate", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("years", 0, 100, 1, 50, "parameter-sweeps");
+
 
   // Initial computation
   _recompute();

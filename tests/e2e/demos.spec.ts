@@ -23,6 +23,8 @@ test.describe('Loan Calculator Demo', () => {
   test.beforeEach(async ({ page }) => {
     setupConsoleCapture(page);
     await page.goto('/demo/loan-calculator.html');
+    // Wait for JavaScript to initialize (controls are populated dynamically)
+    await expect(page.locator('.value-display').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('page loads successfully', async ({ page }) => {

@@ -116,39 +116,31 @@
     .what-if-toggle .toggle-btn.active { background: #27ae60; }
     .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
     .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
-    .parameter-sweep { padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 8px; }
-    .parameter-sweep .sweep-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
-    .parameter-sweep .sweep-name { font-weight: 500; color: #333; }
-    .parameter-sweep .sweep-value { font-family: monospace; color: #667eea; font-weight: bold; }
-    .parameter-sweep .sweep-slider { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
-    .parameter-sweep .sweep-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #667eea; border-radius: 50%; cursor: pointer; }
-    .parameter-sweep .sweep-bounds { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 4px; }
-    .sweep-heatmap { border: 1px solid #ddd; border-radius: 4px; }
-    .sweep-legend { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+
 
   </style>
 </head>
 <body>
   <div class="applet-container">
     <h1 class="applet-title">Investment Calculator</h1>
-    <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="400"></canvas>
+    
     <div class="controls-section" id="controls"></div>
     <div class="what-if-section" id="what-if-toggles"></div>
-    <div class="sweep-section" id="parameter-sweeps"></div>
+    
   </div>
   <script>
     // BosatsuUI Reactive Runtime
     const _state = {
-      initial_investment: undefined,
-      monthly_contribution: undefined,
-      annual_return: undefined,
-      investment_years: undefined
+      "annual_return": undefined,
+      "initial_investment": undefined,
+      "investment_years": 20,
+      "monthly_contribution": undefined
     };
     const _listeners = {
-      initial_investment: [],
-      monthly_contribution: [],
-      annual_return: [],
-      investment_years: []
+      "annual_return": [],
+      "initial_investment": [],
+      "investment_years": [],
+      "monthly_contribution": []
     };
     const _derivations = {};
 
@@ -182,13 +174,6 @@
     // Applet-specific code
 // Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
-
-// Basic arithmetic operations from Bosatsu Predef
-var add = (a, b) => a + b;
-var sub = (a, b) => a - b;
-var times = (a, b) => a * b;
-var div = (a, b) => Math.floor(a / b);
-
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
@@ -391,186 +376,139 @@ var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty 
 
 
 // Derivation state tracking
-const _derivations = {
-  "initial_investment": {
-    type: "assumption",
-    name: "initial_investment",
-    formula: "10000",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "monthly_contribution": {
-    type: "assumption",
-    name: "monthly_contribution",
-    formula: "500",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "annual_return": {
-    type: "assumption",
-    name: "annual_return",
-    formula: "8",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "investment_years": {
-    type: "assumption",
-    name: "investment_years",
-    formula: "20",
-    valueType: "number",
-    deps: [],
-    value: undefined
-  },
-  "months": {
-    type: "computed",
-    name: "months",
-    formula: "times(investment_years, 12)",
-    valueType: "any",
-    deps: ["investment_years"],
-    value: undefined
-  },
-  "monthly_return": {
-    type: "computed",
-    name: "monthly_return",
-    formula: "div(annual_return, 1200)",
-    valueType: "any",
-    deps: ["annual_return"],
-    value: undefined
-  },
-  "total_contributions": {
-    type: "computed",
-    name: "total_contributions",
-    formula: "add(initial_investment, times(monthly_contribution, months))",
-    valueType: "any",
-    deps: ["months", "monthly_contribution", "initial_investment"],
-    value: undefined
-  },
-  "growth_multiplier": {
-    type: "computed",
-    name: "growth_multiplier",
-    formula: "div(add(100, annual_return), 100)",
-    valueType: "any",
-    deps: ["annual_return"],
-    value: undefined
-  },
-  "years_growth": {
-    type: "computed",
-    name: "years_growth",
-    formula: "times(growth_multiplier, investment_years)",
-    valueType: "any",
-    deps: ["investment_years", "growth_multiplier"],
-    value: undefined
-  },
-  "estimated_value": {
-    type: "computed",
-    name: "estimated_value",
-    formula: "div(times(total_contributions, years_growth), 10)",
-    valueType: "any",
-    deps: ["total_contributions", "years_growth"],
-    value: undefined
-  },
-  "total_gains": {
-    type: "computed",
-    name: "total_gains",
-    formula: "sub(estimated_value, total_contributions)",
-    valueType: "any",
-    deps: ["estimated_value", "total_contributions"],
-    value: undefined
-  },
-  "gain_percentage": {
-    type: "computed",
-    name: "gain_percentage",
-    formula: "div(times(total_gains, 100), total_contributions)",
-    valueType: "any",
-    deps: ["total_contributions", "total_gains"],
-    value: undefined
-  }
+// Populate derivations (object created by EmbedGenerator runtime)
+_derivations["annual_return"] = {
+  type: "assumption",
+  name: "annual_return",
+  formula: "8",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["estimated_value"] = {
+  type: "computed",
+  name: "estimated_value",
+  formula: "div(times(total_contributions, years_growth), 10)",
+  valueType: "number",
+  deps: ["total_contributions", "years_growth"],
+  value: undefined
+};
+_derivations["gain_percentage"] = {
+  type: "computed",
+  name: "gain_percentage",
+  formula: "div(times(total_gains, 100), total_contributions)",
+  valueType: "number",
+  deps: ["total_gains", "total_contributions"],
+  value: undefined
+};
+_derivations["growth_multiplier"] = {
+  type: "computed",
+  name: "growth_multiplier",
+  formula: "div(add(100, annual_return), 100)",
+  valueType: "number",
+  deps: ["annual_return"],
+  value: undefined
+};
+_derivations["initial_investment"] = {
+  type: "assumption",
+  name: "initial_investment",
+  formula: "10000",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["investment_years"] = {
+  type: "assumption",
+  name: "investment_years",
+  formula: "20",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["monthly_contribution"] = {
+  type: "assumption",
+  name: "monthly_contribution",
+  formula: "500",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["monthly_return"] = {
+  type: "computed",
+  name: "monthly_return",
+  formula: "div(annual_return, 1200)",
+  valueType: "number",
+  deps: ["annual_return"],
+  value: undefined
+};
+_derivations["months"] = {
+  type: "computed",
+  name: "months",
+  formula: "times(investment_years, 12)",
+  valueType: "number",
+  deps: ["investment_years"],
+  value: undefined
+};
+_derivations["total_contributions"] = {
+  type: "computed",
+  name: "total_contributions",
+  formula: "add(initial_investment, times(monthly_contribution, months))",
+  valueType: "number",
+  deps: ["months", "monthly_contribution", "initial_investment"],
+  value: undefined
+};
+_derivations["total_gains"] = {
+  type: "computed",
+  name: "total_gains",
+  formula: "sub(estimated_value, total_contributions)",
+  valueType: "number",
+  deps: ["estimated_value", "total_contributions"],
+  value: undefined
+};
+_derivations["years_growth"] = {
+  type: "computed",
+  name: "years_growth",
+  formula: "times(growth_multiplier, investment_years)",
+  valueType: "number",
+  deps: ["growth_multiplier", "investment_years"],
+  value: undefined
 };
 
-// Register derivations with the reactive state system
-Object.keys(_derivations).forEach(name => {
-  _setDerivation(name, _derivations[name]);
-});
-
-// Computation code (from JsGen)
-const initial_investment = 10000;
-const monthly_contribution = 500;
-const annual_return = 8;
-const investment_years = 20;
-const months = times(investment_years, 12);
-const monthly_return = div(annual_return, 1200);
-const total_contributions = add(initial_investment, times(monthly_contribution, months));
-const growth_multiplier = div(add(100, annual_return), 100);
-const years_growth = times(growth_multiplier, investment_years);
-const estimated_value = div(times(total_contributions, years_growth), 10);
-const total_gains = sub(estimated_value, total_contributions);
-const gain_percentage = div(times(total_gains, 100), total_contributions);
-
-// Recomputation logic
+// Recomputation logic (replaces JsGen's const declarations)
 function _recompute() {
-  // Update initial_investment
-  if (typeof initial_investment !== 'undefined') {
-    _derivations["initial_investment"].value = initial_investment;
-    _setState("initial_investment", initial_investment);
-  }
-  // Update monthly_contribution
-  if (typeof monthly_contribution !== 'undefined') {
-    _derivations["monthly_contribution"].value = monthly_contribution;
-    _setState("monthly_contribution", monthly_contribution);
-  }
-  // Update annual_return
-  if (typeof annual_return !== 'undefined') {
-    _derivations["annual_return"].value = annual_return;
-    _setState("annual_return", annual_return);
-  }
-  // Update investment_years
-  if (typeof investment_years !== 'undefined') {
-    _derivations["investment_years"].value = investment_years;
-    _setState("investment_years", investment_years);
-  }
-  // Update months
-  if (typeof months !== 'undefined') {
-    _derivations["months"].value = months;
-    _setState("months", months);
-  }
-  // Update monthly_return
-  if (typeof monthly_return !== 'undefined') {
-    _derivations["monthly_return"].value = monthly_return;
-    _setState("monthly_return", monthly_return);
-  }
-  // Update total_contributions
-  if (typeof total_contributions !== 'undefined') {
-    _derivations["total_contributions"].value = total_contributions;
-    _setState("total_contributions", total_contributions);
-  }
-  // Update growth_multiplier
-  if (typeof growth_multiplier !== 'undefined') {
-    _derivations["growth_multiplier"].value = growth_multiplier;
-    _setState("growth_multiplier", growth_multiplier);
-  }
-  // Update years_growth
-  if (typeof years_growth !== 'undefined') {
-    _derivations["years_growth"].value = years_growth;
-    _setState("years_growth", years_growth);
-  }
-  // Update estimated_value
-  if (typeof estimated_value !== 'undefined') {
-    _derivations["estimated_value"].value = estimated_value;
-    _setState("estimated_value", estimated_value);
-  }
-  // Update total_gains
-  if (typeof total_gains !== 'undefined') {
-    _derivations["total_gains"].value = total_gains;
-    _setState("total_gains", total_gains);
-  }
-  // Update gain_percentage
-  if (typeof gain_percentage !== 'undefined') {
-    _derivations["gain_percentage"].value = gain_percentage;
-    _setState("gain_percentage", gain_percentage);
-  }
+  // Read current assumption values from state
+  const annual_return = _getState('annual_return');
+  const monthly_contribution = _getState('monthly_contribution');
+  const investment_years = _getState('investment_years');
+  const initial_investment = _getState('initial_investment');
+
+  // Compute derived values
+  const months = (investment_years * 12);
+  const total_contributions = (initial_investment + (monthly_contribution * months));
+  const growth_multiplier = Math.trunc((100 + annual_return) / 100);
+  const years_growth = (growth_multiplier * investment_years);
+  const estimated_value = Math.trunc((total_contributions * years_growth) / 10);
+  const total_gains = (estimated_value - total_contributions);
+  const gain_percentage = Math.trunc((total_gains * 100) / total_contributions);
+  const monthly_return = Math.trunc(annual_return / 1200);
+
+  // Update all derivations and state
+  _derivations["annual_return"].value = annual_return;
+  _setState("annual_return", annual_return);
+  _derivations["monthly_contribution"].value = monthly_contribution;
+  _setState("monthly_contribution", monthly_contribution);
+  _derivations["investment_years"].value = investment_years;
+  _setState("investment_years", investment_years);
+  _derivations["months"].value = months;
+  _derivations["initial_investment"].value = initial_investment;
+  _setState("initial_investment", initial_investment);
+  _derivations["total_contributions"].value = total_contributions;
+  _derivations["growth_multiplier"].value = growth_multiplier;
+  _derivations["years_growth"].value = years_growth;
+  _derivations["estimated_value"].value = estimated_value;
+  _derivations["total_gains"].value = total_gains;
+  _derivations["gain_percentage"].value = gain_percentage;
+  _derivations["monthly_return"].value = monthly_return;
 
   // Update UI displays
   Object.keys(_derivations).forEach(name => {
@@ -732,26 +670,23 @@ function init() {
   }
 
   // Add "Why?" buttons
-  addWhyButton("months", "val-months");
-  addWhyButton("monthly_return", "val-monthly_return");
-  addWhyButton("total_contributions", "val-total_contributions");
-  addWhyButton("growth_multiplier", "val-growth_multiplier");
-  addWhyButton("years_growth", "val-years_growth");
   addWhyButton("estimated_value", "val-estimated_value");
-  addWhyButton("total_gains", "val-total_gains");
   addWhyButton("gain_percentage", "val-gain_percentage");
+  addWhyButton("growth_multiplier", "val-growth_multiplier");
+  addWhyButton("monthly_return", "val-monthly_return");
+  addWhyButton("months", "val-months");
+  addWhyButton("total_contributions", "val-total_contributions");
+  addWhyButton("total_gains", "val-total_gains");
+  addWhyButton("years_growth", "val-years_growth");
 
   // Add "What if?" toggles
-  addWhatIfToggle("initial_investment", "number", "what-if-toggles");
-  addWhatIfToggle("monthly_contribution", "number", "what-if-toggles");
   addWhatIfToggle("annual_return", "number", "what-if-toggles");
+  addWhatIfToggle("initial_investment", "number", "what-if-toggles");
   addWhatIfToggle("investment_years", "number", "what-if-toggles");
+  addWhatIfToggle("monthly_contribution", "number", "what-if-toggles");
 
   // Add parameter sweep sliders
-  addSweepSlider("initial_investment", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("monthly_contribution", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("annual_return", 0, 100, 1, 50, "parameter-sweeps");
-  addSweepSlider("investment_years", 0, 100, 1, 50, "parameter-sweeps");
+
 
   // Initial computation
   _recompute();

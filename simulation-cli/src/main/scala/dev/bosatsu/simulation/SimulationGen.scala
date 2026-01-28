@@ -165,12 +165,18 @@ ${populateStmts.mkString("\n")}"""
       s"  const $escaped = ${formulaToJs(formula)};"
     }
 
-    // Update derivations and state
+    // Update derivations (and state for assumptions only - computed values don't have listeners)
     val updateStmts = sorted.map { a =>
       val name = a.name.asString
       val escaped = JsGen.escape(a.name).name
-      s"""  _derivations["$name"].value = $escaped;
+      // Only call _setState for assumptions - they have listeners
+      // Computed values just update their derivation value
+      if (a.kind == DerivationAnalyzer.Assumption) {
+        s"""  _derivations["$name"].value = $escaped;
   _setState("$name", $escaped);"""
+      } else {
+        s"""  _derivations["$name"].value = $escaped;"""
+      }
     }
 
     s"""function _recompute() {
@@ -414,7 +420,13 @@ $sweepSliders
 
   /**
    * Convert a Bosatsu formula to JavaScript.
-   * Handles function call syntax like add(a, b), sub(a, b), times(a, b), div(a, b)
+   *
+   * NOTE: This handles Predef method-call syntax (e.g., a.add(b)).
+   * For Numeric module operators (*.  +.  -.  /.), use JsGen's proper
+   * compilation pipeline instead - those operators are handled correctly
+   * by NumericExternal intrinsics in JsGen.
+   *
+   * See CLAUDE.md: "Never Treat Symptoms with String Replacement"
    */
   private def formulaToJs(formula: String): String = {
     var result = formula
