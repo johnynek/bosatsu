@@ -20,7 +20,7 @@ object ProvenanceExtractor {
   /**
    * Derivation kind determines UI treatment and explanation style.
    */
-  sealed trait DerivationKind
+  sealed trait DerivationKind derives CanEqual
   case object Input extends DerivationKind        // Function parameter (user input)
   case object Intermediate extends DerivationKind // Let binding in function body
   case object Output extends DerivationKind       // Field in return struct

@@ -10,7 +10,7 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
-  sealed abstract class Expr[+A]
+  sealed abstract class Expr[+A] derives CanEqual
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr[+A] extends Expr[A]
@@ -59,13 +59,17 @@ object Matchless {
   object Let {
     def apply[A](arg: Bindable, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
-      if (in == Local(arg)) expr
-      else Let(Right(arg), expr, in)
+      in match {
+        case Local(a) if a == arg => expr
+        case _                     => Let(Right(arg), expr, in)
+      }
 
     def apply[A](arg: LocalAnon, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
-      if (in == arg) expr
-      else Let(Left(arg), expr, in)
+      in match {
+        case LocalAnon(id) if id == arg.ident => expr
+        case _                                => Let(Left(arg), expr, in)
+      }
   }
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
@@ -84,7 +88,7 @@ object Matchless {
   // these result in Int values which are also used as booleans
   // evaluating these CAN have side effects of mutating LocalAnon
   // variables.
-  sealed abstract class BoolExpr[+A] {
+  sealed abstract class BoolExpr[+A] derives CanEqual {
     final def &&[A1 >: A](that: BoolExpr[A1]): BoolExpr[A1] =
       (this, that) match {
         case (TrueConst, r) => r
@@ -316,6 +320,11 @@ object Matchless {
       NonEmptyList[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
 
     val wildMatch: UnionMatch = NonEmptyList((Nil, TrueConst, Nil), Nil)
+    def isWildMatch(um: UnionMatch): Boolean =
+      um match {
+        case NonEmptyList((Nil, TrueConst, Nil), Nil) => true
+        case _                                        => false
+      }
 
     val emptyExpr: Expr[B] =
       empty match {
@@ -357,7 +366,7 @@ object Matchless {
             (copy(slots = newSlots), captures)
           case Some(n) =>
             val newSlots = frees.iterator
-              .filterNot(_ === n)
+              .filterNot(_ == n)
               .zipWithIndex
               .map { case (b, idx) => (b, ClosureSlot(idx)) }
               .toMap
@@ -471,8 +480,6 @@ object Matchless {
           result: LocalAnonMut
       ): Expr[B] = {
 
-        val nameExpr = Local(name)
-
         def returnValue(v: Expr[B]): Expr[B] =
           setAll((cond, FalseExpr) :: (result, v) :: Nil, UnitExpr)
 
@@ -481,7 +488,7 @@ object Matchless {
         // else None
         def loop(expr: Expr[B]): Option[Expr[B]] =
           expr match {
-            case App(fn, appArgs) if fn == nameExpr =>
+            case App(Local(fnName), appArgs) if fnName == name =>
               // this is a tail call
               // we know the length of appArgs must match args or the code wouldn't have compiled
               // we have to first assign to the temp variables, and then assign the temp variables
@@ -489,7 +496,13 @@ object Matchless {
               val tmpAssigns = appArgs.iterator
                 .zip(args.iterator)
                 .flatMap { case (appArg, argRecord) =>
-                  if (appArg != argRecord.loopVar)
+                  val isSelfAssign = appArg match {
+                    case LocalAnonMut(id) => id == argRecord.loopVar.ident
+                    case _                => false
+                  }
+                  if (isSelfAssign)
+                    Iterator.empty
+                  else
                     // don't create self assignments
                     Iterator.single(
                       (
@@ -497,8 +510,6 @@ object Matchless {
                         (argRecord.loopVar, argRecord.tmp)
                       )
                     )
-                  else
-                    Iterator.empty
                 }
                 .toList
 
@@ -716,7 +727,7 @@ object Matchless {
               dr match {
                 case DataRepr.Struct(_) | DataRepr.NewType =>
                   ps.traverse(maybeSimple).flatMap { inners =>
-                    if (inners.forall(_ === Right(()))) Some(Right(()))
+                    if (inners.forall(_ == Right(()))) Some(Right(()))
                     else None
                   }
                 case _ => None
@@ -730,7 +741,7 @@ object Matchless {
           }
         case Pattern.Union(h, t) =>
           (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
-            if (inners.forall(_ === Right(()))) Some(Right(()))
+            if (inners.forall(_ == Right(()))) Some(Right(()))
             else None
           }
       }
@@ -992,7 +1003,7 @@ object Matchless {
                     )
                     // if this is a total match, we don't need to do the getter at all
                     chain =
-                      if (um == wildMatch) Chain.empty
+                      if (isWildMatch(um)) Chain.empty
                       else Chain.one((lam, getter(idx)))
                     _ <- WriterT.tell[F, Locals](chain)
                   } yield um
@@ -1038,7 +1049,7 @@ object Matchless {
                     else CheckVariant(arg, vidx, size, f)
                   asStruct(pos => GetEnumElement(arg, vidx, pos, size)).run
                     .map { case (anons, ums) =>
-                      if (ums == wildMatch) {
+                      if (isWildMatch(ums)) {
                         // we just need to check the variant
                         assert(
                           anons.isEmpty,

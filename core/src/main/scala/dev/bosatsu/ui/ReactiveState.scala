@@ -41,7 +41,7 @@ final class MutableState[A](initial: A) extends StateValue[A] {
   def get: A = currentValue
 
   def set(value: A): Unit = {
-    if (value != currentValue) {
+    if (!value.equals(currentValue)) {
       currentValue = value
       notifyListeners()
     }
@@ -128,7 +128,7 @@ final class ComputedState[A](compute: () => A, deps: Seq[StateValue[_]]) extends
 
   private def recompute(): Unit = {
     val newValue = compute()
-    if (newValue != cachedValue) {
+    if (!newValue.equals(cachedValue)) {
       cachedValue = newValue
       listeners.foreach(_(cachedValue))
     }

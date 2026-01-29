@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import cats.Functor
+import cats.{Eq, Functor}
+import cats.syntax.all._
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.spaces
@@ -32,6 +33,19 @@ sealed abstract class ImportedName[+T] {
 }
 
 object ImportedName {
+  implicit def eqImportedName[T](implicit eqT: Eq[T]): Eq[ImportedName[T]] =
+    Eq.instance {
+      case (OriginalName(leftName, leftTag), OriginalName(rightName, rightTag)) =>
+        (leftName == rightName) && eqT.eqv(leftTag, rightTag)
+      case (
+            Renamed(leftOrig, leftLocal, leftTag),
+            Renamed(rightOrig, rightLocal, rightTag)
+          ) =>
+        (leftOrig == rightOrig) &&
+          (leftLocal == rightLocal) &&
+          eqT.eqv(leftTag, rightTag)
+      case _ => false
+    }
   case class OriginalName[T](originalName: Identifier, tag: T)
       extends ImportedName[T] {
     def localName = originalName

@@ -101,15 +101,15 @@ object DaemonServer {
     }
   }
 
-  /** Start the daemon in the background */
-  def startBackground(config: Config): IO[Unit] =
-    run(config).start.void
+  /** Start the daemon in the background, returning the fiber for cancellation */
+  def startBackground(config: Config): IO[cats.effect.FiberIO[Unit]] =
+    run(config).start
 
   /** Resource that manages daemon lifecycle */
   def resource(config: Config): Resource[IO, Unit] =
-    Resource.make(startBackground(config))(_ =>
-      Files[IO].deleteIfExists(config.socketPath).void
-    )
+    Resource.make(startBackground(config))(fiber =>
+      fiber.cancel >> Files[IO].deleteIfExists(config.socketPath).void
+    ).void
 }
 
 /**
@@ -155,15 +155,21 @@ object DaemonClient {
     }
   }
 
-  /** Parse a JSON response */
-  private def parseResponse(json: dev.bosatsu.Json): Either[String, DaemonResponse] = {
+  /** Parse a JSON response - package private for testing */
+  private[daemon] def parseResponse(json: dev.bosatsu.Json): Either[String, DaemonResponse] = {
     json match {
       case obj: dev.bosatsu.Json.JObject =>
         obj.toMap.get("success") match {
           case Some(dev.bosatsu.Json.JBool.True) =>
-            // Success response - we return a simplified success for now
-            // Full response data parsing would be complex
-            Right(DaemonResponse.Success(ResponseData.ShutdownResult("ok")))
+            // Parse the data field to determine the actual response type
+            obj.toMap.get("data") match {
+              case Some(dataObj: dev.bosatsu.Json.JObject) =>
+                parseResponseData(dataObj).map(DaemonResponse.Success(_))
+              case Some(_) =>
+                Left("'data' field is not a JSON object")
+              case None =>
+                Left("Missing 'data' field in success response")
+            }
           case Some(dev.bosatsu.Json.JBool.False) =>
             obj.toMap.get("error") match {
               case Some(dev.bosatsu.Json.JString(msg)) =>
@@ -177,6 +183,266 @@ object DaemonClient {
       case _ =>
         Left("Response is not a JSON object")
     }
+  }
+
+  /** Parse the data field of a success response */
+  private def parseResponseData(obj: dev.bosatsu.Json.JObject): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    val map = obj.toMap
+
+    map.get("type") match {
+      case Some(JString("nodeList")) =>
+        parseNodeList(map)
+      case Some(JString("explain")) =>
+        parseExplainResult(map)
+      case Some(JString("find")) =>
+        parseFindResult(map)
+      case Some(JString("deps")) =>
+        parseDepsResult(map)
+      case Some(JString("usages")) =>
+        parseUsagesResult(map)
+      case Some(JString("focus")) =>
+        parseFocusResult(map)
+      case Some(JString("unfocus")) =>
+        map.get("message") match {
+          case Some(JString(msg)) => Right(ResponseData.UnfocusResult(msg))
+          case _ => Right(ResponseData.UnfocusResult(""))
+        }
+      case Some(JString("path")) =>
+        parsePathResult(map)
+      case Some(JString("value")) =>
+        parseValueResult(map)
+      case Some(JString("source")) =>
+        parseSourceResult(map)
+      case Some(JString("snippet")) =>
+        parseSnippetResult(map)
+      case Some(JString("eval")) =>
+        parseEvalResult(map)
+      case Some(JString("status")) =>
+        parseStatusResult(map)
+      case Some(JString("shutdown")) =>
+        map.get("message") match {
+          case Some(JString(msg)) => Right(ResponseData.ShutdownResult(msg))
+          case _ => Right(ResponseData.ShutdownResult("ok"))
+        }
+      case Some(JString(other)) =>
+        Left(s"Unknown response type: $other")
+      case _ =>
+        Left("Missing 'type' field in response data")
+    }
+  }
+
+  /** Parse a NodeSummary from JSON */
+  private def parseNodeSummary(json: dev.bosatsu.Json): Either[String, ResponseData.NodeSummary] = {
+    import dev.bosatsu.Json._
+    json match {
+      case obj: JObject =>
+        val map = obj.toMap
+        for {
+          id <- map.get("id").collect { case JString(s) => NodeId(s) }.toRight("Missing 'id'")
+          typeInfo <- map.get("typeInfo").collect { case JString(s) => s }.toRight("Missing 'typeInfo'")
+          source <- map.get("source").collect { case JString(s) => s }.toRight("Missing 'source'")
+        } yield ResponseData.NodeSummary(
+          id = id,
+          value = map.get("value").collect { case JString(s) => s },
+          typeInfo = typeInfo,
+          source = source,
+          bindingName = map.get("bindingName").collect { case JString(s) => s },
+          location = parseSourceLocation(map.get("location"))
+        )
+      case _ => Left("NodeSummary is not a JSON object")
+    }
+  }
+
+  /** Parse a SourceLocation from JSON */
+  private def parseSourceLocation(json: Option[dev.bosatsu.Json]): Option[SourceLocation] = {
+    import dev.bosatsu.Json._
+    json.flatMap {
+      case obj: JObject =>
+        val map = obj.toMap
+        for {
+          file <- map.get("file").collect { case JString(s) => s }
+          line <- map.get("line").collect { case JNumberStr(s) => s.toInt }
+          column <- map.get("column").collect { case JNumberStr(s) => s.toInt }
+        } yield SourceLocation(file, line, column)
+      case _ => None
+    }
+  }
+
+  /** Parse NodeList response */
+  private def parseNodeList(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    map.get("nodes") match {
+      case Some(JArray(nodes)) =>
+        nodes.toList.traverse(parseNodeSummary).map(ResponseData.NodeList(_))
+      case _ => Left("Missing 'nodes' array in nodeList response")
+    }
+  }
+
+  /** Parse Explain response */
+  private def parseExplainResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+      tree <- map.get("tree").collect { case JString(s) => s }.toRight("Missing 'tree'")
+      compact <- map.get("compact").collect { case JString(s) => s }.toRight("Missing 'compact'")
+      node <- map.get("node").toRight("Missing 'node'").flatMap(parseNodeSummary)
+    } yield ResponseData.ExplainResult(nodeId, tree, compact, node)
+  }
+
+  /** Parse Find response */
+  private def parseFindResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    map.get("nodes") match {
+      case Some(JArray(nodes)) =>
+        nodes.toList.traverse(parseNodeSummary).map(ResponseData.FindResult(_))
+      case _ => Left("Missing 'nodes' array in find response")
+    }
+  }
+
+  /** Parse Deps response */
+  private def parseDepsResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+      deps <- map.get("dependencies") match {
+        case Some(JArray(nodes)) => nodes.toList.traverse(parseNodeSummary)
+        case _ => Left("Missing 'dependencies' array")
+      }
+    } yield ResponseData.DepsResult(nodeId, deps)
+  }
+
+  /** Parse Usages response */
+  private def parseUsagesResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+      usages <- map.get("usages") match {
+        case Some(JArray(nodes)) => nodes.toList.traverse(parseNodeSummary)
+        case _ => Left("Missing 'usages' array")
+      }
+    } yield ResponseData.UsagesResult(nodeId, usages)
+  }
+
+  /** Parse Focus response */
+  private def parseFocusResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      message <- map.get("message").collect { case JString(s) => s }.toRight("Missing 'message'")
+      node <- map.get("node").toRight("Missing 'node'").flatMap(parseNodeSummary)
+    } yield ResponseData.FocusResult(message, node)
+  }
+
+  /** Parse Path response */
+  private def parsePathResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    map.get("path") match {
+      case Some(JArray(nodes)) =>
+        nodes.toList.traverse(parseNodeSummary).map(ResponseData.PathResult(_))
+      case _ => Left("Missing 'path' array")
+    }
+  }
+
+  /** Parse Value response */
+  private def parseValueResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+      value <- map.get("value").collect { case JString(s) => s }.toRight("Missing 'value'")
+      valueJson <- map.get("valueJson").collect { case JString(s) => s }.toRight("Missing 'valueJson'")
+    } yield ResponseData.ValueResult(nodeId, value, valueJson)
+  }
+
+  /** Parse Source response */
+  private def parseSourceResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+    } yield ResponseData.SourceResult(nodeId, parseSourceLocation(map.get("location")))
+  }
+
+  /** Parse Snippet response */
+  private def parseSnippetResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      nodeId <- map.get("nodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'nodeId'")
+      location <- parseSourceLocation(map.get("location")).toRight("Missing 'location'")
+      lines <- map.get("lines") match {
+        case Some(JArray(arr)) => arr.toList.traverse(parseSnippetLine)
+        case _ => Left("Missing 'lines' array")
+      }
+      scope <- map.get("scope") match {
+        case Some(JArray(arr)) => arr.toList.traverse(parseScopeEntry)
+        case _ => Left("Missing 'scope' array")
+      }
+      result <- map.get("result").toRight("Missing 'result'").flatMap(parseScopeEntry)
+    } yield ResponseData.SnippetResult(nodeId, location, lines, scope, result)
+  }
+
+  /** Parse SnippetLine from JSON */
+  private def parseSnippetLine(json: dev.bosatsu.Json): Either[String, ResponseData.SnippetLine] = {
+    import dev.bosatsu.Json._
+    json match {
+      case obj: JObject =>
+        val map = obj.toMap
+        for {
+          lineNum <- map.get("lineNum").collect { case JNumberStr(s) => s.toInt }.toRight("Missing 'lineNum'")
+          code <- map.get("code").collect { case JString(s) => s }.toRight("Missing 'code'")
+          highlight <- Right(map.get("highlight").contains(JBool.True))
+        } yield ResponseData.SnippetLine(lineNum, code, highlight)
+      case _ => Left("SnippetLine is not a JSON object")
+    }
+  }
+
+  /** Parse ScopeEntry from JSON */
+  private def parseScopeEntry(json: dev.bosatsu.Json): Either[String, ResponseData.ScopeEntry] = {
+    import dev.bosatsu.Json._
+    json match {
+      case obj: JObject =>
+        val map = obj.toMap
+        for {
+          name <- map.get("name").collect { case JString(s) => s }.toRight("Missing 'name'")
+          value <- map.get("value").collect { case JString(s) => s }.toRight("Missing 'value'")
+        } yield ResponseData.ScopeEntry(
+          name = name,
+          value = value,
+          nodeId = map.get("nodeId").collect { case JString(s) => NodeId(s) }
+        )
+      case _ => Left("ScopeEntry is not a JSON object")
+    }
+  }
+
+  /** Parse Eval response */
+  private def parseEvalResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      expression <- map.get("expression").collect { case JString(s) => s }.toRight("Missing 'expression'")
+      result <- map.get("result").collect { case JString(s) => s }.toRight("Missing 'result'")
+      scope <- map.get("scope") match {
+        case Some(obj: JObject) =>
+          Right(obj.toMap.collect { case (k, JString(v)) => k -> v })
+        case _ => Right(Map.empty[String, String])
+      }
+    } yield ResponseData.EvalResult(expression, result, scope)
+  }
+
+  /** Parse Status response */
+  private def parseStatusResult(map: Map[String, dev.bosatsu.Json]): Either[String, ResponseData] = {
+    import dev.bosatsu.Json._
+    for {
+      running <- map.get("running").collect { case JBool(b) => b }.toRight("Missing 'running'")
+      traceFile <- map.get("traceFile").collect { case JString(s) => s }.toRight("Missing 'traceFile'")
+      nodeCount <- map.get("nodeCount").collect { case JNumberStr(s) => s.toInt }.toRight("Missing 'nodeCount'")
+      resultNodeId <- map.get("resultNodeId").collect { case JString(s) => NodeId(s) }.toRight("Missing 'resultNodeId'")
+      resultValue <- map.get("resultValue").collect { case JString(s) => s }.toRight("Missing 'resultValue'")
+    } yield ResponseData.StatusResult(
+      running = running,
+      traceFile = traceFile,
+      nodeCount = nodeCount,
+      focusNodeId = map.get("focusNodeId").collect { case JString(s) => NodeId(s) },
+      resultNodeId = resultNodeId,
+      resultValue = resultValue
+    )
   }
 
   /** Check if daemon is running */

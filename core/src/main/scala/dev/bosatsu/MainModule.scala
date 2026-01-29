@@ -141,7 +141,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         def getMain(
             ps: List[(Path, PackageName)]
         ): IO[(PackageName, Option[Bindable])] =
-          ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
+          ps.collectFirst {
+            case (path, pn) if pathOrdering.equiv(path, mainFile) => pn
+          }
+            match {
             case Some(p) => moduleIOMonad.pure((p, None))
             case None    =>
               moduleIOMonad.raiseError(
@@ -201,7 +204,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       }
     }
 
-    sealed abstract class JsonMode
+    sealed abstract class JsonMode derives CanEqual
     object JsonMode {
       case object Write extends JsonMode
       case class Apply(in: JsonInput) extends JsonMode

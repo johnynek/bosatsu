@@ -9,6 +9,7 @@ import fs2.io.file.{Files, Path}
  * CLI for daemon commands.
  *
  * Usage:
+ *   bosatsu daemon generate <source.bosatsu> -o <trace.json>  - Generate trace from source
  *   bosatsu daemon start <trace.json>     - Start daemon with trace file
  *   bosatsu daemon status                 - Check if daemon is running
  *   bosatsu daemon stop                   - Stop the daemon
@@ -18,6 +19,35 @@ object DaemonCli {
 
   sealed trait DaemonAction {
     def run: IO[ExitCode]
+  }
+
+  case class GenerateTraceAction(sourceFile: Path, outputFile: Path) extends DaemonAction {
+    def run: IO[ExitCode] = {
+      Files[IO].readAll(sourceFile)
+        .through(fs2.text.utf8.decode)
+        .compile
+        .string
+        .flatMap { source =>
+          TraceGenerator.generateFromSource(source, sourceFile.toString) match {
+            case Left(err) =>
+              IO.println(s"Failed to generate trace: $err").as(ExitCode.Error)
+
+            case Right(trace) =>
+              val json = DaemonJson.renderTrace(trace)
+              fs2.Stream.emit(json)
+                .through(fs2.text.utf8.encode)
+                .through(Files[IO].writeAll(outputFile))
+                .compile
+                .drain
+                .flatMap { _ =>
+                  IO.println(s"Generated trace with ${trace.nodeCount} nodes: $outputFile").as(ExitCode.Success)
+                }
+          }
+        }
+        .handleErrorWith { err =>
+          IO.println(s"Error: ${err.getMessage}").as(ExitCode.Error)
+        }
+    }
   }
 
   case class StartAction(traceFile: Path, socketPath: Option[Path]) extends DaemonAction {
@@ -149,6 +179,12 @@ object DaemonCli {
       .map(s => Path(s))
       .orNone
 
+  val generateOpts: Opts[DaemonAction] =
+    (
+      Opts.argument[String]("source-file").map(s => Path(s)),
+      Opts.option[String]("output", "Output trace file", "o").map(s => Path(s))
+    ).mapN(GenerateTraceAction(_, _))
+
   val startOpts: Opts[DaemonAction] =
     (
       Opts.argument[String]("trace-file").map(s => Path(s)),
@@ -222,7 +258,8 @@ object DaemonCli {
 
   val command: Command[DaemonAction] = {
     val subcommands = Opts
-      .subcommand("start", "Start the daemon with a trace file")(startOpts)
+      .subcommand("generate", "Generate a trace file from Bosatsu source")(generateOpts)
+      .orElse(Opts.subcommand("start", "Start the daemon with a trace file")(startOpts))
       .orElse(Opts.subcommand("stop", "Stop the daemon")(stopOpts))
       .orElse(Opts.subcommand("status", "Check daemon status")(statusOpts))
       .orElse(Opts.subcommand("list", "List all nodes")(listOpts))

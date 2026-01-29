@@ -32,7 +32,7 @@ case class DecodedLibraryWithDeps[A](
     if (lib.implementations.toMap.contains(pn)) Some(this)
     else
       deps.collectFirstSome { dep =>
-        if (dep.lib.interfaces.exists(_.name === pn)) Some(dep)
+        if (dep.lib.interfaces.exists(_.name == pn)) Some(dep)
         else None
       }
 

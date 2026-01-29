@@ -1,6 +1,6 @@
 package dev.bosatsu.set
 
-sealed abstract class PartialRel
+sealed abstract class PartialRel derives CanEqual
 
 object PartialRel {
   case object SuperSame extends PartialRel

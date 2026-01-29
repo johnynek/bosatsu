@@ -421,7 +421,7 @@ object Version {
       "Expects a val semver string."
     )
 
-  sealed abstract class DiffKind(val name: String) {
+  sealed abstract class DiffKind(val name: String) derives CanEqual {
     def isMajor: Boolean = this == DiffKind.Major
     def isMinor: Boolean = this == DiffKind.Minor
     def isPatch: Boolean = this == DiffKind.Patch

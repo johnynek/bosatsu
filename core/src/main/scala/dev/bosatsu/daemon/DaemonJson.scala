@@ -220,16 +220,29 @@ object DaemonJson {
   implicit val nodeIdReader: Reader[NodeId] =
     Reader.stringReader.mapEither("NodeId")(s => Right(NodeId(s)))
 
+  // Helper to read int field that could be either a number or a string
+  private def readIntField(from: Reader.FromObj, name: String): Either[(String, Json, Json.Path), Int] = {
+    val fieldPath = from.path.key(name)
+    from.j.toMap.get(name) match {
+      case Some(JNumberStr(s)) =>
+        s.toIntOption.toRight(("expected int for " + name, JNumberStr(s), fieldPath))
+      case Some(JString(s)) =>
+        s.toIntOption.toRight(("expected int for " + name, JString(s), fieldPath))
+      case Some(other) =>
+        Left(("expected number or string for " + name, other, fieldPath))
+      case None =>
+        Left(("missing field " + name, from.j, from.path))
+    }
+  }
+
   implicit val sourceLocationReader: Reader[SourceLocation] =
     new Reader.Obj[SourceLocation] {
       def describe = "SourceLocation"
       def readObj(from: Reader.FromObj) =
         for {
           file <- from.field[String]("file")
-          line <- from.field[String]("line").flatMap(s =>
-            s.toIntOption.toRight(("expected int for line", JString(s), from.path)))
-          column <- from.field[String]("column").flatMap(s =>
-            s.toIntOption.toRight(("expected int for column", JString(s), from.path)))
+          line <- readIntField(from, "line")
+          column <- readIntField(from, "column")
         } yield SourceLocation(file, line, column)
     }
 

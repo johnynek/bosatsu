@@ -3,7 +3,7 @@ package dev.bosatsu.rankn
 /** How is a non-external data type represented
   */
 
-sealed abstract class DataRepr
+sealed abstract class DataRepr derives CanEqual
 
 object DataRepr {
   sealed abstract class Nat(val isZero: Boolean) extends DataRepr
@@ -22,7 +22,7 @@ object DataRepr {
   // todo: optimize cases where all enum variants have arity 0
 }
 
-sealed abstract class DataFamily
+sealed abstract class DataFamily derives CanEqual
 
 object DataFamily {
   case object Nat extends DataFamily

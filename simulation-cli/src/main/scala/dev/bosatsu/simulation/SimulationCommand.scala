@@ -520,7 +520,7 @@ case class SimulationCommand(
 
 object SimulationCommand {
 
-  sealed abstract class Theme(val name: String)
+  sealed abstract class Theme(val name: String) derives CanEqual
   object Theme {
     case object Light extends Theme("light")
     case object Dark extends Theme("dark")

@@ -31,10 +31,10 @@ final case class Package[A, B, C, +D](
     that match {
       case p: Package[_, _, _, _] =>
         (this eq p) || {
-          (name == p.name) &&
-          (imports == p.imports) &&
-          (exports == p.exports) &&
-          (program == p.program)
+          name.equals(p.name) &&
+          imports.equals(p.imports) &&
+          exports.equals(p.exports) &&
+          program.equals(p.program)
         }
       case _ => false
     }
@@ -160,7 +160,7 @@ object Package {
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
     tp.lets.filter { case (_, _, te) =>
-      te.getType == Type.TestType
+      te.getType == (Type.TestType: Type)
     }.lastOption
 
   def mainValue[A](
@@ -180,7 +180,7 @@ object Package {
         testValue(tp).map(_._1)
 
     def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =
-      s.collect { case (p, i) if p === tp.name => i }
+      s.collect { case (p, i) if p == tp.name => i }
 
     val letWithGlobals = tp.lets.map { case tup @ (_, _, te) =>
       (tup, topLevels(te.globals))
@@ -414,7 +414,7 @@ object Package {
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
-              case (pack, b, t) if pack === p =>
+              case (pack, b, t) if pack == p =>
                 // by construction this has to have all the regions
                 (b, (t, extDefRegions(b)))
             }.toMap

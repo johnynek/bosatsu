@@ -1,5 +1,7 @@
 package dev.bosatsu
 
+import cats.Eq
+import cats.syntax.all._
 import org.scalacheck.{Gen, Prop}
 
 import Prop.forAll
@@ -107,7 +109,7 @@ class NatTest extends munit.ScalaCheckSuite {
   property("x.dec == x - 1 when x > 0") {
     forAll(genNat) { n =>
       val i = n.dec.toBigInt
-      if (n == Nat.zero) assertEquals(i, BigInt(0))
+      if (n.isZero) assertEquals(i, BigInt(0))
       else assertEquals(i, n.toBigInt - 1)
     }
   }
@@ -145,7 +147,10 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("x.dec.inc == x || x.isZero") {
     forAll(genNat) { n =>
-      assert((n.dec.inc == n) || n.isZero)
+      given Eq[Nat] =
+        // Safe: Nat is an immutable value type; equals matches numeric value.
+        Eq.fromUniversalEquals
+      assert((n.dec.inc === n) || n.isZero)
     }
   }
 

@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.set.{Rel, SetOps}
 import dev.bosatsu.set.Relatable
 
-sealed trait SeqPattern[+A] {
+sealed trait SeqPattern[+A] derives CanEqual {
   import SeqPattern._
   import SeqPart.{AnyElem, Lit, Wildcard}
 
@@ -86,9 +86,12 @@ sealed trait SeqPattern[+A] {
 
   def show: String =
     toList.iterator.map {
-      case Lit('.') => "\\."
-      case Lit('*') => "\\*"
-      case Lit(c)   => c.toString
+      case Lit(c) =>
+        c match {
+          case ch: Char if ch == '.' => "\\."
+          case ch: Char if ch == '*' => "\\*"
+          case _                     => c.toString
+        }
       case AnyElem  => "."
       case Wildcard => "*"
     }.mkString

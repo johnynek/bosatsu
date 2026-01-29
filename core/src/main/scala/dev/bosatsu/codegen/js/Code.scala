@@ -9,7 +9,7 @@ import org.typelevel.paiges.Doc
  * JavaScript AST types for code generation.
  * Follows the same pattern as ClangGen's Code.scala but for JavaScript.
  */
-sealed trait Code
+sealed trait Code derives CanEqual
 
 object Code {
 
@@ -47,7 +47,7 @@ object Code {
     implicit def fromString(s: String): Ident = Ident(s)
   }
 
-  sealed trait Literal extends Expression
+  sealed trait Literal extends Expression derives CanEqual
   case class IntLiteral(value: BigInt) extends Literal
   case class DoubleLiteral(value: Double) extends Literal
   case class StringLiteral(value: String) extends Literal

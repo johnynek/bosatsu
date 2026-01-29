@@ -3,7 +3,7 @@ package dev.bosatsu.tool
 import cats.data.Validated
 import com.monovore.decline.Opts
 
-sealed abstract class GraphOutput
+sealed abstract class GraphOutput derives CanEqual
 object GraphOutput {
   case object Dot extends GraphOutput
   case object Json extends GraphOutput

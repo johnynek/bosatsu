@@ -20,7 +20,7 @@ case object JsTranspiler extends Transpiler {
   /**
    * Output mode: ES modules or CommonJS.
    */
-  sealed abstract class OutputMode(val name: String)
+  sealed abstract class OutputMode(val name: String) derives CanEqual
   object OutputMode {
     case object ESModule extends OutputMode("esm")
     case object CommonJS extends OutputMode("cjs")
@@ -49,7 +49,7 @@ case object JsTranspiler extends Transpiler {
   /**
    * Execution mode: main entry point or library.
    */
-  sealed abstract class Mode
+  sealed abstract class Mode derives CanEqual
   object Mode {
     case class Main(pack: PackageName, entryPoint: Option[String]) extends Mode
     case object Library extends Mode

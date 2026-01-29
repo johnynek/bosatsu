@@ -15,6 +15,7 @@ lazy val commonSettings = Seq(
     "utf-8",
     "-feature",
     "-unchecked",
+    "-language:strictEquality",
   ),
   Test / testOptions += Tests.Argument("-oDF")
 )
