@@ -1,0 +1,49 @@
+package TaxDemo/Config
+
+# Simulation Configuration
+#
+# This file describes the UI for the TaxDemo simulation.
+# The main simulation is in tax_simulation.bosatsu
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+# The simulation configuration
+config = SimConfig(
+  "Tax Calculator",
+  "AI Debugging Demo - See how each value is derived with Why? buttons",
+  "TaxDemo",
+  "calculate",
+  [
+    ("tax_rate", InputConfig("Tax Rate (%)", 25, 0, 50, 1, "slider")),
+    ("income", InputConfig("Gross Income ($)", 100000, 10000, 500000, 5000, "slider")),
+    ("deductions", InputConfig("Deductions ($)", 15000, 0, 100000, 1000, "slider"))
+  ],
+  [
+    ("taxable_income", OutputConfig("Taxable Income", "currency", False)),
+    ("tax_amount", OutputConfig("Tax Amount", "currency", False)),
+    ("net_income", OutputConfig("Net Income", "currency", True)),
+    ("effective_rate", OutputConfig("Effective Rate", "percent", False))
+  ]
+)

@@ -1,0 +1,38 @@
+package TaxDemo
+
+# ============================================
+# Tax Calculator - AI Debugging Demo
+# ============================================
+# This demonstrates Bosatsu's provenance tracking:
+# - "Why?" buttons show how each value is derived
+# - "What if?" toggles let you explore scenarios
+# ============================================
+
+# Output record type with all computed values
+struct TaxResult(
+  taxable_income: Int,
+  tax_amount: Int,
+  net_income: Int,
+  effective_rate: Int
+)
+
+def calculate(tax_rate: Int, income: Int, deductions: Int) -> TaxResult:
+  # Taxable income = gross income minus deductions
+  taxable_income = income.sub(deductions)
+
+  # Tax amount = taxable income * rate / 100
+  tax_amount = taxable_income.times(tax_rate).div(100)
+
+  # Net income = gross income minus tax
+  net_income = income.sub(tax_amount)
+
+  # Effective tax rate (what percent of gross income goes to tax)
+  effective_rate = tax_amount.times(100).div(income)
+
+  # Return all values for display and provenance
+  TaxResult(
+    taxable_income,
+    tax_amount,
+    net_income,
+    effective_rate
+  )

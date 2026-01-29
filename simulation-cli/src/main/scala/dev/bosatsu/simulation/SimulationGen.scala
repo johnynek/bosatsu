@@ -698,6 +698,11 @@ ${funcParams.map { case (name, _) =>
       s"""  if (_derivations["$name"]) _derivations["$name"].value = _getState("$name");"""
     }.mkString("\n")}
 
+  // Update output derivations with computed values
+${outputFields.zipWithIndex.map { case ((name, _, _, _), idx) =>
+      s"""  if (_derivations["$name"]) _derivations["$name"].value = Array.isArray(result) ? result[$idx] : result.$name;"""
+    }.mkString("\n")}
+
   // Update visualization if registered
   if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
@@ -790,6 +795,13 @@ $uiJs
       s"""  addOutputDisplay("$name", "$label", $primary, "results");"""
     }.mkString("\n")
 
+    // Generate "Why?" button calls for each output (if enabled)
+    val whyButtons = if (config.showWhy) {
+      simConfig.outputs.map { case (name, _) =>
+        s"""  addWhyButton("$name", "result-$name");"""
+      }.mkString("\n")
+    } else ""
+
     s"""// Add a configured input control with label, range, and default
 function addConfiguredInput(name, label, min, max, step, defaultVal, containerId) {
   const container = document.getElementById(containerId);
@@ -823,6 +835,66 @@ function addOutputDisplay(name, label, isPrimary, containerId) {
   div.innerHTML = '<span class="result-label">' + label + ':</span> <span class="result-value">—</span>';
 
   container.appendChild(div);
+}
+
+// Add "Why?" button next to a value display
+function addWhyButton(valueName, elementId) {
+  const container = document.getElementById(elementId);
+  if (!container) return;
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Why?';
+  btn.className = 'why-button';
+  btn.onclick = () => showWhyExplanation(valueName);
+  container.appendChild(btn);
+}
+
+// Show "Why?" modal with derivation chain
+function showWhyExplanation(valueName) {
+  const d = _getDerivation(valueName);
+  if (!d) return;
+
+  const html = _explainDerivation(d, 0);
+  document.getElementById('why-explanation').innerHTML = html;
+  document.getElementById('why-modal').classList.remove('hidden');
+}
+
+// Recursively explain derivation
+function _explainDerivation(d, depth) {
+  const marginLeft = depth * 20;
+  const cls = d.type;
+  const header = _formatDerivationHeader(d);
+  let result = '<div class="derivation ' + cls + '" style="margin-left: ' + marginLeft + 'px">' + header + '</div>';
+
+  if (d.deps && d.deps.length > 0) {
+    d.deps.forEach(depName => {
+      const dep = _getDerivation(depName);
+      if (dep) {
+        result += _explainDerivation(dep, depth + 1);
+      }
+    });
+  }
+
+  return result;
+}
+
+// Format derivation header for "Why?" display
+function _formatDerivationHeader(d) {
+  switch (d.type) {
+    case 'assumption':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
+    case 'computed':
+      let result = '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span>';
+      if (d.formula) {
+        result += '<br><span class="formula">Formula: ' + d.formula + '</span>';
+      }
+      result += ' <span class="tag" style="background:#2196f3">computed</span>';
+      return result;
+    case 'conditional':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag" style="background:#ff9800">conditional</span>';
+    default:
+      return d.name + ' = ' + _formatValue(d.value);
+  }
 }
 
 // Track current assumption variants
@@ -870,6 +942,20 @@ function init() {
   const controlsContainer = document.getElementById('controls');
   const appletContainer = document.querySelector('.applet-container');
 
+  // Create "Why?" modal
+  const modal = document.createElement('div');
+  modal.id = 'why-modal';
+  modal.className = 'why-modal hidden';
+  modal.innerHTML = '<div class="why-modal-content"><h3>Why this value?</h3><div id="why-explanation"></div><button id="why-modal-close" class="close-btn">Close</button></div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('why-modal-close').onclick = () => {
+    document.getElementById('why-modal').classList.add('hidden');
+  };
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  };
+
   // Create results section after controls
   const resultsDiv = document.createElement('div');
   resultsDiv.id = 'results';
@@ -884,6 +970,9 @@ $inputControls
 
   // Add output displays to #results
 $outputDisplays
+
+  // Add "Why?" buttons to outputs
+$whyButtons
 
 ${if (simConfig.assumptions.nonEmpty) s"""
   // Add assumption toggles section

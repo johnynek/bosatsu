@@ -17,7 +17,8 @@ import dev.bosatsu.{
   MatchlessFromTypedExpr,
   Evaluation,
   Predef,
-  Numeric
+  Numeric,
+  Lit
 }
 import dev.bosatsu.codegen.js.JsGen
 import dev.bosatsu.ui.EmbedGenerator
@@ -142,13 +143,23 @@ case class SimulationCommand(
       bodyDeps = TypedExpr.freeVarsSet(List(funcBody))
       _ <- IO(println(s"Function body dependencies: ${bodyDeps.map(_.asString).mkString(", ")}"))
 
+      // Extract actual formulas from the function body (including inlined struct constructor args)
+      paramNames = funcParams.map(_._1).toSet
+      outputFieldNames = simConfig.outputs.map(_._1)
+      extractedBindings = extractBindingsWithStructFields(funcBody, paramNames, outputFieldNames)
+      _ <- IO(println(s"Extracted ${extractedBindings.size} binding(s):"))
+      _ <- IO(extractedBindings.foreach { b =>
+        println(s"  ${b.name} = ${b.formula} (deps: ${b.dependencies.mkString(", ")})")
+      })
+
       // Generate HTML using the function-based approach with config values
       htmlContent = generateFunctionBasedHtml(
         simPackage,
         typeChecked,
         funcName,
         funcParams,
-        simConfig
+        simConfig,
+        extractedBindings
       )
 
       // Write output
@@ -202,6 +213,206 @@ case class SimulationCommand(
   }
 
   /**
+   * Represents an extracted binding from the function body.
+   * Contains the binding name, its formula, and what variables it depends on.
+   */
+  case class ExtractedBinding(
+    name: String,
+    formula: String,
+    dependencies: Set[String]
+  )
+
+  /**
+   * Extract all let bindings from a function body.
+   * Walks the nested Let structure and converts each binding's expression to a formula.
+   * Also descends into Annotation and Generic wrappers.
+   */
+  private def extractBindings(expr: TypedExpr[Any], scope: Set[String]): List[ExtractedBinding] = {
+    expr match {
+      case TypedExpr.Let(arg, argExpr, in, _, _) =>
+        val name = arg.asString
+        val (formula, deps) = exprToFormula(argExpr, scope)
+        val binding = ExtractedBinding(name, formula, deps)
+        binding :: extractBindings(in, scope + name)
+      case TypedExpr.Annotation(inner, _) =>
+        extractBindings(inner, scope)
+      case TypedExpr.Generic(_, inner) =>
+        extractBindings(inner, scope)
+      case TypedExpr.Match(_, branches, _) =>
+        // Look in match branches too
+        branches.toList.flatMap { case (_, branchExpr) =>
+          extractBindings(branchExpr, scope)
+        }
+      case _ =>
+        Nil
+    }
+  }
+
+  /**
+   * Extract bindings from the function body including inlined struct constructor arguments.
+   * The compiler may inline single-use variables directly into the constructor call,
+   * so we need to extract formulas from the constructor arguments as well.
+   */
+  private def extractBindingsWithStructFields(
+    expr: TypedExpr[Any],
+    scope: Set[String],
+    outputFields: List[String]
+  ): List[ExtractedBinding] = {
+    // First extract explicit let bindings
+    val (bindings, finalExpr, finalScope) = extractBindingsAccum(expr, scope)
+
+    // Then look at the final expression - if it's a struct constructor, extract formulas for each field
+    val structBindings = finalExpr match {
+      case TypedExpr.App(TypedExpr.Global(_, structName, _, _), args, _, _) =>
+        // This is a struct constructor call - match args to output fields
+        args.toList.zip(outputFields).flatMap { case (argExpr, fieldName) =>
+          // Only create a binding if we don't already have one for this field
+          if (bindings.exists(_.name == fieldName)) {
+            None
+          } else {
+            argExpr match {
+              case TypedExpr.Local(name, _, _) if name.asString == fieldName =>
+                // Already a variable reference with the same name - skip (already have binding)
+                None
+              case TypedExpr.Local(name, _, _) =>
+                // Variable reference to a different name - create alias
+                Some(ExtractedBinding(fieldName, name.asString, Set(name.asString)))
+              case _ =>
+                // Inlined expression - extract formula
+                val (formula, deps) = exprToFormula(argExpr, finalScope)
+                Some(ExtractedBinding(fieldName, formula, deps))
+            }
+          }
+        }
+      case _ =>
+        Nil
+    }
+
+    bindings ++ structBindings
+  }
+
+  /**
+   * Extract bindings and return the final expression and scope.
+   */
+  private def extractBindingsAccum(
+    expr: TypedExpr[Any],
+    scope: Set[String]
+  ): (List[ExtractedBinding], TypedExpr[Any], Set[String]) = {
+    expr match {
+      case TypedExpr.Let(arg, argExpr, in, _, _) =>
+        val name = arg.asString
+        val (formula, deps) = exprToFormula(argExpr, scope)
+        val binding = ExtractedBinding(name, formula, deps)
+        val (restBindings, finalExpr, finalScope) = extractBindingsAccum(in, scope + name)
+        (binding :: restBindings, finalExpr, finalScope)
+      case TypedExpr.Annotation(inner, _) =>
+        extractBindingsAccum(inner, scope)
+      case TypedExpr.Generic(_, inner) =>
+        extractBindingsAccum(inner, scope)
+      case other =>
+        (Nil, other, scope)
+    }
+  }
+
+  /**
+   * Convert a TypedExpr to a human-readable formula string.
+   * Returns the formula and the set of variable dependencies.
+   */
+  private def exprToFormula(expr: TypedExpr[Any], scope: Set[String]): (String, Set[String]) = {
+    expr match {
+      case TypedExpr.Local(name, _, _) =>
+        val n = name.asString
+        (n, if (scope.contains(n)) Set(n) else Set.empty)
+
+      case TypedExpr.Literal(lit, _, _) =>
+        val value = lit match {
+          case Lit.Integer(i) => i.toString
+          case Lit.Str(s) => s"\"$s\""
+          case _ => lit.toString
+        }
+        (value, Set.empty)
+
+      case TypedExpr.App(fn, args, _, _) =>
+        // Handle method calls like income.sub(deductions) which become App(sub, [income, deductions])
+        fn match {
+          case TypedExpr.Global(_, methodName, _, _) =>
+            val method = methodName.asString
+            val argResults = args.toList.map(a => exprToFormula(a, scope))
+            val allDeps = argResults.flatMap(_._2).toSet
+
+            // Convert numeric method calls to infix operators
+            method match {
+              case "add" | "add_Int" if argResults.length == 2 =>
+                (s"(${argResults(0)._1} + ${argResults(1)._1})", allDeps)
+              case "sub" | "sub_Int" if argResults.length == 2 =>
+                (s"(${argResults(0)._1} - ${argResults(1)._1})", allDeps)
+              case "times" | "times_Int" if argResults.length == 2 =>
+                (s"(${argResults(0)._1} × ${argResults(1)._1})", allDeps)
+              case "div" | "div_Int" if argResults.length == 2 =>
+                (s"(${argResults(0)._1} ÷ ${argResults(1)._1})", allDeps)
+              case "mod" | "mod_Int" if argResults.length == 2 =>
+                (s"(${argResults(0)._1} mod ${argResults(1)._1})", allDeps)
+              case "cmp_Int" if argResults.length == 2 =>
+                (s"compare(${argResults(0)._1}, ${argResults(1)._1})", allDeps)
+              case _ =>
+                // Generic function call
+                val argStr = argResults.map(_._1).mkString(", ")
+                (s"$method($argStr)", allDeps)
+            }
+
+          case TypedExpr.Local(fnName, _, _) =>
+            // Local function call
+            val name = fnName.asString
+            val argResults = args.toList.map(a => exprToFormula(a, scope))
+            val allDeps = argResults.flatMap(_._2).toSet ++ (if (scope.contains(name)) Set(name) else Set.empty)
+            val argStr = argResults.map(_._1).mkString(", ")
+            (s"$name($argStr)", allDeps)
+
+          case nested: TypedExpr.App[_] =>
+            // Nested application like income.sub(deductions).times(rate)
+            val (innerFormula, innerDeps) = exprToFormula(nested, scope)
+            val argResults = args.toList.map(a => exprToFormula(a, scope))
+            val allDeps = innerDeps ++ argResults.flatMap(_._2).toSet
+            // For nested calls, just show as a compound expression
+            val argStr = argResults.map(_._1).mkString(", ")
+            (s"$innerFormula[$argStr]", allDeps)
+
+          case _ =>
+            val (fnFormula, fnDeps) = exprToFormula(fn, scope)
+            val argResults = args.toList.map(a => exprToFormula(a, scope))
+            val allDeps = fnDeps ++ argResults.flatMap(_._2).toSet
+            val argStr = argResults.map(_._1).mkString(", ")
+            (s"$fnFormula($argStr)", allDeps)
+        }
+
+      case TypedExpr.Annotation(term, _) =>
+        exprToFormula(term, scope)
+
+      case TypedExpr.Generic(_, inner) =>
+        exprToFormula(inner, scope)
+
+      case TypedExpr.Let(arg, argExpr, in, _, _) =>
+        // Inline let expressions
+        val (argFormula, argDeps) = exprToFormula(argExpr, scope)
+        val (inFormula, inDeps) = exprToFormula(in, scope + arg.asString)
+        // For display, we can either show the let or inline it
+        (s"let ${arg.asString} = $argFormula in $inFormula", argDeps ++ inDeps)
+
+      case TypedExpr.Match(arg, branches, _) =>
+        val (argFormula, argDeps) = exprToFormula(arg, scope)
+        (s"match $argFormula { ... }", argDeps)
+
+      case TypedExpr.Global(pack, name, _, _) =>
+        (s"${pack.asString}::${name.asString}", Set.empty)
+
+      case TypedExpr.AnnotatedLambda(args, body, _) =>
+        val argNames = args.toList.map(_._1.asString).mkString(", ")
+        val (bodyFormula, bodyDeps) = exprToFormula(body, scope ++ args.toList.map(_._1.asString))
+        (s"λ($argNames) → $bodyFormula", bodyDeps)
+    }
+  }
+
+  /**
    * Generate HTML for a function-based simulation.
    */
   private def generateFunctionBasedHtml(
@@ -209,7 +420,8 @@ case class SimulationCommand(
       fullPackageMap: PackageMap.Inferred,
       funcName: String,
       funcParams: List[(String, String)],
-      simConfig: ConfigExtractor.SimConfig
+      simConfig: ConfigExtractor.SimConfig,
+      extractedBindings: List[ExtractedBinding]
   )(implicit ec: Par.EC): String = {
     // Compile to Matchless IR
     val matchlessCompiled = MatchlessFromTypedExpr.compile((),
@@ -226,8 +438,8 @@ case class SimulationCommand(
     // as a separate build step - that's not our job here.
     val computeJs = JsGen.renderStatements(packageBindings)
 
-    // Build analysis for UI generation - use config inputs
-    val analyses = simConfig.inputs.map { case (paramName, inputConfig) =>
+    // Build analysis for UI generation - use config inputs AND outputs
+    val inputAnalyses = simConfig.inputs.map { case (paramName, inputConfig) =>
       DerivationAnalyzer.AnalyzedBinding(
         Identifier.Name(paramName),
         DerivationAnalyzer.Assumption,  // Function params are inputs (assumptions)
@@ -236,6 +448,51 @@ case class SimulationCommand(
         "number"    // All inputs are numeric for now
       )
     }
+
+    // Create a map from binding name to its extracted info
+    val bindingMap: Map[String, ExtractedBinding] = extractedBindings.map(b => b.name -> b).toMap
+    val inputNameSet: Set[String] = simConfig.inputs.map(_._1).toSet
+
+    // Add output derivations - computed values with ACTUAL formulas from the code
+    val outputAnalyses = simConfig.outputs.map { case (outputName, outputConfig) =>
+      bindingMap.get(outputName) match {
+        case Some(binding) =>
+          // Use the actual formula and dependencies from the code
+          val deps: Set[Identifier.Bindable] = binding.dependencies.map(Identifier.Name(_): Identifier.Bindable)
+          DerivationAnalyzer.AnalyzedBinding(
+            Identifier.Name(outputName),
+            DerivationAnalyzer.Computation,
+            deps,
+            binding.formula,
+            "number"
+          )
+        case None =>
+          // Fallback if we can't find the binding
+          val inputNames: Set[Identifier.Bindable] = inputNameSet.map(Identifier.Name(_): Identifier.Bindable)
+          DerivationAnalyzer.AnalyzedBinding(
+            Identifier.Name(outputName),
+            DerivationAnalyzer.Computation,
+            inputNames,
+            s"$funcName(${simConfig.inputs.map(_._1).mkString(", ")})",
+            "number"
+          )
+      }
+    }
+
+    // Also add intermediate bindings that aren't direct outputs but may be dependencies
+    val outputNameSet = simConfig.outputs.map(_._1).toSet
+    val intermediateAnalyses = extractedBindings.filterNot(b => outputNameSet.contains(b.name) || inputNameSet.contains(b.name)).map { binding =>
+      val deps: Set[Identifier.Bindable] = binding.dependencies.map(Identifier.Name(_): Identifier.Bindable)
+      DerivationAnalyzer.AnalyzedBinding(
+        Identifier.Name(binding.name),
+        DerivationAnalyzer.Computation,
+        deps,
+        binding.formula,
+        "number"
+      )
+    }
+
+    val analyses = inputAnalyses ++ intermediateAnalyses ++ outputAnalyses
 
     val genConfig = SimulationGen.SimConfig(
       title = title.getOrElse(simConfig.name),

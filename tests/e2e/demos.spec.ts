@@ -363,6 +363,205 @@ test.describe('Loan Calculator with Canvas Visualization', () => {
 });
 
 // =============================================================================
+// TAX CALCULATOR DEMO (AI Debugging Demo)
+// =============================================================================
+test.describe('Tax Calculator Demo', () => {
+  test.beforeEach(async ({ page }) => {
+    setupConsoleCapture(page);
+    await page.goto('/demo/tax_demo.html');
+    // Wait for JavaScript to initialize (controls are populated dynamically)
+    await expect(page.locator('.value-display').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('page loads successfully', async ({ page }) => {
+    await expect(page).toHaveTitle(/Tax.*Calculator/i);
+    await expect(page.locator('.applet-container')).toBeVisible();
+  });
+
+  test('displays controls section with input sliders', async ({ page }) => {
+    await expect(page.locator('.controls-section')).toBeVisible();
+    await expect(page.locator('#controls')).toBeVisible();
+
+    // Should have sliders for tax_rate, income, deductions
+    const sliders = page.locator('input[type="range"]');
+    await expect(sliders).toHaveCount(3);
+  });
+
+  test('shows computed results', async ({ page }) => {
+    // Should have result displays for net_income, taxable_income, tax_amount, effective_rate
+    const results = page.locator('[id^="result-"]');
+    const count = await results.count();
+    expect(count).toBeGreaterThanOrEqual(4);
+  });
+
+  test('initial values are correct', async ({ page }) => {
+    // Tax rate should be 25%
+    const taxRateValue = page.locator('#tax_rate-value');
+    await expect(taxRateValue).toContainText('25');
+
+    // Income should be $100,000
+    const incomeValue = page.locator('#income-value');
+    await expect(incomeValue).toContainText('100,000');
+
+    // Deductions should be $15,000
+    const deductionsValue = page.locator('#deductions-value');
+    await expect(deductionsValue).toContainText('15,000');
+  });
+
+  test('changing tax rate updates computed values', async ({ page }) => {
+    // Get initial net income
+    const netIncomeResult = page.locator('#result-net_income .result-value');
+    const initialNetIncome = await netIncomeResult.textContent();
+
+    // Change tax rate from 25 to 30
+    const taxRateSlider = page.locator('#tax_rate-slider');
+    await taxRateSlider.fill('30');
+
+    // Net income should decrease (higher taxes)
+    const newNetIncome = await netIncomeResult.textContent();
+    expect(newNetIncome).not.toBe(initialNetIncome);
+  });
+
+  test('changing income updates computed values', async ({ page }) => {
+    // Get initial tax amount
+    const taxAmountResult = page.locator('#result-tax_amount .result-value');
+    const initialTaxAmount = await taxAmountResult.textContent();
+
+    // Increase income to $150,000
+    const incomeSlider = page.locator('#income-slider');
+    await incomeSlider.fill('150000');
+
+    // Tax amount should increase
+    const newTaxAmount = await taxAmountResult.textContent();
+    expect(newTaxAmount).not.toBe(initialTaxAmount);
+  });
+
+  test('changing deductions updates taxable income', async ({ page }) => {
+    // Get initial taxable income
+    const taxableResult = page.locator('#result-taxable_income .result-value');
+    const initialTaxable = await taxableResult.textContent();
+
+    // Increase deductions to $25,000
+    const deductionsSlider = page.locator('#deductions-slider');
+    await deductionsSlider.fill('25000');
+
+    // Taxable income should decrease
+    const newTaxable = await taxableResult.textContent();
+    expect(newTaxable).not.toBe(initialTaxable);
+  });
+
+  test('verifies tax calculation math', async ({ page }) => {
+    // With tax_rate=25, income=100000, deductions=15000:
+    // taxable_income = 100000 - 15000 = 85000
+    // tax_amount = 85000 * 25 / 100 = 21250
+    // net_income = 100000 - 21250 = 78750
+    // effective_rate = 21250 * 100 / 100000 = 21%
+
+    const taxableResult = page.locator('#result-taxable_income .result-value');
+    await expect(taxableResult).toContainText('85,000');
+
+    const taxAmountResult = page.locator('#result-tax_amount .result-value');
+    await expect(taxAmountResult).toContainText('21,250');
+
+    const netIncomeResult = page.locator('#result-net_income .result-value');
+    await expect(netIncomeResult).toContainText('78,750');
+
+    const effectiveRateResult = page.locator('#result-effective_rate .result-value');
+    await expect(effectiveRateResult).toContainText('21');
+  });
+
+  test('Why? buttons are present on outputs', async ({ page }) => {
+    // Each output should have a Why? button
+    const whyButtons = page.locator('.why-button');
+    await expect(whyButtons).toHaveCount(4); // taxable_income, tax_amount, net_income, effective_rate
+  });
+
+  test('Why? button opens modal with derivation chain', async ({ page }) => {
+    // Click Why? button on net_income
+    const whyButton = page.locator('#result-net_income .why-button');
+    await expect(whyButton).toBeVisible();
+    await whyButton.click();
+
+    // Modal should appear
+    const modal = page.locator('#why-modal');
+    await expect(modal).not.toHaveClass(/hidden/);
+    await expect(modal.locator('.why-modal-content')).toBeVisible();
+
+    // Should show the derivation info
+    const explanation = page.locator('#why-explanation');
+    await expect(explanation).toBeVisible();
+
+    // Should show net_income as computed with its formula
+    await expect(explanation).toContainText('net_income');
+    await expect(explanation).toContainText('computed');
+    await expect(explanation).toContainText('income - tax_amount'); // The actual formula
+
+    // Should show dependencies (which have their own formulas)
+    await expect(explanation).toContainText('income');
+    await expect(explanation).toContainText('tax_amount'); // Direct dependency
+
+    // Close modal
+    await page.locator('#why-modal-close').click();
+    await expect(modal).toHaveClass(/hidden/);
+  });
+
+  test('Each output shows its unique formula in Why?', async ({ page }) => {
+    // Test tax_amount shows its specific formula
+    await page.locator('#result-tax_amount .why-button').click();
+    const explanation = page.locator('#why-explanation');
+    await expect(explanation).toContainText('taxable_income');
+    await expect(explanation).toContainText('tax_rate');
+    await expect(explanation).toContainText('÷ 100'); // tax_amount formula includes division by 100
+    await page.locator('#why-modal-close').click();
+
+    // Test effective_rate shows its specific formula (different from tax_amount)
+    await page.locator('#result-effective_rate .why-button').click();
+    await expect(explanation).toContainText('effective_rate');
+    await expect(explanation).toContainText('100 × tax_amount'); // Different formula!
+    await page.locator('#why-modal-close').click();
+  });
+
+  test('Why? explanation updates after changing values', async ({ page }) => {
+    // Click Why? on net_income
+    await page.locator('#result-net_income .why-button').click();
+
+    // Check initial value
+    const explanation = page.locator('#why-explanation');
+    await expect(explanation).toContainText('78,750'); // initial net_income
+
+    // Close modal
+    await page.locator('#why-modal-close').click();
+
+    // Change tax rate to 30%
+    await page.locator('#tax_rate-slider').fill('30');
+
+    // Re-open Why? modal
+    await page.locator('#result-net_income .why-button').click();
+
+    // Value should be updated (30% of 85000 = 25500, so net = 100000 - 25500 = 74500)
+    await expect(explanation).toContainText('74,500');
+
+    await page.locator('#why-modal-close').click();
+  });
+
+  test('has no console errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+
+    // Interact with the page
+    await page.locator('#tax_rate-slider').fill('20');
+    await page.locator('#income-slider').fill('80000');
+    await page.locator('#deductions-slider').fill('10000');
+
+    // Wait for any async operations
+    await page.waitForTimeout(500);
+
+    // Should have no errors
+    expect(errors).toHaveLength(0);
+  });
+});
+
+// =============================================================================
 // DEMO NAVIGATION
 // =============================================================================
 test.describe('Demo Navigation', () => {
