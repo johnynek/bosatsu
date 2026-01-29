@@ -88,6 +88,12 @@ lazy val cli = (project in file("cli"))
     name := "bosatsu-cli",
     assembly / test := {},
     assembly / assemblyMergeStrategy := {
+      case PathList("module-info.class") =>
+        // fat jars shouldn't include module metadata
+        MergeStrategy.discard
+      case PathList("META-INF", "versions", _, "module-info.class") =>
+        // drop multi-release module metadata to avoid duplicate conflicts
+        MergeStrategy.discard
       case PathList("scala", "annotation", "nowarn$.class" | "nowarn.class") =>
         // this is duplicated in scala-collection-compat
         MergeStrategy.last
