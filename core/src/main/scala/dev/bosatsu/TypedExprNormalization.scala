@@ -1227,7 +1227,7 @@ object TypedExprNormalization {
         }
 
         val (table, expr) = toExpr(root, EmptyTable)
-        val w = RingOpt.Weights(mult = 20, add = 1, neg = 1)
+        val w = RingOpt.Weights(mult = 3, add = 1, neg = 1)
         val norm = RingOpt.normalize(expr, w)
 
         if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
