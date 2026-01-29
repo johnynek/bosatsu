@@ -133,6 +133,9 @@ jobs:
           cp demo/investment.bosatsu web_deploy/demo/
           cp demo/carbon.bosatsu web_deploy/demo/
 
+          # Copy BosatsuUI runtime for UI demos
+          cp core/src/main/resources/bosatsu-ui-runtime.js web_deploy/
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
