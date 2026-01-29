@@ -69,7 +69,7 @@ object Algo {
       obj match {
         case e: WithAlgo[?] =>
           e.algo.equals(algo) && e.value.equals(value)
-        case _              => false
+        case _ => false
       }
 
     override lazy val hashCode: Int =

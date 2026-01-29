@@ -30,7 +30,8 @@ object Code {
       }
   }
 
-  sealed abstract class Expression extends ValueLike with Code derives CanEqual {
+  sealed abstract class Expression extends ValueLike with Code
+      derives CanEqual {
 
     def countOf(ident: Ident): Int
 
@@ -852,18 +853,18 @@ object Code {
   private def copyableExpr(expr: Expression, depth: Int = 1): Boolean =
     expr match {
       case Ident(_) | PyInt(_) | PyString(_) | PyBool(_) => true
-      case Op(left, _, right) if depth > 0 =>
+      case Op(left, _, right) if depth > 0               =>
         copyableExpr(left, depth - 1) && copyableExpr(right, depth - 1)
       case SelectItem(arg: Ident, pos) =>
         pos match {
           case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
-          case _                                            => false
+          case _                                             => false
         }
       case SelectRange(arg: Ident, start, end) =>
         def simpleIdx(e: Expression): Boolean =
           e match {
             case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
-            case _                                            => false
+            case _                                             => false
           }
         start.forall(simpleIdx) && end.forall(simpleIdx)
       case _ => false
@@ -988,8 +989,8 @@ object Code {
 
   private def assignedIdents(stmt: Statement): Set[Ident] =
     stmt match {
-      case Assign(t: Ident, _) => Set(t)
-      case Assign(_, _)        => Set.empty
+      case Assign(t: Ident, _)                       => Set(t)
+      case Assign(_, _)                              => Set.empty
       case Return(_) | Call(_) | Pass | Import(_, _) =>
         Set.empty
       case Block(stmts) =>
@@ -1053,7 +1054,11 @@ object Code {
           }
           val liveIn =
             liveIns.foldLeft(elseLiveIn)(_ union _) ++ condUses
-          (Some(IfStatement(NonEmptyList.fromListUnsafe(conds1), else1)), liveIn, chs || chElse)
+          (
+            Some(IfStatement(NonEmptyList.fromListUnsafe(conds1), else1)),
+            liveIn,
+            chs || chElse
+          )
         case While(cond, body) =>
           val condUses = freeIdents(cond)
           val bodyUses = freeIdentsInStatement(body, Set.empty)

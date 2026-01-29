@@ -814,7 +814,9 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](using Semigroup.instance(summon[cats.Order[Version]].max))
+            .reduce[Version](using
+              Semigroup.instance(summon[cats.Order[Version]].max)
+            )
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)
@@ -967,7 +969,8 @@ object LibConfig {
         }
       } else {
         // we are bumping major versions
-        val all = allDescriptors.filter(desc => sameVersion(desc.version, prevOptV))
+        val all =
+          allDescriptors.filter(desc => sameVersion(desc.version, prevOptV))
         proto.LibHistory(
           previousMajor = Some(prevDesc),
           others = all.sortBy(_.version.map(Version.fromProto(_)))

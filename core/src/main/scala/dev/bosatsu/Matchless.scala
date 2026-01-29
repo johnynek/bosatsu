@@ -61,7 +61,7 @@ object Matchless {
       // don't create let x = y in x, just return y
       in match {
         case Local(a) if a == arg => expr
-        case _                     => Let(Right(arg), expr, in)
+        case _                    => Let(Right(arg), expr, in)
       }
 
     def apply[A](arg: LocalAnon, expr: Expr[A], in: Expr[A]): Expr[A] =
@@ -756,7 +756,7 @@ object Matchless {
         init: CheapExpr[B],
         check: BoolExpr[B],
         leftAcc: Option[LocalAnonMut]
-    ): F[BoolExpr[B]] = {
+    ): F[BoolExpr[B]] =
       (
         makeAnon.map(LocalAnonMut(_)),
         makeAnon.map(LocalAnon(_)),
@@ -824,7 +824,6 @@ object Matchless {
               res
             }
        */
-    }
 
     // return the check expression for the check we need to do, and the list of bindings
     // if must match is true, we know that the pattern must match, so we can potentially remove some checks

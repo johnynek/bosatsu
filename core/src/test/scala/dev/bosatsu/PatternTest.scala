@@ -22,7 +22,10 @@ class PatternTest extends munit.ScalaCheckSuite {
   test("filtering for names not in a pattern is unbind") {
     forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids0) =>
       val ids = ids0.map(Identifier.unsafe(_))
-      assertEquals(p.unbind, p.filterVars(ids.toSet.filterNot(p.names.toSet[Identifier])))
+      assertEquals(
+        p.unbind,
+        p.filterVars(ids.toSet.filterNot(p.names.toSet[Identifier]))
+      )
     }
   }
 
@@ -59,13 +62,22 @@ class PatternTest extends munit.ScalaCheckSuite {
           assertEquals(p.topNames, (n :: Nil))
           assertEquals(p.names, (n :: Nil))
           // we can name with the same name, and still be singly named
-          assertEquals(Pattern.SinglyNamed.unapply(Pattern.Named(n, p)), Some(n))
+          assertEquals(
+            Pattern.SinglyNamed.unapply(Pattern.Named(n, p)),
+            Some(n)
+          )
           // we can annotate and not lose singly named-ness
-          assertEquals(Pattern.SinglyNamed.unapply(Pattern.Annotation(p, null)), Some(n))
+          assertEquals(
+            Pattern.SinglyNamed.unapply(Pattern.Annotation(p, null)),
+            Some(n)
+          )
           // we can make a union and not lose singly named-ness
-          assertEquals(Pattern.SinglyNamed.unapply(
+          assertEquals(
+            Pattern.SinglyNamed.unapply(
               Pattern.union(Pattern.Var(n), p :: Nil)
-            ), Some(n))
+            ),
+            Some(n)
+          )
         case _ =>
       }
 
@@ -156,7 +168,11 @@ class PatternTest extends munit.ScalaCheckSuite {
 
     def law[A, B](p: Pattern[A, B], map: Map[Bindable, Bindable]) = {
       val subsP = p.substitute(map)
-      assertEquals(subsP.names.distinct, p.names.map(n => map.getOrElse(n, n)).distinct, s"got $subsP")
+      assertEquals(
+        subsP.names.distinct,
+        p.names.map(n => map.getOrElse(n, n)).distinct,
+        s"got $subsP"
+      )
     }
 
     def b(s: String) = Identifier.Name(s)

@@ -245,7 +245,11 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
   test("reverse matches the reverse string") {
     forAll(genPattern, genSeq) { (p: Pattern, str: S) =>
       val rstr = splitter.fromList(splitter.toList(str).reverse)
-      assertEquals(matches(p, str), matches(p.reverse, rstr), s"p.reverse = ${p.reverse}")
+      assertEquals(
+        matches(p, str),
+        matches(p.reverse, rstr),
+        s"p.reverse = ${p.reverse}"
+      )
     }
   }
 
@@ -369,12 +373,18 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
 
   test("* - [] - [_, *] == empty") {
     val diff1 = setOps.difference(Cat(Wildcard, Empty), Empty)
-    assertEquals(diff1.flatMap(
+    assertEquals(
+      diff1.flatMap(
         setOps.difference(_, Cat(AnyElem, Cat(Wildcard, Empty)))
-      ), Nil)
-    assertEquals(diff1.flatMap(
+      ),
+      Nil
+    )
+    assertEquals(
+      diff1.flatMap(
         setOps.difference(_, Cat(Wildcard, Cat(AnyElem, Empty)))
-      ), Nil)
+      ),
+      Nil
+    )
   }
 
   test("[*, _] n [*, _, *] commutes and is [_, *]") {
@@ -722,17 +732,23 @@ class BoolSeqPatternTest
   }
 
   test("test some missing branches") {
-    assertEquals(setOps.missingBranches(
+    assertEquals(
+      setOps.missingBranches(
         Cat(Wildcard, Empty) :: Nil,
         Pattern.fromList(List(Wildcard, AnyElem, Wildcard)) :: Nil
-      ), Pattern.fromList(Nil) :: Nil)
+      ),
+      Pattern.fromList(Nil) :: Nil
+    )
 
-    assertEquals(setOps.missingBranches(
+    assertEquals(
+      setOps.missingBranches(
         Cat(Wildcard, Empty) :: Nil,
         Pattern.fromList(List(Wildcard, Lit(Set(true)), Wildcard)) :: Nil
-      ), Pattern.fromList(Nil) :: Pattern.fromList(
-          Lit(Set(false)) :: Wildcard :: Nil
-        ) :: Nil)
+      ),
+      Pattern.fromList(Nil) :: Pattern.fromList(
+        Lit(Set(false)) :: Wildcard :: Nil
+      ) :: Nil
+    )
   }
 }
 
@@ -787,9 +803,12 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
 
   test("wildcard on either side is the same as contains") {
     forAll { (ps: String, s: String) =>
-      assertEquals(matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s), s.contains(
+      assertEquals(
+        matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s),
+        s.contains(
           ps
-        ))
+        )
+      )
     }
   }
   test("wildcard on front side is the same as endsWith") {
@@ -910,9 +929,12 @@ class SeqPatternTest extends SeqPatternLaws[Int, Int, String, Unit] {
     // foo@("bar" baz@(*"baz"))
     val p1 =
       (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
-    assertEquals(namedMatch(p1, "bar and baz"), Some(
+    assertEquals(
+      namedMatch(p1, "bar and baz"),
+      Some(
         Map("foo" -> "bar and baz", "baz" -> " and baz")
-      ))
+      )
+    )
   }
 
   test("regression subset example") {

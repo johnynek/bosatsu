@@ -366,13 +366,13 @@ abstract class SetGenRelLaws[A](implicit
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
       else
-        Left((s1, s2) => {
+        Left { (s1, s2) =>
           given Eq[S] =
             // Safe: Set unions are compared via structural equality here.
             Eq.fromUniversalEquals
           if (cats.syntax.eq.catsSyntaxEq(a).===(s1 | s2)) Rel.Same
           else Rel.Super
-        })
+        }
 
     def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 

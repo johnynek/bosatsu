@@ -36,11 +36,14 @@ class TestBench {
     implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) =>
       s
     }
-    Par.noParallelism(PackageMap
-      .resolveThenInfer(
-        PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
-        Nil
-      ))
+    Par
+      .noParallelism(
+        PackageMap
+          .resolveThenInfer(
+            PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
+            Nil
+          )
+      )
       .strictToValidated match {
       case Validated.Valid(packMap) =>
         (packMap, mainPack)

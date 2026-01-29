@@ -618,7 +618,7 @@ object Type {
                   to match {
                     case TyVar(toB: Var.Bound) if rightName === toB =>
                       Some(state)
-                    case _                              => None
+                    case _ => None
                   }
               }
             case None =>
@@ -737,7 +737,7 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b @ Type.Var.Bound(_) => b }
 
-  inline final def normalize(tpe: Type): Type = tpe.normalize
+  final inline def normalize(tpe: Type): Type = tpe.normalize
 
   private def runNormalize(tpe: Type): Type =
     tpe match {
