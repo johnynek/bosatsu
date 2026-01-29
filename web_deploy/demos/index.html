@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BosatsuUI Demos</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #0b0b14 0%, #1a1a2e 50%, #16213e 100%);
+        color: #f2f4ff;
+        min-height: 100vh;
+        padding: 60px 20px;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 60px;
+      }
+      h1 {
+        font-size: 48px;
+        font-weight: 800;
+        margin-bottom: 16px;
+        background: linear-gradient(135deg, #f2683c 0%, #ffd700 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .subtitle {
+        font-size: 20px;
+        color: #9aa0d4;
+        line-height: 1.6;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .badge {
+        display: inline-block;
+        background: rgba(242, 104, 60, 0.2);
+        color: #f2683c;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        margin-top: 20px;
+      }
+      .section {
+        margin-bottom: 48px;
+      }
+      .section-title {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .section-title::before {
+        content: '';
+        display: inline-block;
+        width: 4px;
+        height: 28px;
+        background: #f2683c;
+        border-radius: 2px;
+      }
+      .demo-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      .demo-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 24px;
+        transition: transform 0.2s, border-color 0.2s;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+      }
+      .demo-card:hover {
+        transform: translateY(-4px);
+        border-color: rgba(242, 104, 60, 0.5);
+      }
+      .demo-card h3 {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #f2f4ff;
+      }
+      .demo-card p {
+        font-size: 14px;
+        color: #9aa0d4;
+        line-height: 1.5;
+      }
+      .demo-card .tag {
+        display: inline-block;
+        background: rgba(110, 231, 183, 0.15);
+        color: #6ee7b7;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 12px;
+      }
+      .demo-card .tag.performance {
+        background: rgba(147, 197, 253, 0.15);
+        color: #93c5fd;
+      }
+      .key-insight {
+        background: rgba(242, 104, 60, 0.1);
+        border: 1px solid rgba(242, 104, 60, 0.3);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 48px;
+      }
+      .key-insight h3 {
+        font-size: 18px;
+        font-weight: 600;
+        color: #f2683c;
+        margin-bottom: 12px;
+      }
+      .key-insight p {
+        color: #f2f4ff;
+        line-height: 1.6;
+      }
+      .key-insight code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-family: 'SF Mono', Consolas, monospace;
+        color: #6ee7b7;
+      }
+      footer {
+        text-align: center;
+        margin-top: 60px;
+        padding-top: 40px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        color: #6b7280;
+        font-size: 14px;
+      }
+      footer a {
+        color: #f2683c;
+        text-decoration: none;
+      }
+      footer a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>BosatsuUI</h1>
+        <p class="subtitle">
+          A UI library that uses compile-time static analysis of TypedExpr
+          to generate targeted DOM updates without virtual DOM diffing.
+        </p>
+        <span class="badge">No Virtual DOM</span>
+      </header>
+
+      <div class="key-insight">
+        <h3>The Key Insight</h3>
+        <p>
+          When state changes, instead of re-rendering and diffing:
+        </p>
+        <ol style="margin: 12px 0 0 20px; line-height: 1.8;">
+          <li>Static analysis extracts <code>statePath -> DOMProperty</code> bindings at compile time</li>
+          <li>Runtime looks up bindings for the changed path - <code>O(1)</code> map lookup</li>
+          <li>Direct <code>element.property = value</code> updates - no diffing!</li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Interactive UI Demos</h2>
+        <div class="demo-grid">
+          <a href="ui/counter.html" class="demo-card">
+            <h3>Counter</h3>
+            <p>
+              Basic counter showing direct DOM binding updates.
+              Watch the binding log to see O(1) state -> DOM updates.
+            </p>
+            <span class="tag">Core Concept</span>
+          </a>
+          <a href="ui/todo-list.html" class="demo-card">
+            <h3>Todo List</h3>
+            <p>
+              Per-item bindings for O(1) updates even in large lists.
+              Toggle, add, delete todos with targeted DOM updates.
+            </p>
+            <span class="tag">Per-Item Bindings</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Simulation Demos</h2>
+        <p style="color: #9aa0d4; margin-bottom: 20px;">
+          Generated from <code>.bosatsu</code> source files using the simulation CLI.
+          Features "Why?" buttons for derivation tracking and "What if?" toggles.
+        </p>
+        <div class="demo-grid">
+          <a href="simulation/loan-calculator.html" class="demo-card">
+            <h3>Loan Calculator</h3>
+            <p>
+              Calculate monthly payments with floating-point precision.
+              Explore how interest rates affect total cost.
+            </p>
+            <span class="tag">Numeric</span>
+          </a>
+          <a href="simulation/carbon-footprint.html" class="demo-card">
+            <h3>Carbon Footprint</h3>
+            <p>
+              Calculate annual CO2 emissions from transportation and home energy.
+              See derivation chains for each computed value.
+            </p>
+            <span class="tag">Numeric</span>
+          </a>
+          <a href="simulation/tax-calculator.html" class="demo-card">
+            <h3>Tax Calculator</h3>
+            <p>
+              Compute taxes with AI-powered derivation tracking.
+              Demonstrates provenance for every computed value.
+            </p>
+            <span class="tag">AI Debugging</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Performance Benchmarks</h2>
+        <div class="demo-grid">
+          <a href="benchmarks/ui-performance/index.html" class="demo-card">
+            <h3>BosatsuUI vs React vs Elm</h3>
+            <p>
+              Interactive benchmarks comparing direct DOM binding updates
+              against virtual DOM diffing. Run tests in your browser.
+            </p>
+            <span class="tag performance">Benchmark Suite</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">How It Works</h2>
+        <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 24px; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.7; overflow-x: auto;">
+          <div style="color: #9aa0d4;">// Compile time: UIAnalyzer extracts bindings from TypedExpr</div>
+          <div style="color: #6ee7b7;">const bindings = {</div>
+          <div style="color: #f2f4ff; padding-left: 20px;">"count": [{ elementId: "bosatsu-1", property: "textContent" }],</div>
+          <div style="color: #f2f4ff; padding-left: 20px;">"user.name": [{ elementId: "bosatsu-2", property: "textContent" }],</div>
+          <div style="color: #6ee7b7;">};</div>
+          <br>
+          <div style="color: #9aa0d4;">// Runtime: setState triggers O(1) binding lookup + O(1) DOM update</div>
+          <div style="color: #93c5fd;">function</div> <div style="color: #fcd34d; display: inline;">setState</div><div style="display: inline;">(path, value) {</div>
+          <div style="padding-left: 20px; color: #f2f4ff;">_state = _setAtPath(_state, path, value);</div>
+          <div style="padding-left: 20px; color: #f2f4ff;"><span style="color: #93c5fd;">const</span> bindings = _bindingMap.<span style="color: #fcd34d;">get</span>(path.<span style="color: #fcd34d;">join</span>(<span style="color: #f472b6;">'.'</span>));</div>
+          <div style="padding-left: 20px; color: #f2f4ff;"><span style="color: #93c5fd;">for</span> (<span style="color: #93c5fd;">const</span> b <span style="color: #93c5fd;">of</span> bindings) {</div>
+          <div style="padding-left: 40px; color: #f2f4ff;">_elementCache.<span style="color: #fcd34d;">get</span>(b.elementId)[b.property] = value;</div>
+          <div style="padding-left: 20px; color: #f2f4ff;">}</div>
+          <div style="color: #f2f4ff;">}</div>
+        </div>
+      </div>
+
+      <footer>
+        <p>
+          BosatsuUI is part of the <a href="https://github.com/snoble/bosatsu">Bosatsu</a> project.
+        </p>
+        <p style="margin-top: 8px;">
+          Inspired by <a href="https://github.com/burritoscript/burritoscript">BurritoUI</a>'s
+          static analysis approach.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

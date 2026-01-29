@@ -197,6 +197,31 @@ jobs:
           echo "now test without a given outdir"
           ./bosatsuj lib test
     timeout-minutes: 30
+  verifyGeneratedDemos:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "cachix/install-nix-action@v27"
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: "regenerate simulation demos"
+        run: |
+          nix-shell --run 'sbt "simulationCli/run demo/loan_calculator_numeric_func.bosatsu demo/loan_calculator_numeric_func.sim.bosatsu -o demos/simulation/loan-calculator.html --title \"Loan Calculator\""'
+          nix-shell --run 'sbt "simulationCli/run demo/carbon_numeric.bosatsu demo/carbon_numeric.sim.bosatsu -o demos/simulation/carbon-footprint.html --title \"Carbon Footprint Calculator\""'
+          nix-shell --run 'sbt "simulationCli/run demo/tax_numeric.bosatsu demo/tax_numeric.sim.bosatsu -o demos/simulation/tax-calculator.html --title \"Tax Calculator\""'
+      - name: "verify no diff in generated files"
+        run: |
+          if ! git diff --quiet demos/simulation/*.html; then
+            echo "ERROR: Generated HTML files don't match committed files."
+            echo "Please regenerate demos with: ./scripts/regenerate_demos.sh"
+            echo ""
+            echo "Diff:"
+            git diff demos/simulation/*.html
+            exit 1
+          fi
+          echo "Generated HTML files match committed files."
+    timeout-minutes: 15
   libPublishDryRun:
     needs: testC
     runs-on: ubuntu-latest
