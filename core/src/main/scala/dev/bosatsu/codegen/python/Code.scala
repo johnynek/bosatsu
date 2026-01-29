@@ -184,9 +184,9 @@ object Code {
       case SelectItem(x, i)          =>
         maybePar(x) + Doc.char('[') + exprToDoc(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
-        val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(
+        val middle = os.fold(Doc.empty)(maybePar) + Doc.char(':') + oe.fold(
           Doc.empty
-        )(exprToDoc)
+        )(maybePar)
         maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
       case Ternary(ift, cond, iff) =>
         // python parses the else condition as the rest of experssion, so

@@ -216,9 +216,10 @@ class CodeTest extends munit.ScalaCheckSuite {
       )
       assert(mod != null)
     } catch {
-      case _: Throwable =>
+      case t: Throwable =>
         val msg = "\n\n" + ("=" * 80) + "\n\n" + str + "\n\n" + ("=" * 80)
-        assert(false, msg)
+        val err = s"\n\n${t.getClass.getName}: ${t.getMessage}"
+        assert(false, msg + err)
     }
 
   def genCode(depth: Int): Gen[Code] =

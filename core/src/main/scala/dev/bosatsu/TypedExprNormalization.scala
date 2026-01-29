@@ -312,8 +312,8 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
-      case Impl.IntAlgebraic.Optimized(optIA) =>
-        Some(optIA.toTypedExpr)
+      case Impl.IntAlgebraic.Optimized(optTE) =>
+        Some(optTE)
       // TODO: we could implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
@@ -962,7 +962,7 @@ object TypedExprNormalization {
       def optimize[A](
           root: IntAlgebraic[A],
           te: TypedExpr[A]
-      ): Option[IntAlgebraic[A]] = {
+      ): Option[TypedExpr[A]] = {
 
         case class Table(
             invert: Vector[TypedExpr[Unit]],
@@ -1123,8 +1123,111 @@ object TypedExprNormalization {
               toAlg(RingOpt.Add(RingOpt.Zero, neg), table)
           }
 
+        def collectOpaque(
+            ia: IntAlgebraic[A],
+            acc: List[TypedExpr[A]]
+        ): List[TypedExpr[A]] =
+          ia match {
+            case Add(l, r, _, _) =>
+              collectOpaque(r, collectOpaque(l, acc))
+            case Times(l, r, _, _) =>
+              collectOpaque(r, collectOpaque(l, acc))
+            case Sub(l, r, _, _) =>
+              collectOpaque(r, collectOpaque(l, acc))
+            case LiteralInt(_, _) =>
+              acc
+            case OpaqueInt(intValue) =>
+              intValue :: acc
+          }
+
+        def replaceOpaque(
+            ia: IntAlgebraic[A],
+            repl: Map[TypedExpr[Unit], Bindable]
+        ): IntAlgebraic[A] =
+          ia match {
+            case Add(l, r, addFn, tag) =>
+              Add(replaceOpaque(l, repl), replaceOpaque(r, repl), addFn, tag)
+            case Times(l, r, timesFn, tag) =>
+              Times(
+                replaceOpaque(l, repl),
+                replaceOpaque(r, repl),
+                timesFn,
+                tag
+              )
+            case Sub(l, r, subFn, tag) =>
+              Sub(replaceOpaque(l, repl), replaceOpaque(r, repl), subFn, tag)
+            case LiteralInt(_, _) =>
+              ia
+            case OpaqueInt(intValue) =>
+              repl.get(intValue.void) match {
+                case None => ia
+                case Some(nm) =>
+                  OpaqueInt(Local(nm, intValue.getType, intValue.tag))
+              }
+          }
+
+        def dedupOpaque(ia: IntAlgebraic[A]): TypedExpr[A] = {
+          val opaqueList = collectOpaque(ia, Nil).reverse
+          if (opaqueList.isEmpty) ia.toTypedExpr
+          else {
+            val seen = scala.collection.mutable.LinkedHashMap
+              .empty[TypedExpr[Unit], TypedExpr[A]]
+            val counts = scala.collection.mutable.HashMap
+              .empty[TypedExpr[Unit], Int]
+
+            opaqueList.foreach { te =>
+              val key = te.void
+              if (!seen.contains(key)) seen.update(key, te)
+              counts.updateWith(key) {
+                case None    => Some(1)
+                case Some(c) => Some(c + 1)
+              }
+            }
+
+            val dupKeys = seen.iterator.collect {
+              case (key, rep)
+                  if (counts.getOrElse(key, 0) > 1) &&
+                    !Impl.isSimple(rep, lambdaSimple = false) =>
+                key
+            }.toList
+
+            if (dupKeys.isEmpty) ia.toTypedExpr
+            else {
+              val avoid = TypedExpr.allVarsSet(te :: Nil)
+              val used = scala.collection.mutable.HashSet
+                .empty[Bindable] ++ avoid
+              val names = rankn.Type.allBinders.iterator.map { b =>
+                Identifier.synthetic(b.name)
+              }
+
+              def nextName(): Bindable = {
+                var n = names.next()
+                while (used(n)) n = names.next()
+                used.add(n)
+                n
+              }
+
+              val bindings = dupKeys.map { key =>
+                val nm = nextName()
+                (key, nm, seen(key))
+              }
+
+              val repl = bindings.iterator.map { case (key, nm, _) =>
+                (key, nm)
+              }.toMap
+
+              val ia1 = replaceOpaque(ia, repl)
+              val te1 = ia1.toTypedExpr
+              val bindsNel = NonEmptyList.fromListUnsafe(
+                bindings.map { case (_, nm, expr) => (nm, expr) }
+              )
+              TypedExpr.letAllNonRec(bindsNel, te1, te.tag)
+            }
+          }
+        }
+
         val (table, expr) = toExpr(root, EmptyTable)
-        val w = RingOpt.Weights(mult = 20, add = 1, neg = 1)
+        val w = RingOpt.Weights(mult = 3, add = 1, neg = 1)
         val norm = RingOpt.normalize(expr, w)
 
         if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
@@ -1132,7 +1235,8 @@ object TypedExprNormalization {
           None
         } else {
           val ia1 = toAlg(norm, table)
-          if (ia1.toTypedExpr.void === root.toTypedExpr.void) {
+          val te1 = ia1.toTypedExpr
+          if (te1.void === root.toTypedExpr.void) {
             // since the AST of RingOpt isn't the same as TypedExpr
             // we can improve the RingOpt AST but the resulting TypedExpr
             // AST may be exactly the same. Unfortunately, this check
@@ -1142,12 +1246,14 @@ object TypedExprNormalization {
             // uses sub to do this (which at codegen time we can always)
             // optimize into a negate at the top level as needed.
             None
-          } else Some(ia1)
+          } else {
+            Some(dedupOpaque(ia1))
+          }
         }
       }
 
       object Optimized {
-        def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
+        def unapply[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
           Impl.IntAlgebraic.unapply(te) match {
             case Some(ia) => optimize(ia, te)
             case None     => None
