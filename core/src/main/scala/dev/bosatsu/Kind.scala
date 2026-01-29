@@ -7,7 +7,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
 import cats.syntax.all._
 
-sealed abstract class Kind {
+sealed abstract class Kind derives CanEqual {
   def toDoc: Doc = Kind.toDoc(this)
 
   def toArgs: List[Kind.Arg] = {

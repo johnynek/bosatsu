@@ -8,7 +8,7 @@ import Parser.{lowerIdent, upperIdent}
 
 import cats.implicits._
 
-sealed abstract class Identifier {
+sealed abstract class Identifier derives CanEqual {
   def asString: String
 
   def sourceCodeRepr: String =

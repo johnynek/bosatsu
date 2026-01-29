@@ -1,16 +1,18 @@
 package dev.bosatsu.codegen.python
 
+import cats.Eq
 import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
 import dev.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
+import cats.syntax.all._
 
 // Structs are represented as tuples
 // Enums are represented as tuples with an additional first field holding
 // the variant
 
-sealed trait Code
+sealed trait Code derives CanEqual
 
 object Code {
 
@@ -28,7 +30,7 @@ object Code {
       }
   }
 
-  sealed abstract class Expression extends ValueLike with Code {
+  sealed abstract class Expression extends ValueLike with Code derives CanEqual {
 
     def countOf(ident: Ident): Int
 
@@ -92,7 +94,7 @@ object Code {
     def simplify: Expression
   }
 
-  sealed abstract class Statement extends Code {
+  sealed abstract class Statement extends Code derives CanEqual {
     def statements: NonEmptyList[Statement] =
       this match {
         case Block(ss) => ss
@@ -125,6 +127,13 @@ object Code {
           }
       }
   }
+
+  implicit val eqExpression: Eq[Expression] =
+    Eq.fromUniversalEquals
+  implicit val eqStatement: Eq[Statement] =
+    Eq.fromUniversalEquals
+  implicit val eqOperator: Eq[Operator] =
+    Eq.fromUniversalEquals
 
   private def par(d: Doc): Doc =
     Doc.char('(') + d + Doc.char(')')
@@ -292,6 +301,8 @@ object Code {
     def simplify: Expression = this
     def countOf(i: Ident) = if (i == this) 1 else 0
   }
+  implicit val eqIdent: Eq[Ident] =
+    Eq.fromUniversalEquals
   case class Not(arg: Expression) extends Expression {
     def simplify: Expression =
       arg.simplify match {
@@ -498,7 +509,7 @@ object Code {
         case _ =>
           val l1 = left.simplify
           val r1 = right.simplify
-          if ((l1 != left) || (r1 != right)) {
+          if (l1 != left || r1 != right) {
             Op(l1, op, r1).simplify
           } else {
             (left, op) match {
@@ -1260,7 +1271,7 @@ object Code {
   implicit def fromBoolean(b: Boolean): Expression =
     if (b) Code.Const.True else Code.Const.False
 
-  sealed abstract class Operator(val name: String) {
+  sealed abstract class Operator(val name: String) derives CanEqual {
     def associates(that: Operator): Boolean =
       // true if (a this b) that c == a this (b that c)
       this match {

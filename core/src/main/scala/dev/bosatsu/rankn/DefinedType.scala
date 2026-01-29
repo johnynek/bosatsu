@@ -22,7 +22,7 @@ final case class DefinedType[+A](
   val typeParams: List[Type.Var.Bound] =
     annotatedTypeParams.map(_._1)
 
-  require(typeParams.distinct == typeParams, typeParams.toString)
+  require(typeParams.distinct === typeParams, typeParams.toString)
 
   /** This is not the full type, since the full type has a ForAll(typeParams,
     * ... in front if the typeParams is nonEmpty

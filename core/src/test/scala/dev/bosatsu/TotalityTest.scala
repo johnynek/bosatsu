@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Eq
+import cats.implicits._
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -83,13 +84,14 @@ enum Bool: False, True
   val eqPatterns: Eq[List[Pattern[(PackageName, Constructor), Type]]] =
     new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
       val e1 = PredefTotalityCheck.eqPat
+      private given Eq[Pattern[(PackageName, Constructor), Type]] = e1
 
       def eqv(
           a: List[Pattern[(PackageName, Constructor), Type]],
           b: List[Pattern[(PackageName, Constructor), Type]]
       ) =
         (NonEmptyList.fromList(a), NonEmptyList.fromList(b)) match {
-          case (oa, ob) if oa == ob => true
+          case (oa, ob) if oa === ob => true
           case (Some(a), Some(b))   =>
             e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
           case _ => false

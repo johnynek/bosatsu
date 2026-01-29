@@ -313,8 +313,8 @@ object PackageMap {
 
       val (errs0, imap) = ImportMap.fromImports(p.imports) {
         case ((p1, i1), (p2, i2)) =>
-          val leftPredef = p1 === PackageName.PredefName
-          val rightPredef = p2 === PackageName.PredefName
+          val leftPredef = p1 == PackageName.PredefName
+          val rightPredef = p2 == PackageName.PredefName
 
           if (leftPredef) {
             if (rightPredef) {
@@ -323,7 +323,7 @@ object PackageMap {
               val r2 = i2.isRenamed
               if (r1 && !r2) ImportMap.Unify.Left
               else if (!r1 && r2) ImportMap.Unify.Right
-              else if ((i1 == i2) && !r1) {
+              else if ((i1 === i2) && !r1) {
                 // explicitly importing from predef is allowed.
                 // choose one, doesn't matter which they are the same
                 ImportMap.Unify.Left

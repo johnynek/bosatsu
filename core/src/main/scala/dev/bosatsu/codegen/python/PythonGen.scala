@@ -1460,7 +1460,7 @@ object PythonGen {
                           npos = npos + 1
                           binds(b) := pres.get(2)
                         } else Code.Pass
-                      cond = pres.get(1) =!= Code.PyString("")
+                      cond = pres.get(1) != Code.PyString("")
                       m <- Env.andCode(
                         cmd.withValue(cond),
                         (hbind +: gbind).withValue(true)
