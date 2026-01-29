@@ -1447,7 +1447,7 @@ final class SourceConverter(
         val fn: Flattened => Flattened = {
           case Left(d @ Def(dstmt)) =>
             val d1 =
-              if (dstmt.name === bind) dstmt.copy(name = newNameV) else dstmt
+              if (dstmt.name == bind) dstmt.copy(name = newNameV) else dstmt
             val res =
               if (
                 dstmt.args.flatten.iterator.flatMap(_.names).exists(_ == bind)

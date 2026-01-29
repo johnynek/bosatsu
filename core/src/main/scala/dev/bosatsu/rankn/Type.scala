@@ -737,7 +737,7 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b @ Type.Var.Bound(_) => b }
 
-  @inline final def normalize(tpe: Type): Type = tpe.normalize
+  inline final def normalize(tpe: Type): Type = tpe.normalize
 
   private def runNormalize(tpe: Type): Type =
     tpe match {
@@ -1288,7 +1288,7 @@ object Type {
             Monad[F].pure(sm)
           case sty @ Some(ty) =>
             zonkRhoMeta(ty)(fn).flatMap { ty1 =>
-              if ((ty1: Type) === ty) Monad[F].pure(sty)
+              if ((ty1: Type) == ty) Monad[F].pure(sty)
               else {
                 // we were able to resolve more of the inner metas
                 // inside ty, so update the state

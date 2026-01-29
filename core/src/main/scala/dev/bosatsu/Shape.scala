@@ -172,7 +172,7 @@ object Shape {
             dt: DefinedType[S],
             tc: rankn.Type.Const
         ): Option[KnownShape] =
-          if ((dt.toTypeConst: rankn.Type.Const) === tc) Some(ShapeOf(dt))
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(ShapeOf(dt))
           else None
       }
 
@@ -240,7 +240,7 @@ object Shape {
           t match {
             case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
             case rankn.Type.TyConst(const)                     =>
-              if (const === (dt.toTypeConst: rankn.Type.Const)) Some(thisShape)
+              if (const == (dt.toTypeConst: rankn.Type.Const)) Some(thisShape)
               else IsShapeEnv[E].getShape(imports, const)
             case _ =>
               // nothing else is in-scope

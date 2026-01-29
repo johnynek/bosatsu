@@ -148,7 +148,7 @@ object DefRecursionCheck {
           case TopLevel        => false
           case ids: InDefState =>
             val InDef(outer, dn, _, _) = ids.inDef
-            (dn === n) || outer.defNamesContain(n)
+            (dn == n) || outer.defNamesContain(n)
         }
 
       def inDef(
@@ -187,7 +187,7 @@ object DefRecursionCheck {
         val allNames = Iterator
           .iterate(0)(_ + 1)
           .map(idx => Identifier.Name(s"a$idx"))
-          .filterNot(n => (n: Bindable) === fnname)
+          .filterNot(n => (n: Bindable) == fnname)
 
         val func = cats.Functor[NonEmptyList].compose[NonEmptyList]
         // we allocate the names first. There is only one name inside: fnname
@@ -433,7 +433,7 @@ object DefRecursionCheck {
         case irb @ InRecurBranch(inrec, branch, names) =>
           argsOnDefName(fn, NonEmptyList.one(args)) match {
             case Some((nm, groups)) =>
-              if (nm === irb.defname) {
+              if (nm == irb.defname) {
                 val group = inrec.group
                 val idx = inrec.index
                 groups.get(group.toLong).flatMap(_.get(idx.toLong)) match {
@@ -453,7 +453,7 @@ object DefRecursionCheck {
                     val names1 = args.toList.flatMap(_.names)
                     unionNames(names1)(checkDecl(body))
                   case v @ Declaration.Var(fn: Bindable)
-                      if irb.defname === fn =>
+                      if irb.defname == fn =>
                     val Declaration.Lambda(args, body) =
                       irb.inDef.asLambda(v.region)
                     val names1 = args.toList.flatMap(_.names)

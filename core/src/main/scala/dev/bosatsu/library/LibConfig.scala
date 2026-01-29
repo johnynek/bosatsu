@@ -91,7 +91,7 @@ case class LibConfig(
           val expectedV = desc.version.map(Version.fromProto(_))
           if (decV === expectedV) {
             val hashIdent = dec.hashValue.toIdent
-            if (desc.hashes.exists(_ === hashIdent)) {
+            if (desc.hashes.exists(_ == hashIdent)) {
               Validated.unit
             } else {
               inv(
@@ -365,10 +365,10 @@ case class LibConfig(
           val msg =
             if (
               privateDepLibs.exists(_.interfaces.exists { iface =>
-                iface.name === badPn
+                iface.name == badPn
               })
             ) "package from private dependency"
-            else if (privatePacks.exists(_.name === badPn))
+            else if (privatePacks.exists(_.name == badPn))
               "private package in this library"
             else "unknown package"
 

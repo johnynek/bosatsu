@@ -563,7 +563,7 @@ object RingOpt {
               (left, right) match {
                 case (Zero, Zero)             => true
                 case (One, One)               => true
-                case (Integer(l), Integer(r)) => l === r
+                case (Integer(l), Integer(r)) => l == r
                 case (Symbol(l), Symbol(r))   => (l: A) === (r: A)
                 case _                        => false
               }
@@ -576,7 +576,7 @@ object RingOpt {
             case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
               ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && loop(lonto, ronto)
             case (Operate(lop, lon), Operate(rop, ron)) =>
-              (lop === rop) && loop(lon, ron)
+              (lop == rop) && loop(lon, ron)
             case _ => false
           }
 
@@ -1318,7 +1318,7 @@ object RingOpt {
               (left, right) match {
                 case (Zero, Zero)             => true
                 case (One, One)               => true
-                case (Integer(l), Integer(r)) => l === r
+                case (Integer(l), Integer(r)) => l == r
                 case (Symbol(l), Symbol(r))   => (l: A) === (r: A)
                 case _                        => false
               }
@@ -1348,7 +1348,7 @@ object RingOpt {
             case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
               ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && eqv(lonto, ronto)
             case (Operate(lop, lon), Operate(rop, ron)) =>
-              (lop === rop) && eqv(lon, ron)
+              (lop == rop) && eqv(lon, ron)
             case _ => false
           }
       }

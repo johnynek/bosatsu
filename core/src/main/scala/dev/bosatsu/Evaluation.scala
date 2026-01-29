@@ -57,7 +57,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         .value
 
     val evalFn: (Unit, PackageName, Identifier) => Eval[Value] = { (_, p, i) =>
-      if (p === thisPack) Eval.defer(evaluate(p)(i))
+      if (p == thisPack) Eval.defer(evaluate(p)(i))
       else evaluate(p)(i)
     }
 
@@ -84,7 +84,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     for {
       pack <- pm.toMap.get(p)
       (_, _, tpe) <- pack.lets.filter { case (n, _, _) =>
-        n === name
+        n == name
       }.lastOption
       value <- evaluate(p).get(name)
     } yield (value, tpe.getType)

@@ -1207,7 +1207,7 @@ object ProtoConverter {
         val key = (dt.packageName, dt.name)
         allDts.get(key) match {
           case Some((dtV, dtIdx)) =>
-            val cIdx = dtV.constructors.indexWhere(_.name === cf.name)
+            val cIdx = dtV.constructors.indexWhere(_.name == cf.name)
             if (cIdx >= 0) {
               tabPure(
                 proto.Referant(
@@ -1279,7 +1279,7 @@ object ProtoConverter {
     val ary = iface.strings.toArray
     val thisPack = ary(iface.packageName - 1)
     iface.definedTypes.toList
-      .flatMap(packageDeps(ary, _).filterNot(_ === thisPack))
+      .flatMap(packageDeps(ary, _).filterNot(_ == thisPack))
       .distinct
       .sorted
   }
@@ -1292,7 +1292,7 @@ object ProtoConverter {
     def getImp(imp: proto.Imports): String =
       ary(imp.packageName - 1)
     val imps: List[String] = pack.imports.map(getImp).toList
-    (dts ::: imps).distinct.sorted.filterNot(_ === thisPack)
+    (dts ::: imps).distinct.sorted.filterNot(_ == thisPack)
   }
 
   def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
@@ -1303,7 +1303,7 @@ object ProtoConverter {
          * so we need to filter those outside this package
          */
         ex.tag.definedType
-          .filter(_.packageName === iface.name)
+          .filter(_.packageName == iface.name)
       })
       .mapWithIndex((dt, idx) => (dt, idx))
 
@@ -1378,7 +1378,7 @@ object ProtoConverter {
                   tc <- typeConstFromStr(p, t, s"in $ref decoding ($p, $t)")
                   dt <- loadDT(tc)
                   cons <- toConstructor(c)
-                  idx = dt.constructors.indexWhere(_.name === cons)
+                  idx = dt.constructors.indexWhere(_.name == cons)
                   _ <-
                     if (idx < 0)
                       Failure(

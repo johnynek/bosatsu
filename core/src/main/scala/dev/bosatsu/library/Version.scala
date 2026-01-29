@@ -422,9 +422,9 @@ object Version {
     )
 
   sealed abstract class DiffKind(val name: String) derives CanEqual {
-    def isMajor: Boolean = this === DiffKind.Major
-    def isMinor: Boolean = this === DiffKind.Minor
-    def isPatch: Boolean = this === DiffKind.Patch
+    def isMajor: Boolean = this == DiffKind.Major
+    def isMinor: Boolean = this == DiffKind.Minor
+    def isPatch: Boolean = this == DiffKind.Patch
   }
 
   object DiffKind {

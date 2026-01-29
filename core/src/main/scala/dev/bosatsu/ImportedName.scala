@@ -10,7 +10,7 @@ sealed abstract class ImportedName[+T] {
   def originalName: Identifier
   def localName: Identifier
   def tag: T
-  def isRenamed: Boolean = originalName =!= localName
+  def isRenamed: Boolean = originalName != localName
   def withTag[U](tag: U): ImportedName[U]
 
   def map[U](fn: T => U): ImportedName[U] =
@@ -36,13 +36,13 @@ object ImportedName {
   implicit def eqImportedName[T](implicit eqT: Eq[T]): Eq[ImportedName[T]] =
     Eq.instance {
       case (OriginalName(leftName, leftTag), OriginalName(rightName, rightTag)) =>
-        (leftName === rightName) && eqT.eqv(leftTag, rightTag)
+        (leftName == rightName) && eqT.eqv(leftTag, rightTag)
       case (
             Renamed(leftOrig, leftLocal, leftTag),
             Renamed(rightOrig, rightLocal, rightTag)
           ) =>
-        (leftOrig === rightOrig) &&
-          (leftLocal === rightLocal) &&
+        (leftOrig == rightOrig) &&
+          (leftLocal == rightLocal) &&
           eqT.eqv(leftTag, rightTag)
       case _ => false
     }

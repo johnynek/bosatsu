@@ -105,7 +105,7 @@ object Code {
       stmt match {
         case Pass => this
         case _    =>
-          if (this === Pass) stmt
+          if (this == Pass) stmt
           else Block(stmt :: statements)
       }
 
@@ -113,7 +113,7 @@ object Code {
       stmt match {
         case Pass => this
         case _    =>
-          if (this === Pass) stmt
+          if (this == Pass) stmt
           else Block(statements ::: stmt.statements)
       }
 
@@ -299,7 +299,7 @@ object Code {
   }
   case class Ident(name: String) extends Expression {
     def simplify: Expression = this
-    def countOf(i: Ident) = if (i === this) 1 else 0
+    def countOf(i: Ident) = if (i == this) 1 else 0
   }
   implicit val eqIdent: Eq[Ident] =
     Eq.fromUniversalEquals
@@ -394,7 +394,7 @@ object Code {
           else if (b == BigInteger.ONE) left.simplify
           else {
             val l1 = left.simplify
-            if (l1 === left) this
+            if (l1 == left) this
             else (l1.evalTimes(i))
           }
         case Op(i @ PyInt(a), Const.Plus, right) =>
@@ -408,7 +408,7 @@ object Code {
           if (b == BigInteger.ZERO) left.simplify
           else {
             val l1 = left.simplify
-            if (l1 === left) {
+            if (l1 == left) {
               l1 match {
                 // if the left has a trailing constant combine it
                 case Op(ll, io: IntOp, rl @ PyInt(_)) =>
@@ -428,7 +428,7 @@ object Code {
           }
         case Op(i @ PyInt(_), Const.Minus, right) =>
           val r1 = right.simplify
-          if (r1 === right) {
+          if (r1 == right) {
             r1 match {
               case Op(rl, io: IntOp, rr) =>
                 io match {
@@ -469,7 +469,7 @@ object Code {
           if (b == BigInteger.ZERO) left.simplify
           else {
             val l1 = left.simplify
-            if (l1 === left) {
+            if (l1 == left) {
               l1 match {
                 case Op(ll, io: IntOp, rl) =>
                   io match {
@@ -485,8 +485,8 @@ object Code {
               }
             } else (l1.evalMinus(i))
           }
-        case Op(a, Const.Eq, b) if a === b                        => Const.True
-        case Op(a, Const.Gt | Const.Lt | Const.Neq, b) if a === b => Const.False
+        case Op(a, Const.Eq, b) if a == b                        => Const.True
+        case Op(a, Const.Gt | Const.Lt | Const.Neq, b) if a == b => Const.False
         case Op(PyInt(a), Const.Gt, PyInt(b))                    =>
           fromBoolean(a.compareTo(b) > 0)
         case Op(PyInt(a), Const.Lt, PyInt(b)) =>
@@ -509,7 +509,7 @@ object Code {
         case _ =>
           val l1 = left.simplify
           val r1 = right.simplify
-          if (!(l1 === left) || !(r1 === right)) {
+          if (l1 != left || r1 != right) {
             Op(l1, op, r1).simplify
           } else {
             (left, op) match {
@@ -610,7 +610,7 @@ object Code {
   case class Lambda(args: List[Ident], result: Expression) extends Expression {
     def simplify: Expression = Lambda(args, result.simplify)
 
-    def countOf(i: Ident) = if (args.exists(_ === i)) 0 else result.countOf(i)
+    def countOf(i: Ident) = if (args.exists(_ == i)) 0 else result.countOf(i)
     // make sure args don't shadow the given freeSet
     def unshadow(freeSet: Set[Ident]): Lambda = {
       val clashIdent =
@@ -767,7 +767,7 @@ object Code {
     val (branches, last) = untilTrue(allBranches.toList)
     NonEmptyList.fromList(branches) match {
       case Some(nel) =>
-        val ec = if (last === Pass) None else Some(last)
+        val ec = if (last == Pass) None else Some(last)
         IfStatement(nel, ec)
       case None =>
         last
@@ -1004,17 +1004,17 @@ object Code {
     def associates(that: Operator): Boolean =
       // true if (a this b) that c == a this (b that c)
       this match {
-        case Const.Plus  => (that === Const.Plus) || (that === Const.Minus)
+        case Const.Plus  => (that == Const.Plus) || (that == Const.Minus)
         case Const.Minus => false
-        case Const.And   => that === Const.And
-        case Const.Or    => that === Const.Or
+        case Const.And   => that == Const.And
+        case Const.Or    => that == Const.Or
         case Const.Times =>
           // (a * b) * c == a * (b * c)
           // (a * b) + c != a * (b + c)
-          (that === Const.Times)
+          (that == Const.Times)
         case Const.BitwiseAnd | Const.BitwiseOr | Const.BitwiseXor =>
           // these all associate with themselves
-          (this === that)
+          (this == that)
         case _ => false
       }
   }

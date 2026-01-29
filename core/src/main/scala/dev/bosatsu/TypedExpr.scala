@@ -177,10 +177,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         val argFree0 = argE.freeVarsDup
         val argFree =
           if (rec.isRecursive) {
-            ListUtil.filterNot(argFree0)(_ === arg)
+            ListUtil.filterNot(argFree0)(_ == arg)
           } else argFree0
 
-        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ === arg))
+        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ == arg))
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -548,7 +548,7 @@ object TypedExpr {
         toArgsBody(arity, in).flatMap { case (args, body) =>
           // if args0 don't shadow arg, we can push
           // it down
-          if (args.exists(_._1 === arg)) {
+          if (args.exists(_._1 == arg)) {
             // this we shadow, so we
             // can't lift, we could alpha-rename to
             // deal with this case
@@ -1168,7 +1168,7 @@ object TypedExpr {
             case t             => kinds(t)
           }
           val fa1 = pushDownCovariant(fa, kindsWithVars)
-          if (fa1 =!= fa) solve(left, fa1, state, solveSet, varKinds)
+          if (fa1 != fa) solve(left, fa1, state, solveSet, varKinds)
           else {
             // not clear what to do here,
             // the examples that come up look like un-unified
@@ -1182,7 +1182,7 @@ object TypedExpr {
             s2 <- solve(arg, arg2, s1, solveSet, varKinds)
           } yield s2
         case (TyConst(_) | TyMeta(_) | TyVar(_), _) =>
-          if (left === right) {
+          if (left == right) {
             // can't recurse further into left
             Some(state)
           } else None
@@ -1695,19 +1695,19 @@ object TypedExpr {
       case Annotation(term, tpe)            => Annotation(recur(term), tpe)
       case AnnotatedLambda(args, expr, tag) =>
         // this is a kind of let:
-        if (args.exists(_._1 === name)) {
+        if (args.exists(_._1 == name)) {
           // we are shadowing, so we are done:
           te
         } else {
           // no shadow
           AnnotatedLambda(args, recur(expr), tag)
         }
-      case Local(nm, _, tag) if nm === name => Local(name, tpe, tag)
+      case Local(nm, _, tag) if nm == name => Local(name, tpe, tag)
       case n: Name[A]                      => n
       case App(fnT, args, tpe, tag)        =>
         App(recur(fnT), args.map(recur), tpe, tag)
       case Let(b, e, in, r, t) =>
-        if (b === name) {
+        if (b == name) {
           if (r.isRecursive) {
             // in this case, b is in scope for e
             // so it shadows a the previous definition

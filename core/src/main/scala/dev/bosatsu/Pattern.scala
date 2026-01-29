@@ -793,10 +793,10 @@ object Pattern {
         case Annotation(SinglyNamed(b), _) => Some(b)
         case Named(b, inner)               =>
           if (inner.names.isEmpty) Some(b)
-          else unapply(inner).filter(_ === b)
+          else unapply(inner).filter(_ == b)
         case Union(SinglyNamed(b), r) =>
           r.foldM(b) { (b, pat) =>
-            unapply(pat).filter(_ === b)
+            unapply(pat).filter(_ == b)
           }
         case _ => None
       }

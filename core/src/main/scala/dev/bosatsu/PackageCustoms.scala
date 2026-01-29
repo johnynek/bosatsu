@@ -230,7 +230,7 @@ object PackageCustoms {
         }
       }
       .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
-      .filter { case (Type.Const.Defined(p, _), _, _) => p === pn }
+      .filter { case (Type.Const.Defined(p, _), _, _) => p == pn }
 
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
       exportedTE.toDefinedType(t._1) match {
@@ -283,7 +283,7 @@ object PackageCustoms {
 
     def internalDeps(te: TypedExpr[A]): Set[Bindable] =
       TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
-        case (pn, i: Identifier.Bindable) if pn === pack.name => i
+        case (pn, i: Identifier.Bindable) if pn == pack.name => i
       }
 
     def depsOf(n: Node): Iterable[Node] =

@@ -313,8 +313,8 @@ object PackageMap {
 
       val (errs0, imap) = ImportMap.fromImports(p.imports) {
         case ((p1, i1), (p2, i2)) =>
-          val leftPredef = p1 === PackageName.PredefName
-          val rightPredef = p2 === PackageName.PredefName
+          val leftPredef = p1 == PackageName.PredefName
+          val rightPredef = p2 == PackageName.PredefName
 
           if (leftPredef) {
             if (rightPredef) {
@@ -550,7 +550,7 @@ object PackageMap {
   ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
     // if we have passed in a use supplied predef, don't use the internal one
     val useInternalPredef = !ifs.exists { (p: Package.Interface) =>
-      p.name === PackageName.PredefName
+      p.name == PackageName.PredefName
     }
     // Now we have completed all IO, here we do all the checks we need for correctness
     val parsed =

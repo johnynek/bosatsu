@@ -39,10 +39,10 @@ sealed abstract class Expr[T] derives CanEqual {
         val argFree0 = argE.freeVarsDup
         val argFree =
           if (rec.isRecursive) {
-            ListUtil.filterNot(argFree0)(_ === arg)
+            ListUtil.filterNot(argFree0)(_ == arg)
           } else argFree0
 
-        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ === arg))
+        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ == arg))
       case Literal(_, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -191,7 +191,7 @@ object Expr {
           branches
             .traverse { case (_, expr) => unapply(expr) }
             .flatMap { allAnnotated =>
-              if (allAnnotated.tail.forall(_ === allAnnotated.head))
+              if (allAnnotated.tail.forall(_ == allAnnotated.head))
                 Some(allAnnotated.head)
               else None
             }

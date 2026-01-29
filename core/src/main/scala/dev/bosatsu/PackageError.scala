@@ -118,7 +118,7 @@ object PackageError {
       val tpeMap = showTypes(in, exType :: pt :: Nil)
       val first =
         s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType).render(80)}"
-      if (exType === (pt: Type)) {
+      if (exType == (pt: Type)) {
         s"$first has an unexported (private) type."
       } else {
         s"$first references an unexported (private) type ${tpeMap(pt).render(80)}."
@@ -860,7 +860,7 @@ object PackageError {
             case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
               val typeDoc =
-                if (outer =!= (tyApp: Type))
+                if (outer != (tyApp: Type))
                   (tmap(outer) + Doc.text(" at application ") + tmap(tyApp))
                 else tmap(outer)
 

@@ -80,7 +80,7 @@ object KindFormula {
     ) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        if (value === kindArg.variance) Sat.Yes
+        if (value == kindArg.variance) Sat.Yes
         else Sat.No
     }
 
@@ -93,7 +93,7 @@ object KindFormula {
     ) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        Sat(value === kindArg.variance)
+        Sat(value == kindArg.variance)
     }
 
     case class ImportedConst(
@@ -105,20 +105,20 @@ object KindFormula {
     ) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        Sat(value === kindArg.variance)
+        Sat(value == kindArg.variance)
     }
 
     // arg idx of a given constructor function
     case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        Sat(value === Variance.co || value === Variance.in)
+        Sat(value == Variance.co || value == Variance.in)
     }
 
     case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        Sat(value === Variance.co)
+        Sat(value == Variance.co)
     }
 
     case class HasView(
@@ -131,7 +131,7 @@ object KindFormula {
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(view.id) match {
           case Some(viewVariance) =>
-            Sat((viewVariance + value) === value)
+            Sat((viewVariance + value) == value)
           case None => Sat.Maybe
         }
     }
@@ -144,7 +144,7 @@ object KindFormula {
     ) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
-        Sat(value === variance)
+        Sat(value == variance)
     }
 
     case class UnifyVar(
@@ -156,7 +156,7 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-          case Some(v) => Sat(v === value)
+          case Some(v) => Sat(v == value)
           case None    => Sat.Maybe
         }
     }
@@ -171,7 +171,7 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-          case Some(v) => Sat((value + v) === value)
+          case Some(v) => Sat((value + v) == value)
           case None    => Sat.Maybe
         }
     }
@@ -185,7 +185,7 @@ object KindFormula {
       def satisfied(known: LongMap[Variance], value: Variance) =
         (known.get(view.id), known.get(argVariance.id)) match {
           case (Some(v1), Some(v2)) =>
-            Sat((v1 * v2) === value)
+            Sat((v1 * v2) == value)
           case _ => Sat.Maybe
         }
     }
@@ -233,7 +233,7 @@ object KindFormula {
             dt: DefinedType[Kind.Arg],
             tc: rankn.Type.Const
         ) =
-          if ((dt.toTypeConst: rankn.Type.Const) === tc) Some(dt)
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt)
           else None
       }
 
@@ -395,7 +395,7 @@ object KindFormula {
             val e1 = existing.updated(l, v)
             cons.get(l) match {
               case Some(cs) =>
-                cs.forall(_.satisfied(e1, v) =!= Sat.No)
+                cs.forall(_.satisfied(e1, v) != Sat.No)
               case None => true
             }
           }
@@ -424,7 +424,7 @@ object KindFormula {
                 cs.forall { c =>
                   val res = c.satisfied(lm, value)
                   // println(s"constraint: $c == $res")
-                  res === Sat.Yes
+                  res == Sat.Yes
                 }
               case None =>
                 // println(s"no constraints for $id = $value")
@@ -608,7 +608,7 @@ object KindFormula {
           right: KindFormula
       ): RefSpace[Unit] =
         (left, right) match {
-          case (a, b) if a === b                              => RefSpace.unit
+          case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             val vs = if (vl =!= vr) {
               addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
@@ -634,7 +634,7 @@ object KindFormula {
           right: KindFormula
       ): RefSpace[Unit] =
         (left, right) match {
-          case (a, b) if a === b                              => RefSpace.unit
+          case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             // we know vl + vr == vl
             val vs =
@@ -683,7 +683,7 @@ object KindFormula {
               // $COVERAGE-ON$
             }
           case rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) === dt.toTypeTyConst) RefSpace.pure(thisKind)
+            if ((tpe: rankn.Type) == dt.toTypeTyConst) RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
               constFormulas.get.flatMap { consts =>
@@ -818,7 +818,7 @@ object KindFormula {
               // $COVERAGE-ON$
             }
           case tpe @ rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) === dt.toTypeTyConst) {
+            if ((tpe: rankn.Type) == dt.toTypeTyConst) {
               addCons(view, Constraint.RecursiveView(cfn, idx)) *>
                 unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
             } else {

@@ -54,7 +54,7 @@ final case class Package[A, B, C, +D](
       i: ImportedName[T]
   ): Option[NonEmptyList[ExportedName[C]]] = {
     val iname = i.originalName
-    NonEmptyList.fromList(exports.filter(_.name === iname))
+    NonEmptyList.fromList(exports.filter(_.name == iname))
   }
 
   def visibleDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
@@ -160,7 +160,7 @@ object Package {
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
     tp.lets.filter { case (_, _, te) =>
-      te.getType === (Type.TestType: Type)
+      te.getType == (Type.TestType: Type)
     }.lastOption
 
   def mainValue[A](
@@ -180,7 +180,7 @@ object Package {
         testValue(tp).map(_._1)
 
     def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =
-      s.collect { case (p, i) if p === tp.name => i }
+      s.collect { case (p, i) if p == tp.name => i }
 
     val letWithGlobals = tp.lets.map { case tup @ (_, _, te) =>
       (tup, topLevels(te.globals))
@@ -414,7 +414,7 @@ object Package {
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
-              case (pack, b, t) if pack === p =>
+              case (pack, b, t) if pack == p =>
                 // by construction this has to have all the regions
                 (b, (t, extDefRegions(b)))
             }.toMap

@@ -60,7 +60,7 @@ object Matchless {
     def apply[A](arg: Bindable, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
       in match {
-        case Local(a) if a === arg => expr
+        case Local(a) if a == arg => expr
         case _                     => Let(Right(arg), expr, in)
       }
 
@@ -366,7 +366,7 @@ object Matchless {
             (copy(slots = newSlots), captures)
           case Some(n) =>
             val newSlots = frees.iterator
-              .filterNot(_ === n)
+              .filterNot(_ == n)
               .zipWithIndex
               .map { case (b, idx) => (b, ClosureSlot(idx)) }
               .toMap
@@ -488,7 +488,7 @@ object Matchless {
         // else None
         def loop(expr: Expr[B]): Option[Expr[B]] =
           expr match {
-            case App(Local(fnName), appArgs) if fnName === name =>
+            case App(Local(fnName), appArgs) if fnName == name =>
               // this is a tail call
               // we know the length of appArgs must match args or the code wouldn't have compiled
               // we have to first assign to the temp variables, and then assign the temp variables
@@ -598,7 +598,7 @@ object Matchless {
           lazy val e0 = loop(e, slots.inLet(name))
           def letrec(expr: Expr[B]): Expr[B] =
             expr match {
-              case fn: Lambda[B] if fn.recursiveName === Some(name) => fn
+              case fn: Lambda[B] if fn.recursiveName == Some(name) => fn
               case fn: Lambda[?]                                   =>
                 // loops always have a function name
                 sys.error(
@@ -611,7 +611,7 @@ object Matchless {
             }
 
           // this could be tail recursive
-          if (SelfCallKind(name, e) === SelfCallKind.TailCall) {
+          if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
             // we know that arity > 0 because, otherwise we can't have a total
             // self recursive loop, but property checks send in ill-typed
@@ -727,7 +727,7 @@ object Matchless {
               dr match {
                 case DataRepr.Struct(_) | DataRepr.NewType =>
                   ps.traverse(maybeSimple).flatMap { inners =>
-                    if (inners.forall(_ === Right(()))) Some(Right(()))
+                    if (inners.forall(_ == Right(()))) Some(Right(()))
                     else None
                   }
                 case _ => None
@@ -741,7 +741,7 @@ object Matchless {
           }
         case Pattern.Union(h, t) =>
           (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
-            if (inners.forall(_ === Right(()))) Some(Right(()))
+            if (inners.forall(_ == Right(()))) Some(Right(()))
             else None
           }
       }
