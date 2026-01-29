@@ -6,9 +6,27 @@ lazy val versionString = "3.8.1"
 ThisBuild / scalaVersion := versionString
 ThisBuild / crossScalaVersions := Seq(versionString)
 ThisBuild / dynverVTagPrefix := true
+ThisBuild / organization := "dev.bosatsu"
+ThisBuild / homepage := Some(url("https://github.com/johnynek/bosatsu"))
+ThisBuild / licenses := List(
+  "Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt")
+)
+ThisBuild / developers := List(
+  Developer(
+    "johnynek",
+    "Oscar Boykin",
+    "oscar.boykin@gmail.com",
+    url("https://github.com/johnynek")
+  )
+)
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/johnynek/bosatsu"),
+    "scm:git:git@github.com:johnynek/bosatsu.git"
+  )
+)
 
 lazy val commonSettings = Seq(
-  organization := "org.bykn",
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
@@ -37,7 +55,8 @@ lazy val root =
     .aggregate(core)
     .settings(
       commonSettings,
-      name := "bosatsu"
+      name := "bosatsu",
+      publish / skip := true
     )
     .jsSettings(commonJsSettings)
 
@@ -65,6 +84,7 @@ lazy val base =
     .settings(
       commonSettings,
       name := "bosatsu-base",
+      moduleName := "compiler-base",
       buildInfoKeys := Seq[BuildInfoKey](
         name,
         version,
@@ -87,6 +107,7 @@ lazy val cli = (project in file("cli"))
   .settings(
     commonSettings,
     name := "bosatsu-cli",
+    moduleName := "compiler-cli",
     assembly / test := {},
     assembly / assemblyMergeStrategy := {
       case PathList("scala", "annotation", "nowarn$.class" | "nowarn.class") =>
@@ -147,13 +168,16 @@ lazy val proto =
     "proto"
   ))
     .settings(
-     
+      name := "bosatsu-proto",
+      moduleName := "compiler-proto",
+      Compile / unmanagedResourceDirectories +=
+        (ThisBuild / baseDirectory).value / "proto" / "src" / "main" / "protobuf",
       Compile / PB.targets := Seq(
         scalapb.gen(scala3Sources = true) -> (Compile / sourceManaged).value
       ),
       // The trick is in this line:
       Compile / PB.protoSources := Seq(
-        (ThisBuild / baseDirectory).value / "proto/src/main/protobuf"
+        (ThisBuild / baseDirectory).value / "proto" / "src" / "main" / "protobuf"
       ),
       libraryDependencies ++= Seq(
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
@@ -171,6 +195,7 @@ lazy val core =
   )).settings(
     commonSettings,
     name := "bosatsu-core",
+    moduleName := "compiler-core",
     assembly / test := {},
     libraryDependencies ++=
       Seq(
@@ -200,6 +225,7 @@ lazy val cliJS =
       commonSettings,
       commonJsSettings,
       name := "bosatsu-clijs",
+      moduleName := "compiler-clijs",
       assembly / test := {},
       mainClass := Some("dev.bosatsu.tool.Fs2Main"),
       libraryDependencies ++= Seq(
@@ -225,6 +251,7 @@ lazy val jsapi =
       commonSettings,
       commonJsSettings,
       name := "bosatsu-jsapi",
+      moduleName := "compiler-jsapi",
       assembly / test := {},
       libraryDependencies ++=
         Seq(
@@ -245,6 +272,7 @@ lazy val jsui =
       commonSettings,
       commonJsSettings,
       name := "bosatsu-jsui",
+      moduleName := "compiler-jsui",
       libraryDependencies ++=
         Seq(
           cats.value,

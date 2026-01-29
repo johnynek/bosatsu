@@ -85,7 +85,7 @@ jobs:
         run: |
           sbt "++3.8.1; cli/assembly; cliJSJS/fullOptJS"
           cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
-          cp cliJS/.js/target/scala-3.8.1/bosatsu-clijs-opt/main.js bosatsu_node.js
+          cp cliJS/.js/target/scala-3.8.1/compiler-cliJS-opt/main.js bosatsu_node.js
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
@@ -207,6 +207,14 @@ jobs:
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
         run: sbt "++3.8.1; cli/assembly"
+      - name: Publish JVM/JS artifacts to Sonatype
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+        run: sbt ci-release
       - name: Publish Bosatsu libraries
         env:
           REPO_ROOT: ${{ github.workspace }}

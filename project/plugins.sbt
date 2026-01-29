@@ -11,6 +11,7 @@ addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.4")
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.6")
 addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
+addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.11.2")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"

@@ -6,4 +6,4 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # hide the punycode deprecation warning
 export NODE_OPTIONS="--no-deprecation"
 # make sure to run sbt cliJSJS/fullOptJS
-node $SCRIPT_DIR/cliJS/.js/target/scala-3.8.1/bosatsu-clijs-opt "$@"
+node $SCRIPT_DIR/cliJS/.js/target/scala-3.8.1/compiler-cliJS-opt "$@"
