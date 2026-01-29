@@ -155,8 +155,8 @@ object DaemonClient {
     }
   }
 
-  /** Parse a JSON response */
-  private def parseResponse(json: dev.bosatsu.Json): Either[String, DaemonResponse] = {
+  /** Parse a JSON response - package private for testing */
+  private[daemon] def parseResponse(json: dev.bosatsu.Json): Either[String, DaemonResponse] = {
     json match {
       case obj: dev.bosatsu.Json.JObject =>
         obj.toMap.get("success") match {
