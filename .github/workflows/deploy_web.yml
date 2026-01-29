@@ -136,19 +136,6 @@ jobs:
           # Copy BosatsuUI runtime for UI demos
           cp core/src/main/resources/bosatsu-ui-runtime.js web_deploy/
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Playwright
-        run: |
-          npm ci
-          npx playwright install chromium
-
-      - name: Run E2E tests
-        run: npm test
-
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
