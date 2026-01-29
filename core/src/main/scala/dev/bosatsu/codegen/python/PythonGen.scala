@@ -1184,13 +1184,26 @@ object PythonGen {
     object NumericExternal {
       val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
 
+      // Compare function using a total ordering where NaN > all other values.
+      // This maintains antisymmetry: cmp(NaN, x) = GT and cmp(x, NaN) = LT.
       private val cmpDoubleFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+          // math.isnan(a) check
+          val aNaN = Code.Apply(Code.DotSelect(Code.Ident("math"), Code.Ident("isnan")), List(arg0))
+          // math.isnan(b) check
+          val bNaN = Code.Apply(Code.DotSelect(Code.Ident("math"), Code.Ident("isnan")), List(arg1))
+          // If a is NaN: (2 if not bNaN else 1), meaning NaN > x, NaN == NaN
+          // If b is NaN (and a is not): 0, meaning x < NaN
+          // Otherwise: normal comparison
           Code
             .Ternary(
-              0,
-              arg0 :< arg1,
-              Code.Ternary(1, arg0 =:= arg1, 2)
+              Code.Ternary(2, Code.Not(bNaN), 1), // a is NaN
+              aNaN,
+              Code.Ternary(
+                0, // b is NaN (a is not)
+                bNaN,
+                Code.Ternary(0, arg0 :< arg1, Code.Ternary(1, arg0 =:= arg1, 2))
+              )
             )
             .simplify
         }

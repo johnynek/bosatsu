@@ -116,14 +116,31 @@ class NumericTest extends FunSuite {
     assertEquals(result, Comparison.EQ)
   }
 
-  test("NumericImpl.cmp with NaN returns GT") {
+  test("NumericImpl.cmp NaN > any non-NaN (antisymmetric total ordering)") {
+    // NaN is greater than all other values for total ordering
     val result = NumericImpl.cmp(wrap(Double.NaN), wrap(1.0))
     assertEquals(result, Comparison.GT)
   }
 
-  test("NumericImpl.cmp second arg NaN returns GT") {
+  test("NumericImpl.cmp any non-NaN < NaN (antisymmetric)") {
+    // For antisymmetry: if cmp(NaN, x) = GT then cmp(x, NaN) = LT
     val result = NumericImpl.cmp(wrap(1.0), wrap(Double.NaN))
+    assertEquals(result, Comparison.LT)
+  }
+
+  test("NumericImpl.cmp NaN == NaN for ordering purposes") {
+    val result = NumericImpl.cmp(wrap(Double.NaN), wrap(Double.NaN))
+    assertEquals(result, Comparison.EQ)
+  }
+
+  test("NumericImpl.cmp NaN > positive infinity") {
+    val result = NumericImpl.cmp(wrap(Double.NaN), wrap(Double.PositiveInfinity))
     assertEquals(result, Comparison.GT)
+  }
+
+  test("NumericImpl.cmp positive infinity < NaN") {
+    val result = NumericImpl.cmp(wrap(Double.PositiveInfinity), wrap(Double.NaN))
+    assertEquals(result, Comparison.LT)
   }
 
   test("NumericImpl.eq returns True for equal doubles") {
