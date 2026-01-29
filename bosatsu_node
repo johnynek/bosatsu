@@ -4,6 +4,29 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # hide the punycode deprecation warning
-export NODE_OPTIONS="--no-deprecation"
+export NODE_OPTIONS="--no-deprecation${NODE_OPTIONS:+ $NODE_OPTIONS}"
 # make sure to run sbt cliJSJS/fullOptJS
-node $SCRIPT_DIR/cliJS/.js/target/scala-3.8.1/compiler-cliJS-opt "$@"
+target_dir=""
+for d in "$SCRIPT_DIR"/cliJS/.js/target/scala-*; do
+  if [ -d "$d" ]; then
+    target_dir="$d"
+    break
+  fi
+done
+
+if [ -z "$target_dir" ]; then
+  echo "bosatsu_node: missing Scala.js target (run sbt \"cliJSJS/fullOptJS\")" >&2
+  exit 1
+fi
+
+for candidate in \
+  "$target_dir/compiler-clijs-opt.js" \
+  "$target_dir/compiler-clijs-opt/main.js"
+do
+  if [ -f "$candidate" ]; then
+    exec node "$candidate" "$@"
+  fi
+done
+
+echo "bosatsu_node: compiled JS not found in ${target_dir}" >&2
+exit 1
