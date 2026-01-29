@@ -1,0 +1,33 @@
+package Bosatsu/IO
+
+from Bosatsu/Predef import Int, String, List
+
+export (
+  IO,
+  pure, flatMap,
+  capture, captureFormula,
+  sequence, trace, random_Int
+)
+
+external struct IO[a]
+
+# Create a pure IO value
+external def pure[a](value: a) -> IO[a]
+
+# Chain IO computations
+external def flatMap[a, b](io: IO[a], f: a -> IO[b]) -> IO[b]
+
+# Capture a value with a name for provenance tracking
+external def capture[a](name: String, value: a) -> IO[a]
+
+# Capture a value with both name and formula for provenance tracking
+external def captureFormula[a](name: String, formula: String, value: a) -> IO[a]
+
+# Sequence a list of IO actions into a single IO returning a list
+external def sequence[a](ios: List[IO[a]]) -> IO[List[a]]
+
+# Get the current provenance trace as a string
+external def trace(unit: forall a. a) -> IO[String]
+
+# Generate a random integer between min and max (inclusive)
+external def random_Int(min: Int, max: Int) -> IO[Int]

@@ -10,16 +10,22 @@ import dev.bosatsu.MonadGen.genMonad
 object DaemonGen {
 
   // Node ID generator
-  val nodeId: Gen[NodeId] = for {
+  val genNodeId: Gen[NodeId] = for {
     num <- Gen.choose(0, 1000)
   } yield NodeId(s"n$num")
 
+  // Alias for backward compatibility
+  val nodeId: Gen[NodeId] = genNodeId
+
   // Source location generator
-  val sourceLocation: Gen[SourceLocation] = for {
+  val genSourceLocation: Gen[SourceLocation] = for {
     file <- Gen.alphaLowerStr.suchThat(_.nonEmpty).map(_ + ".bosatsu")
     line <- Gen.choose(1, 1000)
     column <- Gen.choose(1, 80)
   } yield SourceLocation(file, line, column)
+
+  // Alias for backward compatibility
+  val sourceLocation: Gen[SourceLocation] = genSourceLocation
 
   // Source type generators
   val sourcePure: Gen[SourceType.Pure] = for {
@@ -177,9 +183,34 @@ object DaemonGen {
     (1, shutdownCommand)
   )
 
+  // State-independent command generator (for JSON serialization tests)
+  val genDaemonCommand: Gen[DaemonCommand] = Gen.frequency(
+    (2, listCommand),
+    (2, explainCommand),
+    (2, findCommand),
+    (2, genNodeId.map(DaemonCommand.Deps(_))),
+    (2, genNodeId.map(DaemonCommand.Usages(_))),
+    (2, genNodeId.map(DaemonCommand.Focus(_))),
+    (1, unfocusCommand),
+    (2, genNodeId.map(DaemonCommand.Path(_))),
+    (2, genNodeId.map(DaemonCommand.Value(_))),
+    (2, genNodeId.map(DaemonCommand.Source(_))),
+    (2, for {
+      id <- genNodeId
+      context <- Gen.choose(1, 10)
+    } yield DaemonCommand.Snippet(id, context)),
+    (2, for {
+      id <- genNodeId
+      expr <- Gen.alphaNumStr.suchThat(_.nonEmpty)
+    } yield DaemonCommand.Eval(id, expr)),
+    (1, statusCommand),
+    (1, shutdownCommand)
+  )
+
   // Arbitraries
-  implicit val arbNodeId: Arbitrary[NodeId] = Arbitrary(nodeId)
-  implicit val arbSourceLocation: Arbitrary[SourceLocation] = Arbitrary(sourceLocation)
+  implicit val arbNodeId: Arbitrary[NodeId] = Arbitrary(genNodeId)
+  implicit val arbSourceLocation: Arbitrary[SourceLocation] = Arbitrary(genSourceLocation)
   implicit val arbSourceType: Arbitrary[SourceType] = Arbitrary(sourceType)
   implicit val arbDaemonState: Arbitrary[DaemonState] = Arbitrary(daemonState)
+  implicit val arbDaemonCommand: Arbitrary[DaemonCommand] = Arbitrary(genDaemonCommand)
 }

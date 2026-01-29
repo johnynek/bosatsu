@@ -1,6 +1,7 @@
 package dev.bosatsu.analysis
 
 import dev.bosatsu._
+import dev.bosatsu.rankn.Type
 import cats.data.State
 import cats.implicits._
 
@@ -159,20 +160,19 @@ object ProvenanceAnalyzer {
       case m: TypedExpr.Match[T] =>
         for {
           scrutId <- recurse(m.arg, env)
-          // Get scrutinee type for pattern bindings
-          scrutType = m.arg.getType
           branchIds <- m.branches.traverse { case (pattern, branchExpr) =>
-            // Extract names bound by the pattern
-            val patternBindings = pattern.names
-            // Create proper IDs and nodes for pattern bindings
-            // Pattern bindings derive from the scrutinee
+            // Use Pattern.envOf to get precise types for each binding
+            // After type checking, pattern vars are wrapped in Annotation with their actual type
+            val bindingTypes: Map[Identifier.Bindable, Type] =
+              Pattern.envOf(pattern, Map.empty[Identifier.Bindable, Type])(
+                _.asInstanceOf[Identifier.Bindable]
+              )
             for {
-              patternEnv <- patternBindings.toList.traverse { name =>
+              patternEnv <- bindingTypes.toList.traverse { case (name, bindingType) =>
                 for {
                   bindingId <- freshId[T]
-                  // Create a node for the pattern binding - it derives from the scrutinee
-                  // Use a Local reference with the scrutinee's type (approximation)
-                  bindingNode = ProvenanceNode(bindingId, TypedExpr.Local[T](name, scrutType, m.tag))
+                  // Create a node with the precise type from Pattern.envOf
+                  bindingNode = ProvenanceNode(bindingId, TypedExpr.Local[T](name, bindingType, m.tag))
                   _ <- addNode(bindingNode)
                   _ <- addDep(bindingId, scrutId) // Pattern binding depends on scrutinee
                 } yield (name, bindingId)

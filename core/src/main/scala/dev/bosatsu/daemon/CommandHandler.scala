@@ -259,7 +259,8 @@ object CommandHandler {
         case Nil => Nil
         case (current, path) :: rest =>
           if (current == targetId) {
-            (path :+ current).reverse
+            // Path is built from result to target, return in same order (result -> ... -> target)
+            path :+ current
           } else if (visited.contains(current)) {
             bfs(rest, visited)
           } else {

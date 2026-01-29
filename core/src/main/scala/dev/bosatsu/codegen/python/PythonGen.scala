@@ -679,7 +679,10 @@ object PythonGen {
 
   // These are values replaced with python operations
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
-    Map((PackageName.PredefName, Impl.PredefExternal.results.keySet))
+    Map(
+      PackageName.PredefName -> Impl.PredefExternal.results.keySet,
+      Impl.NumericExternal.NumericPackage -> Impl.NumericExternal.results.keySet
+    )
 
   private object Impl {
 
@@ -1150,6 +1153,135 @@ object PythonGen {
           // the onLast has to handle Code.Lambda specially
           res <- Env.onLast(body)(Code.Lambda(vars, _))
         } yield res
+    }
+
+    /**
+     * Intrinsic functions from Bosatsu/Numeric that are inlined as native Python operations.
+     * These use symbolic operators (+., -., *., /.) to distinguish from Int ops.
+     * Operations bypass RingOpt algebraic expansion - preserves original formulas.
+     */
+    object NumericExternal {
+      val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
+
+      private val cmpDoubleFn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+          Code
+            .Ternary(
+              0,
+              arg0 :< arg1,
+              Code.Ternary(1, arg0 =:= arg1, 2)
+            )
+            .simplify
+        }
+      }
+
+      val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
+        Map(
+          // Arithmetic - symbolic operators for Double (use Operator for symbolic names)
+          (
+            Identifier.Operator("+."),
+            (
+              input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
+              2
+            )
+          ),
+          (
+            Identifier.Operator("-."),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Operator("*."),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Operator("/."),
+            (
+              { input =>
+                // Float division - use regular division (no truncation)
+                Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                  Code.Op(a, Code.Const.Div, b)
+                }
+              },
+              2
+            )
+          ),
+          // Conversion (use Name for regular identifiers)
+          (
+            Identifier.Name("from_Int"),
+            (
+              // Python numbers are already floats when needed
+              { input => Env.onLast(input.head)(identity) },
+              1
+            )
+          ),
+          (
+            Identifier.Name("to_Int"),
+            (
+              // Truncate to integer using int()
+              { input =>
+                Env.onLast(input.head) { d =>
+                  Code.Ident("int")(d)
+                }
+              },
+              1
+            )
+          ),
+          // Comparison
+          (Identifier.Name("cmp_Double"), (cmpDoubleFn, 2)),
+          (
+            Identifier.Name("eq_Double"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(
+                  _.eval(Code.Const.Eq, _)
+                )
+              },
+              2
+            )
+          ),
+          // Unary operations
+          (
+            Identifier.Name("neg_Double"),
+            (
+              { input =>
+                Env.onLast(input.head)(d => Code.Op(Code.fromInt(0), Code.Const.Minus, d))
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("abs_Double"),
+            (
+              { input =>
+                Env.onLast(input.head)(d => Code.Ident("abs")(d))
+              },
+              1
+            )
+          )
+        )
+
+      def unapply[A](
+          expr: Expr[A]
+      ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
+        expr match {
+          case Global(_, pack, name) if pack == NumericPackage => results.get(name)
+          case _ => None
+        }
+
+      def makeLambda(
+          arity: Int
+      )(fn: List[ValueLike] => Env[ValueLike]): Env[ValueLike] =
+        PredefExternal.makeLambda(arity)(fn)
     }
 
     class Ops[K](
@@ -1762,6 +1894,9 @@ object PythonGen {
           case PredefExternal((fn, arity)) =>
             // make a lambda
             PredefExternal.makeLambda(arity)(fn)
+          case NumericExternal((fn, arity)) =>
+            // make a lambda for numeric intrinsic
+            NumericExternal.makeLambda(arity)(fn)
           case Global(k, p, n) =>
             remap(p, n)
               .flatMap {
@@ -1791,6 +1926,10 @@ object PythonGen {
               // $COVERAGE-ON$
             }
           case App(PredefExternal((fn, _)), args) =>
+            args.toList
+              .traverse(loop(_, slotName))
+              .flatMap(fn)
+          case App(NumericExternal((fn, _)), args) =>
             args.toList
               .traverse(loop(_, slotName))
               .flatMap(fn)

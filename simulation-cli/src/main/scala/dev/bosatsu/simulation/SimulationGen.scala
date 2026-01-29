@@ -25,7 +25,8 @@ object SimulationGen {
       theme: EmbedGenerator.Theme = EmbedGenerator.LightTheme,
       showWhy: Boolean = true,
       showWhatIf: Boolean = true,
-      showSweeps: Boolean = false
+      showSweeps: Boolean = false,
+      showCanvas: Boolean = false
   )
 
   /**
@@ -45,27 +46,38 @@ object SimulationGen {
     // 3. Generate UI initialization code
     val uiJs = generateUICode(analyses, config)
 
-    // 4. Combine all JS
+    // 4. Skip JsGen's const declarations - they conflict with _recompute's state-based approach
+    // JsGen inlines values (e.g., `const monthly_rate = 7 / 1200`) which breaks interactive "What if?"
+    // Instead, _recompute handles all computation dynamically from state
+
+    // 5. Combine all JS (without JsGen computation code)
     val fullJs =
       s"""${JsGen.runtimeCode}
 
 // Derivation state tracking
 $derivationState
 
-// Computation code (from JsGen)
-$computeJs
-
-// Recomputation logic
+// Recomputation logic (replaces JsGen's const declarations)
 $recomputeJs
 
 // UI initialization
 $uiJs
 """
 
-    // 5. Build initial state from assumptions
+    // 5. Build initial state from assumptions (extract actual values from computeJs)
+    val valuePattern = """const\s+(\w+)\s*=\s*([^;]+);""".r
+    val valueMap = valuePattern.findAllMatchIn(computeJs).map { m =>
+      m.group(1) -> m.group(2).trim
+    }.toMap
+
     val initialState = analyses
       .filter(_.kind == DerivationAnalyzer.Assumption)
-      .map(a => a.name.asString -> "undefined")
+      .map { a =>
+        val name = a.name.asString
+        val escaped = JsGen.escape(a.name).name
+        val value = valueMap.getOrElse(escaped, "undefined")
+        name -> value
+      }
       .toMap
 
     // 6. Generate embed config
@@ -74,7 +86,8 @@ $uiJs
       theme = config.theme,
       showWhyButtons = config.showWhy,
       showWhatIfToggles = config.showWhatIf,
-      showParameterSweeps = config.showSweeps
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
     )
 
     // 7. Generate HTML
@@ -104,14 +117,27 @@ $uiJs
   }"""
     }
 
-    s"""const _derivations = {
-${entries.mkString(",\n")}
-};
+    // Note: _derivations object is created by EmbedGenerator runtime
+    // We populate it here with our analyzed derivations
+    val populateStmts = analyses.map { a =>
+      val depsArray = a.dependencies.map(d => s""""${d.asString}"""").mkString("[", ", ", "]")
+      val kindStr = a.kind match {
+        case DerivationAnalyzer.Assumption  => "assumption"
+        case DerivationAnalyzer.Computation => "computed"
+        case DerivationAnalyzer.Conditional => "conditional"
+      }
+      s"""_derivations["${a.name.asString}"] = {
+  type: "$kindStr",
+  name: "${a.name.asString}",
+  formula: "${escapeJs(a.formula)}",
+  valueType: "${a.valueType}",
+  deps: $depsArray,
+  value: undefined
+};"""
+    }
 
-// Register derivations with the reactive state system
-Object.keys(_derivations).forEach(name => {
-  _setDerivation(name, _derivations[name]);
-});"""
+    s"""// Populate derivations (object created by EmbedGenerator runtime)
+${populateStmts.mkString("\n")}"""
   }
 
   /**
@@ -123,17 +149,46 @@ Object.keys(_derivations).forEach(name => {
     // Sort bindings topologically by dependencies
     val sorted = topologicalSort(analyses)
 
+    // Separate assumptions from computations
+    val assumptions = sorted.filter(_.kind == DerivationAnalyzer.Assumption)
+    val computations = sorted.filter(_.kind != DerivationAnalyzer.Assumption)
+
+    // Read assumptions from state
+    val readStmts = assumptions.map { a =>
+      val name = a.name.asString
+      val escaped = JsGen.escape(a.name).name
+      s"  const $escaped = _getState('$name');"
+    }
+
+    // Compute derived values (in topological order)
+    val computeStmts = computations.map { a =>
+      val escaped = JsGen.escape(a.name).name
+      val formula = a.formula
+      s"  const $escaped = ${formulaToJs(formula)};"
+    }
+
+    // Update derivations (and state for assumptions only - computed values don't have listeners)
     val updateStmts = sorted.map { a =>
       val name = a.name.asString
       val escaped = JsGen.escape(a.name).name
-      s"""  // Update $name
-  if (typeof $escaped !== 'undefined') {
-    _derivations["$name"].value = $escaped;
-    _setState("$name", $escaped);
-  }"""
+      // Only call _setState for assumptions - they have listeners
+      // Computed values just update their derivation value
+      if (a.kind == DerivationAnalyzer.Assumption) {
+        s"""  _derivations["$name"].value = $escaped;
+  _setState("$name", $escaped);"""
+      } else {
+        s"""  _derivations["$name"].value = $escaped;"""
+      }
     }
 
     s"""function _recompute() {
+  // Read current assumption values from state
+${readStmts.mkString("\n")}
+
+  // Compute derived values
+${computeStmts.mkString("\n")}
+
+  // Update all derivations and state
 ${updateStmts.mkString("\n")}
 
   // Update UI displays
@@ -143,6 +198,9 @@ ${updateStmts.mkString("\n")}
       el.textContent = _formatValue(_derivations[name].value);
     }
   });
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
 // Format a value for display
@@ -159,15 +217,39 @@ function _formatValue(v) {
   return String(v);
 }
 
-// Format derivation header for "Why?" display
+// Substitute variable names in formula with their actual values
+function _substituteValues(formula) {
+  let result = formula;
+  Object.keys(_derivations).forEach(name => {
+    const d = _derivations[name];
+    if (d.value !== undefined) {
+      // Replace whole-word matches only using word boundaries
+      const regex = new RegExp('\\\\b' + name + '\\\\b', 'g');
+      result = result.replace(regex, _formatValue(d.value));
+    }
+  });
+  return result;
+}
+
+// Format derivation header for "Why?" display with value substitution
 function _formatDerivationHeader(d) {
   switch (d.type) {
     case 'assumption':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">assumption</span>';
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
     case 'computed':
-      return '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span> → <span class="value">' + _formatValue(d.value) + '</span>';
     case 'conditional':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">conditional</span>';
+      // Show: name = formula = substituted = value
+      const substituted = _substituteValues(d.formula);
+      const isSubstituted = substituted !== d.formula;
+      let result = '<span class="name">' + d.name + '</span> = <span class="formula">' + d.formula + '</span>';
+      if (isSubstituted) {
+        result += '<br>&nbsp;&nbsp;= <span class="substituted">' + substituted + '</span>';
+      }
+      result += '<br>&nbsp;&nbsp;= <span class="value">' + _formatValue(d.value) + '</span>';
+      if (d.type === 'conditional') {
+        result += ' <span class="tag">conditional</span>';
+      }
+      return result;
     default:
       return d.name + ' = ' + _formatValue(d.value);
   }
@@ -366,6 +448,73 @@ $sweepSliders
   }
 
   /**
+   * Convert a Bosatsu formula to JavaScript.
+   *
+   * NOTE: This handles Predef method-call syntax (e.g., a.add(b)).
+   * For Numeric module operators (*.  +.  -.  /.), use JsGen's proper
+   * compilation pipeline instead - those operators are handled correctly
+   * by NumericExternal intrinsics in JsGen.
+   *
+   * See CLAUDE.md: "Never Treat Symptoms with String Replacement"
+   */
+  private def formulaToJs(formula: String): String = {
+    var result = formula
+    var changed = true
+    var iterations = 0
+    while (changed && iterations < 20) {
+      val before = result
+      result = replaceFunction(result, "add", (a, b) => s"($a + $b)")
+      result = replaceFunction(result, "sub", (a, b) => s"($a - $b)")
+      result = replaceFunction(result, "times", (a, b) => s"($a * $b)")
+      result = replaceFunction(result, "div", (a, b) => s"Math.trunc($a / $b)")
+      changed = before != result
+      iterations += 1
+    }
+    result
+  }
+
+  /**
+   * Replace a function call with two arguments using a custom replacement.
+   */
+  private def replaceFunction(s: String, fnName: String, replacement: (String, String) => String): String = {
+    val fnPattern = (fnName + "\\(").r
+    var result = s
+    var idx = 0
+    while (idx < result.length) {
+      fnPattern.findFirstMatchIn(result.substring(idx)) match {
+        case Some(m) =>
+          val start = idx + m.start
+          val argsStart = start + fnName.length + 1
+          // Find matching closing paren and split args
+          var depth = 1
+          var i = argsStart
+          var commaPos = -1
+          while (i < result.length && depth > 0) {
+            result.charAt(i) match {
+              case '(' => depth += 1
+              case ')' => depth -= 1
+              case ',' if depth == 1 && commaPos == -1 => commaPos = i
+              case _ =>
+            }
+            i += 1
+          }
+          if (depth == 0 && commaPos > 0) {
+            val arg1 = result.substring(argsStart, commaPos).trim
+            val arg2 = result.substring(commaPos + 1, i - 1).trim
+            val replaced = replacement(arg1, arg2)
+            result = result.substring(0, start) + replaced + result.substring(i)
+            idx = start + replaced.length
+          } else {
+            idx = idx + m.end
+          }
+        case None =>
+          idx = result.length
+      }
+    }
+    result
+  }
+
+  /**
    * Escape a string for use in JavaScript.
    */
   private def escapeJs(s: String): String =
@@ -374,4 +523,754 @@ $sweepSliders
       .replace("\n", "\\n")
       .replace("\r", "\\r")
       .replace("\t", "\\t")
+
+  /**
+   * Generate HTML for a function-based simulation.
+   *
+   * This is the principled approach where:
+   * - The simulation is a pure function
+   * - Function parameters ARE the inputs
+   * - Return type fields ARE the outputs
+   * - TypedExpr.freeVarsSet provides dependency analysis
+   */
+  def generateFunctionBased(
+      funcName: String,
+      funcParams: List[(String, String)],
+      analyses: List[DerivationAnalyzer.AnalyzedBinding],
+      computeJs: String,
+      config: SimConfig
+  ): String = {
+    // 1. Generate derivation state (for input params)
+    val derivationState = generateDerivationState(analyses)
+
+    // 2. Generate JavaScript that calls the function
+    val callArgs = funcParams.map { case (name, _) => s"""_getState("$name")""" }.mkString(", ")
+
+    val recomputeJs = s"""
+// The compiled function from Bosatsu
+$computeJs
+
+// Recompute by calling the function with current input values
+function _recompute() {
+  // Call the function with input values
+  const result = $funcName($callArgs);
+
+  // Update result displays
+  console.log("$funcName result:", result);
+
+  // For structs, result is an object or array
+  // Try to display result fields
+  const resultDiv = document.getElementById('results');
+  if (resultDiv) {
+    if (typeof result === 'object' && result !== null) {
+      let html = '';
+      // Handle struct (named fields) or tuple (array)
+      if (Array.isArray(result)) {
+        result.forEach((val, i) => {
+          html += '<div class="result-item"><span class="result-label">field_' + i + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+        });
+      } else {
+        Object.entries(result).forEach(([key, val]) => {
+          html += '<div class="result-item"><span class="result-label">' + key + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+        });
+      }
+      resultDiv.innerHTML = html;
+    } else {
+      resultDiv.textContent = _formatValue(result);
+    }
+  }
+
+  // Update input derivations
+${funcParams.map { case (name, _) =>
+      s"""  _derivations["$name"].value = _getState("$name");"""
+    }.mkString("\n")}
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}"""
+
+    // 3. Generate UI for inputs
+    val uiJs = generateFunctionBasedUI(funcParams, config)
+
+    // 4. Combine all JS
+    val fullJs = s"""${JsGen.runtimeCode}
+
+// Derivation state tracking for inputs
+$derivationState
+
+// Function and recomputation
+$recomputeJs
+
+// UI initialization
+$uiJs
+"""
+
+    // 5. Build initial state from function params (using defaults from config eventually)
+    // For now, use simple defaults
+    val initialState = funcParams.map { case (name, tpe) =>
+      val defaultVal = tpe match {
+        case "Int" => "0"
+        case "Double" => "0.0"
+        case "Bool" => "true"
+        case _ => "0"
+      }
+      name -> defaultVal
+    }.toMap
+
+    // 6. Generate embed config
+    val embedConfig = EmbedGenerator.EmbedConfig(
+      title = config.title,
+      theme = config.theme,
+      showWhyButtons = config.showWhy,
+      showWhatIfToggles = config.showWhatIf,
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
+    )
+
+    // 7. Generate HTML
+    EmbedGenerator.generateEmbed(embedConfig, initialState, fullJs)
+  }
+
+  /**
+   * Generate HTML for a function-based simulation using config values.
+   *
+   * This is the fully principled approach where:
+   * - The simulation is a pure function
+   * - UI metadata (labels, ranges, defaults) come from the config file
+   * - No hardcoded values
+   */
+  def generateFunctionBasedWithConfig(
+      funcName: String,
+      funcParams: List[(String, String)],
+      simConfig: ConfigExtractor.SimConfig,
+      analyses: List[DerivationAnalyzer.AnalyzedBinding],
+      computeJs: String,
+      config: SimConfig
+  ): String = {
+    // 1. Generate derivation state (for input params)
+    val derivationState = generateDerivationState(analyses)
+
+    // 2. Generate JavaScript that calls the function
+    val callArgs = funcParams.map { case (name, _) => s"""_getState("$name")""" }.mkString(", ")
+
+    // 3. Build output field info from config
+    val outputFields = simConfig.outputs.map { case (name, outputConfig) =>
+      (name, outputConfig.label, outputConfig.format, outputConfig.primary)
+    }
+
+    val recomputeJs = s"""
+// The compiled function from Bosatsu
+$computeJs
+
+// Recompute by calling the function with current input values
+function _recompute() {
+  // Call the function with input values
+  const result = $funcName($callArgs);
+
+  // Update result displays
+  console.log("$funcName result:", result);
+
+  // Update output displays
+${outputFields.zipWithIndex.map { case ((name, label, format, primary), idx) =>
+      s"""  const el_$name = document.getElementById('result-$name');
+  if (el_$name) {
+    const value = Array.isArray(result) ? result[$idx] : result.$name;
+    el_$name.querySelector('.result-value').textContent = _formatOutput(value, "$format");
+  }"""
+    }.mkString("\n")}
+
+  // Update input derivations
+${funcParams.map { case (name, _) =>
+      s"""  if (_derivations["$name"]) _derivations["$name"].value = _getState("$name");"""
+    }.mkString("\n")}
+
+  // Update output derivations with computed values
+${outputFields.zipWithIndex.map { case ((name, _, _, _), idx) =>
+      s"""  if (_derivations["$name"]) _derivations["$name"].value = Array.isArray(result) ? result[$idx] : result.$name;"""
+    }.mkString("\n")}
+
+  // Update visualization if registered
+  if (typeof _redrawVisualization === 'function') _redrawVisualization();
+}
+
+// Format an output value based on format type
+function _formatOutput(v, format) {
+  if (v === undefined || v === null) return '—';
+  switch (format) {
+    case 'currency':
+      return '$$' + _formatNumber(v);
+    case 'percent':
+      return v + '%';
+    default:
+      return _formatNumber(v);
+  }
+}
+
+// Format a number with commas
+function _formatNumber(v) {
+  if (typeof v !== 'number') return String(v);
+  return v.toLocaleString();
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}"""
+
+    // 4. Generate UI with config-driven inputs and outputs
+    val uiJs = generateConfigDrivenUI(simConfig, config)
+
+    // 5. Combine all JS
+    val fullJs = s"""${JsGen.runtimeCode}
+
+// Derivation state tracking for inputs
+$derivationState
+
+// Function and recomputation
+$recomputeJs
+
+// UI initialization
+$uiJs
+"""
+
+    // 6. Build initial state from config defaults
+    val initialState = simConfig.inputs.map { case (name, inputConfig) =>
+      name -> inputConfig.defaultValue.toString
+    }.toMap
+
+    // 7. Generate embed config
+    val embedConfig = EmbedGenerator.EmbedConfig(
+      title = config.title,
+      theme = config.theme,
+      showWhyButtons = config.showWhy,
+      showWhatIfToggles = config.showWhatIf,
+      showParameterSweeps = config.showSweeps,
+      showCanvas = config.showCanvas
+    )
+
+    // 8. Generate HTML
+    EmbedGenerator.generateEmbed(embedConfig, initialState, fullJs)
+  }
+
+  /**
+   * Generate UI initialization using config values for labels, ranges, and defaults.
+   */
+  private def generateConfigDrivenUI(
+      simConfig: ConfigExtractor.SimConfig,
+      config: SimConfig
+  ): String = {
+    // Generate input controls with proper labels, ranges, and defaults
+    val inputControls = simConfig.inputs.map { case (name, inputConfig) =>
+      val label = escapeJs(inputConfig.label)
+      s"""  addConfiguredInput("$name", "$label", ${inputConfig.minValue}, ${inputConfig.maxValue}, ${inputConfig.step}, ${inputConfig.defaultValue}, "controls");"""
+    }.mkString("\n")
+
+    // Generate output displays with proper labels
+    val outputDisplays = simConfig.outputs.map { case (name, outputConfig) =>
+      val label = escapeJs(outputConfig.label)
+      val primary = if (outputConfig.primary) "true" else "false"
+      s"""  addOutputDisplay("$name", "$label", $primary, "results");"""
+    }.mkString("\n")
+
+    // Generate "Why?" button calls for each output (if enabled)
+    val whyButtons = if (config.showWhy) {
+      simConfig.outputs.map { case (name, _) =>
+        s"""  addWhyButton("$name", "result-$name");"""
+      }.mkString("\n")
+    } else ""
+
+    s"""// Add a configured input control with label, range, and default
+function addConfiguredInput(name, label, min, max, step, defaultVal, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'control-group';
+
+  div.innerHTML = '<label class="control-label">' + label + ': <span class="value-display" id="' + name + '-value">' + defaultVal.toLocaleString() + '</span></label>' +
+    '<input type="range" id="' + name + '-slider" min="' + min + '" max="' + max + '" step="' + step + '" value="' + defaultVal + '">';
+
+  const slider = div.querySelector('input');
+  slider.oninput = () => {
+    const val = parseInt(slider.value);
+    document.getElementById(name + '-value').textContent = val.toLocaleString();
+    _setState(name, val);
+    _recompute();
+  };
+
+  container.appendChild(div);
+}
+
+// Add an output display with label
+function addOutputDisplay(name, label, isPrimary, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.id = 'result-' + name;
+  div.className = isPrimary ? 'result-item primary' : 'result-item';
+  div.innerHTML = '<span class="result-label">' + label + ':</span> <span class="result-value">—</span>';
+
+  container.appendChild(div);
+}
+
+// Add "Why?" button next to a value display
+function addWhyButton(valueName, elementId) {
+  const container = document.getElementById(elementId);
+  if (!container) return;
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Why?';
+  btn.className = 'why-button';
+  btn.onclick = () => showWhyExplanation(valueName);
+  container.appendChild(btn);
+}
+
+// Show "Why?" modal with derivation chain
+function showWhyExplanation(valueName) {
+  const d = _getDerivation(valueName);
+  if (!d) return;
+
+  const html = _explainDerivation(d, 0);
+  document.getElementById('why-explanation').innerHTML = html;
+  document.getElementById('why-modal').classList.remove('hidden');
+}
+
+// Recursively explain derivation
+function _explainDerivation(d, depth) {
+  const marginLeft = depth * 20;
+  const cls = d.type;
+  const header = _formatDerivationHeader(d);
+  let result = '<div class="derivation ' + cls + '" style="margin-left: ' + marginLeft + 'px">' + header + '</div>';
+
+  if (d.deps && d.deps.length > 0) {
+    d.deps.forEach(depName => {
+      const dep = _getDerivation(depName);
+      if (dep) {
+        result += _explainDerivation(dep, depth + 1);
+      }
+    });
+  }
+
+  return result;
+}
+
+// Format derivation header for "Why?" display
+function _formatDerivationHeader(d) {
+  switch (d.type) {
+    case 'assumption':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
+    case 'computed':
+      let result = '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span>';
+      if (d.formula) {
+        result += '<br><span class="formula">Formula: ' + d.formula + '</span>';
+      }
+      result += ' <span class="tag" style="background:#2196f3">computed</span>';
+      return result;
+    case 'conditional':
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag" style="background:#ff9800">conditional</span>';
+    default:
+      return d.name + ' = ' + _formatValue(d.value);
+  }
+}
+
+// Track current assumption variants
+const _assumptions = {};
+
+// Add assumption toggle buttons
+function addAssumptionToggle(name, description, defaultVariant, buttonsHtml, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Set default variant
+  _assumptions[name] = defaultVariant;
+
+  const div = document.createElement('div');
+  div.className = 'assumption-toggle';
+  div.innerHTML = '<div class="assumption-label">' + description + '</div>' +
+    '<div class="variant-buttons">' + buttonsHtml + '</div>';
+
+  // Add click handlers to variant buttons
+  div.querySelectorAll('.variant-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const variant = btn.dataset.variant;
+      _assumptions[name] = variant;
+
+      // Update active button state
+      div.querySelectorAll('.variant-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Recompute with new variant
+      _recompute();
+    });
+  });
+
+  container.appendChild(div);
+}
+
+// Get the current variant suffix for an assumption
+function getVariant(name) {
+  return _assumptions[name] || '';
+}
+
+// Initialize UI
+function init() {
+  // Get container - EmbedGenerator creates #controls for inputs
+  const controlsContainer = document.getElementById('controls');
+  const appletContainer = document.querySelector('.applet-container');
+
+  // Create "Why?" modal
+  const modal = document.createElement('div');
+  modal.id = 'why-modal';
+  modal.className = 'why-modal hidden';
+  modal.innerHTML = '<div class="why-modal-content"><h3>Why this value?</h3><div id="why-explanation"></div><button id="why-modal-close" class="close-btn">Close</button></div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('why-modal-close').onclick = () => {
+    document.getElementById('why-modal').classList.add('hidden');
+  };
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  };
+
+  // Create results section after controls
+  const resultsDiv = document.createElement('div');
+  resultsDiv.id = 'results';
+  resultsDiv.className = 'results-section';
+  resultsDiv.innerHTML = '<h3>Results</h3>';
+  if (controlsContainer && appletContainer) {
+    controlsContainer.after(resultsDiv);
+  }
+
+  // Add configured input controls to #controls
+$inputControls
+
+  // Add output displays to #results
+$outputDisplays
+
+  // Add "Why?" buttons to outputs
+$whyButtons
+
+${if (simConfig.assumptions.nonEmpty) s"""
+  // Add assumption toggles section
+  const assumptionsDiv = document.createElement('div');
+  assumptionsDiv.id = 'assumptions';
+  assumptionsDiv.className = 'assumptions-section';
+  assumptionsDiv.innerHTML = '<h3>What if...?</h3>';
+  if (appletContainer) appletContainer.appendChild(assumptionsDiv);
+
+  // Add assumption toggle buttons
+${generateAssumptionToggles(simConfig.assumptions)}
+""" else ""}
+
+${if (simConfig.sweeps.nonEmpty) s"""
+  // Add sweep charts section
+  const sweepsDiv = document.createElement('div');
+  sweepsDiv.id = 'sweeps';
+  sweepsDiv.className = 'sweeps-section';
+  sweepsDiv.innerHTML = '<h3>Parameter Sweeps</h3>';
+  if (appletContainer) appletContainer.appendChild(sweepsDiv);
+
+${generateSweepCharts(simConfig.sweeps, simConfig.functionName, simConfig.inputs.map(_._1))}
+""" else ""}
+
+  // Initial computation
+  _recompute();
+}"""
+  }
+
+  /**
+   * Generate JavaScript for assumption toggle buttons.
+   * Each assumption has multiple variants (function suffixes) that can be selected.
+   */
+  private def generateAssumptionToggles(assumptions: List[ConfigExtractor.AssumptionConfig]): String = {
+    assumptions.map { assumption =>
+      val name = escapeJs(assumption.name)
+      val description = escapeJs(assumption.description)
+      val defaultVariant = assumption.variants.headOption.map(_._2).getOrElse("")
+      val buttons = assumption.variants.map { case (label, suffix) =>
+        val escaped = escapeJs(label)
+        val escapedSuffix = escapeJs(suffix)
+        s"""<button class="variant-btn${if (suffix == defaultVariant) " active" else ""}" data-assumption="$name" data-variant="$escapedSuffix">$escaped</button>"""
+      }.mkString("")
+
+      s"""  addAssumptionToggle("$name", "$description", "$defaultVariant", `$buttons`, "assumptions");"""
+    }.mkString("\n")
+  }
+
+  /**
+   * Generate JavaScript for parameter sweep charts.
+   * Creates canvas-based line charts that show output across input range.
+   */
+  private def generateSweepCharts(
+      sweeps: List[ConfigExtractor.SweepConfig],
+      funcName: String,
+      inputParams: List[String]
+  ): String = {
+    sweeps.zipWithIndex.map { case (sweep, idx) =>
+      val canvasId = s"sweep-chart-$idx"
+      val inputParam = escapeJs(sweep.inputParam)
+      val outputParam = escapeJs(sweep.outputParam)
+
+      s"""
+  // Sweep chart for $inputParam vs $outputParam
+  const chartDiv_$idx = document.createElement('div');
+  chartDiv_$idx.className = 'sweep-chart-container';
+  chartDiv_$idx.innerHTML = '<div class="sweep-chart-header"><span class="sweep-chart-title">$outputParam vs $inputParam</span></div><canvas id="$canvasId" width="500" height="200"></canvas>';
+  document.getElementById('sweeps').appendChild(chartDiv_$idx);
+
+  // Run sweep and render chart
+  (function() {
+    const canvas = document.getElementById('$canvasId');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 40;
+
+    // Run sweep
+    const sweepData = [];
+    const min = ${sweep.minValue};
+    const max = ${sweep.maxValue};
+    const steps = ${sweep.steps};
+    const step = (max - min) / steps;
+
+    // Save current input value
+    const savedValue = _getState('$inputParam');
+
+    for (let i = 0; i <= steps; i++) {
+      const x = min + i * step;
+      _setState('$inputParam', Math.round(x));
+      const result = $funcName(${inputParams.map(p => s"""_getState("$p")""").mkString(", ")});
+      // Extract output value (handle array or object result)
+      const y = Array.isArray(result) ? result[${outputParam.toIntOption.getOrElse(0)}] : (result.$outputParam || result);
+      sweepData.push({ x: x, y: typeof y === 'number' ? y : 0 });
+    }
+
+    // Restore input value
+    _setState('$inputParam', savedValue);
+
+    // Find bounds
+    const xMin = min;
+    const xMax = max;
+    const yValues = sweepData.map(d => d.y);
+    const yMin = Math.min(...yValues);
+    const yMax = Math.max(...yValues);
+    const yRange = yMax - yMin || 1;
+
+    // Clear canvas
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw grid
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (height - 2 * padding) * i / 5;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+    }
+
+    // Draw axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+
+    // Draw line
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    sweepData.forEach((point, i) => {
+      const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // Draw current point marker
+    const currentX = savedValue;
+    const currentY = sweepData.find(d => Math.abs(d.x - currentX) < step / 2)?.y || 0;
+    const markerX = padding + (currentX - xMin) / (xMax - xMin) * (width - 2 * padding);
+    const markerY = height - padding - (currentY - yMin) / yRange * (height - 2 * padding);
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw axis labels
+    ctx.fillStyle = '#666';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(min.toString(), padding, height - 10);
+    ctx.fillText(max.toString(), width - padding, height - 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+    ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+
+    // Store render function for updates
+    window._renderSweep_$idx = function() {
+      // Re-render with updated current point
+      const newX = _getState('$inputParam');
+      const newY = sweepData.find(d => Math.abs(d.x - newX) < step / 2)?.y || 0;
+
+      // Redraw (simple version - clears and redraws everything)
+      ctx.fillStyle = '#f8f9fa';
+      ctx.fillRect(0, 0, width, height);
+
+      // Grid
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding + (height - 2 * padding) * i / 5;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+
+      // Axes
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.lineTo(width - padding, height - padding);
+      ctx.stroke();
+
+      // Line
+      ctx.strokeStyle = '#667eea';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      sweepData.forEach((point, i) => {
+        const px = padding + (point.x - xMin) / (xMax - xMin) * (width - 2 * padding);
+        const py = height - padding - (point.y - yMin) / yRange * (height - 2 * padding);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      // Current point marker
+      const mx = padding + (newX - xMin) / (xMax - xMin) * (width - 2 * padding);
+      const my = height - padding - (newY - yMin) / yRange * (height - 2 * padding);
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(mx, my, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Labels
+      ctx.fillStyle = '#666';
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(min.toString(), padding, height - 10);
+      ctx.fillText(max.toString(), width - padding, height - 10);
+      ctx.textAlign = 'right';
+      ctx.fillText(yMin.toLocaleString(), padding - 5, height - padding);
+      ctx.fillText(yMax.toLocaleString(), padding - 5, padding + 10);
+    };
+  })();
+"""
+    }.mkString("")
+  }
+
+  /**
+   * Generate UI initialization for function-based simulation.
+   */
+  private def generateFunctionBasedUI(
+      funcParams: List[(String, String)],
+      config: SimConfig
+  ): String = {
+    // Generate input controls for each parameter
+    val inputControls = funcParams.map { case (name, tpe) =>
+      val inputType = tpe match {
+        case "Int" | "Double" => "number"
+        case "Bool" => "checkbox"
+        case _ => "text"
+      }
+      s"""  addInputControl("$name", "$inputType", "inputs");"""
+    }.mkString("\n")
+
+    s"""// Add input control for a function parameter
+function addInputControl(name, inputType, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'input-control';
+
+  if (inputType === 'checkbox') {
+    div.innerHTML = '<label class="input-label"><span class="input-name">' + name + '</span><input type="checkbox" class="input-checkbox" checked /></label>';
+    const input = div.querySelector('input');
+    input.onchange = () => {
+      _setState(name, input.checked);
+      _recompute();
+    };
+  } else {
+    div.innerHTML = '<label class="input-label"><span class="input-name">' + name + '</span><input type="' + inputType + '" class="input-field" value="0" /></label>';
+    const input = div.querySelector('input');
+    input.oninput = () => {
+      const val = inputType === 'number' ? parseFloat(input.value) : input.value;
+      if (!isNaN(val) || inputType !== 'number') {
+        _setState(name, val);
+        _recompute();
+      }
+    };
+  }
+
+  container.appendChild(div);
+}
+
+// Initialize UI
+function init() {
+  // Create inputs section
+  const main = document.querySelector('main');
+  if (main) {
+    const inputsDiv = document.createElement('div');
+    inputsDiv.id = 'inputs';
+    inputsDiv.className = 'inputs-section';
+    inputsDiv.innerHTML = '<h3>Inputs</h3>';
+    main.insertBefore(inputsDiv, main.firstChild);
+
+    const resultsDiv = document.createElement('div');
+    resultsDiv.id = 'results';
+    resultsDiv.className = 'results-section';
+    resultsDiv.innerHTML = '<h3>Results</h3><p>Adjust inputs to see results.</p>';
+    main.appendChild(resultsDiv);
+  }
+
+  // Add input controls
+$inputControls
+
+  // Initial computation
+  _recompute();
+}"""
+  }
 }

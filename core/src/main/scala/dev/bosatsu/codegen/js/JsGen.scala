@@ -314,9 +314,228 @@ object JsGen {
     }
   }
 
+  // ==================
+  // Numeric Intrinsics
+  // ==================
+
+  /**
+   * Intrinsic functions from Bosatsu/Numeric that are inlined as native JS operations.
+   * These use symbolic operators (+., -., *., /.) to distinguish from Int ops.
+   * Operations bypass RingOpt algebraic expansion - preserves original formulas.
+   */
+  object NumericExternal {
+    import PredefExternal.IntrinsicFn
+
+    val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
+
+    // Compare function for Doubles - returns [0] (LT), [1] (EQ), or [2] (GT)
+    // NaN comparisons return GT for consistency with IEEE 754 totalOrder
+    private val cmpDoubleFn: IntrinsicFn = {
+      case List(a, b) =>
+        // Check for NaN first - Number.isNaN(a) || Number.isNaN(b) => GT
+        val isNaN = Code.BinExpr(
+          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(a)),
+          Code.BinOp.Or,
+          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(b))
+        )
+        Code.Ternary(isNaN, Code.ArrayLiteral(List(Code.IntLiteral(2))),
+          Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
+            Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
+              Code.ArrayLiteral(List(Code.IntLiteral(2))))))
+      case args => throw new IllegalArgumentException(s"cmp_Double expects 2 args, got ${args.length}")
+    }
+
+    /** Map of intrinsic function names to (implementation, arity) */
+    val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // Arithmetic - symbolic operators for Double (use Operator for symbolic names)
+      Identifier.Operator("+.") -> ((args: List[Code.Expression]) => args.head + args(1), 2),
+      Identifier.Operator("-.") -> ((args: List[Code.Expression]) => args.head - args(1), 2),
+      Identifier.Operator("*.") -> ((args: List[Code.Expression]) => args.head * args(1), 2),
+      Identifier.Operator("/.") -> ((args: List[Code.Expression]) =>
+        // Double division - no truncation needed
+        Code.BinExpr(args.head, Code.BinOp.Div, args(1)), 2),
+
+      // Conversion (use Name for regular identifiers)
+      Identifier.Name("from_Int") -> ((args: List[Code.Expression]) =>
+        // JS numbers are already floats, no conversion needed
+        args.head, 1),
+      Identifier.Name("to_Int") -> ((args: List[Code.Expression]) =>
+        // Truncate to integer
+        Code.Call(Code.Ident("Math").dot("trunc"), List(args.head)), 1),
+
+      // Comparison
+      Identifier.Name("cmp_Double") -> (cmpDoubleFn, 2),
+      Identifier.Name("eq_Double") -> ((args: List[Code.Expression]) =>
+        Code.Ternary(args.head === args(1), Code.ArrayLiteral(List(Code.IntLiteral(1))),
+          Code.ArrayLiteral(List(Code.IntLiteral(0)))), 2),
+
+      // Unary operations
+      Identifier.Name("neg_Double") -> ((args: List[Code.Expression]) =>
+        Code.PrefixExpr(Code.PrefixOp.Neg, args.head), 1),
+      Identifier.Name("abs_Double") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("abs"), List(args.head)), 1)
+    )
+
+    /** Check if an expression is a numeric external and extract its function */
+    def unapply[A](expr: Expr[A]): Option[(IntrinsicFn, Int)] =
+      expr match {
+        case Matchless.Global(_, pack, name) if pack == NumericPackage => results.get(name)
+        case _ => None
+      }
+
+    /** Create a lambda wrapper for a standalone intrinsic reference */
+    def makeLambda(arity: Int)(fn: IntrinsicFn): Code.Expression =
+      PredefExternal.makeLambda(arity)(fn)
+  }
+
+  /** IO module intrinsics - deferred execution with provenance tracking.
+    *
+    * In JavaScript, IO is represented as a thunk: () => { value, trace }
+    * - pure(x) returns a thunk that yields { value: x, trace: [] }
+    * - flatMap(io, f) returns a thunk that runs io, applies f to result, runs that IO
+    * - capture(name, x) returns a thunk that yields { value: x, trace: [{name, value: x}] }
+    * - random_Int(min, max) returns a thunk that generates a random int
+    */
+  object IOExternal {
+    import PredefExternal.IntrinsicFn
+    import cats.data.NonEmptyList
+
+    val IOPackage: PackageName = PackageName.parse("Bosatsu/IO").get
+
+    /** Map of intrinsic function names to (implementation, arity) */
+    val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // pure :: a -> IO a
+      // () => ({ value: x, trace: [] })
+      Identifier.Name("pure") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
+          "value" -> args.head,
+          "trace" -> Code.ArrayLiteral(Nil)
+        ))), 1),
+
+      // flatMap :: IO a -> (a -> IO b) -> IO b
+      // () => { const _a = io(); const _b = f(_a.value)(); return { value: _b.value, trace: _a.trace.concat(_b.trace) }; }
+      Identifier.Name("flatMap") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.Block(NonEmptyList.of(
+          Code.Const("_a", Code.Call(args(0), Nil)),
+          Code.Const("_b", Code.Call(Code.Call(args(1), List(Code.Ident("_a").dot("value"))), Nil)),
+          Code.Return(Some(Code.ObjectLiteral(List(
+            "value" -> Code.Ident("_b").dot("value"),
+            "trace" -> Code.Call(Code.Ident("_a").dot("trace").dot("concat"), List(Code.Ident("_b").dot("trace")))
+          ))))
+        ))), 2),
+
+      // sequence :: List[IO a] -> IO[List a]
+      // Simplified: just return thunk that evaluates all IOs and collects results
+      // Note: This is a simplified implementation - real sequence would need recursive handling
+      Identifier.Name("sequence") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.Block(NonEmptyList.of(
+          // Start with the Bosatsu list
+          Code.Let("_cur", Some(args.head)),
+          Code.Let("_results", Some(Code.ArrayLiteral(Nil))),
+          Code.Let("_traces", Some(Code.ArrayLiteral(Nil))),
+          // While loop: while _cur[0] !== 0 (0 = EmptyList, 1 = NonEmptyList)
+          Code.WhileLoop(
+            Code.BinExpr(Code.Ident("_cur").bracket(Code.IntLiteral(0)), Code.BinOp.NotEq, Code.IntLiteral(0)),
+            Code.Block(NonEmptyList.of(
+              // _cur = [1, head, tail] where head is an IO thunk
+              Code.Const("_r", Code.Call(Code.Ident("_cur").bracket(Code.IntLiteral(1)), Nil)),
+              Code.ExprStatement(Code.Call(Code.Ident("_results").dot("push"), List(Code.Ident("_r").dot("value")))),
+              Code.ExprStatement(Code.Call(Code.Ident("_traces").dot("push"), List(Code.Ident("_r").dot("trace")))),
+              Code.Assignment(Code.Ident("_cur"), Code.Ident("_cur").bracket(Code.IntLiteral(2)))
+            ))
+          ),
+          // Convert JS array back to Bosatsu list: arr.reduceRight((acc, item) => [1, item, acc], [0])
+          // Bosatsu list format: [0] = empty, [1, head, tail] = non-empty
+          Code.Return(Some(Code.ObjectLiteral(List(
+            "value" -> Code.Call(
+              Code.Ident("_results").dot("reduceRight"),
+              List(
+                Code.ArrowFunction(
+                  List("_acc", "_item"),
+                  Left(Code.ArrayLiteral(List(
+                    Code.IntLiteral(1),
+                    Code.Ident("_item"),
+                    Code.Ident("_acc")
+                  )))
+                ),
+                Code.ArrayLiteral(List(Code.IntLiteral(0)))  // Initial value: empty list
+              )
+            ),
+            "trace" -> Code.Call(Code.Ident("_traces").dot("flat"), Nil)
+          ))))
+        ))), 1),
+
+      // capture :: String -> a -> IO a
+      // () => ({ value: x, trace: [{ name: n, value: x }] })
+      Identifier.Name("capture") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
+          "value" -> args(1),
+          "trace" -> Code.ArrayLiteral(List(Code.ObjectLiteral(List(
+            "name" -> args(0),
+            "value" -> args(1)
+          ))))
+        ))), 2),
+
+      // captureFormula :: String -> String -> a -> IO a
+      // () => ({ value: x, trace: [{ name: n, formula: f, value: x }] })
+      Identifier.Name("captureFormula") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
+          "value" -> args(2),
+          "trace" -> Code.ArrayLiteral(List(Code.ObjectLiteral(List(
+            "name" -> args(0),
+            "formula" -> args(1),
+            "value" -> args(2)
+          ))))
+        ))), 3),
+
+      // trace :: () -> IO String
+      // Returns current trace as string (placeholder - full impl would need runtime context)
+      Identifier.Name("trace") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
+          "value" -> Code.StringLiteral("[trace]"),
+          "trace" -> Code.ArrayLiteral(Nil)
+        ))), 1),
+
+      // random_Int :: Int -> Int -> IO Int
+      // () => ({ value: Math.floor(Math.random() * (max - min + 1)) + min, trace: [] })
+      Identifier.Name("random_Int") -> ((args: List[Code.Expression]) =>
+        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
+          "value" -> (
+            Code.Call(Code.Ident("Math").dot("floor"), List(
+              Code.BinExpr(
+                Code.Call(Code.Ident("Math").dot("random"), Nil),
+                Code.BinOp.Times,
+                Code.BinExpr(
+                  Code.BinExpr(args(1), Code.BinOp.Minus, args(0)),
+                  Code.BinOp.Plus,
+                  Code.IntLiteral(1)
+                )
+              )
+            )) + args(0)
+          ),
+          "trace" -> Code.ArrayLiteral(Nil)
+        ))), 2)
+    )
+
+    /** Check if an expression is an IO external and extract its function */
+    def unapply[A](expr: Expr[A]): Option[(IntrinsicFn, Int)] =
+      expr match {
+        case Matchless.Global(_, pack, name) if pack == IOPackage => results.get(name)
+        case _ => None
+      }
+
+    /** Create a lambda wrapper for a standalone intrinsic reference */
+    def makeLambda(arity: Int)(fn: IntrinsicFn): Code.Expression =
+      PredefExternal.makeLambda(arity)(fn)
+  }
+
   /** These are values replaced with JS operations (for intrinsicValues method) */
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
-    Map((PackageName.PredefName, PredefExternal.results.keySet))
+    Map(
+      PackageName.PredefName -> PredefExternal.results.keySet,
+      NumericExternal.NumericPackage -> NumericExternal.results.keySet,
+      IOExternal.IOPackage -> IOExternal.results.keySet
+    )
 
   // ==================
   // Code Generation
@@ -372,6 +591,14 @@ object JsGen {
       case PredefExternal((fn, arity)) =>
         // Standalone reference to a predef intrinsic - wrap in lambda
         Env.pure(PredefExternal.makeLambda(arity)(fn))
+
+      case NumericExternal((fn, arity)) =>
+        // Standalone reference to a numeric intrinsic - wrap in lambda
+        Env.pure(NumericExternal.makeLambda(arity)(fn))
+
+      case IOExternal((fn, arity)) =>
+        // Standalone reference to an IO intrinsic - wrap in lambda
+        Env.pure(IOExternal.makeLambda(arity)(fn))
 
       case Global(_, pack, name) =>
         // Runtime-provided functions from Predef - use unqualified names
@@ -441,6 +668,18 @@ object JsGen {
 
       case App(PredefExternal((fn, _)), args) =>
         // Inline application of predef intrinsic
+        for {
+          argsJs <- args.toList.traverse(exprToJs)
+        } yield fn(argsJs)
+
+      case App(NumericExternal((fn, _)), args) =>
+        // Inline application of numeric intrinsic
+        for {
+          argsJs <- args.toList.traverse(exprToJs)
+        } yield fn(argsJs)
+
+      case App(IOExternal((fn, _)), args) =>
+        // Inline application of IO intrinsic
         for {
           argsJs <- args.toList.traverse(exprToJs)
         } yield fn(argsJs)
@@ -835,7 +1074,7 @@ object JsGen {
     Code.render(Code.Const(ident.name, jsExpr))
   }
 
-  /** Render multiple bindings as an ES module */
+  /** Render multiple bindings as an ES module (with exports) */
   def renderModule[A](bindings: List[(Bindable, Matchless.Expr[A])]): String = {
     val statements = bindings.map { case (name, expr) =>
       val (_, jsExpr) = Env.run(exprToJs(expr))
@@ -855,6 +1094,19 @@ object JsGen {
     }
 
     Code.render(allCode)
+  }
+
+  /** Render bindings as statements only (no ES module exports).
+    * Use this for embedding in HTML where exports would cause errors.
+    */
+  def renderStatements[A](bindings: List[(Bindable, Matchless.Expr[A])]): String = {
+    val statements = bindings.map { case (name, expr) =>
+      val (_, jsExpr) = Env.run(exprToJs(expr))
+      val ident = escape(name)
+      Code.Const(ident.name, jsExpr)
+    }
+
+    Code.render(Code.Statements(statements))
   }
 
   // ==================

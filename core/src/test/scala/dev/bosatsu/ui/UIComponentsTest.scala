@@ -150,6 +150,14 @@ class UIComponentsTest extends ScalaCheckSuite {
     assert(code.contains("_explainDerivation"), s"code should contain _explainDerivation: $code")
   }
 
+  test("WhyExplainer.generateDerivationFunctions includes all required functions") {
+    val stmts = WhyExplainer.generateDerivationFunctions()
+    val code = stmts.map(s => dev.bosatsu.codegen.js.Code.toDoc(s).render(80)).mkString("\n")
+    // Both functions must be present for _explainDerivation to work
+    assert(code.contains("_formatDerivationHeader"), s"code should contain _formatDerivationHeader: $code")
+    assert(code.contains("_explainDerivation"), s"code should contain _explainDerivation: $code")
+  }
+
   test("WhyExplainer.explain with Markdown format") {
     val a = Assumption("rate", 0.25, "tax rate")
     val result = WhyExplainer.explain(a, WhyExplainer.Markdown)

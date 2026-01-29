@@ -1,0 +1,44 @@
+package LoanCalculator
+
+# Loan Calculator Simulation
+#
+# This simulation is a pure function from inputs to outputs.
+# The function parameters ARE the user inputs.
+# The return struct fields ARE the displayed outputs.
+#
+# UI metadata (labels, ranges, widgets) are in loan_calculator_func.sim.json
+
+# Output record type
+struct LoanResult(
+  monthly_rate: Int,
+  num_payments: Int,
+  monthly_payment: Int,
+  total_paid: Int,
+  total_interest: Int,
+  interest_ratio: Int
+)
+
+def calculate(principal: Int, annual_rate: Int, years: Int) -> LoanResult:
+  # Derived calculations
+  monthly_rate = annual_rate.div(1200)
+  num_payments = years.times(12)
+
+  # Monthly payment calculation (simplified approximation)
+  # Full formula: P * r * (1+r)^n / ((1+r)^n - 1)
+  # Approximation: P * r + P / n
+  monthly_payment = principal.times(monthly_rate).add(principal.div(num_payments))
+
+  # Total cost analysis
+  total_paid = monthly_payment.times(num_payments)
+  total_interest = total_paid.sub(principal)
+  interest_ratio = total_interest.times(100).div(principal)
+
+  # Return all values for display and provenance
+  LoanResult(
+    monthly_rate,
+    num_payments,
+    monthly_payment,
+    total_paid,
+    total_interest,
+    interest_ratio
+  )

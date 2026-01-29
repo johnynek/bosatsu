@@ -3,641 +3,135 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bouncing Ball - BosatsuUI Phase 6 Demo</title>
+  <title>Bouncing ball</title>
+  
   <style>
-    :root {
-      --bg-color: #f5f5f5;
-      --text-color: #333333;
-      --accent-color: #667eea;
-      --surface-color: #ffffff;
-    }
+    :root { --bg-color: #f5f5f5; --text-color: #333333; --accent-color: #667eea; --surface-color: #ffffff; }
     * { box-sizing: border-box; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      max-width: 600px;
-      margin: 0 auto;
-      padding: 1rem;
-      background: var(--bg-color);
-      color: var(--text-color);
-    }
-    .applet-container {
-      background: var(--surface-color);
-      border-radius: 12px;
-      padding: 1.5rem;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    }
-    .applet-title {
-      margin: 0 0 0.5rem 0;
-      font-size: 1.5rem;
-    }
-    .applet-subtitle {
-      margin: 0 0 1rem 0;
-      font-size: 0.875rem;
-      color: #666;
-    }
-    .simulation-canvas {
-      width: 100%;
-      border-radius: 8px;
-    }
-    .controls-section {
-      margin-top: 1rem;
-      padding-top: 1rem;
-      border-top: 1px solid rgba(0,0,0,0.1);
-    }
-    .control-group {
-      margin: 1rem 0;
-    }
-    .control-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-    }
-    .control-label {
-      font-size: 0.875rem;
-      font-weight: 500;
-    }
-    .control-value {
-      font-family: monospace;
-      font-weight: bold;
-      color: var(--accent-color);
-    }
-    input[type="range"] {
-      width: 100%;
-      height: 8px;
-      -webkit-appearance: none;
-      background: #ddd;
-      border-radius: 4px;
-      outline: none;
-    }
-    input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 20px;
-      height: 20px;
-      background: var(--accent-color);
-      border-radius: 50%;
-      cursor: pointer;
-    }
-    .button-row {
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 1rem;
-    }
-    .btn {
-      padding: 0.5rem 1rem;
-      background: var(--accent-color);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.875rem;
-    }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 1rem; background: var(--bg-color); color: var(--text-color); }
+    .applet-container { background: var(--surface-color); border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .applet-title { margin: 0 0 0.5rem 0; font-size: 1.5rem; }
+    .applet-subtitle { margin: 0 0 1rem 0; font-size: 0.875rem; color: #666; }
+    .simulation-canvas { width: 100%; border-radius: 8px; }
+    .controls-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1); }
+    .control-group { margin: 1rem 0; }
+    .control-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .control-label { font-size: 0.875rem; font-weight: 500; }
+    .control-value { font-family: monospace; font-weight: bold; color: var(--accent-color); }
+    input[type="range"] { width: 100%; height: 8px; -webkit-appearance: none; background: #ddd; border-radius: 4px; outline: none; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: var(--accent-color); border-radius: 50%; cursor: pointer; }
+    .button-row { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .btn { padding: 0.5rem 1rem; background: var(--accent-color); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; }
     .btn:hover { opacity: 0.9; }
     .btn-secondary { background: #6c757d; }
-    .btn-success { background: #27ae60; }
-
-    /* Why Button */
-    .why-button {
-      margin-left: 8px;
-      padding: 2px 8px;
-      font-size: 11px;
-      background: #e3f2fd;
-      color: #1976d2;
-      border: 1px solid #90caf9;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .why-button:hover { background: #bbdefb; }
-
-    /* Why Modal */
-    .why-modal {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-    .why-modal.hidden { display: none; }
-    .why-modal-content {
-      background: white;
-      border-radius: 12px;
-      padding: 24px;
-      max-width: 500px;
-      max-height: 80vh;
-      overflow-y: auto;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    }
-    .why-modal-content h3 { margin-top: 0; }
-    .derivation {
-      padding: 8px 12px;
-      margin: 4px 0;
-      border-radius: 6px;
-      font-family: monospace;
-      font-size: 0.875rem;
-    }
-    .derivation.assumption {
-      background: #e8f5e9;
-      border-left: 3px solid #27ae60;
-    }
-    .derivation.computed {
-      background: #e3f2fd;
-      border-left: 3px solid #2196f3;
-    }
-
-    /* What If */
-    .what-if-section {
-      margin-top: 1rem;
-      padding: 1rem;
-      background: #fff3e0;
-      border-radius: 8px;
-    }
-    .what-if-title {
-      margin: 0 0 0.5rem 0;
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #e65100;
-    }
-    .what-if-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 0.5rem 0;
-      font-size: 0.875rem;
-    }
-    .what-if-btn {
-      padding: 4px 12px;
-      background: #ff9800;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.75rem;
-    }
-    .what-if-btn:hover { background: #f57c00; }
-    .what-if-btn.active { background: #e65100; }
-
-    /* Stats */
-    .stats-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid #eee;
-      font-size: 0.875rem;
-    }
-    .stats-row:last-child { border-bottom: none; }
+    .stats-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.875rem; }
     .stats-label { color: #666; }
     .stats-value { font-family: monospace; font-weight: 500; }
   </style>
 </head>
 <body>
   <div class="applet-container">
-    <h1 class="applet-title">Bouncing Ball</h1>
-    <p class="applet-subtitle">BosatsuUI Phase 6 Demo - Provenance & "What If?" Features</p>
-
+    <h1 class="applet-title">Bouncing ball</h1>
+    <p class="applet-subtitle">Generated from Bosatsu</p>
     <canvas id="simulation-canvas" class="simulation-canvas" width="552" height="300"></canvas>
-
     <div class="controls-section">
       <div class="control-group">
-        <div class="control-header">
-          <span class="control-label">Gravity</span>
-          <span class="control-value" id="gravity-display">500</span>
-          <button class="why-button" onclick="showWhy('gravity')">Why?</button>
-        </div>
+        <div class="control-header"><span class="control-label">Gravity</span><span class="control-value" id="gravity-display">500</span></div>
         <input type="range" id="gravity-slider" min="0" max="1000" value="500">
       </div>
-
       <div class="control-group">
-        <div class="control-header">
-          <span class="control-label">Bounciness</span>
-          <span class="control-value" id="bounciness-display">80%</span>
-          <button class="why-button" onclick="showWhy('bounciness')">Why?</button>
-        </div>
+        <div class="control-header"><span class="control-label">Bounciness</span><span class="control-value" id="bounciness-display">80%</span></div>
         <input type="range" id="bounciness-slider" min="0" max="100" value="80">
       </div>
-
+      <div class="stats-row"><span class="stats-label">Position:</span><span class="stats-value">(<span id="x-display">200</span>, <span id="y-display">50</span>)</span></div>
+      <div class="stats-row"><span class="stats-label">Velocity:</span><span class="stats-value">(<span id="vx-display">100</span>, <span id="vy-display">0</span>)</span></div>
       <div class="button-row">
         <button class="btn" onclick="resetSimulation()">Reset</button>
         <button class="btn btn-secondary" id="pause-btn" onclick="togglePause()">Pause</button>
       </div>
     </div>
-
-    <!-- Stats with "Why?" buttons -->
-    <div class="controls-section">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.875rem;">Current State</h4>
-      <div class="stats-row">
-        <span class="stats-label">Position (x, y)</span>
-        <span class="stats-value">(<span id="x-display">200</span>, <span id="y-display">50</span>)</span>
-        <button class="why-button" onclick="showWhy('position')">Why?</button>
-      </div>
-      <div class="stats-row">
-        <span class="stats-label">Velocity (vx, vy)</span>
-        <span class="stats-value">(<span id="vx-display">100</span>, <span id="vy-display">0</span>)</span>
-        <button class="why-button" onclick="showWhy('velocity')">Why?</button>
-      </div>
-      <div class="stats-row">
-        <span class="stats-label">Kinetic Energy</span>
-        <span class="stats-value" id="ke-display">5000</span>
-        <button class="why-button" onclick="showWhy('energy')">Why?</button>
-      </div>
-    </div>
-
-    <!-- What If? Section -->
-    <div class="what-if-section">
-      <h4 class="what-if-title">What If?</h4>
-      <div class="what-if-row">
-        <span>What if gravity were</span>
-        <button class="what-if-btn" onclick="setGravity(0)">0 (space)</button>
-        <button class="what-if-btn" onclick="setGravity(162)">Moon</button>
-        <button class="what-if-btn" onclick="setGravity(500)">Earth</button>
-        <button class="what-if-btn" onclick="setGravity(1000)">2x</button>
-        <span>?</span>
-      </div>
-      <div class="what-if-row">
-        <span>What if bounciness were</span>
-        <button class="what-if-btn" onclick="setBounciness(0)">0%</button>
-        <button class="what-if-btn" onclick="setBounciness(50)">50%</button>
-        <button class="what-if-btn" onclick="setBounciness(100)">100%</button>
-        <span>?</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Why Modal -->
-  <div id="why-modal" class="why-modal hidden" onclick="closeWhyModal(event)">
-    <div class="why-modal-content" onclick="event.stopPropagation()">
-      <h3 id="why-title">Why this value?</h3>
-      <div id="why-explanation"></div>
-      <button class="btn" onclick="closeWhyModal()">Close</button>
-    </div>
   </div>
 
   <script>
-    // =========================================================================
-    // BosatsuUI Reactive Runtime with Provenance
-    // =========================================================================
-
-    const _state = {
-      x: 200,
-      y: 50,
-      vx: 100,
-      vy: 0,
-      gravity: 500,
-      bounciness: 0.8,
-      running: true,
-      width: 552,
-      height: 300,
-      ballRadius: 20
+    const state = {
+      x: 200, y: 50, vx: 100, vy: 0,
+      gravity: 500, bounciness: 80,
+      width: 552, height: 300, ballRadius: 20,
+      running: true
     };
-
-    const _derivations = {};
-    const _listeners = {
-      x: [], y: [], vx: [], vy: [],
-      gravity: [], bounciness: [], running: []
-    };
-
-    function _setState(name, value) {
-      if (_state[name] !== value) {
-        _state[name] = value;
-        (_listeners[name] || []).forEach(fn => fn(value));
-      }
-    }
-
-    function _subscribe(name, fn) {
-      if (!_listeners[name]) _listeners[name] = [];
-      _listeners[name].push(fn);
-      fn(_state[name]);
-    }
-
-    // =========================================================================
-    // Derivation Tracking (Type-safe provenance from Bosatsu)
-    // =========================================================================
-
-    function createDerivation(name, value, type, formula, deps) {
-      return {
-        name,
-        value,
-        type, // 'assumption' | 'computed' | 'conditional'
-        formula: formula || '',
-        deps: deps || []
-      };
-    }
-
-    // Track derivations for "Why?" explanations
-    function updateDerivations() {
-      // Assumptions (user-controlled values)
-      _derivations.gravity = createDerivation('gravity', _state.gravity, 'assumption', 'User-controlled parameter');
-      _derivations.bounciness = createDerivation('bounciness', _state.bounciness, 'assumption', 'User-controlled parameter');
-
-      // Computed values
-      _derivations.x = createDerivation('x', _state.x, 'computed',
-        'x = x_prev + vx × dt',
-        [_derivations.gravity, _derivations.bounciness]
-      );
-      _derivations.y = createDerivation('y', _state.y, 'computed',
-        'y = y_prev + vy × dt',
-        [_derivations.gravity]
-      );
-      _derivations.vx = createDerivation('vx', _state.vx, 'computed',
-        'vx = vx_prev × bounciness (on wall hit)',
-        [_derivations.bounciness]
-      );
-      _derivations.vy = createDerivation('vy', _state.vy, 'computed',
-        'vy = vy_prev + gravity × dt',
-        [_derivations.gravity, _derivations.bounciness]
-      );
-      _derivations.energy = createDerivation('kinetic_energy', 0.5 * (_state.vx*_state.vx + _state.vy*_state.vy), 'computed',
-        'KE = ½m(vx² + vy²)',
-        [_derivations.vx, _derivations.vy]
-      );
-    }
-
-    // =========================================================================
-    // "Why?" Explanation Display
-    // =========================================================================
-
-    function showWhy(valueName) {
-      const explanations = {
-        gravity: renderDerivationChain(_derivations.gravity, 0),
-        bounciness: renderDerivationChain(_derivations.bounciness, 0),
-        position: `
-          <div class="derivation computed" style="margin-left: 0px">
-            <strong>x</strong> = ${_state.x.toFixed(1)} (from x_prev + vx × dt)
-          </div>
-          <div class="derivation computed" style="margin-left: 20px">
-            <strong>vx</strong> = ${_state.vx.toFixed(1)} (affected by bounciness on wall collisions)
-          </div>
-          ${renderDerivationChain(_derivations.bounciness, 2)}
-          <div class="derivation computed" style="margin-left: 0px">
-            <strong>y</strong> = ${_state.y.toFixed(1)} (from y_prev + vy × dt)
-          </div>
-          <div class="derivation computed" style="margin-left: 20px">
-            <strong>vy</strong> = ${_state.vy.toFixed(1)} (from vy_prev + gravity × dt)
-          </div>
-          ${renderDerivationChain(_derivations.gravity, 2)}
-        `,
-        velocity: `
-          <div class="derivation computed" style="margin-left: 0px">
-            <strong>vx</strong> = ${_state.vx.toFixed(1)}
-          </div>
-          <div class="derivation assumption" style="margin-left: 20px">
-            Affected by <strong>bounciness</strong> = ${(_state.bounciness * 100).toFixed(0)}% on wall collision
-          </div>
-          <div class="derivation computed" style="margin-left: 0px">
-            <strong>vy</strong> = ${_state.vy.toFixed(1)} = vy_prev + gravity × dt
-          </div>
-          ${renderDerivationChain(_derivations.gravity, 1)}
-        `,
-        energy: `
-          <div class="derivation computed" style="margin-left: 0px">
-            <strong>Kinetic Energy</strong> = ${_derivations.energy.value.toFixed(0)}
-          </div>
-          <div class="derivation computed" style="margin-left: 20px">
-            KE = ½ × m × (vx² + vy²)
-          </div>
-          <div class="derivation computed" style="margin-left: 40px">
-            KE = 0.5 × 1 × (${_state.vx.toFixed(1)}² + ${_state.vy.toFixed(1)}²)
-          </div>
-          <div class="derivation assumption" style="margin-left: 40px">
-            vx = ${_state.vx.toFixed(1)} (affected by bounciness: ${(_state.bounciness * 100).toFixed(0)}%)
-          </div>
-          <div class="derivation assumption" style="margin-left: 40px">
-            vy = ${_state.vy.toFixed(1)} (affected by gravity: ${_state.gravity})
-          </div>
-        `
-      };
-
-      const titles = {
-        gravity: 'Why is gravity = ' + _state.gravity + '?',
-        bounciness: 'Why is bounciness = ' + (_state.bounciness * 100).toFixed(0) + '%?',
-        position: 'Why is the ball at (' + _state.x.toFixed(0) + ', ' + _state.y.toFixed(0) + ')?',
-        velocity: 'Why is velocity (' + _state.vx.toFixed(0) + ', ' + _state.vy.toFixed(0) + ')?',
-        energy: 'Why is kinetic energy = ' + _derivations.energy.value.toFixed(0) + '?'
-      };
-
-      document.getElementById('why-title').textContent = titles[valueName] || 'Why?';
-      document.getElementById('why-explanation').innerHTML = explanations[valueName] || 'No derivation tracked.';
-      document.getElementById('why-modal').classList.remove('hidden');
-    }
-
-    function renderDerivationChain(d, depth) {
-      if (!d) return '';
-      const marginLeft = depth * 20;
-      const cls = d.type;
-      const header = d.type === 'assumption'
-        ? `<strong>${d.name}</strong> = ${d.value} <span style="font-size: 11px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">assumption</span>`
-        : `<strong>${d.name}</strong> = ${d.value} <span style="color: #666;">(${d.formula})</span>`;
-
-      let html = `<div class="derivation ${cls}" style="margin-left: ${marginLeft}px">${header}</div>`;
-
-      if (d.deps && d.deps.length > 0) {
-        d.deps.forEach(dep => {
-          html += renderDerivationChain(dep, depth + 1);
-        });
-      }
-
-      return html;
-    }
-
-    function closeWhyModal(event) {
-      if (!event || event.target.id === 'why-modal') {
-        document.getElementById('why-modal').classList.add('hidden');
-      }
-    }
-
-    // =========================================================================
-    // "What If?" Toggles
-    // =========================================================================
-
-    function setGravity(value) {
-      _setState('gravity', value);
-      document.getElementById('gravity-slider').value = value;
-    }
-
-    function setBounciness(value) {
-      _setState('bounciness', value / 100);
-      document.getElementById('bounciness-slider').value = value;
-    }
-
-    // =========================================================================
-    // Physics Simulation
-    // =========================================================================
-
-    function updatePhysics(dt) {
-      if (!_state.running) return;
-
-      const { x, y, vx, vy, gravity, bounciness, width, height, ballRadius } = _state;
-
-      // Apply gravity
-      let newVy = vy + gravity * dt;
-
-      // Update position
-      let newX = x + vx * dt;
-      let newY = y + newVy * dt;
-      let newVx = vx;
-
-      // Bounce off walls
-      if (newX - ballRadius < 0) {
-        newX = ballRadius;
-        newVx = -newVx * bounciness;
-      }
-      if (newX + ballRadius > width) {
-        newX = width - ballRadius;
-        newVx = -newVx * bounciness;
-      }
-
-      // Bounce off ceiling
-      if (newY - ballRadius < 0) {
-        newY = ballRadius;
-        newVy = -newVy * bounciness;
-      }
-
-      // Bounce off floor
-      if (newY + ballRadius > height) {
-        newY = height - ballRadius;
-        newVy = Math.abs(newVy) < 10 ? 0 : -newVy * bounciness;
-      }
-
-      _setState('x', newX);
-      _setState('y', newY);
-      _setState('vx', newVx);
-      _setState('vy', newVy);
-
-      updateDerivations();
-    }
-
-    // =========================================================================
-    // Rendering
-    // =========================================================================
 
     const canvas = document.getElementById('simulation-canvas');
     const ctx = canvas.getContext('2d');
 
-    function render() {
-      const { x, y, vx, vy, width, height, ballRadius } = _state;
+    function updatePhysics(dt) {
+      if (!state.running) return;
+      const { x, y, vx, vy, gravity, bounciness, width, height, ballRadius } = state;
 
-      // Background
-      const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
-      bgGradient.addColorStop(0, '#1a1a2e');
-      bgGradient.addColorStop(1, '#16162a');
-      ctx.fillStyle = bgGradient;
-      ctx.fillRect(0, 0, width, height);
+      let newVy = vy + gravity * dt;
+      let newY = y + vy * dt;
+      let newX = x + vx * dt;
+      let newVx = vx;
+      const b = bounciness / 100;
 
-      // Grid
-      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-      ctx.lineWidth = 1;
-      for (let gx = 0; gx <= width; gx += 40) {
-        ctx.beginPath();
-        ctx.moveTo(gx, 0);
-        ctx.lineTo(gx, height);
-        ctx.stroke();
-      }
-      for (let gy = 0; gy <= height; gy += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, gy);
-        ctx.lineTo(width, gy);
-        ctx.stroke();
-      }
+      if (y + ballRadius > height) { newY = height - ballRadius; newVy = -Math.abs(newVy) * b; }
+      if (y - ballRadius < 0) { newY = ballRadius; newVy = Math.abs(newVy) * b; }
+      if (x - ballRadius < 0) { newX = ballRadius; newVx = Math.abs(newVx) * b; }
+      if (x + ballRadius > width) { newX = width - ballRadius; newVx = -Math.abs(newVx) * b; }
 
-      // Shadow
-      ctx.beginPath();
-      ctx.ellipse(x, height - 5, ballRadius * 0.8, ballRadius * 0.2, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fill();
-
-      // Ball
-      const ballGradient = ctx.createRadialGradient(x - ballRadius * 0.3, y - ballRadius * 0.3, 0, x, y, ballRadius);
-      ballGradient.addColorStop(0, '#ff6b8a');
-      ballGradient.addColorStop(1, '#e94560');
-      ctx.beginPath();
-      ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
-      ctx.fillStyle = ballGradient;
-      ctx.fill();
-
-      // Velocity vector
-      const speed = Math.sqrt(vx * vx + vy * vy);
-      if (speed > 10) {
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + vx * 0.05, y + vy * 0.05);
-        ctx.strokeStyle = 'rgba(102, 126, 234, 0.6)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+      state.x = newX; state.y = newY; state.vx = newVx; state.vy = newVy;
     }
 
-    // =========================================================================
-    // UI Updates
-    // =========================================================================
+    function render() {
+      const { x, y, width, height, ballRadius } = state;
+      const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+      bgGradient.addColorStop(0, '#1a1a2e'); bgGradient.addColorStop(1, '#16162a');
+      ctx.fillStyle = bgGradient; ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
+      for (let gx = 0; gx <= width; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, height); ctx.stroke(); }
+      for (let gy = 0; gy <= height; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(width, gy); ctx.stroke(); }
+
+      ctx.beginPath(); ctx.ellipse(x, height - 5, ballRadius * 0.8, ballRadius * 0.2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
+
+      const shapeGradient = ctx.createRadialGradient(x - ballRadius * 0.3, y - ballRadius * 0.3, 0, x, y, ballRadius);
+      shapeGradient.addColorStop(0, '#ff6b8a'); shapeGradient.addColorStop(1, '#e94560');
+      ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = shapeGradient; ctx.fill();
+    }
 
     function updateDisplays() {
-      document.getElementById('x-display').textContent = _state.x.toFixed(0);
-      document.getElementById('y-display').textContent = _state.y.toFixed(0);
-      document.getElementById('vx-display').textContent = _state.vx.toFixed(0);
-      document.getElementById('vy-display').textContent = _state.vy.toFixed(0);
-
-      const ke = 0.5 * (_state.vx * _state.vx + _state.vy * _state.vy);
-      document.getElementById('ke-display').textContent = ke.toFixed(0);
+      document.getElementById('x-display').textContent = state.x.toFixed(0);
+      document.getElementById('y-display').textContent = state.y.toFixed(0);
+      document.getElementById('vx-display').textContent = state.vx.toFixed(0);
+      document.getElementById('vy-display').textContent = state.vy.toFixed(0);
     }
-
-    // Bindings
-    _subscribe('gravity', v => {
-      document.getElementById('gravity-display').textContent = v;
-    });
-
-    _subscribe('bounciness', v => {
-      document.getElementById('bounciness-display').textContent = (v * 100).toFixed(0) + '%';
-    });
 
     document.getElementById('gravity-slider').addEventListener('input', e => {
-      _setState('gravity', parseInt(e.target.value));
+      state.gravity = parseInt(e.target.value);
+      document.getElementById('gravity-display').textContent = e.target.value;
     });
-
     document.getElementById('bounciness-slider').addEventListener('input', e => {
-      _setState('bounciness', parseFloat(e.target.value) / 100);
+      state.bounciness = parseFloat(e.target.value);
+      document.getElementById('bounciness-display').textContent = e.target.value + '%';
     });
-
-    // =========================================================================
-    // Controls
-    // =========================================================================
 
     function resetSimulation() {
-      _setState('x', 200);
-      _setState('y', 50);
-      _setState('vx', 100);
-      _setState('vy', 0);
-      _setState('running', true);
-      document.getElementById('pause-btn').textContent = 'Pause';
-      updateDerivations();
+      state.x = 200; state.y = 50; state.vx = 100; state.vy = 0;
+      state.running = true; document.getElementById('pause-btn').textContent = 'Pause';
     }
-
     function togglePause() {
-      _setState('running', !_state.running);
-      document.getElementById('pause-btn').textContent = _state.running ? 'Pause' : 'Resume';
+      state.running = !state.running;
+      document.getElementById('pause-btn').textContent = state.running ? 'Pause' : 'Resume';
     }
-
-    // =========================================================================
-    // Animation Loop
-    // =========================================================================
 
     let lastTime = performance.now();
-
     function animate() {
       const now = performance.now();
-      const dt = Math.min((now - lastTime) / 1000, 0.1); // Cap at 100ms
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-
-      updatePhysics(dt);
-      render();
-      updateDisplays();
-
+      updatePhysics(dt); render(); updateDisplays();
       requestAnimationFrame(animate);
     }
-
-    // Initialize
-    updateDerivations();
     animate();
   </script>
 </body>

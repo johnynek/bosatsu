@@ -402,11 +402,178 @@ Branch: `feat/phase6-simulation-applets`
 - [ ] Cross-platform testing (Linux, macOS, Windows)
 - [ ] Fuzz testing: Run fuzzer on CLI commands and parsers
 
+## Phase 14: Bosatsu/Numeric Math Functions & Tooling Support (TODO)
+**Enable pure Bosatsu physics simulations without JS string bypasses**
+
+### Problem
+
+Current physics demos (bouncing ball, pendulum) bypass Bosatsu by embedding raw JavaScript expressions as strings:
+```bosatsu
+# CURRENT - bypasses Bosatsu, no provenance tracking
+physics_angular_accel = "-(gravity / pendulumLength) * Math.sin(angle)"
+```
+
+### Goal
+
+Physics simulations should be pure Bosatsu with full provenance tracking:
+```bosatsu
+# GOAL - pure Bosatsu, full "Why?" explanations
+from Bosatsu/Numeric import sin_Double, `/\.`, `*.`, neg_Double
+
+angular_accel = neg_Double((gravity /. length) *. sin_Double(angle))
+```
+
+### Part A: Extend Bosatsu/Numeric with Math Functions
+
+**Files to modify:**
+- `core/src/main/resources/bosatsu/numeric.bosatsu` - Add function declarations
+- `core/src/main/scala/dev/bosatsu/Numeric.scala` - Add JVM externals
+- `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala` - Add JS intrinsics
+- `core/src/main/scala/dev/bosatsu/codegen/python/PythonGen.scala` - Add Python intrinsics
+
+**New functions to add:**
+
+| Bosatsu Name | JVM Implementation | JS Implementation | Python Implementation |
+|--------------|-------------------|-------------------|----------------------|
+| `sin_Double` | `math.sin(d)` | `Math.sin(x)` | `math.sin(x)` |
+| `cos_Double` | `math.cos(d)` | `Math.cos(x)` | `math.cos(x)` |
+| `tan_Double` | `math.tan(d)` | `Math.tan(x)` | `math.tan(x)` |
+| `asin_Double` | `math.asin(d)` | `Math.asin(x)` | `math.asin(x)` |
+| `acos_Double` | `math.acos(d)` | `Math.acos(x)` | `math.acos(x)` |
+| `atan_Double` | `math.atan(d)` | `Math.atan(x)` | `math.atan(x)` |
+| `atan2_Double` | `math.atan2(y, x)` | `Math.atan2(y, x)` | `math.atan2(y, x)` |
+| `sqrt_Double` | `math.sqrt(d)` | `Math.sqrt(x)` | `math.sqrt(x)` |
+| `pow_Double` | `math.pow(b, e)` | `Math.pow(b, e)` | `math.pow(b, e)` |
+| `exp_Double` | `math.exp(d)` | `Math.exp(x)` | `math.exp(x)` |
+| `ln_Double` | `math.log(d)` | `Math.log(x)` | `math.log(x)` |
+| `log10_Double` | `math.log10(d)` | `Math.log10(x)` | `math.log10(x)` |
+| `floor_Double` | `math.floor(d)` | `Math.floor(x)` | `math.floor(x)` |
+| `ceil_Double` | `math.ceil(d)` | `Math.ceil(x)` | `math.ceil(x)` |
+| `round_Double` | `math.round(d)` | `Math.round(x)` | `round(x)` |
+| `min_Double` | `math.min(a, b)` | `Math.min(a, b)` | `min(a, b)` |
+| `max_Double` | `math.max(a, b)` | `Math.max(a, b)` | `max(a, b)` |
+
+**Constants to add:**
+
+| Bosatsu Name | Value | JS | Python |
+|--------------|-------|-----|--------|
+| `pi` | `math.Pi` | `Math.PI` | `math.pi` |
+| `e` | `math.E` | `Math.E` | `math.e` |
+
+### Part B: Update DerivationAnalyzer for Bosatsu/Numeric
+
+**File:** `simulation-cli/src/main/scala/dev/bosatsu/simulation/DerivationAnalyzer.scala`
+
+Add case for `Bosatsu/Numeric` package in `exprToFormula`:
+```scala
+case Matchless.Global(_, pkg, name) if pkg == Numeric.packageName =>
+  name.asString match {
+    case "+." => // handled in App case as infix
+    case "sin_Double" => "sin"
+    case "cos_Double" => "cos"
+    // etc.
+  }
+```
+
+Update `inferType` to recognize Bosatsu/Numeric operations return "number" (Double).
+
+### Part C: Update SimulationGen for Bosatsu/Numeric
+
+**File:** `simulation-cli/src/main/scala/dev/bosatsu/simulation/SimulationGen.scala`
+
+Update `formulaToJs` to handle Bosatsu/Numeric formulas:
+```scala
+// Bosatsu/Numeric operators (floating point, no truncation)
+result = replaceFunction(result, "+.", (a, b) => s"($a + $b)")  // No Math.trunc
+result = replaceFunction(result, "-.", (a, b) => s"($a - $b)")
+result = replaceFunction(result, "*.", (a, b) => s"($a * $b)")
+result = replaceFunction(result, "/.", (a, b) => s"($a / $b)")  // No Math.trunc
+
+// Trig functions
+result = replaceFunction(result, "sin", (x, _) => s"Math.sin($x)")
+result = replaceFunction(result, "cos", (x, _) => s"Math.cos($x)")
+// etc.
+```
+
+### Part D: Rewrite Physics Demos in Pure Bosatsu
+
+**Files:**
+- `demo/bouncing_ball.bosatsu` - Rewrite with Bosatsu/Numeric
+- `demo/pendulum.bosatsu` - Rewrite with Bosatsu/Numeric
+
+**Example pendulum rewrite:**
+```bosatsu
+package Pendulum/Main
+
+from Bosatsu/Numeric import (
+  Double, sin_Double, cos_Double, from_Int,
+  `+.`, `-.`, `*.`, `/.`, neg_Double, pi
+)
+
+# Physics parameters (Doubles)
+gravity: Double = from_Int(10)
+length: Double = from_Int(200)
+damping: Double = from_Int(99) /. from_Int(100)
+
+# Initial state
+initial_angle: Double = pi /. from_Int(4)  # 45 degrees
+initial_velocity: Double = from_Int(0)
+
+# Physics computation (pure Bosatsu, full provenance)
+angular_accel = neg_Double((gravity /. length) *. sin_Double(angle))
+angular_velocity_new = (angular_velocity +. angular_accel *. dt) *. damping
+angle_new = angle +. angular_velocity_new *. dt
+
+# Position derived from angle
+bob_x = pivot_x +. length *. sin_Double(angle)
+bob_y = pivot_y +. length *. cos_Double(angle)
+
+result = bob_y
+```
+
+### Tasks Checklist
+
+**Part A: Math Functions**
+- [ ] Add trig functions to `numeric.bosatsu` (sin, cos, tan, asin, acos, atan, atan2)
+- [ ] Add math functions to `numeric.bosatsu` (sqrt, pow, exp, ln, log10, floor, ceil, round, min, max)
+- [ ] Add constants to `numeric.bosatsu` (pi, e)
+- [ ] Implement JVM externals in `Numeric.scala` / `NumericImpl.scala`
+- [ ] Add JS intrinsics in `JsGen.scala`
+- [ ] Add Python intrinsics in `PythonGen.scala`
+- [ ] Property tests for new functions (`NumericTest.scala`)
+
+**Part B: DerivationAnalyzer**
+- [ ] Handle `Bosatsu/Numeric` package in `exprToFormula`
+- [ ] Map operators to readable formulas (`+.` → `+`, `sin_Double` → `sin`)
+- [ ] Update `inferType` for Bosatsu/Numeric operations
+- [ ] Tests for Bosatsu/Numeric formula extraction
+
+**Part C: SimulationGen**
+- [ ] Handle Bosatsu/Numeric operators in `formulaToJs` (floating point, no truncation)
+- [ ] Handle trig/math functions in `formulaToJs` (→ Math.*)
+- [ ] Tests for JS generation
+
+**Part D: Physics Demos**
+- [ ] Rewrite `bouncing_ball.bosatsu` using Bosatsu/Numeric
+- [ ] Rewrite `pendulum.bosatsu` using Bosatsu/Numeric
+- [ ] Verify "Why?" buttons show full derivation chains
+- [ ] Verify "What if?" toggles work with Double parameters
+- [ ] Browser testing for both demos
+
+### Future: Extensibility Architecture (Phase 14b)
+
+After the concrete Bosatsu/Numeric support works, consider generalizing:
+
+- [ ] `ExternalRegistry.scala` - Registry for external function handlers
+- [ ] Refactor hardcoded Predef/Numeric handling to use registry
+- [ ] Plugin architecture for domain-specific libraries
+- [ ] Documentation: How to add support for new external modules
+
 ---
 
 # Current Status
 
-**Phase 7 is complete** - Permission system for static analysis and runtime checking.
+**Phase 8 (Debugger Daemon) is partially complete** - Command handlers done, server pending.
 
 **Completed:**
 - Phase 1: Core Infrastructure ✅
@@ -417,10 +584,22 @@ Branch: `feat/phase6-simulation-applets`
 - Phase 5: Simple Reactive Simulation ✅
 - Phase 6: Simulation Applets Full ✅
 - Phase 7: BosatsuPermissions ✅
+- Phase 8: Debugger Daemon (partial) - Command handlers complete
+
+**PRIORITY: Phase 14 - Bosatsu/Numeric Math Functions**
+
+The simulation tooling currently works with Predef integer functions. To enable compelling physics demos (bouncing ball, pendulum) written in pure Bosatsu (not string-based JS bypasses), we need:
+
+1. **Add math functions to Bosatsu/Numeric** - sin, cos, sqrt, etc.
+2. **Update tooling** - DerivationAnalyzer, SimulationGen, JsGen
+3. **Rewrite demos** - bouncing_ball.bosatsu, pendulum.bosatsu in pure Bosatsu
+
+This enables full provenance tracking ("Why?") for physics calculations.
 
 **Next recommended work:**
-1. Add property tests for JsGen (remaining Phase 3 items)
-2. Start Phase 8 (Debugger Daemon) - Interactive debugging server
+1. **Phase 14 Part A** - Add math functions to Bosatsu/Numeric
+2. **Phase 14 Part B/C** - Update DerivationAnalyzer and SimulationGen
+3. **Phase 14 Part D** - Rewrite physics demos in pure Bosatsu
 
 ---
 

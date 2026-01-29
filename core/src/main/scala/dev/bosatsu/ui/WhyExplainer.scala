@@ -158,14 +158,15 @@ object WhyExplainer {
       |.why-modal.hidden { display: none; }
       |.why-modal-content { background: white; border-radius: 12px; padding: 24px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
       |.why-modal-content h3 { margin-top: 0; color: #333; }
-      |.why-modal-content .derivation { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: monospace; }
+      |.why-modal-content .derivation { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: monospace; line-height: 1.6; }
       |.why-modal-content .assumption { background: #e8f5e9; border-left: 3px solid #27ae60; }
       |.why-modal-content .computed { background: #e3f2fd; border-left: 3px solid #2196f3; }
       |.why-modal-content .conditional { background: #fff3e0; border-left: 3px solid #ff9800; }
       |.why-modal-content .name { font-weight: bold; color: #333; }
-      |.why-modal-content .value { color: #667eea; }
+      |.why-modal-content .value { color: #667eea; font-weight: bold; }
       |.why-modal-content .formula { color: #666; }
-      |.why-modal-content .tag { font-size: 10px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; }
+      |.why-modal-content .substituted { color: #2196f3; }
+      |.why-modal-content .tag { font-size: 10px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
       |.why-modal-content .close-btn { margin-top: 16px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; }
       |.why-modal-content .close-btn:hover { background: #5568d8; }""".stripMargin
 
@@ -212,6 +213,79 @@ object WhyExplainer {
           ),
           None
         )
+      )
+    ))
+  }
+
+  /**
+   * Generate the _formatDerivationHeader JS helper function.
+   * This formats the header text for a derivation node.
+   */
+  def generateFormatDerivationHeaderFunction(): Statement = {
+    Const("_formatDerivationHeader", Function(
+      None,
+      List("d"),
+      block(
+        IfStatement(
+          BinExpr(PropertyAccess(Ident("d"), "type"), BinOp.Eq, StringLiteral("assumption")),
+          block(Return(Some(BinExpr(
+            BinExpr(
+              BinExpr(
+                StringLiteral("<span class=\"name\">"),
+                BinOp.Plus,
+                PropertyAccess(Ident("d"), "name")
+              ),
+              BinOp.Plus,
+              StringLiteral("</span> = <span class=\"value\">")
+            ),
+            BinOp.Plus,
+            BinExpr(
+              PropertyAccess(Ident("d"), "value"),
+              BinOp.Plus,
+              StringLiteral("</span> <span class=\"tag\">assumption</span>")
+            )
+          )))),
+          None
+        ),
+        IfStatement(
+          BinExpr(PropertyAccess(Ident("d"), "type"), BinOp.Eq, StringLiteral("computed")),
+          block(Return(Some(BinExpr(
+            BinExpr(
+              BinExpr(
+                BinExpr(
+                  StringLiteral("<span class=\"name\">"),
+                  BinOp.Plus,
+                  PropertyAccess(Ident("d"), "name")
+                ),
+                BinOp.Plus,
+                StringLiteral("</span> = <span class=\"formula\">")
+              ),
+              BinOp.Plus,
+              PropertyAccess(Ident("d"), "formula")
+            ),
+            BinOp.Plus,
+            BinExpr(
+              StringLiteral("</span> → <span class=\"value\">"),
+              BinOp.Plus,
+              BinExpr(
+                PropertyAccess(Ident("d"), "value"),
+                BinOp.Plus,
+                StringLiteral("</span>")
+              )
+            )
+          )))),
+          None
+        ),
+        // Default: conditional
+        Return(Some(BinExpr(
+          BinExpr(
+            StringLiteral("<span class=\"name\">"),
+            BinOp.Plus,
+            PropertyAccess(Ident("d"), "name")
+          ),
+          BinOp.Plus,
+          StringLiteral("</span>")
+        )))
       )
     ))
   }
@@ -276,5 +350,17 @@ object WhyExplainer {
         Return(Some(BinExpr(Ident("self"), BinOp.Plus, Ident("deps"))))
       )
     ))
+  }
+
+  /**
+   * Generate all required functions for derivation explanation.
+   * This includes both _formatDerivationHeader and _explainDerivation.
+   * Use this method to ensure all required functions are defined together.
+   */
+  def generateDerivationFunctions(): List[Statement] = {
+    List(
+      generateFormatDerivationHeaderFunction(),
+      generateExplainDerivationFunction()
+    )
   }
 }

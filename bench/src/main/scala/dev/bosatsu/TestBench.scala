@@ -62,7 +62,7 @@ gauss$n = range($n).foldLeft(0, add)
 
   @Benchmark def bench0(): Unit = {
     val c = compiled0
-    val ev = Evaluation(c._1, Predef.jvmExternals)
+    val ev = Evaluation(c._1, Predef.jvmExternals ++ Numeric.jvmExternals)
     // run the evaluation
     val _ = ev.evaluateMain(c._2).get._1.value
     ()
@@ -73,7 +73,7 @@ gauss$n = range($n).foldLeft(0, add)
 
   @Benchmark def bench1(): Unit = {
     val c = compiled1
-    val ev = Evaluation(c._1, Predef.jvmExternals)
+    val ev = Evaluation(c._1, Predef.jvmExternals ++ Numeric.jvmExternals)
     // run the evaluation
     val _ = ev.evaluateMain(c._2).get._1.value
     ()
@@ -150,7 +150,7 @@ max_pal = match max_pal_opt:
 
   @Benchmark def bench2(): Unit = {
     val c = compiled2
-    val ev = Evaluation(c._1, Predef.jvmExternals)
+    val ev = Evaluation(c._1, Predef.jvmExternals ++ Numeric.jvmExternals)
     // run the evaluation
     val _ = ev.evaluateMain(c._2).get._1.value
     ()

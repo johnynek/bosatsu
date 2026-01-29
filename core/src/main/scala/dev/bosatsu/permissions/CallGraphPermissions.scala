@@ -171,10 +171,11 @@ object CallGraphPermissions {
 
     def visit(node: (PackageName, Bindable), path: List[(PackageName, Bindable)]): Unit = {
       if (inStack.contains(node)) {
-        // Found a cycle
+        // Found a cycle - extract from path (node is already in path at cycleStart)
         val cycleStart = path.indexOf(node)
         if (cycleStart >= 0) {
-          cycles = (node :: path.take(cycleStart + 1).reverse) :: cycles
+          // path is [most recent, ..., cycleStart node], reverse to get proper order
+          cycles = path.take(cycleStart + 1).reverse :: cycles
         }
         return
       }

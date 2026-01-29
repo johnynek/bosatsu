@@ -10,7 +10,7 @@ import dev.bosatsu.codegen.{
   Idents
 }
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
+import dev.bosatsu.{Identifier, Lit, Matchless, Numeric, Predef, PackageName}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
@@ -122,26 +122,36 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       new ExternalResolver {
         val predef_c =
           Code.Include.quote(stdExtFileName(ns.rootKey, PackageName.PredefName))
+        val numeric_c =
+          Code.Include.quote(stdExtFileName(ns.rootKey, Numeric.packageName))
 
-        def predef(s: String, arity: Int) =
-          (PackageName.PredefName -> Identifier.Name(s)) -> (
-            predef_c,
+        def makeExternal(pn: PackageName, include: Code.Include)(s: String, arity: Int) =
+          (pn -> Identifier.Name(s)) -> (
+            include,
             generatedName(
               ns.rootKey,
-              PackageName.PredefName,
+              pn,
               Identifier.Name(s)
             ),
             arity
           )
 
-        val ext = Predef.jvmExternals.toMap.iterator
+        val predefExt = Predef.jvmExternals.toMap.iterator
           .map { case ((_, n), ffi) =>
-            predef(n, ffi.arity)
+            makeExternal(PackageName.PredefName, predef_c)(n, ffi.arity)
           }
+
+        val numericExt = Numeric.jvmExternals.toMap.iterator
+          .map { case ((_, n), ffi) =>
+            makeExternal(Numeric.packageName, numeric_c)(n, ffi.arity)
+          }
+
+        val ext = (predefExt ++ numericExt)
           .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
 
         lazy val names: Iterable[(K, PackageName, SortedSet[Bindable])] = {
-          val sm = Predef.jvmExternals.toMap.iterator
+          val allExternals = (Predef.jvmExternals ++ Numeric.jvmExternals).toMap
+          val sm = allExternals.iterator
             .map { case (pn, _) => pn }
             .toList
             .groupByNel(_._1)

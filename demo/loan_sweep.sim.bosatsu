@@ -1,0 +1,70 @@
+package LoanCalculator/SweepConfig
+
+# Simulation Configuration with Parameter Sweeps
+#
+# This file demonstrates the sweep chart feature.
+# Shows how monthly payment varies as interest rate changes.
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct AssumptionConfig(
+  name: String,
+  description: String,
+  variants: List[(String, String)]
+)
+
+struct SweepConfig(
+  input_param: String,
+  min_value: Int,
+  max_value: Int,
+  steps: Int,
+  output_param: String,
+  chart_type: String
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)],
+  assumptions: List[AssumptionConfig],
+  sweeps: List[SweepConfig]
+)
+
+# The simulation configuration with sweeps
+config = SimConfig(
+  "Loan Calculator with Sweeps",
+  "Calculate monthly payments with interest rate sweep chart",
+  "LoanCalculator",
+  "calculate",
+  [
+    ("principal", InputConfig("Loan Principal ($)", 250000, 10000, 1000000, 10000, "slider")),
+    ("annual_rate", InputConfig("Interest Rate (bp)", 700, 100, 2000, 25, "slider")),
+    ("years", InputConfig("Loan Term (years)", 30, 5, 40, 5, "slider"))
+  ],
+  [
+    ("monthly_payment", OutputConfig("Monthly Payment", "currency", True)),
+    ("total_interest", OutputConfig("Total Interest", "currency", False)),
+    ("interest_ratio", OutputConfig("Interest Ratio", "percent", False))
+  ],
+  [],  # No assumptions for this demo
+  [
+    # Sweep interest rate from 1% (100bp) to 10% (1000bp) in 20 steps
+    SweepConfig("annual_rate", 100, 1000, 20, "monthly_payment", "line")
+  ]
+)

@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loan Calculator</title>
+  <style>
+    :root {
+      --bg-color: #f5f5f5;
+      --text-color: #333333;
+      --accent-color: #667eea;
+      --surface-color: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 1rem;
+      background: var(--bg-color);
+      color: var(--text-color);
+    }
+    .applet-container {
+      background: var(--surface-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .applet-title {
+      margin: 0 0 1rem 0;
+      font-size: 1.5rem;
+      color: var(--text-color);
+    }
+    .simulation-canvas {
+      width: 100%;
+      border-radius: 8px;
+      background: #1a1a2e;
+    }
+    .controls-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(0,0,0,0.1);
+    }
+    .control-group {
+      margin: 0.75rem 0;
+    }
+    .control-label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.875rem;
+      color: var(--text-color);
+      opacity: 0.8;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 8px;
+      -webkit-appearance: none;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      background: var(--accent-color);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .value-display {
+      font-family: monospace;
+      font-weight: bold;
+      color: var(--accent-color);
+    }
+    .button-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .btn-secondary {
+      background: #6c757d;
+    }
+    .why-button { margin-left: 8px; padding: 2px 8px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .why-button:hover { background: #5568d8; }
+    .why-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .why-modal.hidden { display: none; }
+    .why-modal-content { background: white; border-radius: 12px; padding: 24px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .why-modal-content h3 { margin-top: 0; color: #333; }
+    .why-modal-content .derivation { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: monospace; line-height: 1.6; }
+    .why-modal-content .assumption { background: #e8f5e9; border-left: 3px solid #27ae60; }
+    .why-modal-content .computed { background: #e3f2fd; border-left: 3px solid #2196f3; }
+    .why-modal-content .conditional { background: #fff3e0; border-left: 3px solid #ff9800; }
+    .why-modal-content .name { font-weight: bold; color: #333; }
+    .why-modal-content .value { color: #667eea; font-weight: bold; }
+    .why-modal-content .formula { color: #666; }
+    .why-modal-content .substituted { color: #2196f3; }
+    .why-modal-content .tag { font-size: 10px; background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
+    .why-modal-content .close-btn { margin-top: 16px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .why-modal-content .close-btn:hover { background: #5568d8; }
+    .what-if-toggle { padding: 12px; margin: 8px 0; background: #f5f5f5; border-radius: 8px; }
+    .what-if-toggle .toggle-label { display: flex; align-items: center; gap: 8px; }
+    .what-if-toggle .toggle-name { color: #666; font-style: italic; }
+    .what-if-toggle .toggle-btn { padding: 4px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .what-if-toggle .toggle-btn:hover { background: #5568d8; }
+    .what-if-toggle .toggle-btn.active { background: #27ae60; }
+    .what-if-toggle .toggle-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px; }
+    .what-if-toggle .toggle-hint { color: #667eea; font-weight: bold; }
+    .assumptions-section { margin-top: 24px; }
+    .assumptions-section h3 { color: #667eea; font-size: 1.1rem; margin-bottom: 12px; }
+    .assumption-toggle { padding: 16px; margin: 12px 0; background: #f8f9ff; border-radius: 8px; border-left: 3px solid #667eea; }
+    .assumption-toggle .assumption-label { color: #333; font-weight: 500; margin-bottom: 12px; }
+    .assumption-toggle .variant-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+    .assumption-toggle .variant-btn { padding: 8px 16px; background: #e3e7f5; color: #333; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+    .assumption-toggle .variant-btn:hover { background: #667eea; color: white; }
+    .assumption-toggle .variant-btn.active { background: #667eea; color: white; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4); }
+
+
+  </style>
+</head>
+<body>
+  <div class="applet-container">
+    <h1 class="applet-title">Loan Calculator</h1>
+    
+    <div class="controls-section" id="controls"></div>
+    <div class="what-if-section" id="what-if-toggles"></div>
+    
+  </div>
+  <script>
+    // BosatsuUI Reactive Runtime
+    const _state = {
+      "principal": 250000,
+      "annual_rate": 700,
+      "years": 30
+    };
+    const _listeners = {
+      "principal": [],
+      "annual_rate": [],
+      "years": []
+    };
+    const _derivations = {};
+
+    function _getState(name) { return _state[name]; }
+    function _setState(name, value) {
+      if (_state[name] !== value) {
+        _state[name] = value;
+        _listeners[name].forEach(fn => fn(value));
+      }
+    }
+    function _subscribe(name, fn) {
+      _listeners[name].push(fn);
+      fn(_state[name]);
+    }
+    function _setDerivation(name, derivation) {
+      _derivations[name] = derivation;
+    }
+    function _getDerivation(name) {
+      return _derivations[name];
+    }
+    function _setAssumption(name, value) {
+      _setState(name, value);
+      // Trigger recomputation of derived values
+      Object.keys(_derivations).forEach(k => {
+        if (_derivations[k].deps && _derivations[k].deps.some(d => d.name === name)) {
+          // Would recompute here in full implementation
+        }
+      });
+    }
+
+    // Applet-specific code
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
+
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
+
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
+
+// Derivation state tracking for inputs
+// Populate derivations (object created by EmbedGenerator runtime)
+_derivations["principal"] = {
+  type: "assumption",
+  name: "principal",
+  formula: "principal",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["annual_rate"] = {
+  type: "assumption",
+  name: "annual_rate",
+  formula: "annual_rate",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+_derivations["years"] = {
+  type: "assumption",
+  name: "years",
+  formula: "years",
+  valueType: "number",
+  deps: [],
+  value: undefined
+};
+
+// Function and recomputation
+
+// The compiled function from Bosatsu
+const calculate = (principal, annual_rate, years) => (() => {
+  const monthly_rate = 1200 ? Math.trunc(annual_rate / 1200) : 0;
+  return (() => {
+    const num_payments = years + (years + (years + (years + (years + (years + (years + (years + (years + (years + (years + years))))))))));
+    return (() => {
+      const monthly_payment = principal * monthly_rate + (num_payments ? Math.trunc(principal / num_payments) : 0);
+      return (() => {
+        const total_paid = monthly_payment * num_payments;
+        return (() => {
+          const total_interest = total_paid - principal;
+          return ((_a0, _a1, _a2, _a3, _a4, _a5) => [_a0,
+            _a1,
+            _a2,
+            _a3,
+            _a4,
+            _a5])(monthly_rate, num_payments, monthly_payment, total_paid, total_interest, principal ? Math.trunc(100 * total_interest / principal) : 0);
+        })();
+      })();
+    })();
+  })();
+})();
+
+// Recompute by calling the function with current input values
+function _recompute() {
+  // Call the function with input values
+  const result = calculate(_getState("principal"), _getState("annual_rate"), _getState("years"));
+
+  // Update result displays
+  console.log("calculate result:", result);
+
+  // Update output displays
+  const el_monthly_payment = document.getElementById('result-monthly_payment');
+  if (el_monthly_payment) {
+    const value = Array.isArray(result) ? result[0] : result.monthly_payment;
+    el_monthly_payment.querySelector('.result-value').textContent = _formatOutput(value, "currency");
+  }
+  const el_total_interest = document.getElementById('result-total_interest');
+  if (el_total_interest) {
+    const value = Array.isArray(result) ? result[1] : result.total_interest;
+    el_total_interest.querySelector('.result-value').textContent = _formatOutput(value, "currency");
+  }
+  const el_interest_ratio = document.getElementById('result-interest_ratio');
+  if (el_interest_ratio) {
+    const value = Array.isArray(result) ? result[2] : result.interest_ratio;
+    el_interest_ratio.querySelector('.result-value').textContent = _formatOutput(value, "percent");
+  }
+
+  // Update input derivations
+  if (_derivations["principal"]) _derivations["principal"].value = _getState("principal");
+  if (_derivations["annual_rate"]) _derivations["annual_rate"].value = _getState("annual_rate");
+  if (_derivations["years"]) _derivations["years"].value = _getState("years");
+}
+
+// Format an output value based on format type
+function _formatOutput(v, format) {
+  if (v === undefined || v === null) return '—';
+  switch (format) {
+    case 'currency':
+      return '$' + _formatNumber(v);
+    case 'percent':
+      return v + '%';
+    default:
+      return _formatNumber(v);
+  }
+}
+
+// Format a number with commas
+function _formatNumber(v) {
+  if (typeof v !== 'number') return String(v);
+  return v.toLocaleString();
+}
+
+// Format a value for display
+function _formatValue(v) {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+  }
+  if (Array.isArray(v)) {
+    // Bosatsu list/enum
+    if (v[0] === 0) return 'False/None/[]';
+    if (v[0] === 1 && v.length === 1) return 'True';
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// UI initialization
+// Add a configured input control with label, range, and default
+function addConfiguredInput(name, label, min, max, step, defaultVal, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'control-group';
+
+  div.innerHTML = '<label class="control-label">' + label + ': <span class="value-display" id="' + name + '-value">' + defaultVal.toLocaleString() + '</span></label>' +
+    '<input type="range" id="' + name + '-slider" min="' + min + '" max="' + max + '" step="' + step + '" value="' + defaultVal + '">';
+
+  const slider = div.querySelector('input');
+  slider.oninput = () => {
+    const val = parseInt(slider.value);
+    document.getElementById(name + '-value').textContent = val.toLocaleString();
+    _setState(name, val);
+    _recompute();
+  };
+
+  container.appendChild(div);
+}
+
+// Add an output display with label
+function addOutputDisplay(name, label, isPrimary, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.id = 'result-' + name;
+  div.className = isPrimary ? 'result-item primary' : 'result-item';
+  div.innerHTML = '<span class="result-label">' + label + ':</span> <span class="result-value">—</span>';
+
+  container.appendChild(div);
+}
+
+// Track current assumption variants
+const _assumptions = {};
+
+// Add assumption toggle buttons
+function addAssumptionToggle(name, description, defaultVariant, buttonsHtml, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Set default variant
+  _assumptions[name] = defaultVariant;
+
+  const div = document.createElement('div');
+  div.className = 'assumption-toggle';
+  div.innerHTML = '<div class="assumption-label">' + description + '</div>' +
+    '<div class="variant-buttons">' + buttonsHtml + '</div>';
+
+  // Add click handlers to variant buttons
+  div.querySelectorAll('.variant-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const variant = btn.dataset.variant;
+      _assumptions[name] = variant;
+
+      // Update active button state
+      div.querySelectorAll('.variant-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Recompute with new variant
+      _recompute();
+    });
+  });
+
+  container.appendChild(div);
+}
+
+// Get the current variant suffix for an assumption
+function getVariant(name) {
+  return _assumptions[name] || '';
+}
+
+// Initialize UI
+function init() {
+  // Get container - EmbedGenerator creates #controls for inputs
+  const controlsContainer = document.getElementById('controls');
+  const appletContainer = document.querySelector('.applet-container');
+
+  // Create results section after controls
+  const resultsDiv = document.createElement('div');
+  resultsDiv.id = 'results';
+  resultsDiv.className = 'results-section';
+  resultsDiv.innerHTML = '<h3>Results</h3>';
+  if (controlsContainer && appletContainer) {
+    controlsContainer.after(resultsDiv);
+  }
+
+  // Add configured input controls to #controls
+  addConfiguredInput("principal", "Loan Principal ($)", 10000, 1000000, 10000, 250000, "controls");
+  addConfiguredInput("annual_rate", "Interest Rate (bp)", 100, 2000, 25, 700, "controls");
+  addConfiguredInput("years", "Loan Term (years)", 5, 40, 5, 30, "controls");
+
+  // Add output displays to #results
+  addOutputDisplay("monthly_payment", "Monthly Payment", true, "results");
+  addOutputDisplay("total_interest", "Total Interest", false, "results");
+  addOutputDisplay("interest_ratio", "Interest Ratio", false, "results");
+
+
+
+
+
+  // Initial computation
+  _recompute();
+}
+
+
+    // Initialize
+    if (typeof init === 'function') init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+# Bosatsu Project Guidelines
+
+## Core Principles
+
+### Never Treat Symptoms with String Replacement
+
+When something doesn't work, **do NOT** apply string/regex replacements to patch the symptom.
+
+**Instead:**
+1. Understand WHY the semantic structure is producing incorrect output
+2. Fix the semantic structure itself, OR
+3. Fix the mapping from semantic structure to the output format
+
+**Example of what NOT to do:**
+```scala
+// BAD: Regex hack to convert Bosatsu operators to JS
+result = result.replaceAll("""\*\.""", " * ")
+```
+
+**What to do instead:**
+- Use the proper compilation pipeline (MatchlessFromTypedExpr → JsGen)
+- JsGen already handles Numeric operators correctly via NumericExternal intrinsics
+- If output is wrong, fix the code generation at the AST level, not the string level
+
+### UI Description Belongs in Source
+
+For interactive demos/simulations:
+- The `.bosatsu` file should contain explicit UI descriptions
+- User-editable values should be explicitly marked (not inferred from code position)
+- Consider using wrapper functions or type annotations to mark inputs vs outputs
+- Don't rely on "semantically meaningful comments" or "semantically meaningful positions"
+
+## Bosatsu Compilation Pipeline
+
+```
+TypedExpr (typed AST)
+    ↓
+MatchlessFromTypedExpr.compile()
+    ↓
+Matchless.Expr (platform-agnostic IR)
+    ↓
+JsGen.exprToJs() [with PredefExternal + NumericExternal intrinsics]
+    ↓
+Code.Expression (JavaScript AST)
+    ↓
+Code.render()
+    ↓
+JavaScript source code
+```
+
+**Key properties:**
+- JsGen never evaluates expressions - it generates code
+- Numeric operators (`*.`, `/.`, `+.`, `-.`) compile to proper JS operators via NumericExternal
+- The computation graph is preserved, not constant-folded
+- Use this pipeline, don't bypass it with string manipulation
+
+## Testing
+
+- Run Playwright tests: `npm test`
+- Run Scala tests: `nix-shell --run 'sbt test'`
+- Tests are in `tests/e2e/` for browser demos

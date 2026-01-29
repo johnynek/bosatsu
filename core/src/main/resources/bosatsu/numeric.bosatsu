@@ -1,0 +1,35 @@
+package Bosatsu/Numeric
+
+from Bosatsu/Predef import Int, Comparison, Bool
+
+# Numeric module with Double type for floating-point arithmetic.
+# Uses symbolic operators (+.), (-.), (*.), (/.) to distinguish from Int ops.
+# Operations bypass RingOpt algebraic expansion - preserves original formulas.
+
+export (
+  Double,
+  `+.`, `-.`, `*.`, `/.`,
+  from_Int, to_Int,
+  cmp_Double, eq_Double,
+  neg_Double, abs_Double
+)
+
+external struct Double
+
+# Arithmetic operators (symbolic to distinguish from Int ops)
+external def `+.`(a: Double, b: Double) -> Double
+external def `-.`(a: Double, b: Double) -> Double
+external def `*.`(a: Double, b: Double) -> Double
+external def `/.`(a: Double, b: Double) -> Double
+
+# Conversion between Int and Double
+external def from_Int(i: Int) -> Double
+external def to_Int(d: Double) -> Int
+
+# Comparison
+external def cmp_Double(a: Double, b: Double) -> Comparison
+external def eq_Double(a: Double, b: Double) -> Bool
+
+# Unary operations
+external def neg_Double(a: Double) -> Double
+external def abs_Double(a: Double) -> Double

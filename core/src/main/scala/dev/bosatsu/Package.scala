@@ -505,6 +505,36 @@ object Package {
         sys.error(errorMsg)
     }
 
+  /** The parsed representation of the Numeric module.
+    * Unlike Predef, this is not auto-imported - users must explicitly import it.
+    */
+  lazy val numericPackage: Package.Parsed =
+    parser(None).parse(Numeric.numericString) match {
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val lm = LocationMap(Numeric.numericString)
+        val errorMsg =
+          s"couldn't parse numeric:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
+        System.err.println(errorMsg)
+        sys.error(errorMsg)
+    }
+
+  /** The parsed representation of the IO module.
+    * Unlike Predef, this is not auto-imported - users must explicitly import it.
+    */
+  lazy val ioPackage: Package.Parsed =
+    parser(None).parse(IO.ioString) match {
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val lm = LocationMap(IO.ioString)
+        val errorMsg =
+          s"couldn't parse io:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
+        System.err.println(errorMsg)
+        sys.error(errorMsg)
+    }
+
   implicit val documentPackage: Document[Package.Typed[Any]] =
     new Document[Package.Typed[Any]] {
       def document(pack: Typed[Any]): Doc =
