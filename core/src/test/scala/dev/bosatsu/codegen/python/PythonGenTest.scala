@@ -1,6 +1,8 @@
 package dev.bosatsu.codegen.python
 
 import dev.bosatsu.Generators.bindIdentGen
+import dev.bosatsu.{Par, TestUtils}
+import dev.bosatsu.codegen.CompilationSource
 import org.scalacheck.Prop.forAll
 
 class PythonGenTest extends munit.ScalaCheckSuite {
@@ -26,7 +28,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     val extstr = """
       { IO: { foo: bar.baz, quux: quux.quux_impl }, Bop: { foo: collections.queue } }
     """
-    assertEquals(PythonGen.externalParser.parseAll(extstr).map(_ => ()), Right(()))
+    assertEquals(
+      PythonGen.externalParser.parseAll(extstr).map(_ => ()),
+      Right(())
+    )
   }
 
   test("we can parse an example evals file") {
@@ -36,6 +41,54 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         Build/Foo::Bar: BuildImpl.run_build,
       }
     """
-    assertEquals(PythonGen.evaluatorParser.parseAll(str).map(_ => ()), Right(()))
+    assertEquals(
+      PythonGen.evaluatorParser.parseAll(str).map(_ => ()),
+      Right(())
+    )
+  }
+
+  test("top-level lets around lambda avoid closure tuples") {
+    val src =
+      """|enum Nat:
+         |  Zero
+         |  Succ(pred: Nat)
+         |
+         |def length_String(s):
+         |  def loop(s, acc: Nat):
+         |    recur s:
+         |      case "": acc
+         |      case "$.{_}${tail}": loop(tail, Succ(acc))
+         |
+         |  loop(s, Zero)
+         |""".stripMargin
+
+    TestUtils.checkPackageMap(src) { pm =>
+      Par.withEC {
+        val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+        val doc = rendered(())(TestUtils.testPackage)._2
+        val code = doc.render(120)
+
+        val expected =
+          "\n\n" +
+            """def ___h0(___bs1, ___bacc0):
+    ___a4 = ___bs1
+    ___a6 = ___bacc0
+    ___a1 = 1
+    ___t2 = True
+    while ___t2:
+        if ___a4 == "":
+            ___a1 = 0
+            ___a2 = ___a6
+        else:
+            ___a4 = ___a4[1:]
+            ___a6 = ___a6 + 1
+        ___t2 = ___a1 == 1
+    return ___a2
+
+def length_String(___bs0):
+    return ___h0(___bs0, 0)"""
+        assertEquals(code, expected)
+      }
+    }
   }
 }

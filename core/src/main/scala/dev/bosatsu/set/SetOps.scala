@@ -1,5 +1,8 @@
 package dev.bosatsu.set
 
+import cats.Eq
+import cats.syntax.eq._
+
 /** These are set operations we can do on patterns
   */
 trait SetOps[A] extends Relatable[A] {
@@ -92,6 +95,7 @@ trait SetOps[A] extends Relatable[A] {
         }
       }
     val normB = clearSubs(branches, Nil)
+    given Eq[A] = Eq.instance(equiv)
     val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(
       differenceAll(_, _)
     )(using superSetIsSmaller)
@@ -144,7 +148,7 @@ object SetOps {
 
   // we search for the best order to apply the diffs that minimizes the score
   @annotation.tailrec
-  final def greedySearch[A: Ordering, B](
+  final def greedySearch[A: Ordering, B: Eq](
       lookahead: Int,
       union: A,
       diffs: List[B]
@@ -170,7 +174,9 @@ object SetOps {
           ._1
 
         val u1 = fn(union, best :: Nil)
-        greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)
+        greedySearch(lookahead, u1, diffs.filterNot(b => Eq[B].eqv(b, best)))(
+          fn
+        )
     }
 
   def distinct[A](implicit ordA: Ordering[A]): SetOps[A] =
@@ -200,7 +206,7 @@ object SetOps {
 
       override def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
       override def relate(a1: A, a2: A): Rel =
-        if (a1 == a2) Rel.Same
+        if (ordA.equiv(a1, a2)) Rel.Same
         else Rel.Disjoint
     }
 
@@ -209,8 +215,9 @@ object SetOps {
       require(items.nonEmpty, "the empty set is not allowed")
 
       val itemsSet = items.toSet
+      private given Eq[Set[A]] = Eq.fromUniversalEquals
       val top: Option[Set[A]] = Some(itemsSet)
-      def isTop(a: Set[A]): Boolean = a == itemsSet
+      def isTop(a: Set[A]): Boolean = a === itemsSet
 
       def toList(s: Set[A]): List[Set[A]] =
         if (s.isEmpty) Nil else s :: Nil
@@ -323,21 +330,25 @@ object SetOps {
         if (inta.isEmpty) a1 :: Nil
         else {
           val da = sa.difference(a1._1, a2._1)
+          given Eq[A] = Eq.instance(sa.equiv)
           // if a1._1 <= da, then a1._1 == da => no diff
-          if (da == (a1._1 :: Nil)) a1 :: Nil
-          else {
-            val db = sb.difference(a1._2, a2._2)
-            // if a1._2 <= db, then a1._2 == db => no diff
-            if (db == (a1._2 :: Nil)) a1 :: Nil
-            else {
-              val left = da.map((_, a1._2))
-              val right = for {
-                a <- inta
-                b <- db
-              } yield (a, b)
+          da match {
+            case h :: Nil if h === a1._1 => a1 :: Nil
+            case _                       =>
+              val db = sb.difference(a1._2, a2._2)
+              given Eq[B] = Eq.instance(sb.equiv)
+              // if a1._2 <= db, then a1._2 == db => no diff
+              db match {
+                case h :: Nil if h === a1._2 => a1 :: Nil
+                case _                       =>
+                  val left = da.map((_, a1._2))
+                  val right = for {
+                    a <- inta
+                    b <- db
+                  } yield (a, b)
 
-              unifyUnion(left ::: right)
-            }
+                  unifyUnion(left ::: right)
+              }
           }
         }
       }

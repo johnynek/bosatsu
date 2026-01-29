@@ -180,8 +180,8 @@ struct Pair(a, b)
 x = Pair(Pair(1, "1"), "2")
 
 main = match x:
-  Pair(_, "2" | "3"): "good"
-  _: "bad"
+  case Pair(_, "2" | "3"): "good"
+  case _: "bad"
 """),
       "Foo",
       Str("good")
@@ -301,8 +301,8 @@ x = [1]
 
 # test using List literals
 main = match x:
-  EmptyList: "empty"
-  NonEmptyList(...): "notempty"
+  case EmptyList: "empty"
+  case NonEmptyList(...): "notempty"
 """),
       "Foo",
       Str("notempty")
@@ -401,7 +401,7 @@ package Foo
 three = [1, 2]
 
 sum0 = three.foldl_List(0, add)
-sum1 = three.foldl_List(0, \x, y -> add(x, y))
+sum1 = three.foldl_List(0, (x, y) -> add(x, y))
 
 same = sum0.eq_Int(sum1)
 """),
@@ -726,7 +726,7 @@ def y(f):
 def ltEqZero(i):
   i.cmp_Int(0) matches (LT | EQ)
 
-fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
+fac = trace("made fac", y((f, i) -> 1 if ltEqZero(i) else f(i).times(i)))
 
 main = fac(6)
 """)) { case PackageError.KindInferenceError(_, _, _) =>
@@ -790,7 +790,7 @@ something = Yep(
   1)
 
 one = match something:
-  Yep(a): a
+  case Yep(a): a
 
 main = one
 """)) { case PackageError.TotalityCheckError(_, _) => () }
@@ -934,8 +934,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    []: acc
-    [_, *tail]: len(tail, acc.add(1))
+    case []: acc
+    case [_, *tail]: len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -951,9 +951,9 @@ enum PNat: One, Even(of: PNat), Odd(of: PNat)
 
 def toInt(pnat):
   recur pnat:
-    One: 1
-    Even(of): toInt(of).times(2)
-    Odd(of): toInt(of).times(2).add(1)
+    case One: 1
+    case Even(of): toInt(of).times(2)
+    case Odd(of): toInt(of).times(2).add(1)
 
 main = toInt(Even(Even(One)))
 """),
@@ -968,8 +968,8 @@ enum Foo: Bar, Baz
 
 def bad(foo):
   recur foo:
-    Bar: 0
-    baz: bad(baz)
+    case Bar: 0
+    case baz: bad(baz)
 
 main = bad(Bar)
 """)) { case PackageError.RecursionError(_, _) => () }
@@ -995,13 +995,13 @@ enum Nat: Zero, Succ(of: Nat)
 
 def toInt(pnat):
   recur pnat:
-    Zero: 0
-    Succ(n): toInt(n).add(1)
+    case Zero: 0
+    case Succ(n): toInt(n).add(1)
 
 def sum(nat):
   recur nat:
-    Zero: 0
-    Succ(n): sum(n).add(toInt(nat))
+    case Zero: 0
+    case Succ(n): sum(n).add(toInt(nat))
 
 main = sum(Succ(Succ(Succ(Zero))))
 """),
@@ -1018,13 +1018,13 @@ enum Nat: Zero, Succ(of: Nat)
 
 def toInt(pnat):
   recur pnat:
-    Succ(n): toInt(n).add(1)
-    Zero: 0
+    case Succ(n): toInt(n).add(1)
+    case Zero: 0
 
 def sum(nat):
   recur nat:
-    Succ(n): sum(n).add(toInt(nat))
-    Zero: 0
+    case Succ(n): sum(n).add(toInt(nat))
+    case Zero: 0
 
 main = sum(Succ(Succ(Succ(Zero))))
 """),
@@ -1040,8 +1040,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    EmptyList: acc
-    [_, *tail]: len(tail, acc.add(1))
+    case EmptyList: acc
+    case [_, *tail]: len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -1054,8 +1054,8 @@ package A
 
 def len(lst, acc):
   recur lst:
-    []: acc
-    NonEmptyList(_, tail): len(tail, acc.add(1))
+    case []: acc
+    case NonEmptyList(_, tail): len(tail, acc.add(1))
 
 main = len([1, 2, 3], 0)
 """),
@@ -1153,9 +1153,9 @@ enum Nat: Z, S(p: Nat)
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1172,9 +1172,9 @@ enum Nat[a]: Z, S(p: Nat[a])
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1191,9 +1191,9 @@ enum Nat: S(p: Nat), Z
 
 def fib(n):
   recur n:
-    Z: 1
-    S(Z): 1
-    S(S(n2) as n1): fib(n1).add(fib(n2))
+    case Z: 1
+    case S(Z): 1
+    case S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1594,7 +1594,7 @@ main = 1 + 2 * 3
       List("""
 package A
 
-# you can't write \x: Int -> x.add(1)
+# you can't write x: Int -> x.add(1)
 # since Int -> looks like a type
 # you need to protect it in a ( )
 inc: Int -> Int = x -> x.add(1)
@@ -1741,10 +1741,13 @@ struct X
 main = match 1:
   case X1: 0
 """)) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package B\nunknown constructor X1\nRegion(49,50)")
+        ),
+        "in file: <unknown source>, package B\nunknown constructor X1\nRegion(49,50)"
+      )
       ()
     }
 
@@ -1755,10 +1758,13 @@ main = match [1, 2, 3]:
   case []: 0
   case [*a, *b, _]: 2
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed")
+        ),
+        "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed"
+      )
       ()
     }
 
@@ -1770,10 +1776,13 @@ enum Foo: Bar(a), Baz(b)
 main = match Bar(a):
   case Baz(b): b
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)")
+        ),
+        "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)"
+      )
       ()
     }
 
@@ -1782,14 +1791,17 @@ package A
 
 def fn(x):
   recur x:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,42)\n")
+        ),
+        "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,47)\n"
+      )
       ()
     }
 
@@ -1798,14 +1810,17 @@ package A
 
 def fn(x):
   recur 10:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,43)\n")
+        ),
+        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,48)\n"
+      )
       ()
     }
 
@@ -1814,14 +1829,17 @@ package A
 
 def fn(x):
   recur y:
-    y: 0
+    case y: 0
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,42)\n")
+        ),
+        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,47)\n"
+      )
       ()
     }
 
@@ -1830,16 +1848,19 @@ package A
 
 def fn(x):
   recur x:
-    y:
+    case y:
       recur x:
-        z: 100
+        case z: 100
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
+        ),
+        "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\nRegion(52,80)\n"
+      )
       ()
     }
 
@@ -1849,16 +1870,19 @@ package A
 def fn(x):
   fn = 100
   recur x:
-    y:
+    case y:
       recur x:
-        z: 100
+        case z: 100
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
+        ),
+        "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,91)\n"
+      )
       ()
     }
 
@@ -1872,10 +1896,13 @@ def fn(x, y):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,79)\n")
+        ),
+        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,79)\n"
+      )
       ()
     }
 
@@ -1940,10 +1967,13 @@ baz = fooz
 """
       )
     ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in <unknown source> package: A does not have name fooz. Nearest: foo")
+        ),
+        "in <unknown source> package: A does not have name fooz. Nearest: foo"
+      )
       ()
     }
 
@@ -1965,10 +1995,13 @@ baz = bar
 """
       )
     ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
-      assertEquals(te.message(
+      assertEquals(
+        te.message(
           Map.empty,
           Colorize.None
-        ), "in <unknown source> package: A has bar but it is not exported. Add to exports")
+        ),
+        "in <unknown source> package: A has bar but it is not exported. Add to exports"
+      )
       ()
     }
   }
@@ -2033,7 +2066,7 @@ def create_field[shape: (* -> *) -> *, t](rf: RecordField[t], fn: shape[RecordVa
 
 def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
-    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
+    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = RecordGetter(get_field, get_value) ->
       RecordField(_, to_entry) = get_field(fields)
       RecordRowEntry(to_entry(get_value(row)))
     result_fn
@@ -2078,13 +2111,13 @@ def ps[
 ](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
-  getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(PS(_, sh2) -> f1(sh2), PS(_, sh2) -> v1(sh2)))
   RestructureOutput(
-    \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
-    \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
-    PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
-    \PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
-    \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
+    sh1 -> PS(fF(sh1), reshaper1F(sh1)),
+    sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    PS(RecordGetter(PS(x,_) -> x, PS(x,_) -> x), getters2),
+    PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
+    PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
 def string_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
@@ -2135,7 +2168,7 @@ rs_empty = new_record_set.restructure(
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
+rs0 = rs.restructure(PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
 
 tests = TestSuite("reordering",
   [
@@ -2344,7 +2377,7 @@ package A
 struct Pair(first, second)
 
 # Pair does not have a field called sec
-get = \Pair { first, sec: _ } -> first
+get = Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
@@ -2613,10 +2646,13 @@ external def foo(x: String) -> List[String]
 def foo(x): x
 
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(s.message(
+      assertEquals(
+        s.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,71)")
+        ),
+        "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,71)"
+      )
       ()
     }
 
@@ -2628,10 +2664,13 @@ external def foo(x: String) -> List[String]
 foo = 1
 
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(s.message(
+      assertEquals(
+        s.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,65)")
+        ),
+        "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,65)"
+      )
       ()
     }
 
@@ -2642,10 +2681,13 @@ external def foo(x: String) -> List[String]
 
 external def foo(x: String) -> List[String]
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(s.message(
+      assertEquals(
+        s.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nexternal def: foo defined multiple times\nRegion(21,55)")
+        ),
+        "in file: <unknown source>, package A\nexternal def: foo defined multiple times\nRegion(21,55)"
+      )
       ()
     }
   }
@@ -2680,10 +2722,13 @@ struct Foo[a](a)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [b]\nRegion(14,30)")
+        ),
+        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [b]\nRegion(14,30)"
+      )
       ()
     }
 
@@ -2694,10 +2739,13 @@ struct Foo[a](a: a, b: b)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [a, b]\nRegion(14,39)")
+        ),
+        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [a, b]\nRegion(14,39)"
+      )
       ()
     }
 
@@ -2708,10 +2756,13 @@ enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [b]\nRegion(14,34)")
+        ),
+        "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [b]\nRegion(14,34)"
+      )
       ()
     }
 
@@ -2722,10 +2773,13 @@ enum Enum[a]: Foo(a: a), Bar(a: b)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [a, b]\nRegion(14,48)")
+        ),
+        "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [a, b]\nRegion(14,48)"
+      )
       ()
     }
   }
@@ -2742,10 +2796,13 @@ main = Foo(1, "2")
 
     evalFail(List(pack, pack)) {
       case sce @ PackageError.DuplicatedPackageError(_) =>
-        assertEquals(sce.message(
+        assertEquals(
+          sce.message(
             Map.empty,
             Colorize.None
-          ), "package Err duplicated in 0, 1")
+          ),
+          "package Err duplicated in 0, 1"
+        )
         ()
     }
   }
@@ -2761,10 +2818,13 @@ main = match x:
   case _: "still bad"
 
 """)) { case sce @ PackageError.TotalityCheckError(_, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nRegion(36,89)\nmultiple splices in pattern, only one per match allowed")
+        ),
+        "in file: <unknown source>, package Err\nRegion(36,89)\nmultiple splices in pattern, only one per match allowed"
+      )
       ()
     }
   }
@@ -2782,7 +2842,10 @@ main = match x:
 
 """)) { case sce @ PackageError.TotalityCheckError(_, _) =>
       val dollar = '$'
-      assertEquals(sce.message(Map.empty, Colorize.None), s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent string bindings aren't allowed)")
+      assertEquals(
+        sce.message(Map.empty, Colorize.None),
+        s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent string bindings aren't allowed)"
+      )
       ()
     }
   }
@@ -2965,10 +3028,13 @@ struct Foo(x)
 
 main = Foo(1)
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\ntype name: Foo defined multiple times\nRegion(14,24)")
+        ),
+        "in file: <unknown source>, package Err\ntype name: Foo defined multiple times\nRegion(14,24)"
+      )
       ()
     }
   }
@@ -2983,10 +3049,13 @@ struct Foo(x)
 
 main = Foo(1)
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Err\nconstructor: Foo defined multiple times\nRegion(14,27)")
+        ),
+        "in file: <unknown source>, package Err\nconstructor: Foo defined multiple times\nRegion(14,27)"
+      )
       ()
     }
   }
@@ -2999,10 +3068,13 @@ package A
 _ = add(1, 2)
 
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\n_ does not bind any names.\nRegion(53,62)")
+        ),
+        "in file: <unknown source>, package A\n_ does not bind any names.\nRegion(53,62)"
+      )
       ()
     }
 
@@ -3012,10 +3084,13 @@ package A
 # this is basically a typecheck only
 (_, _) = (1, "1")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\n(_, _) does not bind any names.\nRegion(58,66)")
+        ),
+        "in file: <unknown source>, package A\n(_, _) does not bind any names.\nRegion(58,66)"
+      )
       ()
     }
 
@@ -3027,10 +3102,13 @@ struct Foo(x, y)
 Foo(_, _) = Foo(1, "1")
 
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package A\nFoo(_, _) does not bind any names.\nRegion(78,89)")
+        ),
+        "in file: <unknown source>, package A\nFoo(_, _) does not bind any names.\nRegion(78,89)"
+      )
       ()
     }
   }
@@ -3047,8 +3125,8 @@ enum Thing:
 
 def bar(y, _: String, x):
   recur x:
-    Thing1: y
-    Thing2(i, t): bar(i, "boom", t)
+    case Thing1: y
+    case Thing2(i, t): bar(i, "boom", t)
 """),
       "VarSet/Recursion",
       1
@@ -3065,15 +3143,18 @@ enum Thing:
 def bar(y, _: String, x):
   x = Thing2(0, x)
   recur x:
-    Thing1: y
-    Thing2(i, t): bar(i, "boom", t)
+    case Thing1: y
+    case Thing2(i, t): bar(i, "boom", t)
 
 test = Assertion(True, "")
 """)) { case re @ PackageError.RecursionError(_, _) =>
-      assertEquals(re.message(
+      assertEquals(
+        re.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,165)\n")
+        ),
+        "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,175)\n"
+      )
       ()
     }
   }
@@ -3087,10 +3168,13 @@ out = match (1,2):
 
 test = Assertion(True, "")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(48,49)")
+        ),
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(48,49)"
+      )
       ()
     }
     evalFail(List("""
@@ -3102,10 +3186,13 @@ out = match [(1,2), (1, 0)]:
 
 test = Assertion(True, "")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(68,69)")
+        ),
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(68,69)"
+      )
       ()
     }
     evalFail(List("""
@@ -3120,9 +3207,9 @@ out = match x:
 test = Assertion(True, "")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       val msg = sce.message(
-          Map.empty,
-          Colorize.None
-        )
+        Map.empty,
+        Colorize.None
+      )
       assert(msg.contains("repeated bindings in pattern: y"), msg)
       ()
     }
@@ -3167,10 +3254,13 @@ struct Bar(baz: Either[Int, String])
 test = Assertion(True, "")
 
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Foo\nunknown type: Either\nRegion(14,50)")
+        ),
+        "in file: <unknown source>, package Foo\nunknown type: Either\nRegion(14,50)"
+      )
       ()
     }
   }
@@ -3217,10 +3307,13 @@ from Foo import bar
 
 x = bar
 """ :: Nil) { case sce =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in <unknown source> export bar of type Foo::Bar has an unexported (private) type.")
+        ),
+        "in <unknown source> export bar of type Foo::Bar has an unexported (private) type."
+      )
       ()
     }
   }
@@ -3252,10 +3345,13 @@ def foo[a](a: a) -> a:
   and_again(again(x))
 
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(sce.message(
+      assertEquals(
+        sce.message(
           Map.empty,
           Colorize.None
-        ), "in file: <unknown source>, package Foo\nand_again found declared types: [b], not a subset of [a]\nRegion(71,118)")
+        ),
+        "in file: <unknown source>, package Foo\nand_again found declared types: [b], not a subset of [a]\nRegion(71,118)"
+      )
       ()
     }
   }
@@ -3330,10 +3426,13 @@ package Foo
 
 struct Foo(a: f[a], b: f)
 """)) { case kie @ PackageError.KindInferenceError(_, _, _) =>
-      assertEquals(kie.message(Map.empty, Colorize.None), """in file: <unknown source>, package Foo
+      assertEquals(
+        kie.message(Map.empty, Colorize.None),
+        """in file: <unknown source>, package Foo
 shape error: expected kind(f) and * to match in the constructor Foo
 
-Region(14,39)""")
+Region(14,39)"""
+      )
       ()
     }
 
@@ -3342,10 +3441,13 @@ package Foo
 
 struct Foo[a: *](a: a[Int])
 """)) { case kie @ PackageError.KindInferenceError(_, _, _) =>
-      assertEquals(kie.message(Map.empty, Colorize.None), """in file: <unknown source>, package Foo
+      assertEquals(
+        kie.message(Map.empty, Colorize.None),
+        """in file: <unknown source>, package Foo
 shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
 
-Region(14,41)""")
+Region(14,41)"""
+      )
       ()
     }
   }
@@ -3357,13 +3459,13 @@ package SubsumeTest
 
 def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
   match maybeFn:
-    Some(fn): fn(l1).add(fn(l2))
-    None: 0
+    case Some(fn): fn(l1).add(fn(l2))
+    case None: 0
 
 def lengths2(l1: List[Int], l2: List[String], maybeFn: forall tt. Option[List[tt] -> Int]):
   match maybeFn:
-    Some(fn): fn(l1).add(fn(l2))
-    None: 0
+    case Some(fn): fn(l1).add(fn(l2))
+    case None: 0
 
 test = Assertion(lengths([], [], None).add(lengths2([], [], None)) matches 0, "test")
 
@@ -3389,12 +3491,15 @@ struct Id(a)
 def makeFoo(v: Int): Foo(Id(v))
 
 """)) { case kie: PackageError.TypeErrorIn =>
-      assertEquals(kie.message(Map.empty, Colorize.None), """in file: <unknown source>, package Foo
+      assertEquals(
+        kie.message(Map.empty, Colorize.None),
+        """in file: <unknown source>, package Foo
 kind error: the type: ?0 of kind: (* -> *) -> * at: 
 Region(183,188)
 
 cannot be unified with the type Foo::Id of kind: +* -> *
-because the first kind does not subsume the second.""")
+because the first kind does not subsume the second."""
+      )
       ()
     }
 
@@ -3409,9 +3514,12 @@ struct Id(a)
 def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
 
 """)) { case kie: PackageError.TypeErrorIn =>
-      assertEquals(kie.message(Map.empty, Colorize.None), """in file: <unknown source>, package Foo
+      assertEquals(
+        kie.message(Map.empty, Colorize.None),
+        """in file: <unknown source>, package Foo
 kind error: the type: Foo::Foo[Foo::Id] is invalid because the left Foo::Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Foo::Id has kind +* -> * but left cannot accept the kind of the right:
-Region(195,205)""")
+Region(195,205)"""
+      )
       ()
     }
 
@@ -3433,12 +3541,15 @@ def quick_sort0(cmp, left, right):
         bigs = quick_sort0(cmp, tail)
         [*smalls, *bigs]
 """)) { case kie: PackageError.TypeErrorIn =>
-      assertEquals(kie.message(Map.empty, Colorize.None), """in file: <unknown source>, package QS
+      assertEquals(
+        kie.message(Map.empty, Colorize.None),
+        """in file: <unknown source>, package QS
 type error: expected type Bosatsu/Predef::Fn3[(?13, ?9) -> Bosatsu/Predef::Comparison]
 Region(403,414)
 to be the same as type Bosatsu/Predef::Fn2
 hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
-Region(415,424)""")
+Region(415,424)"""
+      )
       ()
     }
 
@@ -3920,7 +4031,10 @@ external def foo[b](lst: List[a]) -> a
         val message = kie.message(Map.empty, Colorize.None)
         assert(message.contains("Region(30,59)"))
         assert(message.contains("[b], not the same as [a]"))
-        assertEquals(testCode.substring(30, 59), "def foo[b](lst: List[a]) -> a")
+        assertEquals(
+          testCode.substring(30, 59),
+          "def foo[b](lst: List[a]) -> a"
+        )
         ()
     }
   }
@@ -3971,7 +4085,10 @@ main = foo
 
     evalFail(testCode) { case kie @ PackageError.DuplicatedImport(_, _) =>
       val message = kie.message(Map.empty, Colorize.None)
-      assertEquals(message, "duplicate import in <unknown source> package P3\n\tfrom P1 import foo\n\tfrom P2 import foo\n")
+      assertEquals(
+        message,
+        "duplicate import in <unknown source> package P3\n\tfrom P1 import foo\n\tfrom P2 import foo\n"
+      )
       ()
     }
 
@@ -4012,7 +4129,10 @@ res = [].fl(True, (_, _) -> False)
 main = Assertion(res, "")
     """)) { case kie @ PackageError.DuplicatedImport(_, _) =>
       val message = kie.message(Map.empty, Colorize.None)
-      assertEquals(message, "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldl_List as fl\n")
+      assertEquals(
+        message,
+        "duplicate import in <unknown source> package P\n\tfrom Bosatsu/Predef import concat as fl\n\tfrom Bosatsu/Predef import foldl_List as fl\n"
+      )
       ()
     }
   }
@@ -4030,11 +4150,14 @@ main = fof
 
     evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assertEquals(message, """in file: <unknown source>, package P1
+      assertEquals(
+        message,
+        """in file: <unknown source>, package P1
 name "fof" unknown.
 Closest: fofoooooooo, ofof.
 
-Region(47,50)""")
+Region(47,50)"""
+      )
       ()
     }
   }

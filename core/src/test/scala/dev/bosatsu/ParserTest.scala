@@ -47,7 +47,11 @@ abstract class ParserTestBase extends munit.ScalaCheckSuite with ParseFns {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
         lazy val message = firstDiff(t.toString, expected.toString)
-        assertEquals(t, expected, s"difference: $message, input syntax:\n\n\n$str\n\n")
+        assertEquals(
+          t,
+          expected,
+          s"difference: $message, input syntax:\n\n\n$str\n\n"
+        )
         assertEquals(idx, exidx)
       case Left(err) =>
         val idx = err.failedAtOffset
@@ -159,18 +163,18 @@ class ParserTest extends ParserTestBase {
   test("string escape/unescape round trips") {
     val propRoundTrip =
       forAll(Gen.oneOf('\'', '"'), Arbitrary.arbitrary[String]) { (c, str) =>
-      val str1 = Parser.escape(c, str)
-      try {
-        Parser.unescape(str1) match {
-          case Right(str2) => assertEquals(str2, str)
-          case Left(idx)   =>
-            fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
+        val str1 = Parser.escape(c, str)
+        try {
+          Parser.unescape(str1) match {
+            case Right(str2) => assertEquals(str2, str)
+            case Left(idx)   =>
+              fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
+          }
+        } catch {
+          case t: Throwable =>
+            fail(s"failed to decode: $str1 from $str, exception: $t")
         }
-      } catch {
-        case t: Throwable =>
-          fail(s"failed to decode: $str1 from $str, exception: $t")
       }
-    }
 
     assertEquals(Parser.escape('"', "\t"), "\\t")
     assertEquals(Parser.escape('"', "\n"), "\\n")
@@ -277,7 +281,11 @@ class ParserTest extends ParserTestBase {
       val parsed = p.parseAll(str)
       assertEquals(parsed, Right(str))
 
-      assertEquals(parsed.map(StringUtil.codePoints), Right(cps), s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
+      assertEquals(
+        parsed.map(StringUtil.codePoints),
+        Right(cps),
+        s"hex = $hex, str = ${StringUtil.codePoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}"
+      )
     }
   }
 
@@ -880,7 +888,7 @@ x"""
 
     parseTestAll(
       parser(""),
-      "(\\x -> x)(f)",
+      "(x -> x)(f)",
       Apply(
         Parens(
           Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))
@@ -892,7 +900,7 @@ x"""
 
     parseTestAll(
       parser(""),
-      "((\\x -> x)(f))",
+      "((x -> x)(f))",
       Parens(
         Apply(
           Parens(
@@ -934,7 +942,7 @@ x"""
       NonEmptyList.of(mkVar("f")),
       AParens
     )
-    parseTestAll(parser(""), "((\\x -> x))(f)", expected)
+    parseTestAll(parser(""), "((x -> x))(f)", expected)
 
     parseTestAll(parser(""), expected.toDoc.render(80), expected)
 
@@ -1522,7 +1530,7 @@ def foo(x: Integer, y: String) -> String:
   toString(x).append_str(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
 
@@ -1536,7 +1544,7 @@ def foo(x: forall f. f[a] -> f[b], y: a) -> b:
   x(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
 
@@ -1551,7 +1559,7 @@ def foo(x: forall f. f[a] -> f[b], y: a) -> b:
   x(y)
 
 # here is a lambda
-fn = \x, y -> x.plus(y)
+fn = (x, y) -> x.plus(y)
 
 x = ( foo )
       """

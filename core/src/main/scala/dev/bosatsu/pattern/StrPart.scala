@@ -3,7 +3,7 @@ package dev.bosatsu.pattern
 import cats.Monoid
 import dev.bosatsu.{Pattern, Lit, Identifier}
 
-sealed abstract class StrPart
+sealed abstract class StrPart derives CanEqual
 object StrPart {
   sealed abstract class Glob(val capture: Boolean) extends StrPart
   sealed abstract class CharPart(val capture: Boolean) extends StrPart

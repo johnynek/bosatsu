@@ -86,7 +86,10 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Int]] {
         Nil
 
     regressions.foreach { case (a, b) =>
-      subsetConsistencyLaw(a, b, Eq.fromUniversalEquals)
+      val eqList =
+        // Safe: SeqPattern is immutable and uses structural equals in tests.
+        Eq.fromUniversalEquals[List[Pattern]]
+      subsetConsistencyLaw(a, b, eqList)
     }
   }
 

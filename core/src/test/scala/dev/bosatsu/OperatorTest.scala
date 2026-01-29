@@ -42,9 +42,12 @@ class OperatorTest extends ParserTestBase {
     }
 
   def parseSame(left: String, right: String) =
-    assertEquals(Parser.unsafeParse(formP, left).toFormula, Parser
+    assertEquals(
+      Parser.unsafeParse(formP, left).toFormula,
+      Parser
         .unsafeParse(formP, right)
-        .toFormula)
+        .toFormula
+    )
 
   test("we can parse integer formulas") {
     parseSame("1+2", "1 + 2")
@@ -95,12 +98,12 @@ test = TestSuite("precedence",
 package Test
 
 # this is non-associative so we can test order
-operator *> = \x, y -> (x, y)
+operator *> = (x, y) -> (x, y)
 
-operator == = \x, y ->
+operator == = (x, y) ->
   # kind of an interesting style to make local operators
   `=*=` = eq_Int
-  `&` = \x, y -> y if x else False
+  `&` = (x, y) -> y if x else False
   (((a, b), c), ((d, e), f)) = (x, y)
   (a =*= d) & (b =*= e) & (c =*= f)
 

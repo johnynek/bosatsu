@@ -4,11 +4,7 @@ import cats.{Eval, Functor, Monad, Traverse}
 import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
-import dev.bosatsu.codegen.{
-  CompilationNamespace,
-  CompilationSource,
-  Idents
-}
+import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
 import dev.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
 import dev.bosatsu.pattern.StrPart
@@ -1027,10 +1023,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn @ Lambda(_, _, _, _)       => innerFn(fn)
-          case Let(name, argV, in) =>
+          case fn @ Lambda(_, _, _, _) => innerFn(fn)
+          case Let(name, argV, in)     =>
             handleLet(name, argV, innerToValue(in))
-          case app @ App(_, _)           => innerApp(app)
+          case app @ App(_, _)       => innerApp(app)
           case Global(k, pack, name) =>
             directFn(k, pack, name)
               .flatMap {
@@ -1187,7 +1183,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
 
-      def fnStatement[K1 <: K](fnName: Code.Ident, fn: Lambda[K1]): T[Code.Statement] =
+      def fnStatement[K1 <: K](
+          fnName: Code.Ident,
+          fn: Lambda[K1]
+      ): T[Code.Statement] =
         inFnStatement(fn match {
           case Lambda(captures, name, args, expr) =>
             val body = innerToValue(expr).map(Code.returnValue(_))

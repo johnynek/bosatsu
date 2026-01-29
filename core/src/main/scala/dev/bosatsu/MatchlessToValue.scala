@@ -1,8 +1,9 @@
 package dev.bosatsu
 
-import cats.{Eval, Functor, Applicative}
+import cats.{Eval, Functor, Applicative, Eq}
 import cats.data.NonEmptyList
 import cats.evidence.Is
+import cats.syntax.eq._
 import java.math.BigInteger
 import dev.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
@@ -210,12 +211,16 @@ object MatchlessToValue {
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
+        given Eq[Any] = Eq.fromUniversalEquals
+
         ix match {
           case EqualsLit(expr, lit) =>
             val litAny = lit.unboxToAny
 
             loop(expr).map { e =>
-              e.asExternal.toAny == litAny
+              val external = e.asExternal.toAny
+              // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
+              external === litAny
             }
 
           case EqualsNat(nat, zeroOrSucc) =>
@@ -223,11 +228,15 @@ object MatchlessToValue {
 
             if (zeroOrSucc.isZero)
               natF.map { v =>
-                v.asExternal.toAny == BigInteger.ZERO
+                val external = v.asExternal.toAny
+                // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
+                external === BigInteger.ZERO
               }
             else
               natF.map { v =>
-                v.asExternal.toAny != BigInteger.ZERO
+                val external = v.asExternal.toAny
+                // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
+                external =!= BigInteger.ZERO
               }
 
           case TrueConst     => Static(true)

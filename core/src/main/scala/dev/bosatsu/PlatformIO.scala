@@ -184,7 +184,7 @@ object PlatformIO {
     else roots.collectFirstSome(getP)
   }
 
-  sealed abstract class FSDataType
+  sealed abstract class FSDataType derives CanEqual
   object FSDataType {
     case object Dir extends FSDataType
     case object File extends FSDataType

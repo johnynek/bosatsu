@@ -7,7 +7,7 @@ import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
 import Arbitrary.arbitrary
-import Identifier.Bindable
+import Identifier.{Bindable, Constructor}
 import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
 
@@ -15,16 +15,6 @@ class TypedExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
     super.scalaCheckTestParameters.withMinSuccessfulTests(500)
-
-  def allVars[A](te: TypedExpr[A]): Set[Bindable] = {
-    type W[B] = Writer[Set[Bindable], B]
-
-    te.traverseUp[W] {
-      case v @ TypedExpr.Local(ident, _, _) => Writer(Set(ident), v)
-      case notVar                           => Writer(Set.empty, notVar)
-    }.run
-      ._1
-  }
 
   /** Assert two bits of code normalize to the same thing
     */
@@ -38,7 +28,7 @@ class TypedExprTest extends munit.ScalaCheckSuite {
   test("freeVarsSet is a subset of allVars") {
     def law[A](te: TypedExpr[A]) = {
       val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
-      val av = allVars(te)
+      val av = TypedExpr.allVarsSet(te :: Nil).toSet
       val missing = frees -- av
       assert(
         missing.isEmpty,
@@ -54,6 +44,45 @@ x = match B(100):
   case A: 10
   case B(b): b
 """)(law)
+  }
+
+  test("allVars includes binders from lambdas, lets, and matches") {
+    val tag = ()
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val z = Identifier.Name("z")
+    val intT = Type.IntType
+
+    val pat: Pattern[(PackageName, Constructor), Type] = Pattern.Var(y)
+    val matchExpr =
+      TypedExpr.Match(
+        TypedExpr.Local(x, intT, tag),
+        NonEmptyList(
+          (pat, TypedExpr.Local(y, intT, tag)),
+          Nil
+        ),
+        tag
+      )
+    val letExpr =
+      TypedExpr.Let(
+        z,
+        TypedExpr.Literal(Lit.fromInt(1), intT, tag),
+        matchExpr,
+        RecursionKind.NonRecursive,
+        tag
+      )
+    val te =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList((x, intT), Nil),
+        letExpr,
+        tag
+      )
+
+    val av = TypedExpr.allVarsSet(te :: Nil)
+    assert(av.contains(x))
+    assert(av.contains(y))
+    assert(av.contains(z))
+
   }
 
   test("freeVars on top level TypedExpr is Nil") {
@@ -288,8 +317,8 @@ enum Eith: L(left), R(right)
 def run(y, x):
   z = y
   match x:
-    L(_): z
-    R(r): r
+    case L(_): z
+    case R(r): r
 """,
       """#
 struct Tup2(a, b)
@@ -297,8 +326,8 @@ enum Eith: L(left), R(right)
 
 def run(y, x):
   match x:
-    L(_): y
-    R(r): r
+    case L(_): y
+    case R(r): r
 """
     )
   }
@@ -417,29 +446,41 @@ foo = _ -> 1
     {
       // substitution in let
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
-      assertEquals(TypedExpr.substitute(Identifier.Name("x"), int(2), let1), Some(let("y", int(2), varTE("y", intTpe))))
+      assertEquals(
+        TypedExpr.substitute(Identifier.Name("x"), int(2), let1),
+        Some(let("y", int(2), varTE("y", intTpe)))
+      )
     }
 
     {
       // substitution in let with a masking
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
-      assertEquals(TypedExpr
+      assertEquals(
+        TypedExpr
           .substitute(Identifier.Name("x"), varTE("y", intTpe), let1)
-          .map(_.reprString), Some(
-            "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
-          ))
+          .map(_.reprString),
+        Some(
+          "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
+        )
+      )
     }
 
     {
       // substitution in let with a shadowing in result
       val let1 = let("y", varTE("y", intTpe), varTE("y", intTpe))
-      assertEquals(TypedExpr.substitute(Identifier.Name("y"), int(42), let1), Some(let("y", int(42), varTE("y", intTpe))))
+      assertEquals(
+        TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
+        Some(let("y", int(42), varTE("y", intTpe)))
+      )
     }
 
     {
       // substitution in letrec with a shadowing in bind and result
       val let1 = letrec("y", varTE("y", intTpe), varTE("y", intTpe))
-      assertEquals(TypedExpr.substitute(Identifier.Name("y"), int(42), let1), Some(let1))
+      assertEquals(
+        TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
+        Some(let1)
+      )
     }
   }
 
@@ -496,9 +537,12 @@ foo = _ -> 1
 
   test("let x = y in x == y") {
     // inline lets of vars
-    assertEquals(TypedExprNormalization.normalize(
+    assertEquals(
+      TypedExprNormalization.normalize(
         let("x", varTE("y", intTpe), varTE("x", intTpe))
-      ), Some(varTE("y", intTpe)))
+      ),
+      Some(varTE("y", intTpe))
+    )
   }
 
   test("we can normalize addition") {
@@ -558,7 +602,9 @@ foo = _ -> 1
     // y = z(43)
     // x(y, y)
     val normed = TypedExprNormalization.normalize(normalLet)
-    assertEquals(normed.map(_.repr.render(80)), Some("""(let
+    assertEquals(
+      normed.map(_.repr.render(80)),
+      Some("""(let
     y0
     (ap
         (var z Bosatsu/Predef::Int)
@@ -570,29 +616,33 @@ foo = _ -> 1
             (var y0 Bosatsu/Predef::Int)
             Bosatsu/Predef::Int)
         (var y0 Bosatsu/Predef::Int)
-        Bosatsu/Predef::Int))"""))
+        Bosatsu/Predef::Int))""")
+    )
   }
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
-    assertEquals(TypedExprNormalization
+    assertEquals(
+      TypedExprNormalization
         .normalize(
           app(normalLet, varTE("w", intTpe), intTpe)
         )
-        .map(_.reprString), Some(
-          let(
-            "y0",
-            app(varTE("z", intTpe), int(43), intTpe),
+        .map(_.reprString),
+      Some(
+        let(
+          "y0",
+          app(varTE("z", intTpe), int(43), intTpe),
+          app(
             app(
-              app(
-                app(varTE("y", intTpe), varTE("y0", intTpe), intTpe),
-                varTE("y0", intTpe),
-                intTpe
-              ),
-              varTE("w", intTpe),
+              app(varTE("y", intTpe), varTE("y0", intTpe), intTpe),
+              varTE("y0", intTpe),
               intTpe
-            )
-          ).reprString
-        ))
+            ),
+            varTE("w", intTpe),
+            intTpe
+          )
+        ).reprString
+      )
+    )
 
   }
 
@@ -649,7 +699,11 @@ res = (
       checkLast("""
 res = _ -> 1
       """) { te2 =>
-        assertEquals(te1.void, te2.void, s"${te1.repr.render(80)} != ${te2.repr.render(80)}")
+        assertEquals(
+          te1.void,
+          te2.void,
+          s"${te1.repr.render(80)} != ${te2.repr.render(80)}"
+        )
       }
     }
 
@@ -812,7 +866,7 @@ x = Foo
 
       if (identMap.nonEmpty) {
         val te1 = TypedExpr.substituteTypeVar(te, identMap)
-        assert(te1 != te, s"mapping: $identMap, $bounds")
+        assert(te1 =!= te, s"mapping: $identMap, $bounds")
       }
     }
   }
@@ -911,7 +965,11 @@ x = (
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
-        assertEquals(te1.void, te2.void, s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}")
+        assertEquals(
+          te1.void,
+          te2.void,
+          s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}"
+        )
       }
     }
   }
@@ -998,7 +1056,10 @@ x = (
   test("TypedExpr.traverse.void matches traverse_") {
     import cats.data.Const
     forAll(genTypedExprInt, arbitrary[Int => String]) { (te, fn) =>
-      assertEquals(te.traverse(i => Const[String, Unit](fn(i))).void, te.traverse_(i => Const[String, Unit](fn(i))))
+      assertEquals(
+        te.traverse(i => Const[String, Unit](fn(i))).void,
+        te.traverse_(i => Const[String, Unit](fn(i)))
+      )
     }
   }
 

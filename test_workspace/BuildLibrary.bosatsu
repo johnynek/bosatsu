@@ -29,8 +29,8 @@ def file(s: String) -> Build[File]:
 
 def build_all(items: List[Build[a]]) -> Build[List[a]]:
     recur items:
-      []: empty
-      [h, *t]:
+      case []: empty
+      case [h, *t]:
           (rest: Build[List[a]]) = build_all(t)
           map2_Build(h, rest, (h, t) -> [h, *t])
 

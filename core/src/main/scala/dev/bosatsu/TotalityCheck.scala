@@ -240,8 +240,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
   private val strPatternSetOps: SetOps[StrPat] =
     SetOps.imap[SeqPattern[Int], StrPat](
-      SeqPattern.seqPatternSetOps(
-        using SeqPart.part1SetOps(using SetOps.distinct[Int]),
+      SeqPattern.seqPatternSetOps(using
+        SeqPart.part1SetOps(using SetOps.distinct[Int]),
         implicitly
       ),
       StrPat.fromSeqPattern(_),
@@ -325,16 +325,18 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                     )
                 }
               }
-            )(using new Relatable[List[Pattern[Cons, Type]]] {
-              def relate(
-                  a: List[Pattern[Cons, Type]],
-                  b: List[Pattern[Cons, Type]]
-              ) = {
-                val size = a.size
-                if (size == b.size) getProd(size).relate(a, b)
-                else Rel.Disjoint
+            )(using
+              new Relatable[List[Pattern[Cons, Type]]] {
+                def relate(
+                    a: List[Pattern[Cons, Type]],
+                    b: List[Pattern[Cons, Type]]
+                ) = {
+                  val size = a.size
+                  if (size == b.size) getProd(size).relate(a, b)
+                  else Rel.Disjoint
+                }
               }
-            })
+            )
 
           def cheapUnion(
               head: Option[Pattern[Cons, Type]],
@@ -427,7 +429,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
                     Left(solve(_, _))
                 }
-              case lp @ ListPat(_)=>
+              case lp @ ListPat(_) =>
                 def optPatternToList(
                     p: Option[Pattern[Cons, Type]]
                 ): List[ListPatCons] =
@@ -503,7 +505,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (Annotation(p, _), t)    => intersection(p, t)
           case (t, Annotation(p, _))    => intersection(t, p)
           case (Literal(a), Literal(b)) =>
-            if (a == b) left :: Nil
+            if (a === b) left :: Nil
             else Nil
           case (Literal(Lit.Str(s)), p @ StrPat(_)) =>
             if (p.matches(s)) left :: Nil
@@ -667,9 +669,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case Pattern.WildCard | Pattern.Var(_) => true
           case Pattern.Named(_, p)               => isTop(p)
           case Pattern.Annotation(p, _)          => isTop(p)
-          case Pattern.Literal(_)     => false // literals are not total
-          case s @ Pattern.StrPat(_)  => strPatternSetOps.isTop(s)
-          case l: ListPatCons => listPatternSetOps.isTop(l)
+          case Pattern.Literal(_)    => false // literals are not total
+          case s @ Pattern.StrPat(_) => strPatternSetOps.isTop(s)
+          case l: ListPatCons        => listPatternSetOps.isTop(l)
           case Pattern.PositionalStruct(name, params) =>
             inEnv.definedTypeFor(name) match {
               case Some(dt) =>
@@ -729,7 +731,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 else Rel.Sub
               } else if (s1.isTotal) Rel.Super
               else Rel.Disjoint
-            case (_, Pattern.StrPat(_)) => loop(b, a).invert
+            case (_, Pattern.StrPat(_))             => loop(b, a).invert
             case (l1: ListPatCons, l2: ListPatCons) =>
               listPatternSetOps.relate(l1, l2)
             case (lp: ListPatCons, Pattern.PositionalStruct(n, p)) =>

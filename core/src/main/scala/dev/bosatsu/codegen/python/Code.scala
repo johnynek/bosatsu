@@ -1,16 +1,18 @@
 package dev.bosatsu.codegen.python
 
+import cats.Eq
 import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
 import dev.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
+import cats.syntax.all._
 
 // Structs are represented as tuples
 // Enums are represented as tuples with an additional first field holding
 // the variant
 
-sealed trait Code
+sealed trait Code derives CanEqual
 
 object Code {
 
@@ -28,7 +30,8 @@ object Code {
       }
   }
 
-  sealed abstract class Expression extends ValueLike with Code {
+  sealed abstract class Expression extends ValueLike with Code
+      derives CanEqual {
 
     def countOf(ident: Ident): Int
 
@@ -92,7 +95,7 @@ object Code {
     def simplify: Expression
   }
 
-  sealed abstract class Statement extends Code {
+  sealed abstract class Statement extends Code derives CanEqual {
     def statements: NonEmptyList[Statement] =
       this match {
         case Block(ss) => ss
@@ -125,6 +128,13 @@ object Code {
           }
       }
   }
+
+  implicit val eqExpression: Eq[Expression] =
+    Eq.fromUniversalEquals
+  implicit val eqStatement: Eq[Statement] =
+    Eq.fromUniversalEquals
+  implicit val eqOperator: Eq[Operator] =
+    Eq.fromUniversalEquals
 
   private def par(d: Doc): Doc =
     Doc.char('(') + d + Doc.char(')')
@@ -175,9 +185,9 @@ object Code {
       case SelectItem(x, i)          =>
         maybePar(x) + Doc.char('[') + exprToDoc(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
-        val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(
+        val middle = os.fold(Doc.empty)(maybePar) + Doc.char(':') + oe.fold(
           Doc.empty
-        )(exprToDoc)
+        )(maybePar)
         maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
       case Ternary(ift, cond, iff) =>
         // python parses the else condition as the rest of experssion, so
@@ -292,6 +302,8 @@ object Code {
     def simplify: Expression = this
     def countOf(i: Ident) = if (i == this) 1 else 0
   }
+  implicit val eqIdent: Eq[Ident] =
+    Eq.fromUniversalEquals
   case class Not(arg: Expression) extends Expression {
     def simplify: Expression =
       arg.simplify match {
@@ -498,7 +510,7 @@ object Code {
         case _ =>
           val l1 = left.simplify
           val r1 = right.simplify
-          if ((l1 != left) || (r1 != right)) {
+          if (l1 != left || r1 != right) {
             Op(l1, op, r1).simplify
           } else {
             (left, op) match {
@@ -838,6 +850,283 @@ object Code {
       case _ => stmt
     }
 
+  private def copyableExpr(expr: Expression, depth: Int = 1): Boolean =
+    expr match {
+      case Ident(_) | PyInt(_) | PyString(_) | PyBool(_) => true
+      case Op(left, _, right) if depth > 0               =>
+        copyableExpr(left, depth - 1) && copyableExpr(right, depth - 1)
+      case SelectItem(arg: Ident, pos) =>
+        pos match {
+          case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
+          case _                                             => false
+        }
+      case SelectRange(arg: Ident, start, end) =>
+        def simpleIdx(e: Expression): Boolean =
+          e match {
+            case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
+            case _                                             => false
+          }
+        start.forall(simpleIdx) && end.forall(simpleIdx)
+      case _ => false
+    }
+
+  private def substituteTop(
+      stmt: Statement,
+      subMap: Map[Ident, Expression]
+  ): Statement =
+    stmt match {
+      case Assign(target: Ident, value) =>
+        Assign(target, substitute(subMap, value).simplify)
+      case Assign(target, value) =>
+        // don't rewrite assignment targets; they are definitions/mutations
+        Assign(target, substitute(subMap, value).simplify)
+      case Return(expr) =>
+        Return(substitute(subMap, expr).simplify)
+      case Call(apply) =>
+        Call(substitute(subMap, apply).asInstanceOf[Apply])
+      case IfStatement(conds, elseCond) =>
+        val conds1 = conds.map { case (c, s) =>
+          (substitute(subMap, c).simplify, s)
+        }
+        IfStatement(conds1, elseCond)
+      case While(cond, body) =>
+        val assigned = assignedIdents(body)
+        val subMap1 = subMap.filterNot { case (i, _) => assigned(i) }
+        While(substitute(subMap1, cond).simplify, body)
+      case ClassDef(name, extendList, body) =>
+        ClassDef(
+          name,
+          extendList.map(substitute(subMap, _).simplify),
+          body
+        )
+      case other => other
+    }
+
+  private def copyPropBlock(
+      stmts: List[Statement]
+  ): (List[Statement], Boolean) = {
+    var changed = false
+    var subMap = Map.empty[Ident, Expression]
+    val out = List.newBuilder[Statement]
+
+    def dropDeps(
+        m: Map[Ident, Expression],
+        ident: Ident
+    ): Map[Ident, Expression] =
+      m.filterNot { case (_, ex) =>
+        freeIdents(ex).contains(ident)
+      }
+
+    stmts.foreach { stmt0 =>
+      val stmt = substituteTop(stmt0, subMap)
+      if (stmt != stmt0) changed = true
+
+      val subMap1 =
+        stmt match {
+          case Assign(t: Ident, expr) =>
+            val expr1 = expr
+            val m0 = dropDeps(subMap - t, t)
+            if (copyableExpr(expr1) && !freeIdents(expr1).contains(t))
+              m0.updated(t, expr1)
+            else m0
+          case Assign(_, _) =>
+            // mutation/side-effect boundary
+            Map.empty
+          case _ =>
+            // don't propagate across control flow boundaries
+            Map.empty
+        }
+
+      if (subMap1 != subMap) changed = true
+      subMap = subMap1
+      out += stmt
+    }
+
+    (out.result(), changed)
+  }
+
+  private def freeIdentsInStatement(
+      stmt: Statement,
+      bound: Set[Ident]
+  ): Set[Ident] =
+    stmt match {
+      case Assign(target: Ident, value) =>
+        (freeIdents(value) -- bound) ++ (freeIdents(target) -- bound) - target
+      case Assign(target, value) =>
+        (freeIdents(value) -- bound) ++ (freeIdents(target) -- bound)
+      case Return(expr) =>
+        freeIdents(expr) -- bound
+      case Call(apply) =>
+        freeIdents(apply) -- bound
+      case IfStatement(conds, elseCond) =>
+        val condsFree = conds.foldLeft(Set.empty[Ident]) {
+          case (acc, (cond, stmt)) =>
+            acc ++ (freeIdents(cond) -- bound) ++ freeIdentsInStatement(
+              stmt,
+              bound
+            )
+        }
+        condsFree ++ elseCond.fold(Set.empty[Ident])(
+          freeIdentsInStatement(_, bound)
+        )
+      case While(cond, body) =>
+        (freeIdents(cond) -- bound) ++ freeIdentsInStatement(body, bound)
+      case Block(stmts) =>
+        stmts.toList.foldLeft(Set.empty[Ident]) { (acc, st) =>
+          acc ++ freeIdentsInStatement(st, bound)
+        }
+      case Def(name, args, body) =>
+        freeIdentsInStatement(body, bound ++ args.toSet + name)
+      case ClassDef(name, extendList, body) =>
+        val extFree =
+          extendList.iterator.flatMap(e => freeIdents(e) -- bound).toSet
+        extFree ++ freeIdentsInStatement(body, bound + name)
+      case Pass =>
+        Set.empty
+      case Import(_, _) =>
+        Set.empty
+    }
+
+  private def assignedIdents(stmt: Statement): Set[Ident] =
+    stmt match {
+      case Assign(t: Ident, _)                       => Set(t)
+      case Assign(_, _)                              => Set.empty
+      case Return(_) | Call(_) | Pass | Import(_, _) =>
+        Set.empty
+      case Block(stmts) =>
+        stmts.toList.foldLeft(Set.empty[Ident])(_ ++ assignedIdents(_))
+      case IfStatement(conds, elseCond) =>
+        val condsAssigned =
+          conds.foldLeft(Set.empty[Ident]) { case (acc, (_, s)) =>
+            acc ++ assignedIdents(s)
+          }
+        condsAssigned ++ elseCond.fold(Set.empty[Ident])(assignedIdents)
+      case While(_, body) =>
+        assignedIdents(body)
+      case Def(_, _, _) | ClassDef(_, _, _) =>
+        // nested definitions don't assign in the outer scope
+        Set.empty
+    }
+
+  private def optimizeBlockOnce(
+      stmts: List[Statement],
+      liveOut: Set[Ident]
+  ): (List[Statement], Set[Ident], Boolean) = {
+    val (stmts1, ch1) = copyPropBlock(stmts)
+    var changed = ch1
+
+    def optStmt(
+        stmt: Statement,
+        liveOut: Set[Ident]
+    ): (Option[Statement], Set[Ident], Boolean) =
+      stmt match {
+        case Assign(t: Ident, expr) =>
+          if (!liveOut.contains(t)) (None, liveOut, true)
+          else {
+            val uses = freeIdents(expr)
+            val liveIn = (liveOut - t) ++ uses
+            (Some(stmt), liveIn, false)
+          }
+        case Assign(target, expr) =>
+          val uses = freeIdents(target) ++ freeIdents(expr)
+          (Some(stmt), liveOut ++ uses, false)
+        case Return(expr) =>
+          (Some(stmt), freeIdents(expr), false)
+        case Call(apply) =>
+          (Some(stmt), liveOut ++ freeIdents(apply), false)
+        case IfStatement(conds, elseCond) =>
+          val condUses = conds.foldLeft(Set.empty[Ident]) {
+            case (acc, (c, _)) => acc ++ freeIdents(c)
+          }
+          val (conds1, liveIns, chs) = conds.foldLeft(
+            (List.empty[(Expression, Statement)], List.empty[Set[Ident]], false)
+          ) { case ((acc, lives, ch), (c, s)) =>
+            val (opt, liveIn, ch1) = optStmt(s, liveOut)
+            val stmt1 = opt.getOrElse(Pass)
+            (acc :+ (c, stmt1), liveIn :: lives, ch || ch1)
+          }
+          val (else1, elseLiveIn, chElse) = elseCond match {
+            case Some(s) =>
+              val (opt, liveIn, ch) = optStmt(s, liveOut)
+              (Some(opt.getOrElse(Pass)), liveIn, ch)
+            case None =>
+              (None, liveOut, false)
+          }
+          val liveIn =
+            liveIns.foldLeft(elseLiveIn)(_ union _) ++ condUses
+          (
+            Some(IfStatement(NonEmptyList.fromListUnsafe(conds1), else1)),
+            liveIn,
+            chs || chElse
+          )
+        case While(cond, body) =>
+          val condUses = freeIdents(cond)
+          val bodyUses = freeIdentsInStatement(body, Set.empty)
+          val loopLiveOut = liveOut ++ condUses ++ bodyUses
+          val (opt, _, ch) = optStmt(body, loopLiveOut)
+          val bodyStmt = opt.getOrElse(Pass)
+          (Some(While(cond, bodyStmt)), loopLiveOut, ch)
+        case Block(items) =>
+          val (opt, liveIn, ch) = optimizeBlockOnce(items.toList, liveOut)
+          (Some(blockFromList(opt)), liveIn, ch)
+        case Def(name, args, body) =>
+          val (bodyOpt, _, ch) = optStmt(body, Set.empty)
+          val bodyStmt = bodyOpt.getOrElse(Pass)
+          val frees = freeIdentsInStatement(bodyStmt, args.toSet + name)
+          val liveIn = (liveOut - name) ++ frees
+          (Some(Def(name, args, bodyStmt)), liveIn, ch)
+        case ClassDef(name, extendList, body) =>
+          val (bodyOpt, _, ch) = optStmt(body, Set.empty)
+          val bodyStmt = bodyOpt.getOrElse(Pass)
+          val frees = freeIdentsInStatement(bodyStmt, Set(name))
+          val liveIn = (liveOut - name) ++ frees
+          (Some(ClassDef(name, extendList, bodyStmt)), liveIn, ch)
+        case Pass =>
+          (Some(Pass), liveOut, false)
+        case Import(_, _) =>
+          (Some(stmt), liveOut, false)
+      }
+
+    var live = liveOut
+    val out = List.newBuilder[Statement]
+    stmts1.reverseIterator.foreach { stmt =>
+      val (opt, liveIn, ch) = optStmt(stmt, live)
+      changed = changed || ch
+      live = liveIn
+      opt.foreach(out += _)
+    }
+
+    (out.result().reverse, live, changed)
+  }
+
+  private def optimizeOnceStatements(
+      stmts: List[Statement],
+      pinned: Set[Ident]
+  ): Option[List[Statement]] = {
+    val (opt, _, changed) = optimizeBlockOnce(stmts, pinned)
+    if (changed) Some(opt) else None
+  }
+
+  def optimizeStatements(
+      stmts: List[Statement],
+      pinned: Set[Ident],
+      maxPasses: Int = 6
+  ): List[Statement] = {
+    var current = stmts
+    var i = 0
+    var changed = true
+    while (changed && i < maxPasses) {
+      optimizeOnceStatements(current, pinned) match {
+        case Some(next) =>
+          current = next
+          i += 1
+        case None =>
+          changed = false
+      }
+    }
+    current
+  }
+
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
       case PyInt(_) | PyString(_) | PyBool(_) => in
@@ -989,7 +1278,7 @@ object Code {
   implicit def fromBoolean(b: Boolean): Expression =
     if (b) Code.Const.True else Code.Const.False
 
-  sealed abstract class Operator(val name: String) {
+  sealed abstract class Operator(val name: String) derives CanEqual {
     def associates(that: Operator): Boolean =
       // true if (a this b) that c == a this (b that c)
       this match {

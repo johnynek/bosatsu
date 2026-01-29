@@ -7,7 +7,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
 import cats.syntax.all._
 
-sealed abstract class Kind {
+sealed abstract class Kind derives CanEqual {
   def toDoc: Doc = Kind.toDoc(this)
 
   def toArgs: List[Kind.Arg] = {
@@ -269,7 +269,7 @@ object Kind {
             if (state.seen((i, j))) state
             else
               ensureSized(i, state.as, state.asTail, !sub) match {
-                case None => state
+                case None                 => state
                 case Some((as1, asTail1)) =>
                   ensureSized(j, state.bs, state.bsTail, sub) match {
                     case None =>
@@ -299,11 +299,11 @@ object Kind {
             }
 
           initState match {
-            case None => LazyList.empty
+            case None       => LazyList.empty
             case Some(init) =>
               LazyList.unfold(init) { state =>
                 state.heap.pop match {
-                  case None => None
+                  case None                => None
                   case Some((pair, heap1)) =>
                     val a = state.as(pair.i)
                     val b = state.bs(pair.j)

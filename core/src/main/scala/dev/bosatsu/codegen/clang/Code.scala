@@ -11,7 +11,7 @@ import cats.syntax.all._
 sealed trait Code
 
 object Code {
-  sealed trait Attr
+  sealed trait Attr derives CanEqual
   object Attr {
     case object Static extends Attr
 
@@ -215,7 +215,7 @@ object Code {
             acc: NonEmptyList[Expression]
         ): F[ValueLike] =
           rest match {
-            case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList*))
+            case Nil    => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList*))
             case h :: t =>
               h.onExpr(hexpr => loop(t, hexpr :: acc))(newLocalName)
           }
@@ -338,7 +338,7 @@ object Code {
     case object RightShift extends BinOp(">>")
   }
 
-  sealed abstract class PrefixUnary(val repr: String) {
+  sealed abstract class PrefixUnary(val repr: String) derives CanEqual {
     val toDoc: Doc = Doc.text(repr)
   }
   object PrefixUnary {

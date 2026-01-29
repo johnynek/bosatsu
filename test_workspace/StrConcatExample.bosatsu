@@ -8,8 +8,8 @@ def ident(x): x
 
 def m2s(m):
     match m:
-        "mahina": "sarah"
-        _: m
+        case "mahina": "sarah"
+        case _: m
 
 res0 = "${x} ${y} and ${z}" matches "hello atticus and mahina"
 
@@ -18,13 +18,13 @@ res1 = "${ident(x)} ${y} and ${m2s(z)}" matches "hello atticus and sarah"
 res2 = "${x}" matches "hello"
 
 res3 = match "${x} ${y} and ${z}":
-    "hello ${rest}": rest matches "atticus${_}mahina"
-    _: False
+    case "hello ${rest}": rest matches "atticus${_}mahina"
+    case _: False
 
 res4 = match "${x} ${y} and ${z}":
-    "${left}atticus${right}":
+    case "${left}atticus${right}":
         (left, right) matches ("hello ", " and mahina")
-    _: False
+    case _: False
 
 test = TestSuite("interpolation", [
     Assertion(res0, "res0"),

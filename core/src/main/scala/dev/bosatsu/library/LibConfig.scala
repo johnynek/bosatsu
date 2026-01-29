@@ -91,7 +91,7 @@ case class LibConfig(
           val expectedV = desc.version.map(Version.fromProto(_))
           if (decV === expectedV) {
             val hashIdent = dec.hashValue.toIdent
-            if (desc.hashes.exists(_ === hashIdent)) {
+            if (desc.hashes.exists(_ == hashIdent)) {
               Validated.unit
             } else {
               inv(
@@ -365,10 +365,10 @@ case class LibConfig(
           val msg =
             if (
               privateDepLibs.exists(_.interfaces.exists { iface =>
-                iface.name === badPn
+                iface.name == badPn
               })
             ) "package from private dependency"
-            else if (privatePacks.exists(_.name === badPn))
+            else if (privatePacks.exists(_.name == badPn))
               "private package in this library"
             else "unknown package"
 
@@ -814,7 +814,9 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](using Semigroup.instance(summon[cats.Order[Version]].max))
+            .reduce[Version](using
+              Semigroup.instance(summon[cats.Order[Version]].max)
+            )
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)
@@ -892,15 +894,36 @@ object LibConfig {
         s"invalid version ordering: $prevVersion not < $nextVersion"
       )
 
+      given cats.Eq[proto.Version] = cats.Eq.fromUniversalEquals
+
+      def sameVersion(
+          left: Option[proto.Version],
+          right: Option[proto.Version]
+      ): Boolean =
+        (left, right) match {
+          case (Some(l), Some(r)) => l === r
+          case (None, None)       => true
+          case _                  => false
+        }
+
       if (prevVersion.major == nextVersion.major) {
         if (prevVersion.minor == nextVersion.minor) {
           if (prevVersion.patch == nextVersion.patch) {
             // must be pre-release
             val all = allDescriptors.filterNot { desc =>
-              (desc.version != prevOptV) &&
-              (desc.version != history.previousMajor.flatMap(_.version)) &&
-              (desc.version != history.previousMinor.flatMap(_.version)) &&
-              (desc.version != history.previousPrerelease.flatMap(_.version))
+              (!sameVersion(desc.version, prevOptV)) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMajor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMinor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousPrerelease.flatMap(_.version)
+              ))
             }
             proto.LibHistory(
               previousMajor = history.previousMajor,
@@ -912,9 +935,15 @@ object LibConfig {
           } else {
             // we are bumping patch
             val all = allDescriptors.filterNot { desc =>
-              (desc.version != prevOptV) &&
-              (desc.version != history.previousMajor.flatMap(_.version)) &&
-              (desc.version != history.previousMinor.flatMap(_.version))
+              (!sameVersion(desc.version, prevOptV)) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMajor.flatMap(_.version)
+              )) &&
+              (!sameVersion(
+                desc.version,
+                history.previousMinor.flatMap(_.version)
+              ))
             }
             proto.LibHistory(
               previousMajor = history.previousMajor,
@@ -926,8 +955,11 @@ object LibConfig {
         } else {
           // we are bumping minor
           val all = allDescriptors.filterNot { desc =>
-            (desc.version != prevOptV) &&
-            (desc.version != history.previousMajor.flatMap(_.version))
+            (!sameVersion(desc.version, prevOptV)) &&
+            (!sameVersion(
+              desc.version,
+              history.previousMajor.flatMap(_.version)
+            ))
           }
           proto.LibHistory(
             previousMajor = history.previousMajor,
@@ -937,7 +969,8 @@ object LibConfig {
         }
       } else {
         // we are bumping major versions
-        val all = allDescriptors.filterNot(_.version != prevOptV)
+        val all =
+          allDescriptors.filter(desc => sameVersion(desc.version, prevOptV))
         proto.LibHistory(
           previousMajor = Some(prevDesc),
           others = all.sortBy(_.version.map(Version.fromProto(_)))

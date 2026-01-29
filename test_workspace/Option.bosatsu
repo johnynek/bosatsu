@@ -4,6 +4,6 @@ export eq_Option
 
 def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
   match (left, right):
-    (Some(a), Some(b)): eq(a, b)
-    (None, None):       True
-    _:                  False
+    case (Some(a), Some(b)): eq(a, b)
+    case (None, None):       True
+    case _:                  False

@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eval, Monad, Traverse}
+import cats.{Applicative, Eq, Eval, Monad, Traverse, Order}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer, State}
 import cats.implicits._
@@ -177,10 +177,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         val argFree0 = argE.freeVarsDup
         val argFree =
           if (rec.isRecursive) {
-            ListUtil.filterNot(argFree0)(_ === arg)
+            ListUtil.filterNot(argFree0)(_ == arg)
           } else argFree0
 
-        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ === arg))
+        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ == arg))
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -211,11 +211,155 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         argFree ::: branchFreeMax
     }
 
+  /** All variables (free or bound) in this expression in order encountered and
+    * with duplicates (to see how often they appear).
+    *
+    * This includes binders such as lambda args, let names, and pattern names.
+    */
+  lazy val allVarsDup: List[Bindable] =
+    this match {
+      case Generic(_, expr) =>
+        expr.allVarsDup
+      case Annotation(t, _) =>
+        t.allVarsDup
+      case Local(ident, _, _) =>
+        ident :: Nil
+      case Global(_, _, _, _) =>
+        Nil
+      case AnnotatedLambda(args, res, _) =>
+        args.toList.map(_._1) ::: res.allVarsDup
+      case App(fn, args, _, _) =>
+        fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
+      case Let(arg, argE, in, _, _) =>
+        arg :: (argE.allVarsDup ::: in.allVarsDup)
+      case Literal(_, _, _) =>
+        Nil
+      case Match(arg, branches, _) =>
+        val argVars = arg.allVarsDup
+        val branchVars = branches.toList.flatMap { case (p, b) =>
+          p.names ::: b.allVarsDup
+        }
+        argVars ::: branchVars
+    }
+
   def notFree(b: Bindable): Boolean =
     !freeVarsDup.contains(b)
 }
 
 object TypedExpr {
+  implicit def eqTypedExpr[A](implicit eqA: Eq[A]): Eq[TypedExpr[A]] =
+    new Eq[TypedExpr[A]] {
+      private def eqType(left: Type, right: Type): Boolean =
+        Order[Type].eqv(left, right)
+
+      private def eqQuant(
+          left: Type.Quantification,
+          right: Type.Quantification
+      ): Boolean =
+        Order[Type.Quantification].eqv(left, right)
+
+      private def eqBindable(left: Bindable, right: Bindable): Boolean =
+        Order[Bindable].eqv(left, right)
+
+      private def eqIdentifier(left: Identifier, right: Identifier): Boolean =
+        Order[Identifier].eqv(left, right)
+
+      private def eqPackageName(
+          left: PackageName,
+          right: PackageName
+      ): Boolean =
+        Order[PackageName].eqv(left, right)
+
+      private def eqPattern(
+          left: Pattern[(PackageName, Constructor), Type],
+          right: Pattern[(PackageName, Constructor), Type]
+      ): Boolean =
+        Order[Pattern[(PackageName, Constructor), Type]].eqv(left, right)
+
+      private def eqNel[B](
+          left: NonEmptyList[B],
+          right: NonEmptyList[B]
+      )(eqB: (B, B) => Boolean): Boolean = {
+        val leftIt = left.iterator
+        val rightIt = right.iterator
+        var same = true
+        while (same && leftIt.hasNext && rightIt.hasNext) {
+          same = eqB(leftIt.next(), rightIt.next())
+        }
+        same && !leftIt.hasNext && !rightIt.hasNext
+      }
+
+      private def eqArgList(
+          left: NonEmptyList[(Bindable, Type)],
+          right: NonEmptyList[(Bindable, Type)]
+      ): Boolean =
+        eqNel(left, right) { case ((lb, lt), (rb, rt)) =>
+          eqBindable(lb, rb) && eqType(lt, rt)
+        }
+
+      private def eqExprs(
+          left: NonEmptyList[TypedExpr[A]],
+          right: NonEmptyList[TypedExpr[A]]
+      ): Boolean =
+        eqNel(left, right)(loop)
+
+      private def eqBranches(
+          left: NonEmptyList[
+            (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
+          ],
+          right: NonEmptyList[
+            (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
+          ]
+      ): Boolean =
+        eqNel(left, right) { case ((lp, le), (rp, re)) =>
+          eqPattern(lp, rp) && loop(le, re)
+        }
+
+      private def loop(left: TypedExpr[A], right: TypedExpr[A]): Boolean =
+        (left, right) match {
+          case (Generic(lq, li), Generic(rq, ri)) =>
+            eqQuant(lq, rq) && loop(li, ri)
+          case (Annotation(lt, lc), Annotation(rt, rc)) =>
+            eqType(lc, rc) && loop(lt, rt)
+          case (
+                AnnotatedLambda(largs, lexpr, ltag),
+                AnnotatedLambda(rargs, rexpr, rtag)
+              ) =>
+            eqArgList(largs, rargs) &&
+            loop(lexpr, rexpr) &&
+            eqA.eqv(ltag, rtag)
+          case (Local(ln, lt, ltag), Local(rn, rt, rtag)) =>
+            eqBindable(ln, rn) && eqType(lt, rt) && eqA.eqv(ltag, rtag)
+          case (Global(lp, ln, lt, ltag), Global(rp, rn, rt, rtag)) =>
+            eqPackageName(lp, rp) &&
+            eqIdentifier(ln, rn) &&
+            eqType(lt, rt) &&
+            eqA.eqv(ltag, rtag)
+          case (App(lf, largs, lres, ltag), App(rf, rargs, rres, rtag)) =>
+            loop(lf, rf) &&
+            eqExprs(largs, rargs) &&
+            eqType(lres, rres) &&
+            eqA.eqv(ltag, rtag)
+          case (Let(ln, le, lin, lrec, ltag), Let(rn, re, rin, rrec, rtag)) =>
+            eqBindable(ln, rn) &&
+            loop(le, re) &&
+            loop(lin, rin) &&
+            Eq[RecursionKind].eqv(lrec, rrec) &&
+            eqA.eqv(ltag, rtag)
+          case (Literal(llit, lt, ltag), Literal(rlit, rt, rtag)) =>
+            Eq[Lit].eqv(llit, rlit) &&
+            eqType(lt, rt) &&
+            eqA.eqv(ltag, rtag)
+          case (Match(larg, lbranches, ltag), Match(rarg, rbranches, rtag)) =>
+            loop(larg, rarg) &&
+            eqBranches(lbranches, rbranches) &&
+            eqA.eqv(ltag, rtag)
+          case _ => false
+        }
+
+      override def eqv(left: TypedExpr[A], right: TypedExpr[A]): Boolean =
+        loop(left, right)
+    }
 
   type Rho[A] =
     TypedExpr[A] // an expression with a Rho type (no top level forall)
@@ -435,7 +579,7 @@ object TypedExpr {
         toArgsBody(arity, in).flatMap { case (args, body) =>
           // if args0 don't shadow arg, we can push
           // it down
-          if (args.exists(_._1 === arg)) {
+          if (args.exists(_._1 == arg)) {
             // this we shadow, so we
             // can't lift, we could alpha-rename to
             // deal with this case
@@ -614,15 +758,14 @@ object TypedExpr {
 
     /** Here are all the global names inside this expression
       */
-    def globals: Set[(PackageName, Identifier)] =
-      {
-        type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
-        traverseUp[GlobalsWriter] {
+    def globals: Set[(PackageName, Identifier)] = {
+      type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
+      traverseUp[GlobalsWriter] {
         case g @ Global(p, i, _, _) =>
           Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
         case notG => Monad[GlobalsWriter].pure(notG)
-        }.written
-      }
+      }.written
+    }
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(
@@ -1292,6 +1435,17 @@ object TypedExpr {
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)
 
+  /** Return the list of all vars (free or bound)
+    */
+  def allVars[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    allVarsDup(ts).distinct
+
+  def allVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
+    SortedSet(allVarsDup(ts)*)
+
+  private def allVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    ts.flatMap(_.allVarsDup)
+
   /** Try to substitute ex for ident in the expression: in
     *
     * This can fail if the free variables in ex are shadowed above ident in in.
@@ -1742,7 +1896,7 @@ object TypedExpr {
                 val fa1 = Type.alignBinders(vars, avoid)
                 val subs = fa1.iterator
                   .collect {
-                    case ((b, _), b1) if b != b1 =>
+                    case ((b, _), b1) if b =!= b1 =>
                       (b, Type.TyVar(b1))
                   }
                   .toMap[Type.Var, Type]
@@ -1755,7 +1909,7 @@ object TypedExpr {
                 val ex1 = Type.alignBinders(vars, avoid)
                 val subs = ex1.iterator
                   .collect {
-                    case ((b, _), b1) if b != b1 =>
+                    case ((b, _), b1) if b =!= b1 =>
                       (b, Type.TyVar(b1))
                   }
                   .toMap[Type.Var, Type]
@@ -1770,7 +1924,7 @@ object TypedExpr {
                   Type.alignBinders(exists, avoid ++ fa1.iterator.map(_._2))
                 val subs = (fa1.iterator ++ ex1.iterator)
                   .collect {
-                    case ((b, _), b1) if b != b1 =>
+                    case ((b, _), b1) if b =!= b1 =>
                       (b, Type.TyVar(b1))
                   }
                   .toMap[Type.Var, Type]

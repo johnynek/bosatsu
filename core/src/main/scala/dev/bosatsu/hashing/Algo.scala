@@ -21,6 +21,14 @@ case class HashValue[A](hex: String) {
     s"${A.name}:$hex"
 }
 
+object HashValue {
+  implicit def orderHashValue[A]: cats.Order[HashValue[A]] =
+    cats.Order.by(_.hex)
+
+  implicit def orderingHashValue[A]: Ordering[HashValue[A]] =
+    orderHashValue[A].toOrdering
+}
+
 object Algo {
   trait Blake3
   object Blake3 extends Blake3
@@ -59,8 +67,9 @@ object Algo {
 
     override def equals(obj: Any): Boolean =
       obj match {
-        case e: WithAlgo[?] => (e.algo == algo) && (e.value == value)
-        case _              => false
+        case e: WithAlgo[?] =>
+          e.algo.equals(algo) && e.value.equals(value)
+        case _ => false
       }
 
     override lazy val hashCode: Int =

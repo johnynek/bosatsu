@@ -9,7 +9,7 @@ import cats.syntax.all._
 
 /** A simple JSON ast for output
   */
-sealed abstract class Json {
+sealed abstract class Json derives CanEqual {
   def toDoc: Doc
 
   def render: String
@@ -215,7 +215,7 @@ object Json {
       def show(j: Json) = j.render
     }
 
-  sealed abstract class Path {
+  sealed abstract class Path derives CanEqual {
     def index(idx: Int): Path = Path.Index(this, idx)
     def key(key: String): Path = Path.Key(this, key)
   }

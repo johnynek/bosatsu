@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Hash, Order, Show}
+import cats.{Applicative, Eq, Hash, Order, Show}
 import cats.Order.catsKernelOrderingForOrder
 import cats.collections.{HashMap, HashSet}
 import cats.data.NonEmptyList
@@ -120,7 +120,7 @@ object RingOpt {
       as.foldLeft(empty[A, B]) { case (ms, (a, b)) => ms.add(a, b) }
   }
 
-  sealed trait Expr[+A] { expr =>
+  sealed trait Expr[+A] derives CanEqual { expr =>
     def map[B](fn: A => B): Expr[B] =
       toStack.map(fn).toExpr match {
         case Right(exprB) => exprB
@@ -421,11 +421,11 @@ object RingOpt {
                 case (None, None)           => None
                 case (Some((n1, x1)), None) =>
                   val m = Expr.checkMult(x1, y)
-                  val i = if (m == Zero) BigInt(0) else n1
+                  val i = if (m.isZero) BigInt(0) else n1
                   Some((i, m))
                 case (None, Some((n1, y1))) =>
                   val m = Expr.checkMult(x, y1)
-                  val i = if (m == Zero) BigInt(0) else n1
+                  val i = if (m.isZero) BigInt(0) else n1
                   Some((i, m))
                 case (Some((n1, x1)), Some((n2, y1))) =>
                   Some((n1 * n2, Expr.checkMult(x1, y1)))
@@ -550,6 +550,40 @@ object RingOpt {
     def symbol[A](a: A): Expr[A] = Symbol(a)
     def int(i: BigInt): Expr[Nothing] = Integer(i)
 
+    implicit def eqExpr[A](implicit eqA: Eq[A]): Eq[Expr[A]] =
+      new Eq[Expr[A]] {
+        import Stack._
+
+        private given Eq[A] = eqA
+        private given Eq[BigInt] = Eq.fromUniversalEquals
+        private given Eq[Op] = Eq.fromUniversalEquals
+        private given Eq[Leaf[A]] =
+          new Eq[Leaf[A]] {
+            override def eqv(left: Leaf[A], right: Leaf[A]): Boolean =
+              (left, right) match {
+                case (Zero, Zero)             => true
+                case (One, One)               => true
+                case (Integer(l), Integer(r)) => l == r
+                case (Symbol(l), Symbol(r))   => (l: A) === (r: A)
+                case _                        => false
+              }
+          }
+
+        @annotation.tailrec
+        private def loop(left: Stack[A], right: Stack[A]): Boolean =
+          (left, right) match {
+            case (Empty, Empty)                           => true
+            case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
+              ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && loop(lonto, ronto)
+            case (Operate(lop, lon), Operate(rop, ron)) =>
+              (lop == rop) && loop(lon, ron)
+            case _ => false
+          }
+
+        override def eqv(left: Expr[A], right: Expr[A]): Boolean =
+          loop(left.toStack, right.toStack)
+      }
+
     implicit class ExprOps[A](private val expr: Expr[A]) extends AnyVal {
       // This does basic normalization, like ordering Add(_, _) and Mult(_, _)
       // and collapsing constants, we do this before doing harder optimizations
@@ -558,8 +592,8 @@ object RingOpt {
         def normExpr[A1 <: A](e: Expr[A1]): Expr[A] = e.basicNorm(using o)
 
         def add(a: Expr[A], b: Expr[A]) =
-          if (a == Zero) b
-          else if (b == Zero) a
+          if (a === Zero) b
+          else if (b === Zero) a
           else {
             def isAdd(e: Expr[A]): Boolean =
               e match {
@@ -596,8 +630,8 @@ object RingOpt {
         expr match {
           case Zero | One | Symbol(_) => expr
           case Integer(i)             => canonInt(i)
-          case Neg(Neg(x))   => normExpr(x)
-          case Neg(x)        => simpleNeg(normExpr(x))
+          case Neg(Neg(x))            => normExpr(x)
+          case Neg(x)                 => simpleNeg(normExpr(x))
           case Add(x, y)              =>
             // TODO: if we move this to object Expr and take Hash[A]
             // we could normalize x + -(x) into 0, but that should be
@@ -1053,7 +1087,7 @@ object RingOpt {
       Show[Expr[A]].contramap[AddTerm[A]](_.toExpr)
   }
 
-  sealed trait Leaf[+A] extends Expr[A]
+  sealed trait Leaf[+A] extends Expr[A] derives CanEqual
   // These are Symbol(_) or Add(_, _)
   sealed trait MultTerm[+A] {
     def toExpr: Expr[A]
@@ -1093,7 +1127,7 @@ object RingOpt {
   }
   final case class Neg[A](arg: Expr[A]) extends Expr[A]
 
-  sealed abstract class Op(val opId: Int)
+  sealed abstract class Op(val opId: Int) derives CanEqual
   object Op {
     case object Neg extends Op(0)
     case object Add extends Op(1)
@@ -1102,7 +1136,7 @@ object RingOpt {
     implicit val hashOp: Hash[Op] = Hash.fromUniversalHashCode
   }
 
-  sealed trait Stack[+A] {
+  sealed trait Stack[+A] derives CanEqual {
     def maybeBigInt(onSym: A => Option[BigInt]): Option[BigInt] = {
       import Stack._
 
@@ -1275,6 +1309,20 @@ object RingOpt {
     implicit def hashStack[A: Hash]: Hash[Stack[A]] =
       new Hash[Stack[A]] {
         private val hashA: Hash[A] = Hash[A]
+        private given Eq[A] = hashA
+        private given Eq[BigInt] = Eq.fromUniversalEquals
+        private given Eq[Op] = Eq.fromUniversalEquals
+        private given Eq[Leaf[A]] =
+          new Eq[Leaf[A]] {
+            override def eqv(left: Leaf[A], right: Leaf[A]): Boolean =
+              (left, right) match {
+                case (Zero, Zero)             => true
+                case (One, One)               => true
+                case (Integer(l), Integer(r)) => l == r
+                case (Symbol(l), Symbol(r))   => (l: A) === (r: A)
+                case _                        => false
+              }
+          }
 
         override def hash(s: Stack[A]): Int = {
           @annotation.tailrec
@@ -1295,31 +1343,13 @@ object RingOpt {
 
         @annotation.tailrec
         final def eqv(left: Stack[A], right: Stack[A]): Boolean =
-          left match {
-            case Empty              => right == Empty
-            case Push(lleaf, lonto) =>
-              right match {
-                case Push(rleaf, ronto) =>
-                  lleaf match {
-                    case One | Zero | Integer(_) =>
-                      (lleaf == rleaf) && eqv(lonto, ronto)
-                    case Symbol(la) =>
-                      rleaf match {
-                        case Symbol(ra) =>
-                          hashA.eqv(la, ra) && eqv(lonto, ronto)
-                        case _ => false
-                      }
-                  }
-                case _ => false
-              }
-            case Operate(lop, lon) =>
-              right match {
-                case Operate(ror, ron) =>
-                  if (lop == ror) {
-                    eqv(lon, ron)
-                  } else false
-                case _ => false
-              }
+          (left, right) match {
+            case (Empty, Empty)                           => true
+            case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
+              ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && eqv(lonto, ronto)
+            case (Operate(lop, lon), Operate(rop, ron)) =>
+              (lop == rop) && eqv(lon, ron)
+            case _ => false
           }
       }
 
@@ -1328,13 +1358,21 @@ object RingOpt {
         @annotation.tailrec
         final def compare(a: Stack[A], b: Stack[A]): Int =
           a match {
-            case Empty           => if (b == Empty) 0 else -1
+            case Empty =>
+              b match {
+                case Empty => 0
+                case _     => -1
+              }
             case Push(al, arest) =>
               b match {
                 case Push(bl, brest) =>
                   val c0 = al match {
-                    case Zero => if (bl == Zero) 0 else -1
-                    case One  =>
+                    case Zero =>
+                      bl match {
+                        case Zero => 0
+                        case _    => -1
+                      }
+                    case One =>
                       bl match {
                         case Zero => 1
                         case One  => 0
@@ -1645,7 +1683,7 @@ object RingOpt {
   def normConstMult[A: Order](e: Expr[A], w: Weights): Expr[A] =
     e match {
       case Symbol(_) | One | Zero | Integer(_) => e
-      case Neg(n) =>
+      case Neg(n)                              =>
         val nA: Expr[A] = n
         Neg(normConstMult[A](nA, w))
       case Add(x, y) =>
@@ -1715,7 +1753,7 @@ object RingOpt {
               val prod = Expr.multAll(normed)
               val costProd = w.cost(prod)
               (costProd, prod)
-          }
+            }
           val (minCost, _) = all.minBy(_._1)
           all
             .filter { case (c, _) => c == minCost }
@@ -2189,10 +2227,10 @@ object RingOpt {
       case Neg(mult @ Mult(_, _)) =>
         val multA: Expr[A] = mult
         norm[A](Neg(One) * multA, W)
-      case ns @ Neg(Symbol(_))    => ns
-      case Neg(Zero)              => Zero
-      case Neg(One)               => canonInt(-1)
-      case Neg(Integer(n))        => canonInt(-n)
+      case ns @ Neg(Symbol(_)) => ns
+      case Neg(Zero)           => Zero
+      case Neg(One)            => canonInt(-1)
+      case Neg(Integer(n))     => canonInt(-n)
 
       case Add(left, right) =>
         val leftA: Expr[A] = left

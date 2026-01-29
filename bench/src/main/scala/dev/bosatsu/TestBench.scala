@@ -36,11 +36,14 @@ class TestBench {
     implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) =>
       s
     }
-    Par.noParallelism(PackageMap
-      .resolveThenInfer(
-        PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
-        Nil
-      ))
+    Par
+      .noParallelism(
+        PackageMap
+          .resolveThenInfer(
+            PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
+            Nil
+          )
+      )
       .strictToValidated match {
       case Validated.Valid(packMap) =>
         (packMap, mainPack)
@@ -86,8 +89,8 @@ package Euler4
 
 def operator >(a, b):
   match a.cmp_Int(b):
-    GT: True
-    _ : False
+    case GT: True
+    case _ : False
 
 operator - = sub
 
@@ -95,11 +98,11 @@ operator - = sub
 # the maximum value of the function for inputs greater than 0
 # if the starting number is <= 0, we return None
 def max_of(n, fn):
-  int_loop(n, None, \i, res ->
+  int_loop(n, None, (i, res) ->
     next_i = i.sub(1)
     res1 = match fn(i):
-      None: res
-      Some(m1) as sm1:
+      case None: res
+      case Some(m1) as sm1:
         match res:
           case None: sm1
           case Some(m) as sm: sm1 if m1 > m else sm
@@ -108,13 +111,13 @@ def max_of(n, fn):
 # return the first defined value from largest to smallest
 # of the given function, if it is defined
 def first_of(n, fn):
-  int_loop(n, None, \i, _ ->
+  int_loop(n, None, (i, _) ->
     match fn(i):
-      None: (i - 1, None)
-      nonNone: (0, nonNone))
+      case None: (i - 1, None)
+      case nonNone: (0, nonNone))
 
 def digit_list(n):
-  rev_list = int_loop(n, [], \n, acc ->
+  rev_list = int_loop(n, [], (n, acc) ->
     this_digit = n.mod_Int(10)
     next_acc = [this_digit, *acc]
     next_n = n.div(10)
@@ -122,13 +125,13 @@ def digit_list(n):
   reverse(rev_list)
 
 def is_palindrome(lst, eq_fn):
-  (res, _) = lst.foldLeft((True, reverse(lst)), \res, item ->
+  (res, _) = lst.foldLeft((True, reverse(lst)), (res, item) ->
     match res:
-      (False, _): res
-      (_, []):
+      case (False, _): res
+      case (_, []):
         # can't really happen, the lists are the same length
         (False, [])
-      (True, [h, *t]): (eq_fn(item, h), t))
+      case (True, [h, *t]): (eq_fn(item, h), t))
   res
 
 def num_is_palindrome(n):
@@ -139,11 +142,11 @@ def product_palindrome(n1, n2):
   prod = n1.times(n2)
   Some(prod) if num_is_palindrome(prod) else None
 
-max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
+max_pal_opt = max_of(99, n1 -> first_of(99, product_palindrome(n1)))
 
 max_pal = match max_pal_opt:
-  Some(m): m
-  None: 0
+  case Some(m): m
+  case None: 0
 """),
       "Euler4"
     )

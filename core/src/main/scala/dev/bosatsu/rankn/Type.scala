@@ -18,7 +18,7 @@ import scala.collection.immutable.{SortedSet, SortedMap}
 
 import cats.implicits._
 
-sealed abstract class Type {
+sealed abstract class Type derives CanEqual {
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
 
   def normalize: Type
@@ -558,7 +558,7 @@ object Type {
     )
   ] = {
 
-    sealed abstract class BoundState
+    sealed abstract class BoundState derives CanEqual
     case object Unknown extends BoundState
     case class Fixed(tpe: Type) extends BoundState
     case class Free(rightName: Var.Bound) extends BoundState
@@ -616,8 +616,9 @@ object Type {
                   else None
                 case Free(rightName) =>
                   to match {
-                    case TyVar(toB) if rightName == toB => Some(state)
-                    case _                              => None
+                    case TyVar(toB: Var.Bound) if rightName === toB =>
+                      Some(state)
+                    case _ => None
                   }
               }
             case None =>
@@ -736,7 +737,7 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b @ Type.Var.Bound(_) => b }
 
-  @inline final def normalize(tpe: Type): Type = tpe.normalize
+  final inline def normalize(tpe: Type): Type = tpe.normalize
 
   private def runNormalize(tpe: Type): Type =
     tpe match {
@@ -1095,7 +1096,7 @@ object Type {
       }
   }
 
-  sealed abstract class Const {
+  sealed abstract class Const derives CanEqual {
     def toDefined: Const.Defined
   }
   object Const {
@@ -1172,6 +1173,9 @@ object Type {
             case (Skolem(_, _, _, _), _) => 1
           }
       }
+
+    implicit val orderVar: Order[Var] =
+      Order.fromOrdering(using varOrdering)
   }
 
   val allBinders: LazyList[Var.Bound] = {
@@ -1284,7 +1288,7 @@ object Type {
             Monad[F].pure(sm)
           case sty @ Some(ty) =>
             zonkRhoMeta(ty)(fn).flatMap { ty1 =>
-              if ((ty1: Type) === ty) Monad[F].pure(sty)
+              if ((ty1: Type) == ty) Monad[F].pure(sty)
               else {
                 // we were able to resolve more of the inner metas
                 // inside ty, so update the state

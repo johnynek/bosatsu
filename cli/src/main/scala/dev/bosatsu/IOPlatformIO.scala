@@ -179,7 +179,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def resolve(p: Path, c: String): Path = p.resolve(c)
   def resolve(p: Path, c: Path): Path = p.resolve(c)
   def relativize(root: Path, pf: Path): Option[Path] =
-    if (root == Paths.get(".") && !pf.isAbsolute) Some(pf)
+    if (pathOrdering.equiv(root, Paths.get(".")) && !pf.isAbsolute) Some(pf)
     else if (pf.startsWith(root)) Some {
       root.relativize(pf)
     }
@@ -320,7 +320,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
           .compile
           .lastOrError
           .flatMap { computedHash =>
-            if (computedHash == hash) {
+            if (computedHash === hash) {
               // move it atomically to output
               filesIO.move(
                 source = tempPath,
@@ -330,7 +330,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
             } else {
               IO.raiseError(
                 new Exception(
-                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash.toIdent(using algo)}"
+                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash
+                      .toIdent(using algo)}"
                 )
               )
             }

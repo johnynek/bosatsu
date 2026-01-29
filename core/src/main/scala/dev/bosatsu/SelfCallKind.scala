@@ -1,9 +1,10 @@
 package dev.bosatsu
 
 import cats.Semigroup
+import cats.syntax.all._
 import Identifier.Bindable
 
-sealed abstract class SelfCallKind {
+sealed abstract class SelfCallKind derives CanEqual {
   import SelfCallKind._
 
   // if you have two branches in match what is the result
@@ -35,6 +36,8 @@ object SelfCallKind {
   case object NoCall extends SelfCallKind
   case object TailCall extends SelfCallKind
   case object NonTailCall extends SelfCallKind
+
+  given cats.Eq[SelfCallKind] = cats.Eq.fromUniversalEquals
 
   val branchSemigroup: Semigroup[SelfCallKind] =
     Semigroup.instance(_.merge(_))

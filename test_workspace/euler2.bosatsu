@@ -17,16 +17,16 @@ from Bosatsu/List import sum
 # so n = 35 is enough
 
 def fib(n):
-  range(n).foldl_List([], \revFib, _ ->
+  range(n).foldl_List([], (revFib, _) ->
     match revFib:
-      []: [1]
-      [h]: [2, h]
-      [h1, h2, *_]: [h1.add(h2), *revFib])
+      case []: [1]
+      case [h]: [2, h]
+      case [h1, h2, *_]: [h1.add(h2), *revFib])
 
 def keep(i):
   match i.cmp_Int(4000000):
-    GT: False
-    _: i.mod_Int(2).eq_Int(0)
+    case GT: False
+    case _: i.mod_Int(2).eq_Int(0)
 
 # lazy val fibStream: Stream[BigInt] = BigInt(1) #:: BigInt(1) #:: (fibStream.drop(1).zip(fibStream).map { case (a, b) => a + b })
 # fibStream.filter(_ < BigInt(4000000)).filter(_ % 2 == 0).sum

@@ -18,6 +18,48 @@ import cats.implicits._
 /** convert TypedExpr to and from Protobuf representation
   */
 object ProtoConverter {
+  private given canEqualTypeValue
+      : CanEqual[proto.Type.Value, proto.Type.Value] =
+    CanEqual.derived
+  private given canEqualPatternValue
+      : CanEqual[proto.Pattern.Value, proto.Pattern.Value] =
+    CanEqual.derived
+  private given canEqualListPartValue
+      : CanEqual[proto.ListPart.Value, proto.ListPart.Value] =
+    CanEqual.derived
+  private given canEqualStrPartValue
+      : CanEqual[proto.StrPart.Value, proto.StrPart.Value] =
+    CanEqual.derived
+  private given canEqualRecursionKind
+      : CanEqual[proto.RecursionKind, proto.RecursionKind] =
+    CanEqual.derived
+  private given canEqualTypedExprValue
+      : CanEqual[proto.TypedExpr.Value, proto.TypedExpr.Value] =
+    CanEqual.derived
+  private given canEqualLiteralValue
+      : CanEqual[proto.Literal.Value, proto.Literal.Value] =
+    CanEqual.derived
+  private given canEqualVariance: CanEqual[proto.Variance, proto.Variance] =
+    CanEqual.derived
+  private given canEqualKindValue
+      : CanEqual[proto.Kind.Value, proto.Kind.Value] =
+    CanEqual.derived
+  private given canEqualDefinedTypeRefValue: CanEqual[
+    proto.DefinedTypeReference.Value,
+    proto.DefinedTypeReference.Value
+  ] =
+    CanEqual.derived
+  private given canEqualConstructorRefValue: CanEqual[
+    proto.ConstructorReference.Value,
+    proto.ConstructorReference.Value
+  ] =
+    CanEqual.derived
+  private given canEqualReferantValue
+      : CanEqual[proto.Referant.Referant, proto.Referant.Referant] =
+    CanEqual.derived
+  private given canEqualExportKind
+      : CanEqual[proto.ExportKind, proto.ExportKind] =
+    CanEqual.derived
   case class NameParseError(name: String, message: String, error: P.Error)
       extends Exception(message)
 
