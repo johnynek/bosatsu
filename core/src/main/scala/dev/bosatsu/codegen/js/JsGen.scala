@@ -569,6 +569,43 @@ object JsGen {
         Code.ObjectLiteral(List(
           "type" -> Code.StringLiteral("fragment"),
           "children" -> args.head
+        )), 1),
+
+      // read(state) -> returns state.value
+      // State is represented as {id: string, value: any}
+      Identifier.Name("read") -> ((args: List[Code.Expression]) =>
+        Code.PropertyAccess(args.head, "value"), 1),
+
+      // write(state, value) -> state.value = value; triggers binding updates
+      // Returns Unit (empty tuple)
+      Identifier.Name("write") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_write"),
+          List(args.head, args(1))
+        ), 2),
+
+      // on_click(handler) -> returns prop tuple for h()
+      // Handler receives Unit, returns Unit
+      Identifier.Name("on_click") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-onclick"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("click"), args.head))
+        )), 1),
+
+      // on_input(handler) -> returns prop tuple for h()
+      // Handler receives String (input value), returns Unit
+      Identifier.Name("on_input") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-oninput"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("input"), args.head))
+        )), 1),
+
+      // on_change(handler) -> returns prop tuple for h()
+      // Handler receives String (input value), returns Unit
+      Identifier.Name("on_change") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-onchange"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("change"), args.head))
         )), 1)
     )
 

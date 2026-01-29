@@ -535,6 +535,21 @@ object Package {
         sys.error(errorMsg)
     }
 
+  /** The parsed representation of the UI module.
+    * Unlike Predef, this is not auto-imported - users must explicitly import it.
+    */
+  lazy val uiPackage: Package.Parsed =
+    parser(None).parse(UI.uiString) match {
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val lm = LocationMap(UI.uiString)
+        val errorMsg =
+          s"couldn't parse ui:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
+        System.err.println(errorMsg)
+        sys.error(errorMsg)
+    }
+
   implicit val documentPackage: Document[Package.Typed[Any]] =
     new Document[Package.Typed[Any]] {
       def document(pack: Typed[Any]): Doc =
