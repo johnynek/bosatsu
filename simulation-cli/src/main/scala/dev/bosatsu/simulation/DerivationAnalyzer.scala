@@ -16,7 +16,7 @@ object DerivationAnalyzer {
   /**
    * Derivation kind determines UI treatment.
    */
-  sealed trait DerivationKind
+  sealed trait DerivationKind derives CanEqual
   case object Assumption extends DerivationKind   // No local deps (input value)
   case object Computation extends DerivationKind  // Has deps (computed value)
   case object Conditional extends DerivationKind  // Contains If expression
