@@ -382,8 +382,8 @@ object Version {
     }
 
   val versionCompatiblePartialOrdering: PartialOrdering[Version] =
-    PartialOrder.catsKernelPartialOrderingForPartialOrder(
-      using versionCompatiblePartialOrder
+    PartialOrder.catsKernelPartialOrderingForPartialOrder(using
+      versionCompatiblePartialOrder
     )
 
   implicit val versionShow: Show[Version] =

@@ -70,7 +70,10 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
 
     val relSrc = IOPlatformIO.relativize(root, srcAbs)
     assert(relSrc.nonEmpty)
-    assertEquals(IOPlatformIO.resolve(root, relSrc.get).normalize, srcAbs.normalize)
+    assertEquals(
+      IOPlatformIO.resolve(root, relSrc.get).normalize,
+      srcAbs.normalize
+    )
 
     val relDotSrc = IOPlatformIO.relativize(root, srcDotAbs)
     assert(relDotSrc.nonEmpty)

@@ -533,7 +533,7 @@ object Command {
                     failed.toList.map { case (hash, err) =>
                       val errDoc = err match {
                         case ce: CliException => ce.errDoc
-                        case other =>
+                        case other            =>
                           Doc.text(
                             Option(other.getMessage)
                               .getOrElse(other.getClass.getName)
@@ -670,7 +670,7 @@ object Command {
 
             outDirOpt match {
               case Some(outDir) => useOutDir(outDir)
-              case None =>
+              case None         =>
                 platformIO.withTempPrefix("test_outdir")(useOutDir)
             }
         }

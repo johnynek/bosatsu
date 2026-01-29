@@ -334,13 +334,13 @@ object SetOps {
           // if a1._1 <= da, then a1._1 == da => no diff
           da match {
             case h :: Nil if h === a1._1 => a1 :: Nil
-            case _ =>
+            case _                       =>
               val db = sb.difference(a1._2, a2._2)
               given Eq[B] = Eq.instance(sb.equiv)
               // if a1._2 <= db, then a1._2 == db => no diff
               db match {
                 case h :: Nil if h === a1._2 => a1 :: Nil
-                case _ =>
+                case _                       =>
                   val left = da.map((_, a1._2))
                   val right = for {
                     a <- inta

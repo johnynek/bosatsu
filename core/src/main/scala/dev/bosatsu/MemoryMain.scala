@@ -113,10 +113,10 @@ object MemoryMain {
 
     def remove(path: Chain[String]): State =
       path.uncons match {
-        case None => this
+        case None         => this
         case Some((h, t)) =>
           children.get(h) match {
-            case None => this
+            case None           => this
             case Some(Right(_)) =>
               if (t.isEmpty) copy(children = children - h) else this
             case Some(Left(s)) =>

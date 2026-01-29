@@ -44,17 +44,15 @@ object ProtoConverter {
   private given canEqualKindValue
       : CanEqual[proto.Kind.Value, proto.Kind.Value] =
     CanEqual.derived
-  private given canEqualDefinedTypeRefValue
-      : CanEqual[
-        proto.DefinedTypeReference.Value,
-        proto.DefinedTypeReference.Value
-      ] =
+  private given canEqualDefinedTypeRefValue: CanEqual[
+    proto.DefinedTypeReference.Value,
+    proto.DefinedTypeReference.Value
+  ] =
     CanEqual.derived
-  private given canEqualConstructorRefValue
-      : CanEqual[
-        proto.ConstructorReference.Value,
-        proto.ConstructorReference.Value
-      ] =
+  private given canEqualConstructorRefValue: CanEqual[
+    proto.ConstructorReference.Value,
+    proto.ConstructorReference.Value
+  ] =
     CanEqual.derived
   private given canEqualReferantValue
       : CanEqual[proto.Referant.Referant, proto.Referant.Referant] =

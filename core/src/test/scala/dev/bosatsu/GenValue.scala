@@ -32,11 +32,10 @@ object GenValue {
       )
 
     val genFn: Gen[FnValue] = {
-      val fn: Gen[NonEmptyList[Value] => Value] = Gen.function1(recur)(
-        using
-          Cogen[Long].contramap[NonEmptyList[Value]](vs =>
-            vs.map(_.hashCode.toLong).reduceLeft(_ * Int.MaxValue.toLong + _)
-          )
+      val fn: Gen[NonEmptyList[Value] => Value] = Gen.function1(recur)(using
+        Cogen[Long].contramap[NonEmptyList[Value]](vs =>
+          vs.map(_.hashCode.toLong).reduceLeft(_ * Int.MaxValue.toLong + _)
+        )
       )
 
       fn.map(FnValue(_))
