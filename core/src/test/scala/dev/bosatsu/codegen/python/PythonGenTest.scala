@@ -43,13 +43,17 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
   test("top-level lets around lambda avoid closure tuples") {
     val src =
-      """|def length_String(s):
-         |  def loop(s, acc):
+      """|enum Nat:
+         |  Zero
+         |  Succ(pred: Nat)
+         |
+         |def length_String(s):
+         |  def loop(s, acc: Nat):
          |    recur s:
          |      case "": acc
-         |      case "$.{_}${tail}": loop(tail, acc)
+         |      case "$.{_}${tail}": loop(tail, Succ(acc))
          |
-         |  loop(s, 0)
+         |  loop(s, Zero)
          |""".stripMargin
 
     TestUtils.checkPackageMap(src) { pm =>
@@ -64,18 +68,14 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     ___a4 = ___bs1
     ___a6 = ___bacc0
     ___a1 = 1
-    ___t2 = ___a1 == 1
+    ___t2 = True
     while ___t2:
         if ___a4 == "":
             ___a1 = 0
             ___a2 = ___a6
         else:
-            ___t1 = 0
-            ___t1 = ___t1 + 1
-            ___a0 = ___a4[1:]
-            ___btail0 = ___a0
-            ___a3 = ___btail0
-            ___a4 = ___a3
+            ___a4 = ___a4[1:]
+            ___a6 = ___a6 + 1
         ___t2 = ___a1 == 1
     return ___a2
 
