@@ -1,6 +1,6 @@
 package Bosatsu/NumberProps
 
-from Bosatsu/BinNat import (BinNat, toBinNat as int_to_BinNat, is_even as is_even_BinNat,
+from Bosatsu/Nat/Binary import (BinNat, toBinNat as int_to_BinNat, is_even as is_even_BinNat,
     times2 as times2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
     times_BinNat, exp as exp_BinNat, cmp_BinNat, toInt as binNat_to_Int, add_BinNat,
     next as next_BinNat, sub_BinNat, eq_BinNat, sub_Option as sub_BinNat_Option,
@@ -11,12 +11,12 @@ from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat
   times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
   mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
 
-from Bosatsu/BinInt import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
+from Bosatsu/Int/Binary import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
   negate as negate_BinNat, abs as abs_BinInt, sub as sub_BinInt, binNat_to_BinInt,
   cmp as cmp_BinInt, not as not_BinInt, eq as eq_BinInt,
   )
 
-from Bosatsu/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
+from Bosatsu/Testing/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
 from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, prod_Rand)
 
 export (rand_Int, rand_Nat, rand_BinNat)

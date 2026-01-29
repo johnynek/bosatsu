@@ -1,4 +1,4 @@
-package Bosatsu/BinNat
+package Bosatsu/Nat/Binary
 
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 

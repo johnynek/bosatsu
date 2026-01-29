@@ -126,18 +126,20 @@ case object PythonTranspiler extends Transpiler {
             }
             .toList
 
-          // python also needs empty __init__.py files in every parent directory
+          // python also needs empty __init__.py files in every package directory
           def prefixes[A](
               paths: List[(NonEmptyList[String], A)]
           ): List[(P, Doc)] = {
-            val inits =
-              paths.map { case (path, _) =>
-                val parent = path.init
-                val initPy = parent :+ "__init__.py"
+            val existing = paths.iterator.map(_._1).toSet
+            val initPaths = paths.iterator.flatMap { case (path, _) =>
+              val parts = path.toList
+              (1 until parts.length).iterator.map { i =>
+                val initPy = parts.take(i) :+ "__init__.py"
                 NonEmptyList.fromListUnsafe(initPy)
-              }.toSet
+              }
+            }.toSet
 
-            inits.toList.sorted.map(p => (toPath(p), Doc.empty))
+            (initPaths -- existing).toList.sorted.map(p => (toPath(p), Doc.empty))
           }
 
           prefixes(docs) ::: docs.map { case (p, d) => (toPath(p), d) }

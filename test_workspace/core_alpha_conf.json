@@ -8,6 +8,21 @@
       "uris": [
           "https://github.com/johnynek/bosatsu/releases/download/v0.0.18/core_alpha-v0.0.3.bosatsu_lib" ]
     },
-  "exported_packages": [],
+  "exported_packages": [
+      "Bosatsu/Bool",
+      "Bosatsu/Char",
+      "Bosatsu/Collection/Queue",
+      "Bosatsu/Collection/TreeList",
+      "Bosatsu/Dict",
+      "Bosatsu/Int/Binary",
+      "Bosatsu/List",
+      "Bosatsu/Nat",
+      "Bosatsu/Nat/Binary",
+      "Bosatsu/Nothing",
+      "Bosatsu/Option",
+      "Bosatsu/Prog",
+      "Bosatsu/Rand",
+      "Bosatsu/Testing/Properties"
+    ],
   "all_packages": [ ".*" ]
 }

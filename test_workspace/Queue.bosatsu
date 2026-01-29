@@ -1,4 +1,4 @@
-package Queue
+package Bosatsu/Collection/Queue
 
 from Bosatsu/List import eq_List
 from Bosatsu/Rand import (Rand, sequence_Rand, map_Rand, flat_map_Rand,
@@ -6,7 +6,7 @@ from Bosatsu/Rand import (Rand, sequence_Rand, map_Rand, flat_map_Rand,
 
 from Bosatsu/Nat import (Nat, Zero, Succ, to_Nat as int_to_Nat)
 
-from Bosatsu/Properties import Prop, forall_Prop, suite_Prop, run_Prop
+from Bosatsu/Testing/Properties import Prop, forall_Prop, suite_Prop, run_Prop
 
 export (Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
