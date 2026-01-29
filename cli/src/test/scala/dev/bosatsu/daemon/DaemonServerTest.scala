@@ -141,3 +141,171 @@ class DaemonClientTest extends munit.FunSuite {
     assert(result.left.exists(_.contains("Connection error")))
   }
 }
+
+class TraceGeneratorTest extends munit.FunSuite {
+
+  // Simple Bosatsu source for testing
+  private val simpleSource = """package TestPackage
+
+x = 1
+y = 2
+z = 3
+"""
+
+  test("generateFromSource creates trace with correct node count") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        assertEquals(trace.nodeCount, 3)
+    }
+  }
+
+  test("generateFromSource creates nodes with IDs") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        assert(trace.nodes.contains(NodeId("n0")))
+        assert(trace.nodes.contains(NodeId("n1")))
+        assert(trace.nodes.contains(NodeId("n2")))
+    }
+  }
+
+  test("generateFromSource sets source type for literals") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        val n0 = trace.nodes(NodeId("n0"))
+        assertEquals(n0.source, SourceType.Literal)
+    }
+  }
+
+  test("generateFromSource sets correct values") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        // Values should be "1", "2", "3" for the three literals
+        val values = trace.nodes.values.map(_.value).toSet
+        assert(values.contains("1"))
+        assert(values.contains("2"))
+        assert(values.contains("3"))
+    }
+  }
+
+  test("generateFromSource includes source locations") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        // All nodes should have source locations
+        trace.nodes.values.foreach { node =>
+          assert(node.location.isDefined, s"Node ${node.id} should have a location")
+        }
+    }
+  }
+
+  test("generateFromSource handles parse errors") {
+    val invalidSource = "this is not valid bosatsu"
+    TraceGenerator.generateFromSource(invalidSource, "test.bosatsu") match {
+      case Left(err) =>
+        assert(err.contains("Parse error"))
+      case Right(_) =>
+        fail("Expected parse error")
+    }
+  }
+
+  test("generateFromSource serializes to valid JSON") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        val json = DaemonJson.renderTrace(trace)
+        // Verify it can be parsed back
+        DaemonJson.parseTrace(json) match {
+          case Left(err) => fail(s"Failed to parse JSON: $err")
+          case Right(parsed) =>
+            assertEquals(parsed.nodeCount, trace.nodeCount)
+            assertEquals(parsed.resultNodeId, trace.resultNodeId)
+        }
+    }
+  }
+
+  test("generateFromSource round-trips through JSON") {
+    TraceGenerator.generateFromSource(simpleSource, "test.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(original) =>
+        val json = DaemonJson.renderTrace(original)
+        DaemonJson.parseTrace(json) match {
+          case Left(err) => fail(s"Failed to parse JSON: $err")
+          case Right(parsed) =>
+            // Verify node IDs match
+            assertEquals(
+              parsed.nodes.keySet,
+              original.nodes.keySet
+            )
+            // Verify values match
+            original.nodes.foreach { case (id, node) =>
+              val parsedNode = parsed.nodes(id)
+              assertEquals(parsedNode.value, node.value)
+              assertEquals(parsedNode.source, node.source)
+            }
+        }
+    }
+  }
+
+  // Dependency tracking tests
+  private val depsSource = """package DepsTest
+
+x = 42
+y = x
+z = y
+result = z
+"""
+
+  test("generateFromSource tracks intra-package dependencies") {
+    TraceGenerator.generateFromSource(depsSource, "deps.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        // Should have 4 nodes: x (literal), y (ref to x), z (ref to y), result (ref to z)
+        assertEquals(trace.nodeCount, 4)
+
+        // Find the literal node (has no dependencies)
+        val literalNodes = trace.nodes.values.filter(_.dependencies.isEmpty).toList
+        assertEquals(literalNodes.size, 1, "Should have exactly one literal node with no deps")
+        val literalNode = literalNodes.head
+        assertEquals(literalNode.value, "42")
+
+        // The literal should be used by one node
+        assertEquals(literalNode.usedBy.size, 1)
+    }
+  }
+
+  test("generateFromSource creates proper dependency chain") {
+    TraceGenerator.generateFromSource(depsSource, "deps.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        // Build a map of what each node depends on
+        val depCounts = trace.nodes.values.map(n => n.id -> n.dependencies.size).toMap
+
+        // One node has 0 deps (literal), three have 1 dep each (y->x, z->y, result->z)
+        val noDepCount = depCounts.values.count(_ == 0)
+        val oneDepCount = depCounts.values.count(_ == 1)
+        assertEquals(noDepCount, 1, "Should have 1 node with no dependencies")
+        assertEquals(oneDepCount, 3, "Should have 3 nodes with one dependency each")
+    }
+  }
+
+  test("generateFromSource usedBy is inverse of dependencies") {
+    TraceGenerator.generateFromSource(depsSource, "deps.bosatsu") match {
+      case Left(err) => fail(s"Failed to generate trace: $err")
+      case Right(trace) =>
+        // For each node that has dependencies, verify the dep's usedBy includes this node
+        trace.nodes.values.foreach { node =>
+          node.dependencies.foreach { depId =>
+            val depNode = trace.nodes(depId)
+            assert(
+              depNode.usedBy.contains(node.id),
+              s"Node ${depId.value} usedBy should contain ${node.id.value}"
+            )
+          }
+        }
+    }
+  }
+}

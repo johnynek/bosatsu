@@ -33,15 +33,19 @@ object ProvenanceAnalyzer {
 
   /**
    * Analyze multiple top-level bindings.
+   *
+   * @param bindings List of (name, expression) pairs
+   * @param packageName Optional package name for tracking intra-package Global references
    */
   def analyzeBindings[T](
-      bindings: List[(Identifier.Bindable, TypedExpr[T])]
+      bindings: List[(Identifier.Bindable, TypedExpr[T])],
+      packageName: Option[PackageName] = None
   )(implicit tag: HasRegion[T]): DerivationGraph[T] = {
     val initialState = AnalysisState.empty[T]
 
     val (finalState, _) = bindings.foldLeft((initialState, Map.empty[Identifier.Bindable, Long])) {
       case ((state, env), (name, expr)) =>
-        val (newState, exprId) = analyzeExpr(expr, env).run(state).value
+        val (newState, exprId) = analyzeExpr(expr, env, packageName).run(state).value
         newState.builder.addRoot(exprId)
         (newState, env + (name -> exprId))
     }
@@ -76,16 +80,18 @@ object ProvenanceAnalyzer {
    * Analyze a TypedExpr and return the node ID representing its value.
    *
    * @param expr The expression to analyze
-   * @param env Maps local variable names to their definition node IDs
+   * @param env Maps local/global variable names to their definition node IDs
+   * @param packageName Optional current package name for tracking intra-package Global references
    * @param tag Extracts Region from the expression's tag
    */
   private def analyzeExpr[T](
       expr: TypedExpr[T],
-      env: Map[Identifier.Bindable, Long]
+      env: Map[Identifier.Bindable, Long],
+      packageName: Option[PackageName] = None
   )(implicit tag: HasRegion[T]): Analysis[T, Long] = {
     // Helper to recursively analyze with the same HasRegion instance
     def recurse(e: TypedExpr[T], newEnv: Map[Identifier.Bindable, Long]): Analysis[T, Long] =
-      analyzeExpr(e, newEnv)(using tag)
+      analyzeExpr(e, newEnv, packageName)(using tag)
 
     expr match {
       case lit: TypedExpr.Literal[T] =>
@@ -105,7 +111,15 @@ object ProvenanceAnalyzer {
       case global: TypedExpr.Global[T] =>
         for {
           id <- freshId[T]
+          // Check if this global references a binding in the current package
+          definedAt = packageName match {
+            case Some(pkg) if global.pack == pkg =>
+              // It's an intra-package reference, check if we have it in env
+              global.name.toBindable.flatMap(env.get)
+            case _ => None
+          }
           _ <- addNode(ProvenanceNode(id, global))
+          _ <- definedAt.traverse_(defId => addDep(id, defId))
         } yield id
 
       case app: TypedExpr.App[T] =>
