@@ -393,7 +393,9 @@ object Statement {
           }
 
         val indentedCons = OptIndent
-          .document[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]]
+          .document[NonEmptyList[
+            (Constructor, List[(Bindable, Option[TypeRef])])
+          ]]
           .document(parts)
 
         val taDoc = typeArgs match {

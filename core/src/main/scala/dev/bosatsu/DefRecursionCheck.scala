@@ -203,7 +203,9 @@ object DefRecursionCheck {
         val body = argsV.toList.foldLeft(
           Declaration.Var(fnname)(using region): Declaration.NonBinding
         ) { (called, group) =>
-          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(using region)
+          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(using
+            region
+          )
         }
 
         def lambdify(
@@ -452,8 +454,7 @@ object DefRecursionCheck {
                   case Declaration.Lambda(args, body) =>
                     val names1 = args.toList.flatMap(_.names)
                     unionNames(names1)(checkDecl(body))
-                  case v @ Declaration.Var(fn: Bindable)
-                      if irb.defname == fn =>
+                  case v @ Declaration.Var(fn: Bindable) if irb.defname == fn =>
                     val Declaration.Lambda(args, body) =
                       irb.inDef.asLambda(v.region)
                     val names1 = args.toList.flatMap(_.names)

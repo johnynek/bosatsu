@@ -247,8 +247,8 @@ object Relatable {
 
                 // we know that a1 and a2 are not empty because they are the result
                 // of a deunion
-                unionRelCompare1(cheapUnion(b1, b2 :: Nil), a1, a2)(
-                  using relatable
+                unionRelCompare1(cheapUnion(b1, b2 :: Nil), a1, a2)(using
+                  relatable
                 ) match {
                   case Left(r)  => andInvert(r)
                   case Right(r) => r.invert

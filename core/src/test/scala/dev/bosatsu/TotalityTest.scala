@@ -92,7 +92,7 @@ enum Bool: False, True
       ) =
         (NonEmptyList.fromList(a), NonEmptyList.fromList(b)) match {
           case (oa, ob) if oa === ob => true
-          case (Some(a), Some(b))   =>
+          case (Some(a), Some(b))    =>
             e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
           case _ => false
         }

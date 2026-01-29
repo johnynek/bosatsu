@@ -62,7 +62,11 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     tup.getArray()(0) match {
       case x if x === zero =>
         // True == one in our encoding
-        assertEquals(tup.getArray()(1), one, prefix + "/" + tup.getArray()(2).toString)
+        assertEquals(
+          tup.getArray()(1),
+          one,
+          prefix + "/" + tup.getArray()(2).toString
+        )
         ()
       case x if x === one =>
         val suite = tup.getArray()(1).toString
@@ -85,7 +89,6 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
   test("we can compile Nat.bosatsu") {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
-
 
     val packMap =
       Par.noParallelism {

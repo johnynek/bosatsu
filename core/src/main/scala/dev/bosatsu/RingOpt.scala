@@ -572,7 +572,7 @@ object RingOpt {
         @annotation.tailrec
         private def loop(left: Stack[A], right: Stack[A]): Boolean =
           (left, right) match {
-            case (Empty, Empty) => true
+            case (Empty, Empty)                           => true
             case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
               ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && loop(lonto, ronto)
             case (Operate(lop, lon), Operate(rop, ron)) =>
@@ -630,8 +630,8 @@ object RingOpt {
         expr match {
           case Zero | One | Symbol(_) => expr
           case Integer(i)             => canonInt(i)
-          case Neg(Neg(x))   => normExpr(x)
-          case Neg(x)        => simpleNeg(normExpr(x))
+          case Neg(Neg(x))            => normExpr(x)
+          case Neg(x)                 => simpleNeg(normExpr(x))
           case Add(x, y)              =>
             // TODO: if we move this to object Expr and take Hash[A]
             // we could normalize x + -(x) into 0, but that should be
@@ -1344,7 +1344,7 @@ object RingOpt {
         @annotation.tailrec
         final def eqv(left: Stack[A], right: Stack[A]): Boolean =
           (left, right) match {
-            case (Empty, Empty) => true
+            case (Empty, Empty)                           => true
             case (Push(lleaf, lonto), Push(rleaf, ronto)) =>
               ((lleaf: Leaf[A]) === (rleaf: Leaf[A])) && eqv(lonto, ronto)
             case (Operate(lop, lon), Operate(rop, ron)) =>
@@ -1358,7 +1358,7 @@ object RingOpt {
         @annotation.tailrec
         final def compare(a: Stack[A], b: Stack[A]): Int =
           a match {
-            case Empty           =>
+            case Empty =>
               b match {
                 case Empty => 0
                 case _     => -1
@@ -1372,7 +1372,7 @@ object RingOpt {
                         case Zero => 0
                         case _    => -1
                       }
-                    case One  =>
+                    case One =>
                       bl match {
                         case Zero => 1
                         case One  => 0
@@ -1683,7 +1683,7 @@ object RingOpt {
   def normConstMult[A: Order](e: Expr[A], w: Weights): Expr[A] =
     e match {
       case Symbol(_) | One | Zero | Integer(_) => e
-      case Neg(n) =>
+      case Neg(n)                              =>
         val nA: Expr[A] = n
         Neg(normConstMult[A](nA, w))
       case Add(x, y) =>
@@ -1753,7 +1753,7 @@ object RingOpt {
               val prod = Expr.multAll(normed)
               val costProd = w.cost(prod)
               (costProd, prod)
-          }
+            }
           val (minCost, _) = all.minBy(_._1)
           all
             .filter { case (c, _) => c == minCost }
@@ -2227,10 +2227,10 @@ object RingOpt {
       case Neg(mult @ Mult(_, _)) =>
         val multA: Expr[A] = mult
         norm[A](Neg(One) * multA, W)
-      case ns @ Neg(Symbol(_))    => ns
-      case Neg(Zero)              => Zero
-      case Neg(One)               => canonInt(-1)
-      case Neg(Integer(n))        => canonInt(-n)
+      case ns @ Neg(Symbol(_)) => ns
+      case Neg(Zero)           => Zero
+      case Neg(One)            => canonInt(-1)
+      case Neg(Integer(n))     => canonInt(-n)
 
       case Add(left, right) =>
         val leftA: Expr[A] = left

@@ -1160,7 +1160,7 @@ object TypedExprNormalization {
               ia
             case OpaqueInt(intValue) =>
               repl.get(intValue.void) match {
-                case None => ia
+                case None     => ia
                 case Some(nm) =>
                   OpaqueInt(Local(nm, intValue.getType, intValue.tag))
               }
