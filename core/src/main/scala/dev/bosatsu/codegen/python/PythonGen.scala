@@ -674,12 +674,8 @@ object PythonGen {
                   s :++ optT.toList :++ optM.toList
                 }
 
-              def modName(p: NonEmptyList[String]): Module = {
-                val escaped = p.map(escapeModule)
-                NonEmptyList.fromListUnsafe(
-                  escaped.toList :+ Code.Ident("__init__.py")
-                )
-              }
+              def modName(p: NonEmptyList[String]): Module =
+                p.map(escapeModule) :+ Code.Ident("__init__.py")
 
               (p, (modName(ns.identOf(k, p)), Env.render(stmts)))
             }
