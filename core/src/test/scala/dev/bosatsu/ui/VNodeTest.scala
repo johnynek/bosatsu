@@ -220,4 +220,213 @@ class VNodeTest extends ScalaCheckSuite {
     assertEquals(empty.eventHandlers, Nil)
     assertEquals(empty.renderTarget, None)
   }
+
+  // ==========================================================================
+  // VProps tests
+  // ==========================================================================
+
+  test("VProps.empty has no attributes or handlers") {
+    val props = VProps.empty
+    assertEquals(props.attributes, Map.empty)
+    assertEquals(props.eventHandlers, Map.empty)
+  }
+
+  test("VProps.apply creates props with attributes") {
+    val props = VProps(
+      "class" -> AttributeValue.StringValue("btn"),
+      "id" -> AttributeValue.StringValue("submit")
+    )
+    assertEquals(props.attributes.size, 2)
+    assertEquals(props.attributes.get("class"), Some(AttributeValue.StringValue("btn")))
+    assertEquals(props.eventHandlers, Map.empty)
+  }
+
+  test("VProps.withHandler creates props with event handler") {
+    val handler = EventHandler("click", null) // handler expression not needed for this test
+    val props = VProps.withHandler("click", handler)
+    assertEquals(props.attributes, Map.empty)
+    assertEquals(props.eventHandlers.size, 1)
+    assert(props.eventHandlers.contains("click"))
+  }
+
+  test("VProps.withHandler with attrs creates combined props") {
+    val handler = EventHandler("submit", null)
+    val props = VProps.withHandler(
+      Map("action" -> AttributeValue.StringValue("/api")),
+      "submit",
+      handler
+    )
+    assertEquals(props.attributes.size, 1)
+    assertEquals(props.eventHandlers.size, 1)
+  }
+
+  // ==========================================================================
+  // VNode.h tests
+  // ==========================================================================
+
+  test("VNode.h creates element with empty props") {
+    val el = VNode.h("div", VProps.empty)
+    assertEquals(el.tag, "div")
+    assertEquals(el.attributes, Map.empty)
+    assertEquals(el.children, Nil)
+    assertEquals(el.key, None)
+  }
+
+  test("VNode.h extracts key from string attribute") {
+    val props = VProps("key" -> AttributeValue.StringValue("item-1"))
+    val el = VNode.h("li", props)
+    assertEquals(el.key, Some("item-1"))
+    // key should be removed from attributes
+    assert(!el.attributes.contains("key"))
+  }
+
+  test("VNode.h extracts key from int attribute") {
+    val props = VProps("key" -> AttributeValue.IntValue(42))
+    val el = VNode.h("li", props)
+    assertEquals(el.key, Some("42"))
+  }
+
+  test("VNode.h does not extract key from other types") {
+    val props = VProps("key" -> AttributeValue.BoolValue(true))
+    val el = VNode.h("li", props)
+    assertEquals(el.key, None)
+  }
+
+  test("VNode.h passes through event handlers") {
+    val handler = EventHandler("click", null)
+    val props = VProps.withHandler("click", handler)
+    val el = VNode.h("button", props, List(VNode.text("Click")))
+    assertEquals(el.eventHandlers.size, 1)
+    assertEquals(el.children.length, 1)
+  }
+
+  // ==========================================================================
+  // Fragment tests
+  // ==========================================================================
+
+  test("Fragment has no key") {
+    val frag = VNode.Fragment(List(VNode.text("a"), VNode.text("b")))
+    assertEquals(frag.key, None)
+  }
+
+  test("VNode.fragment creates Fragment from list") {
+    val frag = VNode.fragment(List(VNode.text("a"), VNode.text("b")))
+    assertEquals(frag.children.length, 2)
+  }
+
+  test("VNode.fragment creates Fragment from varargs") {
+    val frag = VNode.fragment(VNode.text("a"), VNode.text("b"), VNode.text("c"))
+    assertEquals(frag.children.length, 3)
+  }
+
+  // Note: Fragment is not yet supported by DOMCodegen.renderToString
+  // It should be expanded via flattenChildren first
+
+  // ==========================================================================
+  // Type guard tests
+  // ==========================================================================
+
+  test("VNode.isElement returns true for Element") {
+    assert(VNode.isElement(VNode.div()))
+    assert(!VNode.isElement(VNode.text("hello")))
+    assert(!VNode.isElement(VNode.fragment()))
+  }
+
+  test("VNode.isText returns true for Text") {
+    assert(VNode.isText(VNode.text("hello")))
+    assert(!VNode.isText(VNode.div()))
+    assert(!VNode.isText(VNode.fragment()))
+  }
+
+  test("VNode.isFragment returns true for Fragment") {
+    assert(VNode.isFragment(VNode.fragment()))
+    assert(!VNode.isFragment(VNode.div()))
+    assert(!VNode.isFragment(VNode.text("hello")))
+  }
+
+  test("VNode.isComponent returns true for Component") {
+    val comp = VNode.Component("Test", Map.empty, () => VNode.div(), None)
+    assert(VNode.isComponent(comp))
+    assert(!VNode.isComponent(VNode.div()))
+    assert(!VNode.isComponent(VNode.text("hello")))
+  }
+
+  // ==========================================================================
+  // flattenChildren tests
+  // ==========================================================================
+
+  test("flattenChildren returns list unchanged when no fragments") {
+    val children = List(VNode.text("a"), VNode.text("b"))
+    val flattened = VNode.flattenChildren(children)
+    assertEquals(flattened.length, 2)
+  }
+
+  test("flattenChildren expands fragments inline") {
+    val frag = VNode.fragment(VNode.text("b"), VNode.text("c"))
+    val children = List(VNode.text("a"), frag, VNode.text("d"))
+    val flattened = VNode.flattenChildren(children)
+    assertEquals(flattened.length, 4)
+    flattened(0) match {
+      case VNode.Text(c) => assertEquals(c, "a")
+      case _ => fail("Expected Text")
+    }
+    flattened(1) match {
+      case VNode.Text(c) => assertEquals(c, "b")
+      case _ => fail("Expected Text")
+    }
+  }
+
+  test("flattenChildren handles nested fragments") {
+    val inner = VNode.fragment(VNode.text("b"), VNode.text("c"))
+    val outer = VNode.fragment(VNode.text("a"), inner, VNode.text("d"))
+    val flattened = VNode.flattenChildren(List(outer))
+    assertEquals(flattened.length, 4)
+  }
+
+  // ==========================================================================
+  // getSelector tests
+  // ==========================================================================
+
+  test("getSelector returns id selector when id exists") {
+    val el = VNode.Element("div", Map("id" -> AttributeValue.StringValue("main")), Map.empty, Nil, None)
+    assertEquals(VNode.getSelector(el), Some("#main"))
+  }
+
+  test("getSelector returns data-bosatsu-id selector when no id") {
+    val el = VNode.Element("div", Map("data-bosatsu-id" -> AttributeValue.StringValue("el-1")), Map.empty, Nil, None)
+    assertEquals(VNode.getSelector(el), Some("[data-bosatsu-id='el-1']"))
+  }
+
+  test("getSelector returns None when no selector attributes") {
+    val el = VNode.Element("div", Map("class" -> AttributeValue.StringValue("container")), Map.empty, Nil, None)
+    assertEquals(VNode.getSelector(el), None)
+  }
+
+  test("getSelector prefers id over data-bosatsu-id") {
+    val el = VNode.Element("div", Map(
+      "id" -> AttributeValue.StringValue("my-id"),
+      "data-bosatsu-id" -> AttributeValue.StringValue("el-1")
+    ), Map.empty, Nil, None)
+    assertEquals(VNode.getSelector(el), Some("#my-id"))
+  }
+
+  // ==========================================================================
+  // EventHandler tests
+  // ==========================================================================
+
+  test("EventHandler has correct defaults") {
+    val handler = EventHandler("click", null)
+    assertEquals(handler.eventType, "click")
+    assertEquals(handler.preventDefault, false)
+    assertEquals(handler.stopPropagation, false)
+  }
+
+  test("EventHandler with modifiers") {
+    val handler = EventHandler("submit", null, preventDefault = true, stopPropagation = true)
+    assertEquals(handler.preventDefault, true)
+    assertEquals(handler.stopPropagation, true)
+  }
+
+  // Note: DOMCodegen.generate does not yet support Fragment directly
+  // Fragments should be expanded via flattenChildren first
 }

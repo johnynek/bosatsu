@@ -65,6 +65,18 @@ object VNode {
       key: Option[String]
   ) extends VNode
 
+  /**
+   * Fragment node - groups children without a wrapper element.
+   *
+   * Equivalent to React's <></> or Vue's <template>.
+   * Useful for returning multiple elements without an extra DOM node.
+   *
+   * @param children Child nodes
+   */
+  final case class Fragment(children: List[VNode]) extends VNode {
+    def key: Option[String] = None
+  }
+
   // Smart constructors for common patterns
 
   /** Create an element with just tag and children */
@@ -82,6 +94,46 @@ object VNode {
   def keyedEl(tag: String, key: String, children: VNode*): Element =
     Element(tag, Map.empty, Map.empty, children.toList, Some(key))
 
+  /**
+   * Create a virtual element node - burritoUI-compatible signature.
+   *
+   * This is the primary constructor for creating elements, matching
+   * the h() function from burritoUI/React's createElement.
+   *
+   * @example
+   * {{{
+   * // Simple element
+   * h("div", VProps.empty)
+   *
+   * // With className
+   * h("div", VProps("className" -> "container"))
+   *
+   * // With children
+   * h("div", VProps("id" -> "app"), List(
+   *   h("h1", VProps.empty, List(text("Hello"))),
+   *   h("p", VProps.empty, List(text("World")))
+   * ))
+   *
+   * // With event handler
+   * h("button", VProps.withHandler("click", handler), List(text("Click me")))
+   * }}}
+   */
+  def h(tag: String, props: VProps, children: List[VNode] = Nil): Element = {
+    val key = props.attributes.get("key").flatMap {
+      case AttributeValue.StringValue(k) => Some(k)
+      case AttributeValue.IntValue(k)    => Some(k.toString)
+      case _                             => None
+    }
+    val attrsWithoutKey = props.attributes - "key"
+    Element(tag, attrsWithoutKey, props.eventHandlers, children, key)
+  }
+
+  /** Create a fragment - groups children without a wrapper element */
+  def fragment(children: List[VNode]): Fragment = Fragment(children)
+
+  /** Create a fragment from varargs */
+  def fragment(children: VNode*): Fragment = Fragment(children.toList)
+
   // Common HTML elements
 
   def div(children: VNode*): Element = el("div", children*)
@@ -94,6 +146,78 @@ object VNode {
   def input(): Element = el("input")
   def ul(children: VNode*): Element = el("ul", children*)
   def li(children: VNode*): Element = el("li", children*)
+
+  // Type guards (matching burritoUI patterns)
+
+  /** Check if a VNode is an element */
+  def isElement(node: VNode): Boolean = node.isInstanceOf[Element]
+
+  /** Check if a VNode is a text node */
+  def isText(node: VNode): Boolean = node.isInstanceOf[Text]
+
+  /** Check if a VNode is a fragment */
+  def isFragment(node: VNode): Boolean = node.isInstanceOf[Fragment]
+
+  /** Check if a VNode is a component */
+  def isComponent(node: VNode): Boolean = node.isInstanceOf[Component]
+
+  // Utilities
+
+  /**
+   * Flatten children, expanding fragments inline.
+   * This is useful when rendering to DOM - fragments are virtual and
+   * their children should be inserted directly into the parent.
+   */
+  def flattenChildren(children: List[VNode]): List[VNode] = {
+    def flatten(node: VNode): List[VNode] = node match {
+      case Fragment(cs) => cs.flatMap(flatten)
+      case other        => List(other)
+    }
+    children.flatMap(flatten)
+  }
+
+  /**
+   * Get selector for an element (for element caching).
+   * Returns id selector if id exists, data-bosatsu-id otherwise.
+   */
+  def getSelector(element: Element): Option[String] =
+    element.attributes.get("id").flatMap(AttributeValue.render).map(id => s"#$id")
+      .orElse(element.attributes.get("data-bosatsu-id").flatMap(AttributeValue.render).map(id => s"[data-bosatsu-id='$id']"))
+}
+
+/**
+ * Props for a virtual element - combines attributes and event handlers.
+ *
+ * This mirrors burritoUI's VProps interface, providing a unified way
+ * to pass both static attributes and dynamic event handlers.
+ *
+ * @param attributes Static attributes (class, id, style, etc.)
+ * @param eventHandlers Event handlers keyed by event type
+ */
+final case class VProps(
+    attributes: Map[String, AttributeValue],
+    eventHandlers: Map[String, EventHandler]
+)
+
+object VProps {
+  /** Empty props */
+  val empty: VProps = VProps(Map.empty, Map.empty)
+
+  /** Create props from attributes only */
+  def apply(attrs: (String, AttributeValue)*): VProps =
+    VProps(attrs.toMap, Map.empty)
+
+  /** Create props with an event handler */
+  def withHandler(eventType: String, handler: EventHandler): VProps =
+    VProps(Map.empty, Map(eventType -> handler))
+
+  /** Create props with attributes and an event handler */
+  def withHandler(
+      attrs: Map[String, AttributeValue],
+      eventType: String,
+      handler: EventHandler
+  ): VProps =
+    VProps(attrs, Map(eventType -> handler))
 }
 
 /**

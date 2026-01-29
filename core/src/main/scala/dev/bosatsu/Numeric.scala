@@ -67,13 +67,15 @@ object NumericImpl {
     VInt(BigInteger.valueOf(d(a).toLong))
 
   def cmp(a: Value, b: Value): Value = {
-    val da = d(a)
-    val db = d(b)
-    // NaN comparisons: NaN is unordered, treat as GT for consistency with IEEE 754 totalOrder
-    if (da.isNaN || db.isNaN) Comparison.GT
-    else if (da < db) Comparison.LT
-    else if (da > db) Comparison.GT
-    else Comparison.EQ
+    // Use Java's Double.compare for a proper total ordering that handles NaN.
+    // This maintains antisymmetry: NaN is considered greater than all other values,
+    // so cmp(NaN, x) = GT and cmp(x, NaN) = LT for any non-NaN x.
+    // Also handles: -0.0 < +0.0, and NaN == NaN for ordering purposes.
+    java.lang.Double.compare(d(a), d(b)) match {
+      case n if n < 0 => Comparison.LT
+      case n if n > 0 => Comparison.GT
+      case _          => Comparison.EQ
+    }
   }
 
   def eq(a: Value, b: Value): Value =

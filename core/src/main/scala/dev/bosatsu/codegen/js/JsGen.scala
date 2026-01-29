@@ -329,19 +329,22 @@ object JsGen {
     val NumericPackage: PackageName = PackageName.parse("Bosatsu/Numeric").get
 
     // Compare function for Doubles - returns [0] (LT), [1] (EQ), or [2] (GT)
-    // NaN comparisons return GT for consistency with IEEE 754 totalOrder
+    // Uses a total ordering where NaN > all other values (including +Infinity).
+    // This maintains antisymmetry: cmp(NaN, x) = GT and cmp(x, NaN) = LT.
     private val cmpDoubleFn: IntrinsicFn = {
       case List(a, b) =>
-        // Check for NaN first - Number.isNaN(a) || Number.isNaN(b) => GT
-        val isNaN = Code.BinExpr(
-          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(a)),
-          Code.BinOp.Or,
-          Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(b))
-        )
-        Code.Ternary(isNaN, Code.ArrayLiteral(List(Code.IntLiteral(2))),
-          Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
-            Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
-              Code.ArrayLiteral(List(Code.IntLiteral(2))))))
+        val aNaN = Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(a))
+        val bNaN = Code.Call(Code.PropertyAccess(Code.Ident("Number"), "isNaN"), List(b))
+        // If both NaN: EQ, if only a is NaN: GT, if only b is NaN: LT, else normal comparison
+        Code.Ternary(aNaN,
+          Code.Ternary(bNaN,
+            Code.ArrayLiteral(List(Code.IntLiteral(1))),  // NaN == NaN for ordering
+            Code.ArrayLiteral(List(Code.IntLiteral(2)))), // NaN > x
+          Code.Ternary(bNaN,
+            Code.ArrayLiteral(List(Code.IntLiteral(0))),  // x < NaN
+            Code.Ternary(a < b, Code.ArrayLiteral(List(Code.IntLiteral(0))),
+              Code.Ternary(a === b, Code.ArrayLiteral(List(Code.IntLiteral(1))),
+                Code.ArrayLiteral(List(Code.IntLiteral(2)))))))
       case args => throw new IllegalArgumentException(s"cmp_Double expects 2 args, got ${args.length}")
     }
 
@@ -529,12 +532,65 @@ object JsGen {
       PredefExternal.makeLambda(arity)(fn)
   }
 
+  // =============
+  // UI Intrinsics
+  // =============
+
+  /**
+   * Intrinsic functions from Bosatsu/UI for virtual DOM construction.
+   * These generate calls to the BosatsuUI runtime for element creation.
+   */
+  object UIExternal {
+    import PredefExternal.IntrinsicFn
+
+    val UIPackage: PackageName = PackageName.parse("Bosatsu/UI").get
+
+    /** Map of intrinsic function names to (implementation, arity) */
+    val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // h(tag, props, children) -> creates VElement object for runtime
+      // We generate a JS object that the runtime's createDOM can process
+      Identifier.Name("h") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("element"),
+          "tag" -> args.head,
+          "props" -> (if (args.length > 1) args(1) else Code.ObjectLiteral(Nil)),
+          "children" -> (if (args.length > 2) args(2) else Code.ArrayLiteral(Nil))
+        )), 3),
+
+      // text(content) -> creates VText object
+      Identifier.Name("text") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("text"),
+          "text" -> Code.Call(Code.Ident("String"), List(args.head))
+        )), 1),
+
+      // fragment(children) -> creates VFragment object
+      Identifier.Name("fragment") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("fragment"),
+          "children" -> args.head
+        )), 1)
+    )
+
+    /** Check if an expression is a UI external and extract its function */
+    def unapply[A](expr: Expr[A]): Option[(IntrinsicFn, Int)] =
+      expr match {
+        case Matchless.Global(_, pack, name) if pack == UIPackage => results.get(name)
+        case _ => None
+      }
+
+    /** Create a lambda wrapper for a standalone intrinsic reference */
+    def makeLambda(arity: Int)(fn: IntrinsicFn): Code.Expression =
+      PredefExternal.makeLambda(arity)(fn)
+  }
+
   /** These are values replaced with JS operations (for intrinsicValues method) */
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
     Map(
       PackageName.PredefName -> PredefExternal.results.keySet,
       NumericExternal.NumericPackage -> NumericExternal.results.keySet,
-      IOExternal.IOPackage -> IOExternal.results.keySet
+      IOExternal.IOPackage -> IOExternal.results.keySet,
+      UIExternal.UIPackage -> UIExternal.results.keySet
     )
 
   // ==================
@@ -599,6 +655,10 @@ object JsGen {
       case IOExternal((fn, arity)) =>
         // Standalone reference to an IO intrinsic - wrap in lambda
         Env.pure(IOExternal.makeLambda(arity)(fn))
+
+      case UIExternal((fn, arity)) =>
+        // Standalone reference to a UI intrinsic - wrap in lambda
+        Env.pure(UIExternal.makeLambda(arity)(fn))
 
       case Global(_, pack, name) =>
         // Runtime-provided functions from Predef - use unqualified names
@@ -680,6 +740,12 @@ object JsGen {
 
       case App(IOExternal((fn, _)), args) =>
         // Inline application of IO intrinsic
+        for {
+          argsJs <- args.toList.traverse(exprToJs)
+        } yield fn(argsJs)
+
+      case App(UIExternal((fn, _)), args) =>
+        // Inline application of UI intrinsic
         for {
           argsJs <- args.toList.traverse(exprToJs)
         } yield fn(argsJs)
