@@ -14,7 +14,7 @@ import dev.bosatsu.{Identifier, TypedExpr}
  * - Text: Plain text content
  * - Component: Reusable UI components with props and render function
  */
-sealed abstract class VNode extends Product with Serializable {
+sealed abstract class VNode extends Product with Serializable derives CanEqual {
   /** Get optional key for reconciliation */
   def key: Option[String]
 }
@@ -101,7 +101,7 @@ object VNode {
  *
  * Attributes can be strings, numbers, booleans, or null (for removal).
  */
-sealed abstract class AttributeValue extends Product with Serializable
+sealed abstract class AttributeValue extends Product with Serializable derives CanEqual
 
 object AttributeValue {
   final case class StringValue(value: String) extends AttributeValue

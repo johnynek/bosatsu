@@ -331,7 +331,7 @@ main = 2
     val pkg3 = Package.fromStatements(pn2, Nil)
 
     assertEquals(pkg1, pkg2)
-    assert(pkg1 != pkg3)
+    assert(!pkg1.equals(pkg3))
     // Test equals with non-Package type
     assert(!pkg1.equals("not a package"))
     assert(!pkg1.equals(null))

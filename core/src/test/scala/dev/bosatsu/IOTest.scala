@@ -267,7 +267,7 @@ class IOTest extends FunSuite {
   // =========================================================================
 
   test("IO.jvmExternals is not empty") {
-    assert(IO.jvmExternals != Externals.empty)
+    assert(!IO.jvmExternals.equals(Externals.empty))
   }
 
   test("IO.packageName is correct") {

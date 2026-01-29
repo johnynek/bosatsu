@@ -206,6 +206,6 @@ class NumericTest extends FunSuite {
 
   test("Numeric.jvmExternals is not empty") {
     // jvmExternals adds 10 functions
-    assert(Numeric.jvmExternals != Externals.empty)
+    assert(!Numeric.jvmExternals.equals(Externals.empty))
   }
 }

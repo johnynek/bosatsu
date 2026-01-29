@@ -20,7 +20,7 @@ import dev.bosatsu.{Identifier, PackageName, Region}
 /**
  * Node identifier in the provenance trace.
  */
-case class NodeId(value: String) extends AnyVal {
+case class NodeId(value: String) extends AnyVal derives CanEqual {
   override def toString: String = value
 }
 
@@ -36,7 +36,7 @@ case class SourceLocation(
     file: String,
     line: Int,
     column: Int
-)
+) derives CanEqual
 
 object SourceLocation {
   implicit val sourceLocationEq: Eq[SourceLocation] = Eq.fromUniversalEquals
@@ -47,7 +47,7 @@ object SourceLocation {
 /**
  * Source type describing how a value was computed.
  */
-sealed trait SourceType {
+sealed trait SourceType derives CanEqual {
   def typeName: String
 }
 
@@ -118,7 +118,7 @@ case class ProvenanceTrace(
 /**
  * Command types supported by the daemon.
  */
-sealed trait DaemonCommand
+sealed trait DaemonCommand derives CanEqual
 
 object DaemonCommand {
   /** List all nodes in the trace */
@@ -288,7 +288,7 @@ case class DaemonState(
     trace: ProvenanceTrace,
     focusNodeId: Option[NodeId],
     traceFile: String
-) {
+) derives CanEqual {
   def withFocus(nodeId: NodeId): DaemonState =
     copy(focusNodeId = Some(nodeId))
 

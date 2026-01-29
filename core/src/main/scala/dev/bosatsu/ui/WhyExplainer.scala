@@ -21,7 +21,7 @@ object WhyExplainer {
   /**
    * Explanation format for different display contexts.
    */
-  sealed trait ExplanationFormat
+  sealed trait ExplanationFormat derives CanEqual
   case object Plain extends ExplanationFormat
   case object HTML extends ExplanationFormat
   case object Markdown extends ExplanationFormat

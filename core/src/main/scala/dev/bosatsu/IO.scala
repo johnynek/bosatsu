@@ -31,7 +31,7 @@ object IO {
     PackageName.parse("Bosatsu/IO").get
 
   /** IOEffect ADT - describes a computation without executing it */
-  sealed trait IOEffect[+A]
+  sealed trait IOEffect[+A] derives CanEqual
   case class Pure[A](value: A) extends IOEffect[A]
   case class FlatMap[A, B](io: IOEffect[A], f: Value => IOEffect[B]) extends IOEffect[B]
   case class Capture[A](name: String, value: A, formula: Option[String]) extends IOEffect[A]
@@ -62,8 +62,8 @@ object IO {
     def valueToString(v: Any): String = v match {
       case VInt(bi) => bi.toString
       case Str(s) => s"\"$s\""
-      case True => "True"
-      case False => "False"
+      case sv: SumValue if sv eq True => "True"
+      case sv: SumValue if sv eq False => "False"
       case ExternalValue(d: java.lang.Double) => d.toString
       case p: ProductValue => s"(${p.values.map(valueToString).mkString(", ")})"
       case other => other.toString

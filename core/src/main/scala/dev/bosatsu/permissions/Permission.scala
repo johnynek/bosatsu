@@ -28,7 +28,7 @@ import cats.implicits._
 /**
  * A permission scope restricts what resources a permission applies to.
  */
-sealed abstract class Scope(val name: String) {
+sealed abstract class Scope(val name: String) derives CanEqual {
   override def toString: String = name
 }
 
@@ -113,7 +113,7 @@ object ScopedPermission {
 /**
  * A permission can be either simple or scoped.
  */
-sealed trait Permission {
+sealed trait Permission derives CanEqual {
   def resource: String
   def action: String
   def format: String
@@ -217,7 +217,7 @@ object PermissionTemplate {
  * A permission requirement describes what permission is needed
  * and whether it's known statically or depends on runtime values.
  */
-sealed trait PermissionRequirement {
+sealed trait PermissionRequirement derives CanEqual {
   def toPermissions: List[Permission]
 }
 

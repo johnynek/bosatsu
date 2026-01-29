@@ -2063,7 +2063,7 @@ object PythonGen {
               .flatMap(fn)
           case App(NumericExternal((fn, _)), args) =>
             args.toList
-              .traverse(loop(_, slotName))
+              .traverse(loop(_, slotName, inlineSlots))
               .flatMap(fn)
           case App(cons: ConsExpr, args) =>
             args.traverse(loop(_, slotName, inlineSlots)).flatMap { pxs =>

@@ -24,7 +24,7 @@ object PermissionChecker {
   /**
    * Result of a permission check.
    */
-  sealed trait CheckResult {
+  sealed trait CheckResult derives CanEqual {
     def isAllowed: Boolean
     def isDenied: Boolean = !isAllowed
   }
