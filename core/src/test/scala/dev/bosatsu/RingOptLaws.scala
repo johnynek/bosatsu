@@ -66,8 +66,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         )
 
         val normAdd = (add: Expr[A]).basicNorm
-        val exprEq = cats.Eq.fromUniversalEquals[Expr[A]]
-        if (!exprEq.eqv(normAdd, add)) (normAdd #:: tail)
+        if (normAdd =!= add) (normAdd #:: tail)
         else tail
 
       case mult @ Mult(a, b) =>
@@ -81,8 +80,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             Nil
         )
         val normMult = (mult: Expr[A]).basicNorm
-        val exprEq = cats.Eq.fromUniversalEquals[Expr[A]]
-        if (!exprEq.eqv(normMult, mult)) (normMult #:: tail)
+        if (normMult =!= mult) (normMult #:: tail)
         else tail
     }
 

@@ -451,6 +451,8 @@ sealed abstract class Declaration derives CanEqual {
 }
 
 object Declaration {
+  implicit val eqDeclaration: cats.Eq[Declaration] =
+    cats.Eq.fromUniversalEquals
   implicit val document: Document[Declaration] =
     Document.instance[Declaration](_.toDoc)
   implicit val hasRegion: HasRegion[Declaration] =

@@ -57,13 +57,13 @@ object Memoize {
   /** This memoizes using a hash map in a threadsafe manner it may loop forever
     * and stack overflow if you don't have a DAG
     */
-  def memoizeDagHashedConcurrent[A, B](fn: (A, A => B) => B): A => B = {
+  def memoizeDagHashedConcurrent[A, B <: AnyRef](fn: (A, A => B) => B): A => B = {
     val cache: ConcurrentHashMap[A, B] = new ConcurrentHashMap[A, B]()
 
     new Function[A, B] { self =>
       def apply(a: A) =
         val cached = cache.get(a)
-        if (cached.asInstanceOf[AnyRef] eq null) {
+        if (cached eq null) {
           // if this function is circular fn will loop here blowing
           // the stack
           val res = fn(a, self)

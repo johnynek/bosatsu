@@ -67,7 +67,7 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
-  def normalizeAll[A, V](
+  def normalizeAll[A: Eq, V](
       pack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[A])],
       typeEnv: TypeEnv[V]
@@ -107,7 +107,7 @@ object TypedExprNormalization {
 
   // if you have made one step of progress, use this to recurse
   // so we don't throw away if we don't progress more
-  private def normalize1[A, V](
+  private def normalize1[A: Eq, V](
       namerec: Option[Bindable],
       te: TypedExpr[A],
       scope: Scope[A],
@@ -140,13 +140,12 @@ object TypedExprNormalization {
 
   /** if the te is not in normal form, transform it into normal form
     */
-  private def normalizeLetOpt[A, V](
+  private def normalizeLetOpt[A: Eq, V](
       namerec: Option[Bindable],
       te: TypedExpr[A],
       scope: Scope[A],
       typeEnv: TypeEnv[V]
   )(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
-    given Eq[A] = Eq.fromUniversalEquals
 
     val kindOf: Type => Option[Kind] =
       Type.kindOfOption { case const @ Type.TyConst(_) =>
@@ -511,7 +510,7 @@ object TypedExprNormalization {
     }
   }
 
-  def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
+  def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] =
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
 
   private object Impl {
@@ -730,10 +729,10 @@ object TypedExprNormalization {
     type Pat = Pattern[(PackageName, Constructor), Type]
     type Branch[A] = (Pat, TypedExpr[A])
 
-    def maybeEvalMatch[A](
+    def maybeEvalMatch[A: Eq](
         m: Match[? <: A],
         scope: Scope[A]
-    )(using Eq[A]): Option[TypedExpr[A]] = {
+    ): Option[TypedExpr[A]] = {
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length

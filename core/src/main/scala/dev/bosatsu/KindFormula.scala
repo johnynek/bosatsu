@@ -65,7 +65,7 @@ object KindFormula {
 
     given cats.Eq[Sat] = cats.Eq.fromUniversalEquals
 
-    def apply(bool: Boolean): Sat =
+    inline def apply(bool: Boolean): Sat =
       if (bool) Yes else No
   }
 

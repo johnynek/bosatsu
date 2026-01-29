@@ -11,6 +11,12 @@ import cats.implicits._
 import Identifier.Constructor
 
 class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
+  private given Eq[Package.Interface] =
+    // Safe: Package.Interface is immutable and uses structural equals.
+    Eq.fromUniversalEquals
+  private given Eq[Package.Typed[Unit]] =
+    // Safe: Package.Typed[Unit] is immutable and uses structural equals.
+    Eq.fromUniversalEquals
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 100 else 10
@@ -82,7 +88,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
         pats = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
         res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
       } yield res
-    }(using Eq.fromUniversalEquals)
+    }
 
     forAll(Generators.genCompiledPattern(5))(testFn)
   }
@@ -101,7 +107,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
             _.withTypes(tps).withPatterns(patTab)
           )
         } yield res
-    }(using Eq.fromUniversalEquals)
+    }
 
     forAll(
       Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
@@ -114,7 +120,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
         iface,
         ProtoConverter.interfaceToProto,
         ProtoConverter.interfaceFromProto
-      )(using Eq.fromUniversalEquals)
+      )
     }
   }
 
@@ -123,8 +129,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
         // we are only sorting the left because we expect the right
         // to come out sorted
-        Eq.fromUniversalEquals[List[Package.Interface]]
-          .eqv(l.sortBy(_.name.asString), r)
+        l.sortBy(_.name.asString) === r
     }
 
   test("we can roundtrip interfaces through proto") {
@@ -177,7 +182,7 @@ bar = 1
           },
           ser,
           deser
-        )(using Eq.fromUniversalEquals)
+        )
     )
   }
 
@@ -191,7 +196,7 @@ bar = 1
         }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
-      law(packList, ser, deser)(using Eq.fromUniversalEquals)
+      law(packList, ser, deser)
     }
   }
 

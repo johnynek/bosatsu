@@ -1,6 +1,7 @@
 package dev.bosatsu.codegen.python
 
 import cats.{Eq, Show}
+import cats.syntax.all._
 import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
 import dev.bosatsu.{PackageName, Par, TestUtils}
@@ -40,8 +41,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   final def foreachList(lst: PyObject)(fn: PyObject => Unit): Unit = {
     val tup = lst.asInstanceOf[PyTuple]
     val ary = tup.getArray()
-    val objEq = Eq.fromUniversalEquals[PyObject]
-    if (objEq.eqv(ary(0), zero)) () // empty list
+    given Eq[PyObject] =
+      // Safe: Jython's PyObject equality is well-defined for these tests.
+      Eq.fromUniversalEquals
+    if (ary(0) === zero) () // empty list
     else {
       fn(ary(1))
       foreachList(ary(2))(fn)
@@ -53,13 +56,15 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   //   TestSuite(name: String, tests: List[Test])
   def checkTest(testValue: PyObject, prefix: String): Unit = {
     val tup = testValue.asInstanceOf[PyTuple]
-    val objEq = Eq.fromUniversalEquals[PyObject]
+    given Eq[PyObject] =
+      // Safe: Jython's PyObject equality is well-defined for these tests.
+      Eq.fromUniversalEquals
     tup.getArray()(0) match {
-      case x if objEq.eqv(x, zero) =>
+      case x if x === zero =>
         // True == one in our encoding
         assertEquals(tup.getArray()(1), one, prefix + "/" + tup.getArray()(2).toString)
         ()
-      case x if objEq.eqv(x, one) =>
+      case x if x === one =>
         val suite = tup.getArray()(1).toString
         foreachList(tup.getArray()(2)) { t =>
           checkTest(t, prefix + "/" + suite); ()

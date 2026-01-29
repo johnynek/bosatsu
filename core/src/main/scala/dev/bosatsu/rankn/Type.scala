@@ -1175,7 +1175,7 @@ object Type {
       }
 
     implicit val orderVar: Order[Var] =
-      Order.fromOrdering(varOrdering)
+      Order.fromOrdering(using varOrdering)
   }
 
   val allBinders: LazyList[Var.Bound] = {

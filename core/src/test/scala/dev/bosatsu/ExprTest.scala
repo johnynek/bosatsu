@@ -1,6 +1,8 @@
 package dev.bosatsu
 
+import cats.Eq
 import cats.data.NonEmptyList
+import cats.syntax.all._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 
@@ -62,8 +64,10 @@ class ExprTest extends munit.ScalaCheckSuite {
         val (lets, res) = let.flatten
         assertEquals(Expr.lets(lets.toList, res), let)
 
-        val exprEq = cats.Eq.fromUniversalEquals[Expr[Int]]
-        if (exprEq.eqv(i, res)) {
+        given Eq[Expr[Int]] =
+          // Safe: Expr is an immutable AST with structural equals.
+          Eq.fromUniversalEquals
+        if (i === res) {
           assertEquals(lets.length, 1)
           assertEquals(lets.head, (n, r, b, tag))
         } else {

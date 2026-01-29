@@ -305,7 +305,7 @@ object Pattern {
   implicit def patternOrder[N: Order, T: Order]: Order[Pattern[N, T]] = {
     val ordN: Ordering[N] = Order[N].toOrdering
     val ordT: Ordering[T] = Order[T].toOrdering
-    Order.fromOrdering(patternOrdering(using ordN, ordT))
+    Order.fromOrdering(using patternOrdering(using ordN, ordT))
   }
 
   /** Represents the different patterns that are all for structs (2, 3) Foo(2,

@@ -88,9 +88,12 @@ abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>
     def <:>(that: S): Rel = {
       val res = relatable.relate(self, that)
       if (strictEquals) {
-        val eqS = Eq.fromUniversalEquals[S]
+        given Eq[S] =
+          // Safe: strictEquals checks runtime equality for generated values.
+          Eq.fromUniversalEquals
+        val eqS = cats.syntax.eq.catsSyntaxEq(self)
         assertEquals(
-          eqS.eqv(self, that),
+          eqS.===(that),
           res == Same,
           s"self = $self, that = $that"
         )
@@ -213,9 +216,12 @@ abstract class GenRelLaws extends GenIntersectionRelLaws { laws =>
     def <:>(that: S): Rel = {
       val res = relatable.relate(self, that)
       if (strictEquals) {
-        val eqS = Eq.fromUniversalEquals[S]
+        given Eq[S] =
+          // Safe: strictEquals checks runtime equality for generated values.
+          Eq.fromUniversalEquals
+        val eqS = cats.syntax.eq.catsSyntaxEq(self)
         assertEquals(
-          eqS.eqv(self, that),
+          eqS.===(that),
           res == Same,
           s"self = $self, that = $that"
         )
@@ -360,10 +366,13 @@ abstract class SetGenRelLaws[A](implicit
     def deunion(a: S): Either[(S, S) => Rel.SuperOrSame, (S, S)] =
       if (a.size > 1) Right((Set(a.head), a.tail))
       else
-        Left((s1, s2) =>
-          if (Eq.fromUniversalEquals[S].eqv(a, (s1 | s2))) Rel.Same
+        Left((s1, s2) => {
+          given Eq[S] =
+            // Safe: Set unions are compared via structural equality here.
+            Eq.fromUniversalEquals
+          if (cats.syntax.eq.catsSyntaxEq(a).===(s1 | s2)) Rel.Same
           else Rel.Super
-        )
+        })
 
     def cheapUnion(head: S, tail: List[S]): S = tail.foldLeft(head)(_ | _)
 

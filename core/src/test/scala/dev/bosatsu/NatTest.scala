@@ -1,5 +1,7 @@
 package dev.bosatsu
 
+import cats.Eq
+import cats.syntax.all._
 import org.scalacheck.{Gen, Prop}
 
 import Prop.forAll
@@ -145,8 +147,10 @@ class NatTest extends munit.ScalaCheckSuite {
 
   property("x.dec.inc == x || x.isZero") {
     forAll(genNat) { n =>
-      val natEq = cats.Eq.fromUniversalEquals[Nat]
-      assert(natEq.eqv(n.dec.inc, n) || n.isZero)
+      given Eq[Nat] =
+        // Safe: Nat is an immutable value type; equals matches numeric value.
+        Eq.fromUniversalEquals
+      assert((n.dec.inc === n) || n.isZero)
     }
   }
 

@@ -1,5 +1,7 @@
 package dev.bosatsu
 
+import cats.Eq
+import cats.syntax.all._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 import Value._
@@ -19,8 +21,10 @@ class ValueTest extends munit.ScalaCheckSuite {
 
   test("Value.equals is false if the class isn't right") {
     forAll(genValue, genValue) { (v1, v2) =>
-      val classEq = cats.Eq.fromUniversalEquals[Class[?]]
-      if (!classEq.eqv(v1.getClass, v2.getClass)) assert(v1 != v2)
+      given Eq[Class[? <: Value]] =
+        // Safe: Class equality is reference identity.
+        Eq.fromUniversalEquals
+      if (v1.getClass =!= v2.getClass) assert(v1 != v2)
       else if (v1 == v2) assertEquals(v1.getClass, v2.getClass)
     }
   }
