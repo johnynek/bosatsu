@@ -67,7 +67,7 @@ class TreeTest extends munit.ScalaCheckSuite {
     forAll(dagFn) { case (start, nfn) =>
       // all the cycles should be the same
       val cycles = Paths.allCycle0(start)(nfn).map(_.sorted)
-      assert(cycles.tail.forall(_ == cycles.head))
+      assert(cycles.tail.forall(_ === cycles.head))
 
       def reachable(s: Set[Int]): Set[Int] = {
         val s1 = s ++ s.iterator.flatMap(nfn)

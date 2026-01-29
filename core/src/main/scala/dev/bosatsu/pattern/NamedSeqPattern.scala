@@ -2,7 +2,7 @@ package dev.bosatsu.pattern
 
 import cats.Monoid
 
-sealed trait NamedSeqPattern[+A] {
+sealed trait NamedSeqPattern[+A] derives CanEqual {
   import NamedSeqPattern._
   import SeqPart._
 
@@ -113,7 +113,7 @@ object NamedSeqPattern {
           toMachine(l, toMachine(r, right))
       }
 
-    sealed trait Machine[+A]
+    sealed trait Machine[+A] derives CanEqual
     case class StartName(name: String) extends Machine[Nothing]
     case object EndName extends Machine[Nothing]
     case class MSeqPart[A](part: SeqPart[A]) extends Machine[A]

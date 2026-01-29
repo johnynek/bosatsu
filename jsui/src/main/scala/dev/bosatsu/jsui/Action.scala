@@ -2,10 +2,10 @@ package dev.bosatsu.jsui
 
 import scala.concurrent.duration.Duration
 
-sealed abstract class Action
+sealed abstract class Action derives CanEqual
 
 object Action {
-  sealed abstract class Cmd
+  sealed abstract class Cmd derives CanEqual
   object Cmd {
     case object Eval extends Cmd
     case object Test extends Cmd

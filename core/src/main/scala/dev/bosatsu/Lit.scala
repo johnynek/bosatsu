@@ -3,6 +3,7 @@ package dev.bosatsu
 import org.typelevel.paiges.{Document, Doc}
 import java.math.BigInteger
 import cats.parse.{Parser => P}
+import cats.Eq
 
 import Parser.escape
 
@@ -18,6 +19,8 @@ sealed abstract class Lit {
   def unboxToAny: Any
 }
 object Lit {
+  implicit val eqLit: Eq[Lit] =
+    Eq.fromUniversalEquals
   case class Integer(toBigInteger: BigInteger) extends Lit {
     def unboxToAny: Any = toBigInteger
   }

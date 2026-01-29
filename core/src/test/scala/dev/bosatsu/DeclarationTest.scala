@@ -86,7 +86,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
       if (frees(b)) assert(true)
       else {
         val subsD0 = Declaration.substitute(b, d1, d0)
-        if (subsD0 == Some(d0)) assert(true)
+        if (subsD0.contains(d0)) assert(true)
         else {
           subsD0 match {
             case None      => assert(false, "substitute failed")

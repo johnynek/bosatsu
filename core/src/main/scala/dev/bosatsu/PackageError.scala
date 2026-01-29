@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
+import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
 
 import rankn._
@@ -117,7 +118,7 @@ object PackageError {
       val tpeMap = showTypes(in, exType :: pt :: Nil)
       val first =
         s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType).render(80)}"
-      if (exType == pt) {
+      if (exType == (pt: Type)) {
         s"$first has an unexported (private) type."
       } else {
         s"$first references an unexported (private) type ${tpeMap(pt).render(80)}."
@@ -274,7 +275,7 @@ object PackageError {
         val (teMessage, region) = tpeErr match {
           case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
             val context0 =
-              if (r0 == r1)
+              if (r0 === r1)
                 Doc.space // sometimes the region of the error is the same on right and left
               else {
                 val m = lm
@@ -341,7 +342,7 @@ object PackageError {
             )
           case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
             val context0 =
-              if (r0 == r1)
+              if (r0 === r1)
                 Doc.space // sometimes the region of the error is the same on right and left
               else {
                 val m = lm
@@ -444,7 +445,7 @@ object PackageError {
                   Doc.str(metaR)
                 ) // we should highlight the whole region
             val context1 =
-              if (metaR != rightR) {
+              if (metaR =!= rightR) {
                 Doc.text(" at: ") + Doc.hardLine +
                   lm.showRegion(rightR, 2, errColor)
                     .getOrElse(
@@ -476,7 +477,7 @@ object PackageError {
                   Doc.str(metaR)
                 ) // we should highlight the whole region
             val context1 =
-              if (metaR != rightR) {
+              if (metaR =!= rightR) {
                 Doc.text(" at: ") + Doc.hardLine +
                   lm.showRegion(rightR, 2, errColor)
                     .getOrElse(
@@ -515,7 +516,7 @@ object PackageError {
             val context0 =
               lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
             val context1 =
-              if (leftR != rightR) {
+              if (leftR =!= rightR) {
                 Doc.text(" at: ") + Doc.hardLine +
                   lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
               } else {
@@ -859,7 +860,7 @@ object PackageError {
             case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
               val typeDoc =
-                if (outer != tyApp)
+                if (outer != (tyApp: Type))
                   (tmap(outer) + Doc.text(" at application ") + tmap(tyApp))
                 else tmap(outer)
 

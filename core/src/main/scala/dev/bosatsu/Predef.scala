@@ -132,7 +132,7 @@ object PredefImpl {
 
   def eq_Int(a: Value, b: Value): Value =
     // since we have already typechecked, standard equals works
-    if (a.equals(b)) True else False
+    if (a == b) True else False
 
   def cmp_Int(a: Value, b: Value): Value =
     Comparison.fromInt(i(a).compareTo(i(b)))

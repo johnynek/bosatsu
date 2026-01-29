@@ -324,7 +324,8 @@ object ApiDiff {
                   ) :: Nil)
 
               val fnDiff =
-                if (oldCfn == newCfn) Nil
+                // ConstructorFn is a case class; equals is structural and safe here (no Eq instance in scope).
+                if (oldCfn === newCfn) Nil
                 else {
                   // there is some difference
                   oldCfn.args

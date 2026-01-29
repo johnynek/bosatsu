@@ -1,7 +1,9 @@
 package dev.bosatsu.graph
 
+import cats.{Eq, Order}
 import cats.data.NonEmptyList
-import scala.collection.immutable.SortedSet
+import cats.syntax.eq._
+import scala.collection.immutable.{SortedMap, SortedSet}
 import scala.collection.mutable.{Map => MMap}
 import dev.bosatsu.ListOrdering
 
@@ -43,9 +45,9 @@ sealed trait Dag[A] {
     that match {
       case thatDag: Dag[?] =>
         def eqDag[B](bs: Dag[B]): Boolean =
-          (nodes == bs.nodes) && {
+          nodes.equals(bs.nodes) && {
             nodes.iterator.zip(bs.nodes.iterator).forall { case (a, b) =>
-              deps(a) == bs.deps(b)
+              deps(a).equals(bs.deps(b))
             }
           }
         eqDag(thatDag)
@@ -74,8 +76,16 @@ object Dag {
       nfn: A => IterableOnce[A]
   ): (A => Option[SortedSet[A]], Dag[SortedSet[A]]) = {
 
-    def allReachable(nfn: A => IterableOnce[A]): Map[A, SortedSet[A]] = {
-      def step(m: Map[A, SortedSet[A]]): Map[A, SortedSet[A]] =
+    def allReachable(
+        nfn: A => IterableOnce[A]
+    ): SortedMap[A, SortedSet[A]] = {
+      given Order[A] = Order.fromOrdering(using summon[Ordering[A]])
+      given Eq[SortedSet[A]] = Eq.by(_.toList)
+      given Eq[SortedMap[A, SortedSet[A]]] = Eq.by(_.toList)
+
+      def step(
+          m: SortedMap[A, SortedSet[A]]
+      ): SortedMap[A, SortedSet[A]] =
         m.iterator
           .map { case (a, current) =>
             val next = nfn(a).iterator.foldLeft(SortedSet.empty[A]) { (s, a) =>
@@ -83,16 +93,20 @@ object Dag {
             }
             a -> (current | next)
           }
-          .to(Map)
+          .to(SortedMap)
 
       @annotation.tailrec
-      def loop(m: Map[A, SortedSet[A]]): Map[A, SortedSet[A]] = {
+      def loop(m: SortedMap[A, SortedSet[A]]): SortedMap[A, SortedSet[A]] = {
         val m1 = step(m)
-        if (m1 == m) m
+        if (m1 === m) m
         else loop(m1)
       }
 
-      loop(nodes.iterator.map(a => (a, SortedSet.empty[A] + a)).to(Map))
+      loop(
+        nodes.iterator
+          .map(a => (a, SortedSet.empty[A] + a))
+          .to(SortedMap)
+      )
     }
 
     // two nodes are joined into one cluster if a can reach b and vice-versa
@@ -110,7 +124,7 @@ object Dag {
       }
     }
 
-    val clusterMap: Map[A, SortedSet[A]] = allReachable(internalNfn)
+    val clusterMap: SortedMap[A, SortedSet[A]] = allReachable(internalNfn)
 
     implicit val ordSortedSet: Ordering[SortedSet[A]] =
       ListOrdering.byIterator[SortedSet[A], A]

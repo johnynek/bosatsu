@@ -8,7 +8,7 @@ import scala.collection.immutable.SortedMap
   * hurting, we could replace Value with a less structured type and put all the
   * reflection into unapply calls but keep most of the API
   */
-sealed abstract class Value {
+sealed abstract class Value derives CanEqual {
   import Value._
 
   def asFn: NonEmptyList[Value] => Value =

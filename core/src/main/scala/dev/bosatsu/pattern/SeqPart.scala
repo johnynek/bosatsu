@@ -2,7 +2,7 @@ package dev.bosatsu.pattern
 
 import dev.bosatsu.set.{Rel, SetOps}
 
-sealed trait SeqPart[+Elem] {
+sealed trait SeqPart[+Elem] derives CanEqual {
   def notWild: Boolean = false
   def isWild: Boolean = !notWild
 }

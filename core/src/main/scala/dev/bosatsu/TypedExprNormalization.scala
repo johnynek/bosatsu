@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Foldable
+import cats.{Eq, Foldable}
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.pattern.StrPart
@@ -67,7 +67,7 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
-  def normalizeAll[A, V](
+  def normalizeAll[A: Eq, V](
       pack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[A])],
       typeEnv: TypeEnv[V]
@@ -107,7 +107,7 @@ object TypedExprNormalization {
 
   // if you have made one step of progress, use this to recurse
   // so we don't throw away if we don't progress more
-  private def normalize1[A, V](
+  private def normalize1[A: Eq, V](
       namerec: Option[Bindable],
       te: TypedExpr[A],
       scope: Scope[A],
@@ -140,12 +140,13 @@ object TypedExprNormalization {
 
   /** if the te is not in normal form, transform it into normal form
     */
-  private def normalizeLetOpt[A, V](
+  private def normalizeLetOpt[A: Eq, V](
       namerec: Option[Bindable],
       te: TypedExpr[A],
       scope: Scope[A],
       typeEnv: TypeEnv[V]
   )(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
+
     val kindOf: Type => Option[Kind] =
       Type.kindOfOption { case const @ Type.TyConst(_) =>
         typeEnv.getType(const).map(_.kindOf)
@@ -161,7 +162,7 @@ object TypedExprNormalization {
       case Generic(quant, in) =>
         val sin = normalize1(namerec, in, scope, typeEnv).get
         val g1 = TypedExpr.normalizeQuantVars(quant, sin)
-        if (g1 == te) None
+        if (g1 === te) None
         else Some(g1)
       case Annotation(term, tpe) =>
         // if we annotate twice, we can ignore the inner annotation
@@ -175,7 +176,7 @@ object TypedExprNormalization {
             val inst = TypedExpr.instantiateTo(gen, rho, kindOf)
             // we compare thes to te because instantiate
             // can add an Annotation back
-            if (inst != te) Some(inst)
+            if ((inst: TypedExpr[A]) =!= te) Some(inst)
             else None
           case (notSameTpe, _) =>
             val nt = Type.normalize(tpe)
@@ -217,13 +218,13 @@ object TypedExprNormalization {
 
           // assuming b is bound below lamArgs, return true if it doesn't shadow an arg
           def doesntShadow(b: Bindable): Boolean =
-            !lamArgs.exists { case (n, _) => n === b }
+            !lamArgs.exists { case (n, _) => n == b }
 
           def matchesArgs(nel: NonEmptyList[TypedExpr[A]]): Boolean =
             (nel.length == lamArgs.length) && lamArgs.iterator
               .zip(nel.iterator)
               .forall {
-                case ((lamN, _), Local(argN, _, _)) => lamN === argN
+                case ((lamN, _), Local(argN, _, _)) => lamN == argN
                 case _                              => false
               }
 
@@ -398,7 +399,7 @@ object TypedExprNormalization {
                 }
                 normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
               case _ =>
-                val cnt = in1.freeVarsDup.count(_ === arg)
+                val cnt = in1.freeVarsDup.count(_ == arg)
                 if (cnt > 0) {
                   // the arg is needed
                   val isSimp = Impl.isSimple(ex1, lambdaSimple = true)
@@ -509,7 +510,7 @@ object TypedExprNormalization {
     }
   }
 
-  def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
+  def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] =
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
 
   private object Impl {
@@ -524,7 +525,7 @@ object TypedExprNormalization {
           case (None, None)                             => true
           case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
             (r1 == r2) &&
-            (t1.void == t2.void) &&
+            (t1.void === t2.void) &&
             scopeMatches(t1.freeVarsDup.toSet, s1, s2)
           case _ => false
         }
@@ -728,10 +729,10 @@ object TypedExprNormalization {
     type Pat = Pattern[(PackageName, Constructor), Type]
     type Branch[A] = (Pat, TypedExpr[A])
 
-    def maybeEvalMatch[A](
+    def maybeEvalMatch[A: Eq](
         m: Match[? <: A],
         scope: Scope[A]
-    ): Option[TypedExpr[A]] =
+    ): Option[TypedExpr[A]] = {
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length
@@ -749,7 +750,8 @@ object TypedExprNormalization {
           def filterPat(pat: Pat): Option[Option[Pat]] =
             pat match {
               case ps @ Pattern.PositionalStruct((p0, c0), args0) =>
-                if (p0 == p && c0 == c && args0.length == alen) Some(Some(ps))
+                if (p0 == p && c0 == c && args0.length == alen)
+                  Some(Some(ps))
                 else Some(None) // we definitely don't match this branch
               case Pattern.Named(n, p) =>
                 filterPat(p).map { p1 =>
@@ -845,7 +847,7 @@ object TypedExprNormalization {
                 case h :: t =>
                   // more than one branch might match, wait till runtime
                   val m1 = Match(m.arg, NonEmptyList(h, t), m.tag)
-                  if (m1 == m) None
+                  if ((m1: TypedExpr[A]) === m) None
                   else Some(m1)
               }
             }
@@ -863,7 +865,7 @@ object TypedExprNormalization {
                 Some((v, li) :: Nil)
               case Pattern.Annotation(p, _) => makeLet(p)
               case Pattern.Literal(litj)    =>
-                if (li == litj) Some(Nil)
+                if (li === litj) Some(Nil)
                 else None
               case Pattern.Union(h, t) =>
                 (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
@@ -892,6 +894,7 @@ object TypedExprNormalization {
                 }
             }
       }
+    }
 
     sealed abstract class IntAlgebraic[A] {
       lazy val toTypedExpr: TypedExpr[A] = {
@@ -1129,7 +1132,7 @@ object TypedExprNormalization {
           None
         } else {
           val ia1 = toAlg(norm, table)
-          if (ia1.toTypedExpr.void == root.toTypedExpr.void) {
+          if (ia1.toTypedExpr.void === root.toTypedExpr.void) {
             // since the AST of RingOpt isn't the same as TypedExpr
             // we can improve the RingOpt AST but the resulting TypedExpr
             // AST may be exactly the same. Unfortunately, this check

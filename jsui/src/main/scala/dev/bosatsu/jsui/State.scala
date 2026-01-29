@@ -7,7 +7,7 @@ import io.circe.parser.decode
 
 import cats.syntax.all._
 
-sealed trait State
+sealed trait State derives CanEqual
 
 object State {
   sealed trait HasText extends State {

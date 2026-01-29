@@ -24,10 +24,15 @@ import scala.collection.immutable.{LongMap, SortedSet}
 import cats.syntax.all._
 import cats.data.Validated
 
-sealed abstract class KindFormula
+sealed abstract class KindFormula derives CanEqual
 
 object KindFormula {
+  given cats.Eq[KindFormula] = cats.Eq.fromUniversalEquals
+
   case class Var(id: Long)
+  object Var {
+    given cats.Eq[Var] = cats.Eq.fromUniversalEquals
+  }
 
   case class Arg(variance: Var, kind: KindFormula)
 
@@ -52,13 +57,15 @@ object KindFormula {
     }
   }
 
-  sealed abstract class Sat
+  sealed abstract class Sat derives CanEqual
   object Sat {
     case object No extends Sat
     case object Yes extends Sat
     case object Maybe extends Sat
 
-    def apply(bool: Boolean): Sat =
+    given cats.Eq[Sat] = cats.Eq.fromUniversalEquals
+
+    inline def apply(bool: Boolean): Sat =
       if (bool) Yes else No
   }
 
@@ -226,7 +233,7 @@ object KindFormula {
             dt: DefinedType[Kind.Arg],
             tc: rankn.Type.Const
         ) =
-          if (dt.toTypeConst == tc) Some(dt)
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt)
           else None
       }
 
@@ -603,7 +610,7 @@ object KindFormula {
         (left, right) match {
           case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
-            val vs = if (vl != vr) {
+            val vs = if (vl =!= vr) {
               addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
                 addCons(vr, Constraint.UnifyVar(cfn, cfnIdx, tpe, vl))
             } else RefSpace.unit
@@ -631,7 +638,7 @@ object KindFormula {
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             // we know vl + vr == vl
             val vs =
-              if (vl != vr)
+              if (vl =!= vr)
                 addCons(vl, Constraint.VarSubsumes(cfn, cfnIdx, tpe, vr))
               else RefSpace.unit
 
@@ -676,7 +683,7 @@ object KindFormula {
               // $COVERAGE-ON$
             }
           case rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) === dt.toTypeTyConst) RefSpace.pure(thisKind)
+            if ((tpe: rankn.Type) == dt.toTypeTyConst) RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
               constFormulas.get.flatMap { consts =>
@@ -811,7 +818,7 @@ object KindFormula {
               // $COVERAGE-ON$
             }
           case tpe @ rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) === dt.toTypeTyConst) {
+            if ((tpe: rankn.Type) == dt.toTypeTyConst) {
               addCons(view, Constraint.RecursiveView(cfn, idx)) *>
                 unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
             } else {
