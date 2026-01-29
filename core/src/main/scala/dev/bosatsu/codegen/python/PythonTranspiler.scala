@@ -134,8 +134,7 @@ case object PythonTranspiler extends Transpiler {
             val initPaths = paths.iterator.flatMap { case (path, _) =>
               val parts = path.toList
               (1 until parts.length).iterator.map { i =>
-                val initPy = parts.take(i) :+ "__init__.py"
-                NonEmptyList.fromListUnsafe(initPy)
+                NonEmptyList.ofInitLast(parts.take(i), "__init__.py")
               }
             }.toSet
 
