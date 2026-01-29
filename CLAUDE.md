@@ -1,5 +1,15 @@
 # Bosatsu Project Guidelines
 
+## Git Workflow
+
+### PRs Only Against snoble Branches
+
+**NEVER open PRs against johnynek/bosatsu (upstream).** All pull requests must be opened against snoble/bosatsu branches only.
+
+- This is a fork of johnynek/bosatsu
+- Work happens in snoble/bosatsu
+- PRs go to snoble branches, not upstream
+
 ## Core Principles
 
 ### Never Treat Symptoms with String Replacement
