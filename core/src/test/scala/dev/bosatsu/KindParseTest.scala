@@ -410,7 +410,11 @@ class KindParseTest extends ParserTestBase {
       val res = Kind.uninterleave(l)
       val high = (res >>> 32).toInt
       val low = (res & 0xffffffffL).toInt
-      assertEquals(Kind.interleave(high, low), l, s"res = $res low = $low, high = $high")
+      assertEquals(
+        Kind.interleave(high, low),
+        l,
+        s"res = $res low = $low, high = $high"
+      )
     }
 
     forAll { (low: Int, high: Int) =>
@@ -418,7 +422,11 @@ class KindParseTest extends ParserTestBase {
       val res = Kind.uninterleave(long)
       val high1 = (res >>> 32).toInt
       val low1 = (res & 0xffffffffL).toInt
-      assertEquals((high, low), (high1, low1), s"interleave($low, $high) = $long uninterleave($long) = $res")
+      assertEquals(
+        (high, low),
+        (high1, low1),
+        s"interleave($low, $high) = $long uninterleave($long) = $res"
+      )
     }
   }
 }

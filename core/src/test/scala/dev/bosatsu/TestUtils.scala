@@ -183,7 +183,11 @@ object TestUtils {
     ) match {
       case Right(Output.EvaluationResult(got, _, gotDoc)) =>
         val gv = got.value
-        assertEquals(gv, expected, s"${gotDoc.value.render(80)}\n\n$gv != $expected")
+        assertEquals(
+          gv,
+          expected,
+          s"${gotDoc.value.render(80)}\n\n$gv != $expected"
+        )
       case Right(other) =>
         fail(s"got an unexpected success: $other")
       case Left(err) =>
@@ -232,7 +236,11 @@ object TestUtils {
       case Right(Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
-            assertEquals(t.assertions, assertionCount, s"${t.assertions} != $assertionCount")
+            assertEquals(
+              t.assertions,
+              assertionCount,
+              s"${t.assertions} != $assertionCount"
+            )
             val Test.Report(_, failcount, message) =
               Test.report(t, LocationMap.Colorize.None)
             assertEquals(t.failures.map(_.assertions).getOrElse(0), failcount)

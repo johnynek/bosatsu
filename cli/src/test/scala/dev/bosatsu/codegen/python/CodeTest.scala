@@ -238,10 +238,13 @@ class CodeTest extends munit.ScalaCheckSuite {
     val ifElse = IfElse(NonEmptyList.of((Ident("a"), Ident("b"))), Ident("c"))
     val stmt = addAssign(Ident("bar"), ifElse)
 
-    assertEquals(toDoc(stmt).renderTrim(80), """if a:
+    assertEquals(
+      toDoc(stmt).renderTrim(80),
+      """if a:
     bar = b
 else:
-    bar = c""")
+    bar = c"""
+    )
   }
 
   test("test some Operator examples") {
@@ -344,24 +347,30 @@ else:
         op2,
         Code.fromLong(c)
       )
-      assertEquals(left.simplify, Code.PyInt(
+      assertEquals(
+        left.simplify,
+        Code.PyInt(
           op2(
             op1(BigInteger.valueOf(a), BigInteger.valueOf(b)),
             BigInteger.valueOf(c)
           )
-        ))
+        )
+      )
 
       val right = Code.Op(
         Code.fromLong(a),
         op1,
         Code.Op(Code.fromLong(b), op2, Code.fromLong(c))
       )
-      assertEquals(right.simplify, Code.PyInt(
+      assertEquals(
+        right.simplify,
+        Code.PyInt(
           op1(
             BigInteger.valueOf(a),
             op2(BigInteger.valueOf(b), BigInteger.valueOf(c))
           )
-        ))
+        )
+      )
     }
   }
 
@@ -410,9 +419,12 @@ else:
       assertEquals(asPyInt(op.evalPlus(Code.fromInt(0))), runAll(op))
       assertEquals(asPyInt(Code.fromInt(0).evalPlus(op)), runAll(op))
       assertEquals(asPyInt(op.evalMinus(Code.fromInt(0))), runAll(op))
-      assertEquals(asPyInt(Code.fromInt(0).evalMinus(op)), runAll(
+      assertEquals(
+        asPyInt(Code.fromInt(0).evalMinus(op)),
+        runAll(
           op.evalTimes(Code.fromInt(-1))
-        ))
+        )
+      )
       assertEquals(asPyInt(Code.fromInt(1).evalTimes(op)), runAll(op))
     }
   }
@@ -564,9 +576,12 @@ else:
     val and = left.evalAnd(right)
 
     assertEquals(Code.toDoc(and).renderTrim(80), "(a == b) and (b == c)")
-    assertEquals(Code
+    assertEquals(
+      Code
         .toDoc(Code.Ident("z").evalAnd(and))
-        .renderTrim(80), "z and (a == b) and (b == c)")
+        .renderTrim(80),
+      "z and (a == b) and (b == c)"
+    )
   }
 
   test("simplify applies lambdas") {
@@ -585,9 +600,12 @@ else:
       } yield LambdaArgs(Code.Lambda(largs, result), args)
 
     forAll(genArgs) { case LambdaArgs(lam, arg) =>
-      assertEquals(lam(arg*).simplify, Code
+      assertEquals(
+        lam(arg*).simplify,
+        Code
           .substitute(lam.args.zip(arg).toMap, lam.result)
-          .simplify)
+          .simplify
+      )
     }
   }
 

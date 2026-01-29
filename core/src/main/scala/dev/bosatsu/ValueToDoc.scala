@@ -160,8 +160,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               val fullPath = tpe :: revPath
 
               val dtOpt =
-                Type.rootConst(tpe).flatMap {
-                  case Type.TyConst(const) => getDefinedType(const)
+                Type.rootConst(tpe).flatMap { case Type.TyConst(const) =>
+                  getDefinedType(const)
                 }
 
               dtOpt match {

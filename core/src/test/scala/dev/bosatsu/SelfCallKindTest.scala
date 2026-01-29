@@ -64,7 +64,11 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         case T: for_all(tail, fn)
         case F: F
 """) { te =>
-      assertEquals(SelfCallKind(Name("for_all"), te), SelfCallKind.TailCall, s"${te.repr}")
+      assertEquals(
+        SelfCallKind(Name("for_all"), te),
+        SelfCallKind.TailCall,
+        s"${te.repr}"
+      )
     }
   }
 

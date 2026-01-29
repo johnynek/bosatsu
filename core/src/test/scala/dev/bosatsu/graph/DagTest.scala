@@ -96,9 +96,11 @@ class DagTest extends munit.ScalaCheckSuite {
       implicit val setOrd: Ordering[SortedSet[Int]] =
         ListOrdering.byIterator[SortedSet[Int], Int]
       val sortRes @ Toposort.Success(_) =
-        Toposort.sort(dag.nodes) { n =>
-          dag.deps(n).toList
-        }.runtimeChecked
+        Toposort
+          .sort(dag.nodes) { n =>
+            dag.deps(n).toList
+          }
+          .runtimeChecked
       assert(sortRes.isSuccess)
       sortRes.layers.zipWithIndex.foreach { case (nodes, layer) =>
         nodes.toList.foreach { n =>

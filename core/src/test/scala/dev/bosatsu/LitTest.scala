@@ -58,7 +58,10 @@ class LitTest extends munit.ScalaCheckSuite {
 
   test("we can parse from document") {
     forAll(genLit) { l =>
-      assertEquals(Lit.parser.parseAll(Document[Lit].document(l).render(80)), Right(l))
+      assertEquals(
+        Lit.parser.parseAll(Document[Lit].document(l).render(80)),
+        Right(l)
+      )
     }
   }
 }

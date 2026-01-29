@@ -25,3 +25,6 @@ a2711a53e680c773a3a6bc02db307e61c920a805
 
 # rename everything to dev.bosatsu
 356251246ee24693703a640050a9b4c50184ce59
+
+# Scala Steward: Reformat with scalafmt 3.10.5
+5f67400006708b8950bd5a63982084b391fc7e75

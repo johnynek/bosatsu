@@ -447,7 +447,9 @@ object Generators {
     for {
       args <- nonEmpty(bindIdentGen)
       body <- bodyGen
-    } yield Declaration.Lambda(args.map(Pattern.Var(_)), body)(using emptyRegion)
+    } yield Declaration.Lambda(args.map(Pattern.Var(_)), body)(using
+      emptyRegion
+    )
 
   def optIndent[A](genA: Gen[A]): Gen[OptIndent[A]] = {
     val indentation = Gen.choose(1, 10)
@@ -981,8 +983,8 @@ object Generators {
         case Var(_)            => LazyList.empty
         case StringDecl(parts) =>
           parts.toList.to(LazyList).map {
-            case StringDecl.StrExpr(nb)  => nb
-            case StringDecl.CharExpr(nb) => nb
+            case StringDecl.StrExpr(nb)     => nb
+            case StringDecl.CharExpr(nb)    => nb
             case StringDecl.Literal(r, str) =>
               Literal(Lit.Str(str))(using r)
           }
@@ -999,7 +1001,7 @@ object Generators {
             args.head match {
               case RecordArg.Pair(n, d) =>
                 LazyList(Var(n)(using emptyRegion), d)
-              case RecordArg.Simple(n)  =>
+              case RecordArg.Simple(n) =>
                 LazyList(Var(n)(using emptyRegion))
             }
 

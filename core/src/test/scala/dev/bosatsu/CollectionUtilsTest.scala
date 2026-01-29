@@ -10,7 +10,10 @@ class CollectionUtilsTest extends munit.ScalaCheckSuite {
 
   test("listToUnique works for maps converted to lists") {
     forAll { (m: Map[Int, Int]) =>
-      assertEquals(CollectionUtils.listToUnique(m.toList)(_._1, _._2, "").get, m)
+      assertEquals(
+        CollectionUtils.listToUnique(m.toList)(_._1, _._2, "").get,
+        m
+      )
     }
   }
 }

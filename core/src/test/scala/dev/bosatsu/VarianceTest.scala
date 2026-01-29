@@ -27,7 +27,10 @@ class VarianceTest extends munit.ScalaCheckSuite {
 
   test("variance combine is associative") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
-      assertEquals(V.combine(v1, V.combine(v2, v3)), V.combine(V.combine(v1, v2), v3))
+      assertEquals(
+        V.combine(v1, V.combine(v2, v3)),
+        V.combine(V.combine(v1, v2), v3)
+      )
     }
   }
 
@@ -113,10 +116,13 @@ class VarianceTest extends munit.ScalaCheckSuite {
   }
 
   test("covariant combines to get either covariant or invariant") {
-    assertEquals(V.combine(
+    assertEquals(
+      V.combine(
         Variance.Covariant,
         Variance.Contravariant
-      ), Variance.Invariant)
+      ),
+      Variance.Invariant
+    )
     val results = Set(Variance.co, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Covariant)))
@@ -124,10 +130,13 @@ class VarianceTest extends munit.ScalaCheckSuite {
   }
 
   test("contravariant combines to get either contravariant or invariant") {
-    assertEquals(V.combine(
+    assertEquals(
+      V.combine(
         Variance.Covariant,
         Variance.Contravariant
-      ), Variance.Invariant)
+      ),
+      Variance.Invariant
+    )
     val results = Set(Variance.contra, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Contravariant)))

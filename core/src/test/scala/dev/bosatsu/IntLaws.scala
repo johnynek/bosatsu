@@ -28,31 +28,55 @@ class IntLaws extends munit.ScalaCheckSuite {
       .map(BigInteger.valueOf(_))
 
   test("match python on some examples") {
-    assertEquals(BigInteger.valueOf(4L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
+    assertEquals(
+      BigInteger.valueOf(4L) % BigInteger.valueOf(-3L),
+      BigInteger.valueOf(
         -2L
-      ))
+      )
+    )
 
-    assertEquals(BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L), BigInteger.valueOf(
+    assertEquals(
+      BigInteger.valueOf(-8L) % BigInteger.valueOf(-2L),
+      BigInteger.valueOf(
         0L
-      ))
-    assertEquals(BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L), BigInteger.valueOf(
+      )
+    )
+    assertEquals(
+      BigInteger.valueOf(-8L) / BigInteger.valueOf(-2L),
+      BigInteger.valueOf(
         4L
-      ))
+      )
+    )
 
-    assertEquals(BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
+    assertEquals(
+      BigInteger.valueOf(-4L) % BigInteger.valueOf(-3L),
+      BigInteger.valueOf(
         -1L
-      ))
-    assertEquals(BigInteger.valueOf(13L) % BigInteger.valueOf(3L), BigInteger.valueOf(1L))
-    assertEquals(BigInteger.valueOf(-113L) / BigInteger.valueOf(16L), BigInteger.valueOf(
+      )
+    )
+    assertEquals(
+      BigInteger.valueOf(13L) % BigInteger.valueOf(3L),
+      BigInteger.valueOf(1L)
+    )
+    assertEquals(
+      BigInteger.valueOf(-113L) / BigInteger.valueOf(16L),
+      BigInteger.valueOf(
         -8L
-      ))
+      )
+    )
 
-    assertEquals(BigInteger.valueOf(54L) % BigInteger.valueOf(-3L), BigInteger.valueOf(
+    assertEquals(
+      BigInteger.valueOf(54L) % BigInteger.valueOf(-3L),
+      BigInteger.valueOf(
         0L
-      ))
-    assertEquals(BigInteger.valueOf(54L) / BigInteger.valueOf(-3L), BigInteger.valueOf(
+      )
+    )
+    assertEquals(
+      BigInteger.valueOf(54L) / BigInteger.valueOf(-3L),
+      BigInteger.valueOf(
         -18L
-      ))
+      )
+    )
   }
 
   test("a = (a / b) * b + (a % b)") {

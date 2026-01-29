@@ -814,7 +814,9 @@ object LibConfig {
                 .map(Version.fromProto(_))
                 .getOrElse(Version.zero)
             )
-            .reduce[Version](using Semigroup.instance(summon[cats.Order[Version]].max))
+            .reduce[Version](using
+              Semigroup.instance(summon[cats.Order[Version]].max)
+            )
           val newV = newDep.map(
             _.desc
               .flatMap(_.version)

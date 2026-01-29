@@ -215,7 +215,7 @@ object Code {
             acc: NonEmptyList[Expression]
         ): F[ValueLike] =
           rest match {
-            case Nil => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList*))
+            case Nil    => Monad[F].pure[ValueLike](fnExpr(acc.reverse.toList*))
             case h :: t =>
               h.onExpr(hexpr => loop(t, hexpr :: acc))(newLocalName)
           }

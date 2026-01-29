@@ -24,9 +24,12 @@ class ToposortTest extends munit.ScalaCheckSuite {
       assert(res.isSuccess)
       assertEquals(res.isFailure, res.loopNodes.nonEmpty)
       assertEquals(res.toSuccess, Some(res.layers))
-      assertEquals(res.layers, items.toVector
+      assertEquals(
+        res.layers,
+        items.toVector
           .sorted(using Order[A].toOrdering)
-          .map(NonEmptyList(_, Nil)))
+          .map(NonEmptyList(_, Nil))
+      )
       assert(res.layersAreTotalOrder)
     }
 
@@ -73,7 +76,10 @@ class ToposortTest extends munit.ScalaCheckSuite {
       val allNodes = graph.flatMap { case (h, t) => h :: t }.toSet
       val Toposort.Success(sorted) =
         Toposort.sort(allNodes)(graph.getOrElse(_, Nil)).runtimeChecked
-      assertEquals(sorted.flatMap(_.toList).toList.sorted, allNodes.toList.sorted)
+      assertEquals(
+        sorted.flatMap(_.toList).toList.sorted,
+        allNodes.toList.sorted
+      )
       noEdgesToLater(sorted)(n => graph.getOrElse(n, Nil))
       layersAreSorted(sorted)
     }
@@ -94,7 +100,10 @@ class ToposortTest extends munit.ScalaCheckSuite {
       layersAreSorted(layers)
       // all the nodes is the same set:
       val goodNodes = layers.flatMap(_.toList)
-      assertEquals((goodNodes.toList ::: res.loopNodes).sorted, allNodes.toList.sorted)
+      assertEquals(
+        (goodNodes.toList ::: res.loopNodes).sorted,
+        allNodes.toList.sorted
+      )
       // good nodes are distinct
       assertEquals(goodNodes, goodNodes.distinct)
       // loop nodes are distinct
@@ -105,17 +114,26 @@ class ToposortTest extends munit.ScalaCheckSuite {
       assertEquals(res.loopNodes.sorted, res.loopNodes)
       assertEquals(res.isFailure, res.loopNodes.nonEmpty)
       assertEquals(res.isSuccess, res.loopNodes.isEmpty)
-      assertEquals(res.toSuccess, (if (res.isSuccess) Some(res.layers) else None))
+      assertEquals(
+        res.toSuccess,
+        (if (res.isSuccess) Some(res.layers) else None)
+      )
     }
   }
 
   test("we return the least node with a loop") {
-    assertEquals(Toposort.sort(List(1, 2))(Function.const(List(1, 2))), Toposort.Failure(
+    assertEquals(
+      Toposort.sort(List(1, 2))(Function.const(List(1, 2))),
+      Toposort.Failure(
         List(1, 2),
         Vector.empty
-      ))
-    assertEquals(Toposort.sort(List("bb", "aa"))(
+      )
+    )
+    assertEquals(
+      Toposort.sort(List("bb", "aa"))(
         Function.const(List("aa", "bb"))
-      ), Toposort.Failure(List("aa", "bb"), Vector.empty))
+      ),
+      Toposort.Failure(List("aa", "bb"), Vector.empty)
+    )
   }
 }

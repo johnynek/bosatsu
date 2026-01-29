@@ -184,75 +184,79 @@ object Command {
       }
 
     val install: Opts[F[Output[P]]] =
-      Opts.subcommand("install", "install the bosatsu c runtime") {
-        (
-          repoRootOpt,
-          gitShaOpt,
-          archiveOpt,
-          urlOpt,
-          hashOpt
-        ).mapN { (rootF, shaF, archiveOpt0, urlOpt0, hashOpt0) =>
-          for {
-            root <- rootF
-            gitSha <- shaF
-            buildHashOpt <- parseBuildHash
-            urlOpt = urlOpt0.orElse(buildHashOpt.map(_ => defaultArchiveUrl(gitSha)))
-            hashOpt = hashOpt0.orElse(buildHashOpt)
-            archivePath <- archiveOpt0 match {
-              case Some(p) => requireFile(p)
-              case None    =>
-                urlOpt match {
-                  case None =>
-                    moduleIOMonad.raiseError(
-                      CliException.Basic(
-                        "no archive or url given; pass --archive or --url and --hash"
-                      )
-                    )
-                  case Some(url) =>
-                    hashOpt match {
-                      case None =>
-                        moduleIOMonad.raiseError(
-                          CliException.Basic(
-                            "no hash available for download; pass --hash or use a release build"
-                          )
-                        )
-                      case Some(hash) =>
-                        val archivePath =
-                          archivePathForUrl(root, url, gitSha)
-                        platformIO
-                          .fetchHash(
-                            hash.algo,
-                            hash.value,
-                            archivePath,
-                            url
-                          )
-                          .as(archivePath)
-                    }
-                }
-            }
-            baseDir = platformIO.resolve(
-              root,
-              ".bosatsuc" :: "c_runtime" :: "src" :: gitSha :: Nil
-            )
-            runtimeRoot <- ensureRuntimeRoot(baseDir, archivePath)
-            _ <- platformIO.system(
-              "make",
-              List(
-                "-C",
-                platformIO.pathToString(runtimeRoot),
-                "install",
-                s"ROOTDIR=${platformIO.pathToString(root)}",
-                s"VERSION=$gitSha"
+      Opts
+        .subcommand("install", "install the bosatsu c runtime") {
+          (
+            repoRootOpt,
+            gitShaOpt,
+            archiveOpt,
+            urlOpt,
+            hashOpt
+          ).mapN { (rootF, shaF, archiveOpt0, urlOpt0, hashOpt0) =>
+            for {
+              root <- rootF
+              gitSha <- shaF
+              buildHashOpt <- parseBuildHash
+              urlOpt = urlOpt0.orElse(
+                buildHashOpt.map(_ => defaultArchiveUrl(gitSha))
               )
-            )
-            installDir =
-              platformIO.resolve(root, ".bosatsuc" :: gitSha :: Nil)
-            outDoc = Doc.text(
-              show"installed c_runtime into $installDir"
-            )
-          } yield Output.Basic(outDoc, Option.empty[P])
+              hashOpt = hashOpt0.orElse(buildHashOpt)
+              archivePath <- archiveOpt0 match {
+                case Some(p) => requireFile(p)
+                case None    =>
+                  urlOpt match {
+                    case None =>
+                      moduleIOMonad.raiseError(
+                        CliException.Basic(
+                          "no archive or url given; pass --archive or --url and --hash"
+                        )
+                      )
+                    case Some(url) =>
+                      hashOpt match {
+                        case None =>
+                          moduleIOMonad.raiseError(
+                            CliException.Basic(
+                              "no hash available for download; pass --hash or use a release build"
+                            )
+                          )
+                        case Some(hash) =>
+                          val archivePath =
+                            archivePathForUrl(root, url, gitSha)
+                          platformIO
+                            .fetchHash(
+                              hash.algo,
+                              hash.value,
+                              archivePath,
+                              url
+                            )
+                            .as(archivePath)
+                      }
+                  }
+              }
+              baseDir = platformIO.resolve(
+                root,
+                ".bosatsuc" :: "c_runtime" :: "src" :: gitSha :: Nil
+              )
+              runtimeRoot <- ensureRuntimeRoot(baseDir, archivePath)
+              _ <- platformIO.system(
+                "make",
+                List(
+                  "-C",
+                  platformIO.pathToString(runtimeRoot),
+                  "install",
+                  s"ROOTDIR=${platformIO.pathToString(root)}",
+                  s"VERSION=$gitSha"
+                )
+              )
+              installDir =
+                platformIO.resolve(root, ".bosatsuc" :: gitSha :: Nil)
+              outDoc = Doc.text(
+                show"installed c_runtime into $installDir"
+              )
+            } yield Output.Basic(outDoc, Option.empty[P])
+          }
         }
-      }.map(_.widen[Output[P]])
+        .map(_.widen[Output[P]])
 
     install
   }
