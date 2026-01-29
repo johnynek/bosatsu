@@ -1,5 +1,6 @@
 package dev.bosatsu.rankn
 
+import cats.Eq
 import dev.bosatsu.PackageName
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 
@@ -22,4 +23,9 @@ final case class ConstructorFn(
 
   def depPackages: List[PackageName] =
     args.flatMap { case (_, t) => Type.packageNamesIn(t) }.distinct
+}
+
+object ConstructorFn {
+  implicit val eqConstructorFn: Eq[ConstructorFn] =
+    Eq.fromUniversalEquals
 }

@@ -308,7 +308,10 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
     forAll(genPattern, genSeq) { (p: Pattern, s: S) =>
       if (p.isEmpty) {
         assert(matches(p, splitter.emptySeq))
-        if (s != splitter.emptySeq) {
+        given cats.Eq[S] =
+          // Safe: test sequences use structural equality in law checks.
+          cats.Eq.fromUniversalEquals
+        if (s =!= splitter.emptySeq) {
           assert(!matches(p, s))
         }
       }

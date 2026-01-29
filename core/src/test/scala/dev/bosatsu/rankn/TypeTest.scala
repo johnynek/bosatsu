@@ -1,6 +1,8 @@
 package dev.bosatsu.rankn
 
+import cats.{Eq, Order}
 import cats.data.NonEmptyList
+import cats.syntax.all._
 import dev.bosatsu.Kind
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -66,8 +68,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       val applied = Type.applyAll(ts, args)
       val free0 = Type.freeBoundTyVars(ts :: args)
       val free1 = Type.freeBoundTyVars(applied :: Nil)
+      given Eq[Type.Var] = Order[Type.Var]
       assert(
-        free1.toSet == free0.toSet,
+        free1.toSet === free0.toSet,
         s"applied = ${Type.typeParser.render(applied)}, (${Type.typeParser
             .render(ts)})[${args.iterator.map(Type.typeParser.render(_)).mkString(", ")}]})"
       )

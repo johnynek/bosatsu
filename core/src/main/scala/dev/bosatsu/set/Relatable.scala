@@ -1,5 +1,8 @@
 package dev.bosatsu.set
 
+import cats.Eq
+import cats.syntax.eq._
+
 trait Relatable[A] {
   def relate(left: A, right: A): Rel
 }
@@ -36,7 +39,9 @@ object Relatable {
 
   def fromUniversalEquals[A]: Relatable[A] =
     new Relatable[A] {
-      def relate(i: A, j: A) = if (i == j) Rel.Same else Rel.Disjoint
+      private given Eq[A] = Eq.fromUniversalEquals
+      def relate(i: A, j: A) =
+        if (i === j) Rel.Same else Rel.Disjoint
     }
 
   /** Make a relatable where unions are represented by Lists. we need three

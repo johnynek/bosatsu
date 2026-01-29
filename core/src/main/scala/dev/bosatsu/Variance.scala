@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import cats.kernel.{BoundedSemilattice, Order}
 
-sealed abstract class Variance {
+sealed abstract class Variance derives CanEqual {
   import Variance._
 
   def unary_- : Variance =

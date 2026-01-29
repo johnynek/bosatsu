@@ -26,7 +26,7 @@ import cats.implicits._
 
 /** Represents the syntactic version of Expr
   */
-sealed abstract class Declaration {
+sealed abstract class Declaration derives CanEqual {
   import Declaration._
 
   def region: Region
@@ -451,12 +451,14 @@ sealed abstract class Declaration {
 }
 
 object Declaration {
+  implicit val eqDeclaration: cats.Eq[Declaration] =
+    cats.Eq.fromUniversalEquals
   implicit val document: Document[Declaration] =
     Document.instance[Declaration](_.toDoc)
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
 
-  sealed abstract class ApplyKind
+  sealed abstract class ApplyKind derives CanEqual
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
@@ -476,7 +478,7 @@ object Declaration {
   ): Option[Declaration] = {
     // if we hit a shadow, we don't need to substitute down
     // that branch
-    @inline def shadows(i: Bindable): Boolean = i === ident
+    inline def shadows(i: Bindable): Boolean = i == ident
 
     // free variables in ex are being rebound,
     // this causes us to return None
@@ -511,9 +513,9 @@ object Declaration {
         case RecordArg.Pair(fn, a) =>
           loop(a).map(RecordArg.Pair(fn, _))
         case RecordArg.Simple(fn) =>
-          if (fn === ident) {
+          if (fn == ident) {
             ex match {
-              case Var(newIdent) if newIdent === fn =>
+              case Var(newIdent) if newIdent == fn =>
                 // this is identity
                 Some(ra)
               case _ =>
@@ -530,7 +532,7 @@ object Declaration {
         case Apply(fn, args, kind) =>
           (loop(fn), args.traverse(loop))
             .mapN(Apply(_, _, kind)(using decl.region))
-        case aop @ ApplyOp(left, op, right) if (op: Bindable) === ident =>
+        case aop @ ApplyOp(left, op, right) if (op: Bindable) == ident =>
           // we cannot make a general substition on ApplyOp
           ex match {
             case Var(op1: Identifier.Operator) =>
@@ -583,7 +585,7 @@ object Declaration {
           loopDec(p).map(Parens(_)(using decl.region))
         case TupleCons(items) =>
           items.traverse(loop).map(TupleCons(_)(using decl.region))
-        case Var(name: Bindable) if name === ident =>
+        case Var(name: Bindable) if name == ident =>
           // here is the substition
           Some(ex.replaceRegionsNB(decl.region))
         case Var(_)          => Some(decl)
@@ -1216,7 +1218,7 @@ object Declaration {
       }
   }
 
-  sealed abstract class PatternBindKind
+  sealed abstract class PatternBindKind derives CanEqual
   object PatternBindKind {
 
     case object Equals extends PatternBindKind
@@ -1271,12 +1273,14 @@ object Declaration {
       Literal(l)(using r)
     }
 
-  sealed abstract private class ParseMode
+  sealed abstract private class ParseMode derives CanEqual
   private object ParseMode {
     case object Decl extends ParseMode
     case object NB extends ParseMode
     case object BranchArg extends ParseMode
     case object ComprehensionSource extends ParseMode
+
+    given cats.Eq[ParseMode] = cats.Eq.fromUniversalEquals
   }
   /*
    * This is not fully type-safe but we do it for efficiency:
@@ -1356,7 +1360,8 @@ object Declaration {
           if (pm == ParseMode.BranchArg)
             recArgIndy.asInstanceOf[Indy[Declaration]]
           else recIndy
-        val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind
+        val ternaryElseP =
+          if (pm == ParseMode.BranchArg) recArg else recNonBind
 
         val allNonBind: P[NonBinding] =
           P.defer(

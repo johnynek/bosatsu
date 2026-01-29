@@ -133,7 +133,7 @@ object DefRecursionCheck {
      * 2. we are in a recursive def, but have not yet found the recur match.
      * 3. we are checking the branches of the recur match
      */
-    sealed abstract class State {
+    sealed abstract class State derives CanEqual {
       final def outerDefNames: Set[Bindable] =
         this match {
           case TopLevel        => Set.empty
@@ -187,7 +187,7 @@ object DefRecursionCheck {
         val allNames = Iterator
           .iterate(0)(_ + 1)
           .map(idx => Identifier.Name(s"a$idx"))
-          .filterNot(_ == fnname)
+          .filterNot(n => (n: Bindable) == fnname)
 
         val func = cats.Functor[NonEmptyList].compose[NonEmptyList]
         // we allocate the names first. There is only one name inside: fnname
@@ -452,7 +452,8 @@ object DefRecursionCheck {
                   case Declaration.Lambda(args, body) =>
                     val names1 = args.toList.flatMap(_.names)
                     unionNames(names1)(checkDecl(body))
-                  case v @ Declaration.Var(fn: Bindable) if irb.defname == fn =>
+                  case v @ Declaration.Var(fn: Bindable)
+                      if irb.defname == fn =>
                     val Declaration.Lambda(args, body) =
                       irb.inDef.asLambda(v.region)
                     val names1 = args.toList.flatMap(_.names)

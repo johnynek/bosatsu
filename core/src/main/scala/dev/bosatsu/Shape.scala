@@ -8,11 +8,11 @@ import org.typelevel.paiges.Doc
 import cats.syntax.all._
 
 // Shape is Kind without variance, and variables
-sealed abstract class Shape
+sealed abstract class Shape derives CanEqual
 
 object Shape {
-  sealed abstract class KnownShape extends Shape
-  sealed abstract class NotKnownShape extends Shape
+  sealed abstract class KnownShape extends Shape derives CanEqual
+  sealed abstract class NotKnownShape extends Shape derives CanEqual
 
   case object Type extends KnownShape
 
@@ -31,7 +31,7 @@ object Shape {
     )
   }
 
-  sealed abstract class UnknownState
+  sealed abstract class UnknownState derives CanEqual
   object UnknownState {
     case object Free extends UnknownState
     case class Fixed(toKnown: KnownShape) extends UnknownState
@@ -172,7 +172,7 @@ object Shape {
             dt: DefinedType[S],
             tc: rankn.Type.Const
         ): Option[KnownShape] =
-          if (dt.toTypeConst == tc) Some(ShapeOf(dt))
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(ShapeOf(dt))
           else None
       }
 
@@ -240,7 +240,7 @@ object Shape {
           t match {
             case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
             case rankn.Type.TyConst(const)                     =>
-              if (const == dt.toTypeConst) Some(thisShape)
+              if (const == (dt.toTypeConst: rankn.Type.Const)) Some(thisShape)
               else IsShapeEnv[E].getShape(imports, const)
             case _ =>
               // nothing else is in-scope
@@ -441,7 +441,7 @@ object Shape {
                   // reverse
                   loop(cons, u1, visited)
                 case u2 @ Unknown(_, ref2) =>
-                  if (ref1 == ref2) pureUnit
+                  if (ref1 eq ref2) pureUnit
                   else
                     ref1.get.flatMap {
                       case UnknownState.Free =>

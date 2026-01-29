@@ -503,7 +503,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (Annotation(p, _), t)    => intersection(p, t)
           case (t, Annotation(p, _))    => intersection(t, p)
           case (Literal(a), Literal(b)) =>
-            if (a == b) left :: Nil
+            if (a === b) left :: Nil
             else Nil
           case (Literal(Lit.Str(s)), p @ StrPat(_)) =>
             if (p.matches(s)) left :: Nil

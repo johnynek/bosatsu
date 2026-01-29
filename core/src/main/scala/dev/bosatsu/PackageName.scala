@@ -8,10 +8,10 @@ import com.monovore.decline.Argument
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
-case class PackageName(parts: NonEmptyList[String]) {
+case class PackageName(parts: NonEmptyList[String]) derives CanEqual {
   lazy val asString: String = parts.toList.mkString("/")
 
-  def isPredef: Boolean = parts == PackageName.PredefName.parts
+  def isPredef: Boolean = parts === PackageName.PredefName.parts
 }
 
 object PackageName {

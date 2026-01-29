@@ -1,6 +1,7 @@
 package dev.bosatsu.set
 
 import cats.Eq
+import cats.implicits._
 import org.scalacheck.{Arbitrary, Cogen, Gen, Shrink}
 import org.scalacheck.Prop.forAll
 
@@ -87,7 +88,10 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
   }
 
   def selfDifferenceLaw(p1: A, p2: A) = {
-    if (p1 == p2) {
+    given Eq[A] =
+      // Safe: test values are generated and compared structurally.
+      Eq.fromUniversalEquals
+    if (p1 === p2) {
       assertEquals(difference(p1, p2), Nil)
     }
     assertEquals(difference(p1, p1), Nil)
@@ -122,9 +126,9 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     // difference is an upper bound, so this is not true
     // although we wish it were
     /*
-      if (diff.map(_.normalize).distinct == p1.normalize :: Nil) {
+      if (diff.map(_.normalize).distinct == (p1.normalize :: Nil)) {
         // intersection is 0
-        assert(inter == Nil)
+        assert(inter.isEmpty)
       }
      */
 
@@ -212,7 +216,10 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     val intBC = intersection(b, c)
     val left = diffab.flatMap(intersection(_, c))
 
-    if ((diffab == (a :: Nil)) && (intersection(a, b).nonEmpty)) {
+    given Eq[List[A]] =
+      // Safe: list equality is structural for generated test values.
+      Eq.fromUniversalEquals
+    if ((diffab === (a :: Nil)) && intersection(a, b).nonEmpty) {
       // diffab is an upperbound, so hard to say what the law
       // should be in that case, if (a - b) = a, then
       // clearly we expect (a n c) == (a n c) - (b n c)
@@ -226,7 +233,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       // the intersection may be (_ - b) n c = 0
       // but (_ n c) = c, and b n c = 0
       val leftEqC = differenceAll(unifyUnion(left), c :: Nil).isEmpty
-      assert((left == Nil) || leftEqC)
+      assert(left.isEmpty || leftEqC)
     } else {
       val intAC = intersection(a, c)
       val right = differenceAll(intAC, intBC)
@@ -234,7 +241,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       // since a - b can be a lose bound, we also see a - b == a
       // some times, in which case, (a - b) n c = a n c
       val leftu = unifyUnion(left)
-      if (leftu == unifyUnion(intAC)) {
+      if (leftu === unifyUnion(intAC)) {
         ()
       } else {
         val rightu = unifyUnion(right)
@@ -354,7 +361,7 @@ class DistinctSetOpsTest extends SetOpsLaws[Byte] {
 
   val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
     def eqv(left: List[Byte], right: List[Byte]) =
-      left.toSet == right.toSet
+      left.toSet === right.toSet
   })
 }
 
@@ -372,7 +379,7 @@ class FiniteSetOpsTest extends SetOpsLaws[Set[Int]] {
 
   val eqUnion: Gen[Eq[List[Set[Int]]]] = Gen.const(new Eq[List[Set[Int]]] {
     def eqv(left: List[Set[Int]], right: List[Set[Int]]) =
-      left.foldLeft(Set.empty[Int])(_ | _) ==
+      left.foldLeft(Set.empty[Int])(_ | _) ===
         right.foldLeft(Set.empty[Int])(_ | _)
   })
 }
@@ -389,7 +396,7 @@ class IMapSetOpsTest extends SetOpsLaws[Byte] {
 
   val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
     def eqv(left: List[Byte], right: List[Byte]) =
-      left.toSet == right.toSet
+      left.toSet === right.toSet
   })
 }
 
@@ -403,7 +410,7 @@ class ProductSetOpsTest extends SetOpsLaws[(Boolean, Boolean)] {
   val eqUnion: Gen[Eq[List[(Boolean, Boolean)]]] =
     Gen.const(new Eq[List[(Boolean, Boolean)]] {
       def eqv(left: List[(Boolean, Boolean)], right: List[(Boolean, Boolean)]) =
-        left.toSet == right.toSet
+        left.toSet === right.toSet
     })
 }
 
@@ -414,7 +421,7 @@ class UnitSetOpsTest extends SetOpsLaws[Unit] {
 
   val eqUnion: Gen[Eq[List[Unit]]] = Gen.const(new Eq[List[Unit]] {
     def eqv(left: List[Unit], right: List[Unit]) =
-      left.toSet == right.toSet
+      left.toSet === right.toSet
   })
 }
 
@@ -469,7 +476,12 @@ class SetOpsTests extends munit.ScalaCheckSuite {
         for {
           (p1, i1) <- pi
           (p2, i2) <- pi
-        } assert((i1 >= i2 || (p1 != p2)))
+        } {
+          given Eq[List[(Int, Int)]] =
+            // Safe: list equality is structural for generated test values.
+            Eq.fromUniversalEquals
+          assert((i1 >= i2 || p1 =!= p2))
+        }
     }
   }
 

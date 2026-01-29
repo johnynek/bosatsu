@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Eq
+import cats.implicits._
 import cats.effect.{IO, Resource}
 import java.io.File
 import java.nio.file.{Files, Path, Paths}
@@ -10,10 +11,13 @@ import org.scalacheck.Prop.forAll
 class IOPlatformIOTest extends munit.ScalaCheckSuite {
   val sortedEq: Eq[List[Package.Interface]] =
     new Eq[List[Package.Interface]] {
+      given Eq[Package.Interface] =
+        // Safe: Package.Interface is immutable and uses structural equals.
+        Eq.fromUniversalEquals
       def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
         // we are only sorting the left because we expect the right
         // to come out sorted
-        l.sortBy(_.name.asString) == r
+        l.sortBy(_.name.asString) === r
     }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
