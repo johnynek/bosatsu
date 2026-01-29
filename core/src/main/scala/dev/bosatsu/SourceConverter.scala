@@ -1015,182 +1015,185 @@ final class SourceConverter(
     pat
       .traversePattern[Result, (PackageName, Constructor), rankn.Type](
         {
-        case (Pattern.StructKind.Tuple, args) =>
-          // this is a tuple pattern
-          args.flatMap(makeTuplePattern(_, region))
-        case (
-              Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike),
-              rargs
-            ) =>
-          rargs.flatMap { args =>
-            val pc @ (p, c) = nameToCons(nm)
-            localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-              case Some(params) =>
-                val argLen = args.size
-                val paramLen = params.size
-                if (argLen == paramLen) {
-                  SourceConverter.success(Pattern.PositionalStruct(pc, args))
-                } else {
-                  // do the best we can
-                  val fixedArgs =
-                    (args ::: List.fill(paramLen - argLen)(Pattern.WildCard))
-                      .take(paramLen)
-                  SourceConverter.partial(
-                    SourceConverter
-                      .InvalidArgCount(nm, pat, argLen, paramLen, region),
-                    Pattern.PositionalStruct(pc, fixedArgs)
-                  )
-                }
-              case None =>
-                SourceConverter.failure(
-                  SourceConverter.UnknownConstructor(nm, pat, region)
-                )
-            })
-          }
-        case (
-              Pattern.StructKind
-                .NamedPartial(nm, Pattern.StructKind.Style.TupleLike),
-              rargs
-            ) =>
-          rargs.flatMap { args =>
-            val pc @ (p, c) = nameToCons(nm)
-            localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-              case Some(params) =>
-                val argLen = args.size
-                val paramLen = params.size
-                if (argLen <= paramLen) {
-                  val fixedArgs =
-                    if (argLen < paramLen)
+          case (Pattern.StructKind.Tuple, args) =>
+            // this is a tuple pattern
+            args.flatMap(makeTuplePattern(_, region))
+          case (
+                Pattern.StructKind
+                  .Named(nm, Pattern.StructKind.Style.TupleLike),
+                rargs
+              ) =>
+            rargs.flatMap { args =>
+              val pc @ (p, c) = nameToCons(nm)
+              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+                case Some(params) =>
+                  val argLen = args.size
+                  val paramLen = params.size
+                  if (argLen == paramLen) {
+                    SourceConverter.success(Pattern.PositionalStruct(pc, args))
+                  } else {
+                    // do the best we can
+                    val fixedArgs =
                       (args ::: List.fill(paramLen - argLen)(Pattern.WildCard))
-                    else args
-                  SourceConverter.success(
-                    Pattern.PositionalStruct(pc, fixedArgs)
-                  )
-                } else {
-                  // we have too many
-                  val fixedArgs = args.take(paramLen)
-                  SourceConverter.partial(
-                    SourceConverter
-                      .InvalidArgCount(nm, pat, argLen, paramLen, region),
-                    Pattern.PositionalStruct(pc, fixedArgs)
-                  )
-                }
-              case None =>
-                SourceConverter.failure(
-                  SourceConverter.UnknownConstructor(nm, pat, region)
-                )
-            })
-          }
-        case (
-              Pattern.StructKind
-                .Named(nm, Pattern.StructKind.Style.RecordLike(fs)),
-              rargs
-            ) =>
-          rargs.flatMap { args =>
-            val pc @ (p, c) = nameToCons(nm)
-            localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-              case Some(params) =>
-                val mapping =
-                  fs.toList.iterator.map(_.field).zip(args.iterator).toMap
-                lazy val present =
-                  SortedSet(fs.toList.iterator.map(_.field).toList*)
-                def get(
-                    b: Bindable
-                ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-                  mapping.get(b) match {
-                    case Some(pat) =>
-                      SourceConverter.success(pat)
-                    case None =>
-                      SourceConverter.partial(
-                        SourceConverter.MissingArg(nm, pat, present, b, region),
-                        Pattern.WildCard
-                      )
-                  }
-                val mapped =
-                  params
-                    .traverse { case (b, _) => get(b) }(
-                      using SourceConverter.parallelIor
+                        .take(paramLen)
+                    SourceConverter.partial(
+                      SourceConverter
+                        .InvalidArgCount(nm, pat, argLen, paramLen, region),
+                      Pattern.PositionalStruct(pc, fixedArgs)
                     )
-                    .map(Pattern.PositionalStruct(pc, _))
-
-                val paramNamesList = params.map(_._1)
-                val paramNames = paramNamesList.toSet
-                // here are all the fields we don't understand
-                val extra =
-                  fs.toList.iterator.map(_.field).filterNot(paramNames).toList
-                // Check that the mapping is exactly the right size
-                NonEmptyList.fromList(extra) match {
-                  case None        => mapped
-                  case Some(extra) =>
-                    SourceConverter
-                      .addError(
-                        mapped,
-                        SourceConverter.UnexpectedField(
-                          nm,
-                          pat,
-                          extra,
-                          paramNamesList,
-                          region
-                        )
-                      )
-                }
-              case None =>
-                SourceConverter.failure(
-                  SourceConverter.UnknownConstructor(nm, pat, region)
-                )
-            })
-          }
-        case (
-              Pattern.StructKind
-                .NamedPartial(nm, Pattern.StructKind.Style.RecordLike(fs)),
-              rargs
-            ) =>
-          rargs.flatMap { args =>
-            val pc @ (p, c) = nameToCons(nm)
-            localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-              case Some(params) =>
-                val mapping =
-                  fs.toList.iterator.map(_.field).zip(args.iterator).toMap
-                def get(
-                    b: Bindable
-                ): Pattern[(PackageName, Constructor), rankn.Type] =
-                  mapping.get(b) match {
-                    case Some(pat) => pat
-                    case None      => Pattern.WildCard
                   }
-                val derefArgs = params.map { case (b, _) => get(b) }
-                val res0 = SourceConverter.success(
-                  Pattern.PositionalStruct(pc, derefArgs)
-                )
-
-                val paramNamesList = params.map(_._1)
-                val paramNames = paramNamesList.toSet
-                // here are all the fields we don't understand
-                val extra =
-                  fs.toList.iterator.map(_.field).filterNot(paramNames).toList
-                // Check that the mapping is exactly the right size
-                NonEmptyList.fromList(extra) match {
-                  case None        => res0
-                  case Some(extra) =>
-                    SourceConverter
-                      .addError(
-                        res0,
-                        SourceConverter.UnexpectedField(
-                          nm,
-                          pat,
-                          extra,
-                          paramNamesList,
-                          region
+                case None =>
+                  SourceConverter.failure(
+                    SourceConverter.UnknownConstructor(nm, pat, region)
+                  )
+              })
+            }
+          case (
+                Pattern.StructKind
+                  .NamedPartial(nm, Pattern.StructKind.Style.TupleLike),
+                rargs
+              ) =>
+            rargs.flatMap { args =>
+              val pc @ (p, c) = nameToCons(nm)
+              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+                case Some(params) =>
+                  val argLen = args.size
+                  val paramLen = params.size
+                  if (argLen <= paramLen) {
+                    val fixedArgs =
+                      if (argLen < paramLen)
+                        (args ::: List
+                          .fill(paramLen - argLen)(Pattern.WildCard))
+                      else args
+                    SourceConverter.success(
+                      Pattern.PositionalStruct(pc, fixedArgs)
+                    )
+                  } else {
+                    // we have too many
+                    val fixedArgs = args.take(paramLen)
+                    SourceConverter.partial(
+                      SourceConverter
+                        .InvalidArgCount(nm, pat, argLen, paramLen, region),
+                      Pattern.PositionalStruct(pc, fixedArgs)
+                    )
+                  }
+                case None =>
+                  SourceConverter.failure(
+                    SourceConverter.UnknownConstructor(nm, pat, region)
+                  )
+              })
+            }
+          case (
+                Pattern.StructKind
+                  .Named(nm, Pattern.StructKind.Style.RecordLike(fs)),
+                rargs
+              ) =>
+            rargs.flatMap { args =>
+              val pc @ (p, c) = nameToCons(nm)
+              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+                case Some(params) =>
+                  val mapping =
+                    fs.toList.iterator.map(_.field).zip(args.iterator).toMap
+                  lazy val present =
+                    SortedSet(fs.toList.iterator.map(_.field).toList*)
+                  def get(
+                      b: Bindable
+                  ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
+                    mapping.get(b) match {
+                      case Some(pat) =>
+                        SourceConverter.success(pat)
+                      case None =>
+                        SourceConverter.partial(
+                          SourceConverter
+                            .MissingArg(nm, pat, present, b, region),
+                          Pattern.WildCard
                         )
+                    }
+                  val mapped =
+                    params
+                      .traverse { case (b, _) => get(b) }(
+                        using SourceConverter.parallelIor
                       )
-                }
-              case None =>
-                SourceConverter.failure(
-                  SourceConverter.UnknownConstructor(nm, pat, region)
-                )
-            })
-          }
-      },
+                      .map(Pattern.PositionalStruct(pc, _))
+
+                  val paramNamesList = params.map(_._1)
+                  val paramNames = paramNamesList.toSet
+                  // here are all the fields we don't understand
+                  val extra =
+                    fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                  // Check that the mapping is exactly the right size
+                  NonEmptyList.fromList(extra) match {
+                    case None        => mapped
+                    case Some(extra) =>
+                      SourceConverter
+                        .addError(
+                          mapped,
+                          SourceConverter.UnexpectedField(
+                            nm,
+                            pat,
+                            extra,
+                            paramNamesList,
+                            region
+                          )
+                        )
+                  }
+                case None =>
+                  SourceConverter.failure(
+                    SourceConverter.UnknownConstructor(nm, pat, region)
+                  )
+              })
+            }
+          case (
+                Pattern.StructKind
+                  .NamedPartial(nm, Pattern.StructKind.Style.RecordLike(fs)),
+                rargs
+              ) =>
+            rargs.flatMap { args =>
+              val pc @ (p, c) = nameToCons(nm)
+              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+                case Some(params) =>
+                  val mapping =
+                    fs.toList.iterator.map(_.field).zip(args.iterator).toMap
+                  def get(
+                      b: Bindable
+                  ): Pattern[(PackageName, Constructor), rankn.Type] =
+                    mapping.get(b) match {
+                      case Some(pat) => pat
+                      case None      => Pattern.WildCard
+                    }
+                  val derefArgs = params.map { case (b, _) => get(b) }
+                  val res0 = SourceConverter.success(
+                    Pattern.PositionalStruct(pc, derefArgs)
+                  )
+
+                  val paramNamesList = params.map(_._1)
+                  val paramNames = paramNamesList.toSet
+                  // here are all the fields we don't understand
+                  val extra =
+                    fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                  // Check that the mapping is exactly the right size
+                  NonEmptyList.fromList(extra) match {
+                    case None        => res0
+                    case Some(extra) =>
+                      SourceConverter
+                        .addError(
+                          res0,
+                          SourceConverter.UnexpectedField(
+                            nm,
+                            pat,
+                            extra,
+                            paramNamesList,
+                            region
+                          )
+                        )
+                  }
+                case None =>
+                  SourceConverter.failure(
+                    SourceConverter.UnknownConstructor(nm, pat, region)
+                  )
+              })
+            }
+        },
         t => toType(t, region),
         items => items.map(unlistPattern)
       )(
@@ -1325,7 +1328,9 @@ final class SourceConverter(
         NonEmptyList.one((nm, decl))
       case Pattern.Annotation(p, tpe) =>
         // we can just move the annotation to the expr:
-        bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(using decl.region))(alloc)
+        bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(using decl.region))(
+          alloc
+        )
       case Pattern.WildCard =>
         // this is silly, but maybe some kind of comment, or side-effecting
         // debug, or type checking of the rhs
@@ -1474,7 +1479,11 @@ final class SourceConverter(
             Left(Def(d1.copy(result = res))(d.region))
           case Right((b0, d)) =>
             // we don't need to update b0, we discard it anyway
-            Declaration.substitute(bind, Var(newNameV)(using d.region), d) match {
+            Declaration.substitute(
+              bind,
+              Var(newNameV)(using d.region),
+              d
+            ) match {
               case Some(d1) => Right((b0, d1))
               // $COVERAGE-OFF$
               case None =>

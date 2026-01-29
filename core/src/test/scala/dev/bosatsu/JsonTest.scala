@@ -42,14 +42,20 @@ class JsonTest extends munit.ScalaCheckSuite {
     } yield (optTE, tpe)
 
   test("test some example escapes") {
-    assertEquals(Parser.unsafeParse(
+    assertEquals(
+      Parser.unsafeParse(
         JsonStringUtil.escapedToken.string,
         "\\u0000"
-      ), "\\u0000")
-    assertEquals(Parser.unsafeParse(
+      ),
+      "\\u0000"
+    )
+    assertEquals(
+      Parser.unsafeParse(
         JsonStringUtil.escapedString('\''),
         "'\\u0000'"
-      ), 0.toChar.toString)
+      ),
+      0.toChar.toString
+    )
   }
 
   test("we can parse all the json we generate") {
@@ -99,7 +105,7 @@ class JsonTest extends munit.ScalaCheckSuite {
 
     val prop = forAll(optTE, GenJson.arbJson.arbitrary) {
       case ((ote, tpe), json) =>
-      law(ote, tpe, json)
+        law(ote, tpe, json)
     }
 
     val regressions = List(

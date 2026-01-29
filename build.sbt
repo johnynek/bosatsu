@@ -14,7 +14,7 @@ lazy val commonSettings = Seq(
     "-encoding",
     "utf-8",
     "-feature",
-    "-unchecked",
+    "-unchecked"
   ),
   Test / testOptions += Tests.Argument("-oDF")
 )
@@ -113,7 +113,7 @@ lazy val cli = (project in file("cli"))
     // static linking doesn't work with macos or with linux http4s on the path
     nativeImageOptions ++= List(
       "--no-fallback",
-      "--verbose",
+      "--verbose"
     ) ++ {
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
@@ -121,8 +121,10 @@ lazy val cli = (project in file("cli"))
         else
           Nil
       val muslOpt =
-        if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty) &&
-            sys.env.get("BOSATSU_NATIVE_IMAGE_LIBC").contains("musl"))
+        if (
+          sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty) &&
+          sys.env.get("BOSATSU_NATIVE_IMAGE_LIBC").contains("musl")
+        )
           List("--libc=musl")
         else
           Nil
@@ -137,7 +139,7 @@ lazy val cli = (project in file("cli"))
       staticOpt ++ muslOpt ++ clibPaths
     },
     nativeImageJvm := "graalvm-java21",
-    nativeImageVersion := "21.0.2",
+    nativeImageVersion := "21.0.2"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
@@ -146,7 +148,6 @@ lazy val proto =
     "proto"
   ))
     .settings(
-     
       Compile / PB.targets := Seq(
         scalapb.gen(scala3Sources = true) -> (Compile / sourceManaged).value
       ),

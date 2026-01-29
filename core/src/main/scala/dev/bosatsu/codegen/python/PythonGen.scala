@@ -4,11 +4,7 @@ import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
 import dev.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
-import dev.bosatsu.codegen.{
-  CompilationNamespace,
-  CompilationSource,
-  Idents
-}
+import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -1291,7 +1287,13 @@ object PythonGen {
               Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
             }
           case LetBool(n, v, in) =>
-            doLet(n, v, boolExpr(in, slotName, inlineSlots), slotName, inlineSlots)
+            doLet(
+              n,
+              v,
+              boolExpr(in, slotName, inlineSlots),
+              slotName,
+              inlineSlots
+            )
           case LetMutBool(_, in) =>
             // in python we just ignore this
             boolExpr(in, slotName, inlineSlots)
@@ -1691,7 +1693,7 @@ object PythonGen {
       private def inlineableCapture(expr: Expr[K]): Boolean =
         expr match {
           case Local(_) | Global(_, _, _) | LocalAnon(_) => true
-          case _                                        => false
+          case _                                         => false
         }
 
       private def inlineCaptures(
@@ -1934,17 +1936,16 @@ object PythonGen {
             (
               loop(expr, slotName, inlineSlots),
               args.traverse(loop(_, slotName, inlineSlots))
-            ).mapN {
-              (fn, args) =>
-                Env.onLasts(fn :: args.toList) {
-                  case fn :: args => Code.Apply(fn, args)
-                  case other      =>
-                    // $COVERAGE-OFF$
-                    throw new IllegalStateException(
-                      s"got $other, expected to match $expr"
-                    )
-                  // $COVERAGE-ON$
-                }
+            ).mapN { (fn, args) =>
+              Env.onLasts(fn :: args.toList) {
+                case fn :: args => Code.Apply(fn, args)
+                case other      =>
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException(
+                    s"got $other, expected to match $expr"
+                  )
+                // $COVERAGE-ON$
+              }
             }.flatten
           case Let(localOrBind, fn: Lambda[k], in) =>
             localOrBind match {
@@ -1996,7 +1997,10 @@ object PythonGen {
             val (ifs, last) = ifExpr.flatten
 
             val ifsV = ifs.traverse { case (c, t) =>
-              (boolExpr(c, slotName, inlineSlots), loop(t, slotName, inlineSlots)).tupled
+              (
+                boolExpr(c, slotName, inlineSlots),
+                loop(t, slotName, inlineSlots)
+              ).tupled
             }
 
             (ifsV, loop(last, slotName, inlineSlots)).mapN { (ifs, elseV) =>

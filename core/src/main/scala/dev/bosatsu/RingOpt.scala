@@ -596,8 +596,8 @@ object RingOpt {
         expr match {
           case Zero | One | Symbol(_) => expr
           case Integer(i)             => canonInt(i)
-          case Neg(Neg(x))   => normExpr(x)
-          case Neg(x)        => simpleNeg(normExpr(x))
+          case Neg(Neg(x))            => normExpr(x)
+          case Neg(x)                 => simpleNeg(normExpr(x))
           case Add(x, y)              =>
             // TODO: if we move this to object Expr and take Hash[A]
             // we could normalize x + -(x) into 0, but that should be
@@ -1645,7 +1645,7 @@ object RingOpt {
   def normConstMult[A: Order](e: Expr[A], w: Weights): Expr[A] =
     e match {
       case Symbol(_) | One | Zero | Integer(_) => e
-      case Neg(n) =>
+      case Neg(n)                              =>
         val nA: Expr[A] = n
         Neg(normConstMult[A](nA, w))
       case Add(x, y) =>
@@ -1715,7 +1715,7 @@ object RingOpt {
               val prod = Expr.multAll(normed)
               val costProd = w.cost(prod)
               (costProd, prod)
-          }
+            }
           val (minCost, _) = all.minBy(_._1)
           all
             .filter { case (c, _) => c == minCost }
@@ -2189,10 +2189,10 @@ object RingOpt {
       case Neg(mult @ Mult(_, _)) =>
         val multA: Expr[A] = mult
         norm[A](Neg(One) * multA, W)
-      case ns @ Neg(Symbol(_))    => ns
-      case Neg(Zero)              => Zero
-      case Neg(One)               => canonInt(-1)
-      case Neg(Integer(n))        => canonInt(-n)
+      case ns @ Neg(Symbol(_)) => ns
+      case Neg(Zero)           => Zero
+      case Neg(One)            => canonInt(-1)
+      case Neg(Integer(n))     => canonInt(-n)
 
       case Add(left, right) =>
         val leftA: Expr[A] = left

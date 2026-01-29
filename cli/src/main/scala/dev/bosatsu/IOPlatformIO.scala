@@ -330,7 +330,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
             } else {
               IO.raiseError(
                 new Exception(
-                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash.toIdent(using algo)}"
+                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash
+                      .toIdent(using algo)}"
                 )
               )
             }

@@ -203,7 +203,9 @@ object DefRecursionCheck {
         val body = argsV.toList.foldLeft(
           Declaration.Var(fnname)(using region): Declaration.NonBinding
         ) { (called, group) =>
-          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(using region)
+          Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(using
+            region
+          )
         }
 
         def lambdify(

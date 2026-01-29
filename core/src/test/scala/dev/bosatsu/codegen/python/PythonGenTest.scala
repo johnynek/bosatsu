@@ -28,7 +28,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     val extstr = """
       { IO: { foo: bar.baz, quux: quux.quux_impl }, Bop: { foo: collections.queue } }
     """
-    assertEquals(PythonGen.externalParser.parseAll(extstr).map(_ => ()), Right(()))
+    assertEquals(
+      PythonGen.externalParser.parseAll(extstr).map(_ => ()),
+      Right(())
+    )
   }
 
   test("we can parse an example evals file") {
@@ -38,7 +41,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         Build/Foo::Bar: BuildImpl.run_build,
       }
     """
-    assertEquals(PythonGen.evaluatorParser.parseAll(str).map(_ => ()), Right(()))
+    assertEquals(
+      PythonGen.evaluatorParser.parseAll(str).map(_ => ()),
+      Right(())
+    )
   }
 
   test("top-level lets around lambda avoid closure tuples") {

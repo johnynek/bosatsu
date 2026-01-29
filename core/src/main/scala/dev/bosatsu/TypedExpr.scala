@@ -614,15 +614,14 @@ object TypedExpr {
 
     /** Here are all the global names inside this expression
       */
-    def globals: Set[(PackageName, Identifier)] =
-      {
-        type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
-        traverseUp[GlobalsWriter] {
+    def globals: Set[(PackageName, Identifier)] = {
+      type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
+      traverseUp[GlobalsWriter] {
         case g @ Global(p, i, _, _) =>
           Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
         case notG => Monad[GlobalsWriter].pure(notG)
-        }.written
-      }
+      }.written
+    }
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(
