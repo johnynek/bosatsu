@@ -193,7 +193,8 @@ object PythonGen {
 
       val imps = state.importStatements
       val lifted = state.lifted.toList
-      val allStmts = Code.optimizeStatements(lifted ::: stmts)
+      val pinned = state.tops.iterator.map(escape).toSet
+      val allStmts = Code.optimizeStatements(lifted ::: stmts, pinned)
 
       val impDocs = Doc.intercalate(Doc.hardLine, imps.map(Code.toDoc))
       val twoLines = Doc.hardLine + Doc.hardLine

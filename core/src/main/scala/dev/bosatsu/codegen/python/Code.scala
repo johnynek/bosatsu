@@ -1095,21 +1095,23 @@ object Code {
   }
 
   private def optimizeOnceStatements(
-      stmts: List[Statement]
+      stmts: List[Statement],
+      pinned: Set[Ident]
   ): Option[List[Statement]] = {
-    val (opt, _, changed) = optimizeBlockOnce(stmts, Set.empty)
+    val (opt, _, changed) = optimizeBlockOnce(stmts, pinned)
     if (changed) Some(opt) else None
   }
 
   def optimizeStatements(
       stmts: List[Statement],
+      pinned: Set[Ident],
       maxPasses: Int = 6
   ): List[Statement] = {
     var current = stmts
     var i = 0
     var changed = true
     while (changed && i < maxPasses) {
-      optimizeOnceStatements(current) match {
+      optimizeOnceStatements(current, pinned) match {
         case Some(next) =>
           current = next
           i += 1
