@@ -7,7 +7,7 @@ import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
 import Arbitrary.arbitrary
-import Identifier.Bindable
+import Identifier.{Bindable, Constructor}
 import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
 
@@ -15,16 +15,6 @@ class TypedExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
     super.scalaCheckTestParameters.withMinSuccessfulTests(500)
-
-  def allVars[A](te: TypedExpr[A]): Set[Bindable] = {
-    type W[B] = Writer[Set[Bindable], B]
-
-    te.traverseUp[W] {
-      case v @ TypedExpr.Local(ident, _, _) => Writer(Set(ident), v)
-      case notVar                           => Writer(Set.empty, notVar)
-    }.run
-      ._1
-  }
 
   /** Assert two bits of code normalize to the same thing
     */
@@ -38,7 +28,7 @@ class TypedExprTest extends munit.ScalaCheckSuite {
   test("freeVarsSet is a subset of allVars") {
     def law[A](te: TypedExpr[A]) = {
       val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
-      val av = allVars(te)
+      val av = TypedExpr.allVarsSet(te :: Nil).toSet
       val missing = frees -- av
       assert(
         missing.isEmpty,
@@ -54,6 +44,45 @@ x = match B(100):
   case A: 10
   case B(b): b
 """)(law)
+  }
+
+  test("allVars includes binders from lambdas, lets, and matches") {
+    val tag = ()
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val z = Identifier.Name("z")
+    val intT = Type.IntType
+
+    val pat: Pattern[(PackageName, Constructor), Type] = Pattern.Var(y)
+    val matchExpr =
+      TypedExpr.Match(
+        TypedExpr.Local(x, intT, tag),
+        NonEmptyList(
+          (pat, TypedExpr.Local(y, intT, tag)),
+          Nil
+        ),
+        tag
+      )
+    val letExpr =
+      TypedExpr.Let(
+        z,
+        TypedExpr.Literal(Lit.fromInt(1), intT, tag),
+        matchExpr,
+        RecursionKind.NonRecursive,
+        tag
+      )
+    val te =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList((x, intT), Nil),
+        letExpr,
+        tag
+      )
+
+    val av = TypedExpr.allVarsSet(te :: Nil)
+    assert(av.contains(x))
+    assert(av.contains(y))
+    assert(av.contains(z))
+
   }
 
   test("freeVars on top level TypedExpr is Nil") {

@@ -211,6 +211,37 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         argFree ::: branchFreeMax
     }
 
+  /** All variables (free or bound) in this expression in order encountered and
+    * with duplicates (to see how often they appear).
+    *
+    * This includes binders such as lambda args, let names, and pattern names.
+    */
+  lazy val allVarsDup: List[Bindable] =
+    this match {
+      case Generic(_, expr) =>
+        expr.allVarsDup
+      case Annotation(t, _) =>
+        t.allVarsDup
+      case Local(ident, _, _) =>
+        ident :: Nil
+      case Global(_, _, _, _) =>
+        Nil
+      case AnnotatedLambda(args, res, _) =>
+        args.toList.map(_._1) ::: res.allVarsDup
+      case App(fn, args, _, _) =>
+        fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
+      case Let(arg, argE, in, _, _) =>
+        arg :: (argE.allVarsDup ::: in.allVarsDup)
+      case Literal(_, _, _) =>
+        Nil
+      case Match(arg, branches, _) =>
+        val argVars = arg.allVarsDup
+        val branchVars = branches.toList.flatMap { case (p, b) =>
+          p.names ::: b.allVarsDup
+        }
+        argVars ::: branchVars
+    }
+
   def notFree(b: Bindable): Boolean =
     !freeVarsDup.contains(b)
 }
@@ -1404,6 +1435,17 @@ object TypedExpr {
 
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)
+
+  /** Return the list of all vars (free or bound)
+    */
+  def allVars[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    allVarsDup(ts).distinct
+
+  def allVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
+    SortedSet(allVarsDup(ts)*)
+
+  private def allVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    ts.flatMap(_.allVarsDup)
 
   /** Try to substitute ex for ident in the expression: in
     *
