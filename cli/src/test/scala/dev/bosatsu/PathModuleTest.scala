@@ -136,7 +136,8 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     out match {
       case Output.TestOutput(results, _) =>
         val res = results.collect {
-          case (pn, Some(t)) if pn.asString == "Queue" => t.value
+          case (pn, Some(t)) if pn.asString == "Bosatsu/Collection/Queue" =>
+            t.value
         }
         assertEquals(res.length, 1)
       case other => fail(s"expected test output: $other")

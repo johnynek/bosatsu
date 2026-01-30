@@ -1,4 +1,4 @@
-package TreeList
+package Bosatsu/Collection/TreeList
 
 export TreeList, empty, cons, decons, head, get, fold, eq_TreeList, to_List
 

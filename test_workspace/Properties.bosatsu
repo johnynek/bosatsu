@@ -1,4 +1,4 @@
-package Bosatsu/Properties
+package Bosatsu/Testing/Properties
 
 from Bosatsu/Rand import (Rand, run_Rand, prod_Rand, map_Rand,
   int_range, sequence_Rand)

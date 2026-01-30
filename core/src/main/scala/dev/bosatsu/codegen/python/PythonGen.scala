@@ -675,14 +675,7 @@ object PythonGen {
                 }
 
               def modName(p: NonEmptyList[String]): Module =
-                p match {
-                  case NonEmptyList(h, Nil) =>
-                    val Code.Ident(m) = escapeModule(h)
-
-                    NonEmptyList.one(Code.Ident(m + ".py"))
-                  case NonEmptyList(h, t1 :: t2) =>
-                    escapeModule(h) :: modName(NonEmptyList(t1, t2))
-                }
+                p.map(escapeModule) :+ Code.Ident("__init__.py")
 
               (p, (modName(ns.identOf(k, p)), Env.render(stmts)))
             }
