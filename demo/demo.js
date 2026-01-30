@@ -2,12 +2,17 @@
 //
 // This is a UI shim that displays and executes pre-compiled Bosatsu output.
 // The actual generated files are:
-//   - examples/_bundle.js - JavaScript output from: transpile js
+//   - examples/_bundle.js - Self-contained JavaScript bundle for execution
+//   - examples/_runtime.js - Runtime library (for display)
+//   - examples/Demo/Fibonacci/index.js - Module code (for display)
 //   - examples/fibonacci.c - C output from: transpile c
 //   - examples/fibonacci_wasm.js - WASM from emscripten (optional)
 //
 // This file does NOT modify the generated code - it only loads, displays,
 // and evaluates it in the browser.
+
+// Store loaded bundle for execution
+let bundleCode = null;
 
 async function init() {
   // Load source files
@@ -23,16 +28,21 @@ async function init() {
     }
   };
 
-  // Load runtime and fibonacci module separately
-  // The JS transpiler outputs ES modules to Demo/Package/index.js
-  const [source, runtimeCode, fibCode, cCode] = await Promise.all([
+  // Load all files:
+  // - bundle.js for execution (self-contained with globalThis bindings)
+  // - runtime + module code for display
+  const [source, bundle, runtimeCode, fibCode, cCode] = await Promise.all([
     loadFile('examples/fibonacci.bosatsu', 'Bosatsu source'),
+    loadFile('examples/_bundle.js', 'JavaScript bundle'),
     loadFile('examples/_runtime.js', 'Bosatsu runtime'),
     loadFile('examples/Demo/Fibonacci/index.js', 'Generated JavaScript'),
     loadFile('examples/fibonacci.c', 'Generated C code')
   ]);
 
-  // Combine runtime and fibonacci code for display
+  // Store bundle for execution
+  bundleCode = bundle;
+
+  // Combine runtime and fibonacci code for display purposes
   const jsCode = `// === Bosatsu Runtime ===\n${runtimeCode}\n\n// === Demo/Fibonacci ===\n${fibCode}`;
 
   document.getElementById('source-code').textContent = source;
@@ -57,8 +67,7 @@ async function init() {
     resultEl.classList.remove('error');
 
     try {
-      const jsCode = document.getElementById('js-code').textContent;
-      const result = await runJS(jsCode);
+      const result = await runJS();
       resultEl.textContent = `Result: ${result} (fib(20) = 6765)`;
     } catch (err) {
       resultEl.textContent = `Error: ${err.message}`;
@@ -87,26 +96,27 @@ async function init() {
   });
 }
 
-async function runJS(code) {
-  // The generated JS is an ES module with runtime and fibonacci code
-  // We need to strip the ES module syntax and evaluate it as a script
+async function runJS() {
+  // The bundle is a self-contained file that defines all functions on globalThis
+  // e.g., globalThis.Demo_Fibonacci$fib = function(n) { ... }
 
-  // Check if code looks like generated output
-  if (code.includes('// Generated JavaScript not available') || code.includes('// Run the build script')) {
-    throw new Error('JavaScript has not been generated yet. Build the demo artifacts first.');
+  // Check if bundle was loaded
+  if (!bundleCode || bundleCode.includes('not available') || bundleCode.includes('Run the build script')) {
+    throw new Error('JavaScript bundle has not been generated yet. Build the demo artifacts first.');
   }
 
   try {
-    // Remove ES module exports and imports (convert to script-style)
-    let scriptCode = code
-      .replace(/^export \{[^}]*\};?$/gm, '')  // Remove export statements
-      .replace(/^import [^;]*;$/gm, '')        // Remove import statements
-      .replace(/if \(typeof require !== 'undefined'\) \{ require\([^)]*\); \}/g, '');  // Remove Node.js require
+    // Execute the bundle code to define all globalThis bindings
+    const fn = new Function(bundleCode);
+    fn();
 
-    // The fibonacci module defines 'fib' as a const - we just need to call it
-    // Add a call to fib(20) at the end to get the result
-    const fn = new Function(scriptCode + '\nreturn fib(20);');
-    const result = fn();
+    // Call the qualified fib function: Demo/Fibonacci::fib -> Demo_Fibonacci$fib
+    const fibFn = globalThis['Demo_Fibonacci$fib'];
+    if (!fibFn) {
+      throw new Error('fib function not found in bundle. Expected globalThis.Demo_Fibonacci$fib');
+    }
+
+    const result = fibFn(20);
 
     // Handle Bosatsu Int representation (could be BigInt or object)
     if (typeof result === 'bigint') {
