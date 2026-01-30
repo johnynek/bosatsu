@@ -224,10 +224,6 @@ jobs:
           java-version: "17"
       - name: Install sbt
         uses: sbt/setup-sbt@v1
-      - name: Build assembly for lib publish
-        env:
-          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
-        run: sbt "++3.8.1; cli/assembly"
       - name: Publish JVM/JS artifacts to Sonatype
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
@@ -236,6 +232,10 @@ jobs:
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
         run: sbt ci-release
+      - name: Build assembly for lib publish
+        env:
+          BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+        run: sbt "++3.8.1; cli/assembly"
       - name: Publish Bosatsu libraries
         env:
           REPO_ROOT: ${{ github.workspace }}
