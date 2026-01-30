@@ -239,3 +239,195 @@ function setupCapture(page: import('@playwright/test').Page) {
   page.on('pageerror', err => errors.push(err.message));
   return { errors };
 }
+
+// =============================================================================
+// REALNESS CHECK: Demos must be generated from actual .bosatsu source
+// =============================================================================
+
+// Patterns that indicate fake/embedded JS instead of real Bosatsu compilation
+const FAKE_DEMO_PATTERNS = [
+  // Physics simulations with embedded formulas (not from Bosatsu)
+  /function\s+updatePhysics\s*\(/,
+  /position\s*\+=\s*velocity/,
+  /velocity\s*\+=\s*gravity/,
+  /Math\.(sin|cos|sqrt)\s*\(/,
+  // Inline business logic (should come from compiled Bosatsu)
+  /\/\/\s*Fake\s+calculation/i,
+  /\/\/\s*Placeholder\s+logic/i,
+  /\/\/\s*TODO:\s*replace\s+with\s+real/i,
+  // Animation frame loops without Bosatsu
+  /requestAnimationFrame\s*\(\s*function\s+animate/,
+];
+
+// Map of demo paths to their expected .bosatsu source files
+const DEMO_SOURCE_MAP: Record<string, string[]> = {
+  'ui/counter.html': ['demos/ui/counter.bosatsu'],
+  'ui/todo-list.html': ['demos/ui/todo-list.bosatsu'],
+  'simulation/loan-calculator.html': [
+    'demo/loan_calculator_numeric_func.bosatsu',
+    'demo/loan_calculator_numeric_func.sim.bosatsu'
+  ],
+  'simulation/carbon-footprint.html': [
+    'demo/carbon_numeric.bosatsu',
+    'demo/carbon_numeric.sim.bosatsu'
+  ],
+  'simulation/tax-calculator.html': [
+    'demo/tax_numeric.bosatsu',
+    'demo/tax_numeric.sim.bosatsu'
+  ],
+};
+
+test.describe('Demo Realness Verification', () => {
+  test('every demo has corresponding .bosatsu source files', async () => {
+    const missingSource: { demo: string; missing: string[] }[] = [];
+
+    for (const [demoPath, sourceFiles] of Object.entries(DEMO_SOURCE_MAP)) {
+      const missing: string[] = [];
+
+      for (const sourceFile of sourceFiles) {
+        const fullPath = path.join(__dirname, '../..', sourceFile);
+        if (!fs.existsSync(fullPath)) {
+          missing.push(sourceFile);
+        }
+      }
+
+      if (missing.length > 0) {
+        missingSource.push({ demo: demoPath, missing });
+      }
+    }
+
+    if (missingSource.length > 0) {
+      console.error('Demos missing source files:');
+      missingSource.forEach(d => {
+        console.error(`  - ${d.demo}: missing ${d.missing.join(', ')}`);
+      });
+    }
+
+    expect(
+      missingSource,
+      'Some demos are missing their .bosatsu source files - they may be fake!'
+    ).toHaveLength(0);
+  });
+
+  test('no demo contains fake/embedded JS patterns', async () => {
+    const webDeployDir = path.join(__dirname, '../../web_deploy/demos');
+    const fakePatterns: { file: string; patterns: string[] }[] = [];
+
+    // Only run if web_deploy exists (skip during local dev if not built)
+    if (!fs.existsSync(webDeployDir)) {
+      console.log('web_deploy/demos not found, skipping fake pattern check (run after build)');
+      return;
+    }
+
+    function checkFile(filePath: string) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const found: string[] = [];
+
+      for (const pattern of FAKE_DEMO_PATTERNS) {
+        if (pattern.test(content)) {
+          found.push(pattern.toString());
+        }
+      }
+
+      if (found.length > 0) {
+        fakePatterns.push({ file: filePath, patterns: found });
+      }
+    }
+
+    function walkDir(dir: string) {
+      if (!fs.existsSync(dir)) return;
+
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+          walkDir(fullPath);
+        } else if (file.endsWith('.html')) {
+          checkFile(fullPath);
+        }
+      }
+    }
+
+    walkDir(webDeployDir);
+
+    if (fakePatterns.length > 0) {
+      console.error('Demos with fake/embedded JS patterns:');
+      fakePatterns.forEach(f => {
+        console.error(`  - ${f.file}:`);
+        f.patterns.forEach(p => console.error(`      ${p}`));
+      });
+    }
+
+    expect(
+      fakePatterns,
+      'Some demos contain fake/embedded JS - they should be generated from Bosatsu!'
+    ).toHaveLength(0);
+  });
+
+  test('landing page only links to real demos', async () => {
+    const landingPagePath = path.join(__dirname, '../../web/index.html');
+    const content = fs.readFileSync(landingPagePath, 'utf-8');
+
+    // Find all demo links
+    const hrefRegex = /href="demo\/([^"]+\.html)"/g;
+    const demoLinks: string[] = [];
+    let match;
+
+    while ((match = hrefRegex.exec(content)) !== null) {
+      demoLinks.push(match[1]);
+    }
+
+    // Check for known fake demos that should NOT be in landing page
+    const KNOWN_FAKE_DEMOS = [
+      'bouncing-ball.html',
+      'pendulum.html',
+      'investment.html', // Old non-Numeric version
+    ];
+
+    const fakeLinksFound = demoLinks.filter(link =>
+      KNOWN_FAKE_DEMOS.some(fake => link.includes(fake))
+    );
+
+    if (fakeLinksFound.length > 0) {
+      console.error('Landing page links to known fake demos:');
+      fakeLinksFound.forEach(link => console.error(`  - ${link}`));
+    }
+
+    expect(
+      fakeLinksFound,
+      'Landing page should not link to fake demos'
+    ).toHaveLength(0);
+  });
+
+  test('all .bosatsu source files use Bosatsu/Numeric for math', async () => {
+    const numericDemos = [
+      'demo/loan_calculator_numeric_func.bosatsu',
+      'demo/carbon_numeric.bosatsu',
+      'demo/tax_numeric.bosatsu',
+    ];
+
+    const missingNumeric: string[] = [];
+
+    for (const file of numericDemos) {
+      const fullPath = path.join(__dirname, '../..', file);
+      if (fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        if (!content.includes('Bosatsu/Numeric')) {
+          missingNumeric.push(file);
+        }
+      }
+    }
+
+    if (missingNumeric.length > 0) {
+      console.error('Numeric demos not importing Bosatsu/Numeric:');
+      missingNumeric.forEach(f => console.error(`  - ${f}`));
+    }
+
+    expect(
+      missingNumeric,
+      'Numeric demos must import from Bosatsu/Numeric'
+    ).toHaveLength(0);
+  });
+});
