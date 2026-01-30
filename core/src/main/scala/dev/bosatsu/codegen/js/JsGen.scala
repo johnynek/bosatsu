@@ -547,6 +547,14 @@ object JsGen {
 
     /** Map of intrinsic function names to (implementation, arity) */
     val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // state(initial) -> creates State object with unique ID
+      // State is {id: string, value: any} - ID used for binding tracking
+      Identifier.Name("state") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_create_state"),
+          List(args.head)
+        ), 1),
+
       // h(tag, props, children) -> creates VElement object for runtime
       // We generate a JS object that the runtime's createDOM can process
       Identifier.Name("h") -> ((args: List[Code.Expression]) =>
@@ -558,10 +566,11 @@ object JsGen {
         )), 3),
 
       // text(content) -> creates VText object
+      // Content is a Bosatsu string (linked list), convert to JS string for DOM
       Identifier.Name("text") -> ((args: List[Code.Expression]) =>
         Code.ObjectLiteral(List(
           "type" -> Code.StringLiteral("text"),
-          "text" -> Code.Call(Code.Ident("String"), List(args.head))
+          "text" -> Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args.head))
         )), 1),
 
       // fragment(children) -> creates VFragment object
@@ -1201,12 +1210,26 @@ object JsGen {
 
   /** Render bindings as statements only (no ES module exports).
     * Use this for embedding in HTML where exports would cause errors.
+    *
+    * When a package name is provided, generates both unqualified names (for readability)
+    * and qualified names (for cross-package references).
     */
-  def renderStatements[A](bindings: List[(Bindable, Matchless.Expr[A])]): String = {
-    val statements = bindings.map { case (name, expr) =>
+  def renderStatements[A](bindings: List[(Bindable, Matchless.Expr[A])], pack: Option[PackageName] = None): String = {
+    val statements = bindings.flatMap { case (name, expr) =>
       val (_, jsExpr) = Env.run(exprToJs(expr))
-      val ident = escape(name)
-      Code.Const(ident.name, jsExpr)
+      val unqualifiedIdent = escape(name)
+
+      pack match {
+        case Some(p) =>
+          val qualIdent = qualifiedName(p, name)
+          // Generate both: const name = expr; const Package$name = name;
+          List(
+            Code.Const(unqualifiedIdent.name, jsExpr),
+            Code.Const(qualIdent.name, unqualifiedIdent)
+          )
+        case None =>
+          List(Code.Const(unqualifiedIdent.name, jsExpr))
+      }
     }
 
     Code.render(Code.Statements(statements))

@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BosatsuUI Todo List Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color: #f2f4ff;
+        min-height: 100vh;
+        padding: 40px 20px;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        font-size: 28px;
+        margin-bottom: 8px;
+      }
+      .subtitle {
+        color: #9aa0d4;
+        font-size: 14px;
+        margin-bottom: 24px;
+      }
+      .stats {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      .stat {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #f2683c;
+      }
+      .stat-label {
+        font-size: 12px;
+        color: #9aa0d4;
+        margin-top: 4px;
+      }
+      .input-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      input[type="text"] {
+        flex: 1;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        color: #f2f4ff;
+        font-size: 16px;
+      }
+      input[type="text"]::placeholder {
+        color: #6b7280;
+      }
+      input[type="text"]:focus {
+        outline: none;
+        border-color: #f2683c;
+      }
+      button {
+        padding: 14px 24px;
+        border-radius: 12px;
+        border: none;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.2s;
+      }
+      button:active {
+        transform: scale(0.97);
+      }
+      .btn-primary {
+        background: #f2683c;
+        color: #0b0b14;
+      }
+      .btn-primary:hover {
+        background: #ff7a4d;
+      }
+      .btn-ghost {
+        background: rgba(255, 255, 255, 0.05);
+        color: #f2f4ff;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .btn-ghost:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .btn-danger {
+        background: #ef4444;
+        color: white;
+      }
+      .btn-danger:hover {
+        background: #dc2626;
+      }
+      .todo-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .todo-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        transition: background 0.2s;
+      }
+      .todo-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .todo-item.completed .todo-text {
+        text-decoration: line-through;
+        color: #6b7280;
+      }
+      .todo-checkbox {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        border: 2px solid #4b5563;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+      }
+      .todo-checkbox:hover {
+        border-color: #f2683c;
+      }
+      .todo-checkbox.checked {
+        background: #f2683c;
+        border-color: #f2683c;
+      }
+      .todo-checkbox.checked::after {
+        content: '✓';
+        color: #0b0b14;
+        font-weight: bold;
+      }
+      .todo-text {
+        flex: 1;
+        font-size: 15px;
+      }
+      .todo-delete {
+        opacity: 0;
+        padding: 8px;
+        cursor: pointer;
+        color: #ef4444;
+        transition: opacity 0.2s;
+      }
+      .todo-item:hover .todo-delete {
+        opacity: 1;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #6b7280;
+      }
+      .filter-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .filter-btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        background: transparent;
+        color: #9aa0d4;
+        font-size: 14px;
+        border: 1px solid transparent;
+      }
+      .filter-btn.active {
+        background: rgba(242, 104, 60, 0.1);
+        color: #f2683c;
+        border-color: rgba(242, 104, 60, 0.3);
+      }
+      .binding-info {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 12px;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 11px;
+        color: #9aa0d4;
+        margin-top: 16px;
+      }
+      .binding-info code {
+        color: #6ee7b7;
+      }
+      h3 {
+        font-size: 14px;
+        color: #9aa0d4;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>BosatsuUI Todo List</h1>
+        <p class="subtitle">
+          Each todo item has its own direct DOM binding - no VDOM diffing needed!
+        </p>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-value" id="total-count" data-bosatsu-id="total-count">0</div>
+            <div class="stat-label">Total</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="active-count" data-bosatsu-id="active-count">0</div>
+            <div class="stat-label">Active</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="completed-count" data-bosatsu-id="completed-count">0</div>
+            <div class="stat-label">Completed</div>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <input type="text" id="new-todo-input" placeholder="What needs to be done?" />
+          <button class="btn-primary" id="add-btn">Add</button>
+        </div>
+
+        <div class="filter-row">
+          <button class="filter-btn active" id="filter-all" data-filter="all">All</button>
+          <button class="filter-btn" id="filter-active" data-filter="active">Active</button>
+          <button class="filter-btn" id="filter-completed" data-filter="completed">Completed</button>
+        </div>
+
+        <div class="todo-list" id="todo-list">
+          <div class="empty-state">No todos yet. Add one above!</div>
+        </div>
+
+        <div class="binding-info">
+          <strong>BosatsuUI Bindings (per-item, O(1) updates):</strong><br>
+          <code>["todos", "{id}", "text"]</code> -> <code>#todo-{id}-text.textContent</code><br>
+          <code>["todos", "{id}", "completed"]</code> -> <code>#todo-{id}-checkbox.className</code><br>
+          <code>["stats", "total"]</code> -> <code>#total-count.textContent</code><br>
+          <code>["stats", "active"]</code> -> <code>#active-count.textContent</code><br>
+          <code>["stats", "completed"]</code> -> <code>#completed-count.textContent</code>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Why This Matters for Performance</h3>
+        <p style="font-size: 14px; color: #9aa0d4; line-height: 1.6;">
+          When you toggle a todo, BosatsuUI:
+        </p>
+        <ol style="font-size: 14px; color: #9aa0d4; line-height: 1.8; margin: 12px 0 0 20px;">
+          <li>Looks up bindings for <code style="color: #6ee7b7;">["todos", "3", "completed"]</code></li>
+          <li>Directly updates <code style="color: #6ee7b7;">#todo-3-checkbox.className</code></li>
+          <li>Also updates stat counters via their bindings</li>
+        </ol>
+        <p style="font-size: 14px; color: #9aa0d4; line-height: 1.6; margin-top: 12px;">
+          React/Elm would re-render the entire list and diff to find what changed.
+          With 100 todos, BosatsuUI is still O(1) while VDOM is O(100).
+        </p>
+      </div>
+    </div>
+
+    <script>
+      // =========================================================================
+      // BosatsuUI Todo List Demo
+      //
+      // This demo shows how BosatsuUI handles lists with per-item bindings.
+      // Each todo item gets its own binding, enabling O(1) updates.
+      // =========================================================================
+
+      // State
+      let state = {
+        todos: {},
+        filter: 'all',
+        nextId: 1,
+      };
+
+      // Element caches
+      const elementCache = new Map();
+      const bindingMap = new Map();
+
+      // DOM references
+      const todoList = document.getElementById('todo-list');
+      const totalCount = document.getElementById('total-count');
+      const activeCount = document.getElementById('active-count');
+      const completedCount = document.getElementById('completed-count');
+      const newTodoInput = document.getElementById('new-todo-input');
+
+      // Initialize stats bindings
+      bindingMap.set('stats.total', [{ elementId: 'total-count', property: 'textContent' }]);
+      bindingMap.set('stats.active', [{ elementId: 'active-count', property: 'textContent' }]);
+      bindingMap.set('stats.completed', [{ elementId: 'completed-count', property: 'textContent' }]);
+
+      elementCache.set('total-count', totalCount);
+      elementCache.set('active-count', activeCount);
+      elementCache.set('completed-count', completedCount);
+
+      // Core BosatsuUI setState function
+      function setState(path, value) {
+        state = setAtPath(state, path, value);
+        applyBindings(path, value);
+      }
+
+      function setAtPath(obj, path, value) {
+        if (path.length === 0) return value;
+        const [first, ...rest] = path;
+        return {
+          ...obj,
+          [first]: rest.length === 0 ? value : setAtPath(obj[first] || {}, rest, value),
+        };
+      }
+
+      function getAtPath(obj, path) {
+        return path.reduce((o, k) => o?.[k], obj);
+      }
+
+      function applyBindings(path, value) {
+        const pathKey = path.join('.');
+        const bindings = bindingMap.get(pathKey) || [];
+
+        bindings.forEach(binding => {
+          const element = elementCache.get(binding.elementId);
+          if (element) {
+            if (binding.property === 'className') {
+              if (value) {
+                element.classList.add('checked');
+              } else {
+                element.classList.remove('checked');
+              }
+            } else {
+              element[binding.property] = String(value);
+            }
+          }
+        });
+      }
+
+      // Update stats (computed from todos)
+      function updateStats() {
+        const todos = Object.values(state.todos);
+        const total = todos.length;
+        const completed = todos.filter(t => t.completed).length;
+        const active = total - completed;
+
+        applyBindings(['stats', 'total'], total);
+        applyBindings(['stats', 'active'], active);
+        applyBindings(['stats', 'completed'], completed);
+      }
+
+      // Add a new todo
+      function addTodo(text) {
+        if (!text.trim()) return;
+
+        const id = String(state.nextId);
+        state.nextId++;
+
+        const todo = {
+          id,
+          text: text.trim(),
+          completed: false,
+        };
+
+        state.todos[id] = todo;
+
+        // Create DOM element and register bindings
+        createTodoElement(todo);
+
+        updateStats();
+        renderTodoList();
+      }
+
+      // Create a todo DOM element and register its bindings
+      function createTodoElement(todo) {
+        const item = document.createElement('div');
+        item.className = 'todo-item';
+        item.id = `todo-${todo.id}`;
+        item.dataset.id = todo.id;
+
+        item.innerHTML = `
+          <div class="todo-checkbox ${todo.completed ? 'checked' : ''}"
+               id="todo-${todo.id}-checkbox"
+               data-bosatsu-id="todo-${todo.id}-checkbox"></div>
+          <span class="todo-text"
+                id="todo-${todo.id}-text"
+                data-bosatsu-id="todo-${todo.id}-text">${escapeHtml(todo.text)}</span>
+          <span class="todo-delete">✕</span>
+        `;
+
+        if (todo.completed) {
+          item.classList.add('completed');
+        }
+
+        // Register bindings for this todo
+        const textBindingKey = `todos.${todo.id}.text`;
+        const completedBindingKey = `todos.${todo.id}.completed`;
+
+        bindingMap.set(textBindingKey, [
+          { elementId: `todo-${todo.id}-text`, property: 'textContent' }
+        ]);
+        bindingMap.set(completedBindingKey, [
+          { elementId: `todo-${todo.id}-checkbox`, property: 'className' }
+        ]);
+
+        // Cache elements
+        elementCache.set(`todo-${todo.id}`, item);
+        elementCache.set(`todo-${todo.id}-checkbox`, item.querySelector('.todo-checkbox'));
+        elementCache.set(`todo-${todo.id}-text`, item.querySelector('.todo-text'));
+
+        // Event listeners
+        item.querySelector('.todo-checkbox').addEventListener('click', () => {
+          toggleTodo(todo.id);
+        });
+
+        item.querySelector('.todo-delete').addEventListener('click', () => {
+          deleteTodo(todo.id);
+        });
+
+        return item;
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Toggle a todo's completed state
+      function toggleTodo(id) {
+        const todo = state.todos[id];
+        if (!todo) return;
+
+        const newCompleted = !todo.completed;
+        state.todos[id] = { ...todo, completed: newCompleted };
+
+        // Apply the binding update - O(1)!
+        applyBindings(['todos', id, 'completed'], newCompleted);
+
+        // Update the item's visual state
+        const item = elementCache.get(`todo-${id}`);
+        if (item) {
+          if (newCompleted) {
+            item.classList.add('completed');
+          } else {
+            item.classList.remove('completed');
+          }
+        }
+
+        updateStats();
+        renderTodoList(); // For filter visibility
+      }
+
+      // Delete a todo
+      function deleteTodo(id) {
+        delete state.todos[id];
+
+        // Remove DOM element
+        const item = elementCache.get(`todo-${id}`);
+        if (item) {
+          item.remove();
+        }
+
+        // Clean up caches
+        elementCache.delete(`todo-${id}`);
+        elementCache.delete(`todo-${id}-checkbox`);
+        elementCache.delete(`todo-${id}-text`);
+        bindingMap.delete(`todos.${id}.text`);
+        bindingMap.delete(`todos.${id}.completed`);
+
+        updateStats();
+        renderTodoList();
+      }
+
+      // Render the todo list based on current filter
+      function renderTodoList() {
+        const todos = Object.values(state.todos);
+        const filter = state.filter;
+
+        const filtered = todos.filter(todo => {
+          if (filter === 'active') return !todo.completed;
+          if (filter === 'completed') return todo.completed;
+          return true;
+        });
+
+        todoList.innerHTML = '';
+
+        if (filtered.length === 0) {
+          todoList.innerHTML = '<div class="empty-state">No todos match the current filter</div>';
+          return;
+        }
+
+        filtered.forEach(todo => {
+          const existingItem = elementCache.get(`todo-${todo.id}`);
+          if (existingItem) {
+            todoList.appendChild(existingItem);
+          } else {
+            todoList.appendChild(createTodoElement(todo));
+          }
+        });
+      }
+
+      // Filter buttons
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.filter = btn.dataset.filter;
+          renderTodoList();
+        });
+      });
+
+      // Add button
+      document.getElementById('add-btn').addEventListener('click', () => {
+        addTodo(newTodoInput.value);
+        newTodoInput.value = '';
+        newTodoInput.focus();
+      });
+
+      // Enter key in input
+      newTodoInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          addTodo(newTodoInput.value);
+          newTodoInput.value = '';
+        }
+      });
+
+      // Add some initial todos
+      addTodo('Learn about BosatsuUI bindings');
+      addTodo('Understand O(1) DOM updates');
+      addTodo('Compare with React VDOM');
+    </script>
+  </body>
+</html>

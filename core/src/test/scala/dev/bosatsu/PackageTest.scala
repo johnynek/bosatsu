@@ -322,6 +322,14 @@ main = 2
     assert(hasText, "uiPackage should export text function")
   }
 
+  test("uiPackage has state constructor") {
+    val ui = Package.uiPackage
+    val hasState = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "state"
+    }
+    assert(hasState, "uiPackage should export state constructor function")
+  }
+
   test("uiPackage has read and write functions") {
     val ui = Package.uiPackage
     val hasRead = ui.exports.exists { exp =>

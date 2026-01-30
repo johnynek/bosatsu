@@ -17,7 +17,9 @@ function setupConsoleCapture(page: Page) {
 }
 
 // =============================================================================
-// BOSATSU UI COUNTER DEMO
+// BOSATSU UI COUNTER DEMO (Generated from .bosatsu source)
+// Note: These tests work with the generated counter which has +/- buttons only
+// More comprehensive tests are in counter-generated.spec.ts
 // =============================================================================
 test.describe('BosatsuUI Counter Demo', () => {
   test.beforeEach(async ({ page }) => {
@@ -28,7 +30,7 @@ test.describe('BosatsuUI Counter Demo', () => {
   });
 
   test('page loads successfully', async ({ page }) => {
-    await expect(page).toHaveTitle(/BosatsuUI Counter/i);
+    // Generated counter has title "view" (the export name), hand-written had "Counter"
     await expect(page.locator('.card')).toBeVisible();
   });
 
@@ -39,7 +41,7 @@ test.describe('BosatsuUI Counter Demo', () => {
 
   test('increment button increases count', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
+    const incButton = page.locator('button:has-text("+")');
 
     await expect(countDisplay).toHaveText('0');
     await incButton.click();
@@ -50,7 +52,7 @@ test.describe('BosatsuUI Counter Demo', () => {
 
   test('decrement button decreases count', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const decButton = page.locator('#dec');
+    const decButton = page.locator('button:has-text("-")');
 
     // Start at 0
     await expect(countDisplay).toHaveText('0');
@@ -62,61 +64,29 @@ test.describe('BosatsuUI Counter Demo', () => {
     await expect(countDisplay).toHaveText('-2');
   });
 
-  test('reset button sets count to 0', async ({ page }) => {
-    const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
-    const resetButton = page.locator('#reset');
-
-    // Increment a few times
-    await incButton.click();
-    await incButton.click();
-    await incButton.click();
-    await expect(countDisplay).toHaveText('3');
-
-    // Reset
-    await resetButton.click();
-    await expect(countDisplay).toHaveText('0');
+  // Skip: reset button only exists in hand-written version
+  test.skip('reset button sets count to 0', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
-  test('random button sets count to random value', async ({ page }) => {
-    const countDisplay = page.locator('#count-display');
-    const randomButton = page.locator('#random');
-
-    await expect(countDisplay).toHaveText('0');
-    await randomButton.click();
-
-    // Value should be different (very unlikely to be 0 randomly)
-    // and within expected range [0, 100)
-    const value = await countDisplay.textContent();
-    const numValue = parseInt(value || '0', 10);
-    expect(numValue).toBeGreaterThanOrEqual(0);
-    expect(numValue).toBeLessThan(100);
+  // Skip: random button only exists in hand-written version
+  test.skip('random button sets count to random value', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
-  test('binding log shows updates', async ({ page }) => {
-    const log = page.locator('#log');
-    const incButton = page.locator('#inc');
-
-    // Initial entry should exist
-    await expect(log).toContainText('count');
-
-    // Click increment
-    await incButton.click();
-
-    // Should have new log entry with path and value
-    await expect(log).toContainText('["count"]');
-    await expect(log).toContainText('#count-display');
-    await expect(log).toContainText('textContent');
+  // Skip: binding log only exists in hand-written version
+  test.skip('binding log shows updates', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
-  test('data-bosatsu-id attribute is present', async ({ page }) => {
-    const countDisplay = page.locator('#count-display');
-    await expect(countDisplay).toHaveAttribute('data-bosatsu-id', 'count-display');
+  // Skip: data-bosatsu-id attribute only in hand-written version
+  test.skip('data-bosatsu-id attribute is present', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
   test('rapid clicking updates correctly', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
+    const incButton = page.locator('button:has-text("+")');
 
     // Rapidly click 10 times
     for (let i = 0; i < 10; i++) {
@@ -131,11 +101,9 @@ test.describe('BosatsuUI Counter Demo', () => {
     const errors: string[] = [];
     page.on('pageerror', err => errors.push(err.message));
 
-    // Interact with the page
-    await page.locator('#inc').click();
-    await page.locator('#dec').click();
-    await page.locator('#reset').click();
-    await page.locator('#random').click();
+    // Interact with the page (generated counter has +/- only)
+    await page.locator('button:has-text("+")').click();
+    await page.locator('button:has-text("-")').click();
 
     // Wait for any async operations
     await page.waitForTimeout(500);
@@ -556,7 +524,8 @@ test.describe('BosatsuUI Demos Index', () => {
   test('counter link navigates correctly', async ({ page }) => {
     await page.locator('a[href="ui/counter.html"]').click();
     await expect(page).toHaveURL(/counter\.html/);
-    await expect(page).toHaveTitle(/Counter/i);
+    // Generated counter has title "view" (the export name)
+    await expect(page.locator('.card')).toBeVisible();
   });
 
   test('todo list link navigates correctly', async ({ page }) => {
@@ -603,17 +572,16 @@ test.describe('BosatsuUI Binding Correctness', () => {
     await expect(page.locator('#count-display')).toBeVisible();
 
     // Evaluate to check internal state matches DOM
-    await page.locator('#inc').click();
-    await page.locator('#inc').click();
-    await page.locator('#inc').click();
+    const incButton = page.locator('button:has-text("+")');
+    await incButton.click();
+    await incButton.click();
+    await incButton.click();
 
     // DOM should show 3
     await expect(page.locator('#count-display')).toHaveText('3');
 
-    // The binding log should show the state path was updated
-    const log = page.locator('#log');
-    await expect(log).toContainText('["count"]');
-    await expect(log).toContainText('3');
+    // Note: binding log only exists in hand-written version
+    // Generated counter verifies binding works via DOM update
   });
 
   test('todo list: per-item bindings update correctly', async ({ page }) => {
@@ -676,7 +644,8 @@ test.describe('BosatsuUI Binding Correctness', () => {
 });
 
 // =============================================================================
-// COUNTER DEMO - EDGE CASES & STRESS TESTS
+// COUNTER DEMO - EDGE CASES & STRESS TESTS (Generated Counter)
+// Note: Tests for reset, random, log features are skipped (hand-written only)
 // =============================================================================
 test.describe('Counter Demo - Edge Cases', () => {
   test.beforeEach(async ({ page }) => {
@@ -686,7 +655,7 @@ test.describe('Counter Demo - Edge Cases', () => {
 
   test('handles negative numbers correctly', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const decButton = page.locator('#dec');
+    const decButton = page.locator('button:has-text("-")');
 
     // Decrement to negative values
     for (let i = 0; i < 5; i++) {
@@ -698,7 +667,7 @@ test.describe('Counter Demo - Edge Cases', () => {
 
   test('handles large positive numbers', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
+    const incButton = page.locator('button:has-text("+")');
 
     // Rapid increment to large number
     for (let i = 0; i < 50; i++) {
@@ -708,39 +677,20 @@ test.describe('Counter Demo - Edge Cases', () => {
     await expect(countDisplay).toHaveText('50');
   });
 
-  test('reset works from negative value', async ({ page }) => {
-    const countDisplay = page.locator('#count-display');
-    const decButton = page.locator('#dec');
-    const resetButton = page.locator('#reset');
-
-    // Go negative
-    await decButton.click();
-    await decButton.click();
-    await expect(countDisplay).toHaveText('-2');
-
-    // Reset
-    await resetButton.click();
-    await expect(countDisplay).toHaveText('0');
+  // Skip: reset button only exists in hand-written version
+  test.skip('reset works from negative value', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
-  test('random button generates values in expected range', async ({ page }) => {
-    const countDisplay = page.locator('#count-display');
-    const randomButton = page.locator('#random');
-
-    // Test 10 random values
-    for (let i = 0; i < 10; i++) {
-      await randomButton.click();
-      const value = await countDisplay.textContent();
-      const numValue = parseInt(value || '0', 10);
-      expect(numValue).toBeGreaterThanOrEqual(0);
-      expect(numValue).toBeLessThan(100);
-    }
+  // Skip: random button only exists in hand-written version
+  test.skip('random button generates values in expected range', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
   test('alternating increment/decrement maintains correctness', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
-    const decButton = page.locator('#dec');
+    const incButton = page.locator('button:has-text("+")');
+    const decButton = page.locator('button:has-text("-")');
 
     // Alternate: +1, -1, +1, -1, +1 = +1
     await incButton.click();
@@ -752,36 +702,19 @@ test.describe('Counter Demo - Edge Cases', () => {
     await expect(countDisplay).toHaveText('1');
   });
 
-  test('binding log maintains maximum entries', async ({ page }) => {
-    const log = page.locator('#log');
-    const incButton = page.locator('#inc');
-
-    // Click more than 10 times (log keeps last 10)
-    for (let i = 0; i < 15; i++) {
-      await incButton.click();
-    }
-
-    // Should have at most 10 entries
-    const entries = page.locator('#log .entry');
-    const count = await entries.count();
-    expect(count).toBeLessThanOrEqual(10);
+  // Skip: binding log only exists in hand-written version
+  test.skip('binding log maintains maximum entries', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
-  test('binding log shows correct binding path format', async ({ page }) => {
-    const log = page.locator('#log');
-    const incButton = page.locator('#inc');
-
-    await incButton.click();
-
-    // Check for proper binding log format
-    await expect(log).toContainText('["count"]');
-    await expect(log).toContainText('#count-display');
-    await expect(log).toContainText('textContent');
+  // Skip: binding log only exists in hand-written version
+  test.skip('binding log shows correct binding path format', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 
   test('stress test: 100 rapid clicks', async ({ page }) => {
     const countDisplay = page.locator('#count-display');
-    const incButton = page.locator('#inc');
+    const incButton = page.locator('button:has-text("+")');
 
     // Rapidly click 100 times
     for (let i = 0; i < 100; i++) {
@@ -791,24 +724,18 @@ test.describe('Counter Demo - Edge Cases', () => {
     await expect(countDisplay).toHaveText('100');
   });
 
-  test('all buttons are interactive', async ({ page }) => {
-    const incButton = page.locator('#inc');
-    const decButton = page.locator('#dec');
-    const resetButton = page.locator('#reset');
-    const randomButton = page.locator('#random');
+  test('buttons are interactive', async ({ page }) => {
+    const incButton = page.locator('button:has-text("+")');
+    const decButton = page.locator('button:has-text("-")');
 
-    // All buttons should be enabled
+    // Generated counter has +/- buttons only
     await expect(incButton).toBeEnabled();
     await expect(decButton).toBeEnabled();
-    await expect(resetButton).toBeEnabled();
-    await expect(randomButton).toBeEnabled();
   });
 
-  test('explainer section is visible', async ({ page }) => {
-    const explainer = page.locator('.explainer');
-    await expect(explainer).toBeVisible();
-    await expect(explainer).toContainText('O(1)');
-    await expect(explainer).toContainText('binding');
+  // Skip: explainer section only exists in hand-written version
+  test.skip('explainer section is visible', async ({ page }) => {
+    // This test is for the hand-written counter.html only
   });
 });
 
@@ -1246,11 +1173,11 @@ test.describe('Accessibility', () => {
     await page.goto('/demos/ui/counter.html');
     await expect(page.locator('#count-display')).toBeVisible();
 
-    // Buttons should have text content as accessible names
-    await expect(page.locator('#inc')).toContainText('Increment');
-    await expect(page.locator('#dec')).toContainText('Decrement');
-    await expect(page.locator('#reset')).toContainText('Reset');
-    await expect(page.locator('#random')).toContainText('Random');
+    // Generated counter has +/- buttons with text content
+    const incButton = page.locator('button:has-text("+")');
+    const decButton = page.locator('button:has-text("-")');
+    await expect(incButton).toBeVisible();
+    await expect(decButton).toBeVisible();
   });
 
   test('todo demo: input has placeholder', async ({ page }) => {
@@ -1306,14 +1233,15 @@ test.describe('Cross-Browser Consistency', () => {
     await page.goto('/demos/ui/counter.html');
     await expect(page.locator('#count-display')).toBeVisible();
 
-    // Complex sequence
-    await page.locator('#inc').click();
-    await page.locator('#inc').click();
-    await page.locator('#dec').click();
-    await page.locator('#random').click();
-    await page.locator('#reset').click();
+    const incButton = page.locator('button:has-text("+")');
+    const decButton = page.locator('button:has-text("-")');
 
-    await expect(page.locator('#count-display')).toHaveText('0');
+    // Complex sequence (generated counter has +/- only)
+    await incButton.click();
+    await incButton.click();
+    await decButton.click();
+    // Result: +1, +1, -1 = 1
+    await expect(page.locator('#count-display')).toHaveText('1');
   });
 
   test('todo list complex workflow', async ({ page }) => {
@@ -1343,9 +1271,11 @@ test.describe('BosatsuUI Runtime Behavior', () => {
     await page.goto('/demos/ui/counter.html');
     await expect(page.locator('#count-display')).toBeVisible();
 
+    const incButton = page.locator('button:has-text("+")');
+
     // The fact that rapid clicking works proves the cache is working
     for (let i = 0; i < 20; i++) {
-      await page.locator('#inc').click();
+      await incButton.click();
     }
     await expect(page.locator('#count-display')).toHaveText('20');
   });
@@ -1414,11 +1344,16 @@ test.describe('Visual Consistency', () => {
     await expect(deleteBtn).toBeVisible();
   });
 
-  test('counter: count display updates color correctly', async ({ page }) => {
+  test('counter: count display is visible and updates', async ({ page }) => {
     await page.goto('/demos/ui/counter.html');
     const countDisplay = page.locator('#count-display');
 
-    // Should have orange/accent color styling
-    await expect(countDisplay).toHaveClass(/count/);
+    // Display should be visible and start at 0
+    await expect(countDisplay).toBeVisible();
+    await expect(countDisplay).toHaveText('0');
+
+    // Click + and verify update
+    await page.locator('button:has-text("+")').click();
+    await expect(countDisplay).toHaveText('1');
   });
 });

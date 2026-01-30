@@ -132,12 +132,24 @@ object UIAnalyzer {
       var idCounter: Int = 0,
       var inConditional: Boolean = false,
       // Track which bindings map to which state paths
-      var bindingToPath: Map[Bindable, List[String]] = Map.empty
+      var bindingToPath: Map[Bindable, List[String]] = Map.empty,
+      // Track current parent element ID for text bindings
+      var currentParentElementId: Option[String] = None,
+      // Map function names to their bodies for resolving named handler references
+      var functionBodies: Map[String, TypedExpr[A]] = Map.empty
   ) {
     def freshId(): String = {
       val id = s"bosatsu-$idCounter"
       idCounter += 1
       id
+    }
+
+    def withParentElementId[T](id: String)(f: => T): T = {
+      val oldId = currentParentElementId
+      currentParentElementId = Some(id)
+      val result = f
+      currentParentElementId = oldId
+      result
     }
 
     def recordStateRead(path: List[String]): Unit =
@@ -179,6 +191,59 @@ object UIAnalyzer {
   }
 
   /**
+   * Analyze a TypedExpr with pre-known state bindings.
+   * Use this when state variables are defined at package level.
+   *
+   * @param expr The TypedExpr to analyze
+   * @param stateBindings Names of bindings that are state variables
+   * @return Analysis result with state reads and DOM bindings
+   */
+  def analyzeWithStateBindings[A](
+      expr: TypedExpr[A],
+      stateBindings: List[Bindable]
+  ): UIAnalysis[A] = {
+    val ctx = new AnalysisContext[A]()
+    // Pre-register all state bindings so they can be tracked during analysis
+    stateBindings.foreach { name =>
+      ctx.trackBinding(name, List(name.asString))
+    }
+    analyzeExpr(expr, ctx)
+    ctx.toAnalysis
+  }
+
+  /**
+   * Analyze a TypedExpr with state bindings AND function bodies.
+   * This enables automatic binding detection by resolving named function references.
+   *
+   * @param expr The TypedExpr to analyze (typically the view/main binding)
+   * @param stateBindings Names of bindings that are state variables
+   * @param functions Map of function names to their TypedExpr bodies
+   * @return Analysis result with state reads and DOM bindings
+   */
+  def analyzeWithFunctions[A](
+      expr: TypedExpr[A],
+      stateBindings: List[Bindable],
+      functions: Map[String, TypedExpr[A]]
+  ): UIAnalysis[A] = {
+    val ctx = new AnalysisContext[A]()
+    // Pre-register all state bindings
+    stateBindings.foreach { name =>
+      ctx.trackBinding(name, List(name.asString))
+    }
+    // Store function bodies for resolving named handler references
+    ctx.functionBodies = functions
+    analyzeExpr(expr, ctx)
+    ctx.toAnalysis
+  }
+
+  /**
+   * Check if an expression is a state creation (state(initial)).
+   * Exposed so callers can scan for state bindings before analysis.
+   */
+  def isStateCreationExpr[A](expr: TypedExpr[A]): Boolean =
+    isStateCreation(expr)
+
+  /**
    * Analyze a function that produces UI (e.g., render function).
    * Extracts parameter bindings as potential state paths.
    */
@@ -204,32 +269,64 @@ object UIAnalyzer {
 
   /**
    * Recursively analyze TypedExpr, looking for IO operations and VNode construction.
+   * Returns the state path if this expression reads from state (for tracing value flow).
    */
-  private def analyzeExpr[A](expr: TypedExpr[A], ctx: AnalysisContext[A]): Unit = {
+  private def analyzeExpr[A](expr: TypedExpr[A], ctx: AnalysisContext[A]): Option[List[String]] = {
     expr match {
       // Let binding - track the binding and analyze value and body
       case TypedExpr.Let(name, value, body, _, _) =>
-        // Check if this is an IO.read operation
-        extractStateRead(value) match {
-          case Some(path) =>
+        // Check if this creates a state variable: state(initial)
+        if (isStateCreation(value)) {
+          // This binding IS a state variable - track it by its name
+          ctx.trackBinding(name, List(name.asString))
+        } else {
+          // Analyze value and check if it derives from state
+          val valuePath = analyzeExpr(value, ctx)
+          valuePath.foreach { path =>
             ctx.recordStateRead(path)
             ctx.trackBinding(name, path)
+          }
+        }
+        analyzeExpr(body, ctx)
+        // Let itself doesn't produce a state path (the body does)
+        None
+
+      // Function application - check for state reads, UI construction, or transforms
+      case app: TypedExpr.App[A @unchecked] =>
+        // First check if this is a read() call
+        extractStateRead(app) match {
+          case Some(path) =>
+            ctx.recordStateRead(path)
+            Some(path)
           case None =>
-            // Check if value depends on tracked bindings
-            val freeVars = TypedExpr.freeVarsSet(List(value))
-            freeVars.headOption.flatMap(ctx.getPath).foreach { path =>
-              ctx.trackBinding(name, path)
+            // Check if this is h() - need special handling for parent element context
+            app.fn match {
+              case TypedExpr.Global(pack, name, _, _)
+                  if isUIPackage(pack) && name.asString == "h" =>
+                // Extract element bindings and set parent context for children analysis
+                val args = app.args.toList
+                val explicitId = if (args.length >= 2) extractExplicitId(args(1)) else None
+                val elementId = explicitId.getOrElse(ctx.freshId())
+                // Process props
+                if (args.length >= 2) extractPropsBindings(args(1), elementId, ctx)
+                // Process children WITH parent context set
+                if (args.length >= 3) {
+                  ctx.withParentElementId(elementId) {
+                    analyzeExpr(args(2), ctx)
+                  }
+                }
+                None
+
+              case _ =>
+                // Regular app - check for text, event handlers, etc.
+                extractUIConstruction(app, ctx)
+                // Analyze arguments and propagate state path through transforms
+                analyzeExpr(app.fn, ctx)
+                val argPaths = app.args.toList.map(arg => analyzeExpr(arg, ctx))
+                // If any argument reads from state, this expression depends on state
+                argPaths.flatten.headOption
             }
         }
-        analyzeExpr(value, ctx)
-        analyzeExpr(body, ctx)
-
-      // Function application - check for h(), text(), or event handlers
-      case app: TypedExpr.App[A @unchecked] =>
-        extractUIConstruction(app, ctx)
-        // Also analyze arguments
-        analyzeExpr(app.fn, ctx)
-        app.args.toList.foreach(arg => analyzeExpr(arg, ctx))
 
       // Match expression - mark as conditional
       case TypedExpr.Match(arg, branches, _) =>
@@ -240,10 +337,12 @@ object UIAnalyzer {
           analyzeExpr(branchExpr, ctx)
         }
         ctx.inConditional = wasConditional
+        None
 
-      // Lambda - analyze body
+      // Lambda - analyze body but don't propagate path
       case TypedExpr.AnnotatedLambda(_, body, _) =>
         analyzeExpr(body, ctx)
+        None
 
       // Annotation wrapper
       case TypedExpr.Annotation(inner, _) =>
@@ -253,39 +352,53 @@ object UIAnalyzer {
       case TypedExpr.Generic(_, inner) =>
         analyzeExpr(inner, ctx)
 
-      // Local variable reference - check if it's a tracked binding
+      // Local variable reference - return tracked path if any
       case TypedExpr.Local(name, _, _) =>
-        // Just reading a local - will be used by parent
-        ()
+        ctx.getPath(name)
 
-      // Global reference
-      case TypedExpr.Global(_, _, _, _) =>
-        // Global - could be a predef function
-        ()
+      // Global reference - could be a state variable at package level
+      case TypedExpr.Global(_, name, _, _) =>
+        name.toBindable.flatMap(ctx.getPath)
 
-      // Literal
+      // Literal - no state dependency
       case TypedExpr.Literal(_, _, _) =>
-        // Constant value
-        ()
+        None
     }
   }
 
   // ---------------------------------------------------------------------------
-  // IO.read Detection
+  // State read Detection
   // ---------------------------------------------------------------------------
 
   /**
-   * Check if an expression is an IO.read operation and extract the state path.
+   * Check if an expression is a state read operation and extract the state identifier.
    *
-   * Looks for patterns like:
-   *   IO.read(["path", "to", "state"])
-   *   Bosatsu/IO::read(["path"])
+   * Supports both patterns:
+   *   - IO.read(["path", "to", "state"]) - old IO pattern
+   *   - read(stateVar) - new Bosatsu/UI pattern
+   *
+   * For Bosatsu/UI, the state variable name becomes the path.
    */
   private def extractStateRead[A](expr: TypedExpr[A]): Option[List[String]] = {
     expr match {
       case TypedExpr.App(fn, args, _, _) =>
         fn match {
-          // Check for IO.read or Bosatsu/IO::read
+          // Check for Bosatsu/UI::read(state)
+          case TypedExpr.Global(pack, name, _, _)
+              if isUIPackage(pack) && name.asString == "read" =>
+            // Extract state identifier from first argument
+            args.head match {
+              case TypedExpr.Local(stateName, _, _) =>
+                // State variable name becomes the path
+                Some(List(stateName.asString))
+              case TypedExpr.Global(_, stateName, _, _) =>
+                // Global state reference
+                Some(List(stateName.asString))
+              case _ =>
+                None
+            }
+
+          // Check for IO.read or Bosatsu/IO::read (legacy pattern)
           case TypedExpr.Global(pack, name, _, _)
               if isIOPackage(pack) && name.asString == "read" =>
             // Extract path from first argument
@@ -307,6 +420,34 @@ object UIAnalyzer {
   private def isIOPackage(pack: PackageName): Boolean =
     pack.asString == "Bosatsu/IO" || pack.asString == "IO"
 
+  /**
+   * Check if an expression is a state creation: state(initial)
+   * Handles annotation and generic wrappers around the function.
+   */
+  private def isStateCreation[A](expr: TypedExpr[A]): Boolean = {
+    expr match {
+      case TypedExpr.App(fn, _, _, _) =>
+        isStateFunction(fn)
+      case _ => false
+    }
+  }
+
+  /**
+   * Check if a function expression is the UI state constructor.
+   * Unwraps annotations and generics to find the actual function.
+   */
+  private def isStateFunction[A](fn: TypedExpr[A]): Boolean = {
+    fn match {
+      case TypedExpr.Global(pack, name, _, _) =>
+        isUIPackage(pack) && name.asString == "state"
+      case TypedExpr.Annotation(inner, _) =>
+        isStateFunction(inner)
+      case TypedExpr.Generic(_, inner) =>
+        isStateFunction(inner)
+      case _ => false
+    }
+  }
+
   private def extractStringLiteral[A](expr: TypedExpr[A]): Option[String] =
     expr match {
       case TypedExpr.Literal(Lit.Str(s), _, _) => Some(s)
@@ -319,7 +460,8 @@ object UIAnalyzer {
 
   /**
    * Extract UI construction patterns from function applications.
-   * Looks for h(), text(), and event handler patterns.
+   * Looks for text() and event handler patterns.
+   * Note: h() is handled specially in analyzeExpr to set parent context before analyzing children.
    */
   private def extractUIConstruction[A](
       app: TypedExpr.App[A],
@@ -329,12 +471,25 @@ object UIAnalyzer {
       case TypedExpr.Global(pack, name, _, _) if isUIPackage(pack) =>
         name.asString match {
           case "h" =>
-            // h(tag, props, children) - element construction
-            extractElementBindings(app, ctx)
+            // h() is now handled in analyzeExpr to properly set parent context
+            // Don't duplicate processing here
+            ()
 
           case "text" =>
             // text(content) - text node, parent will handle binding
             extractTextBinding(app, ctx)
+
+          case "on_click" =>
+            // on_click(handler) - extract event handler
+            extractEventHandler(app, "click", ctx)
+
+          case "on_input" =>
+            // on_input(handler) - extract event handler
+            extractEventHandler(app, "input", ctx)
+
+          case "on_change" =>
+            // on_change(handler) - extract event handler
+            extractEventHandler(app, "change", ctx)
 
           case _ =>
             // Other UI functions
@@ -351,39 +506,121 @@ object UIAnalyzer {
     pack.asString == "Bosatsu/UI" || pack.asString == "UI"
 
   /**
-   * Extract bindings from an h() element construction.
-   *
-   * Looks at children for text nodes that reference state.
-   * Looks at props for className, value, checked, disabled bindings.
+   * Extract explicit ID from props list.
+   * Props are typically [("key", "value"), ...] tuples in Bosatsu list format.
    */
-  private def extractElementBindings[A](
-      app: TypedExpr.App[A],
-      ctx: AnalysisContext[A]
-  ): Unit = {
-    val args = app.args.toList
+  private def extractExplicitId[A](propsExpr: TypedExpr[A]): Option[String] = {
+    // Walk the list looking for ("id", "...") tuple
+    extractIdFromPropsList(propsExpr)
+  }
 
-    // Generate element ID for this element
-    val elementId = ctx.freshId()
+  /**
+   * Recursively walk a Bosatsu list looking for an ("id", value) tuple.
+   * List structure: NonEmptyList(head, tail) or EmptyList
+   */
+  private def extractIdFromPropsList[A](expr: TypedExpr[A]): Option[String] = {
+    expr match {
+      // NonEmptyList(head, tail)
+      case TypedExpr.App(fn, args, _, _) =>
+        val fnName = getFunctionName(fn)
+        if (fnName == "NonEmptyList" || fnName == "Cons") {
+          val argsList = args.toList
+          if (argsList.length >= 2) {
+            val head = argsList.head
+            val tail = argsList(1)
+            // Check if head is ("id", value) tuple
+            extractPropTuple(head) match {
+              case Some(("id", value)) => Some(value)
+              case _ => extractIdFromPropsList(tail) // Continue with tail
+            }
+          } else None
+        } else {
+          None
+        }
 
-    // Check props (second argument) for state bindings
-    if (args.length >= 2) {
-      extractPropsBindings(args(1), elementId, ctx)
+      // EmptyList or annotation wrapper
+      case TypedExpr.Annotation(inner, _) =>
+        extractIdFromPropsList(inner)
+
+      case TypedExpr.Global(_, name, _, _) if name.asString == "EmptyList" =>
+        None
+
+      case _ => None
     }
+  }
 
-    // Check children (third argument) for text bindings
-    if (args.length >= 3) {
-      extractChildrenBindings(args(2), elementId, ctx)
+  /**
+   * Get the function name from a possibly-wrapped function expression.
+   */
+  private def getFunctionName[A](fn: TypedExpr[A]): String = {
+    fn match {
+      case TypedExpr.Global(_, name, _, _) => name.asString
+      case TypedExpr.Annotation(inner, _) => getFunctionName(inner)
+      case TypedExpr.Generic(_, inner) => getFunctionName(inner)
+      case _ => ""
+    }
+  }
+
+  /**
+   * Unwrap Annotation and Generic wrappers to get the underlying expression.
+   */
+  private def unwrapFunction[A](expr: TypedExpr[A]): TypedExpr[A] = {
+    expr match {
+      case TypedExpr.Annotation(inner, _) => unwrapFunction(inner)
+      case TypedExpr.Generic(_, inner) => unwrapFunction(inner)
+      case other => other
+    }
+  }
+
+  /**
+   * Extract a (key, value) tuple from a TypedExpr.
+   * Handles Tuple2(key, value) pattern with possible annotation wrappers.
+   */
+  private def extractPropTuple[A](expr: TypedExpr[A]): Option[(String, String)] = {
+    expr match {
+      case TypedExpr.App(fn, args, _, _) =>
+        val fnName = getFunctionName(fn)
+        if (fnName == "Tuple2" || fnName == "") {
+          // Tuple construction: Tuple2(key, value) or direct (key, value)
+          val argsList = args.toList
+          if (argsList.length >= 2) {
+            val key = extractStringLiteralDeep(argsList.head)
+            val value = extractStringLiteralDeep(argsList(1))
+            (key, value) match {
+              case (Some(k), Some(v)) => Some((k, v))
+              case _ => None
+            }
+          } else None
+        } else None
+      case _ => None
+    }
+  }
+
+  /**
+   * Extract string literal, unwrapping annotations if needed.
+   */
+  private def extractStringLiteralDeep[A](expr: TypedExpr[A]): Option[String] = {
+    expr match {
+      case TypedExpr.Literal(Lit.Str(s), _, _) => Some(s)
+      case TypedExpr.Annotation(inner, _) => extractStringLiteralDeep(inner)
+      case TypedExpr.Generic(_, inner) => extractStringLiteralDeep(inner)
+      case _ => None
     }
   }
 
   /**
    * Extract bindings from props object.
+   * Also handles on_click handlers to create automatic className bindings.
    */
   private def extractPropsBindings[A](
       propsExpr: TypedExpr[A],
       elementId: String,
       ctx: AnalysisContext[A]
   ): Unit = {
+    // Props is typically a list containing tuples and on_click handlers
+    // Process the props list to find event handlers
+    extractEventHandlersFromProps(propsExpr, elementId, ctx)
+
     // Props would be a struct/record construction
     // For now, we look for specific patterns
     propsExpr match {
@@ -412,51 +649,67 @@ object UIAnalyzer {
   }
 
   /**
-   * Extract bindings from children array.
+   * Extract event handlers from a props list and create bindings.
+   * Props is typically: [("class", "x"), ("id", "y"), on_click(handler)]
    */
-  private def extractChildrenBindings[A](
-      childrenExpr: TypedExpr[A],
-      parentElementId: String,
+  private def extractEventHandlersFromProps[A](
+      propsExpr: TypedExpr[A],
+      elementId: String,
       ctx: AnalysisContext[A]
   ): Unit = {
-    // Children is typically a list construction
-    childrenExpr match {
+    propsExpr match {
+      // NonEmptyList(head, tail) or list construction
       case TypedExpr.App(fn, args, _, _) =>
-        // Process each child
-        args.toList.foreach { child =>
-          extractTextBindingFromChild(child, parentElementId, ctx)
+        val fnName = getFunctionName(fn)
+        if (fnName == "NonEmptyList" || fnName == "Cons") {
+          val argsList = args.toList
+          if (argsList.length >= 2) {
+            // Check head for on_click
+            extractSingleEventHandler(argsList.head, elementId, ctx)
+            // Recurse on tail
+            extractEventHandlersFromProps(argsList(1), elementId, ctx)
+          }
+        } else {
+          // Could be on_click directly or other App
+          extractSingleEventHandler(propsExpr, elementId, ctx)
+          // Also check nested args
+          args.toList.foreach { arg =>
+            extractEventHandlersFromProps(arg, elementId, ctx)
+          }
         }
+
+      case TypedExpr.Annotation(inner, _) =>
+        extractEventHandlersFromProps(inner, elementId, ctx)
+
+      case TypedExpr.Generic(_, inner) =>
+        extractEventHandlersFromProps(inner, elementId, ctx)
+
       case _ => ()
     }
   }
 
   /**
-   * Extract text binding from a child node.
+   * Check if an expression is an on_click/on_input/on_change call
+   * and extract the handler with the element ID.
    */
-  private def extractTextBindingFromChild[A](
-      childExpr: TypedExpr[A],
-      parentElementId: String,
+  private def extractSingleEventHandler[A](
+      expr: TypedExpr[A],
+      elementId: String,
       ctx: AnalysisContext[A]
   ): Unit = {
-    childExpr match {
-      // text(localVar) where localVar is bound to state
+    expr match {
       case TypedExpr.App(fn, args, _, _) =>
         fn match {
-          case TypedExpr.Global(pack, name, _, _)
-              if isUIPackage(pack) && name.asString == "text" =>
-            args.head match {
-              case local @ TypedExpr.Local(name, _, _) =>
-                ctx.getPath(name).foreach { path =>
-                  ctx.recordBinding(DOMBinding(
-                    elementId = parentElementId,
-                    property = DOMProperty.TextContent,
-                    statePath = path,
-                    conditional = ctx.inConditional,
-                    transform = None,
-                    sourceExpr = local
-                  ))
-                }
-              case _ => ()
+          case TypedExpr.Global(pack, name, _, _) if isUIPackage(pack) =>
+            val eventType = name.asString match {
+              case "on_click" => Some("click")
+              case "on_input" => Some("input")
+              case "on_change" => Some("change")
+              case _ => None
+            }
+            eventType.foreach { evtType =>
+              val handler = args.head
+              extractEventHandlerWithElement(handler, evtType, elementId, ctx)
             }
           case _ => ()
         }
@@ -466,18 +719,240 @@ object UIAnalyzer {
 
   /**
    * Extract text binding from a text() call.
+   * Creates a DOM binding if the text content depends on state.
+   * Uses the parent element ID if available (text nodes are children of elements).
    */
   private def extractTextBinding[A](
       app: TypedExpr.App[A],
       ctx: AnalysisContext[A]
   ): Unit = {
-    // text(content) - check if content is a tracked binding
-    app.args.head match {
-      case TypedExpr.Local(name, _, _) =>
-        ctx.getPath(name).foreach { path =>
-          ctx.recordStateRead(path)
+    val contentExpr = app.args.head
+
+    // Trace the content expression to see if it reads from state
+    val statePath = traceStateDependency(contentExpr, ctx)
+
+    statePath.foreach { path =>
+      ctx.recordStateRead(path)
+
+      // Use parent element ID if available, otherwise generate a new one
+      // Text nodes should use their parent element's ID for binding updates
+      val elementId = ctx.currentParentElementId.getOrElse(ctx.freshId())
+
+      // Extract transform function if content goes through a transformation
+      val transform = extractTransform(contentExpr)
+
+      ctx.recordBinding(DOMBinding(
+        elementId = elementId,
+        property = DOMProperty.TextContent,
+        statePath = path,
+        conditional = ctx.inConditional,
+        transform = transform,
+        sourceExpr = contentExpr
+      ))
+    }
+  }
+
+  /**
+   * Trace an expression to find if it depends on state.
+   * Returns the state path if found.
+   */
+  private def traceStateDependency[A](
+      expr: TypedExpr[A],
+      ctx: AnalysisContext[A]
+  ): Option[List[String]] = {
+    expr match {
+      // Direct state read: read(state)
+      case app: TypedExpr.App[A @unchecked] =>
+        extractStateRead(app) match {
+          case Some(path) => Some(path)
+          case None =>
+            // Function application - check if any argument reads state
+            // This handles transforms like int_to_String(read(count))
+            app.args.toList.flatMap(arg => traceStateDependency(arg, ctx)).headOption
         }
-      case _ => ()
+
+      // Local variable that's tracked
+      case TypedExpr.Local(name, _, _) =>
+        ctx.getPath(name)
+
+      // Global variable that's tracked
+      case TypedExpr.Global(_, name, _, _) =>
+        name.toBindable.flatMap(ctx.getPath)
+
+      // Annotation wrapper
+      case TypedExpr.Annotation(inner, _) =>
+        traceStateDependency(inner, ctx)
+
+      // Generic wrapper
+      case TypedExpr.Generic(_, inner) =>
+        traceStateDependency(inner, ctx)
+
+      case _ => None
+    }
+  }
+
+  /**
+   * Extract transform function name from an expression.
+   * e.g., int_to_String(x) -> Some("_int_to_String")
+   */
+  private def extractTransform[A](expr: TypedExpr[A]): Option[String] = {
+    expr match {
+      case TypedExpr.App(fn, _, _, _) =>
+        fn match {
+          case TypedExpr.Global(pack, name, _, _) =>
+            // Check if this is a known transform function
+            val nameStr = name.asString
+            if (nameStr == "int_to_String" || nameStr == "int_to_string") {
+              Some("_int_to_String")
+            } else if (nameStr.endsWith("_to_String") || nameStr.endsWith("_to_string")) {
+              Some(s"_$nameStr")
+            } else {
+              None // Not a transform, it might be read() itself
+            }
+          case _ => None
+        }
+      case _ => None
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event Handler Detection
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract event handler from on_click/on_input/on_change calls.
+   */
+  private def extractEventHandler[A](
+      app: TypedExpr.App[A],
+      eventType: String,
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    // The first argument is the handler function
+    val handler = app.args.head
+    val elementId = ctx.freshId()
+
+    ctx.recordEventHandler(EventBinding(
+      elementId = elementId,
+      eventType = eventType,
+      handler = handler,
+      preventDefault = eventType == "click", // Prevent default for clicks
+      stopPropagation = false
+    ))
+  }
+
+  /**
+   * Extract event handler with a known element ID (for automatic binding detection).
+   * Creates className bindings only for checkbox-style elements (ID ends in "-checkbox").
+   *
+   * This is selective because:
+   * - Checkbox elements: toggle state writes should update className (checked/unchecked)
+   * - Button elements: state writes update a display elsewhere, not the button's className
+   */
+  private def extractEventHandlerWithElement[A](
+      handler: TypedExpr[A],
+      eventType: String,
+      elementId: String,
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    ctx.recordEventHandler(EventBinding(
+      elementId = elementId,
+      eventType = eventType,
+      handler = handler,
+      preventDefault = eventType == "click",
+      stopPropagation = false
+    ))
+
+    // Only create className bindings for checkbox-style elements
+    // (identified by ID ending in "-checkbox")
+    if (elementId.endsWith("-checkbox")) {
+      val stateWrites = extractStateWrites(handler, ctx)
+      stateWrites.foreach { stateName =>
+        ctx.recordBinding(DOMBinding(
+          elementId = elementId,
+          property = DOMProperty.ClassName,
+          statePath = List(stateName),
+          conditional = false,
+          transform = None,
+          sourceExpr = handler
+        ))
+      }
+    }
+  }
+
+  /**
+   * Extract state variable names that a handler writes to.
+   * Looks for write(stateVar, value) patterns in the expression.
+   */
+  private def extractStateWrites[A](
+      expr: TypedExpr[A],
+      ctx: AnalysisContext[A]
+  ): List[String] = {
+    expr match {
+      // write(state, value) call - unwrap Annotation/Generic to find the function
+      case TypedExpr.App(fn, args, _, _) =>
+        val unwrappedFn = unwrapFunction(fn)
+        unwrappedFn match {
+          case TypedExpr.Global(pack, name, _, _)
+              if isUIPackage(pack) && name.asString == "write" =>
+            // First arg is the state variable - also need to unwrap it
+            val stateNames = unwrapFunction(args.head) match {
+              case TypedExpr.Local(stateName, _, _) =>
+                List(stateName.asString)
+              case TypedExpr.Global(_, stateName, _, _) =>
+                List(stateName.asString)
+              case _ =>
+                Nil
+            }
+            // Also check other args for nested writes
+            stateNames ++ args.toList.tail.flatMap(arg => extractStateWrites(arg, ctx))
+
+          case TypedExpr.Global(_, _, _, _) =>
+            // Other global function - check all arguments for state writes
+            args.toList.flatMap(arg => extractStateWrites(arg, ctx))
+
+          case _ =>
+            // Other function type - check all arguments for state writes
+            args.toList.flatMap(arg => extractStateWrites(arg, ctx))
+        }
+
+      // Lambda body - analyze the body
+      case TypedExpr.AnnotatedLambda(_, body, _) =>
+        extractStateWrites(body, ctx)
+
+      // Let expression - check both value and body
+      case TypedExpr.Let(_, value, body, _, _) =>
+        extractStateWrites(value, ctx) ++ extractStateWrites(body, ctx)
+
+      // Match expression - check all branches
+      case TypedExpr.Match(_, branches, _) =>
+        branches.toList.flatMap { case (_, branchExpr) =>
+          extractStateWrites(branchExpr, ctx)
+        }
+
+      // Local reference to a function - look it up in function bodies
+      case TypedExpr.Local(name, _, _) =>
+        // The handler might be a reference to a named function
+        ctx.functionBodies.get(name.asString) match {
+          case Some(funcBody) => extractStateWrites(funcBody, ctx)
+          case None => Nil
+        }
+
+      // Global reference - could be a toggle function defined at package level
+      case TypedExpr.Global(_, name, _, _) =>
+        // Look up the function body in the provided map
+        ctx.functionBodies.get(name.asString) match {
+          case Some(funcBody) => extractStateWrites(funcBody, ctx)
+          case None => Nil
+        }
+
+      // Annotation/Generic wrappers
+      case TypedExpr.Annotation(inner, _) =>
+        extractStateWrites(inner, ctx)
+
+      case TypedExpr.Generic(_, inner) =>
+        extractStateWrites(inner, ctx)
+
+      case _ => Nil
     }
   }
 

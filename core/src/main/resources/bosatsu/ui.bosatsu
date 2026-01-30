@@ -10,7 +10,7 @@ export (
   VNode,
   State,
   h, text, fragment,
-  read, write,
+  state, read, write,
   on_click, on_input, on_change
 )
 
@@ -29,6 +29,9 @@ external def text(content: String) -> VNode
 
 # Create a fragment (invisible wrapper for multiple children)
 external def fragment(children: List[VNode]) -> VNode
+
+# Create a state container with an initial value
+external def state[a](initial: a) -> State[a]
 
 # Read the current value from a state container
 external def read[a](state: State[a]) -> a

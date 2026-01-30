@@ -76,9 +76,17 @@ object UI {
     }
   }
 
+  /** Counter for generating unique state IDs */
+  private var stateCounter: Int = 0
+
   /** JVM externals for UI operations */
   val jvmExternals: Externals =
     Externals.empty
+      // state(initial) -> State[a]
+      .add(packageName, "state", FfiCall.Fn1 { initial =>
+        stateCounter += 1
+        ExternalValue(UIState(s"state_$stateCounter", initial))
+      })
       // h(tag, props, children) -> VNode
       .add(packageName, "h", FfiCall.Fn3 { (tag, props, children) =>
         val tagStr = tag match { case Str(s) => s; case _ => "div" }

@@ -1,0 +1,28 @@
+package Demo/Counter
+
+from Bosatsu/Predef import add, sub, Int, String, Unit, int_to_String
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+
+# State for the counter value - initialized to 0
+count = state(0)
+
+# Event handlers
+def increment(_: Unit) -> Unit:
+  write(count, add(read(count), 1))
+
+def decrement(_: Unit) -> Unit:
+  write(count, sub(read(count), 1))
+
+# Render the UI
+view = h("div", [("class", "card")], [
+  h("h1", [], [text("Counter")]),
+  h("div", [("class", "display")], [
+    h("span", [("id", "count-display")], [text(int_to_String(read(count)))])
+  ]),
+  h("div", [("class", "buttons")], [
+    h("button", [on_click(decrement)], [text("-")]),
+    h("button", [on_click(increment)], [text("+")])
+  ])
+])
+
+main = view

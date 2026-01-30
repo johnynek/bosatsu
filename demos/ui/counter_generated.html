@@ -88,102 +88,6 @@ input:focus {
   outline: none;
   border-color: #667eea;
 }
-
-/* Todo List Styles */
-.container {
-  width: 100%;
-  max-width: 600px;
-}
-
-.container .card {
-  margin-bottom: 20px;
-}
-
-.subtitle {
-  color: #9aa0d4;
-  font-size: 14px;
-  margin-bottom: 24px;
-}
-
-.todo-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 20px 0;
-  text-align: left;
-}
-
-.todo-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(102, 126, 234, 0.05);
-  border-radius: 12px;
-  border: 1px solid rgba(102, 126, 234, 0.1);
-  transition: background 0.2s;
-}
-
-.todo-item:hover {
-  background: rgba(102, 126, 234, 0.1);
-}
-
-.todo-checkbox {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: 2px solid #667eea;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.todo-checkbox:hover {
-  background: rgba(102, 126, 234, 0.2);
-}
-
-.todo-checkbox.checked {
-  background: #667eea;
-  border-color: #667eea;
-}
-
-.todo-checkbox.checked::after {
-  content: '✓';
-  color: white;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.todo-text {
-  flex: 1;
-  font-size: 15px;
-}
-
-.binding-info {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-  padding: 12px;
-  font-family: 'SF Mono', Consolas, monospace;
-  font-size: 11px;
-  color: #666;
-  margin-top: 16px;
-  text-align: left;
-}
-
-h3 {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 12px;
-}
-
-p {
-  font-size: 14px;
-  color: #666;
-  line-height: 1.6;
-}
   </style>
 </head>
 <body>
@@ -466,12 +370,6 @@ function _updateBinding(binding, value) {
   }
   if (!el) return;
 
-  // Check if value is a Bosatsu Bool - [0] for False, [1] for True
-  // Also handle raw integers 0/1 for numeric boolean pattern
-  const isBosatsuBool = Array.isArray(value) && (value[0] === 0 || value[0] === 1) && value.length <= 2;
-  const isIntBool = typeof value === 'number' && (value === 0 || value === 1);
-  const boolValue = isBosatsuBool ? value[0] === 1 : (isIntBool ? value === 1 : null);
-
   let displayValue;
   if (binding.transform) {
     const transformResult = eval(binding.transform)(value);
@@ -479,8 +377,6 @@ function _updateBinding(binding, value) {
     displayValue = Array.isArray(transformResult)
       ? _bosatsuStringToJs(transformResult)
       : String(transformResult);
-  } else if (isBosatsuBool || isIntBool) {
-    displayValue = boolValue ? 'true' : 'false';
   } else {
     displayValue = String(value);
   }
@@ -490,16 +386,7 @@ function _updateBinding(binding, value) {
       el.textContent = displayValue;
       break;
     case 'className':
-      // For className with bool values (Bosatsu Bool or int 0/1), toggle a 'checked' class
-      if (isBosatsuBool || isIntBool) {
-        if (boolValue) {
-          el.classList.add('checked');
-        } else {
-          el.classList.remove('checked');
-        }
-      } else {
-        el.className = displayValue;
-      }
+      el.className = displayValue;
       break;
     case 'value':
       el.value = displayValue;
@@ -730,26 +617,9 @@ function init() {
 
   // Initialize element cache for bindings
   _initBindingCache();
-
-  // Apply initial state values to DOM (for states that aren't 0/false)
-  _applyInitialBindings();
-}
-
-// Apply initial state values to DOM elements
-function _applyInitialBindings() {
-  Object.entries(_state).forEach(([stateId, stateObj]) => {
-    const bindingKey = _stateToBindingKey.get(stateObj);
-    const bindings = bindingKey ? _bindings[bindingKey] : null;
-    if (bindings && stateObj.value !== 0 && stateObj.value !== false) {
-      bindings.forEach(binding => {
-        _updateBinding(binding, stateObj.value);
-      });
-    }
-  });
 }
 
 document.addEventListener('DOMContentLoaded', init);
-
   </script>
 </body>
 </html>
