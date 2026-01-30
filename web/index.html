@@ -116,7 +116,7 @@
       background: linear-gradient(135deg, #f5eef8 0%, #fff 100%);
     }
 
-    .card-reactive {
+    .card-ui {
       border-color: #e91e63;
       background: linear-gradient(135deg, #fce4ec 0%, #fff 100%);
     }
@@ -124,6 +124,11 @@
     .card-provenance {
       border-color: #00bcd4;
       background: linear-gradient(135deg, #e0f7fa 0%, #fff 100%);
+    }
+
+    .card-benchmark {
+      border-color: #ff5722;
+      background: linear-gradient(135deg, #fbe9e7 0%, #fff 100%);
     }
 
     .section-header {
@@ -143,7 +148,7 @@
       margin: 0;
     }
 
-    .provenance-badge {
+    .badge {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
@@ -154,6 +159,14 @@
       font-size: 0.75rem;
       font-weight: 500;
       margin-bottom: 0.5rem;
+    }
+
+    .badge-ui {
+      background: #e91e63;
+    }
+
+    .badge-perf {
+      background: #ff5722;
     }
 
     footer {
@@ -211,12 +224,6 @@
         <a href="demo/interop.html">View Interop Demo &rarr;</a>
       </div>
 
-      <div class="card card-reactive">
-        <h2>Reactive Tax Calculator</h2>
-        <p>Interactive tax calculator using BosatsuUI's reactive state. Move the slider to see progressive tax calculations update in real-time.</p>
-        <a href="demo/tax-calculator.html">Try Calculator &rarr;</a>
-      </div>
-
       <div class="card card-docs">
         <h2>Documentation</h2>
         <p>Learn Bosatsu syntax, types, and features. Explore the standard library and language reference.</p>
@@ -225,28 +232,65 @@
     </div>
 
     <div class="section-header">
-      <h2>Provenance Demos</h2>
-      <p>Interactive calculators with "Why?" explanations and "What if?" explorations. See how values are derived from assumptions.</p>
+      <h2>BosatsuUI Demos</h2>
+      <p>Reactive UI without Virtual DOM. Compile-time static analysis extracts state-to-DOM bindings for O(1) updates.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card card-ui">
+        <span class="badge badge-ui">No Virtual DOM</span>
+        <h2>Counter</h2>
+        <p>Basic counter showing direct DOM binding updates. Watch the binding log to see O(1) state-to-DOM updates.</p>
+        <a href="demos/ui/counter.html">Try Counter &rarr;</a>
+      </div>
+
+      <div class="card card-ui">
+        <span class="badge badge-ui">No Virtual DOM</span>
+        <h2>Todo List</h2>
+        <p>Per-item bindings for O(1) updates even in large lists. Toggle, add, delete todos with targeted DOM updates.</p>
+        <a href="demos/ui/todo-list.html">Try Todo List &rarr;</a>
+      </div>
+
+      <div class="card card-benchmark">
+        <span class="badge badge-perf">Real React 18</span>
+        <h2>Performance Benchmark</h2>
+        <p>BosatsuUI vs React 18 performance comparison. Uses actual React (not simulated) for fair results.</p>
+        <a href="demos/benchmarks/ui-performance/index.html">Run Benchmarks &rarr;</a>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <h2>Simulation Demos</h2>
+      <p>Interactive calculators with "Why?" explanations and "What if?" explorations. Generated from .bosatsu source files.</p>
     </div>
 
     <div class="cards">
       <div class="card card-provenance">
-        <span class="provenance-badge">Why? + What if?</span>
+        <span class="badge">Why? + What if?</span>
         <h2>Loan Calculator</h2>
         <p>Calculate monthly payments and total interest. Click "Why?" to see the derivation chain. Use sliders to explore scenarios.</p>
-        <a href="demo/loan-calculator.html">Try Loan Calculator &rarr;</a>
+        <a href="demos/simulation/loan-calculator.html">Try Loan Calculator &rarr;</a>
       </div>
 
       <div class="card card-provenance">
-        <span class="provenance-badge">Why? + What if?</span>
+        <span class="badge">Why? + What if?</span>
+        <h2>Tax Calculator</h2>
+        <p>Compute taxes with derivation tracking. See how each value is calculated from your inputs.</p>
+        <a href="demos/simulation/tax-calculator.html">Try Tax Calculator &rarr;</a>
+      </div>
+
+      <div class="card card-provenance">
+        <span class="badge">Why? + What if?</span>
         <h2>Carbon Footprint</h2>
         <p>Estimate your annual CO2 emissions from transportation and home energy. See which factors have the biggest impact.</p>
-        <a href="demo/carbon-footprint.html">Try Carbon Calculator &rarr;</a>
+        <a href="demos/simulation/carbon-footprint.html">Try Carbon Calculator &rarr;</a>
       </div>
     </div>
 
     <footer>
       <p>
+        <a href="demos/">All Demos</a>
+        &nbsp;|&nbsp;
         <a href="https://github.com/johnynek/bosatsu">View on GitHub</a>
         &nbsp;|&nbsp;
         Bosatsu is open source under the Apache 2.0 license
