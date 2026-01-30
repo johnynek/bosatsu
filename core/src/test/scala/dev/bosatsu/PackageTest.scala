@@ -275,6 +275,101 @@ main = 2
   }
 
   // =========================================================================
+  // uiPackage tests
+  // =========================================================================
+
+  test("uiPackage parses correctly") {
+    val ui = Package.uiPackage
+    assertEquals(ui.name.asString, "Bosatsu/UI")
+    // Should have exports
+    assert(ui.exports.nonEmpty)
+    // Should have program statements
+    assert(ui.program.nonEmpty)
+  }
+
+  test("uiPackage has VNode type") {
+    val ui = Package.uiPackage
+    // Look for VNode type export
+    val hasVNode = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "VNode"
+    }
+    assert(hasVNode, "uiPackage should export VNode type")
+  }
+
+  test("uiPackage has State type") {
+    val ui = Package.uiPackage
+    // Look for State type export
+    val hasState = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "State"
+    }
+    assert(hasState, "uiPackage should export State type")
+  }
+
+  test("uiPackage has h function") {
+    val ui = Package.uiPackage
+    // Look for h function export
+    val hasH = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "h"
+    }
+    assert(hasH, "uiPackage should export h function")
+  }
+
+  test("uiPackage has text function") {
+    val ui = Package.uiPackage
+    val hasText = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "text"
+    }
+    assert(hasText, "uiPackage should export text function")
+  }
+
+  test("uiPackage has state constructor") {
+    val ui = Package.uiPackage
+    val hasState = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "state"
+    }
+    assert(hasState, "uiPackage should export state constructor function")
+  }
+
+  test("uiPackage has read and write functions") {
+    val ui = Package.uiPackage
+    val hasRead = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "read"
+    }
+    val hasWrite = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "write"
+    }
+    assert(hasRead, "uiPackage should export read function")
+    assert(hasWrite, "uiPackage should export write function")
+  }
+
+  test("uiPackage has event handlers") {
+    val ui = Package.uiPackage
+    val hasOnClick = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "on_click"
+    }
+    val hasOnInput = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "on_input"
+    }
+    val hasOnChange = ui.exports.exists { exp =>
+      exp.name.sourceCodeRepr == "on_change"
+    }
+    assert(hasOnClick, "uiPackage should export on_click function")
+    assert(hasOnInput, "uiPackage should export on_input function")
+    assert(hasOnChange, "uiPackage should export on_change function")
+  }
+
+  test("can import from Bosatsu/UI") {
+    val p = parse("""
+package UseUI
+
+from Bosatsu/UI import text
+
+main = text("hello")
+""")
+    valid(resolveThenInfer(PackageMap.withPredef(p :: Nil)))
+  }
+
+  // =========================================================================
   // Package utility method tests
   // =========================================================================
 

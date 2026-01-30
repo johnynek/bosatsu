@@ -5,7 +5,10 @@
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "build:ui": "nix-shell --run 'sbt \"simulationCli/run ui demos/ui/counter.bosatsu -o demos/ui/counter.html\" && sbt \"simulationCli/run ui demos/ui/todo-list.bosatsu -o demos/ui/todo-list_generated.html\"'",
+    "deploy:ui": "cp demos/ui/counter.html demos/ui/todo-list_generated.html web_deploy/demos/ui/",
+    "prebuild:test": "npm run build:ui && npm run deploy:ui"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0"

@@ -1,0 +1,80 @@
+package Demo/TodoList
+
+from Bosatsu/Predef import add, sub, Int, String, Unit, int_to_String
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+
+# BosatsuUI Todo List Demo
+#
+# Demonstrates per-item O(1) DOM updates. Each todo has its own state,
+# so toggling one todo only updates that todo's binding - not the whole list.
+#
+# Bosatsu doesn't have dynamic lists with mutable add/remove yet,
+# so this version has 3 static todos. The key insight is:
+# - Each todo's completed state is independent
+# - Toggling todo1 only triggers bindings for todo1_completed
+# - No VDOM diffing needed - direct DOM property updates
+
+# State for each todo's completion status
+# Using Int where 0=incomplete, 1=complete (to enable arithmetic toggle)
+todo1_completed: State[Int] = state(0)
+todo2_completed: State[Int] = state(0)
+todo3_completed: State[Int] = state(1)
+
+# Toggle handlers - flip 0<->1 using arithmetic: new = 1 - current
+def toggle1(_: Unit) -> Unit:
+  write(todo1_completed, sub(1, read(todo1_completed)))
+
+def toggle2(_: Unit) -> Unit:
+  write(todo2_completed, sub(1, read(todo2_completed)))
+
+def toggle3(_: Unit) -> Unit:
+  write(todo3_completed, sub(1, read(todo3_completed)))
+
+# Render the UI
+view = h("div", [("class", "container")], [
+  h("div", [("class", "card")], [
+    h("h1", [], [text("BosatsuUI Todo List")]),
+    h("p", [("class", "subtitle")], [
+      text("Each todo has its own state binding - O(1) updates per item!")
+    ]),
+
+    h("div", [("class", "todo-list")], [
+      # Todo 1
+      h("div", [("class", "todo-item"), ("id", "todo-1")], [
+        h("div", [("class", "todo-checkbox"), ("id", "todo-1-checkbox"), on_click(toggle1)], []),
+        h("span", [("class", "todo-text")], [text("Learn about BosatsuUI bindings")])
+      ]),
+
+      # Todo 2
+      h("div", [("class", "todo-item"), ("id", "todo-2")], [
+        h("div", [("class", "todo-checkbox"), ("id", "todo-2-checkbox"), on_click(toggle2)], []),
+        h("span", [("class", "todo-text")], [text("Understand O(1) DOM updates")])
+      ]),
+
+      # Todo 3 (starts completed)
+      h("div", [("class", "todo-item"), ("id", "todo-3")], [
+        h("div", [("class", "todo-checkbox"), ("id", "todo-3-checkbox"), on_click(toggle3)], []),
+        h("span", [("class", "todo-text")], [text("Compare with React VDOM")])
+      ])
+    ]),
+
+    h("div", [("class", "binding-info")], [
+      h("strong", [], [text("BosatsuUI Bindings (per-item, O(1) updates):")]),
+      h("br", [], []),
+      text("todo1_completed -> #todo-1-checkbox.className"),
+      h("br", [], []),
+      text("todo2_completed -> #todo-2-checkbox.className"),
+      h("br", [], []),
+      text("todo3_completed -> #todo-3-checkbox.className")
+    ])
+  ]),
+
+  h("div", [("class", "card")], [
+    h("h3", [], [text("Why This Matters for Performance")]),
+    h("p", [], [
+      text("When you toggle a todo, BosatsuUI updates ONLY that todo's checkbox class. React/Elm would re-render the entire list and diff to find what changed.")
+    ])
+  ])
+])
+
+main = view

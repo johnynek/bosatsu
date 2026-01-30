@@ -10,5 +10,25 @@
     println: ProgExt.println,
     print: ProgExt.print_stdout,
     read_stdin_utf8_bytes: ProgExt.read_stdin_utf8_bytes
+  },
+  Bosatsu/IO: {
+    pure: ProgExt.io_stub,
+    flatMap: ProgExt.io_stub,
+    capture: ProgExt.io_stub,
+    captureFormula: ProgExt.io_stub,
+    sequence: ProgExt.io_stub,
+    trace: ProgExt.io_stub,
+    random_Int: ProgExt.io_stub
+  },
+  Bosatsu/UI: {
+    h: ProgExt.ui_stub,
+    text: ProgExt.ui_stub,
+    fragment: ProgExt.ui_stub,
+    state: ProgExt.ui_stub,
+    read: ProgExt.ui_stub,
+    write: ProgExt.ui_stub,
+    on_click: ProgExt.ui_stub,
+    on_input: ProgExt.ui_stub,
+    on_change: ProgExt.ui_stub
   }
 }

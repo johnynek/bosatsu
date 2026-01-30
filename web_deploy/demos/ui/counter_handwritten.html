@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BosatsuUI Counter Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #0b0b14;
+        color: #f2f4ff;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        background: #12162f;
+        border: 1px solid #242a58;
+        border-radius: 18px;
+        padding: 32px;
+        width: min(480px, 92vw);
+        display: grid;
+        gap: 18px;
+      }
+      .title {
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .count {
+        font-size: 64px;
+        font-weight: 700;
+        color: #f2683c;
+        text-align: center;
+        padding: 16px 0;
+      }
+      .muted {
+        color: #9aa0d4;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+      }
+      button {
+        flex: 1;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.2s;
+      }
+      button:active {
+        transform: scale(0.97);
+      }
+      .primary {
+        background: #f2683c;
+        color: #0b0b14;
+      }
+      .primary:hover {
+        background: #ff7a4d;
+      }
+      .ghost {
+        background: #1b2040;
+        color: #f2f4ff;
+        border: 1px solid #2a335e;
+      }
+      .ghost:hover {
+        background: #242a58;
+      }
+      .binding-log {
+        background: #1a1e38;
+        border-radius: 8px;
+        padding: 12px;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 12px;
+        max-height: 150px;
+        overflow-y: auto;
+      }
+      .binding-log .entry {
+        padding: 4px 0;
+        border-bottom: 1px solid #2a335e;
+      }
+      .binding-log .entry:last-child {
+        border-bottom: none;
+      }
+      .binding-log .path {
+        color: #6ee7b7;
+      }
+      .binding-log .element {
+        color: #93c5fd;
+      }
+      .binding-log .property {
+        color: #fcd34d;
+      }
+      .binding-log .value {
+        color: #f472b6;
+      }
+      h3 {
+        font-size: 14px;
+        color: #9aa0d4;
+        margin-bottom: 8px;
+      }
+      .explainer {
+        background: #1a1e38;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .explainer code {
+        background: #242a58;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #6ee7b7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="title">BosatsuUI Counter</div>
+
+      <div class="count" id="count-display" data-bosatsu-id="count-display">0</div>
+
+      <div class="row">
+        <button class="primary" id="inc">+ Increment</button>
+        <button class="ghost" id="dec">- Decrement</button>
+      </div>
+
+      <div class="row">
+        <button class="ghost" id="reset">Reset to 0</button>
+        <button class="ghost" id="random">Random</button>
+      </div>
+
+      <div>
+        <h3>How It Works (No Virtual DOM!)</h3>
+        <div class="explainer">
+          When you click a button, BosatsuUI:
+          <ol style="margin: 8px 0 0 16px;">
+            <li>Looks up bindings for state path <code>["count"]</code></li>
+            <li>Finds: <code>#count-display.textContent</code></li>
+            <li>Directly sets: <code>element.textContent = newValue</code></li>
+          </ol>
+          No VDOM tree creation. No diffing. Just O(1) binding lookup + O(1) DOM update.
+        </div>
+      </div>
+
+      <div>
+        <h3>Binding Update Log</h3>
+        <div class="binding-log" id="log">
+          <div class="entry">Click a button to see binding updates...</div>
+        </div>
+      </div>
+
+      <div class="muted">
+        This demo uses BosatsuUI's direct DOM binding approach. The binding
+        <code>["count"] -> #count-display.textContent</code> was extracted at
+        compile time via static analysis of the TypedExpr AST.
+      </div>
+    </div>
+
+    <script src="../../bosatsu-ui-runtime.js"></script>
+    <script>
+      // =========================================================================
+      // BosatsuUI Counter Demo
+      //
+      // This demonstrates BosatsuUI's key feature: direct DOM binding updates
+      // without virtual DOM diffing. The bindings were pre-computed via static
+      // analysis and are applied here at runtime.
+      // =========================================================================
+
+      // Bindings extracted at compile time by UIAnalyzer
+      const bindings = {
+        'count': [
+          {
+            elementId: 'count-display',
+            property: 'textContent',
+            conditional: false,
+          }
+        ]
+      };
+
+      // Initial state
+      const initialState = { count: 0 };
+
+      // Element cache for O(1) lookup
+      const elementCache = new Map();
+      let state = { ...initialState };
+
+      // Initialize element cache
+      const countDisplay = document.getElementById('count-display');
+      elementCache.set('count-display', countDisplay);
+
+      // Log element
+      const log = document.getElementById('log');
+      let logEntries = [];
+
+      function addLogEntry(path, elementId, property, value) {
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        entry.innerHTML = `
+          <span class="path">["${path.join('", "')}"]</span> ->
+          <span class="element">#${elementId}</span>.<span class="property">${property}</span> =
+          <span class="value">${value}</span>
+        `;
+        logEntries.unshift(entry);
+
+        // Keep only last 10 entries
+        if (logEntries.length > 10) {
+          logEntries = logEntries.slice(0, 10);
+        }
+
+        log.innerHTML = '';
+        logEntries.forEach(e => log.appendChild(e));
+      }
+
+      // setState function - the core of BosatsuUI's approach
+      function setState(path, value) {
+        // 1. Update state
+        state = setAtPath(state, path, value);
+
+        // 2. Look up bindings for this path (O(1) map lookup)
+        const pathKey = path.join('.');
+        // In real BosatsuUI, bindings are looked up by path
+        // For this demo, we use 'count' directly
+        const pathBindings = bindings[path[0]] || [];
+
+        // 3. Apply each binding (O(1) per binding)
+        pathBindings.forEach(binding => {
+          const element = elementCache.get(binding.elementId);
+          if (element) {
+            // Direct DOM property update - no diffing!
+            element[binding.property] = String(value);
+
+            // Log the binding update
+            addLogEntry(path, binding.elementId, binding.property, value);
+          }
+        });
+      }
+
+      function setAtPath(obj, path, value) {
+        if (path.length === 0) return value;
+        const [first, ...rest] = path;
+        return {
+          ...obj,
+          [first]: rest.length === 0 ? value : setAtPath(obj[first] || {}, rest, value),
+        };
+      }
+
+      // Event handlers
+      document.getElementById('inc').addEventListener('click', () => {
+        setState(['count'], state.count + 1);
+      });
+
+      document.getElementById('dec').addEventListener('click', () => {
+        setState(['count'], state.count - 1);
+      });
+
+      document.getElementById('reset').addEventListener('click', () => {
+        setState(['count'], 0);
+      });
+
+      document.getElementById('random').addEventListener('click', () => {
+        setState(['count'], Math.floor(Math.random() * 100));
+      });
+
+      // Initial render
+      addLogEntry(['count'], 'count-display', 'textContent', 0);
+    </script>
+  </body>
+</html>

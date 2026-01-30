@@ -655,59 +655,195 @@ function _js_to_bosatsu_string(s) {
 // Binding Map (extracted at compile time)
 // ============================================================================
 
-const _bindings = {"count": [{"elementId": "count-display", "property": "textContent", "conditional": false, "transform": "_int_to_String"}]};
+const _bindings = {"todo1_completed": [{"elementId": "todo-1-checkbox", "property": "className", "conditional": false}],
+  "todo3_completed": [{"elementId": "todo-3-checkbox", "property": "className", "conditional": false}],
+  "todo2_completed": [{"elementId": "todo-2-checkbox", "property": "className", "conditional": false}]};
 
 // ============================================================================
 // Compiled Bosatsu Code
 // ============================================================================
 
-const count = _ui_create_state(0);
-const Demo_Counter$count = count;
-const increment = a => _ui_write(Demo_Counter$count, 1 + Demo_Counter$count.value);
-const Demo_Counter$increment = increment;
-const decrement = a => _ui_write(Demo_Counter$count, (-1) + Demo_Counter$count.value);
-const Demo_Counter$decrement = decrement;
+const todo1_completed = _ui_create_state(0);
+const Demo_TodoList$todo1_completed = todo1_completed;
+const todo2_completed = _ui_create_state(0);
+const Demo_TodoList$todo2_completed = todo2_completed;
+const todo3_completed = _ui_create_state(1);
+const Demo_TodoList$todo3_completed = todo3_completed;
+const toggle1 = a => _ui_write(Demo_TodoList$todo1_completed, 1 - Demo_TodoList$todo1_completed.value);
+const Demo_TodoList$toggle1 = toggle1;
+const toggle2 = a => _ui_write(Demo_TodoList$todo2_completed, 1 - Demo_TodoList$todo2_completed.value);
+const Demo_TodoList$toggle2 = toggle2;
+const toggle3 = a => _ui_write(Demo_TodoList$todo3_completed, 1 - Demo_TodoList$todo3_completed.value);
+const Demo_TodoList$toggle3 = toggle3;
 const view = { type: "element",
   tag: _js_to_bosatsu_string("div"),
   props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
-      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
+      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("container")), [0]),
   children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
-      tag: _js_to_bosatsu_string("h1"),
-      props: [0],
-      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
-          text: _bosatsu_to_js_string(_js_to_bosatsu_string("Counter")) }, [0]) }, ((_a0, _a1) => [1,
+      tag: _js_to_bosatsu_string("div"),
+      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
+      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+          tag: _js_to_bosatsu_string("h1"),
+          props: [0],
+          children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+              text: _bosatsu_to_js_string(_js_to_bosatsu_string("BosatsuUI Todo List")) }, [0]) }, ((_a0, _a1) => [1,
+          _a0,
+          _a1])({ type: "element",
+            tag: _js_to_bosatsu_string("p"),
+            props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("subtitle")), [0]),
+            children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Each todo has its own state binding - O(1) updates per item!")) }, [0]) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "element",
+              tag: _js_to_bosatsu_string("div"),
+              props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                  _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-list")), [0]),
+              children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                  tag: _js_to_bosatsu_string("div"),
+                  props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])(((_a0, _a1) => [_a0,
+                        _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-1")), [0])),
+                  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("div"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-1-checkbox")), ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(["data-onclick",
+                              _ui_register_handler("click", Demo_TodoList$toggle1)], [0]))),
+                      children: [0] }, ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])({ type: "element",
+                        tag: _js_to_bosatsu_string("span"),
+                        props: ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                        children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                            text: _bosatsu_to_js_string(_js_to_bosatsu_string("Learn about BosatsuUI bindings")) }, [0]) }, [0])) }, ((_a0, _a1) => [1,
+                  _a0,
+                  _a1])({ type: "element",
+                    tag: _js_to_bosatsu_string("div"),
+                    props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                        _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-2")), [0])),
+                    children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                        tag: _js_to_bosatsu_string("div"),
+                        props: ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-2-checkbox")), ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(["data-onclick",
+                                _ui_register_handler("click", Demo_TodoList$toggle2)], [0]))),
+                        children: [0] }, ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("span"),
+                          props: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                          children: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "text",
+                              text: _bosatsu_to_js_string(_js_to_bosatsu_string("Understand O(1) DOM updates")) }, [0]) }, [0])) }, ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("div"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-3")), [0])),
+                      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("div"),
+                          props: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-3-checkbox")), ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])(["data-onclick",
+                                  _ui_register_handler("click", Demo_TodoList$toggle3)], [0]))),
+                          children: [0] }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "element",
+                            tag: _js_to_bosatsu_string("span"),
+                            props: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                            children: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])({ type: "text",
+                                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Compare with React VDOM")) }, [0]) }, [0])) }, [0]))) }, ((_a0, _a1) => [1,
+              _a0,
+              _a1])({ type: "element",
+                tag: _js_to_bosatsu_string("div"),
+                props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                    _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("binding-info")), [0]),
+                children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                    tag: _js_to_bosatsu_string("strong"),
+                    props: [0],
+                    children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                        text: _bosatsu_to_js_string(_js_to_bosatsu_string("BosatsuUI Bindings (per-item, O(1) updates):")) }, [0]) }, ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("br"),
+                      props: [0],
+                      children: [0] }, ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])({ type: "text",
+                        text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo1_completed -> #todo-1-checkbox.className")) }, ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("br"),
+                          props: [0],
+                          children: [0] }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "text",
+                            text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo2_completed -> #todo-2-checkbox.className")) }, ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "element",
+                              tag: _js_to_bosatsu_string("br"),
+                              props: [0],
+                              children: [0] }, ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])({ type: "text",
+                                text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo3_completed -> #todo-3-checkbox.className")) }, [0]))))))) }, [0])))) }, ((_a0, _a1) => [1,
       _a0,
       _a1])({ type: "element",
         tag: _js_to_bosatsu_string("div"),
         props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
-            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("display")), [0]),
+            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
         children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
-            tag: _js_to_bosatsu_string("span"),
-            props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
-                _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("count-display")), [0]),
+            tag: _js_to_bosatsu_string("h3"),
+            props: [0],
             children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
-                text: _bosatsu_to_js_string(_int_to_String(Demo_Counter$count.value)) }, [0]) }, [0]) }, ((_a0, _a1) => [1,
-        _a0,
-        _a1])({ type: "element",
-          tag: _js_to_bosatsu_string("div"),
-          props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
-              _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("buttons")), [0]),
-          children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
-              tag: _js_to_bosatsu_string("button"),
-              props: ((_a0, _a1) => [1, _a0, _a1])(["data-onclick",
-                  _ui_register_handler("click", Demo_Counter$decrement)], [0]),
+                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Why This Matters for Performance")) }, [0]) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "element",
+              tag: _js_to_bosatsu_string("p"),
+              props: [0],
               children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
-                  text: _bosatsu_to_js_string(_js_to_bosatsu_string("-")) }, [0]) }, ((_a0, _a1) => [1,
-              _a0,
-              _a1])({ type: "element",
-                tag: _js_to_bosatsu_string("button"),
-                props: ((_a0, _a1) => [1, _a0, _a1])(["data-onclick",
-                    _ui_register_handler("click", Demo_Counter$increment)], [0]),
-                children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
-                    text: _bosatsu_to_js_string(_js_to_bosatsu_string("+")) }, [0]) }, [0])) }, [0]))) };
-const Demo_Counter$view = view;
-const main = Demo_Counter$view;
-const Demo_Counter$main = main;
+                  text: _bosatsu_to_js_string(_js_to_bosatsu_string("When you toggle a todo, BosatsuUI updates ONLY that todo's checkbox class. React/Elm would re-render the entire list and diff to find what changed.")) }, [0]) }, [0])) }, [0])) };
+const Demo_TodoList$view = view;
+const main = Demo_TodoList$view;
+const Demo_TodoList$main = main;
 
 // ============================================================================
 // Initialize Application
@@ -715,7 +851,9 @@ const Demo_Counter$main = main;
 
 function init() {
   // Link state objects to their binding keys for lookup
-  if (typeof count !== 'undefined') _linkStateToBinding(count, "count");
+  if (typeof todo1_completed !== 'undefined') _linkStateToBinding(todo1_completed, "todo1_completed");
+  if (typeof todo2_completed !== 'undefined') _linkStateToBinding(todo2_completed, "todo2_completed");
+  if (typeof todo3_completed !== 'undefined') _linkStateToBinding(todo3_completed, "todo3_completed");
 
   // Get the VNode from the compiled 'main' or 'view' binding
   const vnode = typeof main !== 'undefined' ? main : (typeof view !== 'undefined' ? view : null);

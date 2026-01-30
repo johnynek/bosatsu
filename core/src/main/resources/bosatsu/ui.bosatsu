@@ -1,0 +1,50 @@
+package Bosatsu/UI
+
+from Bosatsu/Predef import String, Int, List, Unit
+
+# BosatsuUI module for reactive UI with direct DOM updates.
+# Uses static analysis on TypedExpr to extract state->DOM bindings at compile time.
+# At runtime, state changes trigger O(1) direct DOM property updates.
+
+export (
+  VNode,
+  State,
+  h, text, fragment,
+  state, read, write,
+  on_click, on_input, on_change
+)
+
+# Virtual DOM node - represents either an element, text, or fragment
+external struct VNode
+
+# Reactive state container - holds a value that can change over time
+external struct State[a]
+
+# Create an HTML element: h("div", [("class", "foo")], [children...])
+# Props is a list of (name, value) tuples
+external def h(tag: String, props: List[(String, String)], children: List[VNode]) -> VNode
+
+# Create a text node
+external def text(content: String) -> VNode
+
+# Create a fragment (invisible wrapper for multiple children)
+external def fragment(children: List[VNode]) -> VNode
+
+# Create a state container with an initial value
+external def state[a](initial: a) -> State[a]
+
+# Read the current value from a state container
+external def read[a](state: State[a]) -> a
+
+# Write a new value to a state container (triggers DOM updates via bindings)
+external def write[a](state: State[a], value: a) -> Unit
+
+# Event handler prop - returns a (name, value) tuple for use in h() props
+# Handler is a function that takes Unit and returns Unit (side effect via write)
+external def on_click(handler: Unit -> Unit) -> (String, String)
+
+# Input event handler - for text inputs, handler receives the new value
+external def on_input(handler: String -> Unit) -> (String, String)
+
+# Change event handler - for checkboxes and selects
+external def on_change(handler: String -> Unit) -> (String, String)
