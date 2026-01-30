@@ -166,7 +166,7 @@ jobs:
       # ===== E2E Tests =====
       - name: Run E2E tests
         run: |
-          npx playwright test tests/e2e/meta-coverage.spec.ts --project=chromium
+          npx playwright test tests/e2e/meta-coverage.spec.ts tests/e2e/benchmark-integrity.spec.ts --project=chromium
         env:
           BASE_URL: file://${{ github.workspace }}/web_deploy
 

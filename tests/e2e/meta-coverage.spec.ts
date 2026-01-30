@@ -201,7 +201,7 @@ const DEMO_REGISTRY = {
   ],
   // Benchmark demos
   'benchmarks': [
-    { path: '/demos/benchmarks/ui-performance/index.html', name: 'UI Performance Benchmark', testFile: 'bosatsu-ui.spec.ts' },
+    { path: '/demos/benchmarks/ui-performance/index.html', name: 'UI Performance Benchmark', testFile: 'benchmark-integrity.spec.ts' },
   ],
 };
 

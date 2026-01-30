@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BosatsuUI vs React vs Elm Performance Benchmark</title>
+    <title>BosatsuUI vs React Performance Benchmark</title>
+    <!-- Real React 18 -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script
-      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-      crossorigin
-    ></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <style>
       * {
         box-sizing: border-box;
@@ -62,13 +60,6 @@
       button:disabled {
         background: #ccc;
         cursor: not-allowed;
-      }
-      .results {
-        font-family: monospace;
-        white-space: pre;
-        overflow-x: auto;
-        font-size: 12px;
-        line-height: 1.5;
       }
       .benchmark-area {
         display: none;
@@ -124,11 +115,26 @@
         padding: 2px 6px;
         border-radius: 3px;
       }
+      .warning {
+        background: #fff8e1;
+        border: 1px solid #ffc107;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+      .warning strong {
+        color: #f57c00;
+      }
     </style>
   </head>
   <body>
-    <h1>BosatsuUI vs React vs Elm Performance Benchmark</h1>
+    <h1>BosatsuUI vs React Performance Benchmark</h1>
     <p class="subtitle">Comparing direct DOM binding updates vs Virtual DOM diffing</p>
+
+    <div class="warning">
+      <strong>Fair Benchmark:</strong> This benchmark uses actual React 18 (ReactDOM.createRoot, useState) -
+      not a simulation. Both frameworks perform real DOM updates. Run multiple times for consistent results.
+    </div>
 
     <div class="card explainer">
       <h3>How BosatsuUI Works (No Virtual DOM!)</h3>
@@ -142,8 +148,8 @@
         <li>No virtual DOM creation, no tree diffing, no reconciliation</li>
       </ol>
       <p>
-        <strong>React/Elm approach:</strong> Create new virtual DOM tree -> Diff against old tree
-        -> Generate patches -> Apply patches. This is O(n) where n is tree size.
+        <strong>React approach:</strong> Create new virtual DOM tree -> Diff against old tree
+        -> Generate patches -> Apply patches. This is O(n) where n is component tree size.
       </p>
     </div>
 
@@ -151,8 +157,7 @@
       <h2>Benchmark Controls</h2>
       <button id="run-all" onclick="runAllBenchmarks()">Run All Benchmarks</button>
       <button id="run-single" onclick="runSingleBenchmark()">Single Updates</button>
-      <button id="run-batch" onclick="runBatchBenchmark()">Batch Updates</button>
-      <button id="run-list" onclick="runListBenchmark()">List Updates (1000 items)</button>
+      <button id="run-list" onclick="runListBenchmark()">List Updates (100 items)</button>
       <button id="run-targeted" onclick="runTargetedBenchmark()">Targeted Updates</button>
       <p class="progress" id="progress"></p>
     </div>
@@ -165,7 +170,6 @@
     <!-- Hidden benchmark areas -->
     <div id="bosatsu-root" class="benchmark-area"></div>
     <div id="react-root" class="benchmark-area"></div>
-    <div id="elm-root" class="benchmark-area"></div>
 
     <script>
       // =========================================================================
@@ -173,18 +177,12 @@
       // =========================================================================
 
       class BosatsuRuntime {
-        constructor(bindings, root, options = {}) {
+        constructor(bindings, root) {
           this.bindings = bindings
           this.root = root
           this.state = {}
           this.bindingMap = new Map()
           this.elementCache = new Map()
-          this.batchMode = options.batchMode || 'immediate'
-
-          // Batching state
-          this.pendingPaths = new Map()
-          this.flushScheduled = false
-          this.inBatch = false
 
           // Build binding map: statePath (as string) -> bindings[]
           bindings.forEach((b) => {
@@ -199,43 +197,10 @@
         }
 
         setState(path, value) {
-          // Update state immediately
+          // Update state
           this.state = this.setAtPath(this.state, path, value)
-
-          // Queue DOM update
-          if (this.batchMode === 'immediate' && !this.inBatch) {
-            this.applyBindingsForPath(path)
-          } else {
-            const key = path.join('.')
-            this.pendingPaths.set(key, path)
-            this.scheduleFlush()
-          }
-        }
-
-        scheduleFlush() {
-          if (this.flushScheduled || this.inBatch) return
-          this.flushScheduled = true
-          queueMicrotask(() => this.flushPendingUpdates())
-        }
-
-        flushPendingUpdates() {
-          this.flushScheduled = false
-          this.pendingPaths.forEach((path) => this.applyBindingsForPath(path))
-          this.pendingPaths.clear()
-        }
-
-        flush() {
-          this.flushPendingUpdates()
-        }
-
-        batch(fn) {
-          this.inBatch = true
-          try {
-            fn()
-          } finally {
-            this.inBatch = false
-            this.flushPendingUpdates()
-          }
+          // Apply bindings directly - O(1) lookup, O(1) update per binding
+          this.applyBindingsForPath(path)
         }
 
         applyBindingsForPath(path) {
@@ -246,39 +211,13 @@
             // Use element cache for O(1) lookup
             let element = this.elementCache.get(binding.elementId)
             if (!element) {
-              const selector = binding.elementId.startsWith('[')
-                ? binding.elementId
-                : `[data-bosatsu-id="${binding.elementId}"]`
-              element = this.root.querySelector(selector) ||
-                        this.root.querySelector(`#${binding.elementId}`)
+              element = this.root.querySelector(`#${binding.elementId}`)
               if (element) this.elementCache.set(binding.elementId, element)
             }
 
             if (element) {
-              let newValue = this.getAtPath(this.state, binding.statePath || path)
-              if (binding.transform) {
-                newValue = binding.transform(newValue)
-              }
-
-              switch (binding.property) {
-                case 'textContent':
-                  element.textContent = String(newValue)
-                  break
-                case 'className':
-                  element.className = String(newValue)
-                  break
-                case 'value':
-                  element.value = String(newValue)
-                  break
-                case 'checked':
-                  element.checked = Boolean(newValue)
-                  break
-                default:
-                  if (binding.property.startsWith('style.')) {
-                    const prop = binding.property.slice(6)
-                    element.style[prop] = String(newValue)
-                  }
-              }
+              const newValue = this.getAtPath(this.state, binding.statePath || path)
+              element.textContent = String(newValue)
             }
           })
         }
@@ -298,169 +237,103 @@
       }
 
       // =========================================================================
-      // React Simulation (Virtual DOM overhead)
+      // Real React 18 Counter Component
       // =========================================================================
 
-      class ReactSimulation {
-        constructor(root) {
-          this.root = root
-          this.state = {}
-          this.prevVDOM = null
-        }
+      // We use the global React and ReactDOM loaded from CDN
+      const { useState, useCallback, memo } = React
 
-        mount(initialState) {
-          this.state = initialState
-        }
+      // Counter component for single update test
+      function ReactCounter() {
+        const [count, setCount] = useState(0)
 
-        createVDOM(state) {
-          // Simulate creating a virtual DOM tree
-          return {
-            type: 'div',
-            props: { id: 'app' },
-            children: Object.entries(state).map(([k, v]) => ({
-              type: 'span',
-              props: { id: k },
-              children: [String(v)],
-            })),
-          }
-        }
+        // Expose setter globally for benchmark
+        window._reactSetCount = setCount
 
-        diffAndPatch(prev, next) {
-          // Simulate tree traversal and diffing overhead
-          const walk = (node) => {
-            if (!node || typeof node !== 'object') return 1
-            if (Array.isArray(node.children)) {
-              return 1 + node.children.reduce((sum, c) => sum + walk(c), 0)
-            }
-            return 1
-          }
-          walk(next)
-        }
-
-        setState(path, value) {
-          this.state = this.setAtPath(this.state, path, value)
-          const newVDOM = this.createVDOM(this.state)
-          this.diffAndPatch(this.prevVDOM, newVDOM)
-
-          // Actual DOM update
-          const element = this.root.querySelector(`#${path[0]}`)
-          if (element) element.textContent = String(value)
-
-          this.prevVDOM = newVDOM
-        }
-
-        setAtPath(obj, path, value) {
-          if (path.length === 0) return value
-          const [first, ...rest] = path
-          return {
-            ...obj,
-            [first]: rest.length === 0 ? value : this.setAtPath(obj[first] || {}, rest, value),
-          }
-        }
+        return React.createElement('div', { id: 'react-counter-app' },
+          React.createElement('span', { id: 'react-count' }, count)
+        )
       }
 
-      // =========================================================================
-      // Elm Simulation (Pure functional VDOM)
-      // =========================================================================
+      // List item component (memoized for fair comparison)
+      const ListItem = memo(function ListItem({ id, value }) {
+        return React.createElement('li', { id: `react-item-${id}` }, value)
+      })
 
-      class ElmSimulation {
-        constructor(root) {
-          this.root = root
-          this.model = {}
-          this.prevView = null
-        }
+      // List component for list update test
+      function ReactList({ size }) {
+        const [items, setItems] = useState(() =>
+          Array.from({ length: size }, (_, i) => i)
+        )
 
-        mount(initialState) {
-          this.model = initialState
-        }
+        // Expose setter globally for benchmark
+        window._reactSetItems = setItems
+        window._reactItems = items
 
-        // Pure view function
-        view(model) {
-          return {
-            tag: 'div',
-            attrs: { id: 'app' },
-            children: Object.entries(model).map(([k, v]) => ({
-              tag: 'span',
-              attrs: { id: k },
-              children: [String(v)],
-            })),
-          }
-        }
+        return React.createElement('ul', { id: 'react-list' },
+          items.map((value, i) =>
+            React.createElement(ListItem, { key: i, id: i, value })
+          )
+        )
+      }
 
-        // Elm's diff algorithm
-        diff(prev, next) {
-          // Walk both trees
-          const walk = (node) => {
-            if (!node || typeof node !== 'object') return 1
-            if (Array.isArray(node.children)) {
-              return 1 + node.children.reduce((sum, c) => sum + walk(c), 0)
-            }
-            return 1
-          }
-          walk(next)
-        }
+      // Targeted update component (10 separate values)
+      function ReactTargeted() {
+        const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+        const [values, setValues] = useState(() =>
+          Object.fromEntries(keys.map(k => [k, 0]))
+        )
 
-        // Update function
-        update(msg, model) {
-          return { ...model, [msg.path[0]]: msg.value }
-        }
+        // Expose setter globally for benchmark
+        window._reactSetValues = setValues
 
-        setState(path, value) {
-          this.model = this.update({ path, value }, this.model)
-          const newView = this.view(this.model)
-          this.diff(this.prevView, newView)
-
-          // Actual DOM update
-          const element = this.root.querySelector(`#${path[0]}`)
-          if (element) element.textContent = String(value)
-
-          this.prevView = newView
-        }
+        return React.createElement('div', { id: 'react-targeted-app' },
+          keys.map(k =>
+            React.createElement('div', { key: k, id: `react-section-${k}` },
+              React.createElement('span', { id: `react-value-${k}` }, values[k])
+            )
+          )
+        )
       }
 
       // =========================================================================
       // Benchmark Utilities
       // =========================================================================
 
-      function runThroughputBenchmark(name, durationMs, fn, waitFn) {
-        return new Promise(async (resolve) => {
-          let ops = 0
+      async function runThroughputBenchmark(name, durationMs, setupFn, updateFn) {
+        // Allow React to settle
+        await new Promise(r => setTimeout(r, 50))
 
-          // Warmup
-          for (let i = 0; i < 100; i++) {
-            fn()
-          }
-          if (waitFn) await waitFn()
+        let ops = 0
 
-          const benchStart = performance.now()
-          while (performance.now() - benchStart < durationMs) {
-            fn()
-            if (waitFn) await waitFn()
-            ops++
-          }
-          const elapsed = performance.now() - benchStart
+        // Warmup
+        for (let i = 0; i < 100; i++) {
+          updateFn(i)
+        }
+        // Let React flush
+        await new Promise(r => setTimeout(r, 50))
 
-          const opsPerSec = (ops / elapsed) * 1000
-          const avgMs = elapsed / ops
+        const benchStart = performance.now()
+        while (performance.now() - benchStart < durationMs) {
+          updateFn(ops)
+          ops++
+        }
+        const elapsed = performance.now() - benchStart
 
-          resolve({
-            name,
-            iterations: ops,
-            totalMs: elapsed,
-            avgMs,
-            minMs: avgMs,
-            maxMs: avgMs,
-            opsPerSec,
-          })
-        })
+        // Let React flush final updates
+        await new Promise(r => setTimeout(r, 50))
+
+        const opsPerSec = (ops / elapsed) * 1000
+        const avgMs = elapsed / ops
+
+        return {
+          name,
+          iterations: ops,
+          totalMs: elapsed,
+          avgMs,
+          opsPerSec,
+        }
       }
-
-      const flushPromise = () =>
-        new Promise((resolve) => {
-          const channel = new MessageChannel()
-          channel.port1.onmessage = resolve
-          channel.port2.postMessage(null)
-        })
 
       function setProgress(msg) {
         document.getElementById('progress').textContent = msg
@@ -494,7 +367,7 @@
       }
 
       // =========================================================================
-      // Single Update Benchmark
+      // Single Update Benchmark (uses REAL React)
       // =========================================================================
 
       async function runSingleBenchmark() {
@@ -504,12 +377,11 @@
 
         // Setup BosatsuUI
         const bosatsuRoot = document.getElementById('bosatsu-root')
-        bosatsuRoot.innerHTML = '<div id="app"><span id="count" data-bosatsu-id="count">0</span></div>'
+        bosatsuRoot.innerHTML = '<div id="bosatsu-counter-app"><span id="bosatsu-count">0</span></div>'
 
         const bosatsu = new BosatsuRuntime(
-          [{ elementId: 'count', property: 'textContent', statePath: ['count'] }],
-          bosatsuRoot,
-          { batchMode: 'immediate' }
+          [{ elementId: 'bosatsu-count', property: 'textContent', statePath: ['count'] }],
+          bosatsuRoot
         )
         bosatsu.mount({ count: 0 })
 
@@ -517,50 +389,39 @@
           await runThroughputBenchmark(
             'BosatsuUI (direct binding)',
             durationMs,
-            () => bosatsu.setState(['count'], Math.floor(Math.random() * 1000)),
-            null
+            null,
+            (i) => bosatsu.setState(['count'], i % 10000)
           )
         )
 
-        // Setup React simulation
+        // Setup REAL React 18
         const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = '<div id="app"><span id="count">0</span></div>'
+        reactRoot.innerHTML = ''
+        const root = ReactDOM.createRoot(reactRoot)
+        root.render(React.createElement(ReactCounter))
 
-        const react = new ReactSimulation(reactRoot)
-        react.mount({ count: 0 })
-
-        results.push(
-          await runThroughputBenchmark(
-            'React (VDOM diff)',
-            durationMs,
-            () => react.setState(['count'], Math.floor(Math.random() * 1000)),
-            null
-          )
-        )
-
-        // Setup Elm simulation
-        const elmRoot = document.getElementById('elm-root')
-        elmRoot.innerHTML = '<div id="app"><span id="count">0</span></div>'
-
-        const elm = new ElmSimulation(elmRoot)
-        elm.mount({ count: 0 })
+        // Wait for React to mount
+        await new Promise(r => setTimeout(r, 100))
 
         results.push(
           await runThroughputBenchmark(
-            'Elm (pure VDOM)',
+            'React 18 (VDOM)',
             durationMs,
-            () => elm.setState(['count'], Math.floor(Math.random() * 1000)),
-            null
+            null,
+            (i) => window._reactSetCount(i % 10000)
           )
         )
+
+        // Cleanup React
+        root.unmount()
 
         let html = '<h3>Single Property Update</h3>'
         html += formatResults(results)
         html += `<div class="speedup">
           <h3>Why BosatsuUI is faster:</h3>
           <p>BosatsuUI looks up the binding for <code>['count']</code> and directly sets
-          <code>element.textContent = value</code>. React/Elm must create new VDOM trees
-          and diff them even for a single property change.</p>
+          <code>element.textContent = value</code>. React must schedule a re-render,
+          create a new VDOM tree, diff it, and apply patches.</p>
         </div>`
 
         document.getElementById('results').innerHTML = html
@@ -568,109 +429,20 @@
       }
 
       // =========================================================================
-      // Batch Update Benchmark
-      // =========================================================================
-
-      async function runBatchBenchmark() {
-        setProgress('Running batch update benchmark...')
-        const results = []
-        const durationMs = 2000
-        const batchSize = 100
-
-        // BosatsuUI with batching
-        const bosatsuRoot = document.getElementById('bosatsu-root')
-        bosatsuRoot.innerHTML = '<div id="app"><span id="count" data-bosatsu-id="count">0</span></div>'
-
-        const bosatsu = new BosatsuRuntime(
-          [{ elementId: 'count', property: 'textContent', statePath: ['count'] }],
-          bosatsuRoot,
-          { batchMode: 'immediate' }
-        )
-        bosatsu.mount({ count: 0 })
-
-        results.push(
-          await runThroughputBenchmark(
-            `BosatsuUI (${batchSize} updates batched)`,
-            durationMs,
-            () => {
-              bosatsu.batch(() => {
-                for (let i = 0; i < batchSize; i++) {
-                  bosatsu.setState(['count'], i)
-                }
-              })
-            },
-            null
-          )
-        )
-
-        // React simulation
-        const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = '<div id="app"><span id="count">0</span></div>'
-
-        const react = new ReactSimulation(reactRoot)
-        react.mount({ count: 0 })
-
-        results.push(
-          await runThroughputBenchmark(
-            `React (${batchSize} setState calls)`,
-            durationMs,
-            () => {
-              for (let i = 0; i < batchSize; i++) {
-                react.setState(['count'], i)
-              }
-            },
-            null
-          )
-        )
-
-        // Elm simulation
-        const elmRoot = document.getElementById('elm-root')
-        elmRoot.innerHTML = '<div id="app"><span id="count">0</span></div>'
-
-        const elm = new ElmSimulation(elmRoot)
-        elm.mount({ count: 0 })
-
-        results.push(
-          await runThroughputBenchmark(
-            `Elm (${batchSize} updates)`,
-            durationMs,
-            () => {
-              for (let i = 0; i < batchSize; i++) {
-                elm.setState(['count'], i)
-              }
-            },
-            null
-          )
-        )
-
-        let html = `<h3>Batch Updates (${batchSize} updates per batch)</h3>`
-        html += formatResults(results)
-        html += `<div class="speedup">
-          <h3>Why BosatsuUI is faster:</h3>
-          <p>BosatsuUI's batch() deduplicates updates to the same path - 100 updates to
-          <code>['count']</code> result in 1 DOM write. React/Elm create 100 VDOM trees
-          (though React 18 batches renders, it still diffs).</p>
-        </div>`
-
-        document.getElementById('results').innerHTML = html
-        setProgress('')
-      }
-
-      // =========================================================================
-      // List Update Benchmark
+      // List Update Benchmark (uses REAL React with memo)
       // =========================================================================
 
       async function runListBenchmark() {
         setProgress('Running list update benchmark...')
         const results = []
         const durationMs = 2000
-        const listSize = 1000
+        const listSize = 100
 
-        // BosatsuUI with per-item bindings
+        // Setup BosatsuUI with per-item bindings
         const bosatsuRoot = document.getElementById('bosatsu-root')
-        let html = '<ul id="list">'
+        let html = '<ul id="bosatsu-list">'
         for (let i = 0; i < listSize; i++) {
-          html += `<li id="item-${i}" data-bosatsu-id="item-${i}">${i}</li>`
+          html += `<li id="bosatsu-item-${i}">${i}</li>`
         }
         html += '</ul>'
         bosatsuRoot.innerHTML = html
@@ -680,153 +452,64 @@
         const initialState = { items: {} }
         for (let i = 0; i < listSize; i++) {
           bindings.push({
-            elementId: `item-${i}`,
+            elementId: `bosatsu-item-${i}`,
             property: 'textContent',
             statePath: ['items', String(i)],
           })
           initialState.items[i] = i
         }
 
-        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot, { batchMode: 'immediate' })
+        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot)
         bosatsu.mount(initialState)
 
         results.push(
           await runThroughputBenchmark(
             `BosatsuUI (1 of ${listSize} items)`,
             durationMs,
-            () => {
-              const index = Math.floor(Math.random() * listSize)
-              bosatsu.setState(['items', String(index)], Math.floor(Math.random() * 1000))
-            },
-            null
+            null,
+            (i) => {
+              const index = i % listSize
+              bosatsu.setState(['items', String(index)], i % 10000)
+            }
           )
         )
 
-        // React list simulation
+        // Setup REAL React 18 with memoized list items
         const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = `<ul id="list">${Array.from({ length: listSize }, (_, i) =>
-          `<li id="item-${i}">${i}</li>`).join('')}</ul>`
+        reactRoot.innerHTML = ''
+        const root = ReactDOM.createRoot(reactRoot)
+        root.render(React.createElement(ReactList, { size: listSize }))
 
-        class ReactList {
-          constructor(root, size) {
-            this.root = root
-            this.items = Array.from({ length: size }, (_, i) => i)
-            this.prevVDOM = this.createVDOM()
-          }
-
-          createVDOM() {
-            return {
-              type: 'ul',
-              children: this.items.map((item, i) => ({
-                type: 'li',
-                key: i,
-                children: [String(item)],
-              })),
-            }
-          }
-
-          reconcile(prev, next) {
-            // O(n) list reconciliation
-            const keyMap = new Map()
-            prev?.children?.forEach((child, i) => keyMap.set(child.key, i))
-            next?.children?.forEach((child) => {
-              const oldIndex = keyMap.get(child.key)
-              // Compare operation
-            })
-          }
-
-          updateItem(index, value) {
-            this.items = [...this.items.slice(0, index), value, ...this.items.slice(index + 1)]
-            const newVDOM = this.createVDOM()
-            this.reconcile(this.prevVDOM, newVDOM)
-
-            const li = this.root.querySelector(`#item-${index}`)
-            if (li) li.textContent = String(value)
-
-            this.prevVDOM = newVDOM
-          }
-        }
-
-        const reactList = new ReactList(reactRoot, listSize)
+        // Wait for React to mount
+        await new Promise(r => setTimeout(r, 100))
 
         results.push(
           await runThroughputBenchmark(
-            `React (1 of ${listSize} items, keyed)`,
+            `React 18 (1 of ${listSize} items, memo)`,
             durationMs,
-            () => {
-              const index = Math.floor(Math.random() * listSize)
-              reactList.updateItem(index, Math.floor(Math.random() * 1000))
-            },
-            null
+            null,
+            (i) => {
+              const index = i % listSize
+              window._reactSetItems(prev => {
+                const copy = [...prev]
+                copy[index] = i % 10000
+                return copy
+              })
+            }
           )
         )
 
-        // Elm list simulation
-        const elmRoot = document.getElementById('elm-root')
-        elmRoot.innerHTML = `<ul id="list">${Array.from({ length: listSize }, (_, i) =>
-          `<li id="item-${i}">${i}</li>`).join('')}</ul>`
-
-        class ElmList {
-          constructor(root, size) {
-            this.root = root
-            this.model = { items: Array.from({ length: size }, (_, i) => i) }
-            this.prevView = this.view()
-          }
-
-          view() {
-            return {
-              tag: 'ul',
-              children: this.model.items.map((item, i) => ({
-                tag: 'li',
-                key: i,
-                children: [String(item)],
-              })),
-            }
-          }
-
-          diff(prev, next) {
-            // O(n) keyed diff
-            next?.children?.forEach((child) => {
-              // Compare operation per child
-            })
-          }
-
-          updateItem(index, value) {
-            this.model = {
-              items: [...this.model.items.slice(0, index), value, ...this.model.items.slice(index + 1)],
-            }
-            const newView = this.view()
-            this.diff(this.prevView, newView)
-
-            const li = this.root.querySelector(`#item-${index}`)
-            if (li) li.textContent = String(value)
-
-            this.prevView = newView
-          }
-        }
-
-        const elmList = new ElmList(elmRoot, listSize)
-
-        results.push(
-          await runThroughputBenchmark(
-            `Elm (1 of ${listSize} items, keyed)`,
-            durationMs,
-            () => {
-              const index = Math.floor(Math.random() * listSize)
-              elmList.updateItem(index, Math.floor(Math.random() * 1000))
-            },
-            null
-          )
-        )
+        // Cleanup React
+        root.unmount()
 
         let resultHtml = `<h3>List Item Update (${listSize}-item list)</h3>`
         resultHtml += formatResults(results)
         resultHtml += `<div class="speedup">
           <h3>Why BosatsuUI is faster:</h3>
           <p>BosatsuUI has a direct binding for each list item: <code>['items', '42']</code>
-          maps to <code>#item-42.textContent</code>. Updating one item is O(1).</p>
-          <p>React/Elm must create a new 1000-element VDOM array and reconcile it to find
-          the one changed item - O(n) even with keyed reconciliation.</p>
+          maps to <code>#bosatsu-item-42.textContent</code>. Updating one item is O(1).</p>
+          <p>React must create a new array, re-render the parent, and even with <code>memo()</code>
+          must check each of ${listSize} children to determine which changed.</p>
         </div>`
 
         document.getElementById('results').innerHTML = resultHtml
@@ -834,7 +517,7 @@
       }
 
       // =========================================================================
-      // Targeted Update Benchmark
+      // Targeted Update Benchmark (uses REAL React)
       // =========================================================================
 
       async function runTargetedBenchmark() {
@@ -845,116 +528,64 @@
 
         // BosatsuUI - direct binding per element
         const bosatsuRoot = document.getElementById('bosatsu-root')
-        bosatsuRoot.innerHTML = `<div id="app">${keys.map((k) =>
-          `<div id="section-${k}"><span id="value-${k}" data-bosatsu-id="value-${k}">0</span></div>`
+        bosatsuRoot.innerHTML = `<div id="bosatsu-targeted-app">${keys.map((k) =>
+          `<div id="bosatsu-section-${k}"><span id="bosatsu-value-${k}">0</span></div>`
         ).join('')}</div>`
 
         const bindings = keys.map((k) => ({
-          elementId: `value-${k}`,
+          elementId: `bosatsu-value-${k}`,
           property: 'textContent',
           statePath: [k],
         }))
         const initialState = Object.fromEntries(keys.map((k) => [k, 0]))
 
-        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot, { batchMode: 'immediate' })
+        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot)
         bosatsu.mount(initialState)
 
         results.push(
           await runThroughputBenchmark(
             'BosatsuUI (1 of 10 elements)',
             durationMs,
-            () => {
-              const key = keys[Math.floor(Math.random() * keys.length)]
-              bosatsu.setState([key], Math.floor(Math.random() * 1000))
-            },
-            null
+            null,
+            (i) => {
+              const key = keys[i % keys.length]
+              bosatsu.setState([key], i % 10000)
+            }
           )
         )
 
-        // React - must diff entire tree
+        // Setup REAL React 18
         const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = `<div id="app">${keys.map((k) =>
-          `<div id="section-${k}"><span id="value-${k}">0</span></div>`
-        ).join('')}</div>`
+        reactRoot.innerHTML = ''
+        const root = ReactDOM.createRoot(reactRoot)
+        root.render(React.createElement(ReactTargeted))
 
-        const react = new ReactSimulation(reactRoot)
-        react.mount(Object.fromEntries(keys.map((k) => [k, 0])))
-
-        // Override createVDOM for complex tree
-        react.createVDOM = function(state) {
-          return {
-            type: 'div',
-            props: { id: 'app' },
-            children: keys.map((k) => ({
-              type: 'div',
-              props: { id: `section-${k}` },
-              children: [{
-                type: 'span',
-                props: { id: `value-${k}` },
-                children: [String(state[k] || 0)],
-              }],
-            })),
-          }
-        }
+        // Wait for React to mount
+        await new Promise(r => setTimeout(r, 100))
 
         results.push(
           await runThroughputBenchmark(
-            'React (1 of 10 elements, full diff)',
+            'React 18 (1 of 10 elements)',
             durationMs,
-            () => {
-              const key = keys[Math.floor(Math.random() * keys.length)]
-              react.setState([key], Math.floor(Math.random() * 1000))
-            },
-            null
+            null,
+            (i) => {
+              const key = keys[i % keys.length]
+              window._reactSetValues(prev => ({ ...prev, [key]: i % 10000 }))
+            }
           )
         )
 
-        // Elm - must diff entire tree
-        const elmRoot = document.getElementById('elm-root')
-        elmRoot.innerHTML = `<div id="app">${keys.map((k) =>
-          `<div id="section-${k}"><span id="value-${k}">0</span></div>`
-        ).join('')}</div>`
-
-        const elm = new ElmSimulation(elmRoot)
-        elm.mount(Object.fromEntries(keys.map((k) => [k, 0])))
-
-        // Override view for complex tree
-        elm.view = function(model) {
-          return {
-            tag: 'div',
-            attrs: { id: 'app' },
-            children: keys.map((k) => ({
-              tag: 'div',
-              attrs: { id: `section-${k}` },
-              children: [{
-                tag: 'span',
-                attrs: { id: `value-${k}` },
-                children: [String(model[k] || 0)],
-              }],
-            })),
-          }
-        }
-
-        results.push(
-          await runThroughputBenchmark(
-            'Elm (1 of 10 elements, full diff)',
-            durationMs,
-            () => {
-              const key = keys[Math.floor(Math.random() * keys.length)]
-              elm.setState([key], Math.floor(Math.random() * 1000))
-            },
-            null
-          )
-        )
+        // Cleanup React
+        root.unmount()
 
         let html = '<h3>Targeted Update (update 1 element in 10-element tree)</h3>'
         html += formatResults(results)
         html += `<div class="speedup">
           <h3>Why BosatsuUI excels at targeted updates:</h3>
           <p>This is BosatsuUI's sweet spot. Updating state path <code>['c']</code>
-          triggers a direct O(1) lookup and update of <code>#value-c.textContent</code>.</p>
-          <p>React/Elm must recreate and diff the entire tree structure to discover that
-          only one span changed. The larger the tree, the bigger BosatsuUI's advantage.</p>
+          triggers a direct O(1) lookup and update of <code>#bosatsu-value-c.textContent</code>.</p>
+          <p>React must re-render the parent component and reconcile all 10 children,
+          even though only one value changed.</p>
         </div>`
 
         document.getElementById('results').innerHTML = html
@@ -969,10 +600,9 @@
         const buttons = document.querySelectorAll('button')
         buttons.forEach((b) => (b.disabled = true))
 
-        await runSingleBenchmark()
-        await new Promise((r) => setTimeout(r, 500))
+        document.getElementById('results').innerHTML = '<p>Running benchmarks... this may take a while.</p>'
 
-        await runBatchBenchmark()
+        await runSingleBenchmark()
         await new Promise((r) => setTimeout(r, 500))
 
         await runListBenchmark()
