@@ -1171,9 +1171,346 @@ object Matchless {
         Always(SetMut(l, e), r)
       }
 
-    def matchExpr(
-        arg: Expr[B],
-        tmp: F[Long],
+    // A row in the pattern matrix: patterns for each occurrence,
+    // a right-hand side, and the bindings accumulated so far.
+    // pats may be empty after all columns are specialized away; in that
+    // case the row is a total match for the remaining occurrences.
+    case class MatchRow(
+        pats: List[Pattern[(PackageName, Constructor), Type]],
+        rhs: Expr[B],
+        binds: List[(Bindable, Expr[B])]
+    ) {
+      // Replace exactly one column's pattern with a new list of patterns.
+      // We always patch with count == 1 because each column represents a
+      // single occurrence; specialization removes or expands that one column.
+      def patchPats(
+          colIdx: Int,
+          pats1: List[Pattern[(PackageName, Constructor), Type]]
+      ): MatchRow =
+        copy(pats = pats.patch(colIdx, pats1, 1))
+    }
+
+    // Head signatures represent refutable "shapes" we can branch on.
+    // These correspond to Maranget's constructor/literal head cases.
+    // See: https://compiler.club/compiling-pattern-matching/
+    enum HeadSig derives CanEqual {
+      case EnumSig(
+          ctor: (PackageName, Constructor),
+          variant: Int,
+          arity: Int,
+          famArities: List[Int]
+      )
+      case StructSig(ctor: (PackageName, Constructor), arity: Int)
+          extends HeadSig
+      case ZeroSig extends HeadSig
+      case SuccSig extends HeadSig
+      case LitSig(lit: Lit)
+    }
+    import HeadSig.*
+
+    // Normalize patterns to shrink the grammar into cases the matrix
+    // algorithm handles (e.g., collapse simple string/list patterns, remove Annotation).
+    def normalizePattern(
+        p: Pattern[(PackageName, Constructor), Type]
+    ): Pattern[(PackageName, Constructor), Type] =
+      p match {
+        case Pattern.Annotation(p1, _) => normalizePattern(p1)
+        case Pattern.Named(v, p1) =>
+          Pattern.Named(v, normalizePattern(p1))
+        case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) => p
+        case Pattern.PositionalStruct(n, ps) =>
+          Pattern.PositionalStruct(n, ps.map(normalizePattern))
+        case Pattern.Union(h, t) =>
+          Pattern.Union(normalizePattern(h), t.map(normalizePattern))
+        case sp @ Pattern.StrPat(_) =>
+          sp.simplify match {
+            case Some(p1) => normalizePattern(p1)
+            case None     => sp
+          }
+        case lp @ Pattern.ListPat(_) =>
+          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+            case Right(p1) => normalizePattern(p1)
+            case Left(_)   =>
+              val parts = lp.parts.map {
+                case Pattern.ListPart.Item(p1) =>
+                  Pattern.ListPart.Item(normalizePattern(p1))
+                case g => g
+              }
+              Pattern.ListPat(parts)
+          }
+      }
+    
+    // Non-orthogonal patterns (string globs, non-trailing list globs) have
+    // backtracking/search semantics and are not handled by the matrix compiler.
+    def isNonOrthogonal(
+        p: Pattern[(PackageName, Constructor), Type]
+    ): Boolean =
+      p match {
+        case Pattern.Annotation(p1, _) => isNonOrthogonal(p1)
+        case Pattern.Named(_, p1)      => isNonOrthogonal(p1)
+        case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
+          false
+        case sp @ Pattern.StrPat(_) => sp.simplify.isEmpty
+        case lp @ Pattern.ListPat(_) =>
+          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+            case Right(p1) => isNonOrthogonal(p1)
+            case Left(_)   => true
+          }
+        case Pattern.PositionalStruct(_, ps) =>
+          ps.exists(isNonOrthogonal)
+        case Pattern.Union(h, t) =>
+          isNonOrthogonal(h) || t.exists(isNonOrthogonal)
+      }
+
+    // Pull off aliases and bindings that capture the whole occurrence.
+    // This keeps the matrix focused on refutable structure.
+    // Return patterns are normalized and never Named/Var/Annotation.
+    // For matrix compilation, the remaining cases are:
+    // WildCard, Literal, PositionalStruct, or Union.
+    def peelPattern(
+        p: Pattern[(PackageName, Constructor), Type],
+        occ: CheapExpr[B]
+    ): (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type]) =
+      p match {
+        case Pattern.Named(v, inner) =>
+          val (bs, core) = peelPattern(inner, occ)
+          ((v, occ) :: bs, core)
+        case Pattern.Var(v) =>
+          ((v, occ) :: Nil, Pattern.WildCard)
+        case Pattern.Annotation(inner, _) =>
+          peelPattern(inner, occ)
+        case Pattern.WildCard | Pattern.Literal(_) |
+            Pattern.PositionalStruct(_, _) | Pattern.Union(_, _) =>
+          (Nil, p)
+        case Pattern.StrPat(_) | Pattern.ListPat(_) =>
+          // normalizePattern converts orthogonal list/string patterns into
+          // PositionalStruct/Literal/WildCard, and isNonOrthogonal filters out
+          // the remaining list/string search patterns before matrix compilation.
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"unexpected non-orthogonal pattern in peelPattern: $p"
+          )
+        // $COVERAGE-ON$
+      }
+
+    // Expand all top-level unions in the row's pattern vector.
+    // returns at liast as many rows as it takes in
+    def expandRows(rows: List[MatchRow]): List[MatchRow] = {
+      def expandPats(
+          pats: List[Pattern[(PackageName, Constructor), Type]]
+      ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
+        pats match {
+          case Nil => NonEmptyList(Nil, Nil)
+          case p :: tail =>
+            for {
+              p1 <- Pattern.flatten(p)
+              rest <- expandPats(tail)
+            } yield p1 :: rest
+        }
+
+      rows.flatMap { row =>
+        expandPats(row.pats).toList.map(ps => row.copy(pats = ps))
+      }
+    }
+
+    // Normalize a row by collapsing aliases into bindings and simplifying
+    // patterns, without changing the left-to-right match semantics.
+    // Invariant: row.pats.length == occs.length.
+    def normalizeRow(
+        row: MatchRow,
+        occs: List[CheapExpr[B]]
+    ): MatchRow = {
+      val (bindsRev, patsRev) =
+        row.pats.iterator
+          .zip(occs.iterator)
+          .foldLeft((row.binds.reverse, List.empty[Pattern[(PackageName, Constructor), Type]])) {
+            case ((bs, acc), (pat, occ)) =>
+              val p1 = normalizePattern(pat)
+              val (moreBinds, core) = peelPattern(p1, occ)
+              // we prepend in reverse order so this isn't quadratic
+              // otherwise prepending the bs accumulator would be quadratic
+              (moreBinds.reverse ::: bs, core :: acc)
+          }
+
+      row.copy(pats = patsRev.reverse, binds = bindsRev.reverse)
+    }
+
+    // Drop columns that are all wildcards to keep the matrix small.
+    // Invariant: every row has the same arity as occs, and that arity is
+    // preserved in the returned rows/occs.
+    def dropWildColumns(
+        rows: List[MatchRow],
+        occs: List[CheapExpr[B]]
+    ): (List[MatchRow], List[CheapExpr[B]]) = {
+      val keepIdxs = occs.indices.filter { idx =>
+        rows.exists(r => r.pats(idx) != Pattern.WildCard)
+      }.toList
+
+      if (keepIdxs.length == occs.length) (rows, occs)
+      else {
+        val newRows = rows.map { r =>
+          val ps = keepIdxs.map(r.pats(_))
+          r.copy(pats = ps)
+        }
+        val newOccs = keepIdxs.map(occs(_))
+        (newRows, newOccs)
+      }
+    }
+
+    // Compute the head signature for a refutable pattern in a column.
+    def headSig(
+        pat: Pattern[(PackageName, Constructor), Type]
+    ): Option[HeadSig] =
+      pat match {
+        case Pattern.WildCard => None
+        case Pattern.Literal(lit) =>
+          Some(LitSig(lit))
+        case Pattern.PositionalStruct((pack, cname), params) =>
+          variantOf(pack, cname) match {
+            case Some(DataRepr.Enum(v, s, f)) =>
+              Some(EnumSig((pack, cname), v, s, f))
+            case Some(DataRepr.Struct(s)) =>
+              Some(StructSig((pack, cname), s))
+            case Some(DataRepr.NewType) =>
+              Some(StructSig((pack, cname), 1))
+            case Some(DataRepr.ZeroNat) =>
+              if (params.isEmpty) Some(ZeroSig)
+              else {
+                // $COVERAGE-OFF$
+                throw new IllegalStateException(
+                  s"ZeroNat should have 0 params, found: $params"
+                )
+                // $COVERAGE-ON$
+              }
+            case Some(DataRepr.SuccNat) =>
+              if (params.length == 1) Some(SuccSig)
+              else {
+                // $COVERAGE-OFF$
+                throw new IllegalStateException(
+                  s"SuccNat should have 1 param, found: $params"
+                )
+                // $COVERAGE-ON$
+              }
+            case None =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"could not find $cname in global data types"
+              )
+            // $COVERAGE-ON$
+          }
+        case Pattern.Annotation(_, _) | Pattern.Var(_) | Pattern.Named(_, _) |
+            Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
+          // headSig is only called on rows that have been normalized
+          // (normalizeRow + peelPattern), had unions flattened
+          // (expandRows), and are known to be orthogonal
+          // (isNonOrthogonal == false). These cases should be eliminated
+          // before headSig, so reaching them is an invariant violation.
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"unexpected pattern in headSig: $pat"
+          )
+        // $COVERAGE-ON$
+      }
+
+    // Stable de-duplication to keep constructor cases in source order.
+    def distinctInOrder[A](as: List[A]): List[A] = {
+      val seen = scala.collection.mutable.HashSet.empty[A]
+      val bldr = scala.collection.mutable.ListBuffer.empty[A]
+      as.foreach { a =>
+        if (!seen(a)) {
+          seen.add(a)
+          bldr.append(a)
+        }
+      }
+      bldr.toList
+    }
+
+    // Specialize the matrix for a given head signature (constructor/literal),
+    // producing the submatrix for that case.
+    // Invariant: colIdx is in-bounds and each row has the same arity.
+    // returns a list of rows such that result.length <= rows.length 
+    def specializeRows(
+        sig: HeadSig,
+        rows: List[MatchRow],
+        colIdx: Int,
+        arity: Int
+    ): List[MatchRow] = {
+      lazy val wilds: List[Pattern[(PackageName, Constructor), Type]] =
+        List.fill(arity)(Pattern.WildCard)
+
+      rows.mapFilter { row =>
+        val pat = row.pats(colIdx)
+
+        pat match {
+          case Pattern.WildCard => Some(row.patchPats(colIdx, wilds))
+          case Pattern.Literal(lit) =>
+            sig match {
+              case LitSig(l) if l === lit =>
+                Some(row.patchPats(colIdx, Nil))
+              case _ => None
+            }
+          case Pattern.PositionalStruct((pack, cname), params) =>
+            variantOf(pack, cname) match {
+              case Some(DataRepr.Enum(v, s, f)) =>
+                sig match {
+                  case EnumSig(_, v1, s1, f1)
+                      if (v == v1) && (s == s1) && (f == f1) =>
+                    Some(row.patchPats(colIdx, params))
+                  case _ => None
+                }
+              case Some(DataRepr.Struct(s)) =>
+                sig match {
+                  case StructSig(_, s1) if s == s1 =>
+                    Some(row.patchPats(colIdx, params))
+                  case _ => None
+                }
+              case Some(DataRepr.NewType) =>
+                sig match {
+                  case StructSig(_, s1) if s1 == 1 =>
+                    Some(row.patchPats(colIdx, params))
+                  case _ => None
+                }
+              case Some(DataRepr.ZeroNat) =>
+                sig match {
+                  case ZeroSig if params.isEmpty =>
+                    Some(row.patchPats(colIdx, Nil))
+                  case _ => None
+                }
+              case Some(DataRepr.SuccNat) =>
+                sig match {
+                  case SuccSig if params.length == 1 =>
+                    Some(row.patchPats(colIdx, params))
+                  case _ => None
+                }
+              // $COVERAGE-OFF$
+              case None =>
+                throw new IllegalStateException(
+                  s"could not find $cname in global data types"
+                )
+              // $COVERAGE-ON$
+            }
+          // $COVERAGE-OFF$
+          case Pattern.Var(_) | Pattern.Named(_, _) | Pattern.Annotation(_, _) |
+              Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
+            // These cases are eliminated before specialization:
+            // - normalizeRow peels Var/Named/Annotation into bindings/wildcards.
+            // - normalizePattern strips Annotation and converts list/string
+            //   patterns where possible.
+            // - expandRows flattens Union into separate rows.
+            // - isNonOrthogonal excludes list/string search patterns.
+            // Hitting this means the matrix invariants were violated.
+            throw new IllegalStateException(
+              s"unexpected pattern in specializeRows: pat=$pat, sig=$sig, col=$colIdx, arity=$arity"
+            )
+          // $COVERAGE-ON$
+        }
+      }
+    }
+
+    // Legacy ordered compiler: compile each pattern into a BoolExpr and chain
+    // Ifs. This preserves the semantics of non-orthogonal patterns.
+    def matchExprOrderedCheap(
+        arg: CheapExpr[B],
         branches: NonEmptyList[
           (Pattern[(PackageName, Constructor), Type], Expr[B])
         ]
@@ -1184,7 +1521,10 @@ object Matchless {
             (Pattern[(PackageName, Constructor), Type], Expr[B])
           ]
       ): F[Expr[B]] = {
-        val (p1, r1) = branches.head
+        val (p1Raw, r1) = branches.head
+        // Normalize to simplify list/string patterns while preserving
+        // ordered semantics for non-orthogonal matches.
+        val p1 = normalizePattern(p1Raw)
 
         def loop(
             cbs: NonEmptyList[
@@ -1223,7 +1563,198 @@ object Matchless {
         doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
       }
 
-      val argFn = maybeMemo(tmp)(recur(_, branches))
+      recur(arg, branches)
+    }
+
+    // Compile matches with the Maranget pattern-matrix algorithm:
+    // 1) Represent branches as a matrix of patterns (rows) over occurrences.
+    // 2) Pick a column, branch on its head constructors/literals.
+    // 3) Specialize the matrix per case, and recurse; default to wildcards.
+    // This yields a shared decision tree without adding new Matchless nodes.
+    //
+    // Efficiency notes: compared to the ordered chain, the matrix compiler
+    // shares tests across branches and avoids re-checking the scrutinee, which
+    // tends to reduce redundant work for larger matches. This approach is the
+    // standard state-of-the-art in ML-family compilers, but it is not
+    // globally optimal: finding the minimal decision tree is hard, and the
+    // quality depends on the column-selection heuristic (we use leftmost).
+    // See: https://compiler.club/compiling-pattern-matching/
+    def matchExprMatrixCheap(
+        arg: CheapExpr[B],
+        branches: NonEmptyList[
+          (Pattern[(PackageName, Constructor), Type], Expr[B])
+        ]
+    ): F[Expr[B]] = {
+      val rows0 = branches.toList.map { case (p, e) =>
+        MatchRow(p :: Nil, e, Nil)
+      }
+
+      // Compile a pattern matrix into Matchless Expr by building a decision tree.
+      // rowsIn: matrix rows (each row has a pattern per column + rhs + binds)
+      // occsIn: occurrences for each column (the scrutinee/projection expression)
+      // Invariants: every row has the same arity, and
+      // rowsIn.forall(r => r.pats.length == occsIn.length).
+      // Also, rowsIn order matches source branch order (left-to-right).
+      def compileRows(
+          rowsIn: List[MatchRow],
+          occsIn: List[CheapExpr[B]]
+      ): F[Expr[B]] = {
+        val norm = rowsIn.map(normalizeRow(_, occsIn))
+        val expanded = expandRows(norm)
+        val (rows, occs) = dropWildColumns(expanded, occsIn)
+
+        rows match {
+          case MatchRow(p0, r0, b0) :: _ if p0.forall(_ == Pattern.WildCard) =>
+            Monad[F].pure(lets(b0, r0))
+          case Nil =>
+            // this should be impossible in well-typed code
+            Monad[F].pure(UnitExpr)
+          case _ =>
+            // Column selection: preserve left-to-right behavior by defaulting
+            // to the leftmost column. (Heuristics can be added later.)
+            val colIdx = 0
+
+            val occ = occs(colIdx)
+
+            val sigs = distinctInOrder(
+              rows.mapFilter(r => headSig(r.pats(colIdx)))
+            )
+
+            val defaultRows =
+              rows
+                .mapFilter(r =>
+                  if r.pats(colIdx) == Pattern.WildCard then
+                    Some(r.patchPats(colIdx, Nil))
+                  else None
+                )
+
+            val defaultOccs = occs.patch(colIdx, Nil, 1)
+
+            // Build the Matchless condition + specialized submatrix for one case.
+            def buildCase(
+                sig: HeadSig
+            ): F[
+              (
+                  BoolExpr[B],
+                  List[LocalAnonMut],
+                  List[MatchRow],
+                  List[CheapExpr[B]]
+              )
+            ] =
+              sig match {
+                case EnumSig(_, v, s, f) =>
+                  val newRows = specializeRows(sig, rows, colIdx, s)
+                  val fields =
+                    (0 until s).toList.map(i =>
+                      GetEnumElement(occ, v, i, s)
+                    )
+                  val newOccs = occs.patch(colIdx, fields, 1)
+                  Monad[F].pure(
+                    (
+                      CheckVariant(occ, v, s, f),
+                      Nil,
+                      newRows,
+                      newOccs
+                    )
+                  )
+                case StructSig(_, s) =>
+                  val newRows = specializeRows(sig, rows, colIdx, s)
+                  val fields =
+                    (0 until s).iterator.map(i =>
+                      GetStructElement(occ, i, s)
+                    ).toList
+                  val newOccs = occs.patch(colIdx, fields, 1)
+                  Monad[F].pure((TrueConst, Nil, newRows, newOccs))
+                case LitSig(lit) =>
+                  val newRows = specializeRows(sig, rows, colIdx, 0)
+                  val newOccs = occs.patch(colIdx, Nil, 1)
+                  Monad[F].pure((EqualsLit(occ, lit), Nil, newRows, newOccs))
+                case ZeroSig =>
+                  val newRows = specializeRows(sig, rows, colIdx, 0)
+                  val newOccs = occs.patch(colIdx, Nil, 1)
+                  Monad[F].pure(
+                    (EqualsNat(occ, DataRepr.ZeroNat), Nil, newRows, newOccs)
+                  )
+                case SuccSig =>
+                  makeAnon.map { nm =>
+                    val mut = LocalAnonMut(nm)
+                    val cond =
+                      EqualsNat(occ, DataRepr.SuccNat) && SetMut(
+                        mut,
+                        PrevNat(occ)
+                      )
+                    val newRows = specializeRows(sig, rows, colIdx, 1)
+                    val newOccs = occs.patch(colIdx, mut :: Nil, 1)
+                    (cond, mut :: Nil, newRows, newOccs)
+                  }
+              }
+
+            // Compile cases in order, with a default branch for wildcards.
+            def compileCases(sigs: List[HeadSig]): F[Expr[B]] =
+              sigs match {
+                case Nil =>
+                  if (defaultRows.nonEmpty) compileRows(defaultRows, defaultOccs)
+                  else Monad[F].pure(UnitExpr)
+                case sig :: rest =>
+                  buildCase(sig).flatMap {
+                    case (cond, preLets, newRows, newOccs) =>
+                      if (newRows.isEmpty) compileCases(rest)
+                      else {
+                        compileRows(newRows, newOccs).flatMap { thenExpr =>
+                          val hasElse =
+                            rest.nonEmpty || defaultRows.nonEmpty
+
+                          val branchF: F[Expr[B]] =
+                            if (!hasElse) Monad[F].pure(always(cond, thenExpr))
+                            else
+                              compileCases(rest).map { elseExpr =>
+                                If(cond, thenExpr, elseExpr)
+                              }
+
+                          branchF.map(letMutAll(preLets, _))
+                        }
+                      }
+                  }
+              }
+
+            compileCases(sigs)
+        }
+      }
+
+      compileRows(rows0, arg :: Nil)
+    }
+
+    // Use the matrix compiler for an orthogonal prefix and fall back to the
+    // ordered compiler for a non-orthogonal suffix (string/list search
+    // semantics). A small threshold avoids overhead on tiny matches.
+    def matchExpr(
+        arg: Expr[B],
+        tmp: F[Long],
+        branches: NonEmptyList[
+          (Pattern[(PackageName, Constructor), Type], Expr[B])
+        ]
+    ): F[Expr[B]] = {
+      val (orthoPrefix, nonOrthoSuffix) =
+        branches.toList.span { case (p, _) => !isNonOrthogonal(p) }
+      // Heuristic: only pay the matrix setup cost if we can prune a few
+      // orthogonal cases before falling back.
+      val orthoThreshold = 4
+
+      val argFn = maybeMemo(tmp) { (arg: CheapExpr[B]) =>
+        nonOrthoSuffix match {
+          case Nil =>
+            matchExprMatrixCheap(arg, branches)
+          case _ if orthoPrefix.length >= orthoThreshold =>
+            val suffixNel = NonEmptyList.fromListUnsafe(nonOrthoSuffix)
+            matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
+              val combined = orthoPrefix :+ (Pattern.WildCard, fallbackExpr)
+              val combinedNel = NonEmptyList.fromListUnsafe(combined)
+              matchExprMatrixCheap(arg, combinedNel)
+            }
+          case _ =>
+            matchExprOrderedCheap(arg, branches)
+        }
+      }
 
       argFn(arg)
     }

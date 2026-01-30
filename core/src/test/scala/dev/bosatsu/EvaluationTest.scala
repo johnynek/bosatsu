@@ -573,6 +573,21 @@ test = TestSuite("exists", [
       "Foo",
       5
     )
+
+    evalTest(
+      List("""
+package Foo
+
+def hasTwo(as):
+  as matches [*_, 2, *_]
+
+main = match (hasTwo([1, 2, 3]), hasTwo([1, 3])):
+  case (True, False): 1
+  case _: 0
+"""),
+      "Foo",
+      VInt(1)
+    )
   }
 
   test("test generics in defs") {
