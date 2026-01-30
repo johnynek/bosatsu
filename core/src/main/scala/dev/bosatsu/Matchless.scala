@@ -1231,27 +1231,23 @@ object Matchless {
     // backtracking/search semantics and are not handled by the matrix compiler.
     def isNonOrthogonal(
         p: Pattern[(PackageName, Constructor), Type]
-    ): Boolean = {
-      def loop(pat: Pattern[(PackageName, Constructor), Type]): Boolean =
-        pat match {
-          case Pattern.Annotation(p1, _) => loop(p1)
-          case Pattern.Named(_, p1)      => loop(p1)
-          case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
-            false
+    ): Boolean =
+      p match {
+        case Pattern.Annotation(p1, _) => isNonOrthogonal(p1)
+        case Pattern.Named(_, p1)      => isNonOrthogonal(p1)
+        case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
+          false
         case sp @ Pattern.StrPat(_) => sp.simplify.isEmpty
-          case lp @ Pattern.ListPat(_) =>
-            Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
-              case Right(p1) => loop(p1)
-              case Left(_)   => true
-            }
-          case Pattern.PositionalStruct(_, ps) =>
-            ps.exists(loop)
-          case Pattern.Union(h, t) =>
-            loop(h) || t.exists(loop)
-        }
-
-      loop(p)
-    }
+        case lp @ Pattern.ListPat(_) =>
+          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+            case Right(p1) => isNonOrthogonal(p1)
+            case Left(_)   => true
+          }
+        case Pattern.PositionalStruct(_, ps) =>
+          ps.exists(isNonOrthogonal)
+        case Pattern.Union(h, t) =>
+          isNonOrthogonal(h) || t.exists(isNonOrthogonal)
+      }
 
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
@@ -1271,15 +1267,6 @@ object Matchless {
           (Nil, p)
       }
 
-    // Expand top-level unions into multiple rows, preserving branch order.
-    def expandTopUnion(
-        p: Pattern[(PackageName, Constructor), Type]
-    ): List[Pattern[(PackageName, Constructor), Type]] =
-      p match {
-        case Pattern.Union(_, _) => Pattern.flatten(p).toList
-        case _                   => p :: Nil
-      }
-
     // Expand all top-level unions in the row's pattern vector.
     def expandRows(rows: List[MatchRow]): List[MatchRow] = {
       def expandPats(
@@ -1288,7 +1275,7 @@ object Matchless {
         pats match {
           case Nil => Nil :: Nil
           case p :: tail =>
-            val ps = expandTopUnion(p)
+            val ps = Pattern.flatten(p).toList
             for {
               p1 <- ps
               rest <- expandPats(tail)
@@ -1302,6 +1289,7 @@ object Matchless {
 
     // Normalize a row by collapsing aliases into bindings and simplifying
     // patterns, without changing the left-to-right match semantics.
+    // Invariant: row.pats.length == occs.length.
     def normalizeRow(
         row: MatchRow,
         occs: List[CheapExpr[B]]
@@ -1320,6 +1308,8 @@ object Matchless {
     }
 
     // Drop columns that are all wildcards to keep the matrix small.
+    // Invariant: every row has the same arity as occs, and that arity is
+    // preserved in the returned rows/occs.
     def dropWildColumns(
         rows: List[MatchRow],
         occs: List[CheapExpr[B]]
@@ -1399,6 +1389,7 @@ object Matchless {
 
     // Specialize the matrix for a given head signature (constructor/literal),
     // producing the submatrix for that case.
+    // Invariant: colIdx is in-bounds and each row has the same arity.
     def specializeRows(
         sig: HeadSig,
         rows: List[MatchRow],
@@ -1475,9 +1466,8 @@ object Matchless {
 
     // Legacy ordered compiler: compile each pattern into a BoolExpr and chain
     // Ifs. This preserves the semantics of non-orthogonal patterns.
-    def matchExprOrdered(
-        arg: Expr[B],
-        tmp: F[Long],
+    def matchExprOrderedCheap(
+        arg: CheapExpr[B],
         branches: NonEmptyList[
           (Pattern[(PackageName, Constructor), Type], Expr[B])
         ]
@@ -1488,7 +1478,10 @@ object Matchless {
             (Pattern[(PackageName, Constructor), Type], Expr[B])
           ]
       ): F[Expr[B]] = {
-        val (p1, r1) = branches.head
+        val (p1Raw, r1) = branches.head
+        // Normalize to simplify list/string patterns while preserving
+        // ordered semantics for non-orthogonal matches.
+        val p1 = normalizePattern(p1Raw)
 
         def loop(
             cbs: NonEmptyList[
@@ -1527,8 +1520,17 @@ object Matchless {
         doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
       }
 
-      val argFn = maybeMemo(tmp)(recur(_, branches))
+      recur(arg, branches)
+    }
 
+    def matchExprOrdered(
+        arg: Expr[B],
+        tmp: F[Long],
+        branches: NonEmptyList[
+          (Pattern[(PackageName, Constructor), Type], Expr[B])
+        ]
+    ): F[Expr[B]] = {
+      val argFn = maybeMemo(tmp)(matchExprOrderedCheap(_, branches))
       argFn(arg)
     }
 
@@ -1537,10 +1539,16 @@ object Matchless {
     // 2) Pick a column, branch on its head constructors/literals.
     // 3) Specialize the matrix per case, and recurse; default to wildcards.
     // This yields a shared decision tree without adding new Matchless nodes.
+    //
+    // Efficiency notes: compared to the ordered chain, the matrix compiler
+    // shares tests across branches and avoids re-checking the scrutinee, which
+    // tends to reduce redundant work for larger matches. This approach is the
+    // standard state-of-the-art in ML-family compilers, but it is not
+    // globally optimal: finding the minimal decision tree is hard, and the
+    // quality depends on the column-selection heuristic (we use leftmost).
     // See: https://compiler.club/compiling-pattern-matching/
-    def matchExprMatrix(
-        arg: Expr[B],
-        tmp: F[Long],
+    def matchExprMatrixCheap(
+        arg: CheapExpr[B],
         branches: NonEmptyList[
           (Pattern[(PackageName, Constructor), Type], Expr[B])
         ]
@@ -1550,6 +1558,11 @@ object Matchless {
       }
 
       // Compile a pattern matrix into Matchless Expr by building a decision tree.
+      // rowsIn: matrix rows (each row has a pattern per column + rhs + binds)
+      // occsIn: occurrences for each column (the scrutinee/projection expression)
+      // Invariants: every row has the same arity, and
+      // rowsIn.forall(r => r.pats.length == occsIn.length).
+      // Also, rowsIn order matches source branch order (left-to-right).
       def compileRows(
           rowsIn: List[MatchRow],
           occsIn: List[CheapExpr[B]]
@@ -1674,26 +1687,55 @@ object Matchless {
         }
       }
 
-      val argFn = maybeMemo(tmp) { (arg: CheapExpr[B]) =>
-        compileRows(rows0, arg :: Nil)
-      }
+      compileRows(rows0, arg :: Nil)
+    }
 
+    def matchExprMatrix(
+        arg: Expr[B],
+        tmp: F[Long],
+        branches: NonEmptyList[
+          (Pattern[(PackageName, Constructor), Type], Expr[B])
+        ]
+    ): F[Expr[B]] = {
+      val argFn = maybeMemo(tmp)(matchExprMatrixCheap(_, branches))
       argFn(arg)
     }
 
-    // Use the matrix compiler for orthogonal patterns; fall back for
-    // non-orthogonal patterns (string/list search semantics).
+    // Use the matrix compiler for an orthogonal prefix and fall back to the
+    // ordered compiler for a non-orthogonal suffix (string/list search
+    // semantics). A small threshold avoids overhead on tiny matches.
     def matchExpr(
         arg: Expr[B],
         tmp: F[Long],
         branches: NonEmptyList[
           (Pattern[(PackageName, Constructor), Type], Expr[B])
         ]
-    ): F[Expr[B]] =
-      if (branches.exists { case (p, _) => isNonOrthogonal(p) })
-        matchExprOrdered(arg, tmp, branches)
-      else
-        matchExprMatrix(arg, tmp, branches)
+    ): F[Expr[B]] = {
+      val branchList = branches.toList
+      val (orthoPrefix, nonOrthoSuffix) =
+        branchList.span { case (p, _) => !isNonOrthogonal(p) }
+      // Heuristic: only pay the matrix setup cost if we can prune a few
+      // orthogonal cases before falling back.
+      val orthoThreshold = 4
+
+      val argFn = maybeMemo(tmp) { (arg: CheapExpr[B]) =>
+        nonOrthoSuffix match {
+          case Nil =>
+            matchExprMatrixCheap(arg, branches)
+          case _ if orthoPrefix.length >= orthoThreshold =>
+            val suffixNel = NonEmptyList.fromListUnsafe(nonOrthoSuffix)
+            matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
+              val combined = orthoPrefix :+ (Pattern.WildCard, fallbackExpr)
+              val combinedNel = NonEmptyList.fromListUnsafe(combined)
+              matchExprMatrixCheap(arg, combinedNel)
+            }
+          case _ =>
+            matchExprOrderedCheap(arg, branches)
+        }
+      }
+
+      argFn(arg)
+    }
 
     loopLetVal(name, te, rec, LambdaState(None, Map.empty))
   }
