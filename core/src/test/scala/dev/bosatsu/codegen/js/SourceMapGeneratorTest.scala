@@ -133,6 +133,50 @@ class SourceMapGeneratorTest extends munit.FunSuite {
     assertEquals(map.sourcesContent, Some(List("x = 1\n")))
   }
 
+  test("SourceMap.toJSON includes sourcesContent with escaping") {
+    val map = SourceMap(
+      file = "output.js",
+      sources = List("input.bosatsu"),
+      names = List(),
+      mappings = List(),
+      sourcesContent = Some(List("x = 1\ny = 2"))
+    )
+
+    val json = map.toJSON
+    // JSON format includes escaped newline
+    assert(json.contains(""""sourcesContent":["x = 1\ny = 2"]"""))
+  }
+
+  test("SourceMap.toJSON handles null in sourcesContent") {
+    val map = SourceMap(
+      file = "output.js",
+      sources = List("input.bosatsu", "missing.bosatsu"),
+      names = List(),
+      mappings = List(),
+      sourcesContent = Some(List("x = 1", null))
+    )
+
+    val json = map.toJSON
+    assert(json.contains(""""sourcesContent":["x = 1",null]"""))
+  }
+
+  test("SourceMap.toJSON escapes special characters in sourcesContent") {
+    val map = SourceMap(
+      file = "output.js",
+      sources = List("input.bosatsu"),
+      names = List(),
+      mappings = List(),
+      sourcesContent = Some(List("\"quoted\" and \\ backslash and \t tab and \r carriage"))
+    )
+
+    val json = map.toJSON
+    // Should have escaped quotes, backslashes, tabs, carriage returns
+    assert(json.contains("\\\"quoted\\\""))
+    assert(json.contains("\\\\"))
+    assert(json.contains("\\t"))
+    assert(json.contains("\\r"))
+  }
+
   test("empty mappings produce empty string") {
     val map = SourceMap(
       file = "output.js",
