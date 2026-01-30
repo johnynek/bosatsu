@@ -1,7 +1,6 @@
 package dev.bosatsu.ui
 
-import dev.bosatsu.codegen.js.{Code, JsGen}
-import dev.bosatsu.Identifier.Bindable
+import dev.bosatsu.codegen.js.JsGen
 
 /**
  * Generator for reactive UI HTML with direct DOM updates.
@@ -19,11 +18,15 @@ object UIGen {
 
   /**
    * Configuration for UI generation.
+   *
+   * @param title Page title
+   * @param theme Visual theme ("light" or "dark")
+   * @param includeSourceMap Reserved for future source map support (not yet implemented)
    */
   case class UIConfig(
       title: String,
       theme: String = "light",
-      includeSourceMap: Boolean = false
+      @scala.deprecated("Not yet implemented", "0.1") includeSourceMap: Boolean = false
   )
 
   /**

@@ -89,31 +89,34 @@ object SourceMapGenerator {
     mappings: List[Mapping]
   ) {
     /**
+     * Escape a string for JSON output.
+     */
+    private def escapeJson(s: String): String =
+      s.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+
+    /**
      * Generate the V3 source map JSON string.
      */
     def toJSON: String = {
       val mappingsStr = encodeMappings()
-      val sourcesJson = sources.map(s => s""""$s"""").mkString("[", ",", "]")
-      val namesJson = names.map(n => s""""$n"""").mkString("[", ",", "]")
-      val sourceRootJson = sourceRoot.map(sr => s""""sourceRoot":"$sr",""").getOrElse("")
+      val sourcesJson = sources.map(s => s""""${escapeJson(s)}"""").mkString("[", ",", "]")
+      val namesJson = names.map(n => s""""${escapeJson(n)}"""").mkString("[", ",", "]")
+      val sourceRootJson = sourceRoot.map(sr => s""""sourceRoot":"${escapeJson(sr)}",""").getOrElse("")
       val sourcesContentJson = sourcesContent.map { contents =>
         val escaped = contents.map { c =>
           if (c == null) "null"
-          else {
-            val escaped = c.replace("\\", "\\\\")
-              .replace("\"", "\\\"")
-              .replace("\n", "\\n")
-              .replace("\r", "\\r")
-              .replace("\t", "\\t")
-            s""""$escaped""""
-          }
+          else s""""${escapeJson(c)}""""
         }
         s""""sourcesContent":${escaped.mkString("[", ",", "]")},"""
       }.getOrElse("")
 
       s"""{
   "version": 3,
-  "file": "$file",
+  "file": "${escapeJson(file)}",
   $sourceRootJson$sourcesContentJson"sources": $sourcesJson,
   "names": $namesJson,
   "mappings": "$mappingsStr"
