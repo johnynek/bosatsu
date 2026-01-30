@@ -85,7 +85,28 @@ jobs:
         run: |
           sbt "++3.8.1; cli/assembly; cliJSJS/fullOptJS"
           cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
-          cp cliJS/.js/target/scala-3.8.1/compiler-cliJS-opt/main.js bosatsu_node.js
+          target_dir=""
+          for d in cliJS/.js/target/scala-*; do
+            if [ -d "$d" ]; then
+              target_dir="$d"
+              break
+            fi
+          done
+          if [ -z "$target_dir" ]; then
+            echo "Missing cliJS Scala.js target (run sbt \"cliJSJS/fullOptJS\")" >&2
+            exit 1
+          fi
+          for candidate in \
+            "$target_dir/compiler-clijs-opt.js" \
+            "$target_dir/compiler-clijs-opt/main.js"
+          do
+            if [ -f "$candidate" ]; then
+              cp "$candidate" bosatsu_node.js
+              exit 0
+            fi
+          done
+          echo "Compiled cliJS output not found in ${target_dir}" >&2
+          exit 1
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
