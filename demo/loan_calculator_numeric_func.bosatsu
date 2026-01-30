@@ -1,0 +1,53 @@
+package LoanCalculatorNumeric
+
+from Bosatsu/Numeric import (
+  Double,
+  `+.`, `-.`, `*.`, `/.`,
+  from_Int
+)
+
+# Loan Calculator Simulation using floating-point arithmetic
+#
+# Uses Double for precise decimal arithmetic (especially for interest rates).
+# The function parameters ARE the user inputs.
+# The return struct fields ARE the displayed outputs.
+
+# Output record type with Double for precise values
+struct LoanResult(
+  monthly_rate: Double,
+  num_payments: Double,
+  monthly_payment: Double,
+  total_paid: Double,
+  total_interest: Double,
+  interest_ratio: Double
+)
+
+def calculate(principal: Int, annual_rate: Int, years: Int) -> LoanResult:
+  # Convert inputs to Double for floating-point math
+  p = from_Int(principal)
+  rate = from_Int(annual_rate)
+  y = from_Int(years)
+
+  # Derived calculations using floating-point operators
+  # annual_rate is in basis points (e.g., 700 = 7.00%)
+  # monthly_rate = (rate / 100) / 12 = rate / 1200
+  monthly_rate = rate /. from_Int(1200)
+  num_payments = y *. from_Int(12)
+
+  # Simplified monthly payment approximation: P * r + P / n
+  # (Full formula would be: P * r * (1+r)^n / ((1+r)^n - 1))
+  monthly_payment = (p *. monthly_rate) +. (p /. num_payments)
+
+  # Total cost analysis
+  total_paid = monthly_payment *. num_payments
+  total_interest = total_paid -. p
+  interest_ratio = (total_interest *. from_Int(100)) /. p
+
+  LoanResult(
+    monthly_rate,
+    num_payments,
+    monthly_payment,
+    total_paid,
+    total_interest,
+    interest_ratio
+  )

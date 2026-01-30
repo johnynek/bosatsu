@@ -1,0 +1,48 @@
+package TaxDemoNumeric
+
+from Bosatsu/Numeric import (
+  Double,
+  `+.`, `-.`, `*.`, `/.`,
+  from_Int
+)
+
+# Tax Calculator - AI Debugging Demo (Numeric Version)
+#
+# Demonstrates Bosatsu's provenance tracking with precise calculations:
+# - "Why?" buttons show how each value is derived
+# - "What if?" toggles let you explore scenarios
+#
+# Uses Double for accurate percentage calculations.
+
+# Output record type with all computed values
+struct TaxResult(
+  taxable_income: Double,
+  tax_amount: Double,
+  net_income: Double,
+  effective_rate: Double
+)
+
+def calculate(tax_rate: Int, income: Int, deductions: Int) -> TaxResult:
+  # Convert inputs to Double
+  rate = from_Int(tax_rate)
+  inc = from_Int(income)
+  ded = from_Int(deductions)
+
+  # Taxable income = gross income minus deductions
+  taxable_income = inc -. ded
+
+  # Tax amount = taxable income * rate / 100
+  tax_amount = (taxable_income *. rate) /. from_Int(100)
+
+  # Net income = gross income minus tax
+  net_income = inc -. tax_amount
+
+  # Effective tax rate (what percent of gross income goes to tax)
+  effective_rate = (tax_amount *. from_Int(100)) /. inc
+
+  TaxResult(
+    taxable_income,
+    tax_amount,
+    net_income,
+    effective_rate
+  )

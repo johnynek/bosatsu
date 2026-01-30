@@ -1,0 +1,82 @@
+package CarbonFootprintNumeric
+
+from Bosatsu/Numeric import (
+  Double,
+  `+.`, `-.`, `*.`, `/.`,
+  from_Int
+)
+
+# Carbon Footprint Calculator using floating-point arithmetic
+#
+# Calculates annual CO2 emissions from transportation and home energy.
+# Uses Double for precise emission factor calculations.
+
+# Output record type with all computed emissions
+struct CarbonResult(
+  gallons_used: Double,
+  car_emissions: Double,
+  flight_total: Double,
+  transport_total: Double,
+  electricity_annual: Double,
+  electricity_emissions: Double,
+  gas_annual: Double,
+  gas_emissions: Double,
+  home_total: Double,
+  total_footprint: Double,
+  monthly_average: Double
+)
+
+def calculate(
+  car_miles: Int,
+  car_mpg: Int,
+  flights_per_year: Int,
+  electricity_kwh: Int,
+  natural_gas_therms: Int
+) -> CarbonResult:
+  # Convert inputs to Double
+  miles = from_Int(car_miles)
+  mpg = from_Int(car_mpg)
+  flights = from_Int(flights_per_year)
+  elec_kwh = from_Int(electricity_kwh)
+  gas_therms = from_Int(natural_gas_therms)
+
+  # Emission factors (lbs CO2 per unit)
+  # gas_emission_factor: 20 lbs CO2 per gallon of gas
+  # electricity_factor: 1 lbs CO2 per kWh (varies by region)
+  # gas_heat_factor: 12 lbs CO2 per therm of natural gas
+  # flight_emissions: 1100 lbs CO2 per round-trip flight
+  gas_emission_factor = from_Int(20)
+  electricity_factor = from_Int(1)
+  gas_heat_factor = from_Int(12)
+  flight_emissions = from_Int(1100)
+
+  # Transportation emissions
+  gallons_used = miles /. mpg
+  car_emissions = gallons_used *. gas_emission_factor
+  flight_total = flights *. flight_emissions
+  transport_total = car_emissions +. flight_total
+
+  # Home energy emissions (annual)
+  electricity_annual = elec_kwh *. from_Int(12)
+  electricity_emissions = electricity_annual *. electricity_factor
+  gas_annual = gas_therms *. from_Int(12)
+  gas_emissions = gas_annual *. gas_heat_factor
+  home_total = electricity_emissions +. gas_emissions
+
+  # Total footprint
+  total_footprint = transport_total +. home_total
+  monthly_average = total_footprint /. from_Int(12)
+
+  CarbonResult(
+    gallons_used,
+    car_emissions,
+    flight_total,
+    transport_total,
+    electricity_annual,
+    electricity_emissions,
+    gas_annual,
+    gas_emissions,
+    home_total,
+    total_footprint,
+    monthly_average
+  )
