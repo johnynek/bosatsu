@@ -1,0 +1,51 @@
+package LoanCalculatorNumeric/Config
+
+# Simulation Configuration for Loan Calculator (Numeric Version)
+#
+# This file describes the UI for the LoanCalculatorNumeric simulation.
+# Uses floating-point arithmetic for accurate interest rate calculations.
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+# The simulation configuration
+config = SimConfig(
+  "Loan Calculator",
+  "Calculate monthly payments and total interest for a loan using precise floating-point arithmetic",
+  "LoanCalculatorNumeric",
+  "calculate",
+  [
+    ("principal", InputConfig("Loan Principal ($)", 250000, 10000, 1000000, 10000, "slider")),
+    ("annual_rate", InputConfig("Interest Rate (basis points, 700 = 7%)", 700, 100, 2000, 25, "slider")),
+    ("years", InputConfig("Loan Term (years)", 30, 5, 40, 5, "slider"))
+  ],
+  [
+    ("monthly_rate", OutputConfig("Monthly Rate", "number", False)),
+    ("num_payments", OutputConfig("Number of Payments", "number", False)),
+    ("monthly_payment", OutputConfig("Monthly Payment", "currency", True)),
+    ("total_paid", OutputConfig("Total Paid", "currency", False)),
+    ("total_interest", OutputConfig("Total Interest", "currency", False)),
+    ("interest_ratio", OutputConfig("Interest Ratio", "percent", False))
+  ]
+)

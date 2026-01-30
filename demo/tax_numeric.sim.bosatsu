@@ -1,0 +1,49 @@
+package TaxDemoNumeric/Config
+
+# Simulation Configuration for Tax Calculator (Numeric Version)
+#
+# Demonstrates AI debugging with provenance tracking.
+# Uses floating-point arithmetic for accurate percentage calculations.
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+# The simulation configuration
+config = SimConfig(
+  "Tax Calculator",
+  "Calculate your tax and net income with AI-powered derivation tracking",
+  "TaxDemoNumeric",
+  "calculate",
+  [
+    ("tax_rate", InputConfig("Tax Rate (%)", 25, 0, 50, 1, "slider")),
+    ("income", InputConfig("Gross Income ($)", 100000, 10000, 500000, 5000, "slider")),
+    ("deductions", InputConfig("Deductions ($)", 15000, 0, 100000, 1000, "slider"))
+  ],
+  [
+    ("taxable_income", OutputConfig("Taxable Income", "currency", False)),
+    ("tax_amount", OutputConfig("Tax Amount", "currency", False)),
+    ("net_income", OutputConfig("Net Income", "currency", True)),
+    ("effective_rate", OutputConfig("Effective Rate", "percent", False))
+  ]
+)

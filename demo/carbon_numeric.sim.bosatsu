@@ -1,0 +1,57 @@
+package CarbonFootprintNumeric/Config
+
+# Simulation Configuration for Carbon Footprint Calculator (Numeric Version)
+#
+# Uses floating-point arithmetic for accurate emissions calculations.
+
+struct InputConfig(
+  label: String,
+  default_value: Int,
+  min_value: Int,
+  max_value: Int,
+  step: Int,
+  widget: String
+)
+
+struct OutputConfig(
+  label: String,
+  format: String,
+  primary: Bool
+)
+
+struct SimConfig(
+  name: String,
+  description: String,
+  package_name: String,
+  function_name: String,
+  inputs: List[(String, InputConfig)],
+  outputs: List[(String, OutputConfig)]
+)
+
+# The simulation configuration
+config = SimConfig(
+  "Carbon Footprint Calculator",
+  "Calculate your annual carbon footprint from transportation and home energy",
+  "CarbonFootprintNumeric",
+  "calculate",
+  [
+    ("car_miles", InputConfig("Annual car miles", 12000, 0, 50000, 1000, "slider")),
+    ("car_mpg", InputConfig("Car fuel efficiency (MPG)", 28, 10, 60, 2, "slider")),
+    ("flights_per_year", InputConfig("Round-trip flights per year", 4, 0, 20, 1, "slider")),
+    ("electricity_kwh", InputConfig("Monthly electricity (kWh)", 900, 100, 3000, 100, "slider")),
+    ("natural_gas_therms", InputConfig("Monthly natural gas (therms)", 50, 0, 200, 10, "slider"))
+  ],
+  [
+    ("gallons_used", OutputConfig("Gallons Used", "number", False)),
+    ("car_emissions", OutputConfig("Car Emissions (lbs)", "number", False)),
+    ("flight_total", OutputConfig("Flight Emissions (lbs)", "number", False)),
+    ("transport_total", OutputConfig("Transportation CO2 (lbs)", "number", False)),
+    ("electricity_annual", OutputConfig("Electricity Annual (kWh)", "number", False)),
+    ("electricity_emissions", OutputConfig("Electricity Emissions (lbs)", "number", False)),
+    ("gas_annual", OutputConfig("Gas Annual (therms)", "number", False)),
+    ("gas_emissions", OutputConfig("Gas Emissions (lbs)", "number", False)),
+    ("home_total", OutputConfig("Home Energy CO2 (lbs)", "number", False)),
+    ("total_footprint", OutputConfig("Annual CO2 (lbs)", "number", True)),
+    ("monthly_average", OutputConfig("Monthly CO2 (lbs)", "number", False))
+  ]
+)
