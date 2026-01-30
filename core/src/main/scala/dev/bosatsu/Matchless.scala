@@ -1177,7 +1177,16 @@ object Matchless {
         pats: List[Pattern[(PackageName, Constructor), Type]],
         rhs: Expr[B],
         binds: List[(Bindable, Expr[B])]
-    )
+    ) {
+      // Replace exactly one column's pattern with a new list of patterns.
+      // We always patch with count == 1 because each column represents a
+      // single occurrence; specialization removes or expands that one column.
+      def patchPats(
+          colIdx: Int,
+          pats1: List[Pattern[(PackageName, Constructor), Type]]
+      ): MatchRow =
+        copy(pats = pats.patch(colIdx, pats1, 1))
+    }
 
     // Head signatures represent refutable "shapes" we can branch on.
     // These correspond to Maranget's constructor/literal head cases.
@@ -1251,6 +1260,9 @@ object Matchless {
 
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
+    // Return patterns are normalized and never Named/Var/Annotation.
+    // For matrix compilation, the remaining cases are:
+    // WildCard, Literal, PositionalStruct, or Union.
     def peelPattern(
         p: Pattern[(PackageName, Constructor), Type],
         occ: CheapExpr[B]
@@ -1263,8 +1275,18 @@ object Matchless {
           ((v, occ) :: Nil, Pattern.WildCard)
         case Pattern.Annotation(inner, _) =>
           peelPattern(inner, occ)
-        case _ =>
+        case Pattern.WildCard | Pattern.Literal(_) |
+            Pattern.PositionalStruct(_, _) | Pattern.Union(_, _) =>
           (Nil, p)
+        case Pattern.StrPat(_) | Pattern.ListPat(_) =>
+          // normalizePattern converts orthogonal list/string patterns into
+          // PositionalStruct/Literal/WildCard, and isNonOrthogonal filters out
+          // the remaining list/string search patterns before matrix compilation.
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"unexpected non-orthogonal pattern in peelPattern: $p"
+          )
+        // $COVERAGE-ON$
       }
 
     // Expand all top-level unions in the row's pattern vector.
@@ -1295,8 +1317,8 @@ object Matchless {
         occs: List[CheapExpr[B]]
     ): MatchRow = {
       val (binds, patsRev) =
-        row.pats
-          .zip(occs)
+        row.pats.iterator
+          .zip(occs.iterator)
           .foldLeft((row.binds, List.empty[Pattern[(PackageName, Constructor), Type]])) {
             case ((bs, acc), (pat, occ)) =>
               val p1 = normalizePattern(pat)
@@ -1321,10 +1343,10 @@ object Matchless {
       if (keepIdxs.length == occs.length) (rows, occs)
       else {
         val newRows = rows.map { r =>
-          val ps = keepIdxs.map(r.pats(_)).toList
+          val ps = keepIdxs.map(r.pats(_))
           r.copy(pats = ps)
         }
-        val newOccs = keepIdxs.map(occs(_)).toList
+        val newOccs = keepIdxs.map(occs(_))
         (newRows, newOccs)
       }
     }
@@ -1370,8 +1392,18 @@ object Matchless {
               )
             // $COVERAGE-ON$
           }
-        case _ =>
-          None
+        case Pattern.Annotation(_, _) | Pattern.Var(_) | Pattern.Named(_, _) |
+            Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
+          // headSig is only called on rows that have been normalized
+          // (normalizeRow + peelPattern), had unions flattened
+          // (expandRows), and are known to be orthogonal
+          // (isNonOrthogonal == false). These cases should be eliminated
+          // before headSig, so reaching them is an invariant violation.
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"unexpected pattern in headSig: $pat"
+          )
+        // $COVERAGE-ON$
       }
 
     // Stable de-duplication to keep constructor cases in source order.
@@ -1396,21 +1428,19 @@ object Matchless {
         colIdx: Int,
         arity: Int
     ): List[MatchRow] = {
-      def wilds(n: Int): List[Pattern[(PackageName, Constructor), Type]] =
-        List.fill(n)(Pattern.WildCard)
+      val wilds: List[Pattern[(PackageName, Constructor), Type]] =
+        List.fill(arity)(Pattern.WildCard)
 
       rows.flatMap { row =>
         val pat = row.pats(colIdx)
 
         pat match {
           case Pattern.WildCard =>
-            val newPats = row.pats.patch(colIdx, wilds(arity), 1)
-            MatchRow(newPats, row.rhs, row.binds) :: Nil
+            row.patchPats(colIdx, wilds) :: Nil
           case Pattern.Literal(lit) =>
             sig match {
               case LitSig(l) if l === lit =>
-                val newPats = row.pats.patch(colIdx, Nil, 1)
-                MatchRow(newPats, row.rhs, row.binds) :: Nil
+                row.patchPats(colIdx, Nil) :: Nil
               case _ => Nil
             }
           case Pattern.PositionalStruct((pack, cname), params) =>
@@ -1419,36 +1449,31 @@ object Matchless {
                 sig match {
                   case EnumSig(_, v1, s1, f1)
                       if (v == v1) && (s == s1) && (f == f1) =>
-                    val newPats = row.pats.patch(colIdx, params, 1)
-                    MatchRow(newPats, row.rhs, row.binds) :: Nil
+                    row.patchPats(colIdx, params) :: Nil
                   case _ => Nil
                 }
               case Some(DataRepr.Struct(s)) =>
                 sig match {
                   case StructSig(_, s1) if s == s1 =>
-                    val newPats = row.pats.patch(colIdx, params, 1)
-                    MatchRow(newPats, row.rhs, row.binds) :: Nil
+                    row.patchPats(colIdx, params) :: Nil
                   case _ => Nil
                 }
               case Some(DataRepr.NewType) =>
                 sig match {
                   case StructSig(_, s1) if s1 == 1 =>
-                    val newPats = row.pats.patch(colIdx, params, 1)
-                    MatchRow(newPats, row.rhs, row.binds) :: Nil
+                    row.patchPats(colIdx, params) :: Nil
                   case _ => Nil
                 }
               case Some(DataRepr.ZeroNat) =>
                 sig match {
                   case ZeroSig if params.isEmpty =>
-                    val newPats = row.pats.patch(colIdx, Nil, 1)
-                    MatchRow(newPats, row.rhs, row.binds) :: Nil
+                    row.patchPats(colIdx, Nil) :: Nil
                   case _ => Nil
                 }
               case Some(DataRepr.SuccNat) =>
                 sig match {
                   case SuccSig if params.length == 1 =>
-                    val newPats = row.pats.patch(colIdx, params, 1)
-                    MatchRow(newPats, row.rhs, row.binds) :: Nil
+                    row.patchPats(colIdx, params) :: Nil
                   case _ => Nil
                 }
               case None =>
@@ -1458,8 +1483,20 @@ object Matchless {
                 )
               // $COVERAGE-ON$
             }
-          case _ =>
-            Nil
+          case Pattern.Var(_) | Pattern.Named(_, _) | Pattern.Annotation(_, _) |
+              Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
+            // These cases are eliminated before specialization:
+            // - normalizeRow peels Var/Named/Annotation into bindings/wildcards.
+            // - normalizePattern strips Annotation and converts list/string
+            //   patterns where possible.
+            // - expandRows flattens Union into separate rows.
+            // - isNonOrthogonal excludes list/string search patterns.
+            // Hitting this means the matrix invariants were violated.
+            // $COVERAGE-OFF$
+            throw new IllegalStateException(
+              s"unexpected pattern in specializeRows: pat=$pat, sig=$sig, col=$colIdx, arity=$arity"
+            )
+          // $COVERAGE-ON$
         }
       }
     }
@@ -1591,7 +1628,7 @@ object Matchless {
             val defaultRows =
               rows
                 .filter(r => r.pats(colIdx) == Pattern.WildCard)
-                .map(r => r.copy(pats = r.pats.patch(colIdx, Nil, 1)))
+                .map(r => r.patchPats(colIdx, Nil))
 
             val defaultOccs = occs.patch(colIdx, Nil, 1)
 
