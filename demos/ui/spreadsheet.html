@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BosatsuUI Spreadsheet Demo</title>
+  <!-- BosatsuUI Runtime -->
+  <script src="../../core/src/main/resources/bosatsu-ui-runtime.js"></script>
+  <style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.header .subtitle {
+  color: #666;
+  font-size: 14px;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.card h3 {
+  color: #667eea;
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+
+.spreadsheet {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.spreadsheet table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: monospace;
+}
+
+.spreadsheet th,
+.spreadsheet td {
+  border: 1px solid #eee;
+  padding: 0;
+  height: 36px;
+  min-width: 100px;
+}
+
+.spreadsheet th {
+  background: #f5f5f5;
+  font-weight: 600;
+  text-align: center;
+  color: #666;
+  font-size: 12px;
+}
+
+.spreadsheet th.row-header {
+  width: 40px;
+  min-width: 40px;
+}
+
+.spreadsheet td {
+  position: relative;
+}
+
+.spreadsheet input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  background: transparent;
+}
+
+.spreadsheet input:focus {
+  outline: 2px solid #667eea;
+  outline-offset: -2px;
+  background: #f8f9ff;
+}
+
+.spreadsheet .formula-cell {
+  background: #e8f5e9;
+}
+
+.spreadsheet .formula-cell input {
+  background: inherit;
+}
+
+.formula-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.formula-bar .cell-ref {
+  font-weight: bold;
+  color: #667eea;
+  min-width: 40px;
+}
+
+.formula-bar .formula-display {
+  flex: 1;
+  font-family: monospace;
+  color: #333;
+}
+
+.stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #888;
+}
+
+.stat-value {
+  font-weight: bold;
+  color: #667eea;
+  font-family: monospace;
+}
+
+.explainer {
+  background: #fff8e1;
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+.explainer h4 {
+  color: #f57c00;
+  margin-bottom: 8px;
+}
+
+.explainer p {
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.explainer code {
+  background: #ffe0b2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.legend-color.input { background: white; }
+.legend-color.formula { background: #e8f5e9; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Spreadsheet with Formulas Demo</h1>
+    <p class="subtitle">Mixed batching: batch user input, synchronous formula cascade</p>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="formula-bar">
+        <span class="cell-ref" id="active-cell">-</span>
+        <span class="formula-display" id="formula-display">Select a cell to see its formula</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-label">Updates:</span>
+          <span class="stat-value" id="update-count">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Recalculations:</span>
+          <span class="stat-value" id="recalc-count">0</span>
+        </div>
+      </div>
+
+      <div class="spreadsheet">
+        <table>
+          <thead>
+            <tr>
+              <th class="row-header"></th>
+              <th>A</th>
+              <th>B</th>
+              <th>C</th>
+              <th>D</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th class="row-header">1</th>
+              <td><input type="text" id="cell-A1" data-cell="A1" value="100" /></td>
+              <td><input type="text" id="cell-B1" data-cell="B1" value="200" /></td>
+              <td><input type="text" id="cell-C1" data-cell="C1" value="50" /></td>
+              <td class="formula-cell"><input type="text" id="cell-D1" data-cell="D1" data-formula="=A1+B1+C1" readonly /></td>
+            </tr>
+            <tr>
+              <th class="row-header">2</th>
+              <td><input type="text" id="cell-A2" data-cell="A2" value="150" /></td>
+              <td><input type="text" id="cell-B2" data-cell="B2" value="75" /></td>
+              <td><input type="text" id="cell-C2" data-cell="C2" value="25" /></td>
+              <td class="formula-cell"><input type="text" id="cell-D2" data-cell="D2" data-formula="=A2+B2+C2" readonly /></td>
+            </tr>
+            <tr>
+              <th class="row-header">3</th>
+              <td><input type="text" id="cell-A3" data-cell="A3" value="80" /></td>
+              <td><input type="text" id="cell-B3" data-cell="B3" value="120" /></td>
+              <td><input type="text" id="cell-C3" data-cell="C3" value="40" /></td>
+              <td class="formula-cell"><input type="text" id="cell-D3" data-cell="D3" data-formula="=A3+B3+C3" readonly /></td>
+            </tr>
+            <tr>
+              <th class="row-header">4</th>
+              <td class="formula-cell"><input type="text" id="cell-A4" data-cell="A4" data-formula="=SUM(A1:A3)" readonly /></td>
+              <td class="formula-cell"><input type="text" id="cell-B4" data-cell="B4" data-formula="=SUM(B1:B3)" readonly /></td>
+              <td class="formula-cell"><input type="text" id="cell-C4" data-cell="C4" data-formula="=SUM(C1:C3)" readonly /></td>
+              <td class="formula-cell"><input type="text" id="cell-D4" data-cell="D4" data-formula="=SUM(D1:D3)" readonly /></td>
+            </tr>
+            <tr>
+              <th class="row-header">5</th>
+              <td colspan="3" style="text-align: right; padding: 8px; font-weight: bold; background: #f5f5f5;">Grand Total:</td>
+              <td class="formula-cell"><input type="text" id="cell-D5" data-cell="D5" data-formula="=D4" readonly /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-color input"></div>
+          <span>Editable input</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color formula"></div>
+          <span>Formula cell (calculated)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card explainer">
+      <h4>Mixed Batching Strategy</h4>
+      <p>
+        This spreadsheet demonstrates <strong>mixed batching</strong>: user input changes are batched
+        normally, but formula recalculations use <code>flush()</code> between dependency levels to
+        ensure values cascade correctly.
+      </p>
+      <p>
+        <strong>Why this matters:</strong> When you change cell A1, the formula in D1 (=A1+B1+C1)
+        needs the new value before D4 (=SUM(D1:D3)) can recalculate, and D5 (=D4) needs D4's result.
+      </p>
+      <p>
+        <strong>Batching config:</strong> <code>batchSize: Infinity</code>, <code>flushDelay: 'microtask'</code>
+        (full batching), with manual <code>flush()</code> calls between formula dependency levels.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================================================
+    // Configuration
+    // ==========================================================================
+    BosatsuUI.configure({ batchSize: Infinity, flushDelay: 'microtask' });
+
+    // ==========================================================================
+    // Cell State & Bindings
+    // ==========================================================================
+    const cells = ['A1', 'B1', 'C1', 'D1', 'A2', 'B2', 'C2', 'D2', 'A3', 'B3', 'C3', 'D3', 'A4', 'B4', 'C4', 'D4', 'D5'];
+
+    const bindings = {};
+    const initialState = { cells: {} };
+
+    cells.forEach(cell => {
+      bindings[`cells.${cell}`] = [{
+        elementId: `cell-${cell}`,
+        property: 'value',
+        statePath: ['cells', cell]
+      }];
+      initialState.cells[cell] = '';
+    });
+
+    BosatsuUI._initRuntime(bindings, initialState);
+
+    // Cache elements
+    cells.forEach(cell => {
+      const el = document.getElementById(`cell-${cell}`);
+      BosatsuUI._elementCache.set(`[data-bosatsu-id="cell-${cell}"]`, el);
+      BosatsuUI._elementCache.set(`#cell-${cell}`, el);
+    });
+
+    // ==========================================================================
+    // Formula Engine
+    // ==========================================================================
+    const formulas = {};
+    const dependencies = {};
+
+    // Parse formula definitions from DOM
+    cells.forEach(cell => {
+      const el = document.getElementById(`cell-${cell}`);
+      const formula = el.dataset.formula;
+      if (formula) {
+        formulas[cell] = formula;
+        // Extract dependencies
+        dependencies[cell] = extractDependencies(formula);
+      }
+    });
+
+    function extractDependencies(formula) {
+      const deps = new Set();
+
+      // Match cell references like A1, B2, etc.
+      const cellPattern = /([A-Z])(\d+)/g;
+      let match;
+      while ((match = cellPattern.exec(formula)) !== null) {
+        deps.add(match[0]);
+      }
+
+      // Handle ranges like A1:A3
+      const rangePattern = /([A-Z])(\d+):([A-Z])(\d+)/g;
+      while ((match = rangePattern.exec(formula)) !== null) {
+        const startCol = match[1];
+        const startRow = parseInt(match[2]);
+        const endCol = match[3];
+        const endRow = parseInt(match[4]);
+
+        for (let row = startRow; row <= endRow; row++) {
+          for (let col = startCol.charCodeAt(0); col <= endCol.charCodeAt(0); col++) {
+            deps.add(String.fromCharCode(col) + row);
+          }
+        }
+      }
+
+      return Array.from(deps);
+    }
+
+    function evaluateFormula(formula, cellValues) {
+      // Remove leading =
+      let expr = formula.substring(1);
+
+      // Handle SUM function
+      expr = expr.replace(/SUM\(([A-Z])(\d+):([A-Z])(\d+)\)/g, (match, startCol, startRow, endCol, endRow) => {
+        let sum = 0;
+        for (let row = parseInt(startRow); row <= parseInt(endRow); row++) {
+          for (let col = startCol.charCodeAt(0); col <= endCol.charCodeAt(0); col++) {
+            const cellRef = String.fromCharCode(col) + row;
+            sum += parseFloat(cellValues[cellRef]) || 0;
+          }
+        }
+        return sum;
+      });
+
+      // Replace cell references with values
+      expr = expr.replace(/([A-Z])(\d+)/g, (match) => {
+        const val = parseFloat(cellValues[match]) || 0;
+        return val;
+      });
+
+      // Evaluate expression
+      try {
+        return eval(expr);
+      } catch (e) {
+        return '#ERROR';
+      }
+    }
+
+    // ==========================================================================
+    // Dependency Graph & Recalculation
+    // ==========================================================================
+    let updateCount = 0;
+    let recalcCount = 0;
+
+    // Get cells that depend on a given cell
+    function getDependents(cell) {
+      return Object.entries(dependencies)
+        .filter(([_, deps]) => deps.includes(cell))
+        .map(([cellId]) => cellId);
+    }
+
+    // Topologically sort cells for recalculation
+    function getRecalculationOrder(changedCells) {
+      const toProcess = new Set(changedCells);
+      const order = [];
+      const visited = new Set();
+
+      // BFS to find all affected cells
+      changedCells.forEach(cell => {
+        const queue = getDependents(cell);
+        while (queue.length > 0) {
+          const current = queue.shift();
+          if (!toProcess.has(current)) {
+            toProcess.add(current);
+            getDependents(current).forEach(d => {
+              if (!toProcess.has(d)) queue.push(d);
+            });
+          }
+        }
+      });
+
+      // Simple topological sort
+      function visit(cell) {
+        if (visited.has(cell)) return;
+        visited.add(cell);
+        (dependencies[cell] || []).forEach(dep => {
+          if (toProcess.has(dep)) visit(dep);
+        });
+        if (formulas[cell]) order.push(cell);
+      }
+
+      toProcess.forEach(cell => visit(cell));
+      return order;
+    }
+
+    function recalculateAll() {
+      const cellValues = {};
+
+      // Get all current values
+      cells.forEach(cell => {
+        const el = document.getElementById(`cell-${cell}`);
+        cellValues[cell] = el.value;
+      });
+
+      // Calculate in dependency order
+      const order = getRecalculationOrder(cells.filter(c => !formulas[c]));
+
+      order.forEach(cell => {
+        if (formulas[cell]) {
+          const result = evaluateFormula(formulas[cell], cellValues);
+          cellValues[cell] = result;
+          BosatsuUI.setState(['cells', cell], result);
+          recalcCount++;
+        }
+      });
+
+      // Flush after each "level" of formulas
+      BosatsuUI.flush();
+
+      document.getElementById('recalc-count').textContent = recalcCount;
+    }
+
+    // ==========================================================================
+    // Event Handlers
+    // ==========================================================================
+    function handleCellChange(e) {
+      const cell = e.target.dataset.cell;
+      const value = e.target.value;
+
+      // Update state (batched)
+      BosatsuUI.setState(['cells', cell], value);
+      updateCount++;
+      document.getElementById('update-count').textContent = updateCount;
+
+      // Recalculate formulas (with flush between levels)
+      recalculateAll();
+    }
+
+    function handleCellFocus(e) {
+      const cell = e.target.dataset.cell;
+      const formula = e.target.dataset.formula || e.target.value;
+
+      document.getElementById('active-cell').textContent = cell;
+      document.getElementById('formula-display').textContent = formula || '(no formula)';
+    }
+
+    // Attach event listeners
+    cells.forEach(cell => {
+      const el = document.getElementById(`cell-${cell}`);
+      el.addEventListener('input', handleCellChange);
+      el.addEventListener('focus', handleCellFocus);
+    });
+
+    // ==========================================================================
+    // Initialize
+    // ==========================================================================
+    // Set initial values
+    const initialValues = {
+      A1: '100', B1: '200', C1: '50',
+      A2: '150', B2: '75', C2: '25',
+      A3: '80', B3: '120', C3: '40'
+    };
+
+    Object.entries(initialValues).forEach(([cell, value]) => {
+      BosatsuUI.setState(['cells', cell], value);
+    });
+
+    // Calculate initial formulas
+    recalculateAll();
+  </script>
+</body>
+</html>

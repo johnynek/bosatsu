@@ -192,6 +192,9 @@ const DEMO_REGISTRY = {
   'ui': [
     { path: '/demos/ui/counter.html', name: 'Counter', testFile: 'bosatsu-ui.spec.ts' },
     { path: '/demos/ui/todo-list.html', name: 'Todo List', testFile: 'bosatsu-ui.spec.ts' },
+    { path: '/demos/ui/dashboard.html', name: 'Real-time Dashboard', testFile: 'bosatsu-ui-batching.spec.ts' },
+    { path: '/demos/ui/drag-drop.html', name: 'Drag and Drop', testFile: 'bosatsu-ui-batching.spec.ts' },
+    { path: '/demos/ui/spreadsheet.html', name: 'Spreadsheet with Formulas', testFile: 'bosatsu-ui-batching.spec.ts' },
   ],
   // Simulation demos (Generated from .bosatsu)
   'simulation': [

@@ -135,30 +135,30 @@ BosatsuUI skips VDOM diff because compile-time analysis already knows which DOM 
 
 ### Demo: Real-time Dashboard
 
-- [ ] Create `demos/ui/dashboard.bosatsu` with 50+ updating values
-- [ ] Simulate WebSocket-style rapid updates
-- [ ] Show throughput comparison vs React equivalent
-- [ ] Display "updates/sec" and "DOM writes/sec" metrics
+- [x] Create `demos/ui/dashboard.html` with 50 updating values
+- [x] Simulate WebSocket-style rapid updates
+- [x] Show throughput comparison vs React equivalent
+- [x] Display "updates/sec" metrics
 
 ### Demo: Drag-and-Drop Editor
 
-- [ ] Create `demos/ui/drag-drop.bosatsu` with draggable elements
-- [ ] Use `batchSize: 1` for immediate position updates
-- [ ] Each drag reads previous position from DOM
-- [ ] Show latency advantage over React's flushSync
+- [x] Create `demos/ui/drag-drop.html` with draggable elements
+- [x] Use `batchSize: 1` for immediate position updates
+- [x] Each drag reads previous position from DOM
+- [x] Show latency advantage over React's flushSync
 
 ### Demo: Spreadsheet with Formulas
 
-- [ ] Create `demos/ui/spreadsheet.bosatsu` with formula cells
-- [ ] Batch user input changes
-- [ ] Cascade formula recalculations with `flush()` between steps
-- [ ] Demonstrate mixed batching strategies
+- [x] Create `demos/ui/spreadsheet.html` with formula cells
+- [x] Batch user input changes
+- [x] Cascade formula recalculations with `flush()` between steps
+- [x] Demonstrate mixed batching strategies
 
 ### Testing
 
-- [ ] Add Playwright tests for each new demo
-- [ ] Update `benchmark-integrity.spec.ts` for new benchmark structure
-- [ ] Add tests verifying batching behavior (count DOM writes)
+- [x] Add Playwright tests for each new demo (`bosatsu-ui-batching.spec.ts` with 51 tests)
+- [x] Update `meta-coverage.spec.ts` DEMO_REGISTRY with new demos
+- [x] Add tests verifying batching behavior (count DOM writes)
 
 ## Success Metrics
 
@@ -206,45 +206,42 @@ demos/benchmarks/ui-performance/index.html
 ### Phase 3: Dashboard Demo
 
 ```
-demos/ui/dashboard.bosatsu
-demos/ui/dashboard.html (generated)
+demos/ui/dashboard.html
 ```
 
-- [ ] Design dashboard layout (grid of values)
-- [ ] Create Bosatsu state model for 50+ values
-- [ ] Implement simulated rapid updates
-- [ ] Add React comparison panel
+- [x] Design dashboard layout (grid of values)
+- [x] Create state model for 50 values
+- [x] Implement simulated rapid updates
+- [x] Add React comparison panel
 
 ### Phase 4: Drag-Drop Demo
 
 ```
-demos/ui/drag-drop.bosatsu
-demos/ui/drag-drop.html (generated)
+demos/ui/drag-drop.html
 ```
 
-- [ ] Create draggable element VNodes
-- [ ] Implement mouse event handlers
-- [ ] Use `batchSize: 1` configuration
-- [ ] Show position reads working correctly
+- [x] Create draggable element VNodes
+- [x] Implement mouse event handlers
+- [x] Use `batchSize: 1` configuration
+- [x] Show position reads working correctly
 
 ### Phase 5: Spreadsheet Demo
 
 ```
-demos/ui/spreadsheet.bosatsu
-demos/ui/spreadsheet.html (generated)
+demos/ui/spreadsheet.html
 ```
 
-- [ ] Create cell grid structure
-- [ ] Implement formula parsing (simple: SUM, references)
-- [ ] Batch input, sync formula cascade
-- [ ] Show mixed batching in action
+- [x] Create cell grid structure
+- [x] Implement formula parsing (simple: SUM, references)
+- [x] Batch input, sync formula cascade
+- [x] Show mixed batching in action
 
 ### Phase 6: Testing & Documentation
 
-- [ ] Add Playwright tests for all demos
-- [ ] Update `meta-coverage.spec.ts` DEMO_REGISTRY
-- [ ] Update landing page with new demos
-- [ ] Document batching API in README or docs
+- [x] Add Playwright tests for all demos (`tests/e2e/bosatsu-ui-batching.spec.ts`)
+- [x] Update `meta-coverage.spec.ts` DEMO_REGISTRY
+- [x] Update landing page with new demos (`demos/index.html`)
+- [x] Document batching API (`docs/api/bosatsu-ui-batching.md`)
 
 ## References & Research
 

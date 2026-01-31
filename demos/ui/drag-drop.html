@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BosatsuUI Drag-and-Drop Demo</title>
+  <!-- Real React 18 for comparison -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- BosatsuUI Runtime -->
+  <script src="../../core/src/main/resources/bosatsu-ui-runtime.js"></script>
+  <style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.header .subtitle {
+  color: #666;
+  font-size: 14px;
+}
+
+.stats-bar {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.stat-value.bosatsu { color: #667eea; }
+.stat-value.react { color: #61dafb; }
+
+.workspaces {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.workspace {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.workspace-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.workspace-title.bosatsu { color: #667eea; }
+.workspace-title.react { color: #61dafb; }
+
+.workspace-mode {
+  font-size: 12px;
+  color: #888;
+  background: #f0f4f8;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.canvas {
+  position: relative;
+  height: 400px;
+  background: #fafafa;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.draggable {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: white;
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow 0.2s;
+}
+
+.draggable:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.draggable.dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 100;
+}
+
+.draggable.box-a { background: #667eea; }
+.draggable.box-b { background: #f093fb; }
+.draggable.box-c { background: #4facfe; }
+
+.position-display {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  font-size: 10px;
+  color: #888;
+  font-family: monospace;
+  background: rgba(255,255,255,0.9);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.explainer {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.explainer h3 {
+  color: #667eea;
+  margin-bottom: 12px;
+}
+
+.explainer p {
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.explainer code {
+  background: #f0f4f8;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #667eea;
+}
+
+.explainer .highlight {
+  background: #e8f5e9;
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 4px solid #4caf50;
+  margin: 12px 0;
+}
+
+@media (max-width: 900px) {
+  .workspaces {
+    grid-template-columns: 1fr;
+  }
+}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Drag-and-Drop Demo</h1>
+    <p class="subtitle">BosatsuUI (batchSize: 1) vs React 18 (flushSync) - Immediate position updates</p>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-label">BosatsuUI Position Updates</div>
+      <div class="stat-value bosatsu" id="bosatsu-updates">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">React Position Updates</div>
+      <div class="stat-value react" id="react-updates">0</div>
+    </div>
+  </div>
+
+  <div class="workspaces">
+    <!-- BosatsuUI Workspace -->
+    <div class="workspace">
+      <div class="workspace-header">
+        <div class="workspace-title bosatsu">BosatsuUI Workspace</div>
+        <div class="workspace-mode">batchSize: 1 (immediate)</div>
+      </div>
+      <div class="canvas" id="bosatsu-canvas">
+        <div class="draggable box-a" id="bosatsu-box-a" style="left: 20px; top: 20px;">A</div>
+        <div class="draggable box-b" id="bosatsu-box-b" style="left: 120px; top: 20px;">B</div>
+        <div class="draggable box-c" id="bosatsu-box-c" style="left: 220px; top: 20px;">C</div>
+        <div class="position-display" id="bosatsu-position">Drag a box to see position</div>
+      </div>
+    </div>
+
+    <!-- React Workspace -->
+    <div class="workspace">
+      <div class="workspace-header">
+        <div class="workspace-title react">React 18 Workspace</div>
+        <div class="workspace-mode">flushSync for immediate</div>
+      </div>
+      <div class="canvas" id="react-canvas"></div>
+    </div>
+  </div>
+
+  <div class="explainer">
+    <h3>Why Immediate Updates Matter for Drag-and-Drop</h3>
+    <p>
+      Drag-and-drop requires <strong>synchronous position updates</strong> because each
+      mouse move event needs to read the previous position from the DOM before calculating
+      the new position.
+    </p>
+    <div class="highlight">
+      <strong>BosatsuUI advantage:</strong> With <code>batchSize: 1</code> and
+      <code>flushDelay: 0</code>, updates are naturally synchronous. No special API needed.
+    </div>
+    <p>
+      <strong>React workaround:</strong> React requires <code>flushSync()</code> to force
+      immediate rendering, which is explicitly discouraged in the React docs as it can
+      cause performance issues.
+    </p>
+    <p>
+      This demo shows both frameworks handling the same drag interaction. Notice how
+      BosatsuUI's direct binding approach makes position updates trivial, while React
+      requires careful state management.
+    </p>
+  </div>
+
+  <script>
+    // ==========================================================================
+    // BosatsuUI Setup - Immediate mode (batchSize: 1, flushDelay: 0)
+    // ==========================================================================
+    BosatsuUI.configure({ batchSize: 1, flushDelay: 0 });
+
+    const bosatsuBindings = {
+      'boxes.a.x': [{ elementId: 'bosatsu-box-a', property: 'style.left', statePath: ['boxes', 'a', 'x'], transform: '(v) => v + "px"' }],
+      'boxes.a.y': [{ elementId: 'bosatsu-box-a', property: 'style.top', statePath: ['boxes', 'a', 'y'], transform: '(v) => v + "px"' }],
+      'boxes.b.x': [{ elementId: 'bosatsu-box-b', property: 'style.left', statePath: ['boxes', 'b', 'x'], transform: '(v) => v + "px"' }],
+      'boxes.b.y': [{ elementId: 'bosatsu-box-b', property: 'style.top', statePath: ['boxes', 'b', 'y'], transform: '(v) => v + "px"' }],
+      'boxes.c.x': [{ elementId: 'bosatsu-box-c', property: 'style.left', statePath: ['boxes', 'c', 'x'], transform: '(v) => v + "px"' }],
+      'boxes.c.y': [{ elementId: 'bosatsu-box-c', property: 'style.top', statePath: ['boxes', 'c', 'y'], transform: '(v) => v + "px"' }],
+      'position': [{ elementId: 'bosatsu-position', property: 'textContent', statePath: ['position'] }]
+    };
+
+    const bosatsuInitialState = {
+      boxes: {
+        a: { x: 20, y: 20 },
+        b: { x: 120, y: 20 },
+        c: { x: 220, y: 20 }
+      },
+      position: 'Drag a box to see position'
+    };
+
+    BosatsuUI._initRuntime(bosatsuBindings, bosatsuInitialState);
+
+    // Cache elements
+    ['bosatsu-box-a', 'bosatsu-box-b', 'bosatsu-box-c', 'bosatsu-position'].forEach(id => {
+      const el = document.getElementById(id);
+      BosatsuUI._elementCache.set(`[data-bosatsu-id="${id}"]`, el);
+      BosatsuUI._elementCache.set(`#${id}`, el);
+    });
+
+    // BosatsuUI drag handling
+    let bosatsuDragState = null;
+    let bosatsuUpdateCount = 0;
+
+    function setupBosatsuDrag() {
+      const canvas = document.getElementById('bosatsu-canvas');
+      const boxes = canvas.querySelectorAll('.draggable');
+
+      boxes.forEach(box => {
+        box.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          const boxId = box.id.replace('bosatsu-box-', '');
+          const rect = box.getBoundingClientRect();
+          const canvasRect = canvas.getBoundingClientRect();
+
+          bosatsuDragState = {
+            boxId,
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+            canvasRect
+          };
+
+          box.classList.add('dragging');
+        });
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!bosatsuDragState) return;
+
+        const { boxId, offsetX, offsetY, canvasRect } = bosatsuDragState;
+        const x = Math.max(0, Math.min(canvasRect.width - 80, e.clientX - canvasRect.left - offsetX));
+        const y = Math.max(0, Math.min(canvasRect.height - 80, e.clientY - canvasRect.top - offsetY));
+
+        // Immediate update via BosatsuUI
+        BosatsuUI.setState(['boxes', boxId, 'x'], x);
+        BosatsuUI.setState(['boxes', boxId, 'y'], y);
+        BosatsuUI.setState(['position'], `Box ${boxId.toUpperCase()}: (${Math.round(x)}, ${Math.round(y)})`);
+
+        bosatsuUpdateCount++;
+        document.getElementById('bosatsu-updates').textContent = bosatsuUpdateCount;
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (bosatsuDragState) {
+          const box = document.getElementById(`bosatsu-box-${bosatsuDragState.boxId}`);
+          box.classList.remove('dragging');
+          bosatsuDragState = null;
+        }
+      });
+    }
+
+    setupBosatsuDrag();
+
+    // ==========================================================================
+    // React Setup - Using flushSync for immediate updates
+    // ==========================================================================
+    const { useState, useRef, useCallback, useEffect } = React;
+    const { flushSync } = ReactDOM;
+
+    let reactUpdateCount = 0;
+
+    function ReactWorkspace() {
+      const [boxes, setBoxes] = useState({
+        a: { x: 20, y: 20 },
+        b: { x: 120, y: 20 },
+        c: { x: 220, y: 20 }
+      });
+      const [position, setPosition] = useState('Drag a box to see position');
+      const dragState = useRef(null);
+      const canvasRef = useRef(null);
+
+      const handleMouseDown = useCallback((e, boxId) => {
+        e.preventDefault();
+        const box = e.target;
+        const rect = box.getBoundingClientRect();
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+
+        dragState.current = {
+          boxId,
+          offsetX: e.clientX - rect.left,
+          offsetY: e.clientY - rect.top,
+          canvasRect
+        };
+
+        box.classList.add('dragging');
+      }, []);
+
+      useEffect(() => {
+        const handleMouseMove = (e) => {
+          if (!dragState.current) return;
+
+          const { boxId, offsetX, offsetY, canvasRect } = dragState.current;
+          const x = Math.max(0, Math.min(canvasRect.width - 80, e.clientX - canvasRect.left - offsetX));
+          const y = Math.max(0, Math.min(canvasRect.height - 80, e.clientY - canvasRect.top - offsetY));
+
+          // Use flushSync for immediate update (required for drag-drop to feel responsive)
+          flushSync(() => {
+            setBoxes(prev => ({
+              ...prev,
+              [boxId]: { x, y }
+            }));
+            setPosition(`Box ${boxId.toUpperCase()}: (${Math.round(x)}, ${Math.round(y)})`);
+          });
+
+          reactUpdateCount++;
+          document.getElementById('react-updates').textContent = reactUpdateCount;
+        };
+
+        const handleMouseUp = () => {
+          if (dragState.current) {
+            const box = document.querySelector(`#react-canvas .box-${dragState.current.boxId}`);
+            if (box) box.classList.remove('dragging');
+            dragState.current = null;
+          }
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+        };
+      }, []);
+
+      return React.createElement('div', { className: 'canvas', ref: canvasRef },
+        ['a', 'b', 'c'].map(id =>
+          React.createElement('div', {
+            key: id,
+            className: `draggable box-${id}`,
+            style: { left: boxes[id].x, top: boxes[id].y },
+            onMouseDown: (e) => handleMouseDown(e, id)
+          }, id.toUpperCase())
+        ),
+        React.createElement('div', { className: 'position-display' }, position)
+      );
+    }
+
+    // Mount React
+    const reactCanvas = document.getElementById('react-canvas');
+    const reactRoot = ReactDOM.createRoot(reactCanvas);
+    reactRoot.render(React.createElement(ReactWorkspace));
+  </script>
+</body>
+</html>
