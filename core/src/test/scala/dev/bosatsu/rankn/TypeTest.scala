@@ -87,6 +87,20 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("substituteVar avoids capture") {
+    import Type.Var.Bound
+    val a = Bound("a")
+    val b = Bound("b")
+    val t =
+      Type.forAll(
+        NonEmptyList.of((a, Kind.Type)),
+        Type.TyVar(b)
+      )
+    val sub = Type.substituteVar(t, Map[Type.Var, Type](b -> Type.TyVar(a)))
+
+    assertEquals(Type.freeBoundTyVars(sub :: Nil), List(a))
+  }
+
   test("types are well ordered") {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
       dev.bosatsu.OrderingLaws.law(_, _, _)
@@ -557,6 +571,35 @@ class TypeTest extends munit.ScalaCheckSuite {
     noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
 
     check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", Nil)
+  }
+
+  test("instantiate handles rhs forall shadowing") {
+    // Regression guard: instantiate should alpha-rename RHS forall binders
+    // that collide with already-in-scope binders instead of failing.
+    def ok(from: String, matches: String) = {
+      val Type.ForAll(fas, t) = parse(from).runtimeChecked
+      val targ = parse(matches)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+      assert(res.nonEmpty, s"could not instantiate: $from to $matches")
+    }
+
+    ok(
+      "forall b. Bosatsu/Predef::Option[b]",
+      "forall a. forall a. Bosatsu/Predef::Option[a]"
+    )
+
+    ok(
+      "forall b, c. (Bosatsu/Predef::Option[b], Bosatsu/Predef::Option[c])",
+      "forall a. (Bosatsu/Predef::Option[a], forall a. Bosatsu/Predef::Option[a])"
+    )
+  }
+
+  test("instantiate handles rhs forall shadowing inside tuple") {
+    // Regression guard: shadowing inside nested forall in tuple position.
+    val Type.ForAll(fas, t) = parse("forall b, c. (b, c)").runtimeChecked
+    val targ = parse("forall a. (a, forall a. a)")
+    val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+    assert(res.nonEmpty, s"could not instantiate: $t to $targ")
   }
 
   test("Fun(ts, r) and Fun.unapply are inverses") {
