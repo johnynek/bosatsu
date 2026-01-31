@@ -1,7 +1,8 @@
 package dev.bosatsu.ui
 
-import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit}
-import dev.bosatsu.Identifier.Bindable
+import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit, Pattern}
+import dev.bosatsu.Identifier.{Bindable, Constructor}
+import dev.bosatsu.rankn.Type
 import scala.collection.immutable.SortedSet
 
 /**
@@ -69,21 +70,29 @@ object UIAnalyzer {
    * The expr field allows extracting additional info via pattern matching.
    */
   final case class DOMBinding[A](
-      elementId: String,        // data-bosatsu-id attribute value
-      property: DOMProperty,    // Which DOM property to update
-      statePath: List[String],  // Path into state: ["user", "name"]
-      conditional: Boolean,     // Is this inside a conditional?
+      elementId: String,         // data-bosatsu-id attribute value
+      property: DOMProperty,     // Which DOM property to update
+      statePath: List[String],   // Path into state: ["user", "name"]
+      when: Option[BranchCondition], // Condition that activates this binding (None = always active)
       transform: Option[String], // Optional JS transform expression
-      sourceExpr: TypedExpr[A]  // Reference to source expression (immutable)
-  )
+      sourceExpr: TypedExpr[A]   // Reference to source expression (immutable)
+  ) {
+    /** Backwards compatibility: true if this binding is conditional */
+    def conditional: Boolean = when.isDefined
+  }
 
   /**
    * Condition for a conditional binding.
-   * Used when binding is inside a match expression.
+   * Used when binding is inside a match expression over a sum type.
+   *
+   * @param discriminant The state path being matched (e.g., ["status"])
+   * @param tag The variant tag that activates this binding (e.g., "Success")
+   * @param isTotal True for wildcard/catch-all patterns that match any variant
    */
   final case class BranchCondition(
-      path: List[String],
-      pattern: String
+      discriminant: List[String],
+      tag: String,
+      isTotal: Boolean = false
   )
 
   /**
@@ -136,7 +145,11 @@ object UIAnalyzer {
       // Track current parent element ID for text bindings
       var currentParentElementId: Option[String] = None,
       // Map function names to their bodies for resolving named handler references
-      var functionBodies: Map[String, TypedExpr[A]] = Map.empty
+      var functionBodies: Map[String, TypedExpr[A]] = Map.empty,
+      // Current condition for bindings inside match branches
+      var currentCondition: Option[BranchCondition] = None,
+      // Current discriminant path for nested pattern bindings
+      var currentDiscriminant: Option[List[String]] = None
   ) {
     def freshId(): String = {
       val id = s"bosatsu-$idCounter"
@@ -328,15 +341,56 @@ object UIAnalyzer {
             }
         }
 
-      // Match expression - mark as conditional
+      // Match expression - extract pattern info for conditional bindings
       case TypedExpr.Match(arg, branches, _) =>
+        // Analyze the match argument first
         analyzeExpr(arg, ctx)
+
+        // Extract the discriminant path (the state path being matched)
+        val discriminant = extractDiscriminantPath(arg, ctx)
+
+        // Save state to restore after analyzing branches
+        val savedBindingToPath = ctx.bindingToPath
         val wasConditional = ctx.inConditional
+        val savedCondition = ctx.currentCondition
+        val savedDiscriminant = ctx.currentDiscriminant
+
         ctx.inConditional = true
-        branches.toList.foreach { case (_, branchExpr) =>
+        ctx.currentDiscriminant = discriminant
+
+        branches.toList.foreach { case (pattern, branchExpr) =>
+          // Extract variant tag from pattern (e.g., "Success", "Loading")
+          val variantTag = extractVariantTag(pattern)
+
+          // Create BranchCondition for this branch
+          val condition = (discriminant, variantTag) match {
+            case (Some(d), Some(t)) => Some(BranchCondition(d, t))
+            case (Some(d), None) => Some(BranchCondition(d, "_", isTotal = true))
+            case _ => None
+          }
+
+          // Add pattern-bound variables to context
+          // e.g., Success(user) makes "user" available as ["status", "Success", "0"]
+          (discriminant, variantTag) match {
+            case (Some(d), Some(t)) =>
+              addPatternBindings(pattern, d, t, ctx)
+            case _ => ()
+          }
+
+          // Set current condition for bindings in this branch
+          ctx.currentCondition = condition
+
+          // Analyze the branch body with pattern bindings in scope
           analyzeExpr(branchExpr, ctx)
+
+          // Restore binding context for next branch (pattern bindings are branch-local)
+          ctx.bindingToPath = savedBindingToPath
         }
+
+        // Restore all saved state
         ctx.inConditional = wasConditional
+        ctx.currentCondition = savedCondition
+        ctx.currentDiscriminant = savedDiscriminant
         None
 
       // Lambda - analyze body but don't propagate path
@@ -636,7 +690,7 @@ object UIAnalyzer {
                   elementId = elementId,
                   property = DOMProperty.ClassName, // Default, would need inference
                   statePath = path,
-                  conditional = ctx.inConditional,
+                  when = ctx.currentCondition,
                   transform = None,
                   sourceExpr = arg
                 ))
@@ -745,7 +799,7 @@ object UIAnalyzer {
         elementId = elementId,
         property = DOMProperty.TextContent,
         statePath = path,
-        conditional = ctx.inConditional,
+        when = ctx.currentCondition,
         transform = transform,
         sourceExpr = contentExpr
       ))
@@ -816,6 +870,134 @@ object UIAnalyzer {
   }
 
   // ---------------------------------------------------------------------------
+  // Pattern Matching Analysis (for conditional rendering)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract the variant tag from a pattern.
+   * Returns the constructor name for PositionalStruct patterns.
+   *
+   * @param pattern The pattern from a match branch
+   * @return Some(tag) for constructor patterns, None for wildcards/variables
+   */
+  private def extractVariantTag(
+      pattern: Pattern[(PackageName, Constructor), Type]
+  ): Option[String] = {
+    pattern match {
+      case Pattern.PositionalStruct((_, cons), _) =>
+        Some(cons.asString)
+      case Pattern.Named(_, inner) =>
+        extractVariantTag(inner)
+      case Pattern.Annotation(inner, _) =>
+        extractVariantTag(inner)
+      case Pattern.WildCard | Pattern.Var(_) =>
+        None // Total match - no specific tag
+      case Pattern.Literal(lit) =>
+        // Literal patterns - use the literal value as the "tag"
+        Some(lit.unboxToAny.toString)
+      case Pattern.Union(_, _) =>
+        None // Complex - not supported for now
+      case _ =>
+        None
+    }
+  }
+
+  /**
+   * Extract the discriminant path from a match argument expression.
+   * This is the state path being matched against.
+   *
+   * @param expr The argument expression in TypedExpr.Match
+   * @param ctx The analysis context
+   * @return Some(path) if the expression is a simple state reference
+   */
+  private def extractDiscriminantPath[A](
+      expr: TypedExpr[A],
+      ctx: AnalysisContext[A]
+  ): Option[List[String]] = {
+    expr match {
+      // Local variable - check if tracked, otherwise use name
+      case TypedExpr.Local(name, _, _) =>
+        ctx.getPath(name).orElse(Some(List(name.asString)))
+
+      // Global variable - use the name
+      case TypedExpr.Global(_, name, _, _) =>
+        Some(List(name.asString))
+
+      // State read: read(stateVar)
+      case TypedExpr.App(fn, args, _, _) =>
+        fn match {
+          case TypedExpr.Global(pack, name, _, _)
+              if isUIPackage(pack) && name.asString == "read" =>
+            // Extract state path from the read argument
+            args.head match {
+              case TypedExpr.Local(stateName, _, _) =>
+                Some(List(stateName.asString))
+              case TypedExpr.Global(_, stateName, _, _) =>
+                Some(List(stateName.asString))
+              case _ => None
+            }
+          case _ => None
+        }
+
+      // Unwrap annotations and generics
+      case TypedExpr.Annotation(inner, _) =>
+        extractDiscriminantPath(inner, ctx)
+      case TypedExpr.Generic(_, inner) =>
+        extractDiscriminantPath(inner, ctx)
+
+      case _ => None // Complex expressions not supported
+    }
+  }
+
+  /**
+   * Add pattern-bound variables to the binding context.
+   * When matching `Success(user)`, `user` becomes available as a state path.
+   *
+   * @param pattern The pattern being matched
+   * @param discriminant The discriminant path (e.g., ["status"])
+   * @param tag The variant tag (e.g., "Success")
+   * @param ctx The analysis context
+   */
+  private def addPatternBindings[A](
+      pattern: Pattern[(PackageName, Constructor), Type],
+      discriminant: List[String],
+      tag: String,
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    pattern match {
+      case Pattern.PositionalStruct(_, params) =>
+        // Each parameter is bound to discriminant ++ [tag, fieldIndex]
+        params.zipWithIndex.foreach { case (param, idx) =>
+          param match {
+            case Pattern.Var(name) =>
+              val path = discriminant ++ List(tag, idx.toString)
+              ctx.trackBinding(name, path)
+            case Pattern.Named(name, inner) =>
+              val path = discriminant ++ List(tag, idx.toString)
+              ctx.trackBinding(name, path)
+              // Recursively process inner pattern
+              addPatternBindings(inner, path, "", ctx)
+            case Pattern.Annotation(inner, _) =>
+              addPatternBindings(inner, discriminant, tag, ctx)
+            case _ => ()
+          }
+        }
+
+      case Pattern.Named(name, inner) =>
+        // Named pattern binds the whole matched value
+        ctx.trackBinding(name, discriminant)
+        extractVariantTag(inner).foreach { innerTag =>
+          addPatternBindings(inner, discriminant, innerTag, ctx)
+        }
+
+      case Pattern.Annotation(inner, _) =>
+        addPatternBindings(inner, discriminant, tag, ctx)
+
+      case _ => ()
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Event Handler Detection
   // ---------------------------------------------------------------------------
 
@@ -871,7 +1053,7 @@ object UIAnalyzer {
           elementId = elementId,
           property = DOMProperty.ClassName,
           statePath = List(stateName),
-          conditional = false,
+          when = None, // Checkbox bindings are always active (not conditional)
           transform = None,
           sourceExpr = handler
         ))
@@ -978,14 +1160,25 @@ object UIAnalyzer {
   /**
    * Generate JavaScript object representation of bindings.
    * Used for embedding in generated code.
+   *
+   * Each binding now includes a `when` clause for conditional rendering:
+   * - when: null for unconditional bindings
+   * - when: { discriminant: ["path"], tag: "VariantName", isTotal: false } for conditional
    */
   def bindingsToJs[A](bindings: List[DOMBinding[A]]): String = {
     val entries = createBindingMap(bindings).map { case (pathKey, bs) =>
       val bindingArrays = bs.map { b =>
+        val whenJs = b.when match {
+          case Some(cond) =>
+            val discPath = cond.discriminant.map(s => s""""$s"""").mkString("[", ", ", "]")
+            s"""{"discriminant": $discPath, "tag": "${cond.tag}", "isTotal": ${cond.isTotal}}"""
+          case None =>
+            "null"
+        }
         val props = List(
           s""""elementId": "${b.elementId}"""",
           s""""property": "${DOMProperty.toJsProperty(b.property)}"""",
-          s""""conditional": ${b.conditional}"""
+          s""""when": $whenJs"""
         ) ++ b.transform.map(t => s""""transform": "$t"""")
         s"{${props.mkString(", ")}}"
       }

@@ -295,6 +295,34 @@ function _queuePathUpdate(path) {
 }
 
 /**
+ * Check if a conditional binding should be applied.
+ * Returns true if the binding is unconditional OR its condition is met.
+ * @param {Object} binding - The binding with optional `when` clause
+ * @returns {boolean}
+ */
+function _shouldApplyBinding(binding) {
+  // Unconditional bindings always apply
+  if (!binding.when) return true;
+
+  const { discriminant, tag, isTotal } = binding.when;
+
+  // Get the current value at the discriminant path
+  const discriminantValue = _getAtPath(_state, discriminant);
+
+  // Total matches (wildcards) always apply
+  if (isTotal) return true;
+
+  // Check if the discriminant's tag matches
+  // Sum types are represented as { tag: "VariantName", ...fields }
+  if (discriminantValue && typeof discriminantValue === 'object') {
+    return discriminantValue.tag === tag;
+  }
+
+  // For literal matches, compare directly
+  return String(discriminantValue) === tag;
+}
+
+/**
  * Apply bindings for a changed state path.
  * @param {string[]} path
  */
@@ -305,6 +333,9 @@ function _applyBindingsForPath(path) {
   if (!bindings) return;
 
   for (const binding of bindings) {
+    // Check conditional binding condition
+    if (!_shouldApplyBinding(binding)) continue;
+
     // Find the element
     const element = _findElement(
       binding.elementId.startsWith('#') || binding.elementId.startsWith('[')
@@ -377,11 +408,61 @@ function _setState(path, value) {
   // Only update if value actually changed
   if (_deepEqual(prevValue, value)) return;
 
+  // Check if this is a discriminant path (affects conditional bindings)
+  const isDiscriminant = _isDiscriminantPath(path);
+
   // Update state immediately
   _state = _setAtPath(_state, path, value);
 
   // Queue DOM update
   _queuePathUpdate(path);
+
+  // If a discriminant changed, re-evaluate all conditional bindings
+  if (isDiscriminant) {
+    _reapplyConditionalBindings(path);
+  }
+}
+
+/**
+ * Check if a path is used as a discriminant in any conditional binding.
+ * @param {string[]} path
+ * @returns {boolean}
+ */
+function _isDiscriminantPath(path) {
+  const pathKey = path.join('.');
+  for (const bindings of Object.values(_bindings)) {
+    for (const binding of bindings) {
+      if (binding.when && binding.when.discriminant) {
+        const discKey = binding.when.discriminant.join('.');
+        if (discKey === pathKey) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Re-apply all conditional bindings that depend on a discriminant.
+ * Called when a discriminant path changes value.
+ * @param {string[]} discriminantPath
+ */
+function _reapplyConditionalBindings(discriminantPath) {
+  const discKey = discriminantPath.join('.');
+
+  for (const [pathKey, bindings] of Object.entries(_bindings)) {
+    for (const binding of bindings) {
+      // Skip unconditional bindings
+      if (!binding.when) continue;
+
+      // Check if this binding depends on the changed discriminant
+      const bindingDiscKey = binding.when.discriminant.join('.');
+      if (bindingDiscKey !== discKey) continue;
+
+      // Queue the binding's path for re-evaluation
+      const path = pathKey.split('.');
+      _queuePathUpdate(path);
+    }
+  }
 }
 
 /**
@@ -550,6 +631,9 @@ if (typeof window !== 'undefined') {
     _setAtPath,
     _findElement,
     _applyBindingUpdate,
+    _shouldApplyBinding,
+    _isDiscriminantPath,
+    _reapplyConditionalBindings,
   };
 }
 
@@ -568,5 +652,8 @@ if (typeof module !== 'undefined' && module.exports) {
     unmount: _unmount,
     createDOM: _createDOM,
     _initRuntime,
+    _shouldApplyBinding,
+    _isDiscriminantPath,
+    _reapplyConditionalBindings,
   };
 }

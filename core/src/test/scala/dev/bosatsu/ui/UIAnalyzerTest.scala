@@ -1,8 +1,8 @@
 package dev.bosatsu.ui
 
 import munit.FunSuite
-import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit}
-import dev.bosatsu.Identifier.Bindable
+import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit, Pattern}
+import dev.bosatsu.Identifier.{Bindable, Constructor}
 import dev.bosatsu.rankn.Type
 
 class UIAnalyzerTest extends FunSuite {
@@ -384,7 +384,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem1",
       property = DOMProperty.TextContent,
       statePath = List("user", "name"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -393,7 +393,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem2",
       property = DOMProperty.ClassName,
       statePath = List("user", "name"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -402,7 +402,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem3",
       property = DOMProperty.TextContent,
       statePath = List("user", "email"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -425,7 +425,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem1",
       property = DOMProperty.TextContent,
       statePath = List("count"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -434,7 +434,7 @@ class UIAnalyzerTest extends FunSuite {
     assert(js.contains("count"))
     assert(js.contains("elem1"))
     assert(js.contains("textContent"))
-    assert(js.contains("conditional"))
+    assert(js.contains("when"))
   }
 
   test("bindingsToJs includes transform when present") {
@@ -446,7 +446,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem1",
       property = DOMProperty.Value,
       statePath = List("input"),
-      conditional = true,
+      when = Some(BranchCondition(List("status"), "Active")),
       transform = Some("(x) => x.toUpperCase()"),
       sourceExpr = expr
     )
@@ -454,7 +454,10 @@ class UIAnalyzerTest extends FunSuite {
     val js = bindingsToJs(List(binding))
     assert(js.contains("transform"))
     assert(js.contains("toUpperCase"))
-    assert(js.contains("\"conditional\": true"))
+    // Verify when clause is serialized
+    assert(js.contains("\"when\":"))
+    assert(js.contains("\"discriminant\":"))
+    assert(js.contains("\"tag\": \"Active\""))
   }
 
   test("bindingsToJs handles style property") {
@@ -466,7 +469,7 @@ class UIAnalyzerTest extends FunSuite {
       elementId = "elem1",
       property = DOMProperty.Style("backgroundColor"),
       statePath = List("theme"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -539,15 +542,321 @@ class UIAnalyzerTest extends FunSuite {
   // ==========================================================================
 
   test("analyze marks bindings inside match as conditional") {
+    // This test verifies bindings inside match branches have when = Some(...)
+    // Need to match on a Local/Global to get discriminant path extracted
+    val status = Identifier.unsafeBindable("status")
     val count = Identifier.unsafeBindable("count")
     val textFn = makeGlobal("Bosatsu/UI", "text")
     val localCount = makeLocal("count")
     val textApp = makeApp(textFn, localCount)
 
-    val matchExpr = makeMatch(makeLiteral(1), List("case1" -> textApp))
+    // Use the old makeMatch which creates WildCard patterns, but with a Local match arg
+    // so discriminant path can be extracted
+    val matchExpr = makeMatch(makeLocal("status"), List("case1" -> textApp))
 
-    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(count))
-    assert(analysis.bindings.forall(_.conditional))
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(count, status))
+    // Bindings should be conditional (have when = Some with isTotal = true for wildcards)
+    assert(analysis.bindings.forall(b => b.when.isDefined))
+  }
+
+  // ==========================================================================
+  // BranchCondition tests - conditional rendering with sum types
+  // ==========================================================================
+
+  test("BranchCondition stores discriminant, tag, and isTotal") {
+    import UIAnalyzer._
+
+    val cond = BranchCondition(List("status"), "Loading", isTotal = false)
+    assertEquals(cond.discriminant, List("status"))
+    assertEquals(cond.tag, "Loading")
+    assertEquals(cond.isTotal, false)
+
+    val wildcardCond = BranchCondition(List("status"), "_", isTotal = true)
+    assert(wildcardCond.isTotal)
+  }
+
+  test("DOMBinding.conditional returns true when when is Some") {
+    import UIAnalyzer._
+
+    val expr = makeLiteral(42)
+    val bindingWithWhen = DOMBinding[Unit](
+      elementId = "elem1",
+      property = DOMProperty.TextContent,
+      statePath = List("data"),
+      when = Some(BranchCondition(List("status"), "Success")),
+      transform = None,
+      sourceExpr = expr
+    )
+    assert(bindingWithWhen.conditional)
+
+    val bindingWithoutWhen = DOMBinding[Unit](
+      elementId = "elem2",
+      property = DOMProperty.TextContent,
+      statePath = List("data"),
+      when = None,
+      transform = None,
+      sourceExpr = expr
+    )
+    assert(!bindingWithoutWhen.conditional)
+  }
+
+  test("bindingsToJs serializes when clause with discriminant and tag") {
+    import UIAnalyzer._
+
+    val expr = makeLiteral(42)
+    val binding = DOMBinding[Unit](
+      elementId = "elem1",
+      property = DOMProperty.TextContent,
+      statePath = List("user", "name"),
+      when = Some(BranchCondition(List("status"), "Success", isTotal = false)),
+      transform = None,
+      sourceExpr = expr
+    )
+
+    val js = bindingsToJs(List(binding))
+    // Verify discriminant array is serialized
+    assert(js.contains(""""discriminant": ["status"]"""))
+    // Verify tag is serialized
+    assert(js.contains(""""tag": "Success""""))
+    // Verify isTotal is serialized
+    assert(js.contains(""""isTotal": false"""))
+  }
+
+  test("bindingsToJs serializes null when for unconditional bindings") {
+    import UIAnalyzer._
+
+    val expr = makeLiteral(42)
+    val binding = DOMBinding[Unit](
+      elementId = "elem1",
+      property = DOMProperty.TextContent,
+      statePath = List("name"),
+      when = None,
+      transform = None,
+      sourceExpr = expr
+    )
+
+    val js = bindingsToJs(List(binding))
+    assert(js.contains(""""when": null"""))
+  }
+
+  test("bindingsToJs serializes isTotal true for wildcard matches") {
+    import UIAnalyzer._
+
+    val expr = makeLiteral(42)
+    val binding = DOMBinding[Unit](
+      elementId = "elem1",
+      property = DOMProperty.TextContent,
+      statePath = List("fallback"),
+      when = Some(BranchCondition(List("status"), "_", isTotal = true)),
+      transform = None,
+      sourceExpr = expr
+    )
+
+    val js = bindingsToJs(List(binding))
+    assert(js.contains(""""isTotal": true"""))
+    assert(js.contains(""""tag": "_""""))
+  }
+
+  test("bindingsToJs handles nested discriminant paths") {
+    import UIAnalyzer._
+
+    val expr = makeLiteral(42)
+    val binding = DOMBinding[Unit](
+      elementId = "elem1",
+      property = DOMProperty.TextContent,
+      statePath = List("data", "value"),
+      when = Some(BranchCondition(List("user", "auth", "status"), "Authenticated")),
+      transform = None,
+      sourceExpr = expr
+    )
+
+    val js = bindingsToJs(List(binding))
+    assert(js.contains(""""discriminant": ["user", "auth", "status"]"""))
+    assert(js.contains(""""tag": "Authenticated""""))
+  }
+
+  // Helper to create a match expression with proper patterns for testing
+  private def makeMatchWithPatterns(
+      arg: TypedExpr[Unit],
+      branches: List[(dev.bosatsu.Pattern[(PackageName, Constructor), Type], TypedExpr[Unit])]
+  ): TypedExpr[Unit] = {
+    val nel = cats.data.NonEmptyList.fromListUnsafe(branches)
+    TypedExpr.Match(arg, nel, ())
+  }
+
+  private def makeWildcardPattern: dev.bosatsu.Pattern[(PackageName, Constructor), Type] =
+    dev.bosatsu.Pattern.WildCard
+
+  private def makeVarPattern(name: String): dev.bosatsu.Pattern[(PackageName, Constructor), Type] =
+    dev.bosatsu.Pattern.Var(Identifier.unsafeBindable(name))
+
+  private def makeConstructorPattern(
+      pack: String,
+      cons: String,
+      params: List[dev.bosatsu.Pattern[(PackageName, Constructor), Type]] = Nil
+  ): dev.bosatsu.Pattern[(PackageName, Constructor), Type] = {
+    val pn = PackageName.parse(pack).get
+    val consId = Identifier.Constructor(cons)
+    dev.bosatsu.Pattern.PositionalStruct((pn, consId), params)
+  }
+
+  test("extractVariantTag returns Some for PositionalStruct pattern") {
+    // This tests the internal function indirectly through match analysis
+    val status = Identifier.unsafeBindable("status")
+    val data = Identifier.unsafeBindable("data")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val dataLocal = makeLocal("data")
+    val textApp = makeApp(textFn, dataLocal)
+
+    // Match expression: match status: Success(unused) -> text(data)
+    val statusLocal = makeLocal("status")
+    val successPattern = makeConstructorPattern("Demo/Status", "Success", List(makeVarPattern("unused")))
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((successPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, data))
+
+    // Bindings should have BranchCondition with tag "Success"
+    assert(analysis.bindings.exists { b =>
+      b.when.exists(_.tag == "Success")
+    })
+  }
+
+  test("match with wildcard pattern creates isTotal condition") {
+    val status = Identifier.unsafeBindable("status")
+    val count = Identifier.unsafeBindable("count")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val countLocal = makeLocal("count")
+    val textApp = makeApp(textFn, countLocal)
+
+    // Match expression: match status: _ -> text(count)
+    val statusLocal = makeLocal("status")
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((makeWildcardPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, count))
+
+    // Bindings should have isTotal = true for wildcard
+    assert(analysis.bindings.exists { b =>
+      b.when.exists(c => c.isTotal && c.tag == "_")
+    })
+  }
+
+  test("match with var pattern creates isTotal condition") {
+    val status = Identifier.unsafeBindable("status")
+    val count = Identifier.unsafeBindable("count")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val countLocal = makeLocal("count")
+    val textApp = makeApp(textFn, countLocal)
+
+    // Match expression: match status: x -> text(count)
+    val statusLocal = makeLocal("status")
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((makeVarPattern("x"), textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, count))
+
+    // Bindings should have isTotal = true for var pattern
+    assert(analysis.bindings.exists { b =>
+      b.when.exists(_.isTotal)
+    })
+  }
+
+  test("match discriminant path is extracted from Local") {
+    val status = Identifier.unsafeBindable("status")
+    val count = Identifier.unsafeBindable("count")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val countLocal = makeLocal("count")
+    val textApp = makeApp(textFn, countLocal)
+
+    val statusLocal = makeLocal("status")
+    val successPattern = makeConstructorPattern("Demo/Status", "Success")
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((successPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, count))
+
+    // Discriminant should be ["status"]
+    assert(analysis.bindings.exists { b =>
+      b.when.exists(_.discriminant == List("status"))
+    })
+  }
+
+  test("match discriminant path is extracted from read(stateVar)") {
+    val status = Identifier.unsafeBindable("status")
+    val count = Identifier.unsafeBindable("count")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val countLocal = makeLocal("count")
+    val textApp = makeApp(textFn, countLocal)
+
+    // read(status)
+    val readFn = makeGlobal("Bosatsu/UI", "read")
+    val statusLocal = makeLocal("status")
+    val readApp = makeApp(readFn, statusLocal)
+
+    val successPattern = makeConstructorPattern("Demo/Status", "Success")
+    val matchExpr = makeMatchWithPatterns(readApp, List((successPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, count))
+
+    // Discriminant should be ["status"]
+    assert(analysis.bindings.exists { b =>
+      b.when.exists(_.discriminant == List("status"))
+    })
+  }
+
+  test("pattern bindings are tracked for nested access") {
+    val status = Identifier.unsafeBindable("status")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    // text(user) where user comes from pattern Success(user)
+    val userLocal = makeLocal("user")
+    val textApp = makeApp(textFn, userLocal)
+
+    val statusLocal = makeLocal("status")
+    // Success(user) pattern - binds "user" to status.Success.0
+    val userPattern = makeVarPattern("user")
+    val successPattern = makeConstructorPattern("Demo/Status", "Success", List(userPattern))
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((successPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status))
+
+    // Should have a binding that references the pattern-bound variable
+    assert(analysis.bindings.nonEmpty)
+    // The statePath should be ["status", "Success", "0"] for the bound pattern variable
+    assert(analysis.bindings.exists { b =>
+      b.statePath.contains("Success") && b.statePath.contains("0")
+    })
+  }
+
+  test("multiple branches create separate conditions") {
+    val status = Identifier.unsafeBindable("status")
+    val loadingMsg = Identifier.unsafeBindable("loadingMsg")
+    val errorMsg = Identifier.unsafeBindable("errorMsg")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val loadingText = makeApp(textFn, makeLocal("loadingMsg"))
+    val errorText = makeApp(textFn, makeLocal("errorMsg"))
+
+    val statusLocal = makeLocal("status")
+    val loadingPattern = makeConstructorPattern("Demo/Status", "Loading")
+    val errorPattern = makeConstructorPattern("Demo/Status", "Error")
+
+    val matchExpr = makeMatchWithPatterns(
+      statusLocal,
+      List(
+        (loadingPattern, loadingText),
+        (errorPattern, errorText)
+      )
+    )
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status, loadingMsg, errorMsg))
+
+    // Should have bindings with different conditions
+    val tags = analysis.bindings.flatMap(_.when.map(_.tag)).toSet
+    assert(tags.contains("Loading"))
+    assert(tags.contains("Error"))
   }
 
   // ==========================================================================
