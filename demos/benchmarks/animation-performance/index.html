@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Animation Performance: React vs BosatsuUI</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+      margin: 0;
+    }
+    h1 { color: #00d9ff; margin-bottom: 10px; }
+    .description { color: #888; margin-bottom: 20px; font-size: 14px; }
+
+    .benchmark-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .benchmark-panel {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #0f3460;
+    }
+
+    .benchmark-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+
+    .react-naive h3 { color: #f97316; }
+    .react-optimized h3 { color: #22c55e; }
+    .bosatsu h3 { color: #3b82f6; }
+
+    .animation-container {
+      width: 100%;
+      height: 200px;
+      background: #0f0f23;
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ball {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      position: absolute;
+      will-change: transform;
+    }
+
+    .stats {
+      margin-top: 10px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    .fps { font-size: 24px; font-weight: bold; }
+    .fps.good { color: #22c55e; }
+    .fps.ok { color: #eab308; }
+    .fps.bad { color: #ef4444; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover { background: #2563eb; }
+    button:disabled { background: #4b5563; cursor: not-allowed; }
+
+    .ball-count-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="range"] {
+      width: 150px;
+    }
+
+    .results-panel {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #0f3460;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    th { color: #888; font-weight: normal; }
+
+    .winner { color: #22c55e; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>🎬 Animation Performance Benchmark</h1>
+  <p class="description">
+    Comparing animation performance: Naive React (useState), Optimized React (useRef + RAF), and BosatsuUI.
+    <br>Watch for flickering, dropped frames, and FPS differences as ball count increases.
+  </p>
+
+  <div class="controls">
+    <button id="startBtn">▶ Start Animation</button>
+    <div class="ball-count-control">
+      <label>Balls: <span id="ballCountLabel">10</span></label>
+      <input type="range" id="ballCount" min="1" max="100" value="10">
+    </div>
+    <button id="benchmarkBtn">📊 Run Benchmark (30s)</button>
+  </div>
+
+  <div class="benchmark-grid">
+    <!-- Naive React Panel -->
+    <div class="benchmark-panel react-naive">
+      <h3>React 18 (Naive useState)</h3>
+      <div id="react-naive-container" class="animation-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>FPS:</span>
+          <span class="fps" id="react-naive-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Renders:</span>
+          <span id="react-naive-renders">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Dropped frames:</span>
+          <span id="react-naive-dropped">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Optimized React Panel -->
+    <div class="benchmark-panel react-optimized">
+      <h3>React 18 (Optimized useRef)</h3>
+      <div id="react-optimized-container" class="animation-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>FPS:</span>
+          <span class="fps" id="react-optimized-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Renders:</span>
+          <span id="react-optimized-renders">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Dropped frames:</span>
+          <span id="react-optimized-dropped">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BosatsuUI Panel -->
+    <div class="benchmark-panel bosatsu">
+      <h3>BosatsuUI (Vanilla)</h3>
+      <div id="bosatsu-container" class="animation-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>FPS:</span>
+          <span class="fps" id="bosatsu-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Updates:</span>
+          <span id="bosatsu-updates">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Dropped frames:</span>
+          <span id="bosatsu-dropped">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="results-panel">
+    <h3>Benchmark Results</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Implementation</th>
+          <th>Avg FPS</th>
+          <th>Min FPS</th>
+          <th>Dropped Frames</th>
+          <th>Jank Events</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        <tr><td colspan="5" style="color: #666;">Run benchmark to see results</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // ============================================
+    // Shared state
+    // ============================================
+    let isRunning = false;
+    let ballCount = 10;
+
+    // ============================================
+    // NAIVE REACT: useState for everything
+    // ============================================
+    let naiveRenderCount = 0;
+    let naiveLastTime = performance.now();
+    let naiveFrameCount = 0;
+    let naiveDroppedFrames = 0;
+    let naiveAnimationId = null;
+    let naiveSetBalls = null;
+
+    function NaiveBall(props) {
+      return React.createElement('div', {
+        className: 'ball',
+        style: {
+          left: props.ball.x,
+          top: props.ball.y,
+          background: props.ball.color
+        }
+      });
+    }
+
+    function NaiveAnimation(props) {
+      const ballCountRef = React.useRef(props.ballCount);
+      const runningRef = React.useRef(props.running);
+      const ballsState = React.useState([]);
+      const balls = ballsState[0];
+      naiveSetBalls = ballsState[1];
+
+      // Update refs when props change
+      React.useEffect(function() {
+        ballCountRef.current = props.ballCount;
+        runningRef.current = props.running;
+      }, [props.ballCount, props.running]);
+
+      // Initialize balls when count changes
+      React.useEffect(function() {
+        const newBalls = [];
+        for (let i = 0; i < props.ballCount; i++) {
+          newBalls.push({
+            id: i,
+            x: Math.random() * 270,
+            y: Math.random() * 170,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8,
+            color: 'hsl(' + (i * 360 / props.ballCount) + ', 70%, 50%)'
+          });
+        }
+        naiveSetBalls(newBalls);
+        naiveRenderCount = 0;
+        naiveDroppedFrames = 0;
+        naiveLastTime = performance.now();
+      }, [props.ballCount]);
+
+      // Animation loop
+      React.useEffect(function() {
+        if (!props.running) {
+          if (naiveAnimationId) {
+            cancelAnimationFrame(naiveAnimationId);
+            naiveAnimationId = null;
+          }
+          return;
+        }
+
+        let lastFrameTime = performance.now();
+
+        function animate(currentTime) {
+          if (!runningRef.current) return;
+
+          const deltaTime = currentTime - lastFrameTime;
+          if (deltaTime > 20) {
+            naiveDroppedFrames += Math.floor(deltaTime / 16.67) - 1;
+          }
+          lastFrameTime = currentTime;
+
+          naiveSetBalls(function(prevBalls) {
+            naiveRenderCount++;
+            return prevBalls.map(function(ball) {
+              let newX = ball.x + ball.vx;
+              let newY = ball.y + ball.vy;
+              let newVx = ball.vx;
+              let newVy = ball.vy;
+
+              if (newX <= 0 || newX >= 270) {
+                newVx = -newVx;
+                newX = Math.max(0, Math.min(270, newX));
+              }
+              if (newY <= 0 || newY >= 170) {
+                newVy = -newVy;
+                newY = Math.max(0, Math.min(170, newY));
+              }
+
+              return { id: ball.id, x: newX, y: newY, vx: newVx, vy: newVy, color: ball.color };
+            });
+          });
+
+          naiveFrameCount++;
+          if (currentTime - naiveLastTime >= 1000) {
+            document.getElementById('react-naive-fps').textContent = naiveFrameCount;
+            document.getElementById('react-naive-fps').className =
+              'fps ' + (naiveFrameCount >= 55 ? 'good' : naiveFrameCount >= 30 ? 'ok' : 'bad');
+            document.getElementById('react-naive-renders').textContent = naiveRenderCount;
+            document.getElementById('react-naive-dropped').textContent = naiveDroppedFrames;
+            naiveFrameCount = 0;
+            naiveLastTime = currentTime;
+          }
+
+          naiveAnimationId = requestAnimationFrame(animate);
+        }
+
+        naiveAnimationId = requestAnimationFrame(animate);
+
+        return function() {
+          if (naiveAnimationId) {
+            cancelAnimationFrame(naiveAnimationId);
+          }
+        };
+      }, [props.running]);
+
+      return React.createElement('div', null,
+        balls.map(function(ball) {
+          return React.createElement(NaiveBall, { key: ball.id, ball: ball });
+        })
+      );
+    }
+
+    // ============================================
+    // OPTIMIZED REACT: useRef bypasses renders
+    // ============================================
+    let optimizedRenderCount = 0;
+    let optimizedLastTime = performance.now();
+    let optimizedFrameCount = 0;
+    let optimizedDroppedFrames = 0;
+    let optimizedAnimationId = null;
+
+    function OptimizedAnimation(props) {
+      const containerRef = React.useRef(null);
+      const ballsRef = React.useRef([]);
+      const ballElementsRef = React.useRef([]);
+      const runningRef = React.useRef(props.running);
+
+      React.useEffect(function() {
+        runningRef.current = props.running;
+      }, [props.running]);
+
+      // Initialize balls
+      React.useEffect(function() {
+        optimizedRenderCount++;
+        document.getElementById('react-optimized-renders').textContent = optimizedRenderCount;
+
+        const container = containerRef.current;
+        container.innerHTML = '';
+        ballsRef.current = [];
+        ballElementsRef.current = [];
+
+        for (let i = 0; i < props.ballCount; i++) {
+          const ball = {
+            x: Math.random() * 270,
+            y: Math.random() * 170,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8
+          };
+          ballsRef.current.push(ball);
+
+          const el = document.createElement('div');
+          el.className = 'ball';
+          el.style.background = 'hsl(' + (i * 360 / props.ballCount) + ', 70%, 50%)';
+          el.style.transform = 'translate(' + ball.x + 'px, ' + ball.y + 'px)';
+          container.appendChild(el);
+          ballElementsRef.current.push(el);
+        }
+
+        optimizedDroppedFrames = 0;
+        optimizedLastTime = performance.now();
+      }, [props.ballCount]);
+
+      // Animation loop using refs
+      React.useEffect(function() {
+        if (!props.running) {
+          if (optimizedAnimationId) {
+            cancelAnimationFrame(optimizedAnimationId);
+            optimizedAnimationId = null;
+          }
+          return;
+        }
+
+        let lastFrameTime = performance.now();
+
+        function animate(currentTime) {
+          if (!runningRef.current) return;
+
+          const deltaTime = currentTime - lastFrameTime;
+          if (deltaTime > 20) {
+            optimizedDroppedFrames += Math.floor(deltaTime / 16.67) - 1;
+          }
+          lastFrameTime = currentTime;
+
+          ballsRef.current.forEach(function(ball, i) {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            if (ball.x <= 0 || ball.x >= 270) {
+              ball.vx = -ball.vx;
+              ball.x = Math.max(0, Math.min(270, ball.x));
+            }
+            if (ball.y <= 0 || ball.y >= 170) {
+              ball.vy = -ball.vy;
+              ball.y = Math.max(0, Math.min(170, ball.y));
+            }
+
+            ballElementsRef.current[i].style.transform = 'translate(' + ball.x + 'px, ' + ball.y + 'px)';
+          });
+
+          optimizedFrameCount++;
+          if (currentTime - optimizedLastTime >= 1000) {
+            document.getElementById('react-optimized-fps').textContent = optimizedFrameCount;
+            document.getElementById('react-optimized-fps').className =
+              'fps ' + (optimizedFrameCount >= 55 ? 'good' : optimizedFrameCount >= 30 ? 'ok' : 'bad');
+            document.getElementById('react-optimized-dropped').textContent = optimizedDroppedFrames;
+            optimizedFrameCount = 0;
+            optimizedLastTime = currentTime;
+          }
+
+          optimizedAnimationId = requestAnimationFrame(animate);
+        }
+
+        optimizedAnimationId = requestAnimationFrame(animate);
+
+        return function() {
+          if (optimizedAnimationId) {
+            cancelAnimationFrame(optimizedAnimationId);
+          }
+        };
+      }, [props.running]);
+
+      return React.createElement('div', { ref: containerRef });
+    }
+
+    // ============================================
+    // BOSATSUUI: Direct state -> DOM bindings
+    // ============================================
+    const bosatsuState = { balls: [] };
+    let bosatsuUpdateCount = 0;
+    let bosatsuLastTime = performance.now();
+    let bosatsuFrameCount = 0;
+    let bosatsuDroppedFrames = 0;
+    let bosatsuElements = [];
+    let bosatsuRunning = false;
+    let bosatsuAnimationId = null;
+    let bosatsuLastFrameTime = performance.now();
+
+    function initBosatsuBalls(count) {
+      const container = document.getElementById('bosatsu-container');
+      container.innerHTML = '';
+      bosatsuState.balls = [];
+      bosatsuElements = [];
+      bosatsuUpdateCount = 0;
+      bosatsuDroppedFrames = 0;
+      bosatsuLastTime = performance.now();
+
+      for (let i = 0; i < count; i++) {
+        const ball = {
+          x: Math.random() * 270,
+          y: Math.random() * 170,
+          vx: (Math.random() - 0.5) * 8,
+          vy: (Math.random() - 0.5) * 8
+        };
+        bosatsuState.balls.push(ball);
+
+        const el = document.createElement('div');
+        el.className = 'ball';
+        el.style.background = 'hsl(' + (i * 360 / count) + ', 70%, 50%)';
+        el.style.transform = 'translate(' + ball.x + 'px, ' + ball.y + 'px)';
+        container.appendChild(el);
+        bosatsuElements.push(el);
+      }
+    }
+
+    function bosatsuSetState(index, newBall) {
+      bosatsuState.balls[index] = newBall;
+      bosatsuElements[index].style.transform = 'translate(' + newBall.x + 'px, ' + newBall.y + 'px)';
+      bosatsuUpdateCount++;
+    }
+
+    function animateBosatsu(currentTime) {
+      if (!bosatsuRunning) return;
+
+      const deltaTime = currentTime - bosatsuLastFrameTime;
+      if (deltaTime > 20) {
+        bosatsuDroppedFrames += Math.floor(deltaTime / 16.67) - 1;
+      }
+      bosatsuLastFrameTime = currentTime;
+
+      bosatsuState.balls.forEach(function(ball, i) {
+        let newX = ball.x + ball.vx;
+        let newY = ball.y + ball.vy;
+        let newVx = ball.vx;
+        let newVy = ball.vy;
+
+        if (newX <= 0 || newX >= 270) {
+          newVx = -newVx;
+          newX = Math.max(0, Math.min(270, newX));
+        }
+        if (newY <= 0 || newY >= 170) {
+          newVy = -newVy;
+          newY = Math.max(0, Math.min(170, newY));
+        }
+
+        bosatsuSetState(i, { x: newX, y: newY, vx: newVx, vy: newVy });
+      });
+
+      bosatsuFrameCount++;
+      if (currentTime - bosatsuLastTime >= 1000) {
+        document.getElementById('bosatsu-fps').textContent = bosatsuFrameCount;
+        document.getElementById('bosatsu-fps').className =
+          'fps ' + (bosatsuFrameCount >= 55 ? 'good' : bosatsuFrameCount >= 30 ? 'ok' : 'bad');
+        document.getElementById('bosatsu-updates').textContent = bosatsuUpdateCount;
+        document.getElementById('bosatsu-dropped').textContent = bosatsuDroppedFrames;
+        bosatsuFrameCount = 0;
+        bosatsuLastTime = currentTime;
+      }
+
+      bosatsuAnimationId = requestAnimationFrame(animateBosatsu);
+    }
+
+    function startBosatsuAnimation() {
+      bosatsuRunning = true;
+      bosatsuLastFrameTime = performance.now();
+      bosatsuAnimationId = requestAnimationFrame(animateBosatsu);
+    }
+
+    function stopBosatsuAnimation() {
+      bosatsuRunning = false;
+      if (bosatsuAnimationId) {
+        cancelAnimationFrame(bosatsuAnimationId);
+      }
+    }
+
+    // ============================================
+    // MAIN CONTROLS
+    // ============================================
+    let naiveRoot, optimizedRoot;
+
+    function renderReact() {
+      naiveRoot.render(React.createElement(NaiveAnimation, { ballCount: ballCount, running: isRunning }));
+      optimizedRoot.render(React.createElement(OptimizedAnimation, { ballCount: ballCount, running: isRunning }));
+    }
+
+    function toggleAnimation() {
+      isRunning = !isRunning;
+      const btn = document.getElementById('startBtn');
+      btn.textContent = isRunning ? '⏸ Stop Animation' : '▶ Start Animation';
+
+      renderReact();
+
+      if (isRunning) {
+        startBosatsuAnimation();
+      } else {
+        stopBosatsuAnimation();
+      }
+    }
+
+    function updateBallCount(value) {
+      ballCount = parseInt(value);
+      document.getElementById('ballCountLabel').textContent = ballCount;
+
+      if (isRunning) {
+        stopBosatsuAnimation();
+        initBosatsuBalls(ballCount);
+        startBosatsuAnimation();
+      } else {
+        initBosatsuBalls(ballCount);
+      }
+      renderReact();
+    }
+
+    // Benchmark tracking
+    let benchmarkData = {
+      naive: { fps: [], dropped: 0 },
+      optimized: { fps: [], dropped: 0 },
+      bosatsu: { fps: [], dropped: 0 }
+    };
+
+    async function runBenchmark() {
+      const btn = document.getElementById('benchmarkBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Running...';
+
+      benchmarkData = {
+        naive: { fps: [], dropped: 0 },
+        optimized: { fps: [], dropped: 0 },
+        bosatsu: { fps: [], dropped: 0 }
+      };
+
+      if (!isRunning) {
+        toggleAnimation();
+      }
+
+      const duration = 30000;
+      const interval = 1000;
+      let elapsed = 0;
+
+      while (elapsed < duration) {
+        await new Promise(function(r) { setTimeout(r, interval); });
+        elapsed += interval;
+        btn.textContent = '⏳ ' + Math.round((duration - elapsed) / 1000) + 's remaining...';
+
+        const naiveFps = parseInt(document.getElementById('react-naive-fps').textContent) || 0;
+        const optimizedFps = parseInt(document.getElementById('react-optimized-fps').textContent) || 0;
+        const bosatsuFps = parseInt(document.getElementById('bosatsu-fps').textContent) || 0;
+
+        benchmarkData.naive.fps.push(naiveFps);
+        benchmarkData.optimized.fps.push(optimizedFps);
+        benchmarkData.bosatsu.fps.push(bosatsuFps);
+      }
+
+      benchmarkData.naive.dropped = parseInt(document.getElementById('react-naive-dropped').textContent) || 0;
+      benchmarkData.optimized.dropped = parseInt(document.getElementById('react-optimized-dropped').textContent) || 0;
+      benchmarkData.bosatsu.dropped = parseInt(document.getElementById('bosatsu-dropped').textContent) || 0;
+
+      toggleAnimation();
+
+      function calcStats(data) {
+        return {
+          avg: Math.round(data.fps.reduce(function(a, b) { return a + b; }, 0) / data.fps.length),
+          min: Math.min.apply(null, data.fps),
+          dropped: data.dropped,
+          jank: data.fps.filter(function(f) { return f < 30; }).length
+        };
+      }
+
+      const naiveStats = calcStats(benchmarkData.naive);
+      const optimizedStats = calcStats(benchmarkData.optimized);
+      const bosatsuStats = calcStats(benchmarkData.bosatsu);
+
+      const maxAvg = Math.max(naiveStats.avg, optimizedStats.avg, bosatsuStats.avg);
+      const minDropped = Math.min(naiveStats.dropped, optimizedStats.dropped, bosatsuStats.dropped);
+
+      document.getElementById('results-body').innerHTML =
+        '<tr>' +
+          '<td>React (Naive useState)</td>' +
+          '<td class="' + (naiveStats.avg === maxAvg ? 'winner' : '') + '">' + naiveStats.avg + ' FPS</td>' +
+          '<td>' + naiveStats.min + ' FPS</td>' +
+          '<td class="' + (naiveStats.dropped === minDropped ? 'winner' : '') + '">' + naiveStats.dropped + '</td>' +
+          '<td>' + naiveStats.jank + '</td>' +
+        '</tr>' +
+        '<tr>' +
+          '<td>React (Optimized useRef)</td>' +
+          '<td class="' + (optimizedStats.avg === maxAvg ? 'winner' : '') + '">' + optimizedStats.avg + ' FPS</td>' +
+          '<td>' + optimizedStats.min + ' FPS</td>' +
+          '<td class="' + (optimizedStats.dropped === minDropped ? 'winner' : '') + '">' + optimizedStats.dropped + '</td>' +
+          '<td>' + optimizedStats.jank + '</td>' +
+        '</tr>' +
+        '<tr>' +
+          '<td>BosatsuUI (Vanilla)</td>' +
+          '<td class="' + (bosatsuStats.avg === maxAvg ? 'winner' : '') + '">' + bosatsuStats.avg + ' FPS</td>' +
+          '<td>' + bosatsuStats.min + ' FPS</td>' +
+          '<td class="' + (bosatsuStats.dropped === minDropped ? 'winner' : '') + '">' + bosatsuStats.dropped + '</td>' +
+          '<td>' + bosatsuStats.jank + '</td>' +
+        '</tr>';
+
+      btn.disabled = false;
+      btn.textContent = '📊 Run Benchmark (30s)';
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      naiveRoot = ReactDOM.createRoot(document.getElementById('react-naive-container'));
+      optimizedRoot = ReactDOM.createRoot(document.getElementById('react-optimized-container'));
+
+      renderReact();
+      initBosatsuBalls(ballCount);
+
+      document.getElementById('startBtn').addEventListener('click', toggleAnimation);
+      document.getElementById('ballCount').addEventListener('input', function(e) {
+        updateBallCount(e.target.value);
+      });
+      document.getElementById('benchmarkBtn').addEventListener('click', runBenchmark);
+    });
+  </script>
+</body>
+</html>
