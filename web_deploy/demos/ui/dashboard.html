@@ -402,13 +402,13 @@ body {
       // Update stats display periodically
       const now = performance.now();
       if (now - lastStatUpdate > 500) {
-        updateStatsDisplay();
+        const elapsed = (now - lastStatUpdate) / 1000;  // Actual elapsed time in seconds
+        updateStatsDisplay(elapsed);
         lastStatUpdate = now;
       }
     }
 
-    function updateStatsDisplay() {
-      const elapsed = 0.5; // seconds since last update
+    function updateStatsDisplay(elapsed) {
       const bosatsuRate = Math.round(bosatsuUpdateCount / elapsed);
       const reactRate = Math.round(reactUpdateCount / elapsed);
 

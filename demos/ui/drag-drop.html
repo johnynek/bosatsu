@@ -118,6 +118,12 @@ body {
   overflow: hidden;
 }
 
+/* React wrapper - inherit parent size without adding extra styling */
+.react-inner {
+  position: absolute;
+  inset: 0;
+}
+
 .draggable {
   position: absolute;
   width: 80px;
@@ -426,7 +432,8 @@ body {
         };
       }, []);
 
-      return React.createElement('div', { className: 'canvas', ref: canvasRef },
+      // Use ref wrapper without styling (parent #react-canvas already has canvas class)
+      return React.createElement('div', { ref: canvasRef, className: 'react-inner' },
         ['a', 'b', 'c'].map(id =>
           React.createElement('div', {
             key: id,
