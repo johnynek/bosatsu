@@ -283,13 +283,35 @@ object Command {
             }
         }
 
+      def previousPublicDeps(
+          prevThis: Option[DecodedLibrary[Algo.Blake3]]
+      ): F[List[DecodedLibrary[Algo.Blake3]]] =
+        prevThis match {
+          case None => moduleIOMonad.pure(Nil)
+          case Some(dec) =>
+            val prevDeps = dec.protoLib.publicDependencies.toList
+            if (prevDeps.isEmpty) moduleIOMonad.pure(Nil)
+            else
+              cas
+                .depsFromCas(prevDeps, Nil)
+                .map(_._1)
+                .flatMap(_.traverse(DecodedLibrary.decode(_)))
+        }
+
+      def publicDepClosure(
+          startLibs: List[DecodedLibrary[Algo.Blake3]]
+      ): F[List[DecodedLibrary[Algo.Blake3]]] =
+        publicDepClosureFromCas(cas, startLibs)
+
       private val inputRes =
         PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
 
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
           pubDecodes: List[DecodedLibrary[Algo.Blake3]],
-          privDecodes: List[DecodedLibrary[Algo.Blake3]]
+          privDecodes: List[DecodedLibrary[Algo.Blake3]],
+          publicDepClosureDecodes: List[DecodedLibrary[Algo.Blake3]],
+          prevPublicDepDecodes: List[DecodedLibrary[Algo.Blake3]]
       ) {
 
         def packageMap(colorize: Colorize): F[PackageMap.Inferred] =
@@ -322,12 +344,18 @@ object Command {
       def checkState: F[CheckState] =
         for {
           prevThis <- previousThis
+          prevPublicDepDecodes <- previousPublicDeps(prevThis)
           pubPriv <- pubPrivDeps
           (pubDecodes, privDecodes) = pubPriv
+          publicDepClosureDecodes <- publicDepClosure(
+            pubDecodes ::: privDecodes
+          )
         } yield CheckState(
           prevThis = prevThis,
           pubDecodes = pubDecodes,
-          privDecodes = privDecodes
+          privDecodes = privDecodes,
+          publicDepClosureDecodes = publicDepClosureDecodes,
+          prevPublicDepDecodes = prevPublicDepDecodes
         )
 
       def check(colorize: Colorize): F[LibConfig.ValidationResult] =
@@ -337,7 +365,9 @@ object Command {
           validated = conf.validate(
             cs.prevThis,
             allPacks.toMap.values.toList,
-            cs.pubDecodes ::: cs.privDecodes
+            cs.pubDecodes ::: cs.privDecodes,
+            cs.publicDepClosureDecodes,
+            cs.prevPublicDepDecodes
           )
           res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
         } yield res
@@ -352,7 +382,9 @@ object Command {
           cs = CheckState(
             None,
             pubDecodes = pubDecodes,
-            privDecodes = privDecodes
+            privDecodes = privDecodes,
+            publicDepClosureDecodes = pubDecodes ::: privDecodes,
+            prevPublicDepDecodes = Nil
           )
           allPacks <- cs.packageMap(colorize)
           // we don't need a valid protoLib which will be published, just for resolving names/versions
@@ -421,10 +453,75 @@ object Command {
             vcsIdent = vcsIdent,
             previous = cs.prevThis,
             packs = allPacks.toMap.values.toList,
-            deps = cs.pubDecodes ::: cs.privDecodes
+            deps = cs.pubDecodes ::: cs.privDecodes,
+            publicDepClosureLibs = cs.publicDepClosureDecodes,
+            prevPublicDepLibs = cs.prevPublicDepDecodes
           )
           res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
         } yield res
+    }
+
+    def publicDepClosureFromCas(
+        cas: Cas[F, P],
+        pubDecodes: List[DecodedLibrary[Algo.Blake3]]
+    ): F[List[DecodedLibrary[Algo.Blake3]]] = {
+      type Key = (Name, Version)
+
+      def publicDepsOf(
+          lib: DecodedLibrary[Algo.Blake3]
+      ): List[proto.LibDependency] =
+        lib.protoLib.publicDependencies.toList :::
+          lib.protoLib.unusedTransitivePublicDependencies.toList
+
+      def depVersion(dep: proto.LibDependency): Either[Throwable, Version] =
+        dep.desc.flatMap(_.version) match {
+          case Some(v) => Right(Version.fromProto(v))
+          case None    =>
+            Left(
+              CliException(
+                "missing version",
+                Doc.text(show"public dependency ${dep.name} is missing a version.")
+              )
+            )
+        }
+
+      def loop(
+          todo: List[proto.LibDependency],
+          acc: Map[Key, DecodedLibrary[Algo.Blake3]]
+      ): F[Map[Key, DecodedLibrary[Algo.Blake3]]] =
+        todo match {
+          case Nil => moduleIOMonad.pure(acc)
+          case dep :: rest =>
+            moduleIOMonad.fromEither(depVersion(dep)).flatMap { v =>
+              val key = (Name(dep.name), v)
+              if (acc.contains(key)) loop(rest, acc)
+              else
+                cas.libFromCas(dep).flatMap {
+                  case Some(lib) =>
+                    DecodedLibrary.decode(lib).flatMap { dec =>
+                      loop(publicDepsOf(dec) ::: rest, acc.updated(key, dec))
+                    }
+                  case None      =>
+                    moduleIOMonad.raiseError[Map[
+                      Key,
+                      DecodedLibrary[Algo.Blake3]
+                    ]](
+                      CliException(
+                        "missing dep from cas",
+                        Doc.text(
+                          show"missing public dependency ${dep.name} $v in CAS, run `lib fetch`."
+                        )
+                      )
+                    )
+                }
+            }
+        }
+
+      val initial = pubDecodes.iterator.map { dec =>
+        ((dec.name, dec.version), dec)
+      }.toMap
+      val initialTodo = pubDecodes.flatMap(publicDepsOf)
+      loop(initialTodo, initial).map(_.values.toList)
     }
 
     object ConfigConf {
@@ -475,14 +572,33 @@ object Command {
                 "if this is not the first version of the library this is the previous version."
             )
             .orNone,
+          casDirOpts,
+          Opts
+            .flag(
+              "fetch-prev-deps",
+              help =
+                "fetch previous public dependencies from their URIs into the CAS if missing."
+            )
+            .orFalse,
           gitShaOpt
         )
-          .mapN { (fpnp, packs, deps, optOut, prevLibPath, readGitSha) =>
+          .mapN {
+            (
+                fpnp,
+                packs,
+                deps,
+                optOut,
+                prevLibPath,
+                casDirFn,
+                fetchPrevDeps,
+                readGitSha
+            ) =>
             for {
               gitSha <- readGitSha
               pnp <- fpnp
               (gitRoot, name, confPath) = pnp
               conf <- readLibConf(name, confPath)
+              cas = new Cas(casDirFn(gitRoot), platformIO)
               outPath <- optOut match {
                 case Some(p) => moduleIOMonad.pure(p)
                 case None    =>
@@ -493,11 +609,97 @@ object Command {
               packages <- platformIO.readPackages(packs)
               depLibs <- deps.traverse(platformIO.readLibrary(_))
               decLibs <- depLibs.traverse(DecodedLibrary.decode(_))
+              depVersion = (d: proto.LibDependency) =>
+                d.desc.flatMap(_.version) match {
+                  case None    => Version.zero
+                  case Some(v) => Version.fromProto(v)
+                }
+              depMap = decLibs.iterator.map { lib =>
+                ((lib.protoLib.name, lib.version), lib)
+              }.toMap
+              directDeps = conf.publicDeps ::: conf.privateDeps
+              directDepDecodes = directDeps.flatMap { dep =>
+                depMap.get((dep.name, depVersion(dep)))
+              }
+              publicDepClosureLibs <-
+                if (directDepDecodes.isEmpty) moduleIOMonad.pure(Nil)
+                else publicDepClosureFromCas(cas, directDepDecodes)
+              prevPublicDepLibs <- prevLibDec match {
+                case None => moduleIOMonad.pure(Nil)
+                case Some(prevDec) =>
+                  val prevDeps = prevDec.protoLib.publicDependencies.toList
+                  if (prevDeps.isEmpty) moduleIOMonad.pure(Nil)
+                  else {
+                    def fromCas(
+                        dep: proto.LibDependency
+                    ): F[Option[DecodedLibrary[Algo.Blake3]]] =
+                      cas
+                        .libFromCas(dep)
+                        .flatMap(_.traverse(DecodedLibrary.decode(_)))
+
+                    val initial = prevDeps
+                      .traverse { dep =>
+                        depMap.get((dep.name, depVersion(dep))) match {
+                          case Some(lib) => moduleIOMonad.pure(Some(lib))
+                          case None      => fromCas(dep)
+                        }
+                      }
+
+                    initial.flatMap { resolved =>
+                      val missing =
+                        prevDeps.zip(resolved).collect {
+                          case (dep, None) => dep
+                        }
+
+                      if (missing.isEmpty) {
+                        moduleIOMonad.pure(resolved.flatten)
+                      } else if (fetchPrevDeps) {
+                        cas.fetchAllDeps(missing) *>
+                          missing
+                            .traverse(fromCas(_))
+                            .flatMap { fetched =>
+                              val stillMissing =
+                                missing.zip(fetched).collect {
+                                  case (dep, None) => dep
+                                }
+                              if (stillMissing.isEmpty)
+                                moduleIOMonad.pure(
+                                  resolved.flatten ++ fetched.flatten
+                                )
+                              else {
+                                val missStr = stillMissing
+                                  .map(dep =>
+                                    show"${dep.name} ${depVersion(dep)}"
+                                  )
+                                  .mkString(", ")
+                                moduleIOMonad.raiseError[List[
+                                  DecodedLibrary[Algo.Blake3]
+                                ]](
+                                  CliException.Basic(
+                                    s"missing previous public deps from CAS after fetch; ensure URIs are valid. Missing: $missStr"
+                                  )
+                                )
+                              }
+                            }
+                      } else {
+                        moduleIOMonad.raiseError[List[
+                          DecodedLibrary[Algo.Blake3]
+                        ]](
+                          CliException.Basic(
+                            "missing previous public deps from CAS; run `lib fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
+                          )
+                        )
+                      }
+                    }
+                  }
+              }
               maybeNewLib = conf.assemble(
                 vcsIdent = gitSha,
                 prevLibDec,
                 packages,
-                decLibs
+                decLibs,
+                publicDepClosureLibs,
+                prevPublicDepLibs
               )
               lib <- moduleIOMonad.fromTry(LibConfig.Error.toTry(maybeNewLib))
             } yield (Output.Library(lib, outPath): Output[P])
@@ -555,8 +757,23 @@ object Command {
                 }
               }
             }
+            prevPubDeps <- cc.conf.previous.traverse { desc =>
+              val dep =
+                proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
+              cc.cas.libFromCas(dep).flatMap {
+                case Some(lib) =>
+                  moduleIOMonad.pure(lib.arg.publicDependencies.toList)
+                case None =>
+                  moduleIOMonad.raiseError[List[proto.LibDependency]](
+                    CliException.Basic(
+                      show"previous library ${dep.name} not found in CAS, run `lib fetch`."
+                    )
+                  )
+              }
+            }
             msg <- cc.cas.fetchAllDeps(
-              cc.conf.publicDeps ::: cc.conf.privateDeps
+              cc.conf.publicDeps ::: cc.conf.privateDeps ::: prevPubDeps
+                .getOrElse(Nil)
             )
           } yield (Output.Basic(msg, None): Output[P])
         }
