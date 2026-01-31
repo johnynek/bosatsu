@@ -338,7 +338,7 @@ test.describe('BosatsuUI Performance Benchmark', () => {
   });
 
   test('page loads successfully', async ({ page }) => {
-    await expect(page).toHaveTitle(/BosatsuUI.*React.*Elm.*Benchmark/i);
+    await expect(page).toHaveTitle(/BosatsuUI.*React.*Benchmark/i);
     await expect(page.locator('.card').first()).toBeVisible();
   });
 
@@ -353,7 +353,6 @@ test.describe('BosatsuUI Performance Benchmark', () => {
   test('has benchmark control buttons', async ({ page }) => {
     await expect(page.locator('#run-all')).toBeVisible();
     await expect(page.locator('#run-single')).toBeVisible();
-    await expect(page.locator('#run-batch')).toBeVisible();
     await expect(page.locator('#run-list')).toBeVisible();
     await expect(page.locator('#run-targeted')).toBeVisible();
   });
@@ -368,30 +367,21 @@ test.describe('BosatsuUI Performance Benchmark', () => {
     // Skip progress check since it may clear too quickly
     await expect(results.locator('table')).toBeVisible({ timeout: 15000 });
 
-    // Should show results for all three frameworks
+    // Should show results for both frameworks (BosatsuUI vs React)
     await expect(results).toContainText('BosatsuUI');
     await expect(results).toContainText('React');
-    await expect(results).toContainText('Elm');
 
     // Should show speedup explanation
     await expect(results.locator('.speedup')).toBeVisible();
   });
 
-  test('batch update benchmark runs and shows results', async ({ page }) => {
-    const runButton = page.locator('#run-batch');
-    const results = page.locator('#results');
-
-    await runButton.click();
-
-    // Wait for results
-    await expect(results.locator('table')).toBeVisible({ timeout: 15000 });
-
-    // Should mention batching
-    await expect(results).toContainText(/batch/i);
-
-    // Should show all frameworks
-    await expect(results).toContainText('BosatsuUI');
-    await expect(results).toContainText('React');
+  test('batching configuration UI exists', async ({ page }) => {
+    // Check for batch size slider
+    await expect(page.locator('#batch-size')).toBeVisible();
+    // Check for flush delay select
+    await expect(page.locator('#flush-delay')).toBeVisible();
+    // Check for configuration section
+    await expect(page.locator('.config-section')).toBeVisible();
   });
 
   test('list update benchmark runs and shows results', async ({ page }) => {
@@ -403,8 +393,8 @@ test.describe('BosatsuUI Performance Benchmark', () => {
     // Wait for results
     await expect(results.locator('table')).toBeVisible({ timeout: 15000 });
 
-    // Should mention list size
-    await expect(results).toContainText('1000');
+    // Should mention list size (100 items)
+    await expect(results).toContainText('100');
 
     // Should explain list advantages
     await expect(results.locator('.speedup')).toContainText(/list|O\(1\)|item/i);
@@ -443,11 +433,9 @@ test.describe('BosatsuUI Performance Benchmark', () => {
     // These are used for running benchmarks
     const bosatsuRoot = page.locator('#bosatsu-root');
     const reactRoot = page.locator('#react-root');
-    const elmRoot = page.locator('#elm-root');
 
     await expect(bosatsuRoot).toBeAttached();
     await expect(reactRoot).toBeAttached();
-    await expect(elmRoot).toBeAttached();
 
     // They should be hidden
     await expect(bosatsuRoot).toHaveClass(/benchmark-area/);
@@ -503,7 +491,6 @@ test.describe('BosatsuUI Demos Index', () => {
     const benchmarkLink = page.locator('a[href="benchmarks/ui-performance/index.html"]');
     await expect(benchmarkLink).toBeVisible();
     await expect(benchmarkLink).toContainText('React');
-    await expect(benchmarkLink).toContainText('Elm');
   });
 
   test('demo cards have proper structure', async ({ page }) => {
@@ -958,7 +945,6 @@ test.describe('Benchmark Page - Comprehensive Tests', () => {
     // All buttons should be disabled during run
     await expect(page.locator('#run-all')).toBeDisabled();
     await expect(page.locator('#run-single')).toBeDisabled();
-    await expect(page.locator('#run-batch')).toBeDisabled();
     await expect(page.locator('#run-list')).toBeDisabled();
     await expect(page.locator('#run-targeted')).toBeDisabled();
 
@@ -978,11 +964,11 @@ test.describe('Benchmark Page - Comprehensive Tests', () => {
     await page.locator('#run-single').click();
     await expect(page.locator('#results table')).toBeVisible({ timeout: 15000 });
 
-    // Run another benchmark
-    await page.locator('#run-batch').click();
+    // Run another benchmark (list)
+    await page.locator('#run-list').click();
 
-    // Results should update (check for batch-specific text)
-    await expect(page.locator('#results')).toContainText(/batch/i, { timeout: 15000 });
+    // Results should update (check for list-specific text)
+    await expect(page.locator('#results')).toContainText(/100.*item/i, { timeout: 15000 });
   });
 
   test('run all completes all benchmarks', async ({ page }) => {
@@ -1016,9 +1002,10 @@ test.describe('Benchmark Page - Comprehensive Tests', () => {
     await expect(reactRoot).toHaveClass(/benchmark-area/);
   });
 
-  test('elm-root has correct class', async ({ page }) => {
-    const elmRoot = page.locator('#elm-root');
-    await expect(elmRoot).toHaveClass(/benchmark-area/);
+  test('config section exists', async ({ page }) => {
+    const configSection = page.locator('.config-section');
+    await expect(configSection).toBeVisible();
+    await expect(configSection).toContainText('Batching Configuration');
   });
 
   test('explainer contains key terminology', async ({ page }) => {
@@ -1029,23 +1016,22 @@ test.describe('Benchmark Page - Comprehensive Tests', () => {
     await expect(explainer).toContainText('virtual DOM');
   });
 
-  test('results show all three frameworks', async ({ page }) => {
+  test('results show both frameworks', async ({ page }) => {
     await page.locator('#run-single').click();
     await expect(page.locator('#results table')).toBeVisible({ timeout: 15000 });
 
     await expect(page.locator('#results')).toContainText('BosatsuUI');
     await expect(page.locator('#results')).toContainText('React');
-    await expect(page.locator('#results')).toContainText('Elm');
   });
 
-  test('list benchmark mentions 1000 items', async ({ page }) => {
+  test('list benchmark mentions 100 items', async ({ page }) => {
     await page.locator('#run-list').click();
-    await expect(page.locator('#results')).toContainText('1000', { timeout: 15000 });
+    await expect(page.locator('#results')).toContainText('100', { timeout: 15000 });
   });
 
-  test('batch benchmark mentions batch size', async ({ page }) => {
-    await page.locator('#run-batch').click();
-    await expect(page.locator('#results')).toContainText(/100.*updates/i, { timeout: 15000 });
+  test('DOM write counts are displayed', async ({ page }) => {
+    await page.locator('#run-single').click();
+    await expect(page.locator('#results')).toContainText('DOM Write Counts', { timeout: 15000 });
   });
 
   test('subtitle is descriptive', async ({ page }) => {
