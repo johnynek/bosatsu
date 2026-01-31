@@ -35,6 +35,12 @@ let _state = {};
 let _bindings = {};
 
 /**
+ * Cached set of discriminant paths (for fast O(1) lookup).
+ * Populated during _initRuntime.
+ */
+let _discriminantPaths = new Set();
+
+/**
  * Compiled transform functions cache.
  */
 const _transformCache = new Map();
@@ -62,13 +68,44 @@ function _getAtPath(obj, path) {
 }
 
 /**
+ * Set a value at a nested path in an object (mutably, for performance).
+ * @param {unknown} obj - The object to update
+ * @param {string[]} path - Path components
+ * @param {unknown} value - The new value
+ * @returns {unknown} The same object, mutated
+ */
+function _setAtPath(obj, path, value) {
+  if (path.length === 0) return value;
+
+  // Ensure root is an object
+  if (typeof obj !== 'object' || obj === null) {
+    obj = {};
+  }
+
+  // Navigate to parent, creating objects as needed
+  let current = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i];
+    if (typeof current[key] !== 'object' || current[key] === null) {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+
+  // Set the final value
+  current[path[path.length - 1]] = value;
+  return obj;
+}
+
+/**
  * Set a value at a nested path in an object (immutably).
+ * Use this when you need to preserve the old state (undo, history, etc.)
  * @param {unknown} obj - The object to update
  * @param {string[]} path - Path components
  * @param {unknown} value - The new value
  * @returns {unknown} New object with updated value
  */
-function _setAtPath(obj, path, value) {
+function _setAtPathImmutable(obj, path, value) {
   if (path.length === 0) return value;
 
   const current = (typeof obj === 'object' && obj !== null) ? { ...obj } : {};
@@ -76,7 +113,7 @@ function _setAtPath(obj, path, value) {
 
   current[first] = rest.length === 0
     ? value
-    : _setAtPath(current[first], rest, value);
+    : _setAtPathImmutable(current[first], rest, value);
 
   return current;
 }
@@ -378,6 +415,16 @@ function _initRuntime(bindings, initialState) {
   _pendingPaths.clear();
   _flushScheduled = false;
   _pendingCount = 0;
+
+  // Pre-compute discriminant paths for O(1) lookup
+  _discriminantPaths = new Set();
+  for (const bindingList of Object.values(_bindings)) {
+    for (const binding of bindingList) {
+      if (binding.when && binding.when.discriminant) {
+        _discriminantPaths.add(binding.when.discriminant.join('.'));
+      }
+    }
+  }
 }
 
 /**
@@ -425,20 +472,12 @@ function _setState(path, value) {
 
 /**
  * Check if a path is used as a discriminant in any conditional binding.
+ * Uses pre-computed cache for O(1) lookup.
  * @param {string[]} path
  * @returns {boolean}
  */
 function _isDiscriminantPath(path) {
-  const pathKey = path.join('.');
-  for (const bindings of Object.values(_bindings)) {
-    for (const binding of bindings) {
-      if (binding.when && binding.when.discriminant) {
-        const discKey = binding.when.discriminant.join('.');
-        if (discKey === pathKey) return true;
-      }
-    }
-  }
-  return false;
+  return _discriminantPaths.has(path.join('.'));
 }
 
 /**
