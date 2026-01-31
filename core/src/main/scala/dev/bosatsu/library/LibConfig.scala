@@ -6,7 +6,7 @@ import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
-import dev.bosatsu.{Json, Kind, Package, PackageName, ProtoConverter}
+import dev.bosatsu.{Json, Kind, Package, PackageMap, PackageName, ProtoConverter}
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.rankn.TypeEnv
 import dev.bosatsu.hashing.{HashValue, Algo}
@@ -549,6 +549,7 @@ object LibConfig {
     case class CannotDecodeLibraryIfaces(lib: proto.Library, err: Throwable)
         extends Error
     case class InvalidDiff(diffKind: Version.DiffKind, diff: Diff) extends Error
+    case class ApiDiffError(err: ApiDiff.Error) extends Error
     case class MinimumValidVersion(prevVersion: Version, minimumValid: Version)
         extends Error
     case class MissingExpectedPrevious(desc: proto.LibDescriptor) extends Error
@@ -648,6 +649,8 @@ object LibConfig {
               show"when doing ${diffKind.name} invalid diff:"
             ) + Doc.line + diff.toDoc
           ).nested(4).grouped
+        case ApiDiffError(err) =>
+          (Doc.text("api diff error:") + Doc.line + err.toDoc).nested(4).grouped
 
         case MinimumValidVersion(prevVersion: Version, minimumValid: Version) =>
           Doc.text(
@@ -838,28 +841,39 @@ object LibConfig {
         .foldMap { lib =>
           lib.interfaces.foldMap(_.exportedTypeEnv)
         }
+    val predefTypes: TypeEnv[Kind.Arg] =
+      Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
 
     val prevIfaces = prevDec.interfaces
     compatPublicDepChange *> {
       val prevExports = prevIfaces.iterator
         .map(iface => (iface.name, iface.exports))
         .to(SortedMap)
-      val prevTE = depTypes ++ prevIfaces.foldMap(_.exportedTypeEnv)
+      val prevTE = predefTypes ++ depTypes ++ prevIfaces.foldMap(
+        _.exportedTypeEnv
+      )
 
       val currExports = exportedPacks.iterator
         .map(pack => (pack.name, pack.exports))
         .to(SortedMap)
-      val currTE = depTypes ++ exportedPacks.foldMap(_.exportedTypeEnv)
+      val currTE = predefTypes ++ depTypes ++ exportedPacks.foldMap(
+        _.exportedTypeEnv
+      )
 
-      val diff = ApiDiff(prevExports, prevTE, currExports, currTE)
-
-      val badDiffs = diff
-        .badDiffs(dk) { diff =>
-          Error.InvalidDiff(dk, diff)
+      val diffV =
+        ApiDiff(prevExports, prevTE, currExports, currTE).leftMap {
+          _.map(Error.ApiDiffError(_))
         }
-        .toVector
 
-      badDiffs.traverse_(Error.inv(_))
+      diffV.andThen { diff =>
+        val badDiffs = diff
+          .badDiffs(dk) { diff =>
+            Error.InvalidDiff(dk, diff)
+          }
+          .toVector
+
+        badDiffs.traverse_(Error.inv(_))
+      }
     }
   }
 
