@@ -7,6 +7,8 @@
     <!-- Real React 18 -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Real BosatsuUI Runtime -->
+    <script src="../../../core/src/main/resources/bosatsu-ui-runtime.js"></script>
     <style>
       * {
         box-sizing: border-box;
@@ -125,6 +127,62 @@
       .warning strong {
         color: #f57c00;
       }
+      .config-section {
+        background: #e3f2fd;
+        padding: 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+      .config-section h3 {
+        margin-top: 0;
+        color: #1565c0;
+      }
+      .config-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+      .config-row label {
+        min-width: 120px;
+        font-weight: 500;
+      }
+      .config-row input[type="range"] {
+        flex: 1;
+        max-width: 200px;
+      }
+      .config-row select {
+        padding: 6px 12px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      .config-value {
+        min-width: 80px;
+        font-family: monospace;
+        color: #1565c0;
+      }
+      .dom-writes {
+        background: #fce4ec;
+        padding: 12px;
+        border-radius: 6px;
+        margin-top: 16px;
+      }
+      .dom-writes h4 {
+        margin: 0 0 8px 0;
+        color: #c2185b;
+      }
+      .dom-writes-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .dom-writes-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 8px;
+        background: white;
+        border-radius: 4px;
+      }
     </style>
   </head>
   <body>
@@ -134,6 +192,27 @@
     <div class="warning">
       <strong>Fair Benchmark:</strong> This benchmark uses actual React 18 (ReactDOM.createRoot, useState) -
       not a simulation. Both frameworks perform real DOM updates. Run multiple times for consistent results.
+    </div>
+
+    <div class="card config-section">
+      <h3>BosatsuUI Batching Configuration</h3>
+      <div class="config-row">
+        <label for="batch-size">Batch Size:</label>
+        <input type="range" id="batch-size" min="1" max="1000" value="1000" />
+        <span class="config-value" id="batch-size-value">Infinity</span>
+      </div>
+      <div class="config-row">
+        <label for="flush-delay">Flush Delay:</label>
+        <select id="flush-delay">
+          <option value="microtask" selected>microtask (default)</option>
+          <option value="0">0 (synchronous)</option>
+          <option value="16">16ms (frame-aligned)</option>
+        </select>
+      </div>
+      <p style="margin: 8px 0 0; color: #666; font-size: 13px;">
+        <strong>Tip:</strong> Set batch size to "Infinity" and flush delay to "microtask" for fair comparison with React's automatic batching.
+        Use batch size "1" with "0 (synchronous)" for immediate updates (like drag-and-drop scenarios).
+      </p>
     </div>
 
     <div class="card explainer">
@@ -150,6 +229,11 @@
       <p>
         <strong>React approach:</strong> Create new virtual DOM tree -> Diff against old tree
         -> Generate patches -> Apply patches. This is O(n) where n is component tree size.
+      </p>
+      <p>
+        <strong>With batching:</strong> BosatsuUI collects updates in a Map (last-write-wins monoid),
+        then applies them all at once. This gives React 18-style automatic batching while
+        skipping VDOM diffing entirely.
       </p>
     </div>
 
@@ -173,119 +257,106 @@
 
     <script>
       // =========================================================================
-      // BosatsuUI Runtime (matching bosatsu-ui-runtime.js)
+      // Configuration UI
       // =========================================================================
 
-      class BosatsuRuntime {
-        constructor(bindings, root) {
-          this.bindings = bindings
-          this.root = root
-          this.state = {}
-          this.bindingMap = new Map()
-          this.elementCache = new Map()
+      const batchSizeSlider = document.getElementById('batch-size');
+      const batchSizeValue = document.getElementById('batch-size-value');
+      const flushDelaySelect = document.getElementById('flush-delay');
 
-          // Build binding map: statePath (as string) -> bindings[]
-          bindings.forEach((b) => {
-            const key = b.statePath.join('.')
-            const existing = this.bindingMap.get(key) || []
-            this.bindingMap.set(key, [...existing, b])
-          })
+      function getBatchSize() {
+        const val = parseInt(batchSizeSlider.value);
+        return val >= 1000 ? Infinity : val;
+      }
+
+      function getFlushDelay() {
+        const val = flushDelaySelect.value;
+        return val === 'microtask' ? 'microtask' : parseInt(val);
+      }
+
+      batchSizeSlider.addEventListener('input', () => {
+        const val = getBatchSize();
+        batchSizeValue.textContent = val === Infinity ? 'Infinity' : val;
+        applyBosatsuConfig();
+      });
+
+      flushDelaySelect.addEventListener('change', applyBosatsuConfig);
+
+      function applyBosatsuConfig() {
+        if (window.BosatsuUI && window.BosatsuUI.configure) {
+          window.BosatsuUI.configure({
+            batchSize: getBatchSize(),
+            flushDelay: getFlushDelay()
+          });
         }
+      }
 
-        mount(initialState) {
-          this.state = initialState
-        }
+      // Apply initial config
+      applyBosatsuConfig();
 
-        setState(path, value) {
-          // Update state
-          this.state = this.setAtPath(this.state, path, value)
-          // Apply bindings directly - O(1) lookup, O(1) update per binding
-          this.applyBindingsForPath(path)
-        }
+      // =========================================================================
+      // DOM Write Tracking
+      // =========================================================================
 
-        applyBindingsForPath(path) {
-          const key = path.join('.')
-          const bindings = this.bindingMap.get(key) || []
+      let bosatsuDOMWrites = 0;
+      let reactDOMWrites = 0;
 
-          bindings.forEach((binding) => {
-            // Use element cache for O(1) lookup
-            let element = this.elementCache.get(binding.elementId)
-            if (!element) {
-              element = this.root.querySelector(`#${binding.elementId}`)
-              if (element) this.elementCache.set(binding.elementId, element)
-            }
-
-            if (element) {
-              const newValue = this.getAtPath(this.state, binding.statePath || path)
-              element.textContent = String(newValue)
-            }
-          })
-        }
-
-        getAtPath(obj, path) {
-          return path.reduce((o, k) => o?.[k], obj)
-        }
-
-        setAtPath(obj, path, value) {
-          if (path.length === 0) return value
-          const [first, ...rest] = path
-          return {
-            ...obj,
-            [first]: rest.length === 0 ? value : this.setAtPath(obj[first] || {}, rest, value),
-          }
-        }
+      function resetDOMWriteCounts() {
+        bosatsuDOMWrites = 0;
+        reactDOMWrites = 0;
       }
 
       // =========================================================================
       // Real React 18 Counter Component
       // =========================================================================
 
-      // We use the global React and ReactDOM loaded from CDN
-      const { useState, useCallback, memo } = React
+      const { useState, useCallback, memo, useEffect } = React;
 
-      // Counter component for single update test
       function ReactCounter() {
-        const [count, setCount] = useState(0)
+        const [count, setCount] = useState(0);
 
-        // Expose setter globally for benchmark
-        window._reactSetCount = setCount
+        window._reactSetCount = (val) => {
+          setCount(val);
+          reactDOMWrites++;
+        };
 
         return React.createElement('div', { id: 'react-counter-app' },
           React.createElement('span', { id: 'react-count' }, count)
-        )
+        );
       }
 
-      // List item component (memoized for fair comparison)
       const ListItem = memo(function ListItem({ id, value }) {
-        return React.createElement('li', { id: `react-item-${id}` }, value)
-      })
+        return React.createElement('li', { id: `react-item-${id}` }, value);
+      });
 
-      // List component for list update test
       function ReactList({ size }) {
         const [items, setItems] = useState(() =>
           Array.from({ length: size }, (_, i) => i)
-        )
+        );
 
-        // Expose setter globally for benchmark
-        window._reactSetItems = setItems
-        window._reactItems = items
+        window._reactSetItems = (fn) => {
+          setItems(fn);
+          reactDOMWrites++;
+        };
+        window._reactItems = items;
 
         return React.createElement('ul', { id: 'react-list' },
           items.map((value, i) =>
             React.createElement(ListItem, { key: i, id: i, value })
           )
-        )
+        );
       }
 
-      // Targeted update component (10 separate values)
       function ReactTargeted() {
-        const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+        const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
         const [values, setValues] = useState(() =>
           Object.fromEntries(keys.map(k => [k, 0]))
-        )
+        );
 
-        // Expose setter globally for benchmark
-        window._reactSetValues = setValues
+        window._reactSetValues = (fn) => {
+          setValues(fn);
+          reactDOMWrites++;
+        };
 
         return React.createElement('div', { id: 'react-targeted-app' },
           keys.map(k =>
@@ -293,7 +364,45 @@
               React.createElement('span', { id: `react-value-${k}` }, values[k])
             )
           )
-        )
+        );
+      }
+
+      // =========================================================================
+      // BosatsuUI Wrapper (uses real runtime from bosatsu-ui-runtime.js)
+      // =========================================================================
+
+      class BosatsuBenchmarkWrapper {
+        constructor(bindings, root) {
+          this.root = root;
+          this.bindings = {};
+
+          // Convert array bindings to the format expected by the runtime
+          bindings.forEach((b) => {
+            const key = b.statePath.join('.');
+            if (!this.bindings[key]) {
+              this.bindings[key] = [];
+            }
+            this.bindings[key].push({
+              elementId: b.elementId,
+              property: b.property,
+              statePath: b.statePath
+            });
+          });
+        }
+
+        mount(initialState) {
+          window.BosatsuUI._initRuntime(this.bindings, initialState);
+          // Build element cache
+          this.root.querySelectorAll('[id]').forEach(el => {
+            window.BosatsuUI._elementCache.set(`[data-bosatsu-id="${el.id}"]`, el);
+            window.BosatsuUI._elementCache.set(`#${el.id}`, el);
+          });
+        }
+
+        setState(path, value) {
+          window.BosatsuUI.setState(path, value);
+          bosatsuDOMWrites++;
+        }
       }
 
       // =========================================================================
@@ -301,30 +410,28 @@
       // =========================================================================
 
       async function runThroughputBenchmark(name, durationMs, setupFn, updateFn) {
-        // Allow React to settle
-        await new Promise(r => setTimeout(r, 50))
+        await new Promise(r => setTimeout(r, 50));
 
-        let ops = 0
+        let ops = 0;
 
         // Warmup
         for (let i = 0; i < 100; i++) {
-          updateFn(i)
+          updateFn(i);
         }
-        // Let React flush
-        await new Promise(r => setTimeout(r, 50))
+        await new Promise(r => setTimeout(r, 50));
 
-        const benchStart = performance.now()
+        const benchStart = performance.now();
         while (performance.now() - benchStart < durationMs) {
-          updateFn(ops)
-          ops++
+          updateFn(ops);
+          ops++;
         }
-        const elapsed = performance.now() - benchStart
+        const elapsed = performance.now() - benchStart;
 
-        // Let React flush final updates
-        await new Promise(r => setTimeout(r, 50))
+        // Let React/BosatsuUI flush final updates
+        await new Promise(r => setTimeout(r, 50));
 
-        const opsPerSec = (ops / elapsed) * 1000
-        const avgMs = elapsed / ops
+        const opsPerSec = (ops / elapsed) * 1000;
+        const avgMs = elapsed / ops;
 
         return {
           name,
@@ -332,58 +439,81 @@
           totalMs: elapsed,
           avgMs,
           opsPerSec,
-        }
+        };
       }
 
       function setProgress(msg) {
-        document.getElementById('progress').textContent = msg
+        document.getElementById('progress').textContent = msg;
       }
 
-      function formatResults(results) {
-        let html = '<table>'
+      function formatResults(results, bosatsuWrites, reactWrites) {
+        let html = '<table>';
         html +=
-          '<tr><th>Framework</th><th>Avg (ms)</th><th>Ops/sec</th><th>Speedup vs React</th></tr>'
+          '<tr><th>Framework</th><th>Avg (ms)</th><th>Ops/sec</th><th>Speedup vs React</th></tr>';
 
-        const reactResult = results.find((r) => r.name.includes('React'))
-        const reactAvg = reactResult ? reactResult.avgMs : 1
+        const reactResult = results.find((r) => r.name.includes('React'));
+        const reactAvg = reactResult ? reactResult.avgMs : 1;
 
         results.forEach((r) => {
-          const speedup = reactAvg / r.avgMs
+          const speedup = reactAvg / r.avgMs;
           const speedupText = r.name.includes('React')
             ? '1.00x (baseline)'
-            : `${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'}`
-          const cls = speedup > 1.5 ? 'faster' : speedup < 0.9 ? 'slower' : ''
+            : `${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'}`;
+          const cls = speedup > 1.5 ? 'faster' : speedup < 0.9 ? 'slower' : '';
 
           html += `<tr class="${cls}">
             <td>${r.name}</td>
             <td>${r.avgMs.toFixed(4)}</td>
             <td>${Math.round(r.opsPerSec).toLocaleString()}</td>
             <td>${speedupText}</td>
-          </tr>`
-        })
+          </tr>`;
+        });
 
-        html += '</table>'
-        return html
+        html += '</table>';
+
+        // Add DOM writes comparison
+        html += `<div class="dom-writes">
+          <h4>DOM Write Counts (setState calls)</h4>
+          <div class="dom-writes-grid">
+            <div class="dom-writes-item">
+              <span>BosatsuUI:</span>
+              <strong>${bosatsuWrites.toLocaleString()}</strong>
+            </div>
+            <div class="dom-writes-item">
+              <span>React 18:</span>
+              <strong>${reactWrites.toLocaleString()}</strong>
+            </div>
+          </div>
+          <p style="margin: 8px 0 0; font-size: 12px; color: #666;">
+            Note: With batching, multiple setState calls may result in fewer actual DOM updates.
+            React 18 batches all setState calls in a tick into one render.
+          </p>
+        </div>`;
+
+        return html;
       }
 
       // =========================================================================
-      // Single Update Benchmark (uses REAL React)
+      // Single Update Benchmark
       // =========================================================================
 
       async function runSingleBenchmark() {
-        setProgress('Running single update benchmark...')
-        const results = []
-        const durationMs = 2000
+        setProgress('Running single update benchmark...');
+        const results = [];
+        const durationMs = 2000;
+
+        resetDOMWriteCounts();
+        applyBosatsuConfig();
 
         // Setup BosatsuUI
-        const bosatsuRoot = document.getElementById('bosatsu-root')
-        bosatsuRoot.innerHTML = '<div id="bosatsu-counter-app"><span id="bosatsu-count">0</span></div>'
+        const bosatsuRoot = document.getElementById('bosatsu-root');
+        bosatsuRoot.innerHTML = '<div id="bosatsu-counter-app"><span id="bosatsu-count">0</span></div>';
 
-        const bosatsu = new BosatsuRuntime(
+        const bosatsu = new BosatsuBenchmarkWrapper(
           [{ elementId: 'bosatsu-count', property: 'textContent', statePath: ['count'] }],
           bosatsuRoot
-        )
-        bosatsu.mount({ count: 0 })
+        );
+        bosatsu.mount({ count: 0 });
 
         results.push(
           await runThroughputBenchmark(
@@ -392,17 +522,18 @@
             null,
             (i) => bosatsu.setState(['count'], i % 10000)
           )
-        )
+        );
+        const bosatsuWrites = bosatsuDOMWrites;
 
         // Setup REAL React 18
-        const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = ''
-        const root = ReactDOM.createRoot(reactRoot)
-        root.render(React.createElement(ReactCounter))
+        const reactRoot = document.getElementById('react-root');
+        reactRoot.innerHTML = '';
+        const root = ReactDOM.createRoot(reactRoot);
+        root.render(React.createElement(ReactCounter));
 
-        // Wait for React to mount
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 100));
 
+        resetDOMWriteCounts();
         results.push(
           await runThroughputBenchmark(
             'React 18 (VDOM)',
@@ -410,57 +541,63 @@
             null,
             (i) => window._reactSetCount(i % 10000)
           )
-        )
+        );
+        const reactWrites = reactDOMWrites;
 
-        // Cleanup React
-        root.unmount()
+        root.unmount();
 
-        let html = '<h3>Single Property Update</h3>'
-        html += formatResults(results)
+        const config = window.BosatsuUI.getConfig();
+        let html = '<h3>Single Property Update</h3>';
+        html += `<p style="color: #666; margin-bottom: 8px;">BosatsuUI config: batchSize=${config.batchSize === Infinity ? '∞' : config.batchSize}, flushDelay=${config.flushDelay}</p>`;
+        html += formatResults(results, bosatsuWrites, reactWrites);
         html += `<div class="speedup">
           <h3>Why BosatsuUI is faster:</h3>
           <p>BosatsuUI looks up the binding for <code>['count']</code> and directly sets
           <code>element.textContent = value</code>. React must schedule a re-render,
           create a new VDOM tree, diff it, and apply patches.</p>
-        </div>`
+          <p>With batching enabled (batchSize=Infinity), BosatsuUI collects updates in a Map
+          and flushes once per microtask—same as React 18's automatic batching—but skips
+          VDOM diffing entirely.</p>
+        </div>`;
 
-        document.getElementById('results').innerHTML = html
-        setProgress('')
+        document.getElementById('results').innerHTML = html;
+        setProgress('');
       }
 
       // =========================================================================
-      // List Update Benchmark (uses REAL React with memo)
+      // List Update Benchmark
       // =========================================================================
 
       async function runListBenchmark() {
-        setProgress('Running list update benchmark...')
-        const results = []
-        const durationMs = 2000
-        const listSize = 100
+        setProgress('Running list update benchmark...');
+        const results = [];
+        const durationMs = 2000;
+        const listSize = 100;
 
-        // Setup BosatsuUI with per-item bindings
-        const bosatsuRoot = document.getElementById('bosatsu-root')
-        let html = '<ul id="bosatsu-list">'
+        resetDOMWriteCounts();
+        applyBosatsuConfig();
+
+        const bosatsuRoot = document.getElementById('bosatsu-root');
+        let html = '<ul id="bosatsu-list">';
         for (let i = 0; i < listSize; i++) {
-          html += `<li id="bosatsu-item-${i}">${i}</li>`
+          html += `<li id="bosatsu-item-${i}">${i}</li>`;
         }
-        html += '</ul>'
-        bosatsuRoot.innerHTML = html
+        html += '</ul>';
+        bosatsuRoot.innerHTML = html;
 
-        // Create bindings for each item
-        const bindings = []
-        const initialState = { items: {} }
+        const bindings = [];
+        const initialState = { items: {} };
         for (let i = 0; i < listSize; i++) {
           bindings.push({
             elementId: `bosatsu-item-${i}`,
             property: 'textContent',
             statePath: ['items', String(i)],
-          })
-          initialState.items[i] = i
+          });
+          initialState.items[i] = i;
         }
 
-        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot)
-        bosatsu.mount(initialState)
+        const bosatsu = new BosatsuBenchmarkWrapper(bindings, bosatsuRoot);
+        bosatsu.mount(initialState);
 
         results.push(
           await runThroughputBenchmark(
@@ -468,79 +605,83 @@
             durationMs,
             null,
             (i) => {
-              const index = i % listSize
-              bosatsu.setState(['items', String(index)], i % 10000)
+              const index = i % listSize;
+              bosatsu.setState(['items', String(index)], i % 10000);
             }
           )
-        )
+        );
+        const bosatsuWrites = bosatsuDOMWrites;
 
-        // Setup REAL React 18 with memoized list items
-        const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = ''
-        const root = ReactDOM.createRoot(reactRoot)
-        root.render(React.createElement(ReactList, { size: listSize }))
+        const reactRoot = document.getElementById('react-root');
+        reactRoot.innerHTML = '';
+        const root = ReactDOM.createRoot(reactRoot);
+        root.render(React.createElement(ReactList, { size: listSize }));
 
-        // Wait for React to mount
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 100));
 
+        resetDOMWriteCounts();
         results.push(
           await runThroughputBenchmark(
             `React 18 (1 of ${listSize} items, memo)`,
             durationMs,
             null,
             (i) => {
-              const index = i % listSize
+              const index = i % listSize;
               window._reactSetItems(prev => {
-                const copy = [...prev]
-                copy[index] = i % 10000
-                return copy
-              })
+                const copy = [...prev];
+                copy[index] = i % 10000;
+                return copy;
+              });
             }
           )
-        )
+        );
+        const reactWrites = reactDOMWrites;
 
-        // Cleanup React
-        root.unmount()
+        root.unmount();
 
-        let resultHtml = `<h3>List Item Update (${listSize}-item list)</h3>`
-        resultHtml += formatResults(results)
+        const config = window.BosatsuUI.getConfig();
+        let resultHtml = `<h3>List Item Update (${listSize}-item list)</h3>`;
+        resultHtml += `<p style="color: #666; margin-bottom: 8px;">BosatsuUI config: batchSize=${config.batchSize === Infinity ? '∞' : config.batchSize}, flushDelay=${config.flushDelay}</p>`;
+        resultHtml += formatResults(results, bosatsuWrites, reactWrites);
         resultHtml += `<div class="speedup">
           <h3>Why BosatsuUI is faster:</h3>
           <p>BosatsuUI has a direct binding for each list item: <code>['items', '42']</code>
           maps to <code>#bosatsu-item-42.textContent</code>. Updating one item is O(1).</p>
           <p>React must create a new array, re-render the parent, and even with <code>memo()</code>
           must check each of ${listSize} children to determine which changed.</p>
-        </div>`
+        </div>`;
 
-        document.getElementById('results').innerHTML = resultHtml
-        setProgress('')
+        document.getElementById('results').innerHTML = resultHtml;
+        setProgress('');
       }
 
       // =========================================================================
-      // Targeted Update Benchmark (uses REAL React)
+      // Targeted Update Benchmark
       // =========================================================================
 
       async function runTargetedBenchmark() {
-        setProgress('Running targeted update benchmark...')
-        const results = []
-        const durationMs = 2000
-        const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+        setProgress('Running targeted update benchmark...');
+        const results = [];
+        const durationMs = 2000;
+        const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
 
-        // BosatsuUI - direct binding per element
-        const bosatsuRoot = document.getElementById('bosatsu-root')
+        resetDOMWriteCounts();
+        applyBosatsuConfig();
+
+        const bosatsuRoot = document.getElementById('bosatsu-root');
         bosatsuRoot.innerHTML = `<div id="bosatsu-targeted-app">${keys.map((k) =>
           `<div id="bosatsu-section-${k}"><span id="bosatsu-value-${k}">0</span></div>`
-        ).join('')}</div>`
+        ).join('')}</div>`;
 
         const bindings = keys.map((k) => ({
           elementId: `bosatsu-value-${k}`,
           property: 'textContent',
           statePath: [k],
-        }))
-        const initialState = Object.fromEntries(keys.map((k) => [k, 0]))
+        }));
+        const initialState = Object.fromEntries(keys.map((k) => [k, 0]));
 
-        const bosatsu = new BosatsuRuntime(bindings, bosatsuRoot)
-        bosatsu.mount(initialState)
+        const bosatsu = new BosatsuBenchmarkWrapper(bindings, bosatsuRoot);
+        bosatsu.mount(initialState);
 
         results.push(
           await runThroughputBenchmark(
@@ -548,48 +689,50 @@
             durationMs,
             null,
             (i) => {
-              const key = keys[i % keys.length]
-              bosatsu.setState([key], i % 10000)
+              const key = keys[i % keys.length];
+              bosatsu.setState([key], i % 10000);
             }
           )
-        )
+        );
+        const bosatsuWrites = bosatsuDOMWrites;
 
-        // Setup REAL React 18
-        const reactRoot = document.getElementById('react-root')
-        reactRoot.innerHTML = ''
-        const root = ReactDOM.createRoot(reactRoot)
-        root.render(React.createElement(ReactTargeted))
+        const reactRoot = document.getElementById('react-root');
+        reactRoot.innerHTML = '';
+        const root = ReactDOM.createRoot(reactRoot);
+        root.render(React.createElement(ReactTargeted));
 
-        // Wait for React to mount
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 100));
 
+        resetDOMWriteCounts();
         results.push(
           await runThroughputBenchmark(
             'React 18 (1 of 10 elements)',
             durationMs,
             null,
             (i) => {
-              const key = keys[i % keys.length]
-              window._reactSetValues(prev => ({ ...prev, [key]: i % 10000 }))
+              const key = keys[i % keys.length];
+              window._reactSetValues(prev => ({ ...prev, [key]: i % 10000 }));
             }
           )
-        )
+        );
+        const reactWrites = reactDOMWrites;
 
-        // Cleanup React
-        root.unmount()
+        root.unmount();
 
-        let html = '<h3>Targeted Update (update 1 element in 10-element tree)</h3>'
-        html += formatResults(results)
+        const config = window.BosatsuUI.getConfig();
+        let html = '<h3>Targeted Update (update 1 element in 10-element tree)</h3>';
+        html += `<p style="color: #666; margin-bottom: 8px;">BosatsuUI config: batchSize=${config.batchSize === Infinity ? '∞' : config.batchSize}, flushDelay=${config.flushDelay}</p>`;
+        html += formatResults(results, bosatsuWrites, reactWrites);
         html += `<div class="speedup">
           <h3>Why BosatsuUI excels at targeted updates:</h3>
           <p>This is BosatsuUI's sweet spot. Updating state path <code>['c']</code>
           triggers a direct O(1) lookup and update of <code>#bosatsu-value-c.textContent</code>.</p>
           <p>React must re-render the parent component and reconcile all 10 children,
           even though only one value changed.</p>
-        </div>`
+        </div>`;
 
-        document.getElementById('results').innerHTML = html
-        setProgress('')
+        document.getElementById('results').innerHTML = html;
+        setProgress('');
       }
 
       // =========================================================================
@@ -597,21 +740,21 @@
       // =========================================================================
 
       async function runAllBenchmarks() {
-        const buttons = document.querySelectorAll('button')
-        buttons.forEach((b) => (b.disabled = true))
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach((b) => (b.disabled = true));
 
-        document.getElementById('results').innerHTML = '<p>Running benchmarks... this may take a while.</p>'
+        document.getElementById('results').innerHTML = '<p>Running benchmarks... this may take a while.</p>';
 
-        await runSingleBenchmark()
-        await new Promise((r) => setTimeout(r, 500))
+        await runSingleBenchmark();
+        await new Promise((r) => setTimeout(r, 500));
 
-        await runListBenchmark()
-        await new Promise((r) => setTimeout(r, 500))
+        await runListBenchmark();
+        await new Promise((r) => setTimeout(r, 500));
 
-        await runTargetedBenchmark()
+        await runTargetedBenchmark();
 
-        buttons.forEach((b) => (b.disabled = false))
-        setProgress('All benchmarks complete!')
+        buttons.forEach((b) => (b.disabled = false));
+        setProgress('All benchmarks complete!');
       }
     </script>
   </body>
