@@ -1310,6 +1310,55 @@ dontCall = (_: (forall a. a) -> Bar) -> Foo
       "Foo"
     )
   }
+
+  test("polymorphic result from application") {
+    parseProgram(
+      """#
+enum Opt:
+  None, Some(a)
+
+def make_none(_):
+  None
+
+main: forall a. Opt[a] = make_none(1)
+""",
+      "forall a. Opt[a]"
+    )
+  }
+
+  test("apply with nested forall in argument type") {
+    parseProgram(
+      """#
+struct Wrap(f)
+
+(id: forall a. a -> a) = x -> x
+
+(wrap_id: Wrap[forall a. a -> a]) = Wrap(id)
+
+def unwrap_apply(w, x):
+  Wrap(f) = w
+  f(x)
+
+main = unwrap_apply(wrap_id, 1)
+""",
+      "Int"
+    )
+  }
+
+  test("wrap polymorphic function via higher-rank arg") {
+    parseProgram(
+      """#
+struct Wrap(f)
+
+(id: forall a. a -> a) = x -> x
+
+(wrap: forall a. (a -> a) -> Wrap[a -> a]) = f -> Wrap(f)
+
+main: Wrap[forall a. a -> a] = wrap(id)
+""",
+      "Wrap[forall a. a -> a]"
+    )
+  }
   test("ForAll as function arg") {
     parseProgram(
       """#
