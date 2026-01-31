@@ -370,16 +370,27 @@ function _applyBindingsForPath(path) {
   if (!bindings) return;
 
   for (const binding of bindings) {
-    // Check conditional binding condition
-    if (!_shouldApplyBinding(binding)) continue;
-
-    // Find the element
+    // Find the element first (needed for both apply and hide)
     const element = _findElement(
       binding.elementId.startsWith('#') || binding.elementId.startsWith('[')
         ? binding.elementId
         : `[data-bosatsu-id="${binding.elementId}"]`
     );
     if (!element) continue;
+
+    // Check conditional binding condition
+    if (!_shouldApplyBinding(binding)) {
+      // Hide element when condition isn't met (for conditional rendering)
+      if (binding.when && !binding.when.isTotal) {
+        element.style.display = 'none';
+      }
+      continue;
+    }
+
+    // Show element when condition is met
+    if (binding.when && !binding.when.isTotal) {
+      element.style.display = '';
+    }
 
     // Get the new value
     let newValue = _getAtPath(_state, binding.statePath || path);

@@ -371,9 +371,19 @@ object UIAnalyzer {
 
           // Add pattern-bound variables to context
           // e.g., Success(user) makes "user" available as ["status", "Success", "0"]
-          (discriminant, variantTag) match {
-            case (Some(d), Some(t)) =>
+          // For top-level Var patterns like `case x ->`, bind x to the discriminant
+          (discriminant, variantTag, pattern) match {
+            case (Some(d), Some(t), _) =>
               addPatternBindings(pattern, d, t, ctx)
+            case (Some(d), None, Pattern.Var(name)) =>
+              // Top-level Var pattern binds to the discriminant directly
+              ctx.trackBinding(name, d)
+            case (Some(d), None, Pattern.Named(name, inner)) =>
+              // Named pattern like `case x @ Something ->` binds x to discriminant
+              ctx.trackBinding(name, d)
+              extractVariantTag(inner).foreach { innerTag =>
+                addPatternBindings(inner, d, innerTag, ctx)
+              }
             case _ => ()
           }
 
@@ -975,8 +985,10 @@ object UIAnalyzer {
             case Pattern.Named(name, inner) =>
               val path = discriminant ++ List(tag, idx.toString)
               ctx.trackBinding(name, path)
-              // Recursively process inner pattern
-              addPatternBindings(inner, path, "", ctx)
+              // Recursively process inner pattern with its own tag (if it has one)
+              extractVariantTag(inner).foreach { innerTag =>
+                addPatternBindings(inner, path, innerTag, ctx)
+              }
             case Pattern.Annotation(inner, _) =>
               addPatternBindings(inner, discriminant, tag, ctx)
             case _ => ()
@@ -1158,6 +1170,21 @@ object UIAnalyzer {
   }
 
   /**
+   * Escape a string for JavaScript string literals.
+   * Handles backslashes, quotes, and other special characters.
+   */
+  private def escapeJs(s: String): String = {
+    s.flatMap {
+      case '\\' => "\\\\"
+      case '"'  => "\\\""
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case c    => c.toString
+    }
+  }
+
+  /**
    * Generate JavaScript object representation of bindings.
    * Used for embedding in generated code.
    *
@@ -1170,8 +1197,8 @@ object UIAnalyzer {
       val bindingArrays = bs.map { b =>
         val whenJs = b.when match {
           case Some(cond) =>
-            val discPath = cond.discriminant.map(s => s""""$s"""").mkString("[", ", ", "]")
-            s"""{"discriminant": $discPath, "tag": "${cond.tag}", "isTotal": ${cond.isTotal}}"""
+            val discPath = cond.discriminant.map(s => s""""${escapeJs(s)}"""").mkString("[", ", ", "]")
+            s"""{"discriminant": $discPath, "tag": "${escapeJs(cond.tag)}", "isTotal": ${cond.isTotal}}"""
           case None =>
             "null"
         }
