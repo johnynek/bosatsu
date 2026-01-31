@@ -521,10 +521,62 @@ object Type {
         case m @ TyMeta(_)  => m
         case c @ TyConst(_) => c
         case q: Quantified  =>
-          val boundSet = q.vars.iterator.map(_._1).toSet[Type.Var]
-          val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
-          val subin = substituteVar(q.in, env1)
-          quantify(q.quant, subin)
+          val boundSet = q.vars.iterator.map(_._1).toSet[Type.Var.Bound]
+          val env1 = env.iterator.filter {
+            case (v: Type.Var.Bound, _) => !boundSet(v)
+            case _                      => true
+          }.toMap
+
+          // only care about substitutions that could apply in this body
+          val freeInBody = freeTyVars(q :: Nil).toSet
+          val envUsed = env1.iterator.filter { case (v, _) =>
+            freeInBody(v)
+          }.toMap
+
+          // avoid capture: if any bound var is free in the substitution range,
+          // rename the binder before substituting
+          val freeInEnv =
+            freeBoundTyVars(envUsed.values.toList).toSet
+          val envBoundKeys =
+            env1.keys.collect { case b: Type.Var.Bound => b }.toSet
+          val collisions =
+            q.vars.toList.collect {
+              case pair @ (b, _) if freeInEnv(b) => pair
+            }
+
+          val (q1, in1) =
+            NonEmptyList.fromList(collisions) match {
+              case None =>
+                (q.quant, q.in)
+              case Some(nel) =>
+                // we must avoid any free vars in the body or the substitution env,
+                // as well as any existing binders in this quantification.
+                val avoid =
+                  freeBoundTyVars(q :: Nil).toSet ++ freeInEnv ++ boundSet ++ envBoundKeys
+
+                val renamed = alignBinders(nel, avoid)
+                val renMap =
+                  renamed.iterator.map { case ((b, _), b1) => (b, b1) }.toMap
+                val subMap =
+                  renMap.view.mapValues(TyVar(_)).toMap[Type.Var, Type.Rho]
+
+                val in1 = substituteRhoVar(q.in, subMap)
+                val q1 = Quantification
+                  .fromLists(
+                    forallList = q.forallList.map { case (b, k) =>
+                      (renMap.getOrElse(b, b), k)
+                    },
+                    existList = q.existList.map { case (b, k) =>
+                      (renMap.getOrElse(b, b), k)
+                    }
+                  )
+                  .get
+
+                (q1, in1)
+            }
+
+          val subin = substituteVar(in1, env1)
+          quantify(q1, subin)
       })
 
   def packageNamesIn(t: Type): List[PackageName] =
@@ -632,25 +684,41 @@ object Type {
                 loop(b, tb, s1)
               }
             case ForAll(rightFrees, rightT) =>
-              // TODO handle shadowing
-              if (
-                rightFrees.exists { case (b, _) =>
-                  state.rightFrees.contains(b)
-                }
-              ) {
-                None
-              } else {
-                loop(
-                  from,
-                  rightT,
-                  state.copy(rightFrees =
-                    state.rightFrees ++ rightFrees.iterator
-                  )
-                )
-                  .map { s1 =>
-                    s1.copy(rightFrees = state.rightFrees)
-                  }
+              val collisions = rightFrees.toList.filter { case (b, _) =>
+                state.rightFrees.contains(b)
               }
+
+              val (rightFrees1, rightT1) =
+                if (collisions.isEmpty) (rightFrees, rightT)
+                else {
+                  val avoidSet =
+                    state.rightFrees.keySet ++ env.keySet ++
+                      rightFrees.iterator.map(_._1) ++
+                      freeBoundTyVars(rightT :: Nil)
+                  val aligned = alignBinders(collisions, avoidSet)
+                  val subMap = aligned.iterator.map { case ((b, _), b1) =>
+                    (b, TyVar(b1))
+                  }.toMap[Var, Type]
+                  val remap = aligned.iterator.map { case ((b, _), b1) =>
+                    (b, b1)
+                  }.toMap
+                  val rightFrees1 = rightFrees.map { case (b, k) =>
+                    (remap.getOrElse(b, b), k)
+                  }
+                  val rightT1 = substituteVar(rightT, subMap)
+                  (rightFrees1, rightT1)
+                }
+
+              loop(
+                from,
+                rightT1,
+                state.copy(rightFrees =
+                  state.rightFrees ++ rightFrees1.iterator
+                )
+              )
+                .map { s1 =>
+                  s1.copy(rightFrees = state.rightFrees)
+                }
             case _ => None
           }
         case ForAll(shadows, from1) =>
