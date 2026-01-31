@@ -1,8 +1,8 @@
 package dev.bosatsu.library
 
-import cats.data.{Ior, NonEmptyList, ValidatedNec}
+import cats.data.{Ior, NonEmptyList}
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
-import dev.bosatsu.{ExportedName, Identifier, Kind, PackageError, PackageName, Referant}
+import dev.bosatsu.{Identifier, Kind, PackageName, Referant, ExportedName}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.SortedMap
 
@@ -16,38 +16,6 @@ sealed abstract class Diff {
 
 object ApiDiff {
   type R = Referant[Kind.Arg]
-  type V[A] = ValidatedNec[ApiDiff.Error, A]
-
-  sealed abstract class Error {
-    def toDoc: Doc
-  }
-  object Error {
-    sealed abstract class MissingEnv {
-      def label: String
-    }
-    case object Previous extends MissingEnv {
-      val label = "previous"
-    }
-    case object Current extends MissingEnv {
-      val label = "current"
-    }
-
-    case class MissingTransitiveType(
-        pack: PackageName,
-        tpe: Type,
-        transitive: Type.TyConst,
-        env: MissingEnv
-    ) extends Error {
-      def toDoc: Doc = {
-        val tdocs = PackageError.showTypes(pack, tpe :: transitive :: Nil)
-        Doc.text(show"while diffing $pack, type ") +
-          tdocs(tpe) +
-          Doc.text(" references missing transitive type ") +
-          tdocs(transitive) +
-          Doc.text(s" in ${env.label} environment")
-      }
-    }
-  }
 
   case class AddedName(
       pack: PackageName,
@@ -266,29 +234,22 @@ object ApiDiff {
       prevEnv: TypeEnv[Kind.Arg],
       current: SortedMap[PackageName, List[ExportedName[R]]],
       curEnv: TypeEnv[Kind.Arg]
-  ): V[Diffs] = {
-    val aligned = prevIface.align(current).toList
+  ): Diffs =
 
-    aligned
-      .traverse { case (pack, ior) =>
-        ior match {
-          case Ior.Left(es)  => (pack, RemovedPackage(pack, es) :: Nil).validNec
-          case Ior.Right(es) => (pack, AddedPackage(pack, es) :: Nil).validNec
-          case Ior.Both(oldE, newE) =>
-            apply(pack, oldE, prevEnv, newE, curEnv).map(d => (pack, d))
+    Diffs(
+      prevIface
+        .align(current)
+        .transform { (pack, ior) =>
+          ior match {
+            case Ior.Left(es)         => RemovedPackage(pack, es) :: Nil
+            case Ior.Right(es)        => AddedPackage(pack, es) :: Nil
+            case Ior.Both(oldE, newE) =>
+              apply(pack, oldE, prevEnv, newE, curEnv)
+          }
         }
-      }
-      .map { pairs =>
-        val diffMap =
-          pairs.iterator
-            .collect {
-              case (pack, diffs) if diffs.nonEmpty =>
-                pack -> NonEmptyList.fromListUnsafe(diffs)
-            }
-            .to(SortedMap)
-        Diffs(diffMap)
-      }
-  }
+        .filter { case (_, diffs) => diffs.nonEmpty }
+        .transform((_, diffs) => NonEmptyList.fromListUnsafe(diffs))
+    )
 
   private def apply(
       pn: PackageName,
@@ -296,39 +257,35 @@ object ApiDiff {
       prevEnv: TypeEnv[Kind.Arg],
       current: List[ExportedName[R]],
       curEnv: TypeEnv[Kind.Arg]
-  ): V[List[Diff]] = {
-    import Error._
-
-    def diffType(oldTpe: Type, newTpe: Type): V[List[Diff]] =
+  ): List[Diff] = {
+    def diffType(oldTpe: Type, newTpe: Type): List[Diff] =
       // this should be the only valid case, otherwise there were multiple things previously
       if (oldTpe.sameAs(newTpe)) {
         // these are the same so they reference the same consts
         val consts = Type.allConsts(oldTpe :: Nil)
 
-        consts
-          .traverse { const =>
-            val oldDtOpt = prevEnv.getType(const)
-            val newDtOpt = curEnv.getType(const)
-
-            (oldDtOpt, newDtOpt) match {
-              case (Some(oldDt), Some(newDt)) =>
-                diffDT(oldDt, newDt)
-                  .map(_.map(diff => ChangedTransitiveType(newTpe, const, diff)))
-              case (None, _) =>
-                MissingTransitiveType(pn, oldTpe, const, Previous).invalidNec
-              case (_, None) =>
-                MissingTransitiveType(pn, oldTpe, const, Current).invalidNec
-            }
-          }
-          .map(_.flatten)
+        consts.flatMap { const =>
+          val oldDt = prevEnv
+            .getType(const)
+            .getOrElse(
+              sys.error(s"tpe=$oldTpe prevEnv=$prevEnv doesn't have $const")
+            )
+          val newDt = curEnv
+            .getType(const)
+            .getOrElse(
+              sys.error(s"tpe=$oldTpe prevEnv=$curEnv doesn't have $const")
+            )
+          diffDT(oldDt, newDt)
+            .map(diff => ChangedTransitiveType(newTpe, const, diff))
+        }
       } else {
-        (ChangedType(pn, oldTpe, newTpe) :: Nil).validNec
+        ChangedType(pn, oldTpe, newTpe) :: Nil
       }
 
     def diffDT(
         oldDt: DefinedType[Kind.Arg],
         newDt: DefinedType[Kind.Arg]
-    ): V[List[Diff]] = {
+    ): List[Diff] = {
       // invariant: oldDt.toTypeConst == newDt.toTypeConst
       val oldKind = oldDt.kindOf
       val newKind = newDt.kindOf
@@ -339,7 +296,7 @@ object ApiDiff {
           ChangedKind(pn, oldDt, newDt) :: Nil
         }
 
-      val consV: V[List[Diff]] = {
+      val cons = {
         val oldConsByName =
           oldDt.constructors.zipWithIndex.groupByNel(_._1.name)
         val newConsByName =
@@ -347,14 +304,11 @@ object ApiDiff {
         oldConsByName
           .align(newConsByName)
           .iterator
-          .toList
-          .traverse {
+          .flatMap {
             case (_, Ior.Left(nel)) =>
-              (ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil)
-                .validNec
+              ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil
             case (_, Ior.Right(nel)) =>
-              (ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil)
-                .validNec
+              ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil
             case (cons, Ior.Both(oldNel, newNel)) =>
               val (oldCfn, oldIdx) = oldNel.head
               val (newCfn, newIdx) = newNel.head
@@ -369,69 +323,67 @@ object ApiDiff {
                     newIdx
                   ) :: Nil)
 
-              val fnDiffV: V[List[Diff]] =
+              val fnDiff =
                 // ConstructorFn is a case class; equals is structural and safe here (no Eq instance in scope).
-                if (oldCfn === newCfn) Nil.validNec
+                if (oldCfn === newCfn) Nil
                 else {
+                  // there is some difference
                   oldCfn.args
                     .align(newCfn.args)
                     .iterator
                     .zipWithIndex
-                    .toList
-                    .traverse {
+                    .flatMap {
                       case (
                             Ior.Both((oldName, oldType), (newName, newType)),
                             idx
                           ) =>
-                        diffType(oldType, newType).map { tpeDiffs =>
-                          val tpeDiff = tpeDiffs.map(
-                            ConstructorParamChange(
-                              cons,
-                              oldDt.toTypeTyConst,
-                              idx,
-                              _
-                            )
+                        val tpeDiff = diffType(oldType, newType).map(
+                          ConstructorParamChange(
+                            cons,
+                            oldDt.toTypeTyConst,
+                            idx,
+                            _
                           )
+                        )
 
-                          if (oldName == newName) tpeDiff
-                          else
-                            (ConstructorParamNameChange(
-                              pn,
-                              cons,
-                              oldDt.toTypeTyConst,
-                              idx,
-                              oldName,
-                              newName
-                            ) :: tpeDiff)
-                        }
+                        if (oldName == newName) tpeDiff
+                        else
+                          (ConstructorParamNameChange(
+                            pn,
+                            cons,
+                            oldDt.toTypeTyConst,
+                            idx,
+                            oldName,
+                            newName
+                          ) :: tpeDiff)
                       case (Ior.Right((newName, newType)), idx) =>
-                        (ConstructorParamAdded(
+                        ConstructorParamAdded(
                           pn,
                           cons,
                           newDt.toTypeTyConst,
                           idx,
                           newName,
                           newType
-                        ) :: Nil).validNec
+                        ) :: Nil
                       case (Ior.Left((oldName, oldType)), idx) =>
-                        (ConstructorParamRemoved(
+                        ConstructorParamRemoved(
                           pn,
                           cons,
                           newDt.toTypeTyConst,
                           idx,
                           oldName,
                           oldType
-                        ) :: Nil).validNec
+                        ) :: Nil
                     }
-                    .map(_.flatten)
+                    .toList
                 }
 
-              fnDiffV.map(fnDiff => idxDiff ::: fnDiff)
+              idxDiff ::: fnDiff
           }
-          .map(_.flatten)
+          .toList
       }
 
-      consV.map(cons => kinds ::: cons)
+      kinds ::: cons
     }
 
     val prevMap = prev.groupByNel(_.name)
@@ -440,8 +392,7 @@ object ApiDiff {
     prevMap
       .align(currMap)
       .iterator
-      .toList
-      .traverse { case (name, ior) =>
+      .flatMap { case (name, ior) =>
         ior match {
           case Ior.Both(oldExp, newExp) =>
             name match {
@@ -459,7 +410,7 @@ object ApiDiff {
                         ExportedName.Binding(_, Referant.Value(newTpe)) :: Nil
                       ) =>
                     diffType(oldTpe, newTpe)
-                      .map(_.map(ChangedValue(bindable, _)))
+                      .map(ChangedValue(bindable, _))
                   case _ =>
                     // this is impossible for correctly constructed ExportedName[R] values
                     sys.error(
@@ -490,12 +441,11 @@ object ApiDiff {
                     )
                 }
             }
-          case Ior.Right(exports) =>
-            (AddedName(pn, name, exports) :: Nil).validNec
-          case Ior.Left(oldExp) =>
-            (RemovedName(pn, name, oldExp) :: Nil).validNec
+          case Ior.Right(exports) => AddedName(pn, name, exports) :: Nil
+          case Ior.Left(oldExp)   => RemovedName(pn, name, oldExp) :: Nil
         }
       }
-      .map(_.flatten.distinct)
+      .toList
+      .distinct
   }
 }
