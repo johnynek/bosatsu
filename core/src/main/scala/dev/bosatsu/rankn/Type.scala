@@ -684,25 +684,41 @@ object Type {
                 loop(b, tb, s1)
               }
             case ForAll(rightFrees, rightT) =>
-              // TODO handle shadowing
-              if (
-                rightFrees.exists { case (b, _) =>
-                  state.rightFrees.contains(b)
-                }
-              ) {
-                None
-              } else {
-                loop(
-                  from,
-                  rightT,
-                  state.copy(rightFrees =
-                    state.rightFrees ++ rightFrees.iterator
-                  )
-                )
-                  .map { s1 =>
-                    s1.copy(rightFrees = state.rightFrees)
-                  }
+              val collisions = rightFrees.toList.filter { case (b, _) =>
+                state.rightFrees.contains(b)
               }
+
+              val (rightFrees1, rightT1) =
+                if (collisions.isEmpty) (rightFrees, rightT)
+                else {
+                  val avoidSet =
+                    state.rightFrees.keySet ++ env.keySet ++
+                      rightFrees.iterator.map(_._1) ++
+                      freeBoundTyVars(rightT :: Nil)
+                  val aligned = alignBinders(collisions, avoidSet)
+                  val subMap = aligned.iterator.map { case ((b, _), b1) =>
+                    (b, TyVar(b1))
+                  }.toMap[Var, Type]
+                  val remap = aligned.iterator.map { case ((b, _), b1) =>
+                    (b, b1)
+                  }.toMap
+                  val rightFrees1 = rightFrees.map { case (b, k) =>
+                    (remap.getOrElse(b, b), k)
+                  }
+                  val rightT1 = substituteVar(rightT, subMap)
+                  (rightFrees1, rightT1)
+                }
+
+              loop(
+                from,
+                rightT1,
+                state.copy(rightFrees =
+                  state.rightFrees ++ rightFrees1.iterator
+                )
+              )
+                .map { s1 =>
+                  s1.copy(rightFrees = state.rightFrees)
+                }
             case _ => None
           }
         case ForAll(shadows, from1) =>

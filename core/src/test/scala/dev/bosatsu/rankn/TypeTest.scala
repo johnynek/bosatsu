@@ -573,6 +573,35 @@ class TypeTest extends munit.ScalaCheckSuite {
     check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", Nil)
   }
 
+  test("instantiate handles rhs forall shadowing") {
+    // Regression guard: instantiate should alpha-rename RHS forall binders
+    // that collide with already-in-scope binders instead of failing.
+    def ok(from: String, matches: String) = {
+      val Type.ForAll(fas, t) = parse(from).runtimeChecked
+      val targ = parse(matches)
+      val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+      assert(res.nonEmpty, s"could not instantiate: $from to $matches")
+    }
+
+    ok(
+      "forall b. Bosatsu/Predef::Option[b]",
+      "forall a. forall a. Bosatsu/Predef::Option[a]"
+    )
+
+    ok(
+      "forall b, c. (Bosatsu/Predef::Option[b], Bosatsu/Predef::Option[c])",
+      "forall a. (Bosatsu/Predef::Option[a], forall a. Bosatsu/Predef::Option[a])"
+    )
+  }
+
+  test("instantiate handles rhs forall shadowing inside tuple") {
+    // Regression guard: shadowing inside nested forall in tuple position.
+    val Type.ForAll(fas, t) = parse("forall b, c. (b, c)").runtimeChecked
+    val targ = parse("forall a. (a, forall a. a)")
+    val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+    assert(res.nonEmpty, s"could not instantiate: $t to $targ")
+  }
+
   test("Fun(ts, r) and Fun.unapply are inverses") {
     val genArgs = for {
       cnt <- Gen.choose(0, Type.FnType.MaxSize - 1)
