@@ -22,14 +22,14 @@ object ApiDiff {
     def toDoc: Doc
   }
   object Error {
-    sealed abstract class MissingEnv {
-      def label: String
-    }
-    case object Previous extends MissingEnv {
-      val label = "previous"
-    }
-    case object Current extends MissingEnv {
-      val label = "current"
+    enum MissingEnv derives CanEqual {
+      case Previous
+      case Current
+      def label: String =
+        this match {
+          case MissingEnv.Previous => "previous"
+          case MissingEnv.Current  => "current"
+        }
     }
 
     case class MissingTransitiveType(
@@ -315,9 +315,19 @@ object ApiDiff {
                 diffDT(oldDt, newDt)
                   .map(_.map(diff => ChangedTransitiveType(newTpe, const, diff)))
               case (None, _) =>
-                MissingTransitiveType(pn, oldTpe, const, Previous).invalidNec
+                MissingTransitiveType(
+                  pn,
+                  oldTpe,
+                  const,
+                  MissingEnv.Previous
+                ).invalidNec
               case (_, None) =>
-                MissingTransitiveType(pn, oldTpe, const, Current).invalidNec
+                MissingTransitiveType(
+                  pn,
+                  oldTpe,
+                  const,
+                  MissingEnv.Current
+                ).invalidNec
             }
           }
           .map(_.flatten)
@@ -346,7 +356,6 @@ object ApiDiff {
           newDt.constructors.zipWithIndex.groupByNel(_._1.name)
         oldConsByName
           .align(newConsByName)
-          .iterator
           .toList
           .traverse {
             case (_, Ior.Left(nel)) =>
@@ -439,7 +448,6 @@ object ApiDiff {
 
     prevMap
       .align(currMap)
-      .iterator
       .toList
       .traverse { case (name, ior) =>
         ior match {
