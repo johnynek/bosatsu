@@ -200,4 +200,18 @@ bar = 1
     }
   }
 
+  test("packagesFromProto accepts interface/package name overlap") {
+    forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
+      val packs = packMap.values.toList
+      val ifaces = packs.map(Package.interfaceOf(_))
+      val res = for {
+        ifacesProto <- ifaces.traverse(ProtoConverter.interfaceToProto)
+        packsProto <- packs.traverse(ProtoConverter.packageToProto)
+        decoded <- ProtoConverter.packagesFromProto(ifacesProto, packsProto)
+      } yield decoded
+
+      assert(res.isSuccess, res.toString)
+    }
+  }
+
 }
