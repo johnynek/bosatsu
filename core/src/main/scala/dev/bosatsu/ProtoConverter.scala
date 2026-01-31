@@ -7,6 +7,7 @@ import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
 import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
+import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
@@ -1709,14 +1710,42 @@ object ProtoConverter {
           }
       }
 
-    val nodes: List[Node] =
-      ifaces.map(Left(_)).toList ::: packs.map(Right(_)).toList
-    val nodeMap: Map[String, List[Node]] =
-      nodes.groupBy(nodeName)
+    val ifaceNodes: List[Node] = ifaces.map(Left(_)).toList
+    val packNodes: List[Node] = packs.map(Right(_)).toList
+    val nodesByName: Map[String, List[Node]] =
+      (ifaceNodes ::: packNodes).groupBy(nodeName)
+
+    val dupNames: List[String] =
+      nodesByName.iterator
+        .collect {
+          case (name, ns)
+              if ns.count(_.isLeft) > 1 || ns.count(_.isRight) > 1 =>
+            name
+        }
+        .toList
+        .sorted
+
+    val ifacePackMap: Map[String, (Option[proto.Interface], Option[proto.Package])] =
+      nodesByName.iterator
+        .map { case (name, ns) =>
+          val pack = ns.collectFirst { case Right(p) => p }
+          val iface = ns.collectFirst { case Left(i) => i }
+          (name, (iface, pack))
+        }
+        .toMap
+
+    val nodeMap: Map[String, Node] =
+      ifacePackMap.iterator
+        .map { case (name, (iface, pack)) =>
+          val node = pack.map(Right(_)).orElse(iface.map(Left(_))).get
+          (name, node)
+        }
+        .toMap
+    val nodes: List[Node] = nodeMap.values.toList
 
     def getNodes(n: String, parent: Node): List[Node] =
       nodeMap.get(n) match {
-        case Some(ns)                                     => ns
+        case Some(node)                                   => node :: Nil
         case None if n == PackageName.PredefName.asString =>
           // we can load the predef below
           Nil
@@ -1732,28 +1761,24 @@ object ProtoConverter {
         case Right(p) => packageDeps(p).flatMap(dep => getNodes(dep, n))
       }
 
-    val dupNames: List[String] =
-      nodeMap.iterator
-        .filter { case (_, vs) => vs.lengthCompare(1) > 0 }
-        .map(_._1)
-        .toList
-        .sorted
-
-    Try(graph.Toposort.sort(nodes)(dependsOn)).flatMap { sorted =>
-      if (dupNames.nonEmpty) {
-        Failure(
-          new Exception("duplicate package names: " + dupNames.mkString(", "))
+    if (dupNames.nonEmpty) {
+      Failure(
+        CliException.Basic(
+          "duplicate package names: " + dupNames.mkString(", ")
         )
-      } else if (sorted.isFailure) {
-        val loopStr =
-          sorted.loopNodes
-            .map {
-              case Left(i)  => "interface: " + iname(i)
-              case Right(p) => "compiled: " + pname(p)
-            }
-            .mkString(", ")
-        Failure(new Exception(s"circular dependencies in packages: $loopStr"))
-      } else {
+      )
+    } else {
+      Try(graph.Toposort.sort(nodes)(dependsOn)).flatMap { sorted =>
+        if (sorted.isFailure) {
+          val loopStr =
+            sorted.loopNodes
+              .map {
+                case Left(i)  => "interface: " + iname(i)
+                case Right(p) => "compiled: " + pname(p)
+              }
+              .mkString(", ")
+          Failure(new Exception(s"circular dependencies in packages: $loopStr"))
+        } else {
         def makeLoadDT(
             load: String => Try[Either[
               (Package.Interface, TypeEnv[Kind.Arg]),
@@ -1850,8 +1875,23 @@ object ProtoConverter {
           Memoize.memoizeDagHashed[String, Try[
             Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]
           ]] { (pack, rec) =>
-            nodeMap.get(pack) match {
-              case Some(Left(iface) :: Nil) =>
+            ifacePackMap.get(pack) match {
+              case Some((Some(iface), Some(p))) =>
+                val loadDT = makeLoadDT(rec)
+                val ifaceRes = interfaceFromProto0(loadDT, iface)
+                packFromProtoUncached(p, rec).flatMap { pack0 =>
+                  ifaceRes.flatMap { iface0 =>
+                    val derived = Package.interfaceOf(pack0)
+                    if (iface0.equals(derived)) Success(Right(pack0))
+                    else
+                      Failure(
+                        CliException.Basic(
+                          s"interface mismatch for ${pname(p)}: exported interface does not match compiled package"
+                        )
+                      )
+                  }
+                }
+              case Some((Some(iface), None)) =>
                 interfaceFromProto0(makeLoadDT(rec), iface)
                   .map { iface =>
                     Left(
@@ -1864,7 +1904,7 @@ object ProtoConverter {
                       )
                     )
                   }
-              case Some(Right(p) :: Nil) =>
+              case Some((None, Some(p))) =>
                 packFromProtoUncached(p, rec)
                   .map(Right(_))
               case None if pack == PackageName.PredefName.asString =>
@@ -1903,6 +1943,7 @@ object ProtoConverter {
           packs.toList.traverse(deserPack)
         ).tupled
       }
+    }
     }
   }
 }
