@@ -1949,4 +1949,120 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
       "Prog[exists a. a, Foo, Foo] -> Prog[exists a. a, Foo, Foo]"
     )
   }
+
+  test("Infer.peek does not commit meta writes") {
+    val infer: Infer[Option[Type.Tau]] =
+      for {
+        ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
+        meta = Type.Meta(Kind.Type, 9999L, existential = false, ref)
+        tmeta = Type.TyMeta(meta)
+        _ <- Infer
+          .substitutionCheck(tmeta, Type.IntType, emptyRegion, emptyRegion)
+          .peek
+        res <- Infer.lift(ref.get)
+      } yield res
+
+    val res = infer.runFully(Map.empty, Map.empty, Type.builtInKinds)
+    assertEquals(res, Right(None))
+  }
+
+  test("Infer.substitutionCheck commits meta writes") {
+    val infer: Infer[Option[Type.Tau]] =
+      for {
+        ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
+        meta = Type.Meta(Kind.Type, 10000L, existential = false, ref)
+        tmeta = Type.TyMeta(meta)
+        _ <- Infer.substitutionCheck(tmeta, Type.IntType, emptyRegion, emptyRegion)
+        res <- Infer.lift(ref.get)
+      } yield res
+
+    val res = infer.runFully(Map.empty, Map.empty, Type.builtInKinds)
+    assertEquals(res, Right(Some(Type.IntType)))
+  }
+
+  test("match branch order does not affect inferred type") {
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+def f(x):
+  match x:
+    case None: 1
+    case Some(y): y
+
+main = f
+""",
+      "Option[Int] -> Int"
+    )
+
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+def f(x):
+  match x:
+    case Some(y): y
+    case None: 1
+
+main = f
+""",
+      "Option[Int] -> Int"
+    )
+  }
+
+  test("match branch order with polymorphic branch") {
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+def branch(x):
+  match x:
+    case None: (z -> z)
+    case Some(y): y
+
+main = branch
+""",
+      "forall a. Option[a -> a] -> a -> a"
+    )
+
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+def branch(x):
+  match x:
+    case Some(y): y
+    case None: (z -> z)
+
+main = branch
+""",
+      "forall a. Option[a -> a] -> a -> a"
+    )
+  }
+
+  test("match polymorphic branch with annotated input") {
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+def branch(x: Option[forall a. a -> a]) -> forall a. a -> a:
+  match x:
+    case None: (z -> z)
+    case Some(y): y
+
+main = branch
+""",
+      "Option[forall a. a -> a] -> (forall a. a -> a)"
+    )
+  }
 }
