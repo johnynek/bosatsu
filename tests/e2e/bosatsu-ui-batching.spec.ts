@@ -108,7 +108,7 @@ test.describe('BosatsuUI Dashboard Demo', () => {
     // Stats should be reset
     await expect(bosatsuRate).toHaveText('0');
     await expect(reactRate).toHaveText('0');
-    await expect(advantage).toHaveText('-');
+    await expect(advantage).toHaveText('Stopped');
   });
 
   test('stats bar displays update rates', async ({ page }) => {
