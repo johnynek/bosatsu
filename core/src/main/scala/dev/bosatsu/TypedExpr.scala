@@ -211,6 +211,37 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         argFree ::: branchFreeMax
     }
 
+  /** All variables (free or bound) in this expression in order encountered and
+    * with duplicates (to see how often they appear).
+    *
+    * This includes binders such as lambda args, let names, and pattern names.
+    */
+  lazy val allVarsDup: List[Bindable] =
+    this match {
+      case Generic(_, expr) =>
+        expr.allVarsDup
+      case Annotation(t, _) =>
+        t.allVarsDup
+      case Local(ident, _, _) =>
+        ident :: Nil
+      case Global(_, _, _, _) =>
+        Nil
+      case AnnotatedLambda(args, res, _) =>
+        args.toList.map(_._1) ::: res.allVarsDup
+      case App(fn, args, _, _) =>
+        fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
+      case Let(arg, argE, in, _, _) =>
+        arg :: (argE.allVarsDup ::: in.allVarsDup)
+      case Literal(_, _, _) =>
+        Nil
+      case Match(arg, branches, _) =>
+        val argVars = arg.allVarsDup
+        val branchVars = branches.toList.flatMap { case (p, b) =>
+          p.names ::: b.allVarsDup
+        }
+        argVars ::: branchVars
+    }
+
   def notFree(b: Bindable): Boolean =
     !freeVarsDup.contains(b)
 }
@@ -295,34 +326,34 @@ object TypedExpr {
                 AnnotatedLambda(rargs, rexpr, rtag)
               ) =>
             eqArgList(largs, rargs) &&
-              loop(lexpr, rexpr) &&
-              eqA.eqv(ltag, rtag)
+            loop(lexpr, rexpr) &&
+            eqA.eqv(ltag, rtag)
           case (Local(ln, lt, ltag), Local(rn, rt, rtag)) =>
             eqBindable(ln, rn) && eqType(lt, rt) && eqA.eqv(ltag, rtag)
           case (Global(lp, ln, lt, ltag), Global(rp, rn, rt, rtag)) =>
             eqPackageName(lp, rp) &&
-              eqIdentifier(ln, rn) &&
-              eqType(lt, rt) &&
-              eqA.eqv(ltag, rtag)
+            eqIdentifier(ln, rn) &&
+            eqType(lt, rt) &&
+            eqA.eqv(ltag, rtag)
           case (App(lf, largs, lres, ltag), App(rf, rargs, rres, rtag)) =>
             loop(lf, rf) &&
-              eqExprs(largs, rargs) &&
-              eqType(lres, rres) &&
-              eqA.eqv(ltag, rtag)
+            eqExprs(largs, rargs) &&
+            eqType(lres, rres) &&
+            eqA.eqv(ltag, rtag)
           case (Let(ln, le, lin, lrec, ltag), Let(rn, re, rin, rrec, rtag)) =>
             eqBindable(ln, rn) &&
-              loop(le, re) &&
-              loop(lin, rin) &&
-              Eq[RecursionKind].eqv(lrec, rrec) &&
-              eqA.eqv(ltag, rtag)
+            loop(le, re) &&
+            loop(lin, rin) &&
+            Eq[RecursionKind].eqv(lrec, rrec) &&
+            eqA.eqv(ltag, rtag)
           case (Literal(llit, lt, ltag), Literal(rlit, rt, rtag)) =>
             Eq[Lit].eqv(llit, rlit) &&
-              eqType(lt, rt) &&
-              eqA.eqv(ltag, rtag)
+            eqType(lt, rt) &&
+            eqA.eqv(ltag, rtag)
           case (Match(larg, lbranches, ltag), Match(rarg, rbranches, rtag)) =>
             loop(larg, rarg) &&
-              eqBranches(lbranches, rbranches) &&
-              eqA.eqv(ltag, rtag)
+            eqBranches(lbranches, rbranches) &&
+            eqA.eqv(ltag, rtag)
           case _ => false
         }
 
@@ -727,15 +758,14 @@ object TypedExpr {
 
     /** Here are all the global names inside this expression
       */
-    def globals: Set[(PackageName, Identifier)] =
-      {
-        type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
-        traverseUp[GlobalsWriter] {
+    def globals: Set[(PackageName, Identifier)] = {
+      type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
+      traverseUp[GlobalsWriter] {
         case g @ Global(p, i, _, _) =>
           Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
         case notG => Monad[GlobalsWriter].pure(notG)
-        }.written
-      }
+      }.written
+    }
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(
@@ -1404,6 +1434,17 @@ object TypedExpr {
 
   private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.freeVarsDup)
+
+  /** Return the list of all vars (free or bound)
+    */
+  def allVars[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    allVarsDup(ts).distinct
+
+  def allVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
+    SortedSet(allVarsDup(ts)*)
+
+  private def allVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    ts.flatMap(_.allVarsDup)
 
   /** Try to substitute ex for ident in the expression: in
     *

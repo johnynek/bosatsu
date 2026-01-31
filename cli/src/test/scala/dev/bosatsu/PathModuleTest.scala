@@ -29,22 +29,37 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     def pn(roots: List[String], file: String): Option[PackageName] =
       pathPackage(roots.map(Paths.get(_)), Paths.get(file))
 
-    assertEquals(pn(List("/root0", "/root1"), "/root0/Bar.bosatsu"), Some(
+    assertEquals(
+      pn(List("/root0", "/root1"), "/root0/Bar.bosatsu"),
+      Some(
         PackageName(NonEmptyList.of("Bar"))
-      ))
-    assertEquals(pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu"), Some(
+      )
+    )
+    assertEquals(
+      pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu"),
+      Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      ))
-    assertEquals(pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
+      )
+    )
+    assertEquals(
+      pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"),
+      Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      ))
-    assertEquals(pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"), Some(
+      )
+    )
+    assertEquals(
+      pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"),
+      Some(
         PackageName(NonEmptyList.of("Bar", "Baz"))
-      ))
-    assertEquals(pn(
+      )
+    )
+    assertEquals(
+      pn(
         List("/root0/ext", "/root0/Bar"),
         "/root0/ext/Bar/Baz.bosatsu"
-      ), Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
+      ),
+      Some(PackageName(NonEmptyList.of("Bar", "Baz")))
+    )
   }
 
   test("no roots means no Package") {
@@ -121,7 +136,8 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     out match {
       case Output.TestOutput(results, _) =>
         val res = results.collect {
-          case (pn, Some(t)) if pn.asString == "Queue" => t.value
+          case (pn, Some(t)) if pn.asString == "Bosatsu/Collection/Queue" =>
+            t.value
         }
         assertEquals(res.length, 1)
       case other => fail(s"expected test output: $other")
@@ -168,10 +184,13 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     )
     out match {
       case Output.JsonOutput(j @ Json.JObject(_), _) =>
-        assertEquals(j.toMap, Map(
+        assertEquals(
+          j.toMap,
+          Map(
             "value" -> Json.JBool(true),
             "message" -> Json.JString("got the right string")
-          ))
+          )
+        )
         assertEquals(j.items.length, 2)
       case other => fail(s"expected json object output: $other")
     }

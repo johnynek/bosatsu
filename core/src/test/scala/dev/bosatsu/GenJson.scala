@@ -68,7 +68,7 @@ object GenJson {
     Shrink.withLazyList { j =>
       import Json._
       j match {
-        case JString(str)             =>
+        case JString(str) =>
           LazyList.from(ss.shrink(str)).map(JString(_))
         case JNumberStr(_)            => LazyList.empty
         case JNull                    => LazyList.empty

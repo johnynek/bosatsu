@@ -585,8 +585,7 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk)
 
-    val zonkTypeExprK
-        : FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
+    val zonkTypeExprK: FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
       new FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] {
         def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = zonkTypedExpr(fa)
       }
@@ -1028,7 +1027,7 @@ object Infer {
             unify(a1, a2, r1, r2) &>
             unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2     => unit
+        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
           fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>

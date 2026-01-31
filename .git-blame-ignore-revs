@@ -25,3 +25,6 @@ a2711a53e680c773a3a6bc02db307e61c920a805
 
 # rename everything to dev.bosatsu
 356251246ee24693703a640050a9b4c50184ce59
+
+# Reformat with scalafmt 3.10.5
+ebf722f23a1ff0fd4b4762125cf356b6a55515df

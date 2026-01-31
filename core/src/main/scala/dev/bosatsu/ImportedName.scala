@@ -35,15 +35,18 @@ sealed abstract class ImportedName[+T] {
 object ImportedName {
   implicit def eqImportedName[T](implicit eqT: Eq[T]): Eq[ImportedName[T]] =
     Eq.instance {
-      case (OriginalName(leftName, leftTag), OriginalName(rightName, rightTag)) =>
+      case (
+            OriginalName(leftName, leftTag),
+            OriginalName(rightName, rightTag)
+          ) =>
         (leftName == rightName) && eqT.eqv(leftTag, rightTag)
       case (
             Renamed(leftOrig, leftLocal, leftTag),
             Renamed(rightOrig, rightLocal, rightTag)
           ) =>
         (leftOrig == rightOrig) &&
-          (leftLocal == rightLocal) &&
-          eqT.eqv(leftTag, rightTag)
+        (leftLocal == rightLocal) &&
+        eqT.eqv(leftTag, rightTag)
       case _ => false
     }
   case class OriginalName[T](originalName: Identifier, tag: T)
