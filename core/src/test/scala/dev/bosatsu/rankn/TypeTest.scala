@@ -87,6 +87,20 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("substituteVar avoids capture") {
+    import Type.Var.Bound
+    val a = Bound("a")
+    val b = Bound("b")
+    val t =
+      Type.forAll(
+        NonEmptyList.of((a, Kind.Type)),
+        Type.TyVar(b)
+      )
+    val sub = Type.substituteVar(t, Map[Type.Var, Type](b -> Type.TyVar(a)))
+
+    assertEquals(Type.freeBoundTyVars(sub :: Nil), List(a))
+  }
+
   test("types are well ordered") {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
       dev.bosatsu.OrderingLaws.law(_, _, _)
