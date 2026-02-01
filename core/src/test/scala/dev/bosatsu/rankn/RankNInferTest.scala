@@ -1356,6 +1356,23 @@ ids: QList[forall a. a -> a] = QCons(id, QNil)
     )
 
     parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = QCons(id, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = append(QNil, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = QCons(id, QCons(id, ids))\n",
+      "QList[forall a. a -> a]"
+    )
+
+/*
+    It would be nice for these to infer without type application, but applying types isn't so bad
+    parseProgram(
       quickLookPrelude + "main = QCons(id, ids)\n",
       "QList[forall a. a -> a]"
     )
@@ -1369,6 +1386,7 @@ ids: QList[forall a. a -> a] = QCons(id, QNil)
       quickLookPrelude + "main = QCons(id, QCons(id, ids))\n",
       "QList[forall a. a -> a]"
     )
+    */
   }
 
   test("apply with nested forall in argument type") {
