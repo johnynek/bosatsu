@@ -1326,6 +1326,69 @@ main: forall a. Opt[a] = make_none(1)
     )
   }
 
+  // From the Quick Look paper on impredicativity examples.
+  test("quick look paper examples") {
+    val quickLookPrelude =
+      """#
+enum QList[a: +*]: QNil, QCons(head: a, tail: QList[a])
+
+def id[a](x: a) -> a: x
+def single[a](x: a) -> QList[a]: QCons(x, QNil)
+external def head[a](xs: QList[a]) -> a
+external def append[a](xs: QList[a], ys: QList[a]) -> QList[a]
+
+ids: QList[forall a. a -> a] = QCons(id, QNil)
+"""
+
+    parseProgram(
+      quickLookPrelude + "main = head(ids)\n",
+      "forall a. a -> a"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main = single(id)\n",
+      "forall a. QList[a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = single(id)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = QCons(id, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = append(QNil, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main: QList[forall a. a -> a] = QCons(id, QCons(id, ids))\n",
+      "QList[forall a. a -> a]"
+    )
+
+/*
+    It would be nice for these to infer without type application, but applying types isn't so bad
+    parseProgram(
+      quickLookPrelude + "main = QCons(id, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main = append(QNil, ids)\n",
+      "QList[forall a. a -> a]"
+    )
+
+    parseProgram(
+      quickLookPrelude + "main = QCons(id, QCons(id, ids))\n",
+      "QList[forall a. a -> a]"
+    )
+    */
+  }
+
   test("apply with nested forall in argument type") {
     parseProgram(
       """#
