@@ -25,6 +25,8 @@ jobs:
           java-version: "17"
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Install b3sum
+        run: sudo apt-get update && sudo apt-get install -y b3sum
       - name: Verify tag matches sbt version
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -274,9 +276,18 @@ jobs:
         run: |
           set -euo pipefail
           cd release_assets
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -print0 \
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'B3SUMS' -print0 \
             | sort -z \
             | xargs -0 sha256sum > SHA256SUMS
+      - name: Create B3SUMS
+        env:
+          C_RUNTIME_ARCHIVE: ${{ needs.prepare.outputs.c_runtime_archive }}
+        run: |
+          set -euo pipefail
+          cd release_assets
+          find . -maxdepth 1 -type f ! -name 'B3SUMS' -print0 \
+            | sort -z \
+            | xargs -0 b3sum > B3SUMS
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
