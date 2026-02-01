@@ -282,6 +282,7 @@ jobs:
         with:
           name: Release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
           files: |
             release_assets/*
         env:
