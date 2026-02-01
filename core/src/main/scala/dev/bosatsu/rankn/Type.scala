@@ -552,7 +552,9 @@ object Type {
                 // we must avoid any free vars in the body or the substitution env,
                 // as well as any existing binders in this quantification.
                 val avoid =
-                  freeBoundTyVars(q :: Nil).toSet ++ freeInEnv ++ boundSet ++ envBoundKeys
+                  freeBoundTyVars(
+                    q :: Nil
+                  ).toSet ++ freeInEnv ++ boundSet ++ envBoundKeys
 
                 val renamed = alignBinders(nel, avoid)
                 val renMap =
@@ -696,9 +698,11 @@ object Type {
                       rightFrees.iterator.map(_._1) ++
                       freeBoundTyVars(rightT :: Nil)
                   val aligned = alignBinders(collisions, avoidSet)
-                  val subMap = aligned.iterator.map { case ((b, _), b1) =>
-                    (b, TyVar(b1))
-                  }.toMap[Var, Type]
+                  val subMap = aligned.iterator
+                    .map { case ((b, _), b1) =>
+                      (b, TyVar(b1))
+                    }
+                    .toMap[Var, Type]
                   val remap = aligned.iterator.map { case ((b, _), b1) =>
                     (b, b1)
                   }.toMap

@@ -1370,7 +1370,7 @@ ids: QList[forall a. a -> a] = QCons(id, QNil)
       "QList[forall a. a -> a]"
     )
 
-/*
+    /*
     It would be nice for these to infer without type application, but applying types isn't so bad
     parseProgram(
       quickLookPrelude + "main = QCons(id, ids)\n",
@@ -1386,7 +1386,7 @@ ids: QList[forall a. a -> a] = QCons(id, QNil)
       quickLookPrelude + "main = QCons(id, QCons(id, ids))\n",
       "QList[forall a. a -> a]"
     )
-    */
+     */
   }
 
   test("apply with nested forall in argument type") {
@@ -2088,7 +2088,12 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
         ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
         meta = Type.Meta(Kind.Type, 10000L, existential = false, ref)
         tmeta = Type.TyMeta(meta)
-        _ <- Infer.substitutionCheck(tmeta, Type.IntType, emptyRegion, emptyRegion)
+        _ <- Infer.substitutionCheck(
+          tmeta,
+          Type.IntType,
+          emptyRegion,
+          emptyRegion
+        )
         res <- Infer.lift(ref.get)
       } yield res
 

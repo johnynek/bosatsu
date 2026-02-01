@@ -77,9 +77,11 @@ class LibConfigTest extends munit.FunSuite {
 
     val dup = res match {
       case cats.data.Validated.Invalid(nec) =>
-        nec.toList.collectFirst {
-          case e: LibConfig.Error.DuplicatePackage => e
-        }.getOrElse(fail("missing DuplicatePackage error"))
+        nec.toList
+          .collectFirst { case e: LibConfig.Error.DuplicatePackage =>
+            e
+          }
+          .getOrElse(fail("missing DuplicatePackage error"))
       case cats.data.Validated.Valid(_) =>
         fail("expected DuplicatePackage error")
     }
