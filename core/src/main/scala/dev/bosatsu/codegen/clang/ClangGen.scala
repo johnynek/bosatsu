@@ -67,8 +67,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
   }
 
   object ExternalResolver {
-    def stdExtFileName(key: K, pn: PackageName): String =
-      s"${Idents.escape("bosatsu_ext_", ns.globalIdent(key, pn).mkString_("/"))}.h"
+    def stdExtFileName(pn: PackageName): String =
+      s"${Idents.escape("bosatsu_ext_", ns.identOf(ns.rootKey, pn).mkString_("/"))}.h"
 
     def stdExternals: ExternalResolver = {
 
@@ -81,10 +81,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       val keyedExt = ns.externals
       val extMap = keyedExt.iterator.flatMap { case (k, allExt) =>
         allExt.iterator.map { case (p, vs) =>
-          val fileName = ExternalResolver.stdExtFileName(k, p)
+          val fileName = ExternalResolver.stdExtFileName(p)
 
           val fns = vs.iterator.map { case (n, tpe) =>
-            val cIdent = generatedName(k, p, n)
+            val cIdent = generatedName(ns.rootKey, p, n)
             n -> (cIdent, tpeArity(tpe))
           }.toMap
 
@@ -117,7 +117,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
     val FromJvmExternals: ExternalResolver =
       new ExternalResolver {
         val predef_c =
-          Code.Include.quote(stdExtFileName(ns.rootKey, PackageName.PredefName))
+          Code.Include.quote(stdExtFileName(PackageName.PredefName))
 
         def predef(s: String, arity: Int) =
           (PackageName.PredefName -> Identifier.Name(s)) -> (
