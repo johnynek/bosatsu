@@ -2,7 +2,14 @@ package dev.bosatsu.library
 
 import cats.data.{Ior, NonEmptyList, ValidatedNec}
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
-import dev.bosatsu.{ExportedName, Identifier, Kind, PackageError, PackageName, Referant}
+import dev.bosatsu.{
+  ExportedName,
+  Identifier,
+  Kind,
+  PackageError,
+  PackageName,
+  Referant
+}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.SortedMap
 
@@ -313,7 +320,9 @@ object ApiDiff {
             (oldDtOpt, newDtOpt) match {
               case (Some(oldDt), Some(newDt)) =>
                 diffDT(oldDt, newDt)
-                  .map(_.map(diff => ChangedTransitiveType(newTpe, const, diff)))
+                  .map(
+                    _.map(diff => ChangedTransitiveType(newTpe, const, diff))
+                  )
               case (None, _) =>
                 MissingTransitiveType(
                   pn,
@@ -359,11 +368,17 @@ object ApiDiff {
           .toList
           .traverse {
             case (_, Ior.Left(nel)) =>
-              (ConstructorRemoved(pn, oldDt.toTypeTyConst, nel.head._1) :: Nil)
-                .validNec
+              (ConstructorRemoved(
+                pn,
+                oldDt.toTypeTyConst,
+                nel.head._1
+              ) :: Nil).validNec
             case (_, Ior.Right(nel)) =>
-              (ConstructorAdded(pn, newDt.toTypeTyConst, nel.head._1) :: Nil)
-                .validNec
+              (ConstructorAdded(
+                pn,
+                newDt.toTypeTyConst,
+                nel.head._1
+              ) :: Nil).validNec
             case (cons, Ior.Both(oldNel, newNel)) =>
               val (oldCfn, oldIdx) = oldNel.head
               val (newCfn, newIdx) = newNel.head

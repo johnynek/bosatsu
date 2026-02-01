@@ -6,7 +6,14 @@ import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
-import dev.bosatsu.{Json, Kind, Package, PackageMap, PackageName, ProtoConverter}
+import dev.bosatsu.{
+  Json,
+  Kind,
+  Package,
+  PackageMap,
+  PackageName,
+  ProtoConverter
+}
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.rankn.TypeEnv
 import dev.bosatsu.hashing.{HashValue, Algo}
@@ -14,7 +21,14 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 import scala.collection.immutable.SortedMap
 
-import LibConfig.{Error, LibMethods, LibHistoryMethods, LibPath, LibRef, ValidationResult}
+import LibConfig.{
+  Error,
+  LibMethods,
+  LibHistoryMethods,
+  LibPath,
+  LibRef,
+  ValidationResult
+}
 
 case class LibConfig(
     name: Name,
@@ -238,8 +252,8 @@ case class LibConfig(
   /** This checks the following properties and if they are set, builds the
     * library
     *   1. all the included packs are set in allPackages
-    *   2. no public package is exported by more than one library in the public dependency closure
-    *      of public and private dependencies
+    *   2. no public package is exported by more than one library in the public
+    *      dependency closure of public and private dependencies
     *   3. the version is semver compatible with previous
     *   4. the only packages that appear on exportedPackages apis are in
     *      exportedPackages or publicDeps
@@ -309,7 +323,7 @@ case class LibConfig(
         seen: Map[LibRef, NonEmptyList[LibRef]]
     ): Map[LibRef, NonEmptyList[LibRef]] =
       todo match {
-        case Nil => seen
+        case Nil                 => seen
         case (ref, path) :: rest =>
           if (seen.contains(ref)) bfs(rest, seen)
           else {
@@ -350,8 +364,7 @@ case class LibConfig(
           NonEmptyList.fromList(paths).filter(_.tail.nonEmpty).map(pn -> _)
         }
 
-      byPack
-        .toList
+      byPack.toList
         .traverse_ { case (pn, libs) =>
           inv(Error.DuplicatePackage(note, pn, libs))
         }
@@ -371,8 +384,9 @@ case class LibConfig(
         }).toList
 
     val publicClosurePairs =
-      (exportedPacks.iterator.map(p => (p.name, thisRef)) ++ publicClosurePacks)
-        .toList
+      (exportedPacks.iterator.map(p =>
+        (p.name, thisRef)
+      ) ++ publicClosurePacks).toList
 
     val prop2 =
       duplicatePackageCheck("public dependency closure", publicClosurePairs)
@@ -539,7 +553,13 @@ case class LibConfig(
       publicDepClosureLibs: List[DecodedLibrary[Algo.Blake3]],
       prevPublicDepLibs: List[DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[Error, ValidationResult] =
-    validatePacks(previous, packs, deps, publicDepClosureLibs, prevPublicDepLibs) *>
+    validatePacks(
+      previous,
+      packs,
+      deps,
+      publicDepClosureLibs,
+      prevPublicDepLibs
+    ) *>
       validatePreviousHist(previous) *>
       validateDeps(deps)
 
@@ -718,7 +738,9 @@ object LibConfig {
             )
           }
 
-          Doc.text(show"package $pack exported by libraries ($note):") + Doc.line +
+          Doc.text(
+            show"package $pack exported by libraries ($note):"
+          ) + Doc.line +
             Doc.intercalate(Doc.line, items).nested(4)
         case MissingDep(note, dep) =>
           Doc.text(s"dependency ${dep.name} not found in args: $note")
@@ -974,11 +996,13 @@ object LibConfig {
                   nel
                 )
               )
-            case None      =>
+            case None =>
               if (newV.forall(v => oldV.diffKindTo(v) <= dk)) {
                 Validated.unit
               } else {
-                Error.inv(Error.InvalidPublicDepChange(name, dk, oldDep, newDep))
+                Error.inv(
+                  Error.InvalidPublicDepChange(name, dk, oldDep, newDep)
+                )
               }
           }
         case (None, None) =>

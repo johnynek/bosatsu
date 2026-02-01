@@ -1725,22 +1725,19 @@ object ProtoConverter {
         .toList
         .sorted
 
-    val ifacePackMap: Map[String, (Option[proto.Interface], Option[proto.Package])] =
-      nodesByName.iterator
-        .map { case (name, ns) =>
-          val pack = ns.collectFirst { case Right(p) => p }
-          val iface = ns.collectFirst { case Left(i) => i }
-          (name, (iface, pack))
-        }
-        .toMap
+    val ifacePackMap
+        : Map[String, (Option[proto.Interface], Option[proto.Package])] =
+      nodesByName.iterator.map { case (name, ns) =>
+        val pack = ns.collectFirst { case Right(p) => p }
+        val iface = ns.collectFirst { case Left(i) => i }
+        (name, (iface, pack))
+      }.toMap
 
     val nodeMap: Map[String, Node] =
-      ifacePackMap.iterator
-        .map { case (name, (iface, pack)) =>
-          val node = pack.map(Right(_)).orElse(iface.map(Left(_))).get
-          (name, node)
-        }
-        .toMap
+      ifacePackMap.iterator.map { case (name, (iface, pack)) =>
+        val node = pack.map(Right(_)).orElse(iface.map(Left(_))).get
+        (name, node)
+      }.toMap
     val nodes: List[Node] = nodeMap.values.toList
 
     def getNodes(n: String, parent: Node): List[Node] =
@@ -1779,171 +1776,173 @@ object ProtoConverter {
               .mkString(", ")
           Failure(new Exception(s"circular dependencies in packages: $loopStr"))
         } else {
-        def makeLoadDT(
-            load: String => Try[Either[
-              (Package.Interface, TypeEnv[Kind.Arg]),
-              Package.Typed[Unit]
-            ]]
-        ): Type.Const => Try[DefinedType[Kind.Arg]] = {
-          case tc @ Type.Const.Defined(p, _) =>
-            val res = load(p.asString).map {
-              case Left((_, dt)) =>
-                dt.toDefinedType(tc)
-              case Right(comp) =>
-                comp.types.toDefinedType(tc)
+          def makeLoadDT(
+              load: String => Try[Either[
+                (Package.Interface, TypeEnv[Kind.Arg]),
+                Package.Typed[Unit]
+              ]]
+          ): Type.Const => Try[DefinedType[Kind.Arg]] = {
+            case tc @ Type.Const.Defined(p, _) =>
+              val res = load(p.asString).map {
+                case Left((_, dt)) =>
+                  dt.toDefinedType(tc)
+                case Right(comp) =>
+                  comp.types.toDefinedType(tc)
+              }
+
+              res.flatMap {
+                case None =>
+                  Failure(new Exception(s"unknown type $tc not present"))
+                case Some(dt) => Success(dt)
+              }
+          }
+
+          /*
+           * We know we have a dag now, so we can just go through
+           * loading them.
+           *
+           * We will need a list of these an memoize loading them all
+           */
+
+          def packFromProtoUncached(
+              pack: proto.Package,
+              load: String => Try[Either[
+                (Package.Interface, TypeEnv[Kind.Arg]),
+                Package.Typed[Unit]
+              ]]
+          ): Try[Package.Typed[Unit]] = {
+            val loadIface: PackageName => Try[Package.Interface] = { p =>
+              load(p.asString).map {
+                case Left((iface, _)) => iface
+                case Right(pack)      => Package.interfaceOf(pack)
+              }
             }
 
-            res.flatMap {
-              case None =>
-                Failure(new Exception(s"unknown type $tc not present"))
-              case Some(dt) => Success(dt)
+            val loadDT = makeLoadDT(load)
+
+            val tab: DTab[Package.Typed[Unit]] =
+              for {
+                packageNameStr <- lookup(pack.packageName, pack.toString)
+                packageName <- ReaderT.liftF(
+                  parsePack(packageNameStr, pack.toString)
+                )
+                imps <- pack.imports.toList.traverse(
+                  importsFromProto(_, loadIface, loadDT)
+                )
+                impMap <- ReaderT.liftF(
+                  ImportMap.fromImports(imps)((_, _) =>
+                    ImportMap.Unify.Error
+                  ) match {
+                    case (Nil, im) => Success(im)
+                    case (nel, _)  =>
+                      Failure(
+                        new Exception(s"duplicated imports in package: $nel")
+                      )
+                  }
+                )
+                exps <- pack.exports.toList.traverse(
+                  exportedNameFromProto(loadDT, _)
+                )
+                lets <- pack.lets.toList.traverse(letsFromProto)
+                eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
+                prog <- buildProgram(packageName, lets, eds)
+              } yield Package(packageName, imps, exps, (prog, impMap))
+
+            // build up the decoding state by decoding the tables in order
+            val tab1 = Scoped.run(
+              Scoped(buildTypes(pack.types))(_.withTypes(_)),
+              Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(
+                _.withDefinedTypes(_)
+              ),
+              Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
+              Scoped(buildExprs(pack.expressions))(_.withExprs(_))
+            )(tab)
+
+            tab1.run(DecodeState.init(pack.strings))
+          }
+
+          val predefIface = {
+            val iface = Package.interfaceOf(PackageMap.predefCompiled)
+            (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
+          }
+
+          val load: String => Try[
+            Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]
+          ] =
+            Memoize.memoizeDagHashed[String, Try[
+              Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[
+                Unit
+              ]]
+            ]] { (pack, rec) =>
+              ifacePackMap.get(pack) match {
+                case Some((Some(iface), Some(p))) =>
+                  val loadDT = makeLoadDT(rec)
+                  val ifaceRes = interfaceFromProto0(loadDT, iface)
+                  packFromProtoUncached(p, rec).flatMap { pack0 =>
+                    ifaceRes.flatMap { iface0 =>
+                      val derived = Package.interfaceOf(pack0)
+                      if (iface0.equals(derived)) Success(Right(pack0))
+                      else
+                        Failure(
+                          CliException.Basic(
+                            s"interface mismatch for ${pname(p)}: exported interface does not match compiled package"
+                          )
+                        )
+                    }
+                  }
+                case Some((Some(iface), None)) =>
+                  interfaceFromProto0(makeLoadDT(rec), iface)
+                    .map { iface =>
+                      Left(
+                        (
+                          iface,
+                          ExportedName.typeEnvFromExports(
+                            iface.name,
+                            iface.exports
+                          )
+                        )
+                      )
+                    }
+                case Some((None, Some(p))) =>
+                  packFromProtoUncached(p, rec)
+                    .map(Right(_))
+                case None if pack == PackageName.PredefName.asString =>
+                  // if we haven't replaced explicitly, use the built in predef
+                  Success(Left(predefIface))
+                case found =>
+                  Failure(
+                    new Exception(
+                      s"missing interface or compiled: $pack, found: $found"
+                    )
+                  )
+              }
             }
-        }
 
-        /*
-         * We know we have a dag now, so we can just go through
-         * loading them.
-         *
-         * We will need a list of these an memoize loading them all
-         */
-
-        def packFromProtoUncached(
-            pack: proto.Package,
-            load: String => Try[Either[
-              (Package.Interface, TypeEnv[Kind.Arg]),
-              Package.Typed[Unit]
-            ]]
-        ): Try[Package.Typed[Unit]] = {
-          val loadIface: PackageName => Try[Package.Interface] = { p =>
-            load(p.asString).map {
+          val deserPack: proto.Package => Try[Package.Typed[Unit]] = { p =>
+            load(pname(p)).flatMap {
+              case Left((iface, _)) =>
+                Failure(
+                  new Exception(
+                    s"expected compiled for ${iface.name.asString}, found interface"
+                  )
+                )
+              case Right(pack) => Success(pack)
+            }
+          }
+          val deserIface: proto.Interface => Try[Package.Interface] = { p =>
+            load(iname(p)).map {
               case Left((iface, _)) => iface
               case Right(pack)      => Package.interfaceOf(pack)
             }
           }
 
-          val loadDT = makeLoadDT(load)
-
-          val tab: DTab[Package.Typed[Unit]] =
-            for {
-              packageNameStr <- lookup(pack.packageName, pack.toString)
-              packageName <- ReaderT.liftF(
-                parsePack(packageNameStr, pack.toString)
-              )
-              imps <- pack.imports.toList.traverse(
-                importsFromProto(_, loadIface, loadDT)
-              )
-              impMap <- ReaderT.liftF(
-                ImportMap.fromImports(imps)((_, _) =>
-                  ImportMap.Unify.Error
-                ) match {
-                  case (Nil, im) => Success(im)
-                  case (nel, _)  =>
-                    Failure(
-                      new Exception(s"duplicated imports in package: $nel")
-                    )
-                }
-              )
-              exps <- pack.exports.toList.traverse(
-                exportedNameFromProto(loadDT, _)
-              )
-              lets <- pack.lets.toList.traverse(letsFromProto)
-              eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
-              prog <- buildProgram(packageName, lets, eds)
-            } yield Package(packageName, imps, exps, (prog, impMap))
-
-          // build up the decoding state by decoding the tables in order
-          val tab1 = Scoped.run(
-            Scoped(buildTypes(pack.types))(_.withTypes(_)),
-            Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(
-              _.withDefinedTypes(_)
-            ),
-            Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
-            Scoped(buildExprs(pack.expressions))(_.withExprs(_))
-          )(tab)
-
-          tab1.run(DecodeState.init(pack.strings))
+          // use the cached versions down here
+          (
+            ifaces.toList.traverse(deserIface),
+            packs.toList.traverse(deserPack)
+          ).tupled
         }
-
-        val predefIface = {
-          val iface = Package.interfaceOf(PackageMap.predefCompiled)
-          (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
-        }
-
-        val load: String => Try[
-          Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]
-        ] =
-          Memoize.memoizeDagHashed[String, Try[
-            Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]
-          ]] { (pack, rec) =>
-            ifacePackMap.get(pack) match {
-              case Some((Some(iface), Some(p))) =>
-                val loadDT = makeLoadDT(rec)
-                val ifaceRes = interfaceFromProto0(loadDT, iface)
-                packFromProtoUncached(p, rec).flatMap { pack0 =>
-                  ifaceRes.flatMap { iface0 =>
-                    val derived = Package.interfaceOf(pack0)
-                    if (iface0.equals(derived)) Success(Right(pack0))
-                    else
-                      Failure(
-                        CliException.Basic(
-                          s"interface mismatch for ${pname(p)}: exported interface does not match compiled package"
-                        )
-                      )
-                  }
-                }
-              case Some((Some(iface), None)) =>
-                interfaceFromProto0(makeLoadDT(rec), iface)
-                  .map { iface =>
-                    Left(
-                      (
-                        iface,
-                        ExportedName.typeEnvFromExports(
-                          iface.name,
-                          iface.exports
-                        )
-                      )
-                    )
-                  }
-              case Some((None, Some(p))) =>
-                packFromProtoUncached(p, rec)
-                  .map(Right(_))
-              case None if pack == PackageName.PredefName.asString =>
-                // if we haven't replaced explicitly, use the built in predef
-                Success(Left(predefIface))
-              case found =>
-                Failure(
-                  new Exception(
-                    s"missing interface or compiled: $pack, found: $found"
-                  )
-                )
-            }
-          }
-
-        val deserPack: proto.Package => Try[Package.Typed[Unit]] = { p =>
-          load(pname(p)).flatMap {
-            case Left((iface, _)) =>
-              Failure(
-                new Exception(
-                  s"expected compiled for ${iface.name.asString}, found interface"
-                )
-              )
-            case Right(pack) => Success(pack)
-          }
-        }
-        val deserIface: proto.Interface => Try[Package.Interface] = { p =>
-          load(iname(p)).map {
-            case Left((iface, _)) => iface
-            case Right(pack)      => Package.interfaceOf(pack)
-          }
-        }
-
-        // use the cached versions down here
-        (
-          ifaces.toList.traverse(deserIface),
-          packs.toList.traverse(deserPack)
-        ).tupled
       }
-    }
     }
   }
 }

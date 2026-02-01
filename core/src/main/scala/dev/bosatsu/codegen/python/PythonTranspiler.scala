@@ -138,7 +138,9 @@ case object PythonTranspiler extends Transpiler {
               }
             }.toSet
 
-            (initPaths -- existing).toList.sorted.map(p => (toPath(p), Doc.empty))
+            (initPaths -- existing).toList.sorted.map(p =>
+              (toPath(p), Doc.empty)
+            )
           }
 
           prefixes(docs) ::: docs.map { case (p, d) => (toPath(p), d) }

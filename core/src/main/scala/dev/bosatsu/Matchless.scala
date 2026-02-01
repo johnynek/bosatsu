@@ -1215,10 +1215,10 @@ object Matchless {
     ): Pattern[(PackageName, Constructor), Type] =
       p match {
         case Pattern.Annotation(p1, _) => normalizePattern(p1)
-        case Pattern.Named(v, p1) =>
+        case Pattern.Named(v, p1)      =>
           Pattern.Named(v, normalizePattern(p1))
         case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) => p
-        case Pattern.PositionalStruct(n, ps) =>
+        case Pattern.PositionalStruct(n, ps)                        =>
           Pattern.PositionalStruct(n, ps.map(normalizePattern))
         case Pattern.Union(h, t) =>
           Pattern.Union(normalizePattern(h), t.map(normalizePattern))
@@ -1239,7 +1239,7 @@ object Matchless {
               Pattern.ListPat(parts)
           }
       }
-    
+
     // Non-orthogonal patterns (string globs, non-trailing list globs) have
     // backtracking/search semantics and are not handled by the matrix compiler.
     def isNonOrthogonal(
@@ -1250,7 +1250,7 @@ object Matchless {
         case Pattern.Named(_, p1)      => isNonOrthogonal(p1)
         case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
           false
-        case sp @ Pattern.StrPat(_) => sp.simplify.isEmpty
+        case sp @ Pattern.StrPat(_)  => sp.simplify.isEmpty
         case lp @ Pattern.ListPat(_) =>
           Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
             case Right(p1) => isNonOrthogonal(p1)
@@ -1300,7 +1300,7 @@ object Matchless {
           pats: List[Pattern[(PackageName, Constructor), Type]]
       ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
         pats match {
-          case Nil => NonEmptyList(Nil, Nil)
+          case Nil       => NonEmptyList(Nil, Nil)
           case p :: tail =>
             for {
               p1 <- Pattern.flatten(p)
@@ -1323,13 +1323,17 @@ object Matchless {
       val (bindsRev, patsRev) =
         row.pats.iterator
           .zip(occs.iterator)
-          .foldLeft((row.binds.reverse, List.empty[Pattern[(PackageName, Constructor), Type]])) {
-            case ((bs, acc), (pat, occ)) =>
-              val p1 = normalizePattern(pat)
-              val (moreBinds, core) = peelPattern(p1, occ)
-              // we prepend in reverse order so this isn't quadratic
-              // otherwise prepending the bs accumulator would be quadratic
-              (moreBinds.reverse ::: bs, core :: acc)
+          .foldLeft(
+            (
+              row.binds.reverse,
+              List.empty[Pattern[(PackageName, Constructor), Type]]
+            )
+          ) { case ((bs, acc), (pat, occ)) =>
+            val p1 = normalizePattern(pat)
+            val (moreBinds, core) = peelPattern(p1, occ)
+            // we prepend in reverse order so this isn't quadratic
+            // otherwise prepending the bs accumulator would be quadratic
+            (moreBinds.reverse ::: bs, core :: acc)
           }
 
       row.copy(pats = patsRev.reverse, binds = bindsRev.reverse)
@@ -1362,7 +1366,7 @@ object Matchless {
         pat: Pattern[(PackageName, Constructor), Type]
     ): Option[HeadSig] =
       pat match {
-        case Pattern.WildCard => None
+        case Pattern.WildCard     => None
         case Pattern.Literal(lit) =>
           Some(LitSig(lit))
         case Pattern.PositionalStruct((pack, cname), params) =>
@@ -1428,7 +1432,7 @@ object Matchless {
     // Specialize the matrix for a given head signature (constructor/literal),
     // producing the submatrix for that case.
     // Invariant: colIdx is in-bounds and each row has the same arity.
-    // returns a list of rows such that result.length <= rows.length 
+    // returns a list of rows such that result.length <= rows.length
     def specializeRows(
         sig: HeadSig,
         rows: List[MatchRow],
@@ -1442,7 +1446,7 @@ object Matchless {
         val pat = row.pats(colIdx)
 
         pat match {
-          case Pattern.WildCard => Some(row.patchPats(colIdx, wilds))
+          case Pattern.WildCard     => Some(row.patchPats(colIdx, wilds))
           case Pattern.Literal(lit) =>
             sig match {
               case LitSig(l) if l === lit =>
@@ -1645,9 +1649,7 @@ object Matchless {
                 case EnumSig(_, v, s, f) =>
                   val newRows = specializeRows(sig, rows, colIdx, s)
                   val fields =
-                    (0 until s).toList.map(i =>
-                      GetEnumElement(occ, v, i, s)
-                    )
+                    (0 until s).toList.map(i => GetEnumElement(occ, v, i, s))
                   val newOccs = occs.patch(colIdx, fields, 1)
                   Monad[F].pure(
                     (
@@ -1660,9 +1662,9 @@ object Matchless {
                 case StructSig(_, s) =>
                   val newRows = specializeRows(sig, rows, colIdx, s)
                   val fields =
-                    (0 until s).iterator.map(i =>
-                      GetStructElement(occ, i, s)
-                    ).toList
+                    (0 until s).iterator
+                      .map(i => GetStructElement(occ, i, s))
+                      .toList
                   val newOccs = occs.patch(colIdx, fields, 1)
                   Monad[F].pure((TrueConst, Nil, newRows, newOccs))
                 case LitSig(lit) =>
@@ -1693,7 +1695,8 @@ object Matchless {
             def compileCases(sigs: List[HeadSig]): F[Expr[B]] =
               sigs match {
                 case Nil =>
-                  if (defaultRows.nonEmpty) compileRows(defaultRows, defaultOccs)
+                  if (defaultRows.nonEmpty)
+                    compileRows(defaultRows, defaultOccs)
                   else Monad[F].pure(UnitExpr)
                 case sig :: rest =>
                   buildCase(sig).flatMap {
