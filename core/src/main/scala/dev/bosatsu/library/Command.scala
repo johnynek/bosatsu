@@ -3,7 +3,7 @@ package dev.bosatsu.library
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{Chain, NonEmptyList}
-import com.monovore.decline.Opts
+import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
   CompilerApi,
@@ -13,6 +13,8 @@ import dev.bosatsu.tool.{
 }
 import dev.bosatsu.codegen.Transpiler
 import dev.bosatsu.codegen.clang.ClangTranspiler
+import dev.bosatsu.Parser
+import dev.bosatsu.hashing.Algo.WithAlgo.WithAlgoHashValue
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.{Json, PackageName, PackageMap, PlatformIO}
@@ -24,8 +26,64 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 
 object Command {
+  sealed abstract class DepVisibility(val label: String) derives CanEqual
+  object DepVisibility {
+    case object Public extends DepVisibility("public")
+    case object Private extends DepVisibility("private")
+  }
+
+  final case class DepInfo(
+      name: String,
+      version: Option[Version],
+      hashes: List[String],
+      uris: List[String],
+      visibility: DepVisibility
+  )
+
+  private def depInfo(
+      dep: proto.LibDependency,
+      visibility: DepVisibility
+  ): DepInfo = {
+    val desc = dep.desc
+    DepInfo(
+      name = dep.name,
+      version = desc.flatMap(_.version).map(Version.fromProto(_)),
+      hashes = desc.toList.flatMap(_.hashes).toList,
+      uris = desc.toList.flatMap(_.uris).toList,
+      visibility = visibility
+    )
+  }
+
+  private def depInfos(conf: LibConfig): List[DepInfo] =
+    conf.publicDeps.map(depInfo(_, DepVisibility.Public)) :::
+      conf.privateDeps.map(depInfo(_, DepVisibility.Private))
+
+  private def updateDeps(
+      conf: LibConfig,
+      dep: proto.LibDependency,
+      visibility: DepVisibility
+  ): LibConfig = {
+    val depName = dep.name
+    val pubWithout = conf.publicDeps.filterNot(_.name == depName)
+    val privWithout = conf.privateDeps.filterNot(_.name == depName)
+    visibility match {
+      case DepVisibility.Public =>
+        conf.copy(publicDeps = pubWithout :+ dep, privateDeps = privWithout)
+      case DepVisibility.Private =>
+        conf.copy(publicDeps = pubWithout, privateDeps = privWithout :+ dep)
+    }
+  }
+
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
     import platformIO.{pathArg, moduleIOMonad, showPath, parallelF}
+
+    implicit val hashArg: Argument[Algo.WithAlgo[HashValue]] =
+      Parser.argFromParser(
+        Algo.parseIdent,
+        "hash",
+        "hash",
+        "Use format blake3:<hex>."
+      )
 
     val topLevelOpt: Opts[F[P]] =
       Opts
@@ -537,6 +595,226 @@ object Command {
         }
     }
 
+    val depsCommand = {
+      val visibilityOpt: Opts[DepVisibility] =
+        Opts
+          .flag("public", help = "add a public dependency")
+          .as(DepVisibility.Public)
+          .orElse(
+            Opts
+              .flag("private", help = "add a private dependency (default)")
+              .as(DepVisibility.Private)
+          )
+          .orElse(Opts(DepVisibility.Private))
+
+      val depNameOpt =
+        Opts.option[Name]("dep", help = "dependency library name")
+
+      val depVersionOpt =
+        Opts.option[Version]("version", help = "dependency version")
+
+      val depHashesOpt =
+        Opts
+          .options[Algo.WithAlgo[HashValue]](
+            "hash",
+            help = "dependency hash (format blake3:<hex>, repeatable)"
+          )
+          .map(_.toList)
+
+      val depUrisOpt =
+        Opts
+          .options[String]("uri", help = "dependency uri (repeatable)")
+          .map(_.toList)
+
+      val noFetchOpt =
+        Opts
+          .flag(
+            "no-fetch",
+            help = "only update the config file; skip fetching into the CAS"
+          )
+          .orFalse
+
+      val addCommand =
+        Opts.subcommand("add", "add a dependency to this library") {
+          (
+            ConfigConf.opts,
+            depNameOpt,
+            depVersionOpt,
+            depHashesOpt,
+            depUrisOpt,
+            visibilityOpt,
+            noFetchOpt
+          ).mapN {
+            (
+                fcc,
+                depName,
+                depVersion,
+                depHashes,
+                depUris,
+                visibility,
+                noFetch
+            ) =>
+            for {
+              cc <- fcc
+              desc = proto.LibDescriptor(
+                version = Some(depVersion.toProto),
+                hashes = depHashes.map(_.toIdent),
+                uris = depUris
+              )
+              dep = proto.LibDependency(name = depName.name, desc = Some(desc))
+              conf1 = updateDeps(cc.conf, dep, visibility)
+              out0 = confOutput(cc.confDir, conf1)
+              out <-
+                if (noFetch) moduleIOMonad.pure(out0)
+                else
+                  cc.cas.fetchAllDeps(dep :: Nil).map { doc =>
+                    Output.many(out0, Output.Basic(doc, None))
+                  }
+            } yield (out: Output[P])
+          }
+        }
+
+      val removeCommand =
+        Opts.subcommand("remove", "remove a dependency from this library") {
+          (ConfigConf.opts, depNameOpt).mapN { (fcc, depName) =>
+            for {
+              cc <- fcc
+              nameStr = depName.name
+              pubRemoved = cc.conf.publicDeps.filterNot(_.name == nameStr)
+              privRemoved = cc.conf.privateDeps.filterNot(_.name == nameStr)
+              _ <-
+                if (
+                  (pubRemoved.length == cc.conf.publicDeps.length) &&
+                  (privRemoved.length == cc.conf.privateDeps.length)
+                )
+                  moduleIOMonad.raiseError[Unit](
+                    CliException.Basic(
+                      show"dependency $nameStr not found in public or private deps."
+                    )
+                  )
+                else moduleIOMonad.unit
+              conf1 = cc.conf.copy(
+                publicDeps = pubRemoved,
+                privateDeps = privRemoved
+              )
+              out = confOutput(cc.confDir, conf1)
+            } yield (out: Output[P])
+          }
+        }
+
+      val listCommand =
+        Opts.subcommand("list", "list dependencies in the library config") {
+          val jsonFlag =
+            Opts.flag("json", help = "output dependencies as json").orFalse
+
+          (ConfigConf.opts, jsonFlag).mapN { (fcc, jsonOut) =>
+            for {
+              cc <- fcc
+              infos = depInfos(cc.conf)
+              out =
+                if (jsonOut) {
+                  val depsJson = Json.JArray(
+                    infos.map { info =>
+                      val versionJson: Json = info.version match {
+                        case Some(v) => Json.JString(v.render)
+                        case None    => Json.JNull
+                      }
+                      Json.JObject(
+                        ("name" -> Json.JString(info.name)) ::
+                          ("version" -> versionJson) ::
+                          ("hash" -> Json.JArray(
+                            info.hashes.map(Json.JString(_)).toVector
+                          )) ::
+                          ("uri" -> Json.JArray(
+                            info.uris.map(Json.JString(_)).toVector
+                          )) ::
+                          ("scope" -> Json.JString(info.visibility.label)) ::
+                          Nil
+                      )
+                    }.toVector
+                  )
+                  Output.JsonOutput(
+                    Json.JObject(("deps" -> depsJson) :: Nil),
+                    None
+                  )
+                } else {
+                  def formatList(
+                      label: String,
+                      items: List[DepInfo]
+                  ): Option[Doc] =
+                    if (items.isEmpty) None
+                    else {
+                      val sorted = items.sortBy(_.name)
+                      val docs = sorted.map { info =>
+                        val versionStr =
+                          info.version.map(_.render).getOrElse("unknown")
+                        val hashDoc =
+                          info.hashes match {
+                            case Nil =>
+                              Doc.text("hash: (none)")
+                            case h :: Nil =>
+                              Doc.text(show"hash: $h")
+                            case hs =>
+                              Doc.text("hashes:") + (Doc.line + Doc.intercalate(
+                                Doc.line,
+                                hs.map(Doc.text(_))
+                              )).nested(2)
+                          }
+                        val uriDoc =
+                          info.uris match {
+                            case Nil =>
+                              Doc.text("uri: (none)")
+                            case u :: Nil =>
+                              Doc.text(show"uri: $u")
+                            case us =>
+                              Doc.text("uris:") + (Doc.line + Doc.intercalate(
+                                Doc.line,
+                                us.map(Doc.text(_))
+                              )).nested(2)
+                          }
+                        val details = Doc.intercalate(
+                          Doc.line,
+                          List(
+                            Doc.text(show"version: $versionStr"),
+                            hashDoc,
+                            uriDoc
+                          )
+                        )
+                        Doc.text(info.name) + (Doc.line + details).nested(2)
+                      }
+                      Some(
+                        Doc.text(s"$label deps:") + (Doc.line + Doc.intercalate(
+                          Doc.hardLine,
+                          docs
+                        )).nested(2)
+                      )
+                    }
+
+                  val (publicDeps, privateDeps) =
+                    infos.partition(_.visibility == DepVisibility.Public)
+
+                  val sections = List(
+                    formatList("public", publicDeps),
+                    formatList("private", privateDeps)
+                  ).flatten
+
+                  val doc =
+                    if (sections.isEmpty)
+                      Doc.text("no dependencies configured.")
+                    else
+                      Doc.intercalate(Doc.hardLine + Doc.hardLine, sections)
+
+                  Output.Basic(doc, None)
+                }
+            } yield (out: Output[P])
+          }
+        }
+
+      Opts.subcommand("deps", "manage dependencies for a library")(
+        addCommand.orElse(removeCommand).orElse(listCommand)
+      )
+    }
+
     def libraryFileName(name: Name, version: Version): String =
       show"${name}-v${version}.bosatsu_lib"
 
@@ -980,6 +1258,7 @@ object Command {
     MonoidK[Opts].combineAllK(
       initCommand ::
         listCommand ::
+        depsCommand ::
         assembleCommand ::
         fetchCommand ::
         checkCommand ::
