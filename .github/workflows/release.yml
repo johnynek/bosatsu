@@ -226,6 +226,8 @@ jobs:
           java-version: "17"
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Install b3sum
+        run: sudo apt-get update && sudo apt-get install -y b3sum
       - name: Publish JVM/JS artifacts to Sonatype
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
