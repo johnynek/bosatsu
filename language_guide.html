@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-2ff9e08d*
+0.0.0+1-7167d354*
 </div>
 </div>
 <div class="nav-toc">
@@ -73,7 +73,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-2ff9e08d*
+0.0.0+1-7167d354*
 </div>
 </div>
 <div class="nav-toc">
@@ -228,6 +228,30 @@ form4 = x.f(y, z)
 
   loop(0, lst)
 </code></pre>
+<h2><a href="#loops-with-recur-" name="loops-with-recur-" class="anchor"><span class="anchor-link"></span></a>Loops (with <code>recur</code>)</h2>
+<p>Bosatsu has no <code>while</code> or <code>for</code>. Looping is expressed with <code>recur</code> inside a <code>def</code>, and the compiler only allows recursion it can prove terminates. The test_workspace examples show two common strategies:</p>
+<h3><a href="#1-structural-recursion-substructure-" name="1-structural-recursion-substructure-" class="anchor"><span class="anchor-link"></span></a>1) Structural recursion (substructure)</h3>
+<p>Recur on a recursive input and call the function on a smaller part. Simplified from <code>test_workspace/List.bosatsu</code>:</p>
+<pre><code>def for_all(xs: List[a], fn: a -&gt; Bool) -&gt; Bool:
+  recur xs:
+    case []: True
+    case [h, *t]:
+      if fn(h): for_all(t, fn)
+      else: False
+</code></pre>
+<h3><a href="#2-fuel-pattern-explicit-bound-" name="2-fuel-pattern-explicit-bound-" class="anchor"><span class="anchor-link"></span></a>2) Fuel pattern (explicit bound)</h3>
+<p>When the loop is not naturally substructural, compute a bound (a <code>Nat</code>, <code>List</code>, or <code>String</code>) that is at least as large as the number of steps, then recur on that fuel and make it smaller each time. Simplified from <code>test_workspace/BinNat.bosatsu</code>:</p>
+<pre><code>def fib(b: BinNat) -&gt; BinNat:
+  def loop(fuel: Nat, cur: BinNat, next: BinNat) -&gt; BinNat:
+    recur fuel:
+      case NatZero: cur
+      case NatSucc(n):
+        sum = add_BinNat(cur, next)
+        loop(n, next, sum)
+  one = Odd(Zero)
+  loop(toNat(b), one, one)
+</code></pre>
+<p>You can also use structural data as fuel. For example, <code>test_workspace/List.bosatsu</code> computes <code>size(list)</code> and recurs on that <code>Nat</code> as the loop bound during sort.</p>
 <h2><a href="#pattern-matching" name="pattern-matching" class="anchor"><span class="anchor-link"></span></a>Pattern Matching</h2>
 <p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later. Use <code>case</code> in every match branch.</p>
 <p>Here are some examples:</p>
@@ -468,6 +492,7 @@ def foldO(oo, if_none, if_some):
 <pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
 </code></pre>
 <p>External values and types work exactly like internally defined types from any other point of view.</p>
+<p>External defs are only supported in libraries implemented inside the compiler repo. The functions must be implemented in the C runtime, and there is currently no provision for providing external implementations from outside the compiler repo. This restriction is intentional to preserve totality, and we do not expect to lift it any time soon.</p>
 <h1><a href="#note-on-totality" name="note-on-totality" class="anchor"><span class="anchor-link"></span></a>Note on Totality</h1>
 <p>Totality is an interesting property that limits a language from being turing complete, however, it is not obvious if that is much of a practical limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.</p>
 <p>One can easily argue that total languages are still too big. For instance imagine a function with type <code>a -&gt; Either[a, b]</code> which takes an <code>a</code> and either returns a final <code>b</code> value or the next step <code>a</code> that we should call again. If we have a non-total language we could repeatedly call the function when we have left to build <code>a -&gt; b</code>. In a total language, we could build a</p>
@@ -496,6 +521,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
     <li><a href="language_guide.html#literals" class="header">Literals</a></li>
     <li><a href="language_guide.html#bindings" class="header">Bindings</a></li>
     <li><a href="language_guide.html#functions" class="header">Functions</a></li>
+    <li><a href="language_guide.html#loops-with-recur-" class="header">Loops (with <code>recur</code>)</a></li>
     <li><a href="language_guide.html#pattern-matching" class="header">Pattern Matching</a></li>
     <li><a href="language_guide.html#custom-data-types" class="header">Custom Data Types</a></li>
     <li><a href="language_guide.html#types" class="header">Types</a></li>
@@ -570,7 +596,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-2ff9e08d-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7167d354-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
