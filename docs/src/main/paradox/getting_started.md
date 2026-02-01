@@ -36,7 +36,7 @@ https://github.com/johnynek/bosatsu/releases/latest/
 Example of a direct asset URL from a release:
 
 ```
-https://github.com/johnynek/bosatsu/releases/download/v0.0.15/bosatsu
+https://github.com/johnynek/bosatsu/releases/download/v0.0.25/bosatsu
 ```
 
 (The exact asset filename varies by platform; the launcher handles this for
@@ -45,10 +45,10 @@ you.)
 ## 4) Pin the Bosatsu release version
 
 Create `.bosatsu_version` with the latest Bosatsu release tag (without the
-leading `v`). For example, if the latest release is `v0.0.15`, write `0.0.15`:
+leading `v`). For example, if the latest release is `v0.0.25`, write `0.0.25`:
 
 ```sh
-printf '%s\n' '0.0.15' > .bosatsu_version
+echo '0.0.25' > .bosatsu_version
 ```
 
 ## 5) Choose a platform (per-machine)
@@ -57,7 +57,7 @@ Create `.bosatsu_platform` with one of `native`, `java`, or `node`. Start with
 `native` on macOS/Linux.
 
 ```sh
-printf '%s\n' 'native' > .bosatsu_platform
+echo 'native' > .bosatsu_platform
 ```
 
 If you are on Windows, use `java` or `node` instead of `native`.
