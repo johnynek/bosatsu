@@ -815,7 +815,7 @@ class UIAnalyzerTest extends FunSuite {
     val textApp = makeApp(textFn, userLocal)
 
     val statusLocal = makeLocal("status")
-    // Success(user) pattern - binds "user" to status.Success.0
+    // Success(user) pattern - binds "user" to status[1] (field 0 is at index 1 in JsGen arrays)
     val userPattern = makeVarPattern("user")
     val successPattern = makeConstructorPattern("Demo/Status", "Success", List(userPattern))
     val matchExpr = makeMatchWithPatterns(statusLocal, List((successPattern, textApp)))
@@ -824,10 +824,61 @@ class UIAnalyzerTest extends FunSuite {
 
     // Should have a binding that references the pattern-bound variable
     assert(analysis.bindings.nonEmpty)
-    // The statePath should be ["status", "Success", "0"] for the bound pattern variable
+    // The statePath should be ["status", "1"] for the bound pattern variable
+    // (JsGen arrays: index 0 is variant tag, index 1+ are fields)
     assert(analysis.bindings.exists { b =>
-      b.statePath.contains("Success") && b.statePath.contains("0")
+      b.statePath == List("status", "1")
     })
+  }
+
+  test("annotated pattern variables are tracked correctly") {
+    val status = Identifier.unsafeBindable("status")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    val userLocal = makeLocal("user")
+    val textApp = makeApp(textFn, userLocal)
+
+    val statusLocal = makeLocal("status")
+    // Success(user: String) - annotated pattern should still bind user
+    val userPattern = makeVarPattern("user")
+    val annotatedPattern = Pattern.Annotation(userPattern, Type.StrType)
+    val successPattern = makeConstructorPattern("Demo/Status", "Success", List(annotatedPattern))
+    val matchExpr = makeMatchWithPatterns(statusLocal, List((successPattern, textApp)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status))
+
+    // Should have a binding for the annotated pattern variable
+    assert(analysis.bindings.nonEmpty, "Should have bindings for annotated pattern")
+    // The statePath should be ["status", "1"] (same as non-annotated)
+    assert(
+      analysis.bindings.exists(_.statePath == List("status", "1")),
+      s"Expected path [status, 1], got: ${analysis.bindings.map(_.statePath)}"
+    )
+  }
+
+  test("multiple field patterns have correct indices") {
+    val pair = Identifier.unsafeBindable("pair")
+
+    val textFn = makeGlobal("Bosatsu/UI", "text")
+    // Use both a and b in the body
+    val aLocal = makeLocal("a")
+    val bLocal = makeLocal("b")
+    val textA = makeApp(textFn, aLocal)
+
+    val pairLocal = makeLocal("pair")
+    // Pair(a, b) pattern - a is field 0 (index 1), b is field 1 (index 2)
+    val aPattern = makeVarPattern("a")
+    val bPattern = makeVarPattern("b")
+    val pairPattern = makeConstructorPattern("Demo/Pair", "Pair", List(aPattern, bPattern))
+    val matchExpr = makeMatchWithPatterns(pairLocal, List((pairPattern, textA)))
+
+    val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(pair))
+
+    // Should have binding for 'a' at index 1 (field 0)
+    assert(
+      analysis.bindings.exists(_.statePath == List("pair", "1")),
+      s"Expected 'a' at path [pair, 1], got: ${analysis.bindings.map(_.statePath)}"
+    )
   }
 
   test("multiple branches create separate conditions") {

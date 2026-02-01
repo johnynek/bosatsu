@@ -974,25 +974,42 @@ object UIAnalyzer {
       tag: String,
       ctx: AnalysisContext[A]
   ): Unit = {
+    // Helper to add bindings for a pattern at a specific field index
+    def addFieldBinding(param: Pattern[(PackageName, Constructor), Type], idx: Int): Unit = {
+      // JsGen represents enums as arrays: [variantIndex, value0, value1, ...]
+      // So field 0 is at index 1, field 1 is at index 2, etc.
+      val fieldPath = discriminant :+ (idx + 1).toString
+
+      param match {
+        case Pattern.Var(name) =>
+          ctx.trackBinding(name, fieldPath)
+
+        case Pattern.Named(name, inner) =>
+          ctx.trackBinding(name, fieldPath)
+          // Recursively process inner pattern with its own tag (if it has one)
+          extractVariantTag(inner).foreach { innerTag =>
+            addPatternBindings(inner, fieldPath, innerTag, ctx)
+          }
+
+        case Pattern.Annotation(inner, _) =>
+          // Unwrap annotation and process inner pattern at same index
+          addFieldBinding(inner, idx)
+
+        case struct @ Pattern.PositionalStruct(_, _) =>
+          // Nested struct pattern - recurse with the field path
+          extractVariantTag(struct).foreach { innerTag =>
+            addPatternBindings(struct, fieldPath, innerTag, ctx)
+          }
+
+        case _ => ()
+      }
+    }
+
     pattern match {
       case Pattern.PositionalStruct(_, params) =>
-        // Each parameter is bound to discriminant ++ [tag, fieldIndex]
+        // Each parameter is bound to discriminant[fieldIndex + 1]
         params.zipWithIndex.foreach { case (param, idx) =>
-          param match {
-            case Pattern.Var(name) =>
-              val path = discriminant ++ List(tag, idx.toString)
-              ctx.trackBinding(name, path)
-            case Pattern.Named(name, inner) =>
-              val path = discriminant ++ List(tag, idx.toString)
-              ctx.trackBinding(name, path)
-              // Recursively process inner pattern with its own tag (if it has one)
-              extractVariantTag(inner).foreach { innerTag =>
-                addPatternBindings(inner, path, innerTag, ctx)
-              }
-            case Pattern.Annotation(inner, _) =>
-              addPatternBindings(inner, discriminant, tag, ctx)
-            case _ => ()
-          }
+          addFieldBinding(param, idx)
         }
 
       case Pattern.Named(name, inner) =>
@@ -1004,6 +1021,10 @@ object UIAnalyzer {
 
       case Pattern.Annotation(inner, _) =>
         addPatternBindings(inner, discriminant, tag, ctx)
+
+      case Pattern.Var(name) =>
+        // Top-level var binds to discriminant directly
+        ctx.trackBinding(name, discriminant)
 
       case _ => ()
     }
