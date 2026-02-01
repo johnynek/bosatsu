@@ -28,3 +28,6 @@ a2711a53e680c773a3a6bc02db307e61c920a805
 
 # Reformat with scalafmt 3.10.5
 ebf722f23a1ff0fd4b4762125cf356b6a55515df
+
+# Scala Steward: Reformat with scalafmt 3.10.6
+fdec788111e0d57b0ab466f7c8cb5835b16a511f
