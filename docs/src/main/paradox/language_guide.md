@@ -223,6 +223,42 @@ def len(lst):
   loop(0, lst)
 ```
 
+## Loops (with `recur`)
+Bosatsu has no `while` or `for`. Looping is expressed with `recur` inside a
+`def`, and the compiler only allows recursion it can prove terminates. The
+test_workspace examples show two common strategies:
+
+### 1) Structural recursion (substructure)
+Recur on a recursive input and call the function on a smaller part. Simplified
+from `test_workspace/List.bosatsu`:
+```
+def for_all(xs: List[a], fn: a -> Bool) -> Bool:
+  recur xs:
+    case []: True
+    case [h, *t]:
+      if fn(h): for_all(t, fn)
+      else: False
+```
+
+### 2) Fuel pattern (explicit bound)
+When the loop is not naturally substructural, compute a bound (a `Nat`, `List`,
+or `String`) that is at least as large as the number of steps, then recur on
+that fuel and make it smaller each time. Simplified from
+`test_workspace/BinNat.bosatsu`:
+```
+def fib(b: BinNat) -> BinNat:
+  def loop(fuel: Nat, cur: BinNat, next: BinNat) -> BinNat:
+    recur fuel:
+      case NatZero: cur
+      case NatSucc(n):
+        sum = add_BinNat(cur, next)
+        loop(n, next, sum)
+  one = Odd(Zero)
+  loop(toNat(b), one, one)
+```
+You can also use structural data as fuel. For example, `test_workspace/List.bosatsu`
+computes `size(list)` and recurs on that `Nat` as the loop bound during sort.
+
 ## Pattern Matching
 Bosatsu has powerful pattern matching. You can match on literal values, strings
 and lists in addition to user defined types as discussed later. Use `case` in
@@ -584,6 +620,12 @@ external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 
 External values and types work exactly like internally defined types from any
 other point of view.
+
+External defs are only supported in libraries implemented inside the compiler
+repo. The functions must be implemented in the C runtime, and there is currently
+no provision for providing external implementations from outside the compiler
+repo. This restriction is intentional to preserve totality, and we do not expect
+to lift it any time soon.
 
 # Note on Totality
 Totality is an interesting property that limits a language from being turing
