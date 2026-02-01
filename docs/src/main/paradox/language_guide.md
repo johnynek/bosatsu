@@ -530,6 +530,43 @@ add_tuple: ((Int, Int)) -> Int = ((x, y)) -> add(x, y)
 There is support for universal quantification sometimes called generic values
 or generic functions: `forall a. a -> List[a]`.
 
+### Existential types
+Bosatsu also supports existential quantification to hide a type parameter chosen
+by the producer of a value. The syntax is `exists a. ...`, and you can quantify
+multiple variables with commas, e.g. `exists a, b. ...`.
+
+Here is a simple example that stores an internal type but keeps it opaque in the
+public constructor:
+```
+enum Build[a: *]:
+  Mapped(consume: exists b. (Build[b], b -> a))
+  Map2(consume: exists b, c. (Build[b], Build[c], (b, c) -> a))
+```
+
+When you pattern match on a constructor that contains an existential, the hidden
+type is scoped to that branch, so the parts that depend on it stay consistent:
+```
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. (FreeF[b], b -> a))
+
+def run[a](fa: FreeF[a]) -> a:
+  recur fa:
+    case Pure(a): a
+    case Mapped((prev, fn)):
+      fn(run(prev))
+```
+
+When to use existentials:
+- To hide intermediate types in data constructors while still allowing later
+  consumption (e.g. `Mapped`/`Map2` store an internal `b` or `c` plus functions
+  that know how to use them).
+- To model heterogeneous or stateful structures where the internal type varies
+  but is not part of the public API (e.g. existential tails in custom list-like
+  structures, or continuations with hidden state).
+- To return or store values that must remain opaque to callers while keeping
+  internal consistency inside a match branch.
+
 ## The Bosatsu Predef
 The predef includes Int, String, List, Option, Either types and some associated
 functions. It also defines the built-in test types `Assertion` and `TestSuite`.
