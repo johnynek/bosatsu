@@ -14,6 +14,7 @@ import java.io.{
 }
 import org.typelevel.paiges.Doc
 import dev.bosatsu.hashing.{Hashed, HashValue, Algo}
+import dev.bosatsu.tool.CliException
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import cats.syntax.all._
@@ -40,8 +41,10 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     // Wait for the process to complete and check the exit value
     val exitCode = process.waitFor()
     if (exitCode != 0) {
-      throw new RuntimeException(
-        s"command $cmd ${args.mkString(" ")} failed with exit code: $exitCode"
+      val fullCmd =
+        if (args.isEmpty) cmd else s"$cmd ${args.mkString(" ")}"
+      throw CliException.Basic(
+        s"command $fullCmd failed with exit code: $exitCode"
       )
     }
 
