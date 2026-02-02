@@ -290,6 +290,16 @@ case object ClangTranspiler extends Transpiler {
     def exitCode: ExitCode = ExitCode.Error
   }
 
+  case object TestExecutionFailed
+      extends Exception("test execution failed")
+      with CliException {
+    def errDoc: Doc = Doc.empty
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+    override def report[F[_], P](platform: PlatformIO[F, P]): F[ExitCode] =
+      platform.moduleIOMonad.pure(exitCode)
+  }
+
   case class InvalidMainValue(pack: PackageName, message: String)
       extends Exception(s"invalid main ${pack.asString}: $message.")
       with CliException {
@@ -383,10 +393,12 @@ case object ClangTranspiler extends Transpiler {
                  val exeIO = args.output match {
                    case Output(_, Some((exeName, _))) if execute =>
                      val exePath = args.platformIO.resolve(args.outDir, exeName)
-                     args.platformIO.system(
-                       args.platformIO.showPath.show(exePath),
-                       Nil
-                     )
+                     args.platformIO
+                       .system(args.platformIO.showPath.show(exePath), Nil)
+                       .handleErrorWith {
+                         case _: CliException =>
+                           moduleIOMonad.raiseError(TestExecutionFailed)
+                       }
                    case _ =>
                      moduleIOMonad.unit
                  }
