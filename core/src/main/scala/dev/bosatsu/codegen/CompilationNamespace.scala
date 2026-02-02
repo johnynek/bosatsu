@@ -1,5 +1,6 @@
 package dev.bosatsu.codegen
 
+import cats.Show
 import cats.data.NonEmptyList
 import dev.bosatsu.{PackageName, Identifier, MatchlessFromTypedExpr}
 import dev.bosatsu.rankn.Type
@@ -8,6 +9,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 trait CompilationNamespace[K] {
   implicit def keyOrder: Ordering[K]
+  def keyShow: Show[K]
 
   def identOf(k: K, pn: PackageName): NonEmptyList[String]
   def depFor(src: K, pn: PackageName): K

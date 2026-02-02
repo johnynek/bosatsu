@@ -1,6 +1,6 @@
 package dev.bosatsu.codegen.clang
 
-import cats.{Eval, Functor, Monad, Traverse}
+import cats.{Eval, Functor, Monad, Show, Traverse}
 import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
@@ -18,6 +18,7 @@ import cats.syntax.all._
 import ClangGen.Error
 
 class ClangGen[K](ns: CompilationNamespace[K]) {
+  given Show[K] = ns.keyShow
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -1444,16 +1445,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident] =
             tryUpdate { s =>
-              s.externals(k, pn, bn) match {
+              val depKey = ns.depFor(k, pn)
+              s.externals(depKey, pn, bn) match {
                 case Some((incl, ident, _)) =>
                   // TODO: suspect that we are ignoring arity here
                   val withIncl = s.include(incl)
                   Right((withIncl, ident))
                 case None =>
-                  val key = (k, pn, bn)
+                  val key = (depKey, pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => Right((s, ident))
-                    case None => Left(ClangGen.Error.UnknownValue(pn, bn))
+                    case None =>
+                      val scope: String = Show[K].show(depKey)
+                      Left(
+                        ClangGen.Error.UnknownValue(
+                          scope,
+                          pn,
+                          bn,
+                          s.currentTop.map { case (k1, p1, b1) =>
+                            (Show[K].show(k1), p1, b1)
+                          }
+                        )
+                      )
                   }
               }
             }
@@ -1551,13 +1564,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               b: Bindable
           ): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
-              val key = (k, pack, b)
+              val depKey = ns.depFor(k, pack)
+              val key = (depKey, pack, b)
               s.allValues.get(key) match {
                 case Some((fn: Matchless.Lambda[K], ident)) =>
                   result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external
-                  s.externals(k, pack, b) match {
+                  s.externals(depKey, pack, b) match {
                     case Some((incl, ident, arity)) if arity > 0 =>
                       val withIncl = s.include(incl)
                       result(withIncl, Some((ident, arity)))
@@ -1743,12 +1757,39 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
 object ClangGen {
   sealed abstract class Error {
-    // TODO: implement this in a nice way
-    def display: Doc = Doc.text(this.toString)
+    def display: Doc =
+      this match {
+        case Error.UnknownValue(scope, pack, value, inside) =>
+          val base =
+            Doc.text(show"unknown value in clang codegen: $pack.$value") +
+              Doc.text(s" (scope: $scope)")
+          inside match {
+            case Some((scope1, p, b)) =>
+              base + Doc.text(show" referenced from $p.$b") +
+                Doc.text(s" (scope: $scope1)")
+            case None =>
+              base
+          }
+        case Error.InvariantViolation(message, expr) =>
+          Doc.text(s"invariant violation: $message in $expr")
+        case Error.Unbound(bn, inside) =>
+          val base = Doc.text(show"unbound local value: $bn")
+          inside match {
+            case Some((_, p, b)) =>
+              base + Doc.text(show" in $p.$b")
+            case None =>
+              base
+          }
+      }
   }
 
   object Error {
-    case class UnknownValue(pack: PackageName, value: Bindable) extends Error
+    case class UnknownValue(
+        scope: String,
+        pack: PackageName,
+        value: Bindable,
+        inside: Option[(String, PackageName, Bindable)]
+    ) extends Error
     case class InvariantViolation(message: String, expr: Expr[Any])
         extends Error
     case class Unbound(
@@ -1759,6 +1800,7 @@ object ClangGen {
 
   def apply[S](src: S)(implicit
       CS: CompilationSource[S]
-  ): ClangGen[CS.ScopeKey] =
+  ): ClangGen[CS.ScopeKey] = {
     new ClangGen(CS.namespace(src))
+  }
 }

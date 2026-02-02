@@ -1,7 +1,7 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.MonadError
+import cats.{MonadError, Show}
 import cats.data.{NonEmptyList, StateT}
 import cats.syntax.all._
 import dev.bosatsu.{
@@ -146,6 +146,8 @@ object DecodedLibraryWithDeps {
               summon[Ordering[Name]],
               summon[Ordering[Version]]
             )
+          val keyShow: Show[ScopeKey] =
+            Show.show { case (n, v) => show"$n:$v" }
 
           val depForKey: ScopeKey => Option[DecodedLibraryWithDeps[A]] =
             Memoize.memoizeDagHashedConcurrent[ScopeKey, Option[
