@@ -164,20 +164,32 @@ object PlatformIO {
   def pathPackage[Path](roots: List[Path], packFile: Path)(
       relativeParts: (Path, Path) => Option[Iterable[String]]
   ): Option[PackageName] = {
-    def getP(p: Path): Option[PackageName] =
-      relativeParts(p, packFile).flatMap { parts =>
-        val subPath = parts.iterator
-          .map { part =>
-            part.toLowerCase.capitalize
-          }
-          .mkString("/")
+    def dropExtension(parts: List[String]): List[String] =
+      if (parts.isEmpty) Nil
+      else {
+        val init = parts.init
+        val last = parts.last
+        val idx = last.lastIndexOf('.')
+        val noExt = if (idx > 0) last.substring(0, idx) else last
+        init :+ noExt
+      }
 
-        val dropExtension = """(.*)\.[^.]*$""".r
-        val toParse = subPath match {
-          case dropExtension(prefix) => prefix
-          case _                     => subPath
+    def normalizePart(part: String): String =
+      if (part.isEmpty) part
+      else {
+        val ch = part.charAt(0)
+        if ('a' <= ch && ch <= 'z') ch.toUpper.toString + part.substring(1)
+        else part
+      }
+
+    def getP(p: Path): Option[PackageName] =
+      relativeParts(p, packFile).flatMap { parts0 =>
+        val parts = dropExtension(parts0.iterator.map(_.toString).toList)
+        val raw = parts.mkString("/")
+        PackageName.parse(raw).orElse {
+          val normalized = parts.map(normalizePart).mkString("/")
+          PackageName.parse(normalized)
         }
-        PackageName.parse(toParse)
       }
 
     if (packFile.toString.isEmpty) None

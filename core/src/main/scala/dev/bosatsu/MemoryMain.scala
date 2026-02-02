@@ -387,8 +387,8 @@ object MemoryMain {
           .map { files =>
             files.get(path).flatMap {
               case Left(state) =>
-                Some(moduleIOMonad.pure(state.children.iterator.collect {
-                  case (k, Right(_)) =>
+                Some(moduleIOMonad.pure(state.children.iterator.map {
+                  case (k, _) =>
                     path :+ k
                 }.toList))
               case Right(_) => None
@@ -396,20 +396,17 @@ object MemoryMain {
           }
 
       def hasExtension(str: String): (Path => Boolean) =
-        Function.const(false)(_)
+        { (path: Path) =>
+          path.toList.lastOption.exists(_.endsWith(str))
+        }
 
       def pathPackage(
           roots: List[Path],
           packFile: Path
       ): Option[PackageName] = {
-        val parts = packFile.toList
-        def getP(p: Path): Option[PackageName] =
-          if (parts.startsWith(p.toList)) {
-            val parts1 = parts.drop(p.length.toInt)
-            PackageName.parse(parts1.mkString("/"))
-          } else None
-
-        roots.collectFirstSome(getP)
+        PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
+          relativize(root, pf).map(_.iterator.toList)
+        }
       }
 
       def writeFC(p: Path, fc: FileContent): F[Unit] =
