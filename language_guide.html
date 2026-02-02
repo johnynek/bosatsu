@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-369fbda0*
+0.0.0+1-8a919ff2*
 </div>
 </div>
 <div class="nav-toc">
@@ -73,7 +73,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-369fbda0*
+0.0.0+1-8a919ff2*
 </div>
 </div>
 <div class="nav-toc">
@@ -153,8 +153,13 @@ message2 = &quot;this has &#39;single quotes&#39;&quot;
 </code></pre>
 <p>There is string interpolation syntax:</p>
 <pre><code>profile = &quot;my favorite animal is ${animal}&quot;
+first = &quot;first letter: $.{letter}&quot;
 </code></pre>
-<p>Where <code>animal</code> would be any expression that has type <code>String</code>.</p>
+<p>Where <code>animal</code> would be any expression that has type <code>String</code>, and <code>letter</code> has type <code>Char</code>.</p>
+<h3><a href="#character-literals" name="character-literals" class="anchor"><span class="anchor-link"></span></a>Character literals</h3>
+<p>Characters are single Unicode codepoints written with a leading dot:</p>
+<pre><code>letter = .&#39;x&#39;
+</code></pre>
 <h3><a href="#lists-and-list-comprehensions" name="lists-and-list-comprehensions" class="anchor"><span class="anchor-link"></span></a>Lists and list comprehensions</h3>
 <p>Like Python, Bosatsu supports a syntax for literal lists:</p>
 <pre><code>favorite_animals = [&quot;elephant&quot;, &quot;humpback whale&quot;, &quot;dog&quot;]
@@ -181,6 +186,32 @@ message2 = &quot;this has &#39;single quotes&#39;&quot;
 <p>This is a legal program. Don&rsquo;t think of x being mutated (since it isn&rsquo;t if it is captured by an anonymous function). Think of each new line being a new variable that happens to have the same value.</p>
 <p>Note this is a difference from python: in python capturing works by reference, not by value, so if the original value is changed, so is the capture. Not so in Bosatsu: lexical scope is always in play.</p>
 <p>We recommend not changing the type of a name in a given scope (and may enforce this in the future).</p>
+<h3><a href="#block-expressions" name="block-expressions" class="anchor"><span class="anchor-link"></span></a>Block expressions</h3>
+<p>You can group a sequence of bindings and defs in parentheses to produce a value. The last expression is the result:</p>
+<pre><code>result = (
+  x = 1
+  y = x.add(1)
+  (x, y)
+)
+</code></pre>
+<p>A related shorthand is left-apply (<code>&lt;-</code>). It rewrites a line of the form <code>pat &lt;- expr</code> into a function application <code>expr(pat -&gt; ...)</code>, so <code>expr</code> must accept a function (continuation) as its argument:</p>
+<pre><code>def let(arg): in -&gt; in(arg)
+
+result = (
+  x &lt;- let(3)
+  x.add(1)
+)
+# same as: let(3)(x -&gt; x.add(1))
+</code></pre>
+<p>Because it is pure syntax, this can be used to model async/await style code or monadic do/for syntax (the semantics come from the function you apply to). For example, if <code>await</code> is defined in terms of <code>flat_map</code>, you can write:</p>
+<pre><code>def await(p): fn -&gt; p.flat_map(fn)
+
+main = (
+  args &lt;- read_env.await()
+  _ &lt;- println(&quot;args = ${args}&quot;).await()
+  pure(0)
+)
+</code></pre>
 <h2><a href="#functions" name="functions" class="anchor"><span class="anchor-link"></span></a>Functions</h2>
 <p>As we have seen in above examples, each function returns a single value which is the final expression in the function block. The reason for this difference with Python is that in Bosatsu, there are no side-effects. There is no reason to compute something if it is not going to be returned, and as such, the last line of every def is the return value. Like Python chooses to omit return in <code>lambda</code> expressions, we remove <code>return</code> entirely from Bosatsu.</p>
 <p>Bosatsu has 32 function arities (Fn1..Fn32). A <code>def</code> with N parameters defines an FnN, and each arity is a distinct type. There is no automatic currying. If you want a function that returns a function, write that explicitly with a lambda.</p>
@@ -198,6 +229,10 @@ add_curried = x -&gt; y -&gt; add(x, y)    # Fn1 returning Fn1
 add_tuple = ((x, y)) -&gt; add(x, y)    # Fn1 taking a tuple
 </code></pre>
 <p>Note the distinction between <code>(x, y) -&gt; ...</code> (Fn2) and <code>((x, y)) -&gt; ...</code> (Fn1 that takes a tuple).</p>
+<p>Function parameters are patterns, so you can destructure arguments directly:</p>
+<pre><code>def fst((a, _)): a
+sum = ((x, y)) -&gt; add(x, y)
+</code></pre>
 <h3><a href="#scope-difference-for-defs" name="scope-difference-for-defs" class="anchor"><span class="anchor-link"></span></a>Scope difference for defs</h3>
 <p>Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded loops there are strict rules on accessing defs inside themselves. If you don&rsquo;t intend to write a recursive def, then you can never reuse or access the def&rsquo;s name anywhere inside the body. Specifically, shadowing the def name is not allowed. To write a recursive def see the section on recursive functions below.</p>
 <h3><a href="#method-syntax" name="method-syntax" class="anchor"><span class="anchor-link"></span></a>Method syntax</h3>
@@ -208,6 +243,17 @@ form2 = x.add(y)
 <p>The above two forms are equivalent. <code>foo.bar</code> means pass <code>foo</code> as the first argument to <code>bar</code>. This scales to more arguments:</p>
 <pre><code>form3 = f(x, y, z)
 form4 = x.f(y, z)
+</code></pre>
+<h3><a href="#operators" name="operators" class="anchor"><span class="anchor-link"></span></a>Operators</h3>
+<p>Operators are just functions whose names are written with the <code>operator</code> prefix, and infix expressions call those functions:</p>
+<pre><code>def operator +(a, b): a.add(b)
+operator == = eq_Int
+
+x = 1 + 2
+y = 1 == 1
+</code></pre>
+<p>You can also import or rename operators:</p>
+<pre><code>from Bosatsu/Predef import add as operator +
 </code></pre>
 <h3><a href="#recursive-functions" name="recursive-functions" class="anchor"><span class="anchor-link"></span></a>Recursive functions</h3>
 <p>We have very limited support for recursion so that we may prove that all recursive functions terminate. Here is an example:</p>
@@ -297,6 +343,20 @@ result4 = match [False, True, True]:
 short = [&quot;foo&quot;, &quot;bar&quot;] matches [&quot;foo&quot;, *_]
 </code></pre>
 <p>The caveat is that you cannot have any bindings in the pattern when used as a matches expression.</p>
+<p>Patterns can bind the matched value with <code>as</code>:</p>
+<pre><code>case Some(v) as whole: whole
+case [*_, 4 as four]: four
+</code></pre>
+<p>Patterns can also be annotated with types using <code>pattern: Type</code>:</p>
+<pre><code>case (_: Int) as last: last
+</code></pre>
+<p>These annotations only guide type inference; they are not runtime checks. Bosatsu has no runtime type checks—types are fully determined at compile time.</p>
+<p>In string patterns, <code>${name}</code> binds a substring and <code>$.{name}</code> binds a single <code>Char</code>. Use <code>_</code> to ignore the matched part:</p>
+<pre><code>case &quot;${_}$.{c}&quot;: c
+</code></pre>
+<p>List patterns support &ldquo;globs&rdquo; using <code>*</code>. <code>*_</code> matches any (possibly empty) sublist, and <code>*name</code> binds that sublist. Globs can appear anywhere in the list:</p>
+<pre><code>case [*_, True, *_]: &quot;contains True&quot;
+</code></pre>
 <p>A key feature of Bosatsu pattern matching: at least one branch must match. The compiler will check this and fail to compile any code that could fail to match at runtime. The error will list the branches that are not covered.</p>
 <h2><a href="#custom-data-types" name="custom-data-types" class="anchor"><span class="anchor-link"></span></a>Custom Data Types</h2>
 <p>All type names start with an uppercase character. We can think of a definition as two things:</p>
@@ -392,6 +452,11 @@ struct Tuple[a, b](fst: b, snd: a)
 match x:
   case (x, y, z): do_something(x, y, z)
 </code></pre>
+<p>The 0-arity tuple is written <code>()</code> and has type <code>Unit</code>. Tuples are also real predef types and can be named explicitly as <code>Tuple1</code> up to <code>Tuple32</code> (there is no <code>Tuple0</code>; <code>Unit</code> fills that role), with fields <code>item1</code>, <code>item2</code>, and so on. That lets you select parts of a tuple using record-style patterns:</p>
+<pre><code>Tuple3 { item2, ... } = (1, 2, 3)
+# now item2 = 2
+</code></pre>
+<p>This pattern is handy when you only need specific tuple positions.</p>
 <h3><a href="#enums" name="enums" class="anchor"><span class="anchor-link"></span></a>Enums</h3>
 <p>While <code>struct</code> represents a named tuple or product type, an <code>enum</code> represents a named sum type. This is something similar to <code>union</code> in C, <code>sealed trait</code> subclasses in Scala, or its namesake <code>enum</code> from Rust. Perhaps the most famous example is below:</p>
 <pre><code>enum Option:
@@ -431,6 +496,33 @@ Left(x) | Right(x) = y
 add_tuple: ((Int, Int)) -&gt; Int = ((x, y)) -&gt; add(x, y)
 </code></pre>
 <p>There is support for universal quantification sometimes called generic values or generic functions: <code>forall a. a -&gt; List[a]</code>.</p>
+<h3><a href="#kinds-and-variance-annotations" name="kinds-and-variance-annotations" class="anchor"><span class="anchor-link"></span></a>Kinds and variance annotations</h3>
+<p>You can annotate type parameters with kinds and variance. <code>*</code> is the kind of value types, and <code>* -&gt; *</code> (or higher) are type constructors. Variance markers <code>+*</code> and <code>-*</code> mark covariant and contravariant parameters:</p>
+<pre><code>enum NEList[a: +*]: NEOne(head: a), NEMore(head: a, tail: NEList[a])
+struct Box[a: *](value: a)
+def map[f: * -&gt; *, a, b](fa: f[a], fn: a -&gt; b) -&gt; f[b]: ...
+def wrap2[shape: (* -&gt; *) -&gt; *](s: shape[List]) -&gt; shape[List]: s
+</code></pre>
+<p>For <code>struct</code>/<code>enum</code> definitions, kinds are inferred. For functions, kinds are not currently inferred; unannotated type parameters are assumed to be <code>*</code>.</p>
+<h3><a href="#existential-types" name="existential-types" class="anchor"><span class="anchor-link"></span></a>Existential types</h3>
+<p>Bosatsu also supports existential quantification to hide a type parameter chosen by the producer of a value. The syntax is <code>exists a. ...</code>, and you can quantify multiple variables with commas, e.g. <code>exists a, b. ...</code>.</p>
+<p>Here is a simple example that stores an internal type but keeps it opaque in the public constructor:</p>
+<pre><code>enum Build[a: *]:
+  Mapped(consume: exists b. (Build[b], b -&gt; a))
+  Map2(consume: exists b, c. (Build[b], Build[c], (b, c) -&gt; a))
+</code></pre>
+<p>When you pattern match on a constructor that contains an existential, the hidden type is scoped to that branch, so the parts that depend on it stay consistent:</p>
+<pre><code>enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. (FreeF[b], b -&gt; a))
+
+def run[a](fa: FreeF[a]) -&gt; a:
+  recur fa:
+    case Pure(a): a
+    case Mapped((prev, fn)):
+      fn(run(prev))
+</code></pre>
+<p>When to use existentials: - To hide intermediate types in data constructors while still allowing later  consumption (e.g. <code>Mapped</code>/<code>Map2</code> store an internal <code>b</code> or <code>c</code> plus functions  that know how to use them). - To model heterogeneous or stateful structures where the internal type varies  but is not part of the public API (e.g. existential tails in custom list-like  structures, or continuations with hidden state). - To return or store values that must remain opaque to callers while keeping  internal consistency inside a match branch.</p>
 <h2><a href="#the-bosatsu-predef" name="the-bosatsu-predef" class="anchor"><span class="anchor-link"></span></a>The Bosatsu Predef</h2>
 <p>The predef includes Int, String, List, Option, Either types and some associated functions. It also defines the built-in test types <code>Assertion</code> and <code>TestSuite</code>.</p>
 <h2><a href="#packages" name="packages" class="anchor"><span class="anchor-link"></span></a>Packages</h2>
@@ -451,6 +543,10 @@ export most_fav
 most_fav = match mammals:
   case [head, *tail]: head
   case []: &quot;who knows?&quot;
+</code></pre>
+<p>You can group imports/exports with parentheses and rename with <code>as</code>:</p>
+<pre><code>from Bosatsu/Predef import (foldl_List as foldl, add as operator +)
+export (foldl)
 </code></pre>
 <p>We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use <code>Type()</code> whereas <code>Type</code> exports only the type to be visible.</p>
 <pre><code>package Great/Types
@@ -596,7 +692,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-369fbda0-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-8a919ff2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
