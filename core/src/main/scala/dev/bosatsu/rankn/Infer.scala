@@ -1197,6 +1197,8 @@ object Infer {
     ): Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
+        // metas are existentials introduced from covariant positions in declared;
+        // callers decide whether to quantify them, we only ensure they don't escape.
         coerce <- fn(metas, rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         resSkols <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
@@ -1270,8 +1272,9 @@ object Infer {
             right,
             pure(inferred :: Nil)
           ) { (_, rho) =>
-            // TODO: we are ignoring the metas, but we can't easily write them
-            // with the current design since Coerce can't do any Meta writing
+            // subsCheck only needs a coercion; any meta writes happen during
+            // subsCheckRho, and remaining existentials are handled by callers
+            // that produce a TypedExpr (e.g. checkSigma/quantify).
             subsCheckRho(inferred, rho, left, right)
           } {
             Error.SubsumptionCheckFailure(inferred, declared, left, right, _)
