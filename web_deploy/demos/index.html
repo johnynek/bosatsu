@@ -176,6 +176,7 @@
           <li>Static analysis extracts <code>statePath -> DOMProperty</code> bindings at compile time</li>
           <li>Runtime looks up bindings for the changed path - <code>O(1)</code> map lookup</li>
           <li>Direct <code>element.property = value</code> updates - no diffing!</li>
+          <li><strong>NEW:</strong> Pattern matching on variants enables conditional visibility toggling</li>
         </ol>
       </div>
 
@@ -190,6 +191,14 @@
             </p>
             <span class="tag">Core Concept</span>
           </a>
+          <a href="ui/conditional.html" class="demo-card">
+            <h3>Conditional Rendering</h3>
+            <p>
+              Variant-based visibility toggling for Loading/Error/Success states.
+              Pattern matching extracts bindings at compile time.
+            </p>
+            <span class="tag">Pattern Matching</span>
+          </a>
           <a href="ui/todo-list.html" class="demo-card">
             <h3>Todo List</h3>
             <p>
@@ -197,6 +206,30 @@
               Toggle, add, delete todos with targeted DOM updates.
             </p>
             <span class="tag">Per-Item Bindings</span>
+          </a>
+          <a href="ui/dashboard.html" class="demo-card">
+            <h3>Dashboard</h3>
+            <p>
+              Multi-panel dashboard with independent state bindings.
+              Each widget updates independently without re-rendering others.
+            </p>
+            <span class="tag">Complex State</span>
+          </a>
+          <a href="ui/spreadsheet.html" class="demo-card">
+            <h3>Spreadsheet</h3>
+            <p>
+              Cell-level bindings for efficient grid updates.
+              Only modified cells update, not the entire grid.
+            </p>
+            <span class="tag">Grid Updates</span>
+          </a>
+          <a href="ui/drag-drop.html" class="demo-card">
+            <h3>Drag & Drop</h3>
+            <p>
+              Reorderable list with smooth animations.
+              Demonstrates efficient list manipulation.
+            </p>
+            <span class="tag">List Operations</span>
           </a>
         </div>
       </div>
@@ -254,16 +287,23 @@
         <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 24px; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.7; overflow-x: auto;">
           <div style="color: #9aa0d4;">// Compile time: UIAnalyzer extracts bindings from TypedExpr</div>
           <div style="color: #6ee7b7;">const bindings = {</div>
-          <div style="color: #f2f4ff; padding-left: 20px;">"count": [{ elementId: "bosatsu-1", property: "textContent" }],</div>
-          <div style="color: #f2f4ff; padding-left: 20px;">"user.name": [{ elementId: "bosatsu-2", property: "textContent" }],</div>
+          <div style="color: #f2f4ff; padding-left: 20px;">"count": [{ elementId: "counter", property: "textContent" }],</div>
+          <div style="color: #9aa0d4; padding-left: 20px;">// Conditional bindings with 'when' clauses for pattern matching</div>
+          <div style="color: #f2f4ff; padding-left: 20px;">"status": [</div>
+          <div style="color: #f2f4ff; padding-left: 40px;">{ elementId: "loading", property: "textContent",</div>
+          <div style="color: #fcd34d; padding-left: 50px;">when: { discriminant: ["status"], tag: "Loading", isTotal: false } },</div>
+          <div style="color: #f2f4ff; padding-left: 40px;">{ elementId: "error", property: "textContent",</div>
+          <div style="color: #fcd34d; padding-left: 50px;">when: { discriminant: ["status"], tag: "Error", isTotal: false } },</div>
+          <div style="color: #f2f4ff; padding-left: 20px;">],</div>
           <div style="color: #6ee7b7;">};</div>
           <br>
-          <div style="color: #9aa0d4;">// Runtime: setState triggers O(1) binding lookup + O(1) DOM update</div>
-          <div style="color: #93c5fd;">function</div> <div style="color: #fcd34d; display: inline;">setState</div><div style="display: inline;">(path, value) {</div>
-          <div style="padding-left: 20px; color: #f2f4ff;">_state = _setAtPath(_state, path, value);</div>
-          <div style="padding-left: 20px; color: #f2f4ff;"><span style="color: #93c5fd;">const</span> bindings = _bindingMap.<span style="color: #fcd34d;">get</span>(path.<span style="color: #fcd34d;">join</span>(<span style="color: #f472b6;">'.'</span>));</div>
-          <div style="padding-left: 20px; color: #f2f4ff;"><span style="color: #93c5fd;">for</span> (<span style="color: #93c5fd;">const</span> b <span style="color: #93c5fd;">of</span> bindings) {</div>
-          <div style="padding-left: 40px; color: #f2f4ff;">_elementCache.<span style="color: #fcd34d;">get</span>(b.elementId)[b.property] = value;</div>
+          <div style="color: #9aa0d4;">// Runtime: O(1) lookup, visibility toggling, direct DOM update</div>
+          <div style="color: #93c5fd;">for</div> <div style="display: inline;">(</div><div style="color: #93c5fd; display: inline;">const</div><div style="display: inline;"> b </div><div style="color: #93c5fd; display: inline;">of</div><div style="display: inline;"> bindings) {</div>
+          <div style="padding-left: 20px; color: #f2f4ff;"><span style="color: #93c5fd;">if</span> (b.when && state[b.when.discriminant].tag !== b.when.tag) {</div>
+          <div style="padding-left: 40px; color: #f2f4ff;">element.style.<span style="color: #fcd34d;">display</span> = <span style="color: #f472b6;">'none'</span>; <span style="color: #9aa0d4;">// Hide non-matching variants</span></div>
+          <div style="padding-left: 20px; color: #f2f4ff;">} <span style="color: #93c5fd;">else</span> {</div>
+          <div style="padding-left: 40px; color: #f2f4ff;">element.style.<span style="color: #fcd34d;">display</span> = <span style="color: #f472b6;">''</span>;</div>
+          <div style="padding-left: 40px; color: #f2f4ff;">element[b.property] = value; <span style="color: #9aa0d4;">// Direct DOM update</span></div>
           <div style="padding-left: 20px; color: #f2f4ff;">}</div>
           <div style="color: #f2f4ff;">}</div>
         </div>
