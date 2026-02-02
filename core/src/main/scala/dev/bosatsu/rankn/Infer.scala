@@ -1000,11 +1000,11 @@ object Infer {
                   .flatMap { nmk =>
                     if (Kind.leftSubsumesRight(m.kind, nmk)) {
                       // we have to check that the kind matches before writing to a meta
-                      // TODO: this seems a bit fishy since we are unifying here.
-                      // but maybe it is okay, since widening into an unknown meta
-                      // variable seems like it should always be okay?
-                      // I can't seem to find a way to exploit this to produce
-                      // a forall a. a value.
+                      // This is not symmetric unification: we are solving an
+                      // unbound meta, so its kind is an upper bound on what we
+                      // may instantiate it with. We only allow the concrete
+                      // kind to be <= the meta kind (variance can be widened
+                      // upward/forgotten, but not made more specific).
                       writeMeta(m, nonMeta)
                     } else {
                       fail(
