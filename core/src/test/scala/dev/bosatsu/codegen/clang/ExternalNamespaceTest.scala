@@ -1,5 +1,6 @@
 package dev.bosatsu.codegen.clang
 
+import cats.Show
 import cats.data.NonEmptyList
 import dev.bosatsu.codegen.CompilationNamespace
 import dev.bosatsu.graph.Toposort
@@ -22,6 +23,7 @@ class ExternalNamespaceTest extends munit.FunSuite {
 
     val ns = new CompilationNamespace[K] {
       implicit val keyOrder: Ordering[K] = Ordering.String
+      val keyShow: Show[K] = Show.show(identity)
 
       def identOf(k: K, pn: PackageName): NonEmptyList[String] =
         if (k == root) pn.parts else pn.parts.prependList(List(s"_$k"))
