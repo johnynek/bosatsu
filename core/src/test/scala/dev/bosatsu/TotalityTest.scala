@@ -624,6 +624,37 @@ enum Either: Left(l), Right(r)
     }
   }
 
+  test("intersection is commutative issue 489 regression") {
+    import Pattern._
+    import Pattern.ListPart.Item
+    import Pattern.StrPart.{NamedStr, WildStr}
+    import Identifier.Name
+
+    val left = ListPat(List(Item(StrPat(NonEmptyList.one(WildStr)))))
+    val right =
+      ListPat(List(Item(StrPat(NonEmptyList.one(NamedStr(Name("o")))))))
+
+    intersectionIsCommutative(left, right, eqPatterns)
+  }
+
+  test("intersection is associative issue 489 regression") {
+    import Pattern._
+    import Pattern.ListPart.NamedList
+    import Pattern.StrPart.NamedStr
+    import Identifier.{Constructor, Name, Operator}
+
+    val struct =
+      PositionalStruct(
+        (PackageName(NonEmptyList.of("Py")), Constructor("PesbbSy")),
+        Nil
+      )
+    val left = Named(Name("bywsqhupxid"), Named(Name("fehc3Oe1MC"), struct))
+    val mid = StrPat(NonEmptyList.one(NamedStr(Operator("+>~-"))))
+    val right = ListPat(List(NamedList(Operator("|"))))
+
+    intersectionIsAssociative(left, mid, right, eqPatterns)
+  }
+
   test("string match totality") {
     val tc = PredefTotalityCheck
 
