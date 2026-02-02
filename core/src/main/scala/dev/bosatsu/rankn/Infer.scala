@@ -1930,21 +1930,19 @@ object Infer {
           }
 
         case Match(term, branches, tag) =>
-          // all of the branches must return the same type:
-
-          // TODO: it's fishy that both branches have to
-          // infer the type of term and then push it down
-          // as a Check, if we only ever call check there, why accept an Expect?
-          // The paper is not clear on this (they didn't implement this
-          // method as far as I can see)
-          // on the other hand, the patterns in some cases should be enough
-          // to see the type of matching term, but we are only accessing that
-          // via check currently.
+          // We always infer the scrutinee once because pattern typing is a check:
+          // typeCheckPattern consumes a scrutinee type and refines/unifies it
+          // against the pattern. The Expected here does not affect scrutinee
+          // typing; it only controls how branch bodies are typed.
           //
-          // It feels like there should be another inference rule, which we
-          // are missing here.
-          // We infer the scrutinee once, then skolemize only outer existentials
-          // so all branches share the same hidden type while keeping foralls intact.
+          // In check mode we still infer the scrutinee, then check each branch
+          // body against the expected result type. In infer mode we infer each
+          // branch body and compute a common supertype (widenBranches).
+          //
+          // Soundness / existentials: we skolemize only outer existentials in
+          // the scrutinee so all branches share the same hidden witness. This
+          // prevents branches from choosing incompatible existential witnesses,
+          // while keeping foralls intact for later instantiation.
           inferSigma(term)
             .flatMap { tsigma =>
               skolemizeExistsOnly(tsigma.getType).flatMap { case (exSkols, t1) =>
