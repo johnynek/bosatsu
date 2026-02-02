@@ -314,7 +314,7 @@ final class SourceConverter(
                 Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
               }
             case pat =>
-              // TODO: we need the region on the pattern...
+              // TODO: we need the region on the pattern... (https://github.com/johnynek/bosatsu/issues/132)
               (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
                 (newPattern, e, rhs) =>
                   val expBranches = NonEmptyList.of((newPattern, e))

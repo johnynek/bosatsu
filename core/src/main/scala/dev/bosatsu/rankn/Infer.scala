@@ -2056,7 +2056,7 @@ object Infer {
     /** patterns can be a sigma type, not neccesarily a rho/tau return a list of
       * bound names and their (sigma) types
       *
-      * TODO: Pattern needs to have a region for each part
+    * TODO: Pattern needs to have a region for each part (https://github.com/johnynek/bosatsu/issues/132)
       */
     def typeCheckPattern(
         pat: Pattern,
@@ -2222,7 +2222,7 @@ object Infer {
           } else fail(Error.UnionPatternBindMismatch(u, nel, reg))
       }
 
-    // TODO: we should be able to derive a region for any pattern
+    // TODO: we should be able to derive a region for any pattern (https://github.com/johnynek/bosatsu/issues/132)
     def checkPat(
         pat: Pattern,
         sigma: Type,

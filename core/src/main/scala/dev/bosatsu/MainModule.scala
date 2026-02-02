@@ -605,7 +605,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             packList =
               packs.toMap.iterator
                 .map { case (_, p) => p }
-                // TODO currently we recompile predef in every run, so every interface includes
+                // TODO currently we recompile predef in every run, so every interface includes (https://github.com/johnynek/bosatsu/issues/414)
                 // predef, we filter that out
                 .filter(_.name != PackageName.PredefName)
                 .toList
