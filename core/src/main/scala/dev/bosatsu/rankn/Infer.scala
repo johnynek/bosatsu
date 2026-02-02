@@ -1725,14 +1725,23 @@ object Infer {
                 )
                 // the length of args and varsT must be the same because of unifyFnRho
                 zipped = args.zip(varsT)
-                namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
+                // If a lambda parameter is annotated, we treat that annotation as the
+                // binder type seen in the body. This prevents the body from relying on a
+                // more specific contextual type (from the expected function type), which
+                // would effectively let it "see through" the annotation and make the code
+                // harder to read and reason about.
+                namesVarsT = zipped.map {
+                  case ((n, Some(tpe)), _) => (n, tpe)
+                  case ((n, None), t)      => (n, t)
+                }
                 typedBody <- extendEnvNonEmptyList(namesVarsT) {
-                  // TODO we are ignoring the result of subsCheck here
-                  // should we be coercing a var?
-                  //
-                  // this comes from page 54 of the paper, but I can't seem to find examples
-                  // where this will fail if we reverse (as we had for a long time), which
-                  // indicates the testing coverage is incomplete
+                  // We only use subsCheck here as a constraint check: in check mode,
+                  // parameter annotations are upper bounds on the contextual arg types
+                  // (since a -> b <:< c -> d implies c <:< a). We do not apply the
+                  // resulting coercions because the binder is already fixed by the
+                  // expected function type; any widening is handled at use sites
+                  // (instSigma on locals or at application), not by rewriting the
+                  // lambda body.
                   zipped.parTraverse_ {
                     case ((_, Some(tpe)), varT) =>
                       // since a -> b <:< c -> d means, b <:< d and c <:< a
