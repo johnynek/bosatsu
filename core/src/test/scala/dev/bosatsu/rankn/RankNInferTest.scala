@@ -1790,6 +1790,36 @@ x = MyTup((match b:
 """)
   }
 
+  test("infer match result from existential scrutinee") {
+    parseProgram(
+      """#
+enum Either[a]: Left(a: a), Right(a: a)
+
+def unwrap(e: exists a. Either[a]):
+  match e:
+    case Left(x): x
+    case Right(y): y
+""",
+      "(exists a. Either[a]) -> exists a. a"
+    )
+
+    parseProgram(
+      """#
+struct Tup(fst, snd)
+enum Either[a]: Left(a: a), Right(a: a)
+struct Foo
+
+def unwrap(e: exists a. Tup[Either[a], a -> Foo]):
+  Tup(e, fn) = e
+  a = match e:
+    case Left(x): x
+    case Right(y): y
+  fn(a)
+""",
+      "(exists a. Tup[Either[a], a -> Foo]) -> Foo"
+    )
+  }
+
   test("use existentials in ADTs") {
     parseProgram(
       """#

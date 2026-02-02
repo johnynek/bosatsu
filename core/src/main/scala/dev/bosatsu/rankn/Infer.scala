@@ -677,6 +677,27 @@ object Infer {
         case rho: Type.Rho => pure((Nil, rho))
       }
 
+    // Replace only the outer existentials with skolems, keep foralls intact.
+    def skolemizeExistsOnly(t: Type): Infer[(List[Type.Var.Skolem], Type)] =
+      t match {
+        case q: Type.Quantified =>
+          val exists = q.existList
+          val foralls = q.forallList
+          exists.traverse { case (b, k) =>
+            newSkolemTyVar(b, k, existential = true)
+          }.map { skols =>
+            val env = exists.iterator
+              .map(_._1)
+              .zip(skols.iterator.map(Type.TyVar(_)))
+              .toMap[Type.Var, Type.TyVar]
+            val in1 = Type.substituteRhoVar(q.in, env)
+            val t1 =
+              Type.quantify(forallList = foralls, existList = Nil, in1)
+            (skols, t1)
+          }
+        case rho: Type.Rho => pure((Nil, rho))
+      }
+
     /*
      * Invariant: r2 needs to be in weak prenex form
      */
@@ -1910,48 +1931,53 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
+          // We infer the scrutinee once, then skolemize only outer existentials
+          // so all branches share the same hidden type while keeping foralls intact.
           inferSigma(term)
             .flatMap { tsigma =>
-              val check = Expected.Check((tsigma.getType, region(term)))
+              skolemizeExistsOnly(tsigma.getType).flatMap { case (exSkols, t1) =>
+                val check = Expected.Check((t1, region(term)))
+                val unskol = unskolemizeExists(exSkols)
 
-              expect match {
-                case Expected.Check((resT, _)) =>
-                  for {
-                    rest <- envTypes
-                    unknownExs <- unsolvedExistentials(resT :: rest)
-                    tbranches <-
-                      if (unknownExs.isEmpty) {
-                        // in the common case there are no existentials save effort
-                        branches.parTraverse { case (p, r) =>
-                          // note, resT is in weak-prenex form, so this call is permitted
-                          checkBranch(p, check, r, resT)
-                        }
-                      } else {
-                        for {
-                          tbranches <- branches.parTraverse { case (p, r) =>
+                expect match {
+                  case Expected.Check((resT, _)) =>
+                    for {
+                      rest <- envTypes
+                      unknownExs <- unsolvedExistentials(resT :: rest)
+                      tbranches <-
+                        if (unknownExs.isEmpty) {
+                          // in the common case there are no existentials save effort
+                          branches.parTraverse { case (p, r) =>
                             // note, resT is in weak-prenex form, so this call is permitted
                             checkBranch(p, check, r, resT)
-                              .product(
-                                solvedExistentitals(unknownExs).map(
-                                  (_, region(r))
-                                )
-                              )
                           }
-                          _ <- unifyBranchExistentials(
-                            unknownExs,
-                            tbranches.map(_._2)
-                          )
-                        } yield tbranches.map(_._1)
+                        } else {
+                          for {
+                            tbranches <- branches.parTraverse { case (p, r) =>
+                              // note, resT is in weak-prenex form, so this call is permitted
+                              checkBranch(p, check, r, resT)
+                                .product(
+                                  solvedExistentitals(unknownExs).map(
+                                    (_, region(r))
+                                  )
+                                )
+                            }
+                            _ <- unifyBranchExistentials(
+                              unknownExs,
+                              tbranches.map(_._2)
+                            )
+                          } yield tbranches.map(_._1)
+                        }
+                    } yield unskol(TypedExpr.Match(tsigma, tbranches, tag))
+                  case infer @ Expected.Inf(_) =>
+                    for {
+                      tbranches <- branches.parTraverse { case (p, r) =>
+                        inferBranch(p, check, r)
                       }
-                  } yield TypedExpr.Match(tsigma, tbranches, tag)
-                case infer @ Expected.Inf(_) =>
-                  for {
-                    tbranches <- branches.parTraverse { case (p, r) =>
-                      inferBranch(p, check, r)
-                    }
-                    (rho, regRho, resBranches) <- widenBranches(tbranches)
-                    _ <- infer.set((rho, regRho))
-                  } yield TypedExpr.Match(tsigma, resBranches, tag)
+                      (rho, regRho, resBranches) <- widenBranches(tbranches)
+                      _ <- infer.set((rho, regRho))
+                    } yield unskol(TypedExpr.Match(tsigma, resBranches, tag))
+                }
               }
             }
       }
@@ -2026,9 +2052,6 @@ object Infer {
 
     /*
      * we require resT in weak prenex form because we call checkRho with it
-     * TODO: if sigma is an existential, then maybe we should reset any
-     * existentials after and leave them opaque? Or maybe if we could
-     * avoid allocating the metas until we get into the branch
      */
     def checkBranch[A: HasRegion](
         p: Pattern,
@@ -2564,19 +2587,28 @@ object Infer {
       case Some(skols) =>
         new FunctionK[TypedExpr, TypedExpr] {
           def apply[A](te: TypedExpr[A]) = {
-            // now replace the skols with generics
-            val used = te.allBound
-            val aligned = Type.alignBinders(skols, used)
-            val te2 = substTyExpr(
-              skols,
-              aligned.map { case (_, b) => Type.TyVar(b) },
-              te
-            )
-            TypedExpr.quantVars(
-              forallList = Nil,
-              existList = aligned.toList.map { case (s, b) => (b, s.kind) },
-              te2
-            )
+            val freeSkols =
+              te.freeTyVars.iterator.collect {
+                case s: Type.Var.Skolem => s
+              }.toSet
+            val toQuant = skols.filter(freeSkols)
+            NonEmptyList.fromList(toQuant) match {
+              case None => te
+              case Some(skols) =>
+                // now replace the skols with generics
+                val used = te.allBound
+                val aligned = Type.alignBinders(skols, used)
+                val te2 = substTyExpr(
+                  skols,
+                  aligned.map { case (_, b) => Type.TyVar(b) },
+                  te
+                )
+                TypedExpr.quantVars(
+                  forallList = Nil,
+                  existList = aligned.toList.map { case (s, b) => (b, s.kind) },
+                  te2
+                )
+            }
           }
         }
     }
