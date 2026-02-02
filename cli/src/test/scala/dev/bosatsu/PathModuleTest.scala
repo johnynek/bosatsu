@@ -60,6 +60,14 @@ class PathModuleTest extends munit.ScalaCheckSuite {
       ),
       Some(PackageName(NonEmptyList.of("Bar", "Baz")))
     )
+    assertEquals(
+      pn(List("/root0"), "/root0/MyLib/Fib.bosatsu"),
+      Some(PackageName(NonEmptyList.of("MyLib", "Fib")))
+    )
+    assertEquals(
+      pn(List("/root0"), "/root0/mylib/fib.bosatsu"),
+      Some(PackageName(NonEmptyList.of("Mylib", "Fib")))
+    )
   }
 
   test("no roots means no Package") {
@@ -75,13 +83,37 @@ class PathModuleTest extends munit.ScalaCheckSuite {
   }
 
   test("if we add to a path that becomes Package") {
+    def dropExtension(parts: List[String]): List[String] =
+      if (parts.isEmpty) Nil
+      else {
+        val init = parts.init
+        val last = parts.last
+        val idx = last.lastIndexOf('.')
+        val noExt = if (idx > 0) last.substring(0, idx) else last
+        init :+ noExt
+      }
+
+    def normalizePart(part: String): String =
+      if (part.isEmpty) part
+      else {
+        val ch = part.charAt(0)
+        if ('a' <= ch && ch <= 'z') ch.toUpper.toString + part.substring(1)
+        else part
+      }
+
+    def expected(parts: List[String]): Option[PackageName] = {
+      val noExt = dropExtension(parts)
+      val raw = noExt.mkString("/")
+      PackageName.parse(raw).orElse {
+        val normalized = noExt.map(normalizePart).mkString("/")
+        PackageName.parse(normalized)
+      }
+    }
+
     def law(root: Path, otherRoots: List[Path], rest: Path) =
       if (rest.toString != "" && root.toString != "") {
         val path = root.resolve(rest)
-        val pack =
-          PackageName.parse(
-            rest.asScala.map(_.toString.toLowerCase.capitalize).mkString("/")
-          )
+        val pack = expected(rest.asScala.map(_.toString).toList)
         assertEquals(pathPackage(root :: otherRoots, path), pack)
       }
 

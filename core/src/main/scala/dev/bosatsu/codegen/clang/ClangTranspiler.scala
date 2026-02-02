@@ -355,7 +355,8 @@ case object ClangTranspiler extends Transpiler {
           args.mode match {
             case Mode.Main(fp) =>
               fp.flatMap { p =>
-                (ns.mainValues(validMain(_).isRight).get(p) match {
+                val mains = ns.mainValues(validMain(_).isRight)
+                (mains.get(p) match {
                   case Some((b, t)) =>
                     validMain(t) match {
                       case Right(mainRun) =>
@@ -373,9 +374,29 @@ case object ClangTranspiler extends Transpiler {
                           )
                     }
                   case None =>
+                    val known = ns.rootPackages.toList
+                    val knownMsg =
+                      if (known.nonEmpty) {
+                        s"known packages: ${known.map(_.asString).mkString(", ")}"
+                      } else "no packages found"
+
+                    val mainPacks = mains.keys.toList.sorted
+                    val mainMsg =
+                      if (mainPacks.nonEmpty) {
+                        s"packages with valid main: ${mainPacks.map(_.asString).mkString(", ")}"
+                      } else {
+                        "no packages contain a value of type Bosatsu/Prog::Main"
+                      }
+
+                    val message =
+                      if (!ns.rootPackages.contains(p)) {
+                        s"unknown package. $knownMsg"
+                      } else {
+                        s"no value of type Bosatsu/Prog::Main in ${p.asString}. $mainMsg"
+                      }
                     moduleIOMonad
                       .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
-                        InvalidMainValue(p, "empty package")
+                        InvalidMainValue(p, message)
                       )
                 })
               }
