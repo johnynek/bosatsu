@@ -2587,19 +2587,28 @@ object Infer {
       case Some(skols) =>
         new FunctionK[TypedExpr, TypedExpr] {
           def apply[A](te: TypedExpr[A]) = {
-            // now replace the skols with generics
-            val used = te.allBound
-            val aligned = Type.alignBinders(skols, used)
-            val te2 = substTyExpr(
-              skols,
-              aligned.map { case (_, b) => Type.TyVar(b) },
-              te
-            )
-            TypedExpr.quantVars(
-              forallList = Nil,
-              existList = aligned.toList.map { case (s, b) => (b, s.kind) },
-              te2
-            )
+            val freeSkols =
+              te.freeTyVars.iterator.collect {
+                case s: Type.Var.Skolem => s
+              }.toSet
+            val toQuant = skols.filter(freeSkols)
+            NonEmptyList.fromList(toQuant) match {
+              case None => te
+              case Some(skols) =>
+                // now replace the skols with generics
+                val used = te.allBound
+                val aligned = Type.alignBinders(skols, used)
+                val te2 = substTyExpr(
+                  skols,
+                  aligned.map { case (_, b) => Type.TyVar(b) },
+                  te
+                )
+                TypedExpr.quantVars(
+                  forallList = Nil,
+                  existList = aligned.toList.map { case (s, b) => (b, s.kind) },
+                  te2
+                )
+            }
           }
         }
     }
