@@ -378,12 +378,10 @@ object UIAnalyzer {
             case (Some(d), None, Pattern.Var(name)) =>
               // Top-level Var pattern binds to the discriminant directly
               ctx.trackBinding(name, d)
-            case (Some(d), None, Pattern.Named(name, inner)) =>
-              // Named pattern like `case x @ Something ->` binds x to discriminant
+            case (Some(d), None, Pattern.Named(name, _)) =>
+              // Named pattern wrapping wildcard/var - just bind x to discriminant
+              // Note: If inner had a variant tag, extractVariantTag(whole_pattern) would have returned Some
               ctx.trackBinding(name, d)
-              extractVariantTag(inner).foreach { innerTag =>
-                addPatternBindings(inner, d, innerTag, ctx)
-              }
             case _ => ()
           }
 
@@ -443,39 +441,37 @@ object UIAnalyzer {
    *
    * For Bosatsu/UI, the state variable name becomes the path.
    */
-  private def extractStateRead[A](expr: TypedExpr[A]): Option[List[String]] = {
-    expr match {
-      case TypedExpr.App(fn, args, _, _) =>
-        fn match {
-          // Check for Bosatsu/UI::read(state)
-          case TypedExpr.Global(pack, name, _, _)
-              if isUIPackage(pack) && name.asString == "read" =>
-            // Extract state identifier from first argument
-            args.head match {
-              case TypedExpr.Local(stateName, _, _) =>
-                // State variable name becomes the path
-                Some(List(stateName.asString))
-              case TypedExpr.Global(_, stateName, _, _) =>
-                // Global state reference
-                Some(List(stateName.asString))
-              case _ =>
-                None
-            }
+  // Note: This function is only called from within App case blocks in analyzeExpr
+  // and traceStateDependency, so app is always of type TypedExpr.App
+  private def extractStateRead[A](app: TypedExpr.App[A]): Option[List[String]] = {
+    app.fn match {
+      // Check for Bosatsu/UI::read(state)
+      case TypedExpr.Global(pack, name, _, _)
+          if isUIPackage(pack) && name.asString == "read" =>
+        // Extract state identifier from first argument
+        app.args.head match {
+          case TypedExpr.Local(stateName, _, _) =>
+            // State variable name becomes the path
+            Some(List(stateName.asString))
+          case TypedExpr.Global(_, stateName, _, _) =>
+            // Global state reference
+            Some(List(stateName.asString))
+          case _ =>
+            None
+        }
 
-          // Check for IO.read or Bosatsu/IO::read (legacy pattern)
-          case TypedExpr.Global(pack, name, _, _)
-              if isIOPackage(pack) && name.asString == "read" =>
-            // Extract path from first argument
-            args.head match {
-              case TypedExpr.App(listFn, listArgs, _, _) =>
-                // List constructor: [a, b, c]
-                val path = listArgs.toList.flatMap(extractStringLiteral)
-                if (path.nonEmpty) Some(path) else None
-              case other =>
-                // Could be a variable holding the path
-                None
-            }
-          case _ => None
+      // Check for IO.read or Bosatsu/IO::read (legacy pattern)
+      case TypedExpr.Global(pack, name, _, _)
+          if isIOPackage(pack) && name.asString == "read" =>
+        // Extract path from first argument
+        app.args.head match {
+          case TypedExpr.App(listFn, listArgs, _, _) =>
+            // List constructor: [a, b, c]
+            val path = listArgs.toList.flatMap(extractStringLiteral)
+            if (path.nonEmpty) Some(path) else None
+          case other =>
+            // Could be a variable holding the path
+            None
         }
       case _ => None
     }
@@ -533,12 +529,9 @@ object UIAnalyzer {
   ): Unit = {
     app.fn match {
       case TypedExpr.Global(pack, name, _, _) if isUIPackage(pack) =>
+        // Note: h() is handled specially in analyzeExpr to set parent context
+        // before analyzing children, so it won't reach here
         name.asString match {
-          case "h" =>
-            // h() is now handled in analyzeExpr to properly set parent context
-            // Don't duplicate processing here
-            ()
-
           case "text" =>
             // text(content) - text node, parent will handle binding
             extractTextBinding(app, ctx)
@@ -1022,9 +1015,9 @@ object UIAnalyzer {
       case Pattern.Annotation(inner, _) =>
         addPatternBindings(inner, discriminant, tag, ctx)
 
-      case Pattern.Var(name) =>
-        // Top-level var binds to discriminant directly
-        ctx.trackBinding(name, discriminant)
+      // Note: Pattern.Var is not reachable here because addPatternBindings is only
+      // called when variantTag is Some, and extractVariantTag(Var) returns None.
+      // Top-level Var patterns are handled directly in match branch analysis.
 
       case _ => ()
     }
