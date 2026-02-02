@@ -28,6 +28,14 @@ import HasRegion.region
 import Identifier.{Bindable, Constructor}
 import scala.collection.immutable.SortedMap
 
+/** The type inference/checking effect for Bosatsu's rank-n system.
+  *
+  * The core algorithm is a bidirectional, constraint-based system inspired by:
+  * https://www.microsoft.com/en-us/research/publication/practical-type-inference-for-arbitrary-rank-types/
+  *
+  * We infer or check expressions against expected types, generate and solve
+  * metavariables, and use subsumption checks to decide when coercions are safe.
+  */
 sealed abstract class Infer[+A] {
   import Infer.Error
 
@@ -58,6 +66,16 @@ sealed abstract class Infer[+A] {
     runVar(v, tpes, kinds).run.value
 }
 
+/** Companion for the inference engine.
+  *
+  * Differences from the paper:
+  * - Generalized type application (TyApply) as a first-class type former.
+  * - Kinds include variance; kind subsumption is checked during inference.
+  * - Pattern matching with typed patterns and binding environments.
+  * - Existential types (skolemization + escape checks) integrated into inference.
+  * - Limited impredicativity via instantiation in some application/annotation
+  *   paths to handle common practical cases.
+  */
 object Infer {
 
   type Pattern = GenPattern[(PackageName, Constructor), Type]
@@ -1002,11 +1020,11 @@ object Infer {
                   .flatMap { nmk =>
                     if (Kind.leftSubsumesRight(m.kind, nmk)) {
                       // we have to check that the kind matches before writing to a meta
-                      // TODO: this seems a bit fishy since we are unifying here.
-                      // but maybe it is okay, since widening into an unknown meta
-                      // variable seems like it should always be okay?
-                      // I can't seem to find a way to exploit this to produce
-                      // a forall a. a value.
+                      // This is not symmetric unification: we are solving an
+                      // unbound meta, so its kind is an upper bound on what we
+                      // may instantiate it with. We only allow the concrete
+                      // kind to be <= the meta kind (variance can be widened
+                      // upward/forgotten, but not made more specific).
                       writeMeta(m, nonMeta)
                     } else {
                       fail(
@@ -1199,6 +1217,8 @@ object Infer {
     ): Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
+        // metas are existentials introduced from covariant positions in declared;
+        // callers decide whether to quantify them, we only ensure they don't escape.
         coerce <- fn(metas, rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         resSkols <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
@@ -1272,8 +1292,9 @@ object Infer {
             right,
             pure(inferred :: Nil)
           ) { (_, rho) =>
-            // TODO: we are ignoring the metas, but we can't easily write them
-            // with the current design since Coerce can't do any Meta writing
+            // subsCheck only needs a coercion; any meta writes happen during
+            // subsCheckRho, and remaining existentials are handled by callers
+            // that produce a TypedExpr (e.g. checkSigma/quantify).
             subsCheckRho(inferred, rho, left, right)
           } {
             Error.SubsumptionCheckFailure(inferred, declared, left, right, _)
@@ -1724,14 +1745,23 @@ object Infer {
                 )
                 // the length of args and varsT must be the same because of unifyFnRho
                 zipped = args.zip(varsT)
-                namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
+                // If a lambda parameter is annotated, we treat that annotation as the
+                // binder type seen in the body. This prevents the body from relying on a
+                // more specific contextual type (from the expected function type), which
+                // would effectively let it "see through" the annotation and make the code
+                // harder to read and reason about.
+                namesVarsT = zipped.map {
+                  case ((n, Some(tpe)), _) => (n, tpe)
+                  case ((n, None), t)      => (n, t)
+                }
                 typedBody <- extendEnvNonEmptyList(namesVarsT) {
-                  // TODO we are ignoring the result of subsCheck here
-                  // should we be coercing a var?
-                  //
-                  // this comes from page 54 of the paper, but I can't seem to find examples
-                  // where this will fail if we reverse (as we had for a long time), which
-                  // indicates the testing coverage is incomplete
+                  // We only use subsCheck here as a constraint check: in check mode,
+                  // parameter annotations are upper bounds on the contextual arg types
+                  // (since a -> b <:< c -> d implies c <:< a). We do not apply the
+                  // resulting coercions because the binder is already fixed by the
+                  // expected function type; any widening is handled at use sites
+                  // (instSigma on locals or at application), not by rewriting the
+                  // lambda body.
                   zipped.parTraverse_ {
                     case ((_, Some(tpe)), varT) =>
                       // since a -> b <:< c -> d means, b <:< d and c <:< a
@@ -1746,7 +1776,8 @@ object Infer {
               for {
                 nameVarsT <- args.parTraverse {
                   case (n, Some(tpe)) =>
-                    // TODO do we need to narrow or instantiate tpe?
+                    // The environment can hold sigma types; instantiation happens
+                    // at use sites (instSigma), so we keep the annotation as-is.
                     pure((n, tpe))
                   case (n, None) =>
                     // all functions args of kind type
@@ -1920,21 +1951,19 @@ object Infer {
           }
 
         case Match(term, branches, tag) =>
-          // all of the branches must return the same type:
-
-          // TODO: it's fishy that both branches have to
-          // infer the type of term and then push it down
-          // as a Check, if we only ever call check there, why accept an Expect?
-          // The paper is not clear on this (they didn't implement this
-          // method as far as I can see)
-          // on the other hand, the patterns in some cases should be enough
-          // to see the type of matching term, but we are only accessing that
-          // via check currently.
+          // We always infer the scrutinee once because pattern typing is a check:
+          // typeCheckPattern consumes a scrutinee type and refines/unifies it
+          // against the pattern. The Expected here does not affect scrutinee
+          // typing; it only controls how branch bodies are typed.
           //
-          // It feels like there should be another inference rule, which we
-          // are missing here.
-          // We infer the scrutinee once, then skolemize only outer existentials
-          // so all branches share the same hidden type while keeping foralls intact.
+          // In check mode we still infer the scrutinee, then check each branch
+          // body against the expected result type. In infer mode we infer each
+          // branch body and compute a common supertype (widenBranches).
+          //
+          // Soundness / existentials: we skolemize only outer existentials in
+          // the scrutinee so all branches share the same hidden witness. This
+          // prevents branches from choosing incompatible existential witnesses,
+          // while keeping foralls intact for later instantiation.
           inferSigma(term)
             .flatMap { tsigma =>
               skolemizeExistsOnly(tsigma.getType).flatMap { case (exSkols, t1) =>
@@ -2292,7 +2321,10 @@ object Infer {
               // we have to instantiate a rho type
               instantiate(fa)
                 .flatMap { case (_, faRho) =>
-                  // TODO: it seems like we shouldn't ignore the existential skolems
+                  // We only need the instantiated rho here. Any existential
+                  // skolems introduced by instantiate are embedded in faRho and
+                  // must remain rigid while pattern-checking; their scope is
+                  // handled by the enclosing inference/escape checks, not here.
                   loop(revArgs, leftKind, faRho)
                 }
             case ((v0, k) :: rest, _) =>
