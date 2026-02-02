@@ -435,23 +435,23 @@ object Command {
           trans: Transpiler.Optioned[F, P]
       ): F[Doc] =
         for {
-          pubPriv <- pubPrivDeps
-          (pubDecodes, privDecodes) = pubPriv
-          cs = CheckState(
-            None,
-            pubDecodes = pubDecodes,
-            privDecodes = privDecodes,
-            publicDepClosureDecodes = pubDecodes ::: privDecodes,
-            prevPublicDepDecodes = Nil
-          )
+          cs <- checkState
           allPacks <- cs.packageMap(colorize)
+          validated = conf.validate(
+            cs.prevThis,
+            allPacks.toMap.values.toList,
+            cs.pubDecodes ::: cs.privDecodes,
+            cs.publicDepClosureDecodes,
+            cs.prevPublicDepDecodes
+          )
+          vr <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
           // we don't need a valid protoLib which will be published, just for resolving names/versions
           protoLib <- moduleIOMonad.fromEither(
             conf.unvalidatedAssemble(
-              None,
+              cs.prevThis,
               "",
               allPacks.toMap.values.toList,
-              Nil
+              vr.unusedTransitiveDeps.iterator.map(_._2).toList
             )
           )
           hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
@@ -466,9 +466,10 @@ object Command {
             Nil, // we can ignore interfaces when generating binaries
             allPacks
           )
-          allDeps = (pubDecodes.iterator ++ privDecodes.iterator).map { dec =>
-            (dec.name.name, dec.version) -> dec.toHashed
-          }.toMap
+          allDeps =
+            (cs.pubDecodes.iterator ++ cs.privDecodes.iterator).map { dec =>
+              (dec.name.name, dec.version) -> dec.toHashed
+            }.toMap
 
           loadFn = { (dep: proto.LibDependency) =>
             val version = dep.desc

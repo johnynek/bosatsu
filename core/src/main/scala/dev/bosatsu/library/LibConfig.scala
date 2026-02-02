@@ -269,12 +269,14 @@ case class LibConfig(
   ): ValidatedNec[Error, Unit] = {
 
     import Error.inv
+    val packsNoPredef =
+      packs.filterNot(_.name == PackageName.PredefName)
 
     val exportedPacks: List[Package.Typed[Any]] =
-      packs.filter(p => exportedPackages.exists(_.accepts(p.name)))
+      packsNoPredef.filter(p => exportedPackages.exists(_.accepts(p.name)))
 
     val privatePacks: List[Package.Typed[Any]] =
-      packs.filter(p => allPackages.exists(_.accepts(p.name)))
+      packsNoPredef.filter(p => allPackages.exists(_.accepts(p.name)))
 
     val nameToDep = deps.groupByNel(_.protoLib.name)
 
@@ -399,7 +401,7 @@ case class LibConfig(
       }
 
     val prop1 =
-      packs.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
+      packsNoPredef.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
         case Nil    => Validated.unit
         case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
       }
@@ -494,7 +496,7 @@ case class LibConfig(
     val prop5_6 = packToLibNameV.andThen { packToLibName =>
       val usedBy: Map[Option[Name], NonEmptyList[PackageName]] =
         (for {
-          p <- packs
+          p <- packsNoPredef
           visPack <- p.allImportPacks
           libName = packToLibName.get(visPack)
         } yield (libName, p))
@@ -878,7 +880,7 @@ object LibConfig {
       nextVersion = ver,
       previous = None,
       Nil,
-      Nil,
+      LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
       Nil,
       Nil,
       None
