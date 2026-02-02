@@ -919,9 +919,11 @@ object Infer {
       apType match {
         case ta @ Type.TyApply(left, right) =>
           // this branch only happens when checking ta <:< (rho: lKind[rKind]) or >:> (rho)
-          // TODO: what validates that ta has compatible kinds with lKind and rKind
-          // since we could be doing subtyping or supertyping here we would need
-          // to pass in some directionality
+          // we just re-validate ta is well-kinded; compatibility with lKind/rKind
+          // is enforced by the constructor/argument subsCheck. Kind subtyping is
+          // directional: we may widen variances upward (phantom <= co/contra <=
+          // invariant), not downward, and kinds must match in shape (argument
+          // kinds are checked contravariantly).
           validateKinds(ta, apRegion).as((left, right))
         case notApply =>
           for {
