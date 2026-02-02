@@ -3,7 +3,8 @@ package dev.bosatsu.library
 import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
-import dev.bosatsu.{Kind, Package, PackageMap, PackageName, Referant}
+import dev.bosatsu.{Kind, LocationMap, Package, PackageMap, PackageName, Par, Referant}
+import dev.bosatsu.IorMethods.IorExtension
 
 class LibConfigTest extends munit.FunSuite {
 
@@ -37,6 +38,20 @@ class LibConfigTest extends munit.FunSuite {
       PackageMap.empty
     )
   }
+
+  private def typeCheckOne(src: String): PackageMap.Inferred =
+    Par.noParallelism {
+      val pack = dev.bosatsu.Parser.unsafeParse(Package.parser(None), src)
+      val nel =
+        cats.data.NonEmptyList.one((("test", LocationMap(src)), pack))
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>")
+        .strictToValidated
+        .fold(
+          errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
+          identity
+        )
+    }
 
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
@@ -99,5 +114,54 @@ class LibConfigTest extends munit.FunSuite {
     )
 
     assertEquals(paths, expected)
+  }
+
+  test("extra packages ignores Predef") {
+    val pm = typeCheckOne(
+      """package My/Hello
+        |
+        |x = 1
+        |""".stripMargin
+    )
+
+    val predefPack = pm.toMap(PackageName.PredefName)
+    val helloPack = pm.toMap(PackageName.parts("My", "Hello"))
+
+    val conf = LibConfig(
+      name = Name("root"),
+      repoUri = "repo",
+      nextVersion = Version(0, 0, 1),
+      previous = None,
+      exportedPackages = Nil,
+      allPackages = Nil,
+      publicDeps = Nil,
+      privateDeps = Nil,
+      defaultMain = None
+    )
+
+    val res = conf.validatePacks(
+      previous = None,
+      packs = List(predefPack, helloPack),
+      deps = Nil,
+      publicDepClosureLibs = Nil,
+      prevPublicDepLibs = Nil
+    )
+
+    val extra = res match {
+      case cats.data.Validated.Invalid(nec) =>
+        nec.toList
+          .collectFirst { case e: LibConfig.Error.ExtraPackages => e }
+          .getOrElse(fail("missing ExtraPackages error"))
+      case cats.data.Validated.Valid(_) =>
+        fail("expected ExtraPackages error")
+    }
+
+    val names = extra.nel.toList.map(_.name)
+    assertEquals(names, List(helloPack.name))
+  }
+
+  test("lib init defaults all_packages to .*") {
+    val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
+    assertEquals(conf.allPackages.map(_.asString), List(".*"))
   }
 }

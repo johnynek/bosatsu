@@ -149,6 +149,7 @@ jobs:
           make -C c_runtime install VERSION=$(git rev-parse HEAD)
       - name: "run lib test"
         run: |
+          ./bosatsu_node lib fetch
           mkdir node_out_lib
           ./bosatsu_node lib test --outdir node_out_lib
           echo "now test without a given outdir"
@@ -191,6 +192,7 @@ jobs:
         run: ./c_out/test_exe
       - name: "run lib test"
         run: |
+          ./bosatsuj lib fetch
           mkdir c_out_lib
           ./bosatsuj lib test --outdir c_out_lib
           echo "now test without a given outdir"

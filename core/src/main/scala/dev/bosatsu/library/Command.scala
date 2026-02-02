@@ -40,6 +40,40 @@ object Command {
       visibility: DepVisibility
   )
 
+  private def descriptorDoc(desc: proto.LibDescriptor): Doc = {
+    val versionStr = desc.version match {
+      case Some(v) => Version.fromProto(v).render
+      case None    => "unknown"
+    }
+    val versionDoc = Doc.text(s"version: $versionStr")
+    val hashDoc =
+      desc.hashes.toList match {
+        case Nil =>
+          Doc.text("hash: (none)")
+        case h :: Nil =>
+          Doc.text(s"hash: $h")
+        case hs =>
+          Doc.text("hashes:") + (Doc.line + Doc.intercalate(
+            Doc.line,
+            hs.map(Doc.text(_))
+          )).nested(2)
+      }
+    val uriDoc =
+      desc.uris.toList match {
+        case Nil =>
+          Doc.text("uri: (none)")
+        case u :: Nil =>
+          Doc.text(s"uri: $u")
+        case us =>
+          Doc.text("uris:") + (Doc.line + Doc.intercalate(
+            Doc.line,
+            us.map(Doc.text(_))
+          )).nested(2)
+      }
+
+    Doc.intercalate(Doc.line, List(versionDoc, hashDoc, uriDoc))
+  }
+
   private def depInfo(
       dep: proto.LibDependency,
       visibility: DepVisibility
@@ -333,9 +367,13 @@ object Command {
                 moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
                   CliException(
                     "previous not in cas",
-                    Doc.text(
-                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
-                    )
+                    Doc.text("could not find previous version in CAS.") +
+                      Doc.line +
+                      (Doc.text("descriptor:") + (Doc.line + descriptorDoc(
+                        desc
+                      )).nested(2)).grouped +
+                      Doc.line +
+                      Doc.text("run `lib fetch` to download it.")
                   )
                 )
             }
@@ -435,23 +473,23 @@ object Command {
           trans: Transpiler.Optioned[F, P]
       ): F[Doc] =
         for {
-          pubPriv <- pubPrivDeps
-          (pubDecodes, privDecodes) = pubPriv
-          cs = CheckState(
-            None,
-            pubDecodes = pubDecodes,
-            privDecodes = privDecodes,
-            publicDepClosureDecodes = pubDecodes ::: privDecodes,
-            prevPublicDepDecodes = Nil
-          )
+          cs <- checkState
           allPacks <- cs.packageMap(colorize)
+          validated = conf.validate(
+            cs.prevThis,
+            allPacks.toMap.values.toList,
+            cs.pubDecodes ::: cs.privDecodes,
+            cs.publicDepClosureDecodes,
+            cs.prevPublicDepDecodes
+          )
+          vr <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
           // we don't need a valid protoLib which will be published, just for resolving names/versions
           protoLib <- moduleIOMonad.fromEither(
             conf.unvalidatedAssemble(
-              None,
+              cs.prevThis,
               "",
               allPacks.toMap.values.toList,
-              Nil
+              vr.unusedTransitiveDeps.iterator.map(_._2).toList
             )
           )
           hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
@@ -466,9 +504,10 @@ object Command {
             Nil, // we can ignore interfaces when generating binaries
             allPacks
           )
-          allDeps = (pubDecodes.iterator ++ privDecodes.iterator).map { dec =>
-            (dec.name.name, dec.version) -> dec.toHashed
-          }.toMap
+          allDeps =
+            (cs.pubDecodes.iterator ++ cs.privDecodes.iterator).map { dec =>
+              (dec.name.name, dec.version) -> dec.toHashed
+            }.toMap
 
           loadFn = { (dep: proto.LibDependency) =>
             val version = dep.desc
