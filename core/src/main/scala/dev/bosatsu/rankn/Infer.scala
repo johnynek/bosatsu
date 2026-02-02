@@ -28,6 +28,14 @@ import HasRegion.region
 import Identifier.{Bindable, Constructor}
 import scala.collection.immutable.SortedMap
 
+/** The type inference/checking effect for Bosatsu's rank-n system.
+  *
+  * The core algorithm is a bidirectional, constraint-based system inspired by:
+  * https://www.microsoft.com/en-us/research/publication/practical-type-inference-for-arbitrary-rank-types/
+  *
+  * We infer or check expressions against expected types, generate and solve
+  * metavariables, and use subsumption checks to decide when coercions are safe.
+  */
 sealed abstract class Infer[+A] {
   import Infer.Error
 
@@ -58,6 +66,16 @@ sealed abstract class Infer[+A] {
     runVar(v, tpes, kinds).run.value
 }
 
+/** Companion for the inference engine.
+  *
+  * Differences from the paper:
+  * - Generalized type application (TyApply) as a first-class type former.
+  * - Kinds include variance; kind subsumption is checked during inference.
+  * - Pattern matching with typed patterns and binding environments.
+  * - Existential types (skolemization + escape checks) integrated into inference.
+  * - Limited impredicativity via instantiation in some application/annotation
+  *   paths to handle common practical cases.
+  */
 object Infer {
 
   type Pattern = GenPattern[(PackageName, Constructor), Type]
