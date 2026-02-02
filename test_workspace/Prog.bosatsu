@@ -30,10 +30,10 @@ def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
 def ignore_env[a, e, r](p: Prog[Unit, e, r]) -> Prog[a, e, r]:
   p.remap_env(_ -> ())
 
-external def println(str: String) -> Prog[Unit, forall e. e, Unit]
-external def print(str: String) -> Prog[Unit, forall e. e, Unit]
+external def println[env](str: String) -> Prog[env, forall e. e, Unit]
+external def print[env](str: String) -> Prog[env, forall e. e, Unit]
 # read about n bytes from the standard in. Returns empty string on EOF
-external def read_stdin_utf8_bytes(n: Int) -> Prog[Unit, Unit, String]
+external def read_stdin_utf8_bytes[env](n: Int) -> Prog[env, Unit, String]
 
 def await(p): fn -> p.flat_map(fn)
 
