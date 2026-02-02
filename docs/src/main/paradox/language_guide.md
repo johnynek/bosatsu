@@ -66,8 +66,16 @@ message2 = "this has 'single quotes'"
 There is string interpolation syntax:
 ```
 profile = "my favorite animal is ${animal}"
+first = "first letter: $.{letter}"
 ```
-Where `animal` would be any expression that has type `String`.
+Where `animal` would be any expression that has type `String`, and `letter` has
+type `Char`.
+
+### Character literals
+Characters are single Unicode codepoints written with a leading dot:
+```
+letter = .'x'
+```
 
 ### Lists and list comprehensions
 Like Python, Bosatsu supports a syntax for literal lists:
@@ -124,6 +132,42 @@ Bosatsu: lexical scope is always in play.
 We recommend not changing the type of a name in a given scope (and may enforce
 this in the future).
 
+### Block expressions
+You can group a sequence of bindings and defs in parentheses to produce a
+value. The last expression is the result:
+```
+result = (
+  x = 1
+  y = x.add(1)
+  (x, y)
+)
+```
+
+A related shorthand is left-apply (`<-`). It rewrites a line of the form
+`pat <- expr` into a function application `expr(pat -> ...)`, so `expr` must
+accept a function (continuation) as its argument:
+```
+def let(arg): in -> in(arg)
+
+result = (
+  x <- let(3)
+  x.add(1)
+)
+# same as: let(3)(x -> x.add(1))
+```
+Because it is pure syntax, this can be used to model async/await style code or
+monadic do/for syntax (the semantics come from the function you apply to). For
+example, if `await` is defined in terms of `flat_map`, you can write:
+```
+def await(p): fn -> p.flat_map(fn)
+
+main = (
+  args <- read_env.await()
+  _ <- println("args = ${args}").await()
+  pure(0)
+)
+```
+
 ## Functions
 As we have seen in above examples, each function returns a single value which is
 the final expression in the function block. The reason for this difference with
@@ -160,6 +204,12 @@ add_tuple = ((x, y)) -> add(x, y)    # Fn1 taking a tuple
 Note the distinction between `(x, y) -> ...` (Fn2) and `((x, y)) -> ...`
 (Fn1 that takes a tuple).
 
+Function parameters are patterns, so you can destructure arguments directly:
+```
+def fst((a, _)): a
+sum = ((x, y)) -> add(x, y)
+```
+
 ### Scope difference for defs
 Unlike normal bindings, defs ARE in scope in their body. However, in order to
 prevent unbounded loops there are strict rules on accessing defs inside
@@ -183,6 +233,22 @@ argument to `bar`. This scales to more arguments:
 ```
 form3 = f(x, y, z)
 form4 = x.f(y, z)
+```
+
+### Operators
+Operators are just functions whose names are written with the `operator`
+prefix, and infix expressions call those functions:
+```
+def operator +(a, b): a.add(b)
+operator == = eq_Int
+
+x = 1 + 2
+y = 1 == 1
+```
+
+You can also import or rename operators:
+```
+from Bosatsu/Predef import add as operator +
 ```
 
 ### Recursive functions
@@ -311,6 +377,31 @@ short = ["foo", "bar"] matches ["foo", *_]
 ```
 The caveat is that you cannot have any bindings in the pattern when used
 as a matches expression.
+
+Patterns can bind the matched value with `as`:
+```
+case Some(v) as whole: whole
+case [*_, 4 as four]: four
+```
+
+Patterns can also be annotated with types using `pattern: Type`:
+```
+case (_: Int) as last: last
+```
+These annotations only guide type inference; they are not runtime checks.
+Bosatsu has no runtime type checks—types are fully determined at compile time.
+
+In string patterns, `${name}` binds a substring and `$.{name}` binds a single
+`Char`. Use `_` to ignore the matched part:
+```
+case "${_}$.{c}": c
+```
+
+List patterns support "globs" using `*`. `*_` matches any (possibly empty)
+sublist, and `*name` binds that sublist. Globs can appear anywhere in the list:
+```
+case [*_, True, *_]: "contains True"
+```
 
 A key feature of Bosatsu pattern matching: at least one branch must match.
 The compiler will check this and fail to compile any code that could fail
@@ -459,6 +550,16 @@ x = (1, "2", ["three"])
 match x:
   case (x, y, z): do_something(x, y, z)
 ```
+The 0-arity tuple is written `()` and has type `Unit`.
+Tuples are also real predef types and can be named explicitly as `Tuple1` up to
+`Tuple32` (there is no `Tuple0`; `Unit` fills that role), with fields `item1`,
+`item2`, and so on. That lets you select parts of a tuple using record-style
+patterns:
+```
+Tuple3 { item2, ... } = (1, 2, 3)
+# now item2 = 2
+```
+This pattern is handy when you only need specific tuple positions.
 
 ### Enums
 While `struct` represents a named tuple or product type, an `enum` represents a
@@ -530,6 +631,19 @@ add_tuple: ((Int, Int)) -> Int = ((x, y)) -> add(x, y)
 There is support for universal quantification sometimes called generic values
 or generic functions: `forall a. a -> List[a]`.
 
+### Kinds and variance annotations
+You can annotate type parameters with kinds and variance. `*` is the kind of
+value types, and `* -> *` (or higher) are type constructors. Variance markers
+`+*` and `-*` mark covariant and contravariant parameters:
+```
+enum NEList[a: +*]: NEOne(head: a), NEMore(head: a, tail: NEList[a])
+struct Box[a: *](value: a)
+def map[f: * -> *, a, b](fa: f[a], fn: a -> b) -> f[b]: ...
+def wrap2[shape: (* -> *) -> *](s: shape[List]) -> shape[List]: s
+```
+For `struct`/`enum` definitions, kinds are inferred. For functions, kinds are
+not currently inferred; unannotated type parameters are assumed to be `*`.
+
 ### Existential types
 Bosatsu also supports existential quantification to hide a type parameter chosen
 by the producer of a value. The syntax is `exists a. ...`, and you can quantify
@@ -594,6 +708,12 @@ export most_fav
 most_fav = match mammals:
   case [head, *tail]: head
   case []: "who knows?"
+```
+
+You can group imports/exports with parentheses and rename with `as`:
+```
+from Bosatsu/Predef import (foldl_List as foldl, add as operator +)
+export (foldl)
 ```
 
 We export types slightly differently. We can export just the type, or the type
