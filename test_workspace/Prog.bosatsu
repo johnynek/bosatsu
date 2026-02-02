@@ -1,6 +1,6 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, read_env, ignore_env, recover, remap_env,
+export (unit, pure, raise_error, read_env, recover, remap_env,
   print, println, await, read_stdin_utf8_bytes, recursive, map, map_err,
   with_env, Prog, Main())
 
@@ -26,9 +26,6 @@ external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err
 
 def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
   remap_env(p, _ -> env)
-
-def ignore_env[a, e, r](p: Prog[Unit, e, r]) -> Prog[a, e, r]:
-  p.remap_env(_ -> ())
 
 external def println[env](str: String) -> Prog[env, forall e. e, Unit]
 external def print[env](str: String) -> Prog[env, forall e. e, Unit]
@@ -56,8 +53,8 @@ count_down = recursive(loop -> (
   ))
 
 to_run = Main(
-  read_env.flat_map(args ->
     (
+      args <- read_env.await()
       stdin <- read_stdin_utf8_bytes(1000).recover(_ -> (
         println("<failed to read stdin").map(_ -> "")
       )).await()
@@ -68,6 +65,5 @@ to_run = Main(
         case _: "${s}, ${item}")
       _ <- println("args = ${arg_str}").await()
       pure(0)
-    ).ignore_env()
+    )
   )
-)
