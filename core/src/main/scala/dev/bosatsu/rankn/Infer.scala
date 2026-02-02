@@ -1756,7 +1756,8 @@ object Infer {
               for {
                 nameVarsT <- args.parTraverse {
                   case (n, Some(tpe)) =>
-                    // TODO do we need to narrow or instantiate tpe?
+                    // The environment can hold sigma types; instantiation happens
+                    // at use sites (instSigma), so we keep the annotation as-is.
                     pure((n, tpe))
                   case (n, None) =>
                     // all functions args of kind type
@@ -2300,7 +2301,10 @@ object Infer {
               // we have to instantiate a rho type
               instantiate(fa)
                 .flatMap { case (_, faRho) =>
-                  // TODO: it seems like we shouldn't ignore the existential skolems
+                  // We only need the instantiated rho here. Any existential
+                  // skolems introduced by instantiate are embedded in faRho and
+                  // must remain rigid while pattern-checking; their scope is
+                  // handled by the enclosing inference/escape checks, not here.
                   loop(revArgs, leftKind, faRho)
                 }
             case ((v0, k) :: rest, _) =>
