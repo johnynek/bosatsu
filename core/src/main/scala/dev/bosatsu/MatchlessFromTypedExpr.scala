@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import Identifier.Bindable
+import Identifier.{Bindable, Constructor}
 
 import cats.implicits._
 
@@ -13,11 +13,33 @@ object MatchlessFromTypedExpr {
   )(implicit ec: Par.EC): Compiled[K] = {
 
     val gdr = pm.getDataRepr
+    val ifaceTypeEnvs: Map[PackageName, rankn.TypeEnv[Kind.Arg]] =
+      pm.toMap.iterator
+        .flatMap { case (_, pack) =>
+          pack.imports.iterator.map(_.pack)
+        }
+        .map { iface =>
+          iface.name -> ExportedName.typeEnvFromExports(iface.name, iface.exports)
+        }
+        .toMap
 
-    // on JS Par.F[A] is actually Id[A], so we need to hold hands a bit
+    // NOTE: when compiling libraries, pm contains only local implementations.
+    // Dependency packages are present only as imported interfaces on each
+    // package, so pm.getDataRepr cannot see their constructors. Matchless
+    // needs constructor DataRepr for pattern compilation (e.g. Bosatsu/Nat
+    // Zero/Succ), otherwise it throws "could not find Constructor(...) in
+    // global data types". We therefore fall back to constructor info derived
+    // from imported interfaces to cover interface-only deps.
+    val variantOf: (PackageName, Constructor) => Option[rankn.DataRepr] =
+      (pn, cons) =>
+        gdr(pn, cons).orElse {
+          ifaceTypeEnvs
+            .get(pn)
+            .flatMap(_.getConstructor(pn, cons).map(_._1.dataRepr(cons)))
+        }
 
     val allItemsList = pm.toMap.toList
-      .traverse[Par.F, (PackageName, List[(Bindable, Matchless.Expr[K])])] {
+      .traverse {
         case (pname, pack) =>
           val lets = pack.lets
 
@@ -29,7 +51,7 @@ object MatchlessFromTypedExpr {
                     .traverse { case (name, rec, te) =>
                       // TODO: add from so we can resolve packages correctly
                       Matchless
-                        .fromLet(from, name, rec, te, gdr, c)
+                        .fromLet(from, name, rec, te, variantOf, c)
                         .map((name, _))
                     }
                 }
@@ -40,10 +62,7 @@ object MatchlessFromTypedExpr {
           }
       }
 
-    // JS needs this to not see through the Par.F as Id
-    // really we want Par.F to be an opaque type
-    val allItems = cats.Functor[Par.F].map(allItemsList)(_.toMap)
-
+    val allItems = allItemsList.map(_.toMap)
     Par.await(allItems)
   }
 }
