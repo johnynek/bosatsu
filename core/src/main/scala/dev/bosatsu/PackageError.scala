@@ -16,7 +16,7 @@ sealed abstract class PackageError {
 
 object PackageError {
   def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, Doc] = {
-    // TODO: we should use the imports in each package to talk about
+    // TODO: we should use the imports in each package to talk about (https://github.com/johnynek/bosatsu/issues/4)
     // types in ways that are local to that package
     require(pack ne null)
     tpes.iterator.map { t =>
@@ -741,7 +741,7 @@ object PackageError {
                 Document[Pattern.Parsed].document(pat) +
                 Doc.text(" (adjacent string bindings aren't allowed)")
             case MultipleSplicesInPattern(_, _) =>
-              // TODO: get printing of compiled patterns working well
+              // TODO: get printing of compiled patterns working well (https://github.com/johnynek/bosatsu/issues/4)
               // val docp = Document[Pattern.Parsed].document(Pattern.ListPat(pat)) +
               Doc.text(
                 "multiple splices in pattern, only one per match allowed"
@@ -795,7 +795,7 @@ object PackageError {
         .showRegion(err.region, 2, errColor)
         .getOrElse(Doc.str(err.region)) // we should highlight the whole region
       val errMessage = err.message
-      // TODO use the sourceMap/regions in RecursionError
+      // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
       val doc = packDoc + Doc.hardLine + Doc.text(errMessage) +
         Doc.hardLine + ctx + Doc.hardLine
@@ -846,7 +846,7 @@ object PackageError {
       val prefix = sourceMap.headLine(pack, Some(region))
       val message = kindError match {
         case KindFormula.Error.Unsatisfiable(_, _, _, _) =>
-          // TODO: would be good to give a more precise problem, e.g. which
+          // TODO: would be good to give a more precise problem, e.g. which (https://github.com/johnynek/bosatsu/issues/4)
           // type parameters are the problem.
           Doc.text("could not solve for valid variances")
         case KindFormula.Error.FromShapeError(se) =>

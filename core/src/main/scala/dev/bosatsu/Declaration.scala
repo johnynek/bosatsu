@@ -944,7 +944,7 @@ object Declaration {
 
   /** A pattern can also be a declaration in some cases
     *
-    * TODO, patterns don't parse with regions, so we lose track of precise
+    * TODO, patterns don't parse with regions, so we lose track of precise (https://github.com/johnynek/bosatsu/issues/132)
     * position information if we want to point to an inner portion of it
     */
   def toPattern(d: NonBinding): Option[Pattern.Parsed] =
@@ -1257,7 +1257,7 @@ object Declaration {
       .map { case (region, ((((preg, rawPat), pbk), value), decl)) =>
         pbk match {
           case PatternBindKind.Equals =>
-            // TODO: we should keep the pattern region
+            // TODO: we should keep the pattern region (https://github.com/johnynek/bosatsu/issues/962)
             val pat = Pattern.fromMaybeTupleOrParens(rawPat)
             Binding(BindingStatement(pat, value.get, decl))(using region)
           case PatternBindKind.LeftApplyFn =>
@@ -1350,7 +1350,7 @@ object Declaration {
         }
 
         val tupOrPar: P[NonBinding] =
-          // TODO: the backtrack here is bad...
+          // TODO: the backtrack here is bad... (https://github.com/johnynek/bosatsu/issues/344)
           Parser
             .parens(
               ((maybeSpacesAndLines.with1.soft *> ((recNonBind <* (!(maybeSpace ~ bindOp))).backtrack <* maybeSpacesAndLines)).tupleOrParens0
@@ -1390,7 +1390,7 @@ object Declaration {
                 stringDeclOrLit(recNBIndy)(indent) ::
                 tupOrPar ::
                 recordConstructorP(indent, recNonBind, recArg) ::
-                // TODO: comment is ambiguous with binding/non-binding...
+                // TODO: comment is ambiguous with binding/non-binding... (https://github.com/johnynek/bosatsu/issues/326)
                 // so it prevents us commenting a binding statement
                 commentNBP(recNonBind)(indent) ::
                 Nil
@@ -1446,7 +1446,7 @@ object Declaration {
           else {
             val an: P[NonBinding => NonBinding] =
               TypeRef.annotationParser
-                // TODO remove this backtrack,
+                // TODO remove this backtrack, (https://github.com/johnynek/bosatsu/issues/344)
                 // currently we can confuse ending a block with type annotation
                 // without backtracking here due to nesting losing track of
                 // when a trailing item is in a BranchArg in e.g. match or if bodies

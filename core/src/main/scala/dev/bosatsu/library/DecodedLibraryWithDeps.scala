@@ -224,7 +224,7 @@ object DecodedLibraryWithDeps {
           ): Map[PackageName, (Identifier.Bindable, Type)] =
             a.lib.implementations.toMap.iterator.flatMap { case (n, p) =>
               val optEval = p.lets.findLast { case (_, _, te) =>
-                // TODO this should really e checking that te.getType <:< a key
+                // TODO this should really e checking that te.getType <:< a key (https://github.com/johnynek/bosatsu/issues/430)
                 // in the map.
                 mainTypeFn(te.getType)
               }

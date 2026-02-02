@@ -71,7 +71,7 @@ object UnusedLetCheck {
         (loop(fn), args.traverse(loop(_))).mapN(_ ++ _.reduce)
       case Match(arg, branches, _) =>
         val argCheck = loop(arg)
-        // TODO: patterns need their own region
+        // TODO: patterns need their own region (https://github.com/johnynek/bosatsu/issues/132)
         val branchRegions =
           NonEmptyList.fromListUnsafe(
             branches.toList

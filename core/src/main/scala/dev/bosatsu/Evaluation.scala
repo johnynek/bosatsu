@@ -76,7 +76,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     )
 
-  // TODO: this only works for lets, not externals
+  // TODO: this only works for lets, not externals (https://github.com/johnynek/bosatsu/issues/186)
   def evaluateName(
       p: PackageName,
       name: Bindable
