@@ -40,6 +40,40 @@ object Command {
       visibility: DepVisibility
   )
 
+  private def descriptorDoc(desc: proto.LibDescriptor): Doc = {
+    val versionStr = desc.version match {
+      case Some(v) => Version.fromProto(v).render
+      case None    => "unknown"
+    }
+    val versionDoc = Doc.text(s"version: $versionStr")
+    val hashDoc =
+      desc.hashes.toList match {
+        case Nil =>
+          Doc.text("hash: (none)")
+        case h :: Nil =>
+          Doc.text(s"hash: $h")
+        case hs =>
+          Doc.text("hashes:") + (Doc.line + Doc.intercalate(
+            Doc.line,
+            hs.map(Doc.text(_))
+          )).nested(2)
+      }
+    val uriDoc =
+      desc.uris.toList match {
+        case Nil =>
+          Doc.text("uri: (none)")
+        case u :: Nil =>
+          Doc.text(s"uri: $u")
+        case us =>
+          Doc.text("uris:") + (Doc.line + Doc.intercalate(
+            Doc.line,
+            us.map(Doc.text(_))
+          )).nested(2)
+      }
+
+    Doc.intercalate(Doc.line, List(versionDoc, hashDoc, uriDoc))
+  }
+
   private def depInfo(
       dep: proto.LibDependency,
       visibility: DepVisibility
@@ -333,9 +367,13 @@ object Command {
                 moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
                   CliException(
                     "previous not in cas",
-                    Doc.text(
-                      s"could not find previous version ($desc) in CAS, run `lib fetch`."
-                    )
+                    Doc.text("could not find previous version in CAS.") +
+                      Doc.line +
+                      (Doc.text("descriptor:") + (Doc.line + descriptorDoc(
+                        desc
+                      )).nested(2)).grouped +
+                      Doc.line +
+                      Doc.text("run `lib fetch` to download it.")
                   )
                 )
             }
