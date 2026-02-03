@@ -17,8 +17,15 @@ object Dependencies {
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.33")
-  lazy val http4sEmber =
+  lazy val http4sEmberClient =
     Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.33")
+  lazy val http4sEmberServer =
+    Def.setting("org.http4s" %%% "http4s-ember-server" % "0.23.33")
+  lazy val http4sDsl = Def.setting("org.http4s" %%% "http4s-dsl" % "0.23.33")
+  lazy val http4sCirce = Def.setting("org.http4s" %%% "http4s-circe" % "0.23.33")
+  lazy val circeCore = Def.setting("io.circe" %%% "circe-core" % "0.14.10")
+  lazy val circeGeneric = Def.setting("io.circe" %%% "circe-generic" % "0.14.10")
+  lazy val circeParser = Def.setting("io.circe" %%% "circe-parser" % "0.14.10")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.2.2")
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.2.0")
