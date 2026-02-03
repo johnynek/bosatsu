@@ -1061,20 +1061,6 @@ object Infer {
     def unifyRho(t1: Type.Rho, t2: Type.Rho, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
-        case (meta @ Type.TyMeta(_), tpe) =>
-          Type.Tau.checkTau(tpe) match {
-            case Some(tau) => unifyVar(meta, tau, r1, r2)
-            case None => 
-              // We can only assign a Tau type into a MetaVar
-              fail(Error.NotUnifiable(meta, tpe, r1, r2))
-          }
-        case (tpe, meta @ Type.TyMeta(_)) =>
-          Type.Tau.checkTau(tpe) match {
-            case Some(tau) => unifyVar(meta, tau, r2, r1)
-            case None => 
-              // We can only assign a Tau type into a MetaVar
-              fail(Error.NotUnifiable(tpe, meta, r1, r2))
-          }
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
           validateKinds(t1, r1) &>
             validateKinds(t2, r2) &>
@@ -1082,6 +1068,12 @@ object Infer {
             unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
+        case (meta @ Type.TyMeta(_), Type.Tau(tau)) =>
+          // We can only assign a Tau type into a MetaVar
+          unifyVar(meta, tau, r1, r2)
+        case (Type.Tau(tau), meta @ Type.TyMeta(_)) =>
+          // We can only assign a Tau type into a MetaVar
+          unifyVar(meta, tau, r2, r1)
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
           fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>

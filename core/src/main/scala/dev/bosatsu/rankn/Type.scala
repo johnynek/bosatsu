@@ -101,13 +101,11 @@ object Type {
       loop(t :: Nil)
     }
 
-    def checkTau(t: Type): Option[Tau] =
+    def unapply(t: Type): Option[Tau] =
       t match {
         case r: Rho if isTau(r) => Some(r)
         case _                  => None
       }
-
-    def unapply(t: Type): Option[Tau] = checkTau(t)
   }
 
   sealed abstract class Quantification {
