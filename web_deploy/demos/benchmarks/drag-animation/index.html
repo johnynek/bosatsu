@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BosatsuUI vs React: Drag Animation Benchmark</title>
+    <!-- Real React 18 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Real BosatsuUI Runtime -->
+    <script src="../../../core/src/main/resources/bosatsu-ui-runtime.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color: #eee;
+        min-height: 100vh;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 8px;
+        background: linear-gradient(90deg, #00d4ff, #7c3aed);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .subtitle {
+        text-align: center;
+        color: #888;
+        margin-bottom: 24px;
+      }
+      .container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      .panel {
+        background: rgba(255,255,255,0.05);
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .panel-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .panel-title h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .bosatsu-panel h2 { color: #00d4ff; }
+      .react-panel h2 { color: #61dafb; }
+      .stats {
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 12px;
+        background: rgba(0,0,0,0.3);
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      .stats .fps { color: #4ade80; }
+      .stats .updates { color: #fbbf24; }
+      .canvas-container {
+        position: relative;
+        height: 400px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 12px;
+        overflow: hidden;
+        cursor: crosshair;
+      }
+      .particle {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        pointer-events: none;
+        transition: none;
+        will-change: transform, opacity;
+      }
+      .controls {
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: center;
+        justify-content: center;
+      }
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .control-group label {
+        color: #aaa;
+        font-size: 14px;
+      }
+      .control-group input[type="range"] {
+        width: 120px;
+        accent-color: #7c3aed;
+      }
+      .control-group input[type="number"] {
+        width: 80px;
+        padding: 6px;
+        border: 1px solid #444;
+        border-radius: 6px;
+        background: #2a2a3e;
+        color: #fff;
+      }
+      .control-value {
+        color: #7c3aed;
+        font-weight: bold;
+        min-width: 40px;
+      }
+      button {
+        background: linear-gradient(135deg, #7c3aed 0%, #00d4ff 100%);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .results {
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 20px;
+      }
+      .results h3 {
+        margin: 0 0 16px 0;
+        color: #fff;
+      }
+      .result-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      .result-card {
+        background: rgba(0,0,0,0.3);
+        padding: 16px;
+        border-radius: 8px;
+        text-align: center;
+      }
+      .result-card .value {
+        font-size: 28px;
+        font-weight: bold;
+        margin-bottom: 4px;
+      }
+      .result-card .label {
+        font-size: 12px;
+        color: #888;
+      }
+      .result-card.bosatsu .value { color: #00d4ff; }
+      .result-card.react .value { color: #61dafb; }
+      .result-card.winner .value { color: #4ade80; }
+      .explainer {
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(0, 212, 255, 0.1) 100%);
+        border: 1px solid rgba(124, 58, 237, 0.3);
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 20px;
+      }
+      .explainer h3 {
+        margin: 0 0 12px 0;
+        color: #7c3aed;
+      }
+      .explainer p {
+        margin: 8px 0;
+        color: #ccc;
+        line-height: 1.6;
+      }
+      .explainer code {
+        background: rgba(0,0,0,0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #00d4ff;
+      }
+      .chaos-indicator {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.5);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        color: #fbbf24;
+      }
+      @media (max-width: 900px) {
+        .container { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Drag Animation Benchmark</h1>
+    <p class="subtitle">BosatsuUI O(1) bindings vs React VDOM — Move your mouse to generate chaos!</p>
+
+    <div class="controls">
+      <div class="control-group">
+        <label>Particles:</label>
+        <input type="range" id="particle-count" min="10" max="500" value="100" />
+        <span class="control-value" id="particle-count-value">100</span>
+      </div>
+      <div class="control-group">
+        <label>Chaos Seed:</label>
+        <input type="number" id="chaos-seed" value="42" min="1" max="9999" />
+      </div>
+      <div class="control-group">
+        <label>Trail Length:</label>
+        <input type="range" id="trail-length" min="1" max="20" value="5" />
+        <span class="control-value" id="trail-length-value">5</span>
+      </div>
+      <div class="control-group">
+        <label>Physics Noise:</label>
+        <input type="range" id="physics-noise" min="0" max="100" value="30" />
+        <span class="control-value" id="physics-noise-value">30%</span>
+      </div>
+      <button id="start-btn" onclick="startBenchmark()">Start Benchmark</button>
+      <button onclick="resetBenchmark()">Reset</button>
+    </div>
+
+    <div class="container">
+      <div class="panel bosatsu-panel">
+        <div class="panel-title">
+          <h2>BosatsuUI</h2>
+          <div class="stats">
+            <span class="fps" id="bosatsu-fps">0 FPS</span> |
+            <span class="updates" id="bosatsu-updates">0 updates</span>
+          </div>
+        </div>
+        <div class="canvas-container" id="bosatsu-canvas">
+          <div class="chaos-indicator" id="bosatsu-chaos">Chaos: --</div>
+        </div>
+      </div>
+
+      <div class="panel react-panel">
+        <div class="panel-title">
+          <h2>React 18</h2>
+          <div class="stats">
+            <span class="fps" id="react-fps">0 FPS</span> |
+            <span class="updates" id="react-updates">0 updates</span>
+          </div>
+        </div>
+        <div class="canvas-container" id="react-canvas">
+          <div class="chaos-indicator" id="react-chaos">Chaos: --</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="results" id="results" style="display: none;">
+      <h3>Benchmark Results</h3>
+      <div class="result-grid">
+        <div class="result-card bosatsu">
+          <div class="value" id="result-bosatsu-fps">--</div>
+          <div class="label">BosatsuUI Avg FPS</div>
+        </div>
+        <div class="result-card react">
+          <div class="value" id="result-react-fps">--</div>
+          <div class="label">React 18 Avg FPS</div>
+        </div>
+        <div class="result-card winner">
+          <div class="value" id="result-speedup">--</div>
+          <div class="label">BosatsuUI Speedup</div>
+        </div>
+        <div class="result-card">
+          <div class="value" id="result-particles">--</div>
+          <div class="label">Particles Animated</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="explainer">
+      <h3>Why Randomness Matters</h3>
+      <p>
+        This benchmark uses a <strong>seeded random number generator</strong> to create unpredictable
+        particle physics. Each mouse movement triggers chaos calculations that can't be optimized away
+        at compile time. Both frameworks receive identical random inputs.
+      </p>
+      <p>
+        <strong>BosatsuUI approach:</strong> Each particle has a direct binding like
+        <code>['particles', '42', 'x'] → #particle-42.style.left</code>. Updating one particle is O(1) —
+        just a map lookup and direct DOM write.
+      </p>
+      <p>
+        <strong>React approach:</strong> Every mouse move triggers <code>setState</code> for all particles.
+        React must create a new VDOM tree, diff all particles, and reconcile changes — O(n) per frame.
+      </p>
+      <p>
+        The <strong>chaos seed</strong> ensures reproducible "randomness" — same seed, same particle behavior.
+        Increase <strong>physics noise</strong> to add more chaotic movement that prevents any caching.
+      </p>
+    </div>
+
+    <script>
+      // =========================================================================
+      // Seeded Random Number Generator (Mulberry32)
+      // =========================================================================
+
+      function mulberry32(seed) {
+        return function() {
+          let t = seed += 0x6D2B79F5;
+          t = Math.imul(t ^ t >>> 15, t | 1);
+          t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+          return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+      }
+
+      let rng = mulberry32(42);
+      let chaosValue = 0;
+
+      function updateChaos(x, y, noise) {
+        // Generate chaos from mouse position + noise
+        const n1 = rng();
+        const n2 = rng();
+        const n3 = rng();
+        chaosValue = Math.sin(x * n1 * 0.01) * Math.cos(y * n2 * 0.01) * (noise / 100) + n3 * (noise / 100);
+        return chaosValue;
+      }
+
+      // =========================================================================
+      // Configuration
+      // =========================================================================
+
+      const particleCountSlider = document.getElementById('particle-count');
+      const particleCountValue = document.getElementById('particle-count-value');
+      const chaosSeedInput = document.getElementById('chaos-seed');
+      const trailLengthSlider = document.getElementById('trail-length');
+      const trailLengthValue = document.getElementById('trail-length-value');
+      const physicsNoiseSlider = document.getElementById('physics-noise');
+      const physicsNoiseValue = document.getElementById('physics-noise-value');
+
+      let config = {
+        particleCount: 100,
+        chaosSeed: 42,
+        trailLength: 5,
+        physicsNoise: 30
+      };
+
+      particleCountSlider.addEventListener('input', () => {
+        config.particleCount = parseInt(particleCountSlider.value);
+        particleCountValue.textContent = config.particleCount;
+      });
+
+      chaosSeedInput.addEventListener('change', () => {
+        config.chaosSeed = parseInt(chaosSeedInput.value) || 42;
+        rng = mulberry32(config.chaosSeed);
+      });
+
+      trailLengthSlider.addEventListener('input', () => {
+        config.trailLength = parseInt(trailLengthSlider.value);
+        trailLengthValue.textContent = config.trailLength;
+      });
+
+      physicsNoiseSlider.addEventListener('input', () => {
+        config.physicsNoise = parseInt(physicsNoiseSlider.value);
+        physicsNoiseValue.textContent = config.physicsNoise + '%';
+      });
+
+      // =========================================================================
+      // Particle Physics
+      // =========================================================================
+
+      function createParticle(id, canvasWidth, canvasHeight) {
+        return {
+          id,
+          x: rng() * canvasWidth,
+          y: rng() * canvasHeight,
+          vx: (rng() - 0.5) * 4,
+          vy: (rng() - 0.5) * 4,
+          hue: rng() * 360,
+          size: 10 + rng() * 20,
+          trail: []
+        };
+      }
+
+      function updateParticle(p, mouseX, mouseY, canvasWidth, canvasHeight, noise) {
+        // Attract towards mouse with chaos
+        const dx = mouseX - p.x;
+        const dy = mouseY - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+
+        // Random chaos factor
+        const chaos = updateChaos(p.x, p.y, noise);
+
+        // Apply chaotic force
+        p.vx += (dx / dist) * 0.5 + (rng() - 0.5) * chaos * 10;
+        p.vy += (dy / dist) * 0.5 + (rng() - 0.5) * chaos * 10;
+
+        // Damping with noise
+        const damping = 0.95 - rng() * 0.1 * (noise / 100);
+        p.vx *= damping;
+        p.vy *= damping;
+
+        // Update position
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Bounce off walls with randomness
+        if (p.x < 0 || p.x > canvasWidth) {
+          p.vx *= -1;
+          p.x = Math.max(0, Math.min(canvasWidth, p.x));
+          p.hue = (p.hue + rng() * 60) % 360;
+        }
+        if (p.y < 0 || p.y > canvasHeight) {
+          p.vy *= -1;
+          p.y = Math.max(0, Math.min(canvasHeight, p.y));
+          p.hue = (p.hue + rng() * 60) % 360;
+        }
+
+        // Update trail
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > config.trailLength) {
+          p.trail.shift();
+        }
+
+        return p;
+      }
+
+      // =========================================================================
+      // BosatsuUI Implementation
+      // =========================================================================
+
+      let bosatsuParticles = [];
+      let bosatsuUpdateCount = 0;
+      let bosatsuFrames = [];
+      let bosatsuAnimating = false;
+
+      function initBosatsuParticles() {
+        const canvas = document.getElementById('bosatsu-canvas');
+        const rect = canvas.getBoundingClientRect();
+
+        // Clear existing
+        canvas.querySelectorAll('.particle').forEach(el => el.remove());
+
+        bosatsuParticles = [];
+        const bindings = [];
+        const initialState = { particles: {} };
+
+        for (let i = 0; i < config.particleCount; i++) {
+          const p = createParticle(i, rect.width - 20, rect.height - 20);
+          bosatsuParticles.push(p);
+
+          // Create DOM element
+          const el = document.createElement('div');
+          el.className = 'particle';
+          el.id = `bosatsu-p-${i}`;
+          el.style.width = p.size + 'px';
+          el.style.height = p.size + 'px';
+          el.style.background = `hsl(${p.hue}, 80%, 60%)`;
+          el.style.boxShadow = `0 0 ${p.size}px hsl(${p.hue}, 80%, 50%)`;
+          canvas.appendChild(el);
+
+          // Set up bindings
+          bindings.push(
+            { elementId: `bosatsu-p-${i}`, property: 'style.transform', statePath: ['particles', String(i), 'transform'] },
+            { elementId: `bosatsu-p-${i}`, property: 'style.opacity', statePath: ['particles', String(i), 'opacity'] },
+            { elementId: `bosatsu-p-${i}`, property: 'style.background', statePath: ['particles', String(i), 'background'] }
+          );
+
+          initialState.particles[i] = {
+            transform: `translate(${p.x}px, ${p.y}px)`,
+            opacity: '1',
+            background: `hsl(${p.hue}, 80%, 60%)`
+          };
+        }
+
+        // Initialize BosatsuUI
+        window.BosatsuUI.configure({ batchSize: Infinity, flushDelay: 0 });
+
+        const bindingMap = {};
+        bindings.forEach(b => {
+          const key = b.statePath.join('.');
+          if (!bindingMap[key]) bindingMap[key] = [];
+          bindingMap[key].push({ elementId: b.elementId, property: b.property, statePath: b.statePath });
+        });
+
+        window.BosatsuUI._initRuntime(bindingMap, initialState);
+
+        // Cache elements
+        canvas.querySelectorAll('[id]').forEach(el => {
+          window.BosatsuUI._elementCache.set(`#${el.id}`, el);
+        });
+      }
+
+      function updateBosatsuParticles(mouseX, mouseY) {
+        const canvas = document.getElementById('bosatsu-canvas');
+        const rect = canvas.getBoundingClientRect();
+
+        bosatsuParticles.forEach((p, i) => {
+          updateParticle(p, mouseX, mouseY, rect.width - 20, rect.height - 20, config.physicsNoise);
+
+          window.BosatsuUI.setState(['particles', String(i), 'transform'], `translate(${p.x}px, ${p.y}px)`);
+          window.BosatsuUI.setState(['particles', String(i), 'opacity'], String(0.3 + 0.7 * (1 - p.trail.length / config.trailLength)));
+          window.BosatsuUI.setState(['particles', String(i), 'background'], `hsl(${p.hue}, 80%, 60%)`);
+
+          bosatsuUpdateCount += 3;
+        });
+
+        document.getElementById('bosatsu-chaos').textContent = `Chaos: ${chaosValue.toFixed(3)}`;
+      }
+
+      // =========================================================================
+      // React Implementation
+      // =========================================================================
+
+      const { useState, useCallback, useRef, useEffect } = React;
+
+      let reactParticlesRef = [];
+      let reactUpdateCount = 0;
+      let reactFrames = [];
+      let reactSetParticles = null;
+
+      function ReactParticleSystem({ particleCount, onMount }) {
+        const [particles, setParticles] = useState(() => {
+          const canvas = document.getElementById('react-canvas');
+          const rect = canvas.getBoundingClientRect();
+          const initial = [];
+          for (let i = 0; i < particleCount; i++) {
+            initial.push(createParticle(i, rect.width - 20, rect.height - 20));
+          }
+          reactParticlesRef = initial;
+          return initial;
+        });
+
+        useEffect(() => {
+          reactSetParticles = setParticles;
+          onMount && onMount();
+        }, []);
+
+        return React.createElement('div', null,
+          particles.map((p, i) =>
+            React.createElement('div', {
+              key: i,
+              className: 'particle',
+              style: {
+                transform: `translate(${p.x}px, ${p.y}px)`,
+                width: p.size,
+                height: p.size,
+                background: `hsl(${p.hue}, 80%, 60%)`,
+                boxShadow: `0 0 ${p.size}px hsl(${p.hue}, 80%, 50%)`,
+                opacity: 0.3 + 0.7 * (1 - p.trail.length / config.trailLength)
+              }
+            })
+          )
+        );
+      }
+
+      let reactRoot = null;
+
+      function initReactParticles(callback) {
+        const canvas = document.getElementById('react-canvas');
+        canvas.querySelectorAll('.particle').forEach(el => el.remove());
+
+        if (reactRoot) {
+          reactRoot.unmount();
+        }
+
+        reactRoot = ReactDOM.createRoot(canvas);
+        reactRoot.render(React.createElement(ReactParticleSystem, {
+          particleCount: config.particleCount,
+          onMount: callback
+        }));
+      }
+
+      function updateReactParticles(mouseX, mouseY) {
+        if (!reactSetParticles) return;
+
+        const canvas = document.getElementById('react-canvas');
+        const rect = canvas.getBoundingClientRect();
+
+        reactSetParticles(prev => {
+          return prev.map(p => {
+            const updated = { ...p };
+            updateParticle(updated, mouseX, mouseY, rect.width - 20, rect.height - 20, config.physicsNoise);
+            reactUpdateCount++;
+            return updated;
+          });
+        });
+
+        document.getElementById('react-chaos').textContent = `Chaos: ${chaosValue.toFixed(3)}`;
+      }
+
+      // =========================================================================
+      // Benchmark Controller
+      // =========================================================================
+
+      let benchmarkRunning = false;
+      let mouseX = 200, mouseY = 200;
+      let lastBosatsuTime = performance.now();
+      let lastReactTime = performance.now();
+
+      function trackMouse(e) {
+        const bosatsuCanvas = document.getElementById('bosatsu-canvas');
+        const reactCanvas = document.getElementById('react-canvas');
+
+        const bosatsuRect = bosatsuCanvas.getBoundingClientRect();
+        const reactRect = reactCanvas.getBoundingClientRect();
+
+        // Check if mouse is over BosatsuUI canvas
+        if (e.clientX >= bosatsuRect.left && e.clientX <= bosatsuRect.right &&
+            e.clientY >= bosatsuRect.top && e.clientY <= bosatsuRect.bottom) {
+          mouseX = e.clientX - bosatsuRect.left;
+          mouseY = e.clientY - bosatsuRect.top;
+        }
+        // Check if mouse is over React canvas
+        else if (e.clientX >= reactRect.left && e.clientX <= reactRect.right &&
+                 e.clientY >= reactRect.top && e.clientY <= reactRect.bottom) {
+          mouseX = e.clientX - reactRect.left;
+          mouseY = e.clientY - reactRect.top;
+        }
+      }
+
+      function animationLoop() {
+        if (!benchmarkRunning) return;
+
+        const now = performance.now();
+
+        // Update BosatsuUI
+        updateBosatsuParticles(mouseX, mouseY);
+        const bosatsuDelta = now - lastBosatsuTime;
+        if (bosatsuDelta > 0) {
+          bosatsuFrames.push(1000 / bosatsuDelta);
+          if (bosatsuFrames.length > 60) bosatsuFrames.shift();
+        }
+        lastBosatsuTime = now;
+
+        // Update React
+        updateReactParticles(mouseX, mouseY);
+        const reactDelta = performance.now() - lastBosatsuTime;
+        reactFrames.push(1000 / (bosatsuDelta + reactDelta));
+        if (reactFrames.length > 60) reactFrames.shift();
+        lastReactTime = performance.now();
+
+        // Update FPS displays
+        const bosatsuFps = bosatsuFrames.reduce((a, b) => a + b, 0) / bosatsuFrames.length || 0;
+        const reactFps = reactFrames.reduce((a, b) => a + b, 0) / reactFrames.length || 0;
+
+        document.getElementById('bosatsu-fps').textContent = `${Math.round(bosatsuFps)} FPS`;
+        document.getElementById('react-fps').textContent = `${Math.round(reactFps)} FPS`;
+        document.getElementById('bosatsu-updates').textContent = `${bosatsuUpdateCount.toLocaleString()} updates`;
+        document.getElementById('react-updates').textContent = `${reactUpdateCount.toLocaleString()} updates`;
+
+        requestAnimationFrame(animationLoop);
+      }
+
+      function startBenchmark() {
+        if (benchmarkRunning) return;
+
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('results').style.display = 'none';
+
+        // Reset RNG with configured seed
+        rng = mulberry32(config.chaosSeed);
+
+        // Reset counters
+        bosatsuUpdateCount = 0;
+        reactUpdateCount = 0;
+        bosatsuFrames = [];
+        reactFrames = [];
+
+        // Initialize particles
+        initBosatsuParticles();
+
+        // Small delay to let React mount
+        initReactParticles(() => {
+          benchmarkRunning = true;
+          lastBosatsuTime = performance.now();
+          lastReactTime = performance.now();
+
+          document.addEventListener('mousemove', trackMouse);
+          animationLoop();
+
+          // Auto-stop after 10 seconds
+          setTimeout(() => {
+            if (benchmarkRunning) {
+              stopBenchmark();
+            }
+          }, 10000);
+        });
+      }
+
+      function stopBenchmark() {
+        benchmarkRunning = false;
+        document.removeEventListener('mousemove', trackMouse);
+        document.getElementById('start-btn').disabled = false;
+
+        // Calculate results
+        const avgBosatsuFps = bosatsuFrames.reduce((a, b) => a + b, 0) / bosatsuFrames.length || 0;
+        const avgReactFps = reactFrames.reduce((a, b) => a + b, 0) / reactFrames.length || 0;
+        const speedup = avgBosatsuFps / avgReactFps;
+
+        document.getElementById('result-bosatsu-fps').textContent = Math.round(avgBosatsuFps);
+        document.getElementById('result-react-fps').textContent = Math.round(avgReactFps);
+        document.getElementById('result-speedup').textContent = speedup.toFixed(2) + 'x';
+        document.getElementById('result-particles').textContent = config.particleCount;
+
+        document.getElementById('results').style.display = 'block';
+      }
+
+      function resetBenchmark() {
+        stopBenchmark();
+
+        // Clear canvases
+        document.getElementById('bosatsu-canvas').querySelectorAll('.particle').forEach(el => el.remove());
+        document.getElementById('react-canvas').querySelectorAll('.particle').forEach(el => el.remove());
+
+        // Reset displays
+        document.getElementById('bosatsu-fps').textContent = '0 FPS';
+        document.getElementById('react-fps').textContent = '0 FPS';
+        document.getElementById('bosatsu-updates').textContent = '0 updates';
+        document.getElementById('react-updates').textContent = '0 updates';
+        document.getElementById('bosatsu-chaos').textContent = 'Chaos: --';
+        document.getElementById('react-chaos').textContent = 'Chaos: --';
+        document.getElementById('results').style.display = 'none';
+      }
+
+      // Initialize on load
+      window.addEventListener('load', () => {
+        rng = mulberry32(config.chaosSeed);
+      });
+    </script>
+  </body>
+</html>

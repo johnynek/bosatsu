@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bosatsu Service Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 40px;
+        background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+        color: #e0e0e0;
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        text-align: center;
+        font-size: 2.5em;
+        margin-bottom: 8px;
+        background: linear-gradient(90deg, #00ff88, #00d4ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .subtitle {
+        text-align: center;
+        color: #888;
+        margin-bottom: 40px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 24px;
+      }
+      .card {
+        background: rgba(255,255,255,0.05);
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .card h2 {
+        margin: 0 0 16px 0;
+        color: #00ff88;
+        font-size: 1.3em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card h2 .icon {
+        font-size: 1.5em;
+      }
+      .card p {
+        color: #aaa;
+        line-height: 1.6;
+        margin: 0 0 16px 0;
+      }
+      .code-block {
+        background: #0d0d1a;
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 13px;
+        overflow-x: auto;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .code-block .comment { color: #666; }
+      .code-block .keyword { color: #ff79c6; }
+      .code-block .string { color: #f1fa8c; }
+      .code-block .function { color: #50fa7b; }
+      .code-block .type { color: #8be9fd; }
+      .code-block .operator { color: #ff79c6; }
+      .feature-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .feature-list li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .feature-list li:last-child { border-bottom: none; }
+      .feature-list .check { color: #00ff88; }
+      .diagram {
+        background: #0d0d1a;
+        border-radius: 12px;
+        padding: 24px;
+        margin: 24px 0;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .diagram-title {
+        text-align: center;
+        color: #00d4ff;
+        margin-bottom: 16px;
+        font-weight: 600;
+      }
+      .pipeline {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .pipeline-step {
+        background: rgba(0, 212, 255, 0.1);
+        border: 1px solid rgba(0, 212, 255, 0.3);
+        border-radius: 8px;
+        padding: 12px 16px;
+        text-align: center;
+        min-width: 120px;
+      }
+      .pipeline-step .label {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 4px;
+      }
+      .pipeline-step .name {
+        color: #00d4ff;
+        font-weight: 600;
+      }
+      .pipeline-arrow {
+        color: #00ff88;
+        font-size: 20px;
+      }
+      .try-it {
+        background: linear-gradient(135deg, #00ff88 0%, #00d4ff 100%);
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        color: #000;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 14px;
+        margin-top: 16px;
+        width: 100%;
+      }
+      .try-it:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3);
+      }
+      .terminal {
+        background: #0a0a14;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
+        margin-top: 16px;
+      }
+      .terminal-header {
+        background: #1a1a2e;
+        padding: 8px 12px;
+        display: flex;
+        gap: 6px;
+      }
+      .terminal-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .terminal-dot.red { background: #ff5f56; }
+      .terminal-dot.yellow { background: #ffbd2e; }
+      .terminal-dot.green { background: #27c93f; }
+      .terminal-body {
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .terminal-body .prompt { color: #00ff88; }
+      .terminal-body .output { color: #888; }
+      .tab-group {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 16px;
+      }
+      .tab {
+        padding: 8px 16px;
+        border-radius: 8px 8px 0 0;
+        background: rgba(255,255,255,0.05);
+        color: #888;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-bottom: none;
+      }
+      .tab.active {
+        background: rgba(0, 212, 255, 0.1);
+        color: #00d4ff;
+        border-color: rgba(0, 212, 255, 0.3);
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Bosatsu Service</h1>
+      <p class="subtitle">Compile Bosatsu handlers to HTTP servers, MCP tools, or serverless functions</p>
+
+      <div class="diagram">
+        <div class="diagram-title">Compilation Pipeline</div>
+        <div class="pipeline">
+          <div class="pipeline-step">
+            <div class="label">Source</div>
+            <div class="name">.bosatsu</div>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <div class="label">Type Check</div>
+            <div class="name">TypedExpr</div>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <div class="label">Analyze</div>
+            <div class="name">ServiceAnalyzer</div>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <div class="label">Compile</div>
+            <div class="name">Matchless IR</div>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <div class="label">Generate</div>
+            <div class="name">JavaScript</div>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <div class="label">Deploy</div>
+            <div class="name">HTTP/MCP/λ</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2><span class="icon">🌐</span> HTTP Server</h2>
+          <p>Expose Bosatsu handlers as REST endpoints using http4s-ember. Automatic JSON serialization and analysis endpoints.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> bosatsu service serve --port 3000</div>
+              <div class="output">Server running on http://0.0.0.0:3000</div>
+              <div class="output">  GET  /api/handlers</div>
+              <div class="output">  POST /api/handlers/:name</div>
+              <div class="output">  GET  /api/handlers/:name/analysis</div>
+            </div>
+          </div>
+
+          <ul class="feature-list">
+            <li><span class="check">✓</span> Auto-generated REST endpoints</li>
+            <li><span class="check">✓</span> Handler analysis API</li>
+            <li><span class="check">✓</span> JSON request/response</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">🤖</span> MCP Server</h2>
+          <p>Expose handlers as AI tools via Model Context Protocol (JSON-RPC over stdio). Perfect for Claude, GPT, and other LLMs.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> bosatsu service mcp</div>
+              <div class="output">MCP server ready (stdio)</div>
+              <div class="output">Tools: calculate_tax, get_user, ...</div>
+            </div>
+          </div>
+
+          <div class="code-block">
+<span class="comment">// claude_desktop_config.json</span>
+{
+  <span class="string">"mcpServers"</span>: {
+    <span class="string">"bosatsu"</span>: {
+      <span class="string">"command"</span>: <span class="string">"bosatsu"</span>,
+      <span class="string">"args"</span>: [<span class="string">"service"</span>, <span class="string">"mcp"</span>]
+    }
+  }
+}</div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">☁️</span> Serverless Deploy</h2>
+          <p>Build handlers for Vercel, AWS Lambda, or standalone deployment. Each target generates optimized runtime wrappers.</p>
+
+          <div class="tab-group">
+            <div class="tab active" onclick="showTab('vercel')">Vercel</div>
+            <div class="tab" onclick="showTab('lambda')">AWS Lambda</div>
+            <div class="tab" onclick="showTab('standalone')">Standalone</div>
+          </div>
+
+          <div id="tab-vercel" class="tab-content active">
+            <div class="terminal">
+              <div class="terminal-header">
+                <div class="terminal-dot red"></div>
+                <div class="terminal-dot yellow"></div>
+                <div class="terminal-dot green"></div>
+              </div>
+              <div class="terminal-body">
+                <div><span class="prompt">$</span> bosatsu service build --target vercel -o api/index.js</div>
+                <div class="output">Built: api/index.js (Vercel)</div>
+                <div><span class="prompt">$</span> vercel deploy</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="tab-lambda" class="tab-content">
+            <div class="terminal">
+              <div class="terminal-header">
+                <div class="terminal-dot red"></div>
+                <div class="terminal-dot yellow"></div>
+                <div class="terminal-dot green"></div>
+              </div>
+              <div class="terminal-body">
+                <div><span class="prompt">$</span> bosatsu service build --target aws-lambda -o handler.js</div>
+                <div class="output">Built: handler.js (AWS Lambda)</div>
+                <div><span class="prompt">$</span> sam deploy</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="tab-standalone" class="tab-content">
+            <div class="terminal">
+              <div class="terminal-header">
+                <div class="terminal-dot red"></div>
+                <div class="terminal-dot yellow"></div>
+                <div class="terminal-dot green"></div>
+              </div>
+              <div class="terminal-body">
+                <div><span class="prompt">$</span> bosatsu service build --target standalone -o bundle.js</div>
+                <div class="output">Built: bundle.js (Standalone)</div>
+                <div><span class="prompt">$</span> node bundle.js</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">📊</span> I/O Analysis</h2>
+          <p>Static analysis detects external operations (database calls, API requests) and identifies batching opportunities.</p>
+
+          <div class="code-block">
+<span class="comment"># Example handler</span>
+<span class="keyword">def</span> <span class="function">get_users</span>(db, ids):
+  users = [db.<span class="function">get</span>(<span class="string">"users"</span>, id) <span class="keyword">for</span> id <span class="keyword">in</span> ids]
+  <span class="keyword">return</span> users
+
+<span class="comment"># Analysis output:</span>
+<span class="comment"># Operations: db.get (READ) x N</span>
+<span class="comment"># Batch opportunity: db.getMany</span>
+<span class="comment"># Queries saved: N-1</span></div>
+
+          <ul class="feature-list">
+            <li><span class="check">✓</span> Detect read/write operations</li>
+            <li><span class="check">✓</span> Find batching opportunities</li>
+            <li><span class="check">✓</span> Calculate query savings</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 24px;">
+        <h2><span class="icon">📝</span> Example: Tax Calculator Service</h2>
+        <div class="code-block">
+<span class="keyword">package</span> TaxService
+
+<span class="comment"># Handler function</span>
+<span class="keyword">def</span> <span class="function">calculate_tax</span>(income: <span class="type">Float</span>, rate: <span class="type">Float</span>) <span class="operator">-></span> <span class="type">Float</span>:
+  taxable = <span class="function">max</span>(0.0, income <span class="operator">-.</span> 12000.0)  <span class="comment"># Standard deduction</span>
+  tax = taxable <span class="operator">*.</span> rate
+  tax
+
+<span class="comment"># Compile to service</span>
+<span class="comment"># $ bosatsu service build tax.bosatsu --target vercel</span>
+<span class="comment">#</span>
+<span class="comment"># Call via HTTP:</span>
+<span class="comment"># POST /api/handlers/calculate_tax</span>
+<span class="comment"># {"income": 75000, "rate": 0.22}</span>
+<span class="comment"># => {"result": 13860}</span></div>
+      </div>
+    </div>
+
+    <script>
+      function showTab(name) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+        document.querySelector(`.tab[onclick="showTab('${name}')"]`).classList.add('active');
+        document.getElementById('tab-' + name).classList.add('active');
+      }
+    </script>
+  </body>
+</html>

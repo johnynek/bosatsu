@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BosatsuUI Demos</title>
+    <title>Bosatsu Demos</title>
     <style>
       * {
         box-sizing: border-box;
@@ -278,6 +278,39 @@
               against virtual DOM diffing. Run tests in your browser.
             </p>
             <span class="tag performance">Benchmark Suite</span>
+          </a>
+          <a href="benchmarks/drag-animation/index.html" class="demo-card">
+            <h3>Drag Animation Benchmark</h3>
+            <p>
+              Complex particle animation driven by randomness.
+              See BosatsuUI's O(1) binding advantage with 100+ particles.
+            </p>
+            <span class="tag performance">Animation Stress Test</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Service & Verification</h2>
+        <p style="color: #9aa0d4; margin-bottom: 20px;">
+          New features ported from BurritoScript: service deployment and formal verification.
+        </p>
+        <div class="demo-grid">
+          <a href="service/index.html" class="demo-card">
+            <h3>Bosatsu Service</h3>
+            <p>
+              Compile handlers to HTTP servers, MCP AI tools, or serverless functions.
+              Automatic I/O analysis and batching detection.
+            </p>
+            <span class="tag" style="background: rgba(147, 197, 253, 0.15); color: #93c5fd;">HTTP/MCP</span>
+          </a>
+          <a href="tla/index.html" class="demo-card">
+            <h3>TLA+ Formal Verification</h3>
+            <p>
+              Generate TLA+ specs from handlers and run TLC model checker.
+              Find race conditions before they reach production.
+            </p>
+            <span class="tag" style="background: rgba(248, 113, 113, 0.15); color: #f87171;">Verification</span>
           </a>
         </div>
       </div>
