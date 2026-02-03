@@ -660,7 +660,54 @@ object JsGen {
         Code.ArrayLiteral(List(
           Code.StringLiteral("data-onchange"),
           Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("change"), args.head))
-        )), 1)
+        )), 1),
+
+      // ---------------------------------------------------------------------------
+      // Dynamic List State Operations
+      // ---------------------------------------------------------------------------
+
+      // list_state(initial) -> creates ListState object with unique ID
+      // ListState is {id: string, items: array, templateBindings: object}
+      Identifier.Name("list_state") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_create_list_state"),
+          List(args.head)
+        ), 1),
+
+      // list_read(listState) -> returns current items as Bosatsu list
+      Identifier.Name("list_read") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_list_read"),
+          List(args.head)
+        ), 1),
+
+      // list_append(listState, item) -> adds item, registers bindings, returns Unit
+      Identifier.Name("list_append") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_list_append"),
+          List(args.head, args(1))
+        ), 2),
+
+      // list_remove_at(listState, index) -> removes item at index, cleans up bindings
+      Identifier.Name("list_remove_at") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_list_remove_at"),
+          List(args.head, args(1))
+        ), 2),
+
+      // list_update_at(listState, index, item) -> updates item, triggers bindings
+      Identifier.Name("list_update_at") -> ((args: List[Code.Expression]) =>
+        Code.Call(
+          Code.Ident("_ui_list_update_at"),
+          List(args.head, args(1), args(2))
+        ), 3),
+
+      // list_length(listState) -> returns current length as Int
+      Identifier.Name("list_length") -> ((args: List[Code.Expression]) =>
+        Code.PropertyAccess(
+          Code.PropertyAccess(args.head, "items"),
+          "length"
+        ), 1)
     )
 
     /** Check if an expression is a UI external and extract its function */

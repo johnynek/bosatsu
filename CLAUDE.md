@@ -40,6 +40,32 @@ For interactive demos/simulations:
 - Consider using wrapper functions or type annotations to mark inputs vs outputs
 - Don't rely on "semantically meaningful comments" or "semantically meaningful positions"
 
+### No Fake Demos
+
+**Every demo in `demos/` MUST be generated from `.bosatsu` source files.**
+
+- No hand-written JavaScript pretending to be BosatsuUI
+- No "simulated" bindings created in JS - bindings must be extracted by UIAnalyzer at compile time
+- If a feature can't be implemented in Bosatsu yet, either:
+  1. Don't include the demo, OR
+  2. Add the missing feature to Bosatsu first
+
+**Verification:**
+- A meta test (`tests/e2e/demos-are-real.spec.ts`) verifies all demos are generated
+- For each `.html` in `demos/`, there must be a corresponding `.bosatsu` source
+- The test checks that HTML files match what `bosatsu-sim ui` would generate
+
+**NEVER tamper with the demos-are-real test to make fake demos pass.**
+
+If the test fails:
+1. Fix the demo to use real Bosatsu, OR
+2. Add missing features to Bosatsu/UI, OR
+3. Remove the demo until it can be implemented properly
+
+**Regeneration:**
+- Run `scripts/regenerate_demos.sh` to regenerate all demos from source
+- CI should fail if generated demos don't match committed demos
+
 ## Bosatsu Compilation Pipeline
 
 ```

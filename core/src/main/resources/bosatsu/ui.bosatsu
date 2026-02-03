@@ -9,8 +9,10 @@ from Bosatsu/Predef import String, Int, List, Unit
 export (
   VNode,
   State,
+  ListState,
   h, text, fragment,
   state, read, write,
+  list_state, list_read, list_append, list_remove_at, list_update_at, list_length,
   on_click, on_input, on_change
 )
 
@@ -48,3 +50,28 @@ external def on_input(handler: String -> Unit) -> (String, String)
 
 # Change event handler - for checkboxes and selects
 external def on_change(handler: String -> Unit) -> (String, String)
+
+# ---------------------------------------------------------------------------
+# Dynamic List State
+# ---------------------------------------------------------------------------
+
+# Reactive list container - holds a list of items that can grow/shrink
+external struct ListState[a]
+
+# Create a list state with initial items
+external def list_state[a](initial: List[a]) -> ListState[a]
+
+# Read the current list from a list state
+external def list_read[a](ls: ListState[a]) -> List[a]
+
+# Append an item to the list (triggers binding registration for new item)
+external def list_append[a](ls: ListState[a], item: a) -> Unit
+
+# Remove item at index (triggers binding cleanup)
+external def list_remove_at[a](ls: ListState[a], index: Int) -> Unit
+
+# Update item at index (triggers binding update for that item)
+external def list_update_at[a](ls: ListState[a], index: Int, item: a) -> Unit
+
+# Get the current length of the list
+external def list_length[a](ls: ListState[a]) -> Int
