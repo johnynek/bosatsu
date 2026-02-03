@@ -397,7 +397,7 @@ class RankNInferTest extends munit.FunSuite {
 
   object OptionTypes {
     val optName = defType("Option")
-    val optType: Type.Tau = Type.TyConst(optName)
+    val optType: Type.Tau = Type.Tau.tauConst(optName)
 
     val pn = testPackage
     val definedOption = Map(
@@ -425,7 +425,10 @@ class RankNInferTest extends munit.FunSuite {
     import OptionTypes._
 
     val constructors = Map(
-      (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
+      (
+        Identifier.unsafe("Some"),
+        Type.Fun(Type.IntType, optType)
+      )
     )
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
     val kindNotGen = Type.builtInKinds.updated(optName, Kind.Type)
@@ -504,12 +507,18 @@ class RankNInferTest extends munit.FunSuite {
         Identifier.unsafe("Some"),
         Type.forAll(
           NonEmptyList.of(b("a")),
-          Type.Fun(tv("a"), Type.TyApply(optType, tv("a")))
+          Type.Fun(
+            tv("a"),
+            Type.TyApply(optType, tv("a"))
+          )
         )
       ),
       (
         Identifier.unsafe("None"),
-        Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a")))
+        Type.forAll(
+          NonEmptyList.of(b("a")),
+          Type.TyApply(optType, tv("a"))
+        )
       )
     )
 
@@ -597,7 +606,7 @@ class RankNInferTest extends munit.FunSuite {
 
     val pureName = defType("Pure")
     val optName = defType("Option")
-    val optType: Type.Tau = Type.TyConst(optName)
+    val optType: Type.Tau = Type.Tau.tauConst(optName)
 
     val pn = testPackage
 
@@ -645,12 +654,18 @@ class RankNInferTest extends munit.FunSuite {
         Identifier.unsafe("Some"),
         Type.forAll(
           NonEmptyList.of(b("a")),
-          Type.Fun(tv("a"), Type.TyApply(optType, tv("a")))
+          Type.Fun(
+            tv("a"),
+            Type.TyApply(optType, tv("a"))
+          )
         )
       ),
       (
         Identifier.unsafe("None"),
-        Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a")))
+        Type.forAll(
+          NonEmptyList.of(b("a")),
+          Type.TyApply(optType, tv("a"))
+        )
       )
     )
 
@@ -2128,7 +2143,8 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
       } yield res
 
     val res = infer.runFully(Map.empty, Map.empty, Type.builtInKinds)
-    assertEquals(res, Right(Some(Type.IntType)))
+    val intTau: Type.Tau = Type.Tau.tauConst(Type.Const.predef("Int"))
+    assertEquals(res, Right(Some(intTau)))
   }
 
   test("match branch order does not affect inferred type") {

@@ -769,7 +769,7 @@ object TypedExpr {
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(
-      fn: Type.Meta => F[Option[Type.Rho]]
+      fn: Type.Meta => F[Option[Type.Tau]]
   ): F[TypedExpr[A]] =
     te.traverseType(Type.zonkMeta[F](_)(fn))
 
@@ -782,8 +782,8 @@ object TypedExpr {
   def quantify[F[_]: Monad, A](
       env: Map[(Option[PackageName], Identifier), Type],
       rho: TypedExpr.Rho[A],
-      readFn: Type.Meta => F[Option[Type.Rho]],
-      writeFn: (Type.Meta, Type.Rho) => F[Unit]
+      readFn: Type.Meta => F[Option[Type.Tau]],
+      writeFn: (Type.Meta, Type.Tau) => F[Unit]
   ): F[TypedExpr[A]] = {
 
     val zFn = Type.zonk(SortedSet.empty, readFn, writeFn)
@@ -804,7 +804,7 @@ object TypedExpr {
           val used: Set[Type.Var.Bound] = rho.allBound
           val aligned = Type.alignBinders(metas, used)
           val bound = aligned.traverse { case (m, n) =>
-            writeFn(m, Type.TyVar(n)).as(((n, m.kind), m.existential))
+            writeFn(m, Type.Tau.tauVar(n)).as(((n, m.kind), m.existential))
           }
           // we only need to zonk after doing a write:
           // it isnot clear that zonkMeta correctly here because the existentials
