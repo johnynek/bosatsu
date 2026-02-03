@@ -619,16 +619,19 @@ object Infer {
 
     def substTyRho(
         keys: NonEmptyList[Type.Var],
-        vals: NonEmptyList[Type.Rho]
+        vals: NonEmptyList[Type.Tau]
     ): Type.Rho => Type.Rho = {
-      val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
+      val env: Map[Type.Var, Type.Rho] =
+        keys.toList.iterator
+          .zip(vals.toList.widen[Type.Rho].iterator)
+          .toMap
 
       { t => Type.substituteRhoVar(t, env) }
     }
 
     def substTyExpr[A](
         keys: NonEmptyList[Type.Var],
-        vals: NonEmptyList[Type.Rho],
+        vals: NonEmptyList[Type.Tau],
         expr: TypedExpr[A]
     ): TypedExpr[A] = {
       val fn = Type.substTy(keys, vals)
@@ -644,7 +647,7 @@ object Infer {
      * new meta variables for each bound variable in ForAll or skolemize
      * which replaces the ForAll variables with skolem variables
      */
-    def assertRho(
+    inline def assertRho(
         t: Type,
         context: => String,
         region: Region
@@ -672,7 +675,7 @@ object Infer {
             NonEmptyList.fromList(univs) match {
               case Some(vars) =>
                 vars
-                  .traverse { case (_, k) => newMetaType(k) }
+                  .traverse { case (_, k) => newMetaType(k).map(Type.Tau(_)) }
                   .map { vars1T =>
                     substTyRho(vars.map(_._1), vars1T)(rho)
                   }
@@ -2642,8 +2645,11 @@ object Infer {
         // now replace the skols with generics
         val used = te.allBound
         val aligned = Type.alignBinders(skols, used)
-        val te2 =
-          substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
+        val te2 = substTyExpr(
+          skols,
+          aligned.map { case (_, b) => Type.Tau.tauVar(b) },
+          te
+        )
         TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
       }
     }
@@ -2669,7 +2675,7 @@ object Infer {
                 val aligned = Type.alignBinders(skols, used)
                 val te2 = substTyExpr(
                   skols,
-                  aligned.map { case (_, b) => Type.TyVar(b) },
+                  aligned.map { case (_, b) => Type.Tau.tauVar(b) },
                   te
                 )
                 TypedExpr.quantVars(
