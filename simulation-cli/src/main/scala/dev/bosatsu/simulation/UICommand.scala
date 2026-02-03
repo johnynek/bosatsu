@@ -129,8 +129,11 @@ case class UICommand(
       }
 
       // 6. Run UIAnalyzer on the TypedExpr to extract bindings
+      // Include both regular state bindings AND list state bindings so the analyzer
+      // can track dependencies on list operations like list_length
       _ <- IO(println("Analyzing UI bindings..."))
-      analysis = UIAnalyzer.analyzeWithFunctions(mainExpr, stateBindings.toList, functionBodies)
+      allStatesToAnalyze = stateBindings.toList ++ listStateBindings.toList
+      analysis = UIAnalyzer.analyzeWithFunctions(mainExpr, allStatesToAnalyze, functionBodies)
 
       _ <- IO(println(s"  State reads: ${analysis.stateReads.size}"))
       _ <- IO(println(s"  DOM bindings: ${analysis.bindings.size}"))
@@ -684,6 +687,22 @@ function _ui_list_read(listStateObj) {
   return _js_to_bosatsu_list(listStateObj.items);
 }
 
+// Update bindings that depend on list properties (like list_length)
+// These bindings are registered under the list's bindingKey
+function _updateListDependentBindings(listStateObj) {
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  if (!bindingKey) return;
+
+  const bindings = _bindings[bindingKey];
+  if (bindings) {
+    bindings.forEach(binding => {
+      // For list_length bindings, the value is the length
+      // The transform (if any) handles int_to_String conversion
+      _updateBinding(binding, listStateObj.items.length);
+    });
+  }
+}
+
 // Append item to list - registers bindings for new item
 function _ui_list_append(listStateObj, item) {
   const index = listStateObj.items.length;
@@ -697,6 +716,9 @@ function _ui_list_append(listStateObj, item) {
 
   // Trigger list re-render (simple approach - re-render container)
   _renderListItems(listStateObj);
+
+  // Update bindings that depend on list properties (like list_length)
+  _updateListDependentBindings(listStateObj);
 
   return []; // Unit
 }
@@ -715,6 +737,9 @@ function _ui_list_remove_at(listStateObj, index) {
 
     // Trigger list re-render
     _renderListItems(listStateObj);
+
+    // Update bindings that depend on list properties (like list_length)
+    _updateListDependentBindings(listStateObj);
   }
 
   return []; // Unit

@@ -466,9 +466,11 @@ object UIAnalyzer {
   /**
    * Check if an expression is a state read operation and extract the state identifier.
    *
-   * Supports both patterns:
+   * Supports these patterns:
    *   - IO.read(["path", "to", "state"]) - old IO pattern
    *   - read(stateVar) - new Bosatsu/UI pattern
+   *   - list_length(listState) - reading list length
+   *   - list_read(listState) - reading list contents
    *
    * For Bosatsu/UI, the state variable name becomes the path.
    */
@@ -486,6 +488,20 @@ object UIAnalyzer {
             Some(List(stateName.asString))
           case TypedExpr.Global(_, stateName, _, _) =>
             // Global state reference
+            Some(List(stateName.asString))
+          case _ =>
+            None
+        }
+
+      // Check for Bosatsu/UI::list_length(listState) or list_read(listState)
+      // These read from a list state and should trigger bindings when list changes
+      case TypedExpr.Global(pack, name, _, _)
+          if isUIPackage(pack) && (name.asString == "list_length" || name.asString == "list_read") =>
+        // Extract list state identifier from first argument
+        app.args.head match {
+          case TypedExpr.Local(stateName, _, _) =>
+            Some(List(stateName.asString))
+          case TypedExpr.Global(_, stateName, _, _) =>
             Some(List(stateName.asString))
           case _ =>
             None
