@@ -91,20 +91,24 @@ object Type {
       @annotation.tailrec
       def loop(ts: List[Type]): Boolean =
         ts match {
-          case Nil                     => true
-          case (_: Quantified) :: _    => false
+          case (_: Leaf) :: rest => loop(rest)
           case TyApply(on, arg) :: rest =>
             loop(on :: arg :: rest)
-          case (_: Leaf) :: rest => loop(rest)
+          case (_: Quantified) :: _    => false
+          case Nil                     => true
         }
 
-      loop(t :: Nil)
+      t match {
+        case _: Leaf => true
+        case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
+        case _: Quantified => false
+      }
     }
 
     def unapply(t: Type): Option[Tau] =
       t match {
-        case r: Rho if isTau(r) => Some(r)
-        case _                  => None
+        case rho: Rho if isTau(rho) => Some(rho)
+        case _                      => None
       }
   }
 
