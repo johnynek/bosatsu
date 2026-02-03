@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bosatsu Debugger - Provenance Tracking</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 40px;
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        text-align: center;
+        font-size: 2.5em;
+        margin-bottom: 8px;
+        background: linear-gradient(90deg, #a78bfa, #38bdf8, #34d399);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .subtitle {
+        text-align: center;
+        color: #94a3b8;
+        margin-bottom: 40px;
+        font-size: 1.1em;
+      }
+      .hero {
+        background: rgba(255,255,255,0.03);
+        border-radius: 20px;
+        padding: 32px;
+        margin-bottom: 32px;
+        border: 1px solid rgba(255,255,255,0.1);
+        text-align: center;
+      }
+      .hero h2 {
+        color: #a78bfa;
+        margin: 0 0 16px 0;
+      }
+      .hero p {
+        color: #94a3b8;
+        line-height: 1.8;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 24px;
+      }
+      .card {
+        background: rgba(255,255,255,0.05);
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .card h2 {
+        margin: 0 0 16px 0;
+        color: #38bdf8;
+        font-size: 1.3em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card h2 .icon {
+        font-size: 1.5em;
+      }
+      .card p {
+        color: #94a3b8;
+        line-height: 1.6;
+        margin: 0 0 16px 0;
+      }
+      .terminal {
+        background: #0f172a;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
+        margin-top: 16px;
+      }
+      .terminal-header {
+        background: #1e293b;
+        padding: 8px 12px;
+        display: flex;
+        gap: 6px;
+      }
+      .terminal-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .terminal-dot.red { background: #ef4444; }
+      .terminal-dot.yellow { background: #eab308; }
+      .terminal-dot.green { background: #22c55e; }
+      .terminal-body {
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        overflow-x: auto;
+      }
+      .terminal-body .prompt { color: #a78bfa; }
+      .terminal-body .cmd { color: #38bdf8; }
+      .terminal-body .output { color: #94a3b8; }
+      .terminal-body .highlight { color: #34d399; }
+      .terminal-body .value { color: #fbbf24; }
+      .terminal-body .dim { color: #64748b; }
+      .command-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .command-item {
+        background: rgba(0,0,0,0.2);
+        padding: 12px 16px;
+        border-radius: 8px;
+        border-left: 3px solid #a78bfa;
+      }
+      .command-item .name {
+        color: #38bdf8;
+        font-family: monospace;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .command-item .desc {
+        color: #94a3b8;
+        font-size: 13px;
+      }
+      .trace-diagram {
+        background: #0f172a;
+        border-radius: 12px;
+        padding: 24px;
+        margin: 24px 0;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .trace-diagram h3 {
+        color: #a78bfa;
+        margin: 0 0 20px 0;
+        text-align: center;
+      }
+      .trace-tree {
+        font-family: monospace;
+        font-size: 14px;
+        line-height: 2;
+      }
+      .trace-node {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .trace-indent {
+        color: #475569;
+      }
+      .trace-id {
+        background: rgba(167, 139, 250, 0.2);
+        color: #a78bfa;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .trace-name {
+        color: #38bdf8;
+      }
+      .trace-value {
+        color: #fbbf24;
+      }
+      .trace-op {
+        color: #34d399;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 24px;
+      }
+      .feature-box {
+        background: rgba(0,0,0,0.2);
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+      }
+      .feature-box .icon {
+        font-size: 2em;
+        margin-bottom: 8px;
+      }
+      .feature-box h4 {
+        color: #e2e8f0;
+        margin: 0 0 8px 0;
+      }
+      .feature-box p {
+        color: #94a3b8;
+        font-size: 13px;
+        margin: 0;
+      }
+      @media (max-width: 768px) {
+        .feature-grid { grid-template-columns: 1fr; }
+      }
+      .code-block {
+        background: #0f172a;
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 13px;
+        overflow-x: auto;
+        border: 1px solid rgba(255,255,255,0.1);
+        line-height: 1.6;
+      }
+      .code-block .comment { color: #64748b; }
+      .code-block .keyword { color: #f472b6; }
+      .code-block .string { color: #fbbf24; }
+      .code-block .number { color: #34d399; }
+      .code-block .function { color: #38bdf8; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Bosatsu Debugger</h1>
+      <p class="subtitle">AI-powered provenance tracking — understand how every value was computed</p>
+
+      <div class="hero">
+        <h2>🔮 "Why does this value exist?"</h2>
+        <p>
+          The Bosatsu Debugger answers questions that traditional debuggers can't.
+          It tracks <strong>provenance</strong> — the complete derivation chain for every computed value.
+          Ask "why?" and get a full explanation of inputs, operations, and intermediate results.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-box">
+          <div class="icon">🔍</div>
+          <h4>Explain Values</h4>
+          <p>See how any value was computed from its inputs</p>
+        </div>
+        <div class="feature-box">
+          <div class="icon">🌳</div>
+          <h4>Dependency Trees</h4>
+          <p>Visualize what each value depends on</p>
+        </div>
+        <div class="feature-box">
+          <div class="icon">📍</div>
+          <h4>Source Mapping</h4>
+          <p>Jump directly to the code that produced a value</p>
+        </div>
+        <div class="feature-box">
+          <div class="icon">🎯</div>
+          <h4>Focus Mode</h4>
+          <p>Isolate a subgraph for detailed analysis</p>
+        </div>
+        <div class="feature-box">
+          <div class="icon">⚡</div>
+          <h4>Live Evaluation</h4>
+          <p>Evaluate expressions in any context</p>
+        </div>
+        <div class="feature-box">
+          <div class="icon">🔗</div>
+          <h4>Usage Tracking</h4>
+          <p>Find everywhere a value is used</p>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top: 32px;">
+        <div class="card">
+          <h2><span class="icon">💬</span> Interactive Commands</h2>
+          <p>Start the debugger daemon and explore your program interactively.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> <span class="cmd">bosatsu daemon start program.bosatsu</span></div>
+              <div class="output">Daemon started on port 9999</div>
+              <div class="output">Loaded 42 bindings</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">list</span></div>
+              <div class="output"><span class="trace-id">n1</span> income = <span class="value">75000</span></div>
+              <div class="output"><span class="trace-id">n2</span> tax_rate = <span class="value">0.22</span></div>
+              <div class="output"><span class="trace-id">n3</span> deduction = <span class="value">12000</span></div>
+              <div class="output"><span class="trace-id">n4</span> taxable = <span class="value">63000</span></div>
+              <div class="output"><span class="trace-id">n5</span> tax = <span class="value">13860</span></div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">explain n5</span></div>
+              <div class="output"><span class="highlight">tax</span> = <span class="value">13860</span></div>
+              <div class="output">  <span class="dim">└─</span> taxable <span class="trace-op">*.</span> tax_rate</div>
+              <div class="output">     <span class="dim">├─</span> taxable = <span class="value">63000</span></div>
+              <div class="output">     <span class="dim">│</span>   <span class="dim">└─</span> income <span class="trace-op">-.</span> deduction</div>
+              <div class="output">     <span class="dim">│</span>       <span class="dim">├─</span> income = <span class="value">75000</span> <span class="dim">(input)</span></div>
+              <div class="output">     <span class="dim">│</span>       <span class="dim">└─</span> deduction = <span class="value">12000</span> <span class="dim">(input)</span></div>
+              <div class="output">     <span class="dim">└─</span> tax_rate = <span class="value">0.22</span> <span class="dim">(input)</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">🎯</span> Focus & Navigate</h2>
+          <p>Zoom in on specific parts of your computation graph.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">daemon></span> <span class="cmd">deps n4</span></div>
+              <div class="output">Dependencies of <span class="highlight">taxable</span>:</div>
+              <div class="output">  <span class="trace-id">n1</span> income (direct)</div>
+              <div class="output">  <span class="trace-id">n3</span> deduction (direct)</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">usages n1</span></div>
+              <div class="output">Usages of <span class="highlight">income</span>:</div>
+              <div class="output">  <span class="trace-id">n4</span> taxable</div>
+              <div class="output">  <span class="trace-id">n6</span> net_income</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">focus n4</span></div>
+              <div class="output">Focused on <span class="highlight">taxable</span></div>
+              <div class="output">Showing 3 related nodes</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">path n5</span></div>
+              <div class="output">Path from root to <span class="highlight">tax</span>:</div>
+              <div class="output">  income → taxable → tax</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">📍</span> Source Location</h2>
+          <p>Jump directly to the code that produced any value.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">daemon></span> <span class="cmd">source n4</span></div>
+              <div class="output">File: tax.bosatsu</div>
+              <div class="output">Line: 8, Column: 1</div>
+              <div class="output">Type: Binding</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">snippet n4</span></div>
+              <div class="dim">   6 │ tax_rate = 0.22</div>
+              <div class="dim">   7 │</div>
+              <div class="highlight">►  8 │ taxable = sub(income, deduction)</div>
+              <div class="dim">   9 │</div>
+              <div class="dim">  10 │ tax = times(taxable, tax_rate)</div>
+              <div></div>
+              <div class="output">Scope at this location:</div>
+              <div class="output">  income: Float = 75000</div>
+              <div class="output">  deduction: Float = 12000</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">⚡</span> Live Evaluation</h2>
+          <p>Evaluate arbitrary expressions in the context of any node.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">daemon></span> <span class="cmd">eval n4 "taxable * 2"</span></div>
+              <div class="output">Result: <span class="value">126000</span></div>
+              <div class="output">Type: Float</div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">eval n5 "tax / income"</span></div>
+              <div class="output">Result: <span class="value">0.1848</span></div>
+              <div class="output">Type: Float</div>
+              <div class="output"><span class="dim">// Effective tax rate</span></div>
+              <div></div>
+              <div><span class="prompt">daemon></span> <span class="cmd">find 13860</span></div>
+              <div class="output">Found 1 node with value <span class="value">13860</span>:</div>
+              <div class="output">  <span class="trace-id">n5</span> tax</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 24px;">
+        <h2><span class="icon">📚</span> All Commands</h2>
+        <div class="command-list">
+          <div class="command-item">
+            <div class="name">list</div>
+            <div class="desc">List all nodes with values</div>
+          </div>
+          <div class="command-item">
+            <div class="name">explain &lt;id&gt;</div>
+            <div class="desc">Show derivation tree</div>
+          </div>
+          <div class="command-item">
+            <div class="name">deps &lt;id&gt;</div>
+            <div class="desc">Show dependencies</div>
+          </div>
+          <div class="command-item">
+            <div class="name">usages &lt;id&gt;</div>
+            <div class="desc">Show where value is used</div>
+          </div>
+          <div class="command-item">
+            <div class="name">focus &lt;id&gt;</div>
+            <div class="desc">Focus on a subgraph</div>
+          </div>
+          <div class="command-item">
+            <div class="name">unfocus</div>
+            <div class="desc">Return to full graph</div>
+          </div>
+          <div class="command-item">
+            <div class="name">path &lt;id&gt;</div>
+            <div class="desc">Show path from root</div>
+          </div>
+          <div class="command-item">
+            <div class="name">value &lt;id&gt;</div>
+            <div class="desc">Get computed value</div>
+          </div>
+          <div class="command-item">
+            <div class="name">source &lt;id&gt;</div>
+            <div class="desc">Show source location</div>
+          </div>
+          <div class="command-item">
+            <div class="name">snippet &lt;id&gt;</div>
+            <div class="desc">Show code context</div>
+          </div>
+          <div class="command-item">
+            <div class="name">eval &lt;id&gt; &lt;expr&gt;</div>
+            <div class="desc">Evaluate expression</div>
+          </div>
+          <div class="command-item">
+            <div class="name">find &lt;value&gt;</div>
+            <div class="desc">Find nodes by value</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 24px;">
+        <h2><span class="icon">🤖</span> AI Integration</h2>
+        <p>The debugger daemon speaks JSON-RPC, making it perfect for AI assistants.</p>
+
+        <div class="code-block">
+<span class="comment">// AI can query the debugger to understand code</span>
+{
+  <span class="string">"method"</span>: <span class="string">"explain"</span>,
+  <span class="string">"params"</span>: { <span class="string">"nodeId"</span>: <span class="string">"n5"</span> }
+}
+
+<span class="comment">// Response includes full derivation chain</span>
+{
+  <span class="string">"result"</span>: {
+    <span class="string">"node"</span>: { <span class="string">"id"</span>: <span class="string">"n5"</span>, <span class="string">"name"</span>: <span class="string">"tax"</span>, <span class="string">"value"</span>: <span class="number">13860</span> },
+    <span class="string">"trace"</span>: {
+      <span class="string">"formula"</span>: <span class="string">"taxable *. tax_rate"</span>,
+      <span class="string">"children"</span>: [
+        { <span class="string">"id"</span>: <span class="string">"n4"</span>, <span class="string">"name"</span>: <span class="string">"taxable"</span>, <span class="string">"value"</span>: <span class="number">63000</span> },
+        { <span class="string">"id"</span>: <span class="string">"n2"</span>, <span class="string">"name"</span>: <span class="string">"tax_rate"</span>, <span class="string">"value"</span>: <span class="number">0.22</span> }
+      ]
+    }
+  }
+}</div>
+        <p style="margin-top: 16px;">
+          This enables AI assistants to answer questions like <em>"Why is my tax so high?"</em>
+          by tracing through the actual computation and explaining each step.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
