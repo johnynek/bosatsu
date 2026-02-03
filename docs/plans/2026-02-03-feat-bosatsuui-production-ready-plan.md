@@ -97,11 +97,12 @@ function _unregisterListItem(listPath, index) {
 ```
 
 **Tasks:**
-- [ ] Define list state type in Bosatsu/UI: `ListState[A]`
-- [ ] Add list operations: `append`, `remove_at`, `update_at`
-- [ ] Extend UIAnalyzer to extract list binding templates (pattern with `$` placeholder)
-- [ ] Generate runtime binding registration code in UICommand
-- [ ] Create todo-dynamic.bosatsu demo with add/remove
+- [x] Define list state type in Bosatsu/UI: `ListState[A]`
+- [x] Add list operations: `append`, `remove_at`, `update_at`
+- [x] Extend UIAnalyzer to extract list binding templates (pattern with `$` placeholder)
+- [x] Generate runtime binding registration code in UICommand
+- [x] Create todo-dynamic.bosatsu demo with add/remove
+- [x] Detect list_length as state read for computed value updates
 
 **Files:**
 - `core/src/main/resources/bosatsu/ui.bosatsu` - Add ListState type
