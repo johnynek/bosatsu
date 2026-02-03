@@ -591,7 +591,7 @@ object Infer {
       } yield metaSet.foldLeft(Set.empty[Type.Meta])(_ | _)
     }
 
-    val zonk: Type.Meta => Infer[Option[Type.Rho]] =
+    val zonk: Type.Meta => Infer[Option[Type.Tau]] =
       Type.zonk[Infer](SortedSet.empty, readMeta, writeMeta)
 
     /** This fills in any meta vars that have been quantified and replaces them
@@ -850,10 +850,10 @@ object Infer {
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(rho2, ks)
-          case (t1, t2) =>
+          case (t1: Type.Leaf, t2: Type.Leaf) =>
             // rule: MONO
             for {
-              _ <- unify(t1, t2, left, right)
+              _ <- unifyTau(Type.Tau(t1), Type.Tau(t2), left, right)
               ck <- checkedKinds
             } yield TypedExpr.coerceRho(
               t1,
@@ -894,13 +894,13 @@ object Infer {
           if (fnArity == arity) pure((arg, res))
           else
             fail(Error.ArityMismatch(fnArity, fnRegion, arity, evidenceRegion))
-        case tau =>
+        case rho =>
           if (Type.FnType.ValidArity.unapply(arity)) {
             val sized = NonEmptyList.fromListUnsafe((1 to arity).toList)
             for {
               argT <- sized.traverse(_ => newMeta)
               resT <- newMeta
-              _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
+              _ <- unifyRho(rho, Type.Fun(argT, resT), fnRegion, evidenceRegion)
             } yield (argT, resT)
           } else {
             fail(
@@ -943,12 +943,12 @@ object Infer {
           // invariant), not downward, and kinds must match in shape (argument
           // kinds are checked contravariantly).
           validateKinds(ta, apRegion).as((left, right))
-        case notApply =>
+        case notApply: Type.Leaf =>
           for {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
-            ap = Type.TyApply(leftT, rightT)
-            _ <- unify(notApply, ap, apRegion, evidenceRegion)
+            ap = Type.Tau.TauApply(Type.Tau(leftT), Type.Tau(rightT))
+            _ <- unifyTau(Type.Tau(notApply), ap, apRegion, evidenceRegion)
           } yield (leftT, rightT)
       }
 
@@ -969,14 +969,15 @@ object Infer {
             else
               (readMeta(m2).flatMap {
                 case Some(ty2) =>
+                  val tau1 = Type.Tau(ty1)
                   // we know that m2 is set, but m is not because ty1 is unbound
                   if (m.existential == m2.existential) {
                     // we unify here because ty2 could possibly be ty1
-                    unify(ty1, ty2, left, right)
+                    unifyTau(tau1, ty2, left, right)
                   } else if (m.existential) {
                     // m2.existential == false
                     // we need to point m2 at m
-                    writeMeta(m, ty2) *> writeMeta(m2, ty1)
+                    writeMeta(m, ty2) *> writeMeta(m2, tau1)
                   } else {
                     // m.existential == false && m2.existential == true
                     // we need to point m at m2
@@ -991,7 +992,7 @@ object Infer {
                     // since we checked above we know that
                     // m.id != m2.id, so it is safe to write without
                     // creating a self-loop here
-                    writeMeta(m2, ty1)
+                    writeMeta(m2, Type.Tau(ty1))
                   }
               })
           } else {
@@ -1051,22 +1052,46 @@ object Infer {
     ): Infer[Unit] =
       readMeta(tv.toMeta).flatMap {
         case None      => unifyUnboundVar(tv, t, left, right)
-        case Some(ty1) => unify(ty1, t, left, right)
+        case Some(ty1) => unifyTau(ty1, t, left, right)
       }
 
     def show(t: Type): String =
       Type.fullyResolvedDocument.document(t).render(80)
 
-    def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
+    def unifyRho(t1: Type.Rho, t2: Type.Rho, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
-        case (meta @ Type.TyMeta(_), tpe) => unifyVar(meta, tpe, r1, r2)
-        case (tpe, meta @ Type.TyMeta(_)) => unifyVar(meta, tpe, r2, r1)
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
           validateKinds(t1, r1) &>
             validateKinds(t2, r2) &>
-            unify(a1, a2, r1, r2) &>
+            unifyRho(a1, a2, r1, r2) &>
             unifyType(b1, b2, r1, r2)
+        case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
+        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
+        case (meta @ Type.TyMeta(_), Type.Tau(tau)) =>
+          // We can only assign a Tau type into a MetaVar
+          unifyVar(meta, tau, r1, r2)
+        case (Type.Tau(tau), meta @ Type.TyMeta(_)) =>
+          // We can only assign a Tau type into a MetaVar
+          unifyVar(meta, tau, r2, r1)
+        case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
+          fail(Error.UnexpectedBound(b, t2, r1, r2))
+        case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
+          fail(Error.UnexpectedBound(b, t1, r2, r1))
+        case (left, right) =>
+          fail(Error.NotUnifiable(left, right, r1, r2))
+      }
+
+    def unifyTau(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
+      (t1, t2) match {
+        case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
+        case (meta @ Type.TyMeta(_), tau) => unifyVar(meta, tau, r1, r2)
+        case (tau, meta @ Type.TyMeta(_)) => unifyVar(meta, tau, r2, r1)
+        case (Type.Tau.TauApply(a1, b1, t1), Type.Tau.TauApply(a2, b2, t2)) =>
+          validateKinds(t1, r1) &>
+            validateKinds(t2, r2) &>
+            unifyTau(a1, a2, r1, r2) &>
+            unifyTau(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
@@ -1082,7 +1107,7 @@ object Infer {
     def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
-          unify(rho1, rho2, r1, r2)
+          unifyRho(rho1, rho2, r1, r2)
         case (t1, t2) =>
           subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
       }
@@ -1329,7 +1354,7 @@ object Infer {
 
     def solvedExistentitals(
         lst: List[Type.Meta]
-    ): Infer[SortedMap[Type.Meta, Type.Rho]] =
+    ): Infer[SortedMap[Type.Meta, Type.Tau]] =
       lst
         .traverseFilter { m =>
           readMeta(m).flatMap {
@@ -1341,21 +1366,32 @@ object Infer {
         }
         .map(_.to(SortedMap))
 
+    /** Merge per-branch solutions of an existential meta during `match` checking.
+      * If all constrained branches agree on a tau, choose it; otherwise fall back
+      * to a fresh existential skolem to represent "some witness".
+      */
     def unifyExistential(
         m: Type.Meta,
-        values: List[(Type.Rho, Region)]
+        values: List[(Type.Tau, Region)]
     ): Infer[Unit] = {
-      def loop(values: List[(Type.Rho, Region)]): Infer[Unit] =
+      def loop(values: List[(Type.Tau, Region)]): Infer[Unit] =
         values match {
           case (Type.TyMeta(m1), r1) :: tail =>
             readMeta(m1).flatMap {
-              case Some(rho1) => loop((rho1, r1) :: tail)
+              case Some(tau1) => loop((tau1, r1) :: tail)
+              // Unconstrained meta from a branch: no information about the
+              // witness, so it should not constrain the merged result.
               case None       => loop(tail)
             }
-          case (h1, _) :: (t1 @ ((h2, _) :: _)) =>
-            if (h1 == h2) loop(t1)
+          case (h, _) :: Nil =>
+            // if we get here, all of them are the same, we can write that
+            writeMeta(m, h)
+          case (h1, _) :: (tail @ ((h2, _) :: _)) =>
+            if (h1 === h2) loop(tail)
             else {
               // there are at least two distinct values, make a new meta skolem
+              // Once we see disagreement, the merged result must be an
+              // existential witness; further values cannot change that.
               nextId.flatMap { id =>
                 val skol = Type.Var.Skolem(
                   s"meta${m.id}",
@@ -1363,11 +1399,10 @@ object Infer {
                   existential = true,
                   id
                 )
-                val tpe = Type.TyVar(skol)
+                val tpe = Type.Tau.tauVar(skol)
                 writeMeta(m, tpe)
               }
             }
-          case (h, _) :: Nil => writeMeta(m, h)
           case Nil           => unit
         }
 
@@ -1383,7 +1418,7 @@ object Infer {
       */
     def unifyBranchExistentials(
         lst: List[Type.Meta],
-        branches: NonEmptyList[(SortedMap[Type.Meta, Type.Rho], Region)]
+        branches: NonEmptyList[(SortedMap[Type.Meta, Type.Tau], Region)]
     ): Infer[Unit] =
       lst.traverse_ { m =>
         val toUnify = branches.toList.mapFilter { case (s, region) =>
@@ -2421,11 +2456,11 @@ object Infer {
         e: Expr[A],
         meta: Option[(Identifier, Type.TyMeta, Region)]
     ): Infer[TypedExpr[A]] = {
-      def unifySelf(tpe: Type.Rho): Infer[Map[Name, Type]] =
+      def unifySelf(rho: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
           case None             => getEnv
           case Some((nm, m, r)) =>
-            (unify(tpe, m, region(e), r) *> getEnv).map { envTys =>
+            (unifyRho(rho, m, region(e), r) *> getEnv).map { envTys =>
               // we have to remove the recursive binding from the environment
               envTys - ((None, nm))
             }
@@ -2492,7 +2527,7 @@ object Infer {
               val bound = aligned.toList.traverseFilter { case (m, n) =>
                 val meta = m.toMeta
                 if (meta.existential)
-                  writeMeta(m.toMeta, Type.TyVar(n)).as(Some((n, meta.kind)))
+                  writeMeta(m.toMeta, Type.Tau.tauVar(n)).as(Some((n, meta.kind)))
                 else pure(None)
               }
               // we only need to zonk after doing a write:

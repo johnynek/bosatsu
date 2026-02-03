@@ -61,7 +61,56 @@ object Type {
   sealed abstract class Leaf extends Rho {
     override def normalize: Leaf = this
   }
-  type Tau = Rho // no forall or exists anywhere
+  // no forall or exists anywhere
+  // Any Rho that is not an TyApply is always a Tau
+  // TyApply is Tau 
+  opaque type Tau <: Rho = Rho
+
+  object Tau {
+    given Order[Tau] = Rho.orderRho
+
+    def tauConst(c: Const): Tau = TyConst(c)
+    def tauVar(v: Var): Tau = TyVar(v)
+    def tauMeta(m: Meta): Tau = TyMeta(m)
+
+    inline def apply(l: Leaf): Tau = l
+
+    object TauApply {
+      def apply(on: Tau, arg: Tau): Tau = TyApply(on, arg)
+
+      def unapply(t: Tau): Option[(Tau, Tau, TyApply)] =
+        t match {
+          case app @ TyApply(t1, t2) =>
+            // we know t1 and t2 must be Tau since t is Tau, this cast is safe
+            Some((t1, t2.asInstanceOf[Rho], app))
+          case _ => None
+        }
+    }
+
+    def isTau(t: Type): Boolean = {
+      @annotation.tailrec
+      def loop(ts: List[Type]): Boolean =
+        ts match {
+          case (_: Leaf) :: rest => loop(rest)
+          case TyApply(on, arg) :: rest =>
+            loop(on :: arg :: rest)
+          case (_: Quantified) :: _    => false
+          case Nil                     => true
+        }
+
+      t match {
+        case _: Leaf => true
+        case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
+        case _: Quantified => false
+      }
+    }
+
+    def unapply(t: Type): Option[Tau] =
+      t match {
+        case rho: Rho if isTau(rho) => Some(rho)
+        case _                      => None
+      }
+  }
 
   sealed abstract class Quantification {
     def vars: NonEmptyList[(Var.Bound, Kind)]
@@ -1342,9 +1391,9 @@ object Type {
     */
   def zonk[F[_]: Monad](
       transparent: SortedSet[Meta],
-      readMeta: Meta => F[Option[Rho]],
-      writeMeta: (Meta, Type.Rho) => F[Unit]
-  ): Meta => F[Option[Rho]] = {
+      readMeta: Meta => F[Option[Tau]],
+      writeMeta: (Meta, Tau) => F[Unit]
+  ): Meta => F[Option[Tau]] = {
 
     val pureNone = Monad[F].pure(Option.empty[Rho])
 
@@ -1377,7 +1426,7 @@ object Type {
     */
   def zonkMeta[F[_]: Applicative](
       t: Type
-  )(m: Meta => F[Option[Type.Rho]]): F[Type] =
+  )(m: Meta => F[Option[Type.Tau]]): F[Type] =
     t match {
       case rho: Rho      => zonkRhoMeta(rho)(m).widen
       case q: Quantified =>
@@ -1390,7 +1439,7 @@ object Type {
     */
   def zonkRhoMeta[F[_]: Applicative](
       t: Type.Rho
-  )(mfn: Meta => F[Option[Type.Rho]]): F[Type.Rho] =
+  )(mfn: Meta => F[Option[Type.Tau]]): F[Type.Rho] =
     t match {
       case Type.TyApply(on, arg) =>
         (zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
