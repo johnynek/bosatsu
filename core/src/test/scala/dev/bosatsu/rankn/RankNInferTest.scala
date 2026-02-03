@@ -2147,6 +2147,68 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
     assertEquals(res, Right(Some(intTau)))
   }
 
+  test("unifyRho guard rejects meta with non-tau rho (via invariant type)") {
+    val a = Bound("a")
+    val polyId: Type =
+      forAll(
+        NonEmptyList.of((a, Kind.Type)),
+        Type.Fun(Type.TyVar(a), Type.TyVar(a))
+      )
+    val nonTauRho: Type.Rho = Type.Fun(polyId, Type.IntType)
+
+    val boxConst =
+      Type.Const.Defined(testPackage, TypeName(Identifier.Constructor("Box")))
+    val boxTy: Type.Rho = Type.TyConst(boxConst)
+    val kinds = Type.builtInKinds.updated(boxConst, Kind(Kind.Type.in))
+
+    val infer: Infer[Unit] =
+      for {
+        ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
+        meta = Type.Meta(Kind.Type, 20000L, existential = false, ref)
+        tmeta = Type.TyMeta(meta)
+        t1 = Type.TyApply(boxTy, tmeta)
+        t2 = Type.TyApply(boxTy, nonTauRho)
+        _ <- Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
+      } yield ()
+
+    val res = infer.runFully(Map.empty, Map.empty, kinds)
+    res match {
+      case Left(Infer.Error.NotUnifiable(_, _, _, _)) => assert(true)
+      case other => fail(s"expected NotUnifiable, got: $other")
+    }
+  }
+
+  test("unifyRho guard rejects meta with non-tau rho (opposite order)") {
+    val a = Bound("a")
+    val polyId: Type =
+      forAll(
+        NonEmptyList.of((a, Kind.Type)),
+        Type.Fun(Type.TyVar(a), Type.TyVar(a))
+      )
+    val nonTauRho: Type.Rho = Type.Fun(polyId, Type.IntType)
+
+    val boxConst =
+      Type.Const.Defined(testPackage, TypeName(Identifier.Constructor("Box")))
+    val boxTy: Type.Rho = Type.TyConst(boxConst)
+    val kinds = Type.builtInKinds.updated(boxConst, Kind(Kind.Type.in))
+
+    val infer: Infer[Unit] =
+      for {
+        ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
+        meta = Type.Meta(Kind.Type, 20001L, existential = false, ref)
+        tmeta = Type.TyMeta(meta)
+        t1 = Type.TyApply(boxTy, nonTauRho)
+        t2 = Type.TyApply(boxTy, tmeta)
+        _ <- Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
+      } yield ()
+
+    val res = infer.runFully(Map.empty, Map.empty, kinds)
+    res match {
+      case Left(Infer.Error.NotUnifiable(_, _, _, _)) => assert(true)
+      case other => fail(s"expected NotUnifiable, got: $other")
+    }
+  }
+
   test("match branch order does not affect inferred type") {
     parseProgram(
       """#

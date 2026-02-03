@@ -1374,40 +1374,44 @@ object Infer {
         }
         .map(_.to(SortedMap))
 
+    /** Merge per-branch solutions of an existential meta during `match` checking.
+      * If all constrained branches agree on a tau, choose it; otherwise fall back
+      * to a fresh existential skolem to represent "some witness".
+      */
     def unifyExistential(
         m: Type.Meta,
         values: List[(Type.Tau, Region)]
     ): Infer[Unit] = {
       def loop(values: List[(Type.Tau, Region)]): Infer[Unit] =
         values match {
-          case Nil           => unit
-          case (h, r1) :: tail =>
-            h match {
-              case Type.TyMeta(m1) =>
-                readMeta(m1).flatMap {
-                  case Some(tau1) => loop((tau1, r1) :: tail)
-                  case None       => loop(tail)
-                }
-              case _ =>
-                tail match {
-                  case Nil => writeMeta(m, h)
-                  case (h2, _) :: _ =>
-                    if (h === h2) loop(tail)
-                    else {
-                      // there are at least two distinct values, make a new meta skolem
-                      nextId.flatMap { id =>
-                        val skol = Type.Var.Skolem(
-                          s"meta${m.id}",
-                          m.kind,
-                          existential = true,
-                          id
-                        )
-                        val tpe = Type.Tau.tauVar(skol)
-                        writeMeta(m, tpe)
-                      }
-                    }
-                }
+          case (Type.TyMeta(m1), r1) :: tail =>
+            readMeta(m1).flatMap {
+              case Some(tau1) => loop((tau1, r1) :: tail)
+              // Unconstrained meta from a branch: no information about the
+              // witness, so it should not constrain the merged result.
+              case None       => loop(tail)
             }
+          case (h, _) :: Nil =>
+            // if we get here, all of them are the same, we can write that
+            writeMeta(m, h)
+          case (h1, _) :: (tail @ ((h2, _) :: _)) =>
+            if (h1 === h2) loop(tail)
+            else {
+              // there are at least two distinct values, make a new meta skolem
+              // Once we see disagreement, the merged result must be an
+              // existential witness; further values cannot change that.
+              nextId.flatMap { id =>
+                val skol = Type.Var.Skolem(
+                  s"meta${m.id}",
+                  m.kind,
+                  existential = true,
+                  id
+                )
+                val tpe = Type.Tau.tauVar(skol)
+                writeMeta(m, tpe)
+              }
+            }
+          case Nil           => unit
         }
 
       loop(values)
