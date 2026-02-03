@@ -695,13 +695,42 @@ object LibConfig {
         extends Error
     case class MissingExpectedPrevious(desc: proto.LibDescriptor) extends Error
 
-    def errorsToDoc(nec: NonEmptyChain[Error]): Doc =
-      Doc.intercalate(
-        Doc.hardLine + Doc.hardLine,
-        nec.toChain.toList.mapWithIndex((e, idx) =>
-          Doc.text(s"${idx + 1}. ") + docError.document(e).nested(4)
-        )
-      )
+    def errorsToDoc(nec: NonEmptyChain[Error]): Doc = {
+      val errors = nec.toChain.toList
+      val (summaryErrors, numberedErrors) = errors.partition {
+        case MinimumValidVersion(_, _) => true
+        case _                         => false
+      }
+
+      def numberedDoc(errs: List[Error]): Option[Doc] =
+        NonEmptyChain
+          .fromSeq(errs)
+          .map { nec =>
+            Doc.intercalate(
+              Doc.hardLine + Doc.hardLine,
+              nec.toChain.toList.mapWithIndex((e, idx) =>
+                Doc.text(s"${idx + 1}. ") + docError.document(e).nested(4)
+              )
+            )
+          }
+
+      def summaryDoc(errs: List[Error]): Option[Doc] =
+        NonEmptyChain
+          .fromSeq(errs)
+          .map(nec =>
+            Doc.intercalate(
+              Doc.hardLine,
+              nec.toChain.toList.map(docError.document)
+            )
+          )
+
+      (numberedDoc(numberedErrors), summaryDoc(summaryErrors)) match {
+        case (Some(n), Some(s)) => n + Doc.hardLine + Doc.hardLine + s
+        case (Some(n), None)    => n
+        case (None, Some(s))    => s
+        case (None, None)       => Doc.empty
+      }
+    }
 
     implicit val docError: Document[Error] =
       Document.instance {
