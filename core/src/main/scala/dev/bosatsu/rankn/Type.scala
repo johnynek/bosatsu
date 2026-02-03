@@ -82,7 +82,7 @@ object Type {
         t match {
           case app @ TyApply(t1, t2) =>
             // we know t1 and t2 must be Tau since t is Tau, this cast is safe
-            Some((t1.asInstanceOf[Rho], t2.asInstanceOf[Rho], app))
+            Some((t1, t2.asInstanceOf[Rho], app))
           case _ => None
         }
     }

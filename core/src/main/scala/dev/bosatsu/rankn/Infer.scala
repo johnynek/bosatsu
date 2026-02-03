@@ -1385,7 +1385,7 @@ object Infer {
             h match {
               case Type.TyMeta(m1) =>
                 readMeta(m1).flatMap {
-                  case Some(rho1) => loop((rho1, r1) :: tail)
+                  case Some(tau1) => loop((tau1, r1) :: tail)
                   case None       => loop(tail)
                 }
               case _ =>
