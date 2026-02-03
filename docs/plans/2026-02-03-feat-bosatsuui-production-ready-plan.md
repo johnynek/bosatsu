@@ -128,10 +128,11 @@ h("input", [
 ```
 
 **Tasks:**
-- [ ] Verify string conversion works in JsGen (Bosatsu List[Char] ↔ JS String)
-- [ ] Add `bind_value` helper that combines value attribute + on_input handler
-- [ ] Create form-input.bosatsu demo with text input, textarea
-- [ ] Ensure UIAnalyzer extracts input bindings correctly
+- [x] Verify string conversion works in JsGen (Bosatsu List[Char] ↔ JS String)
+- [ ] Add `bind_value` helper that combines value attribute + on_input handler (deferred - current pattern works well)
+- [x] Create form-input.bosatsu demo with text input, textarea
+- [x] Ensure UIAnalyzer extracts input bindings correctly
+- [x] Fix empty string handling (don't treat [0] as boolean False)
 
 **Files:**
 - `core/src/main/resources/bosatsu/ui.bosatsu` - Add bind_value helper
