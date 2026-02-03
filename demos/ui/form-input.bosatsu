@@ -1,0 +1,85 @@
+package Demo/FormInput
+
+from Bosatsu/Predef import add, sub, Int, String, Unit, int_to_String
+from Bosatsu/UI import (
+  VNode, State,
+  state, read, write,
+  h, text, on_click, on_input
+)
+
+# BosatsuUI Form Input Demo
+#
+# Demonstrates two-way input binding:
+# - Text input writes to state via on_input
+# - Display shows current state value
+# - State changes trigger O(1) DOM updates
+
+# State for the input value
+input_text: State[String] = state("Hello, BosatsuUI!")
+
+# Character count (computed from input_text)
+# Note: This would need string_length function which doesn't exist yet
+# For now, we'll just track input changes
+
+# Handler for input changes - writes the new value to state
+def handle_input(value: String) -> Unit:
+  write(input_text, value)
+
+# Handler to clear the input
+def clear_input(_: Unit) -> Unit:
+  write(input_text, "")
+
+# Handler to set a preset value
+def set_preset(_: Unit) -> Unit:
+  write(input_text, "Preset text value")
+
+# Render the UI
+view = h("div", [("class", "container")], [
+  h("div", [("class", "card")], [
+    h("h1", [], [text("Form Input Demo")]),
+    h("p", [("class", "subtitle")], [
+      text("Two-way binding: input changes update state, state updates the display")
+    ]),
+
+    # Input section
+    h("div", [("class", "input-section")], [
+      h("label", [("for", "text-input")], [text("Enter text:")]),
+      h("input", [
+        ("type", "text"),
+        ("id", "text-input"),
+        ("class", "text-input"),
+        ("placeholder", "Type something..."),
+        on_input(handle_input)
+      ], [])
+    ]),
+
+    # Display section showing current value
+    h("div", [("class", "display-section")], [
+      h("p", [], [text("Current value:")]),
+      h("div", [("id", "current-value"), ("class", "value-display")], [
+        text(read(input_text))
+      ])
+    ]),
+
+    # Control buttons
+    h("div", [("class", "buttons")], [
+      h("button", [on_click(clear_input)], [text("Clear")]),
+      h("button", [on_click(set_preset)], [text("Set Preset")])
+    ])
+  ]),
+
+  h("div", [("class", "card")], [
+    h("h3", [], [text("How Two-Way Binding Works")]),
+    h("p", [], [
+      text("1. on_input handler receives the JS string and converts to Bosatsu string")
+    ]),
+    h("p", [], [
+      text("2. write() updates the state and triggers binding updates")
+    ]),
+    h("p", [], [
+      text("3. The display element bound to read(input_text) updates automatically")
+    ])
+  ])
+])
+
+main = view
