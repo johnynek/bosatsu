@@ -74,17 +74,27 @@ object Type {
     def tauMeta(m: Meta): Tau = TyMeta(m)
 
     inline def apply(l: Leaf): Tau = l
+    
+    opaque type TauApply <: Tau = TyApply   
+    implicit class TauApplyMethods(private val ta: TauApply) extends AnyVal {
+      inline def on: Tau = ta.on
+      inline def arg: Tau =
+        // This cast is safe because TauApply is a Tau
+        ta.arg.asInstanceOf[Rho]
+
+      inline def toTyApply: TyApply = ta
+    }
 
     object TauApply {
-      def apply(on: Tau, arg: Tau): Tau = TyApply(on, arg)
+      def apply(on: Tau, arg: Tau): TauApply = TyApply(on, arg)
 
-      def unapply(t: Tau): Option[(Tau, Tau, TyApply)] =
-        t match {
-          case app @ TyApply(t1, t2) =>
-            // we know t1 and t2 must be Tau since t is Tau, this cast is safe
-            Some((t1, t2.asInstanceOf[Rho], app))
-          case _ => None
-        }
+      // a scala3 zero allocation match result
+      class TauApplyMatch(tau: Tau) extends AnyVal {
+        def isEmpty: Boolean = !tau.isInstanceOf[TyApply]
+        def get: TauApply = tau.asInstanceOf[TyApply]
+      }
+
+      def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
     }
 
     def isTau(t: Type): Boolean = {
@@ -105,11 +115,13 @@ object Type {
       }
     }
 
-    def unapply(t: Type): Option[Tau] =
-      t match {
-        case rho: Rho if isTau(rho) => Some(rho)
-        case _                      => None
-      }
+    // a scala3 zero allocation match result
+    class TauMatch(t: Type) extends AnyVal {
+      def isEmpty: Boolean = !isTau(t)
+      def get: Tau = t.asInstanceOf[Rho]
+    }
+
+    def unapply(t: Type): TauMatch = new TauMatch(t)
   }
 
   sealed abstract class Quantification {

@@ -1087,11 +1087,11 @@ object Infer {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta @ Type.TyMeta(_), tau) => unifyVar(meta, tau, r1, r2)
         case (tau, meta @ Type.TyMeta(_)) => unifyVar(meta, tau, r2, r1)
-        case (Type.Tau.TauApply(a1, b1, t1), Type.Tau.TauApply(a2, b2, t2)) =>
-          validateKinds(t1, r1) &>
-            validateKinds(t2, r2) &>
-            unifyTau(a1, a2, r1, r2) &>
-            unifyTau(b1, b2, r1, r2)
+        case (Type.Tau.TauApply(t1), Type.Tau.TauApply(t2)) =>
+          validateKinds(t1.toTyApply, r1) &>
+            validateKinds(t2.toTyApply, r2) &>
+            unifyTau(t1.on, t2.on, r1, r2) &>
+            unifyTau(t1.arg, t2.arg, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
