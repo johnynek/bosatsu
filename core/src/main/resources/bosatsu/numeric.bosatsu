@@ -1,6 +1,6 @@
 package Bosatsu/Numeric
 
-from Bosatsu/Predef import Int, Comparison, Bool
+from Bosatsu/Predef import Int, Comparison, Bool, Unit
 
 # Numeric module with Double type for floating-point arithmetic.
 # Uses symbolic operators (+.), (-.), (*.), (/.) to distinguish from Int ops.
@@ -17,7 +17,7 @@ export (
   floor, ceil, round,
   random, random_range,
   min_Double, max_Double,
-  PI, E
+  pi, e_const
 )
 
 external struct Double
@@ -57,7 +57,8 @@ external def ceil(a: Double) -> Double
 external def round(a: Double) -> Double
 
 # Random number generation (returns a new random Double in [0, 1))
-external def random() -> Double
+# Takes Unit to force explicit calling (functional purity marker)
+external def random(u: Unit) -> Double
 
 # Random in range [min, max)
 external def random_range(min: Double, max: Double) -> Double
@@ -67,5 +68,5 @@ external def min_Double(a: Double, b: Double) -> Double
 external def max_Double(a: Double, b: Double) -> Double
 
 # Constants
-external PI: Double
-external E: Double
+external pi: Double
+external e_const: Double

@@ -1,0 +1,76 @@
+package Demo/TodoDynamic
+
+from Bosatsu/Predef import add, sub, Int, String, Unit, int_to_String
+from Bosatsu/UI import (
+  VNode, ListState,
+  list_state, list_read, list_append, list_remove_at, list_length,
+  h, text, on_click
+)
+
+# BosatsuUI Dynamic Todo List Demo
+#
+# Demonstrates REAL dynamic lists with add/remove capability.
+# Each item in the list has its own bindings that are registered/cleaned up
+# as items are added/removed.
+
+# State for the list of todo texts - starts with some items
+todos: ListState[String] = list_state([
+  "Learn BosatsuUI bindings",
+  "Build a dynamic todo app",
+  "Compare with React"
+])
+
+# Handlers for list operations
+def add_example_todo(_: Unit) -> Unit:
+  list_append(todos, "New dynamic todo item")
+
+def remove_first(_: Unit) -> Unit:
+  list_remove_at(todos, 0)
+
+# Render the UI
+view = h("div", [("class", "container")], [
+  h("div", [("class", "card")], [
+    h("h1", [], [text("Dynamic Todo List")]),
+    h("p", [("class", "subtitle")], [
+      text("A real dynamic list with add/remove capability!")
+    ]),
+
+    # Buttons for list operations
+    h("div", [("class", "buttons")], [
+      h("button", [on_click(add_example_todo)], [text("Add Todo")]),
+      h("button", [on_click(remove_first)], [text("Remove First")])
+    ]),
+
+    # Todo list container
+    h("div", [
+      ("class", "todo-list"),
+      ("data-list-container", "todos")
+    ], [
+      # Initial items - dynamic rendering will replace these
+      h("div", [("class", "todo-item"), ("id", "todo-0")], [
+        h("span", [("class", "todo-text")], [text("Learn BosatsuUI bindings")])
+      ]),
+      h("div", [("class", "todo-item"), ("id", "todo-1")], [
+        h("span", [("class", "todo-text")], [text("Build a dynamic todo app")])
+      ]),
+      h("div", [("class", "todo-item"), ("id", "todo-2")], [
+        h("span", [("class", "todo-text")], [text("Compare with React")])
+      ])
+    ]),
+
+    # Stats
+    h("div", [("class", "stats")], [
+      text("Total: "),
+      h("span", [("id", "total-count")], [text(int_to_String(list_length(todos)))])
+    ])
+  ]),
+
+  h("div", [("class", "card")], [
+    h("h3", [], [text("How Dynamic Lists Work")]),
+    h("p", [], [
+      text("BosatsuUI extracts list binding templates at compile time. When you add/remove items, it registers/cleans up bindings for just that item.")
+    ])
+  ])
+])
+
+main = view

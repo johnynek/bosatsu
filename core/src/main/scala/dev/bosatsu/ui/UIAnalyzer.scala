@@ -250,11 +250,37 @@ object UIAnalyzer {
   }
 
   /**
-   * Check if an expression is a state creation (state(initial)).
+   * Check if an expression is a state creation (state(initial) or list_state(initial)).
    * Exposed so callers can scan for state bindings before analysis.
    */
   def isStateCreationExpr[A](expr: TypedExpr[A]): Boolean =
     isStateCreation(expr)
+
+  /**
+   * Check if an expression is specifically a list_state creation.
+   */
+  def isListStateCreationExpr[A](expr: TypedExpr[A]): Boolean = {
+    expr match {
+      case TypedExpr.App(fn, _, _, _) =>
+        isListStateFunction(fn)
+      case _ => false
+    }
+  }
+
+  /**
+   * Check if a function expression is the UI list_state constructor.
+   */
+  private def isListStateFunction[A](fn: TypedExpr[A]): Boolean = {
+    fn match {
+      case TypedExpr.Global(pack, name, _, _) =>
+        isUIPackage(pack) && name.asString == "list_state"
+      case TypedExpr.Annotation(inner, _) =>
+        isListStateFunction(inner)
+      case TypedExpr.Generic(_, inner) =>
+        isListStateFunction(inner)
+      case _ => false
+    }
+  }
 
   /**
    * Analyze a function that produces UI (e.g., render function).
@@ -500,11 +526,12 @@ object UIAnalyzer {
   /**
    * Check if a function expression is the UI state constructor.
    * Unwraps annotations and generics to find the actual function.
+   * Matches both state() and list_state().
    */
   private def isStateFunction[A](fn: TypedExpr[A]): Boolean = {
     fn match {
       case TypedExpr.Global(pack, name, _, _) =>
-        isUIPackage(pack) && name.asString == "state"
+        isUIPackage(pack) && (name.asString == "state" || name.asString == "list_state")
       case TypedExpr.Annotation(inner, _) =>
         isStateFunction(inner)
       case TypedExpr.Generic(_, inner) =>

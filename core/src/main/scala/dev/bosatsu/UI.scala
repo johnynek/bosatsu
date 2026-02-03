@@ -41,6 +41,9 @@ object UI {
   /** State container for reactive values */
   case class UIState[A](id: String, var value: A)
 
+  /** List state container for dynamic lists */
+  case class UIListState[A](id: String, var items: List[A])
+
   /** Event handler wrapper */
   case class EventHandler(eventType: String, handler: Value)
 
@@ -137,5 +140,63 @@ object UI {
       .add(packageName, "on_change", FfiCall.Fn1 { handler =>
         val handlerId = s"handler_${System.identityHashCode(handler)}"
         ProductValue(Array(Str("data-onchange"), Str(handlerId)))
+      })
+      // list_state(initial) -> ListState[a]
+      .add(packageName, "list_state", FfiCall.Fn1 { initial =>
+        stateCounter += 1
+        val items = VList.unapply(initial).getOrElse(Nil)
+        ExternalValue(UIListState(s"list_state_$stateCounter", items))
+      })
+      // list_read(ls) -> List[a]
+      .add(packageName, "list_read", FfiCall.Fn1 { ls =>
+        ls.asExternal.toAny match {
+          case UIListState(_, items: List[Value] @unchecked) => VList(items)
+          case _ => VList(Nil)
+        }
+      })
+      // list_append(ls, item) -> Unit
+      .add(packageName, "list_append", FfiCall.Fn2 { (ls, item) =>
+        ls.asExternal.toAny match {
+          case s: UIListState[Value @unchecked] => s.items = s.items :+ item
+          case _ => ()
+        }
+        UnitValue
+      })
+      // list_remove_at(ls, index) -> Unit
+      .add(packageName, "list_remove_at", FfiCall.Fn2 { (ls, index) =>
+        ls.asExternal.toAny match {
+          case s: UIListState[Value @unchecked] =>
+            val idx = index match {
+              case VInt(i) => BigInt(i).toInt
+              case _ => -1
+            }
+            if (idx >= 0 && idx < s.items.length) {
+              s.items = s.items.take(idx) ++ s.items.drop(idx + 1)
+            }
+          case _ => ()
+        }
+        UnitValue
+      })
+      // list_update_at(ls, index, item) -> Unit
+      .add(packageName, "list_update_at", FfiCall.Fn3 { (ls, index, item) =>
+        ls.asExternal.toAny match {
+          case s: UIListState[Value @unchecked] =>
+            val idx = index match {
+              case VInt(i) => BigInt(i).toInt
+              case _ => -1
+            }
+            if (idx >= 0 && idx < s.items.length) {
+              s.items = s.items.updated(idx, item)
+            }
+          case _ => ()
+        }
+        UnitValue
+      })
+      // list_length(ls) -> Int
+      .add(packageName, "list_length", FfiCall.Fn1 { ls =>
+        ls.asExternal.toAny match {
+          case UIListState(_, items: List[_]) => VInt(BigInt(items.length))
+          case _ => VInt(BigInt(0))
+        }
       })
 }

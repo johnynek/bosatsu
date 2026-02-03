@@ -93,15 +93,25 @@ case class UICommand(
 
       _ <- IO(println(s"Found UI binding: $mainName"))
 
-      // 5.5. Scan for state bindings (state(initial) calls)
-      stateBindings <- IO {
+      // 5.5. Scan for state bindings (state(initial) and list_state(initial) calls)
+      allStateBindings <- IO {
         typedPackage.lets.collect {
           case (name, _, expr) if UIAnalyzer.isStateCreationExpr(expr) => name
         }
       }
+      // Separate list states from regular states
+      listStateBindings <- IO {
+        typedPackage.lets.collect {
+          case (name, _, expr) if UIAnalyzer.isListStateCreationExpr(expr) => name
+        }
+      }
+      stateBindings = allStateBindings.filterNot(listStateBindings.contains)
       _ <- IO {
         if (stateBindings.nonEmpty) {
           println(s"Found state variables: ${stateBindings.map(_.asString).mkString(", ")}")
+        }
+        if (listStateBindings.nonEmpty) {
+          println(s"Found list state variables: ${listStateBindings.map(_.asString).mkString(", ")}")
         }
       }
 
@@ -168,6 +178,7 @@ case class UICommand(
         analysis,
         config,
         stateBindings.map(_.asString).toList,
+        listStateBindings.map(_.asString).toList,
         input.getFileName.toString,
         content
       )
@@ -201,6 +212,7 @@ case class UICommand(
       analysis: UIAnalyzer.UIAnalysis[A],
       config: UIGen.UIConfig,
       stateVarNames: List[String],
+      listStateVarNames: List[String],
       sourceFileName: String,
       sourceContent: String
   ): String = {
@@ -213,6 +225,23 @@ case class UICommand(
     // Generate code to link state objects to their binding keys
     val stateLinkingCode = stateVarNames.map { name =>
       s"""  if (typeof $name !== 'undefined') _linkStateToBinding($name, "$name");"""
+    }.mkString("\n")
+
+    // Generate code to link list state objects to their binding keys and containers
+    val listStateLinkingCode = listStateVarNames.map { name =>
+      s"""  if (typeof $name !== 'undefined') {
+    _linkListStateToBinding($name, "$name");
+    // Find container element with data-list-container="$name"
+    const container = document.querySelector('[data-list-container="$name"]');
+    if (container) {
+      _listContainers[$name.id] = container.id || 'list-container-$name';
+      if (!container.id) container.id = 'list-container-$name';
+      // Store the first child as template (if exists)
+      if (container.firstElementChild) {
+        _listItemTemplates["$name"] = _vnodeFromDomElement(container.firstElementChild);
+      }
+    }
+  }"""
     }.mkString("\n")
 
     s"""<!DOCTYPE html>
@@ -270,6 +299,9 @@ $stateLinkingCode
   } else {
     console.error('No main or view binding found');
   }
+
+  // Link list state objects to their binding keys and containers
+$listStateLinkingCode
 
   // Initialize element cache for bindings
   _initBindingCache();
@@ -468,6 +500,9 @@ function _updateBinding(binding, value) {
   }
 }
 
+// Track which elements have had handlers attached (to avoid duplicates)
+const _handlersAttached = new WeakSet();
+
 // Initialize element cache for all bindings
 function _initBindingCache() {
   Object.values(_bindings).flat().forEach(binding => {
@@ -478,11 +513,15 @@ function _initBindingCache() {
     }
   });
 
-  // Set up event handlers
+  // Set up event handlers (only once per element)
   Object.entries(_handlers).forEach(([handlerId, handler]) => {
     // Find elements with this handler ID
     const els = document.querySelectorAll('[data-on' + handler.type + '="' + handlerId + '"]');
     els.forEach(el => {
+      // Skip if already has handler attached
+      if (_handlersAttached.has(el)) return;
+      _handlersAttached.add(el);
+
       el.addEventListener(handler.type, (e) => {
         // Call the handler - for click it receives Unit, for input it receives the value
         if (handler.type === 'click') {
@@ -819,10 +858,13 @@ function _instantiateTemplate(template, item, index, listKey) {
   if (!template) return { type: 'text', text: String(item) };
 
   if (template.type === 'text') {
-    // Check if text has a binding
-    if (template.binding) {
-      const value = _getFieldValue(item, template.binding);
-      return { type: 'text', text: String(value) };
+    // Check if text has a binding (even empty string means "use item directly")
+    if ('binding' in template) {
+      // If binding is empty string, use the item directly; otherwise use field path
+      const value = template.binding === '' ? item : _getFieldValue(item, template.binding);
+      // Convert Bosatsu string to JS string if needed
+      const textValue = Array.isArray(value) ? _bosatsuStringToJs(value) : String(value);
+      return { type: 'text', text: textValue };
     }
     return template;
   }
@@ -866,6 +908,43 @@ function _cacheListItemElements(itemEl, index, listKey) {
       _elements[id] = el;
     }
   });
+}
+
+// Convert a DOM element to a VNode-like template structure
+// Used to capture list item templates from initial render
+function _vnodeFromDomElement(el) {
+  if (el.nodeType === Node.TEXT_NODE) {
+    return { type: 'text', text: el.textContent };
+  }
+
+  if (el.nodeType !== Node.ELEMENT_NODE) {
+    return null;
+  }
+
+  // Extract props from attributes
+  const props = [];
+  for (const attr of el.attributes) {
+    props.push([attr.name, attr.value]);
+  }
+
+  // Mark text content as a binding point (will be replaced with item data)
+  const children = [];
+  for (const child of el.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+      // Text nodes become binding points
+      children.push({ type: 'text', text: child.textContent, binding: '' });
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const childVNode = _vnodeFromDomElement(child);
+      if (childVNode) children.push(childVNode);
+    }
+  }
+
+  return {
+    type: 'element',
+    tag: el.tagName.toLowerCase(),
+    props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
+    children: _js_to_bosatsu_list(children)
+  };
 }"""
   }
 
