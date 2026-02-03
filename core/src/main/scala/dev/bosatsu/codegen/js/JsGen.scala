@@ -376,7 +376,52 @@ object JsGen {
       Identifier.Name("neg_Double") -> ((args: List[Code.Expression]) =>
         Code.PrefixExpr(Code.PrefixOp.Neg, args.head), 1),
       Identifier.Name("abs_Double") -> ((args: List[Code.Expression]) =>
-        Code.Call(Code.Ident("Math").dot("abs"), List(args.head)), 1)
+        Code.Call(Code.Ident("Math").dot("abs"), List(args.head)), 1),
+
+      // Trigonometric functions
+      Identifier.Name("sin") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("sin"), List(args.head)), 1),
+      Identifier.Name("cos") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("cos"), List(args.head)), 1),
+      Identifier.Name("tan") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("tan"), List(args.head)), 1),
+
+      // Power and exponential functions
+      Identifier.Name("sqrt") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("sqrt"), List(args.head)), 1),
+      Identifier.Name("pow") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("pow"), List(args.head, args(1))), 2),
+      Identifier.Name("exp") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("exp"), List(args.head)), 1),
+      Identifier.Name("log") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("log"), List(args.head)), 1),
+
+      // Rounding functions
+      Identifier.Name("floor") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("floor"), List(args.head)), 1),
+      Identifier.Name("ceil") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("ceil"), List(args.head)), 1),
+      Identifier.Name("round") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("round"), List(args.head)), 1),
+
+      // Random number generation
+      Identifier.Name("random") -> ((_: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("random"), Nil), 0),
+      Identifier.Name("random_range") -> ((args: List[Code.Expression]) =>
+        // min + Math.random() * (max - min)
+        args.head + (Code.Call(Code.Ident("Math").dot("random"), Nil) * (args(1) - args.head)), 2),
+
+      // Min/max for Doubles
+      Identifier.Name("min_Double") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("min"), List(args.head, args(1))), 2),
+      Identifier.Name("max_Double") -> ((args: List[Code.Expression]) =>
+        Code.Call(Code.Ident("Math").dot("max"), List(args.head, args(1))), 2)
+    )
+
+    /** Map of constants to their values */
+    val constants: Map[Bindable, Code.Expression] = Map(
+      Identifier.Name("PI") -> Code.Ident("Math").dot("PI"),
+      Identifier.Name("E") -> Code.Ident("Math").dot("E")
     )
 
     /** Check if an expression is a numeric external and extract its function */
@@ -634,7 +679,7 @@ object JsGen {
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
     Map(
       PackageName.PredefName -> PredefExternal.results.keySet,
-      NumericExternal.NumericPackage -> NumericExternal.results.keySet,
+      NumericExternal.NumericPackage -> (NumericExternal.results.keySet ++ NumericExternal.constants.keySet),
       IOExternal.IOPackage -> IOExternal.results.keySet,
       UIExternal.UIPackage -> UIExternal.results.keySet
     )
@@ -705,6 +750,10 @@ object JsGen {
       case UIExternal((fn, arity)) =>
         // Standalone reference to a UI intrinsic - wrap in lambda
         Env.pure(UIExternal.makeLambda(arity)(fn))
+
+      case Global(_, pack, name) if pack == NumericExternal.NumericPackage && NumericExternal.constants.contains(name) =>
+        // Numeric constant (PI, E)
+        Env.pure(NumericExternal.constants(name))
 
       case Global(_, pack, name) =>
         // Runtime-provided functions from Predef - use unqualified names

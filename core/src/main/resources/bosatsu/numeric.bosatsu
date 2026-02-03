@@ -11,7 +11,13 @@ export (
   `+.`, `-.`, `*.`, `/.`,
   from_Int, to_Int,
   cmp_Double, eq_Double,
-  neg_Double, abs_Double
+  neg_Double, abs_Double,
+  sin, cos, tan,
+  sqrt, pow, exp, log,
+  floor, ceil, round,
+  random, random_range,
+  min_Double, max_Double,
+  PI, E
 )
 
 external struct Double
@@ -33,3 +39,33 @@ external def eq_Double(a: Double, b: Double) -> Bool
 # Unary operations
 external def neg_Double(a: Double) -> Double
 external def abs_Double(a: Double) -> Double
+
+# Trigonometric functions
+external def sin(a: Double) -> Double
+external def cos(a: Double) -> Double
+external def tan(a: Double) -> Double
+
+# Power and exponential functions
+external def sqrt(a: Double) -> Double
+external def pow(base: Double, exp: Double) -> Double
+external def exp(a: Double) -> Double
+external def log(a: Double) -> Double
+
+# Rounding functions
+external def floor(a: Double) -> Double
+external def ceil(a: Double) -> Double
+external def round(a: Double) -> Double
+
+# Random number generation (returns a new random Double in [0, 1))
+external def random() -> Double
+
+# Random in range [min, max)
+external def random_range(min: Double, max: Double) -> Double
+
+# Min/max for Doubles
+external def min_Double(a: Double, b: Double) -> Double
+external def max_Double(a: Double, b: Double) -> Double
+
+# Constants
+external PI: Double
+external E: Double
