@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bosatsu TLA+ Formal Verification</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 40px;
+        background: linear-gradient(135deg, #1a0a2e 0%, #0f1a3e 100%);
+        color: #e0e0e0;
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        text-align: center;
+        font-size: 2.5em;
+        margin-bottom: 8px;
+        background: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .subtitle {
+        text-align: center;
+        color: #888;
+        margin-bottom: 40px;
+      }
+      .hero {
+        background: rgba(255,255,255,0.03);
+        border-radius: 20px;
+        padding: 32px;
+        margin-bottom: 32px;
+        border: 1px solid rgba(255,255,255,0.1);
+        text-align: center;
+      }
+      .hero h2 {
+        color: #ff6b6b;
+        margin: 0 0 16px 0;
+      }
+      .hero p {
+        color: #aaa;
+        line-height: 1.8;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 24px;
+      }
+      .card {
+        background: rgba(255,255,255,0.05);
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .card h2 {
+        margin: 0 0 16px 0;
+        color: #48dbfb;
+        font-size: 1.3em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card h2 .icon {
+        font-size: 1.5em;
+      }
+      .card p {
+        color: #aaa;
+        line-height: 1.6;
+        margin: 0 0 16px 0;
+      }
+      .code-block {
+        background: #0a0a18;
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 12px;
+        overflow-x: auto;
+        border: 1px solid rgba(255,255,255,0.1);
+        white-space: pre;
+        line-height: 1.5;
+      }
+      .code-block .comment { color: #666; }
+      .code-block .keyword { color: #ff6b6b; }
+      .code-block .string { color: #feca57; }
+      .code-block .operator { color: #48dbfb; }
+      .code-block .identifier { color: #c4b5fd; }
+      .terminal {
+        background: #0a0a14;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
+        margin-top: 16px;
+      }
+      .terminal-header {
+        background: #1a1a2e;
+        padding: 8px 12px;
+        display: flex;
+        gap: 6px;
+      }
+      .terminal-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .terminal-dot.red { background: #ff5f56; }
+      .terminal-dot.yellow { background: #ffbd2e; }
+      .terminal-dot.green { background: #27c93f; }
+      .terminal-body {
+        padding: 16px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .terminal-body .prompt { color: #48dbfb; }
+      .terminal-body .success { color: #27c93f; }
+      .terminal-body .error { color: #ff5f56; }
+      .terminal-body .warning { color: #feca57; }
+      .terminal-body .output { color: #888; }
+      .diagram {
+        background: #0a0a18;
+        border-radius: 12px;
+        padding: 24px;
+        margin: 24px 0;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .diagram-title {
+        text-align: center;
+        color: #feca57;
+        margin-bottom: 20px;
+        font-weight: 600;
+        font-size: 1.1em;
+      }
+      .state-machine {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .state {
+        background: rgba(72, 219, 251, 0.1);
+        border: 2px solid rgba(72, 219, 251, 0.5);
+        border-radius: 50%;
+        width: 80px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 12px;
+        color: #48dbfb;
+        font-weight: 600;
+      }
+      .state.initial {
+        border-color: #27c93f;
+        color: #27c93f;
+      }
+      .state.error {
+        border-color: #ff5f56;
+        color: #ff5f56;
+      }
+      .transition {
+        color: #feca57;
+        font-size: 24px;
+      }
+      .race-demo {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .race-thread {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .race-thread h4 {
+        margin: 0 0 8px 0;
+        color: #c4b5fd;
+        font-size: 13px;
+      }
+      .race-step {
+        padding: 4px 8px;
+        margin: 4px 0;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: monospace;
+      }
+      .race-step.read { background: rgba(72, 219, 251, 0.2); color: #48dbfb; }
+      .race-step.write { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }
+      .feature-list {
+        list-style: none;
+        padding: 0;
+        margin: 16px 0 0 0;
+      }
+      .feature-list li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #ccc;
+      }
+      .feature-list li:last-child { border-bottom: none; }
+      .feature-list .check { color: #27c93f; }
+      .tla-example {
+        margin-top: 24px;
+      }
+      .tla-example h3 {
+        color: #feca57;
+        margin: 0 0 12px 0;
+        font-size: 1.1em;
+      }
+      .workflow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin: 24px 0;
+        flex-wrap: wrap;
+      }
+      .workflow-step {
+        background: linear-gradient(135deg, rgba(255, 107, 107, 0.1) 0%, rgba(254, 202, 87, 0.1) 100%);
+        border: 1px solid rgba(255, 107, 107, 0.3);
+        border-radius: 12px;
+        padding: 16px 20px;
+        text-align: center;
+      }
+      .workflow-step .num {
+        background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+        color: #000;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .workflow-step .label {
+        color: #fff;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .workflow-arrow {
+        color: #feca57;
+        font-size: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>TLA+ Formal Verification</h1>
+      <p class="subtitle">Find race conditions and bugs in your handlers before they reach production</p>
+
+      <div class="hero">
+        <h2>🔍 Prove Your Code Correct</h2>
+        <p>
+          TLA+ is a formal specification language for describing concurrent and distributed systems.
+          Bosatsu can automatically generate TLA+ specifications from your service handlers, then
+          run the TLC model checker to explore all possible interleavings and find bugs that tests miss.
+        </p>
+      </div>
+
+      <div class="workflow">
+        <div class="workflow-step">
+          <div class="num">1</div>
+          <div class="label">Write Handler</div>
+        </div>
+        <span class="workflow-arrow">→</span>
+        <div class="workflow-step">
+          <div class="num">2</div>
+          <div class="label">Generate TLA+</div>
+        </div>
+        <span class="workflow-arrow">→</span>
+        <div class="workflow-step">
+          <div class="num">3</div>
+          <div class="label">Run TLC</div>
+        </div>
+        <span class="workflow-arrow">→</span>
+        <div class="workflow-step">
+          <div class="num">4</div>
+          <div class="label">Find Bugs</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2><span class="icon">⚡</span> Race Detection</h2>
+          <p>Automatically detect race conditions by modeling concurrent handler executions and exploring all interleavings.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> bosatsu tla race counter.bosatsu --instances 2</div>
+              <div class="output">Analyzing handler 'increment' for race conditions...</div>
+              <div class="output">  Instances: 2</div>
+              <div class="output">  Invariant: TRUE</div>
+              <div></div>
+              <div class="error">⚠️  Race condition detected!</div>
+              <div></div>
+              <div class="output">Violating trace:</div>
+              <div class="output">  1. Thread1: read(counter) = 0</div>
+              <div class="output">  2. Thread2: read(counter) = 0</div>
+              <div class="output">  3. Thread1: write(counter, 1)</div>
+              <div class="output">  4. Thread2: write(counter, 1)</div>
+              <div class="error">  Final: counter = 1 (expected 2)</div>
+            </div>
+          </div>
+
+          <div class="race-demo">
+            <div class="race-thread">
+              <h4>Thread 1</h4>
+              <div class="race-step read">read(counter) → 0</div>
+              <div class="race-step write">write(counter, 1)</div>
+            </div>
+            <div class="race-thread">
+              <h4>Thread 2</h4>
+              <div class="race-step read">read(counter) → 0</div>
+              <div class="race-step write">write(counter, 1)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">🔧</span> Generate TLA+ Specs</h2>
+          <p>Convert Bosatsu handlers into TLA+ specifications that model state transitions and I/O operations.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> bosatsu tla generate handler.bosatsu -o spec.tla</div>
+              <div class="output">TLA+ specification written to: spec.tla</div>
+              <div></div>
+              <div><span class="prompt">$</span> bosatsu tla check spec.tla --workers 4</div>
+              <div class="success">Model checking completed successfully!</div>
+              <div class="output">States generated: 1,247</div>
+              <div class="output">Distinct states: 342</div>
+            </div>
+          </div>
+
+          <ul class="feature-list">
+            <li><span class="check">✓</span> Automatic spec generation from handlers</li>
+            <li><span class="check">✓</span> Custom invariant checking</li>
+            <li><span class="check">✓</span> Deadlock detection</li>
+            <li><span class="check">✓</span> Multi-worker parallel checking</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">📊</span> State Machine Modeling</h2>
+          <p>Handler operations become TLA+ actions with guards and effects. The model checker explores all reachable states.</p>
+
+          <div class="diagram">
+            <div class="diagram-title">Handler State Machine</div>
+            <div class="state-machine">
+              <div class="state initial">start</div>
+              <span class="transition">→</span>
+              <div class="state">read</div>
+              <span class="transition">→</span>
+              <div class="state">compute</div>
+              <span class="transition">→</span>
+              <div class="state">write</div>
+              <span class="transition">→</span>
+              <div class="state">done</div>
+            </div>
+          </div>
+
+          <div class="code-block"><span class="comment">\* Generated TLA+ action</span>
+<span class="identifier">Read_get_0</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"start"</span>
+    <span class="operator">/\</span> <span class="keyword">TRUE</span>
+    <span class="operator">/\</span> <span class="keyword">UNCHANGED</span> state
+    <span class="operator">/\</span> pc' <span class="operator">=</span> <span class="string">"read_0"</span></div>
+        </div>
+
+        <div class="card">
+          <h2><span class="icon">🎯</span> Invariant Checking</h2>
+          <p>Define properties your system must maintain. TLC will find any state that violates them.</p>
+
+          <div class="code-block"><span class="comment"># Bosatsu handler</span>
+<span class="keyword">def</span> <span class="identifier">transfer</span>(from_acct, to_acct, amount):
+  from_bal = db.<span class="identifier">get</span>(<span class="string">"balance"</span>, from_acct)
+  to_bal = db.<span class="identifier">get</span>(<span class="string">"balance"</span>, to_acct)
+  db.<span class="identifier">set</span>(<span class="string">"balance"</span>, from_acct, from_bal <span class="operator">-</span> amount)
+  db.<span class="identifier">set</span>(<span class="string">"balance"</span>, to_acct, to_bal <span class="operator">+</span> amount)
+
+<span class="comment"># Check invariant:</span>
+<span class="comment"># "Total balance is conserved"</span></div>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> bosatsu tla race transfer.bosatsu \</div>
+              <div class="output">    --instances 2 \</div>
+              <div class="output">    --invariant "total = from_bal + to_bal"</div>
+              <div></div>
+              <div class="error">Invariant violation detected!</div>
+              <div class="warning">Concurrent transfers can double-spend</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tla-example">
+        <div class="card">
+          <h3>Example: Generated TLA+ Specification</h3>
+          <div class="code-block"><span class="comment">---- MODULE transfer ----</span>
+
+<span class="keyword">EXTENDS</span> Integers, Sequences, TLC
+
+<span class="keyword">VARIABLES</span> state, pc
+
+vars <span class="operator">==</span> <span class="operator">&lt;&lt;</span>state, pc<span class="operator">&gt;&gt;</span>
+
+<span class="identifier">Init</span> <span class="operator">==</span>
+    <span class="operator">/\</span> state <span class="operator">=</span> [from_bal <span class="operator">|-></span> 100, to_bal <span class="operator">|-></span> 50]
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"start"</span>
+
+<span class="identifier">Read_from</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"start"</span>
+    <span class="operator">/\</span> <span class="keyword">TRUE</span>
+    <span class="operator">/\</span> <span class="keyword">UNCHANGED</span> state
+    <span class="operator">/\</span> pc' <span class="operator">=</span> <span class="string">"read_0"</span>
+
+<span class="identifier">Read_to</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"read_0"</span>
+    <span class="operator">/\</span> <span class="keyword">TRUE</span>
+    <span class="operator">/\</span> <span class="keyword">UNCHANGED</span> state
+    <span class="operator">/\</span> pc' <span class="operator">=</span> <span class="string">"read_1"</span>
+
+<span class="identifier">Write_from</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"read_1"</span>
+    <span class="operator">/\</span> <span class="keyword">TRUE</span>
+    <span class="operator">/\</span> state' <span class="operator">=</span> state
+    <span class="operator">/\</span> pc' <span class="operator">=</span> <span class="string">"write_0"</span>
+
+<span class="identifier">Write_to</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"write_0"</span>
+    <span class="operator">/\</span> <span class="keyword">TRUE</span>
+    <span class="operator">/\</span> state' <span class="operator">=</span> state
+    <span class="operator">/\</span> pc' <span class="operator">=</span> <span class="string">"done"</span>
+
+<span class="identifier">Done</span> <span class="operator">==</span>
+    <span class="operator">/\</span> pc <span class="operator">=</span> <span class="string">"done"</span>
+    <span class="operator">/\</span> <span class="keyword">UNCHANGED</span> vars
+
+<span class="identifier">Next</span> <span class="operator">==</span> Read_from <span class="operator">\/</span> Read_to <span class="operator">\/</span> Write_from <span class="operator">\/</span> Write_to <span class="operator">\/</span> Done
+
+<span class="identifier">Spec</span> <span class="operator">==</span> Init <span class="operator">/\</span> <span class="operator">[]</span>[Next]_vars
+
+<span class="identifier">Inv0</span> <span class="operator">==</span> state.from_bal <span class="operator">+</span> state.to_bal <span class="operator">=</span> 150
+
+<span class="operator">====</span></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
