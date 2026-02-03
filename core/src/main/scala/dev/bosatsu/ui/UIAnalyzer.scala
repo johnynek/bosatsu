@@ -378,10 +378,15 @@ object UIAnalyzer {
             case (Some(d), None, Pattern.Var(name)) =>
               // Top-level Var pattern binds to the discriminant directly
               ctx.trackBinding(name, d)
-            case (Some(d), None, Pattern.Named(name, _)) =>
-              // Named pattern wrapping wildcard/var - just bind x to discriminant
+            case (Some(d), None, Pattern.Named(name, inner)) =>
+              // Named pattern wrapping wildcard/var - bind outer name to discriminant
               // Note: If inner had a variant tag, extractVariantTag(whole_pattern) would have returned Some
               ctx.trackBinding(name, d)
+              // Also bind inner Var if present (for patterns like x @ y)
+              inner match {
+                case Pattern.Var(innerName) => ctx.trackBinding(innerName, d)
+                case _ => () // WildCard or other patterns without bindings
+              }
             case _ => ()
           }
 

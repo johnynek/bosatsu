@@ -2832,24 +2832,25 @@ class UIAnalyzerTest extends FunSuite {
     assert(analysis.bindings.exists(_.when.exists(_.isTotal)))
   }
 
-  test("Named pattern with var inner binds both - lines 383-385") {
+  test("Named pattern with var inner binds both x and y - case x @ y") {
     val status = Identifier.unsafeBindable("status")
     val textFn = makeGlobal("Bosatsu/UI", "text")
-    val xLocal = makeLocal("x")
-    val textApp = makeApp(textFn, xLocal)
+    // Use y (the inner var) in the body to verify it's tracked
+    val yLocal = makeLocal("y")
+    val textApp = makeApp(textFn, yLocal)
 
     val statusLocal = makeLocal("status")
-    // case x @ y -> text(x)
-    // Named pattern wrapping Var - both x and y bind to discriminant
+    // case x @ y -> text(y)
+    // Named pattern wrapping Var - both x and y should bind to discriminant
     val innerVar = Pattern.Var(Identifier.unsafeBindable("y"))
     val namedVar = Pattern.Named(Identifier.unsafeBindable("x"), innerVar)
     val matchExpr = makeMatchWithPatterns(statusLocal, List((namedVar, textApp)))
 
     val analysis = UIAnalyzer.analyzeWithStateBindings(matchExpr, List(status))
-    // x should be bound to discriminant ["status"]
+    // y should be bound to discriminant ["status"] (same as x)
     assert(
       analysis.bindings.exists(_.statePath == List("status")),
-      s"Expected path [status], got: ${analysis.bindings.map(_.statePath)}"
+      s"Expected path [status] for y, got: ${analysis.bindings.map(_.statePath)}"
     )
   }
 
