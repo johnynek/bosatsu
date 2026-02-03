@@ -1,0 +1,42 @@
+package Demo/Conditional
+
+from Bosatsu/Predef import String, Unit
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+
+# Define a status enum with three variants
+enum Status: Loading, Error(message: String), Success(data: String)
+
+# State for the current status - initialized to Loading
+status: State[Status] = state(Loading)
+
+# Event handlers to change the status
+def setLoading(_: Unit) -> Unit:
+  write(status, Loading)
+
+def setError(_: Unit) -> Unit:
+  write(status, Error("Something went wrong"))
+
+def setSuccess(_: Unit) -> Unit:
+  write(status, Success("Data loaded successfully!"))
+
+# Render the UI with conditional content based on status
+view = h("div", [("class", "card")], [
+  h("h1", [], [text("Conditional Rendering Demo")]),
+  h("p", [], [text("Click a button to change the status:")]),
+  h("div", [("class", "buttons")], [
+    h("button", [on_click(setLoading)], [text("Loading")]),
+    h("button", [on_click(setError)], [text("Error")]),
+    h("button", [on_click(setSuccess)], [text("Success")])
+  ]),
+  h("div", [("class", "result")], [
+    match read(status):
+      case Loading:
+        h("div", [("class", "loading")], [text("Loading...")])
+      case Error(msg):
+        h("div", [("class", "error")], [text(msg)])
+      case Success(data):
+        h("div", [("class", "success")], [text(data)])
+  ])
+])
+
+main = view

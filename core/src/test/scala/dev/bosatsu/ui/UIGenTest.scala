@@ -110,7 +110,7 @@ class UIGenTest extends FunSuite {
       elementId = "count-display",
       property = UIAnalyzer.DOMProperty.TextContent,
       statePath = List("count"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -408,7 +408,7 @@ class UIGenTest extends FunSuite {
       elementId = "display1",
       property = UIAnalyzer.DOMProperty.TextContent,
       statePath = List("count"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )
@@ -416,7 +416,7 @@ class UIGenTest extends FunSuite {
       elementId = "display2",
       property = UIAnalyzer.DOMProperty.ClassName,
       statePath = List("count"),
-      conditional = false,
+      when = None,
       transform = None,
       sourceExpr = expr
     )

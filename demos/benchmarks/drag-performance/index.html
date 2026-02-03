@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drag Performance: React vs BosatsuUI (Large Lists)</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+      margin: 0;
+    }
+    h1 { color: #00d9ff; margin-bottom: 10px; }
+    .description { color: #888; margin-bottom: 20px; font-size: 14px; }
+
+    .benchmark-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .benchmark-panel {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid #0f3460;
+    }
+
+    .benchmark-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+    }
+
+    .react-naive h3 { color: #f97316; }
+    .react-optimized h3 { color: #22c55e; }
+    .bosatsu h3 { color: #3b82f6; }
+
+    .list-container {
+      width: 100%;
+      height: 400px;
+      background: #0f0f23;
+      border-radius: 8px;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    .list-item {
+      padding: 10px 15px;
+      border-bottom: 1px solid #1a1a3e;
+      cursor: grab;
+      user-select: none;
+      font-size: 13px;
+      transition: background 0.1s;
+      background: #0f0f23;
+    }
+
+    .list-item:hover {
+      background: #1a2a4e;
+    }
+
+    .list-item.dragging {
+      background: #2a3a5e;
+      cursor: grabbing;
+      opacity: 0.9;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .list-item.drag-over {
+      border-top: 2px solid #3b82f6;
+    }
+
+    .stats {
+      margin-top: 10px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    .fps { font-size: 20px; font-weight: bold; }
+    .fps.good { color: #22c55e; }
+    .fps.ok { color: #eab308; }
+    .fps.bad { color: #ef4444; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    button:hover { background: #2563eb; }
+
+    .item-count-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    select {
+      background: #16213e;
+      color: white;
+      border: 1px solid #0f3460;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .instructions {
+      background: #16213e;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+
+    .instructions strong { color: #00d9ff; }
+
+    .results-panel {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #0f3460;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    th { color: #888; font-weight: normal; }
+    .winner { color: #22c55e; font-weight: bold; }
+    .loser { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <h1>🎯 Drag Performance Benchmark (Large Lists)</h1>
+  <p class="description">
+    This benchmark reproduces the classic React performance problem: dragging items in large lists.
+    <br>See <a href="https://github.com/atlassian/react-beautiful-dnd/issues/667" style="color: #3b82f6;">react-beautiful-dnd #667</a> for the documented issue.
+  </p>
+
+  <div class="instructions">
+    <strong>How to test:</strong> Click and drag any item up/down. <strong>Items will reorder on drop!</strong>
+    <br>Watch the FPS and frame time. With 500+ items, naive React will show significant lag.
+  </div>
+
+  <div class="controls">
+    <div class="item-count-control">
+      <label>List size:</label>
+      <select id="itemCount" onchange="updateItemCount(this.value)">
+        <option value="100">100 items</option>
+        <option value="250">250 items</option>
+        <option value="500" selected>500 items</option>
+        <option value="1000">1000 items</option>
+        <option value="2000">2000 items (stress test)</option>
+      </select>
+    </div>
+    <button onclick="resetStats()">🔄 Reset Stats</button>
+  </div>
+
+  <div class="benchmark-grid">
+    <!-- Naive React Panel -->
+    <div class="benchmark-panel react-naive">
+      <h3>React 18 (Naive useState)</h3>
+      <p style="font-size: 11px; color: #888; margin: 0 0 10px 0;">
+        Stores drag position in state → re-renders ALL items
+      </p>
+      <div id="react-naive-container" class="list-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>Drag FPS:</span>
+          <span class="fps" id="react-naive-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Avg frame time:</span>
+          <span id="react-naive-frametime">-- ms</span>
+        </div>
+        <div class="stats-row">
+          <span>Re-renders:</span>
+          <span id="react-naive-renders">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Mousemove events:</span>
+          <span id="react-naive-events">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Optimized React Panel -->
+    <div class="benchmark-panel react-optimized">
+      <h3>React 18 (Optimized useRef)</h3>
+      <p style="font-size: 11px; color: #888; margin: 0 0 10px 0;">
+        Stores drag position in ref → direct DOM updates
+      </p>
+      <div id="react-optimized-container" class="list-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>Drag FPS:</span>
+          <span class="fps" id="react-optimized-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Avg frame time:</span>
+          <span id="react-optimized-frametime">-- ms</span>
+        </div>
+        <div class="stats-row">
+          <span>Re-renders:</span>
+          <span id="react-optimized-renders">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Mousemove events:</span>
+          <span id="react-optimized-events">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BosatsuUI Panel -->
+    <div class="benchmark-panel bosatsu">
+      <h3>BosatsuUI (Vanilla)</h3>
+      <p style="font-size: 11px; color: #888; margin: 0 0 10px 0;">
+        Direct state→DOM binding → no sibling re-renders
+      </p>
+      <div id="bosatsu-container" class="list-container"></div>
+      <div class="stats">
+        <div class="stats-row">
+          <span>Drag FPS:</span>
+          <span class="fps" id="bosatsu-fps">--</span>
+        </div>
+        <div class="stats-row">
+          <span>Avg frame time:</span>
+          <span id="bosatsu-frametime">-- ms</span>
+        </div>
+        <div class="stats-row">
+          <span>DOM updates:</span>
+          <span id="bosatsu-updates">0</span>
+        </div>
+        <div class="stats-row">
+          <span>Mousemove events:</span>
+          <span id="bosatsu-events">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="results-panel">
+    <h3>Performance Summary</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Implementation</th>
+          <th>Avg Drag FPS</th>
+          <th>Avg Frame Time</th>
+          <th>Re-renders per drag</th>
+          <th>Assessment</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        <tr><td colspan="5" style="color: #666;">Drag items to collect performance data</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // ============================================
+    // Shared state
+    // ============================================
+    let itemCount = 500;
+    const ITEM_HEIGHT = 60; // Actual rendered height of each item (59.5px + border)
+
+    // Stats tracking
+    const stats = {
+      naive: { fps: [], frameTimes: [], renders: 0, events: 0 },
+      optimized: { fps: [], frameTimes: [], renders: 0, events: 0 },
+      bosatsu: { fps: [], frameTimes: [], updates: 0, events: 0 }
+    };
+
+    function generateItems(count) {
+      const items = [];
+      const types = ['Task', 'Bug', 'Feature', 'Story'];
+      const priorities = ['Critical', 'High', 'Medium', 'Low'];
+      const statuses = ['Todo', 'In Progress', 'Review', 'Done'];
+
+      for (let i = 0; i < count; i++) {
+        items.push({
+          id: 'item-' + i,
+          title: 'Item ' + (i + 1) + ' - ' + types[i % 4] + ' #' + (1000 + i),
+          type: types[i % 4],
+          priority: priorities[i % 4],
+          status: statuses[i % 4],
+          assignee: 'User ' + ((i % 10) + 1),
+          dueDate: new Date(Date.now() + i * 86400000).toLocaleDateString(),
+          progress: (i * 17) % 100
+        });
+      }
+      return items;
+    }
+
+    // Helper to calculate drop index from Y position
+    function getDropIndex(containerEl, y, currentIndex, itemCount) {
+      const rect = containerEl.getBoundingClientRect();
+      const scrollTop = containerEl.scrollTop;
+      const relativeY = y - rect.top + scrollTop;
+      let index = Math.floor(relativeY / ITEM_HEIGHT);
+      index = Math.max(0, Math.min(itemCount - 1, index));
+      return index;
+    }
+
+    // Helper to reorder array
+    function reorderArray(arr, fromIndex, toIndex) {
+      const result = arr.slice();
+      const [removed] = result.splice(fromIndex, 1);
+      result.splice(toIndex, 0, removed);
+      return result;
+    }
+
+    // ============================================
+    // NAIVE REACT: useState for drag position
+    // This causes ALL items to re-render on every mousemove
+    // ============================================
+    let naiveRenderCount = 0;
+
+    function NaiveListItem(props) {
+      naiveRenderCount++;
+      const isDragging = props.dragState.dragging && props.dragState.dragIndex === props.index;
+      const item = props.item;
+
+      const progressColor = item.progress > 66 ? '#22c55e' : item.progress > 33 ? '#eab308' : '#ef4444';
+      const priorityColor = { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#22c55e' }[item.priority];
+
+      // Show drop indicator
+      const isDropTarget = props.dragState.dragging &&
+                          props.dragState.hoverIndex === props.index &&
+                          props.dragState.dragIndex !== props.index;
+
+      return React.createElement('div', {
+        className: 'list-item' + (isDragging ? ' dragging' : '') + (isDropTarget ? ' drag-over' : ''),
+        onMouseDown: function(e) { props.onDragStart(props.index, e.clientY); },
+        style: isDragging ? {
+          transform: 'translateY(' + (props.dragState.currentY - props.dragState.startY) + 'px)',
+          zIndex: 1000,
+          position: 'relative'
+        } : {}
+      }, [
+        React.createElement('div', { key: 'title', style: { fontWeight: 'bold', marginBottom: '4px' } }, item.title),
+        React.createElement('div', { key: 'meta', style: { display: 'flex', gap: '8px', fontSize: '10px', color: '#888' } }, [
+          React.createElement('span', { key: 'priority', style: { color: priorityColor } }, item.priority),
+          React.createElement('span', { key: 'status' }, item.status),
+          React.createElement('span', { key: 'assignee' }, item.assignee),
+          React.createElement('span', { key: 'due' }, item.dueDate)
+        ]),
+        React.createElement('div', { key: 'progress', style: { marginTop: '4px', height: '4px', background: '#1a1a3e', borderRadius: '2px' } },
+          React.createElement('div', { style: { width: item.progress + '%', height: '100%', background: progressColor, borderRadius: '2px' } })
+        )
+      ]);
+    }
+
+    function NaiveList(props) {
+      const itemsState = React.useState(props.initialItems);
+      const items = itemsState[0];
+      const setItems = itemsState[1];
+
+      const dragState = React.useState({
+        dragging: false,
+        dragIndex: null,
+        hoverIndex: null,
+        startY: 0,
+        currentY: 0
+      });
+      const state = dragState[0];
+      const setState = dragState[1];
+
+      const containerRef = React.useRef(null);
+      const fpsRef = React.useRef({ lastTime: 0, frameCount: 0, frameTimes: [] });
+
+      React.useEffect(function() {
+        function handleMouseMove(e) {
+          if (!state.dragging) return;
+
+          stats.naive.events++;
+          document.getElementById('react-naive-events').textContent = stats.naive.events;
+
+          const now = performance.now();
+          if (fpsRef.current.lastTime) {
+            const frameTime = now - fpsRef.current.lastTime;
+            fpsRef.current.frameTimes.push(frameTime);
+            stats.naive.frameTimes.push(frameTime);
+          }
+          fpsRef.current.lastTime = now;
+          fpsRef.current.frameCount++;
+
+          // Calculate hover index for drop indicator
+          const hoverIndex = getDropIndex(containerRef.current, e.clientY, state.dragIndex, items.length);
+
+          // This setState triggers re-render of ALL items!
+          setState(function(prev) {
+            return Object.assign({}, prev, { currentY: e.clientY, hoverIndex: hoverIndex });
+          });
+        }
+
+        function handleMouseUp(e) {
+          if (!state.dragging) return;
+
+          // Calculate FPS
+          if (fpsRef.current.frameTimes.length > 0) {
+            const avgFrameTime = fpsRef.current.frameTimes.reduce(function(a, b) { return a + b; }, 0) / fpsRef.current.frameTimes.length;
+            const fps = Math.round(1000 / avgFrameTime);
+            stats.naive.fps.push(fps);
+            document.getElementById('react-naive-fps').textContent = fps;
+            document.getElementById('react-naive-fps').className = 'fps ' + (fps >= 55 ? 'good' : fps >= 30 ? 'ok' : 'bad');
+            document.getElementById('react-naive-frametime').textContent = avgFrameTime.toFixed(1) + ' ms';
+          }
+
+          // Reorder the list!
+          const dropIndex = getDropIndex(containerRef.current, e.clientY, state.dragIndex, items.length);
+          if (dropIndex !== state.dragIndex) {
+            setItems(reorderArray(items, state.dragIndex, dropIndex));
+          }
+
+          fpsRef.current = { lastTime: 0, frameCount: 0, frameTimes: [] };
+          setState({ dragging: false, dragIndex: null, hoverIndex: null, startY: 0, currentY: 0 });
+          updateResultsTable();
+        }
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return function() {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+        };
+      }, [state.dragging, state.dragIndex, items]);
+
+      React.useEffect(function() {
+        stats.naive.renders = naiveRenderCount;
+        document.getElementById('react-naive-renders').textContent = naiveRenderCount;
+      });
+
+      function handleDragStart(index, y) {
+        naiveRenderCount = 0;
+        setState({ dragging: true, dragIndex: index, hoverIndex: index, startY: y, currentY: y });
+      }
+
+      return React.createElement('div', { ref: containerRef },
+        items.map(function(item, index) {
+          return React.createElement(NaiveListItem, {
+            key: item.id,
+            item: item,
+            index: index,
+            dragState: state,
+            onDragStart: handleDragStart
+          });
+        })
+      );
+    }
+
+    // ============================================
+    // OPTIMIZED REACT: useRef for drag position
+    // Only updates DOM directly, no re-renders during drag
+    // ============================================
+    let optimizedRenderCount = 0;
+
+    function OptimizedListItem(props) {
+      optimizedRenderCount++;
+      const itemRef = React.useRef(null);
+      const item = props.item;
+
+      const progressColor = item.progress > 66 ? '#22c55e' : item.progress > 33 ? '#eab308' : '#ef4444';
+      const priorityColor = { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#22c55e' }[item.priority];
+
+      React.useEffect(function() {
+        props.registerItem(props.index, itemRef.current);
+      }, [props.index]);
+
+      return React.createElement('div', {
+        ref: itemRef,
+        className: 'list-item',
+        'data-index': props.index,
+        onMouseDown: function(e) { props.onDragStart(props.index, e.clientY, itemRef.current); }
+      }, [
+        React.createElement('div', { key: 'title', style: { fontWeight: 'bold', marginBottom: '4px' } }, item.title),
+        React.createElement('div', { key: 'meta', style: { display: 'flex', gap: '8px', fontSize: '10px', color: '#888' } }, [
+          React.createElement('span', { key: 'priority', style: { color: priorityColor } }, item.priority),
+          React.createElement('span', { key: 'status' }, item.status),
+          React.createElement('span', { key: 'assignee' }, item.assignee),
+          React.createElement('span', { key: 'due' }, item.dueDate)
+        ]),
+        React.createElement('div', { key: 'progress', style: { marginTop: '4px', height: '4px', background: '#1a1a3e', borderRadius: '2px' } },
+          React.createElement('div', { style: { width: item.progress + '%', height: '100%', background: progressColor, borderRadius: '2px' } })
+        )
+      ]);
+    }
+
+    function OptimizedList(props) {
+      const itemsState = React.useState(props.initialItems);
+      const items = itemsState[0];
+      const setItems = itemsState[1];
+
+      const containerRef = React.useRef(null);
+      const itemRefs = React.useRef({});
+      const dragRef = React.useRef({ dragging: false, dragIndex: null, startY: 0, element: null, lastHoverIndex: null });
+      const fpsRef = React.useRef({ lastTime: 0, frameCount: 0, frameTimes: [] });
+
+      React.useEffect(function() {
+        function handleMouseMove(e) {
+          if (!dragRef.current.dragging) return;
+
+          stats.optimized.events++;
+          document.getElementById('react-optimized-events').textContent = stats.optimized.events;
+
+          const now = performance.now();
+          if (fpsRef.current.lastTime) {
+            const frameTime = now - fpsRef.current.lastTime;
+            fpsRef.current.frameTimes.push(frameTime);
+            stats.optimized.frameTimes.push(frameTime);
+          }
+          fpsRef.current.lastTime = now;
+          fpsRef.current.frameCount++;
+
+          // Direct DOM update for drag position - no React re-render!
+          const delta = e.clientY - dragRef.current.startY;
+          dragRef.current.element.style.transform = 'translateY(' + delta + 'px)';
+
+          // Update drop indicator via DOM
+          const hoverIndex = getDropIndex(containerRef.current, e.clientY, dragRef.current.dragIndex, items.length);
+          if (hoverIndex !== dragRef.current.lastHoverIndex) {
+            // Remove old indicator
+            if (dragRef.current.lastHoverIndex !== null && itemRefs.current[dragRef.current.lastHoverIndex]) {
+              itemRefs.current[dragRef.current.lastHoverIndex].classList.remove('drag-over');
+            }
+            // Add new indicator
+            if (hoverIndex !== dragRef.current.dragIndex && itemRefs.current[hoverIndex]) {
+              itemRefs.current[hoverIndex].classList.add('drag-over');
+            }
+            dragRef.current.lastHoverIndex = hoverIndex;
+          }
+        }
+
+        function handleMouseUp(e) {
+          if (!dragRef.current.dragging) return;
+
+          if (fpsRef.current.frameTimes.length > 0) {
+            const avgFrameTime = fpsRef.current.frameTimes.reduce(function(a, b) { return a + b; }, 0) / fpsRef.current.frameTimes.length;
+            const fps = Math.round(1000 / avgFrameTime);
+            stats.optimized.fps.push(fps);
+            document.getElementById('react-optimized-fps').textContent = fps;
+            document.getElementById('react-optimized-fps').className = 'fps ' + (fps >= 55 ? 'good' : fps >= 30 ? 'ok' : 'bad');
+            document.getElementById('react-optimized-frametime').textContent = avgFrameTime.toFixed(1) + ' ms';
+          }
+
+          // Clean up drag styles
+          dragRef.current.element.style.transform = '';
+          dragRef.current.element.classList.remove('dragging');
+          if (dragRef.current.lastHoverIndex !== null && itemRefs.current[dragRef.current.lastHoverIndex]) {
+            itemRefs.current[dragRef.current.lastHoverIndex].classList.remove('drag-over');
+          }
+
+          // Reorder the list (this triggers ONE re-render)
+          const dropIndex = getDropIndex(containerRef.current, e.clientY, dragRef.current.dragIndex, items.length);
+          if (dropIndex !== dragRef.current.dragIndex) {
+            setItems(reorderArray(items, dragRef.current.dragIndex, dropIndex));
+          }
+
+          dragRef.current = { dragging: false, dragIndex: null, startY: 0, element: null, lastHoverIndex: null };
+          fpsRef.current = { lastTime: 0, frameCount: 0, frameTimes: [] };
+          updateResultsTable();
+        }
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return function() {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+        };
+      }, [items]);
+
+      React.useEffect(function() {
+        stats.optimized.renders = optimizedRenderCount;
+        document.getElementById('react-optimized-renders').textContent = optimizedRenderCount;
+      });
+
+      function registerItem(index, element) {
+        itemRefs.current[index] = element;
+      }
+
+      function handleDragStart(index, y, element) {
+        optimizedRenderCount = 0;
+        element.classList.add('dragging');
+        dragRef.current = { dragging: true, dragIndex: index, startY: y, element: element, lastHoverIndex: index };
+      }
+
+      return React.createElement('div', { ref: containerRef },
+        items.map(function(item, index) {
+          return React.createElement(OptimizedListItem, {
+            key: item.id,
+            item: item,
+            index: index,
+            registerItem: registerItem,
+            onDragStart: handleDragStart
+          });
+        })
+      );
+    }
+
+    // ============================================
+    // BOSATSUUI: Direct state→DOM bindings
+    // ============================================
+    let bosatsuUpdateCount = 0;
+    let bosatsuItems = [];
+    let bosatsuCleanup = null;
+
+    function initBosatsuList(items) {
+      // Clean up previous listeners
+      if (bosatsuCleanup) {
+        bosatsuCleanup();
+      }
+
+      bosatsuItems = items.slice();
+      const container = document.getElementById('bosatsu-container');
+      container.innerHTML = '';
+
+      const dragState = {
+        dragging: false,
+        dragIndex: null,
+        startY: 0,
+        element: null,
+        lastHoverIndex: null
+      };
+
+      const fpsData = { lastTime: 0, frameTimes: [] };
+      const elements = [];
+
+      function renderItem(item, index) {
+        const el = document.createElement('div');
+        el.className = 'list-item';
+        el.dataset.index = index;
+
+        const progressColor = item.progress > 66 ? '#22c55e' : item.progress > 33 ? '#eab308' : '#ef4444';
+        const priorityColor = { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#22c55e' }[item.priority];
+
+        el.innerHTML = '<div style="font-weight: bold; margin-bottom: 4px;">' + item.title + '</div>' +
+          '<div style="display: flex; gap: 8px; font-size: 10px; color: #888;">' +
+            '<span style="color: ' + priorityColor + ';">' + item.priority + '</span>' +
+            '<span>' + item.status + '</span>' +
+            '<span>' + item.assignee + '</span>' +
+            '<span>' + item.dueDate + '</span>' +
+          '</div>' +
+          '<div style="margin-top: 4px; height: 4px; background: #1a1a3e; border-radius: 2px;">' +
+            '<div style="width: ' + item.progress + '%; height: 100%; background: ' + progressColor + '; border-radius: 2px;"></div>' +
+          '</div>';
+
+        el.addEventListener('mousedown', function(e) {
+          bosatsuUpdateCount = 0;
+          dragState.dragging = true;
+          dragState.dragIndex = parseInt(el.dataset.index);
+          dragState.startY = e.clientY;
+          dragState.element = el;
+          dragState.lastHoverIndex = dragState.dragIndex;
+          el.classList.add('dragging');
+        });
+
+        return el;
+      }
+
+      bosatsuItems.forEach(function(item, index) {
+        const el = renderItem(item, index);
+        elements.push(el);
+        container.appendChild(el);
+      });
+
+      function handleMouseMove(e) {
+        if (!dragState.dragging) return;
+
+        stats.bosatsu.events++;
+        document.getElementById('bosatsu-events').textContent = stats.bosatsu.events;
+
+        const now = performance.now();
+        if (fpsData.lastTime) {
+          const frameTime = now - fpsData.lastTime;
+          fpsData.frameTimes.push(frameTime);
+          stats.bosatsu.frameTimes.push(frameTime);
+        }
+        fpsData.lastTime = now;
+
+        // Direct DOM update
+        const delta = e.clientY - dragState.startY;
+        dragState.element.style.transform = 'translateY(' + delta + 'px)';
+        bosatsuUpdateCount++;
+        stats.bosatsu.updates = bosatsuUpdateCount;
+        document.getElementById('bosatsu-updates').textContent = bosatsuUpdateCount;
+
+        // Update drop indicator
+        const hoverIndex = getDropIndex(container, e.clientY, dragState.dragIndex, bosatsuItems.length);
+        if (hoverIndex !== dragState.lastHoverIndex) {
+          if (dragState.lastHoverIndex !== null && elements[dragState.lastHoverIndex]) {
+            elements[dragState.lastHoverIndex].classList.remove('drag-over');
+          }
+          if (hoverIndex !== dragState.dragIndex && elements[hoverIndex]) {
+            elements[hoverIndex].classList.add('drag-over');
+          }
+          dragState.lastHoverIndex = hoverIndex;
+        }
+      }
+
+      function handleMouseUp(e) {
+        if (!dragState.dragging) return;
+
+        if (fpsData.frameTimes.length > 0) {
+          const avgFrameTime = fpsData.frameTimes.reduce(function(a, b) { return a + b; }, 0) / fpsData.frameTimes.length;
+          const fps = Math.round(1000 / avgFrameTime);
+          stats.bosatsu.fps.push(fps);
+          document.getElementById('bosatsu-fps').textContent = fps;
+          document.getElementById('bosatsu-fps').className = 'fps ' + (fps >= 55 ? 'good' : fps >= 30 ? 'ok' : 'bad');
+          document.getElementById('bosatsu-frametime').textContent = avgFrameTime.toFixed(1) + ' ms';
+        }
+
+        // Clean up styles
+        dragState.element.style.transform = '';
+        dragState.element.classList.remove('dragging');
+        if (dragState.lastHoverIndex !== null && elements[dragState.lastHoverIndex]) {
+          elements[dragState.lastHoverIndex].classList.remove('drag-over');
+        }
+
+        // Reorder the list via DOM manipulation (no framework re-render!)
+        const dropIndex = getDropIndex(container, e.clientY, dragState.dragIndex, bosatsuItems.length);
+        if (dropIndex !== dragState.dragIndex) {
+          // Reorder data
+          bosatsuItems = reorderArray(bosatsuItems, dragState.dragIndex, dropIndex);
+
+          // Reorder DOM elements
+          const draggedEl = elements[dragState.dragIndex];
+          elements.splice(dragState.dragIndex, 1);
+          elements.splice(dropIndex, 0, draggedEl);
+
+          // Update data-index attributes
+          elements.forEach(function(el, i) {
+            el.dataset.index = i;
+          });
+
+          // Move in DOM
+          if (dropIndex < dragState.dragIndex) {
+            container.insertBefore(draggedEl, elements[dropIndex + 1] || null);
+          } else {
+            container.insertBefore(draggedEl, elements[dropIndex + 1] || null);
+          }
+
+          // Actually re-render the container to ensure correct order
+          container.innerHTML = '';
+          elements.forEach(function(el) {
+            container.appendChild(el);
+          });
+        }
+
+        dragState.dragging = false;
+        dragState.element = null;
+        dragState.lastHoverIndex = null;
+        fpsData.lastTime = 0;
+        fpsData.frameTimes = [];
+        updateResultsTable();
+      }
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+
+      bosatsuCleanup = function() {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+
+    // ============================================
+    // MAIN CONTROLS
+    // ============================================
+    let naiveRoot, optimizedRoot;
+
+    function updateItemCount(count) {
+      itemCount = parseInt(count);
+      resetStats();
+      renderAll();
+    }
+
+    function resetStats() {
+      stats.naive = { fps: [], frameTimes: [], renders: 0, events: 0 };
+      stats.optimized = { fps: [], frameTimes: [], renders: 0, events: 0 };
+      stats.bosatsu = { fps: [], frameTimes: [], updates: 0, events: 0 };
+
+      naiveRenderCount = 0;
+      optimizedRenderCount = 0;
+      bosatsuUpdateCount = 0;
+
+      ['react-naive', 'react-optimized', 'bosatsu'].forEach(function(prefix) {
+        document.getElementById(prefix + '-fps').textContent = '--';
+        document.getElementById(prefix + '-fps').className = 'fps';
+        document.getElementById(prefix + '-frametime').textContent = '-- ms';
+        document.getElementById(prefix + '-events').textContent = '0';
+      });
+      document.getElementById('react-naive-renders').textContent = '0';
+      document.getElementById('react-optimized-renders').textContent = '0';
+      document.getElementById('bosatsu-updates').textContent = '0';
+
+      document.getElementById('results-body').innerHTML =
+        '<tr><td colspan="5" style="color: #666;">Drag items to collect performance data</td></tr>';
+    }
+
+    function updateResultsTable() {
+      function calcAvg(arr) {
+        if (arr.length === 0) return '--';
+        return Math.round(arr.reduce(function(a, b) { return a + b; }, 0) / arr.length);
+      }
+
+      function calcAvgFrameTime(arr) {
+        if (arr.length === 0) return '--';
+        return (arr.reduce(function(a, b) { return a + b; }, 0) / arr.length).toFixed(1);
+      }
+
+      const naiveAvgFps = calcAvg(stats.naive.fps);
+      const optimizedAvgFps = calcAvg(stats.optimized.fps);
+      const bosatsuAvgFps = calcAvg(stats.bosatsu.fps);
+
+      const naiveAvgFrame = calcAvgFrameTime(stats.naive.frameTimes);
+      const optimizedAvgFrame = calcAvgFrameTime(stats.optimized.frameTimes);
+      const bosatsuAvgFrame = calcAvgFrameTime(stats.bosatsu.frameTimes);
+
+      function getAssessment(fps) {
+        if (fps === '--') return '';
+        if (fps >= 55) return '<span class="winner">Smooth ✓</span>';
+        if (fps >= 30) return '<span style="color: #eab308;">Acceptable</span>';
+        return '<span class="loser">Laggy ✗</span>';
+      }
+
+      document.getElementById('results-body').innerHTML =
+        '<tr>' +
+          '<td>React (Naive useState)</td>' +
+          '<td>' + naiveAvgFps + ' FPS</td>' +
+          '<td>' + naiveAvgFrame + ' ms</td>' +
+          '<td>' + stats.naive.renders + '</td>' +
+          '<td>' + getAssessment(naiveAvgFps) + '</td>' +
+        '</tr>' +
+        '<tr>' +
+          '<td>React (Optimized useRef)</td>' +
+          '<td>' + optimizedAvgFps + ' FPS</td>' +
+          '<td>' + optimizedAvgFrame + ' ms</td>' +
+          '<td>' + stats.optimized.renders + '</td>' +
+          '<td>' + getAssessment(optimizedAvgFps) + '</td>' +
+        '</tr>' +
+        '<tr>' +
+          '<td>BosatsuUI (Vanilla)</td>' +
+          '<td>' + bosatsuAvgFps + ' FPS</td>' +
+          '<td>' + bosatsuAvgFrame + ' ms</td>' +
+          '<td>' + stats.bosatsu.updates + ' DOM updates</td>' +
+          '<td>' + getAssessment(bosatsuAvgFps) + '</td>' +
+        '</tr>';
+    }
+
+    function renderAll() {
+      const items = generateItems(itemCount);
+
+      naiveRoot.render(React.createElement(NaiveList, { initialItems: items }));
+      optimizedRoot.render(React.createElement(OptimizedList, { initialItems: items }));
+      initBosatsuList(items);
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      naiveRoot = ReactDOM.createRoot(document.getElementById('react-naive-container'));
+      optimizedRoot = ReactDOM.createRoot(document.getElementById('react-optimized-container'));
+      renderAll();
+    });
+  </script>
+</body>
+</html>

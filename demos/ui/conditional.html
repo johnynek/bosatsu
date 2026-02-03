@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conditional Rendering Demo</title>
+  <style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333333;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+#app {
+  width: 100%;
+  max-width: 600px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+h1 {
+  margin-bottom: 20px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+p {
+  margin-bottom: 20px;
+  color: #666;
+}
+
+.buttons {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 30px;
+}
+
+button {
+  padding: 12px 24px;
+  font-size: 16px;
+  border: none;
+  border-radius: 8px;
+  background: #667eea;
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s, background 0.2s;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:active {
+  transform: scale(0.95);
+}
+
+button.active {
+  background: #4f5bd5;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+}
+
+.result {
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading {
+  padding: 20px;
+  color: #667eea;
+  font-size: 24px;
+}
+
+.loading::after {
+  content: '';
+  display: inline-block;
+  width: 20px;
+  animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+.error {
+  padding: 20px;
+  color: #e53e3e;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.success {
+  padding: 20px;
+  color: #38a169;
+  background: #f0fff4;
+  border: 1px solid #9ae6b4;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.status-info {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f7fafc;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 14px;
+}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="card">
+      <h1>Conditional Rendering Demo</h1>
+      <p>Click a button to change the status:</p>
+      <div class="buttons">
+        <button id="loading-btn">Loading</button>
+        <button id="error-btn">Error</button>
+        <button id="success-btn">Success</button>
+      </div>
+      <div class="result">
+        <!-- These divs are conditionally shown based on status -->
+        <div class="loading" id="loading-content" data-bosatsu-id="loading-content">Loading...</div>
+        <div class="error" id="error-content" data-bosatsu-id="error-content" style="display: none;"></div>
+        <div class="success" id="success-content" data-bosatsu-id="success-content" style="display: none;"></div>
+      </div>
+      <div class="status-info">
+        Current state: <span id="state-debug" data-bosatsu-id="state-debug">{ tag: "Loading" }</span>
+      </div>
+    </div>
+  </div>
+  <script>
+// BosatsuUI Runtime (simplified for demo)
+
+// State storage
+const _state = {
+  status: { tag: "Loading" }
+};
+
+// Bindings with conditional 'when' clauses
+const _bindings = {
+  "status": [
+    // Binding for Loading state - shows loading text
+    // Uses staticValue since Loading has no data payload
+    {
+      elementId: "loading-content",
+      property: "textContent",
+      staticValue: "Loading...",
+      when: { discriminant: ["status"], tag: "Loading", isTotal: false }
+    },
+    // Binding for Error state - shows error message
+    {
+      elementId: "error-content",
+      property: "textContent",
+      statePath: ["status", "message"],
+      when: { discriminant: ["status"], tag: "Error", isTotal: false }
+    },
+    // Binding for Success state - shows success data
+    {
+      elementId: "success-content",
+      property: "textContent",
+      statePath: ["status", "data"],
+      when: { discriminant: ["status"], tag: "Success", isTotal: false }
+    },
+    // Debug display - always update
+    {
+      elementId: "state-debug",
+      property: "textContent"
+    }
+  ]
+};
+
+// Element cache
+const _elements = {};
+
+// Get value at path
+function _getAtPath(obj, path) {
+  if (!path) return obj;
+  let current = obj;
+  for (const key of path) {
+    if (current === undefined || current === null) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+// Set value at path (immutable)
+function _setAtPath(obj, path, value) {
+  if (path.length === 0) return value;
+  const result = { ...obj };
+  let current = result;
+  for (let i = 0; i < path.length - 1; i++) {
+    current[path[i]] = { ...current[path[i]] };
+    current = current[path[i]];
+  }
+  current[path[path.length - 1]] = value;
+  return result;
+}
+
+// Check if binding condition is met
+function _shouldApplyBinding(binding) {
+  if (!binding.when) return true;
+
+  const { discriminant, tag, isTotal } = binding.when;
+  if (isTotal) return true;
+
+  const value = _getAtPath(_state, discriminant);
+  if (value && typeof value === 'object' && value.tag) {
+    return value.tag === tag;
+  }
+  return String(value) === tag;
+}
+
+// Apply bindings for a path
+function _applyBindingsForPath(path) {
+  const key = path.join('.');
+  const bindings = _bindings[key];
+  if (!bindings) return;
+
+  for (const binding of bindings) {
+    const element = document.getElementById(binding.elementId) ||
+                   document.querySelector(`[data-bosatsu-id="${binding.elementId}"]`);
+    if (!element) continue;
+
+    // Get the value - use staticValue if present, otherwise look up from state
+    let value;
+    if (binding.staticValue !== undefined) {
+      value = binding.staticValue;
+    } else {
+      const valuePath = binding.statePath || path;
+      value = _getAtPath(_state, valuePath);
+    }
+
+    // For debug display, show JSON
+    if (binding.elementId === 'state-debug') {
+      value = JSON.stringify(value);
+    }
+
+    // Check condition
+    const shouldApply = _shouldApplyBinding(binding);
+
+    // For conditional bindings, toggle visibility
+    if (binding.when) {
+      element.style.display = shouldApply ? '' : 'none';
+    }
+
+    // Apply value if condition is met
+    if (shouldApply) {
+      switch (binding.property) {
+        case 'textContent':
+          element.textContent = String(value ?? '');
+          break;
+        case 'className':
+          element.className = String(value ?? '');
+          break;
+      }
+    }
+  }
+}
+
+// Set state and update bindings
+function setState(path, value) {
+  Object.assign(_state, _setAtPath(_state, path, value));
+  _applyBindingsForPath(path);
+}
+
+// Event handlers
+function setLoading() {
+  setState(['status'], { tag: 'Loading' });
+  updateButtonStates('Loading');
+}
+
+function setError() {
+  setState(['status'], { tag: 'Error', message: 'Something went wrong' });
+  updateButtonStates('Error');
+}
+
+function setSuccess() {
+  setState(['status'], { tag: 'Success', data: 'Data loaded successfully!' });
+  updateButtonStates('Success');
+}
+
+// Update button active states
+function updateButtonStates(activeTag) {
+  document.getElementById('loading-btn').classList.toggle('active', activeTag === 'Loading');
+  document.getElementById('error-btn').classList.toggle('active', activeTag === 'Error');
+  document.getElementById('success-btn').classList.toggle('active', activeTag === 'Success');
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+  // Register event handlers
+  document.getElementById('loading-btn').onclick = setLoading;
+  document.getElementById('error-btn').onclick = setError;
+  document.getElementById('success-btn').onclick = setSuccess;
+
+  // Initial state
+  updateButtonStates('Loading');
+  _applyBindingsForPath(['status']);
+});
+  </script>
+</body>
+</html>

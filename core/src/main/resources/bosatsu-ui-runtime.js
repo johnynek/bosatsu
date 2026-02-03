@@ -35,6 +35,12 @@ let _state = {};
 let _bindings = {};
 
 /**
+ * Cached set of discriminant paths (for fast O(1) lookup).
+ * Populated during _initRuntime.
+ */
+let _discriminantPaths = new Set();
+
+/**
  * Compiled transform functions cache.
  */
 const _transformCache = new Map();
@@ -62,13 +68,44 @@ function _getAtPath(obj, path) {
 }
 
 /**
+ * Set a value at a nested path in an object (mutably, for performance).
+ * @param {unknown} obj - The object to update
+ * @param {string[]} path - Path components
+ * @param {unknown} value - The new value
+ * @returns {unknown} The same object, mutated
+ */
+function _setAtPath(obj, path, value) {
+  if (path.length === 0) return value;
+
+  // Ensure root is an object
+  if (typeof obj !== 'object' || obj === null) {
+    obj = {};
+  }
+
+  // Navigate to parent, creating objects as needed
+  let current = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i];
+    if (typeof current[key] !== 'object' || current[key] === null) {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+
+  // Set the final value
+  current[path[path.length - 1]] = value;
+  return obj;
+}
+
+/**
  * Set a value at a nested path in an object (immutably).
+ * Use this when you need to preserve the old state (undo, history, etc.)
  * @param {unknown} obj - The object to update
  * @param {string[]} path - Path components
  * @param {unknown} value - The new value
  * @returns {unknown} New object with updated value
  */
-function _setAtPath(obj, path, value) {
+function _setAtPathImmutable(obj, path, value) {
   if (path.length === 0) return value;
 
   const current = (typeof obj === 'object' && obj !== null) ? { ...obj } : {};
@@ -76,7 +113,7 @@ function _setAtPath(obj, path, value) {
 
   current[first] = rest.length === 0
     ? value
-    : _setAtPath(current[first], rest, value);
+    : _setAtPathImmutable(current[first], rest, value);
 
   return current;
 }
@@ -295,6 +332,34 @@ function _queuePathUpdate(path) {
 }
 
 /**
+ * Check if a conditional binding should be applied.
+ * Returns true if the binding is unconditional OR its condition is met.
+ * @param {Object} binding - The binding with optional `when` clause
+ * @returns {boolean}
+ */
+function _shouldApplyBinding(binding) {
+  // Unconditional bindings always apply
+  if (!binding.when) return true;
+
+  const { discriminant, tag, isTotal } = binding.when;
+
+  // Get the current value at the discriminant path
+  const discriminantValue = _getAtPath(_state, discriminant);
+
+  // Total matches (wildcards) always apply
+  if (isTotal) return true;
+
+  // Check if the discriminant's tag matches
+  // Sum types are represented as { tag: "VariantName", ...fields }
+  if (discriminantValue && typeof discriminantValue === 'object') {
+    return discriminantValue.tag === tag;
+  }
+
+  // For literal matches, compare directly
+  return String(discriminantValue) === tag;
+}
+
+/**
  * Apply bindings for a changed state path.
  * @param {string[]} path
  */
@@ -305,13 +370,27 @@ function _applyBindingsForPath(path) {
   if (!bindings) return;
 
   for (const binding of bindings) {
-    // Find the element
+    // Find the element first (needed for both apply and hide)
     const element = _findElement(
       binding.elementId.startsWith('#') || binding.elementId.startsWith('[')
         ? binding.elementId
         : `[data-bosatsu-id="${binding.elementId}"]`
     );
     if (!element) continue;
+
+    // Check conditional binding condition
+    if (!_shouldApplyBinding(binding)) {
+      // Hide element when condition isn't met (for conditional rendering)
+      if (binding.when && !binding.when.isTotal) {
+        element.style.display = 'none';
+      }
+      continue;
+    }
+
+    // Show element when condition is met
+    if (binding.when && !binding.when.isTotal) {
+      element.style.display = '';
+    }
 
     // Get the new value
     let newValue = _getAtPath(_state, binding.statePath || path);
@@ -347,6 +426,16 @@ function _initRuntime(bindings, initialState) {
   _pendingPaths.clear();
   _flushScheduled = false;
   _pendingCount = 0;
+
+  // Pre-compute discriminant paths for O(1) lookup
+  _discriminantPaths = new Set();
+  for (const bindingList of Object.values(_bindings)) {
+    for (const binding of bindingList) {
+      if (binding.when && binding.when.discriminant) {
+        _discriminantPaths.add(binding.when.discriminant.join('.'));
+      }
+    }
+  }
 }
 
 /**
@@ -377,11 +466,53 @@ function _setState(path, value) {
   // Only update if value actually changed
   if (_deepEqual(prevValue, value)) return;
 
+  // Check if this is a discriminant path (affects conditional bindings)
+  const isDiscriminant = _isDiscriminantPath(path);
+
   // Update state immediately
   _state = _setAtPath(_state, path, value);
 
   // Queue DOM update
   _queuePathUpdate(path);
+
+  // If a discriminant changed, re-evaluate all conditional bindings
+  if (isDiscriminant) {
+    _reapplyConditionalBindings(path);
+  }
+}
+
+/**
+ * Check if a path is used as a discriminant in any conditional binding.
+ * Uses pre-computed cache for O(1) lookup.
+ * @param {string[]} path
+ * @returns {boolean}
+ */
+function _isDiscriminantPath(path) {
+  return _discriminantPaths.has(path.join('.'));
+}
+
+/**
+ * Re-apply all conditional bindings that depend on a discriminant.
+ * Called when a discriminant path changes value.
+ * @param {string[]} discriminantPath
+ */
+function _reapplyConditionalBindings(discriminantPath) {
+  const discKey = discriminantPath.join('.');
+
+  for (const [pathKey, bindings] of Object.entries(_bindings)) {
+    for (const binding of bindings) {
+      // Skip unconditional bindings
+      if (!binding.when) continue;
+
+      // Check if this binding depends on the changed discriminant
+      const bindingDiscKey = binding.when.discriminant.join('.');
+      if (bindingDiscKey !== discKey) continue;
+
+      // Queue the binding's path for re-evaluation
+      const path = pathKey.split('.');
+      _queuePathUpdate(path);
+    }
+  }
 }
 
 /**
@@ -550,6 +681,9 @@ if (typeof window !== 'undefined') {
     _setAtPath,
     _findElement,
     _applyBindingUpdate,
+    _shouldApplyBinding,
+    _isDiscriminantPath,
+    _reapplyConditionalBindings,
   };
 }
 
@@ -568,5 +702,8 @@ if (typeof module !== 'undefined' && module.exports) {
     unmount: _unmount,
     createDOM: _createDOM,
     _initRuntime,
+    _shouldApplyBinding,
+    _isDiscriminantPath,
+    _reapplyConditionalBindings,
   };
 }
