@@ -100,7 +100,7 @@ final case class DefinedType[+A](
 
   def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Kind.Arg): Type = {
     // evidence to prove that we only ask for this after inference
-    val tc: Type.Rho = Type.const(packageName, name)
+    val tc: Type.Leaf | Type.TyApply = Type.const(packageName, name)
 
     val res = typeParams.foldLeft(tc) { (res, v) =>
       Type.TyApply(res, Type.TyVar(v))

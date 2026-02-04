@@ -16,6 +16,8 @@ import cats.syntax.all._
 class RankNInferTest extends munit.FunSuite {
 
   val emptyRegion: Region = Region(0, 0)
+  
+  def tv(a: String): Type.Leaf = Type.TyVar(Type.Var.Bound(a))
 
   implicit val unitRegion: HasRegion[Unit] =
     HasRegion.instance(_ => emptyRegion)
@@ -397,7 +399,7 @@ class RankNInferTest extends munit.FunSuite {
 
   object OptionTypes {
     val optName = defType("Option")
-    val optType: Type.Tau = Type.Tau.tauConst(optName)
+    val optType: Type.Leaf = Type.TyConst(optName)
 
     val pn = testPackage
     val definedOption = Map(
@@ -496,8 +498,6 @@ class RankNInferTest extends munit.FunSuite {
   }
 
   test("match with custom generic types") {
-    def tv(a: String): Type.Rho = Type.TyVar(Type.Var.Bound(a))
-
     import OptionTypes._
 
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
@@ -602,11 +602,10 @@ class RankNInferTest extends munit.FunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def tv(a: String): Type.Rho = Type.TyVar(Type.Var.Bound(a))
 
     val pureName = defType("Pure")
     val optName = defType("Option")
-    val optType: Type.Tau = Type.Tau.tauConst(optName)
+    val optType: Type.Leaf = Type.TyConst(optName)
 
     val pn = testPackage
 
@@ -2158,7 +2157,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
 
     val boxConst =
       Type.Const.Defined(testPackage, TypeName(Identifier.Constructor("Box")))
-    val boxTy: Type.Rho = Type.TyConst(boxConst)
+    val boxTy: Type.Leaf = Type.TyConst(boxConst)
     val kinds = Type.builtInKinds.updated(boxConst, Kind(Kind.Type.in))
 
     val infer: Infer[Unit] =
@@ -2189,7 +2188,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
 
     val boxConst =
       Type.Const.Defined(testPackage, TypeName(Identifier.Constructor("Box")))
-    val boxTy: Type.Rho = Type.TyConst(boxConst)
+    val boxTy: Type.Leaf = Type.TyConst(boxConst)
     val kinds = Type.builtInKinds.updated(boxConst, Kind(Kind.Type.in))
 
     val infer: Infer[Unit] =

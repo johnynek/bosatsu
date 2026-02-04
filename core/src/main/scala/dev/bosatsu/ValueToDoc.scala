@@ -133,6 +133,9 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue
               loop(inner, tpe :: revPath).value
+            case Type.Exists(_, inner) =>
+              // we assume the generic positions don't matter and to continue
+              loop(inner, tpe :: revPath).value
             case Type.TyVar(_) =>
               // we don't really know what to do with
               { _ => Right(Doc.text("<unknown>")) }
@@ -142,6 +145,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case Type.Fun(_, dest) =>
                     arity(dest) + 1
                   case Type.ForAll(_, inner) =>
+                    arity(inner)
+                  case Type.Exists(_, inner) =>
                     arity(inner)
                   case _ => 0
                 }

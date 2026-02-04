@@ -3,7 +3,7 @@ package dev.bosatsu.rankn
 import cats.{Eq, Order}
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.Kind
+import dev.bosatsu.{Kind, TypedExpr}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -123,6 +123,11 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("same as doesn't care about quant var order") {
+    assert(parse("forall a, b. a -> b").sameAs(parse("forall b, a. a -> b")))
+    assert(parse("exists a, b. a -> b").sameAs(parse("exists b, a. a -> b")))
+  }
+
   test("normalization never throws") {
     val prop = forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
@@ -134,26 +139,26 @@ class TypeTest extends munit.ScalaCheckSuite {
       import dev.bosatsu.Variance._
       import dev.bosatsu.Kind.{Arg, Cons, Type => KType}
 
-      val qt1 = Quantified(
-        Quantification.Dual(
-          NonEmptyList(
-            (
-              Bound("qsnMgkhqY"),
-              Cons(
-                Arg(Covariant, Cons(Arg(Covariant, KType), KType)),
-                Cons(Arg(Phantom, KType), KType)
-              )
-            ),
-            List(
-              (
-                Bound("u"),
-                Cons(
-                  Arg(Contravariant, KType),
-                  Cons(Arg(Invariant, KType), KType)
-                )
-              )
+      val qt1 = Type.forAll(
+        NonEmptyList(
+          (
+            Bound("qsnMgkhqY"),
+            Cons(
+              Arg(Covariant, Cons(Arg(Covariant, KType), KType)),
+              Cons(Arg(Phantom, KType), KType)
             )
           ),
+          List(
+            (
+              Bound("u"),
+              Cons(
+                Arg(Contravariant, KType),
+                Cons(Arg(Invariant, KType), KType)
+              )
+            )
+          )
+        ),
+        Type.exists(
           NonEmptyList(
             (
               Bound("nack"),
@@ -189,52 +194,50 @@ class TypeTest extends munit.ScalaCheckSuite {
                 )
               )
             )
-          )
-        ),
-        TyVar(Bound("u"))
+          ),
+          TyVar(Bound("u"))
+        )
       )
 
-      val qt2 = Quantified(
-        Quantification.Exists(
-          NonEmptyList(
+      val qt2 = Type.exists(
+        NonEmptyList(
+          (
+            Bound("chajb"),
+            Cons(
+              Arg(Contravariant, Cons(Arg(Covariant, KType), KType)),
+              Cons(Arg(Contravariant, KType), KType)
+            )
+          ),
+          List(
             (
-              Bound("chajb"),
+              Bound("e"),
               Cons(
-                Arg(Contravariant, Cons(Arg(Covariant, KType), KType)),
-                Cons(Arg(Contravariant, KType), KType)
+                Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+                Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
               )
             ),
-            List(
-              (
-                Bound("e"),
-                Cons(
-                  Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+            (
+              Bound("vg"),
+              Cons(
+                Arg(Phantom, Cons(Arg(Phantom, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
+              )
+            ),
+            (
+              Bound("vvki"),
+              Cons(
+                Arg(
+                  Contravariant,
                   Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
-                )
-              ),
-              (
-                Bound("vg"),
-                Cons(
-                  Arg(Phantom, Cons(Arg(Phantom, KType), KType)),
-                  Cons(Arg(Phantom, KType), KType)
-                )
-              ),
-              (
-                Bound("vvki"),
-                Cons(
-                  Arg(
-                    Contravariant,
-                    Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
-                  ),
-                  KType
-                )
-              ),
-              (
-                Bound("e"),
-                Cons(
-                  Arg(Invariant, Cons(Arg(Invariant, KType), KType)),
-                  Cons(Arg(Phantom, KType), KType)
-                )
+                ),
+                KType
+              )
+            ),
+            (
+              Bound("e"),
+              Cons(
+                Arg(Invariant, Cons(Arg(Invariant, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
               )
             )
           )
@@ -261,7 +264,8 @@ class TypeTest extends munit.ScalaCheckSuite {
         assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")
       }
 
-      assertEquals(Type.freeBoundTyVars(qt1.in :: Nil), List(Bound("u")))
+      val (_, _, qt1In) = Type.splitQuantifiers(qt1)
+      assertEquals(Type.freeBoundTyVars(qt1In :: Nil), List(Bound("u")))
     }
     prop
   }
@@ -631,7 +635,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("Quantification.toLists/fromList identity") {
     forAll(NTypeGen.genQuant) { q =>
       assertEquals(
-        Type.Quantification.fromLists(q.forallList, q.existList),
+        TypedExpr.Quantification.fromLists(q.forallList, q.existList),
         Some(q)
       )
     }
@@ -701,7 +705,9 @@ class TypeTest extends munit.ScalaCheckSuite {
           assertEquals(consts, Nil)
         case TyApply(left, right) =>
           assertEquals(consts, Type.allConsts(left :: right :: Nil))
-        case Quantified(_, in) =>
+        case Type.ForAll(_, in) =>
+          assertEquals(consts, allConsts(in :: Nil))
+        case Type.Exists(_, in) =>
           assertEquals(consts, allConsts(in :: Nil))
       }
     }
@@ -710,10 +716,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     def check(fn: String, expect: Option[String]) =
       parse(fn) match {
         case Type.Fun.SimpleUniversal((u, args, res)) =>
-          val resTpe = Type.Quantified(
-            Type.Quantification.ForAll(u),
-            Type.Fun(args, res)
-          )
+          val resTpe = Type.forAll(u, Type.Fun(args, res))
 
           expect match {
             case None =>

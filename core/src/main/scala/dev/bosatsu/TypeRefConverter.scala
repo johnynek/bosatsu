@@ -105,11 +105,6 @@ object TypeRefConverter {
         }
       case TyMeta(Type.Meta(_, id, _, _)) =>
         onMeta(id)
-      // $COVERAGE-OFF$
-      case other =>
-        // the extractors mess this up
-        sys.error(s"unreachable: $other")
-      // $COVERAGE-ON$
     }
   }
 

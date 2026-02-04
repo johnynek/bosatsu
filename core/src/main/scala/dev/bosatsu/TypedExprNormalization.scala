@@ -557,20 +557,20 @@ object TypedExprNormalization {
                   rho: Type.Rho
                 ) =>
               val body = AnnotatedLambda(args, ex, tag)
-              val quant = Type.Quantification.ForAll(NonEmptyList(h, t))
+              val quant = Quantification.ForAll(NonEmptyList(h, t))
               val asGen = Generic(quant, body)
 
               TypedExpr.instantiateTo(asGen, rho, kindOf) match {
                 case AnnotatedLambda(a, e, t) => Some((Nil, a, e, t))
                 case Generic(
-                      Type.Quantification.ForAll(nel),
+                      Quantification.ForAll(nel),
                       AnnotatedLambda(a, e, t)
                     ) =>
                   Some((nel.toList, a, e, t))
                 case _ => None
               }
             case Generic(
-                  Type.Quantification.ForAll(frees),
+                  Quantification.ForAll(frees),
                   ResolveToLambda(f1, args, ex, tag)
                 ) =>
               Some((frees.toList ::: f1, args, ex, tag))

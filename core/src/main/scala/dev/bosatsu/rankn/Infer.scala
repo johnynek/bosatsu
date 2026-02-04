@@ -511,17 +511,15 @@ object Infer {
         region: Region
     ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
 
-      // Invariant: if t is Rho, then result._3 is Rho
+      // Invariant: if t is Leaf | TyApply, then result._3 is Leaf | TyApply
       def loop(
           t: Type,
           allCo: Boolean
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
         t match {
-          case q: Type.Quantified =>
+          case quant: (Type.ForAll | Type.Exists) =>
             if (allCo) {
-              val univ = q.forallList
-              val exists = q.existList
-              val ty = q.in
+              val (univ, exists, ty) = Type.splitQuantifiers(quant)
               // Rule PRPOLY
               for {
                 sks1 <- univ.traverse { case (b, k) =>
@@ -536,7 +534,7 @@ object Infer {
                 )
                 (sks2, ms2, ty) <- loop(ty1, allCo)
               } yield (sks1 ::: sks2, ms ::: ms2, ty)
-            } else pure((Nil, Nil, t))
+            } else pure((Nil, Nil, quant))
 
           case ta @ Type.TyApply(left, right) =>
             // Rule PRFUN
@@ -545,14 +543,14 @@ object Infer {
             (varianceOfCons(ta, region), loop(left, allCo))
               .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
                 // due to loop invariant
-                val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
+                val ltpe: Type.Leaf | Type.TyApply = ltpe0.asInstanceOf[Type.Leaf | Type.TyApply]
                 val allCoRight = allCo && (consVar == Variance.co)
                 loop(right, allCoRight)
                   .map { case (sksr, er, rtpe) =>
                     (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe))
                   }
               }
-          case other: Type.Rho =>
+          case other: Type.Leaf =>
             // Rule PRMONO
             pure((Nil, Nil, other))
         }
@@ -665,12 +663,11 @@ object Infer {
      */
     def instantiate(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
-        case q: Type.Quantified =>
+        case quant: (Type.ForAll | Type.Exists) =>
           // TODO: it may be possible to improve type checking
           // by pushing foralls into covariant constructors
           // but it's not trivial
-          val univs = q.forallList
-          val rho = q.in
+          val (univs, exists, rho) = Type.splitQuantifiers(quant)
           val univRho =
             NonEmptyList.fromList(univs) match {
               case Some(vars) =>
@@ -683,7 +680,6 @@ object Infer {
             }
 
           univRho.flatMap { rho =>
-            val exists = q.existList
             for {
               skols <- exists.traverse { case (b, k) =>
                 newSkolemTyVar(b, k, existential = true)
@@ -701,9 +697,8 @@ object Infer {
     // Replace only the outer existentials with skolems, keep foralls intact.
     def skolemizeExistsOnly(t: Type): Infer[(List[Type.Var.Skolem], Type)] =
       t match {
-        case q: Type.Quantified =>
-          val exists = q.existList
-          val foralls = q.forallList
+        case quant: (Type.ForAll | Type.Exists) =>
+          val (foralls, exists, rho) = Type.splitQuantifiers(t)
           exists.traverse { case (b, k) =>
             newSkolemTyVar(b, k, existential = true)
           }.map { skols =>
@@ -711,7 +706,7 @@ object Infer {
               .map(_._1)
               .zip(skols.iterator.map(Type.TyVar(_)))
               .toMap[Type.Var, Type.TyVar]
-            val in1 = Type.substituteRhoVar(q.in, env)
+            val in1 = Type.substituteRhoVar(rho, env)
             val t1 =
               Type.quantify(forallList = foralls, existList = Nil, in1)
             (skols, t1)
@@ -756,13 +751,13 @@ object Infer {
         right: Region
     ): Infer[TypedExpr.Coerce] =
       (t, rho) match {
-        case (fa: Type.Quantified, rho) =>
-          subsInstantiate(fa, rho, left, right) match {
+        case (t: (Type.ForAll | Type.Exists), rho) =>
+          subsInstantiate(t, rho, left, right) match {
             case Some(inf) => inf
             case None      =>
               // Rule SPEC
               for {
-                (exSkols, faRho) <- instantiate(fa)
+                (exSkols, faRho) <- instantiate(t)
                 unskol = unskolemizeExists(exSkols)
                 coerce <- subsCheckRho2(faRho, rho, left, right)
               } yield coerce.andThen(unskol)
@@ -785,6 +780,35 @@ object Infer {
       if (t == rho) idCoerce
       else
         (t, rho) match {
+          case (Type.Exists(vars, in), rho2) =>
+            // Exists on the left: skolemize bound vars (rigid) and continue.
+            vars
+              .traverse { case (b, k) =>
+                newSkolemTyVar(b, k, existential = true)
+              }
+              .flatMap { skols =>
+                val env = vars.iterator
+                  .map(_._1)
+                  .zip(skols.iterator.map(Type.TyVar(_)))
+                  .toMap[Type.Var, Type.TyVar]
+                val in1 = Type.substituteRhoVar(in, env)
+                subsCheckRho2(in1, rho2, left, right)
+              }
+          case (rho1, typeExists @ Type.Exists(vars, in)) =>
+            // Exists on the right: choose a witness via fresh existential metas.
+            vars
+              .traverse { case (_, k) => newExistential(k) }
+              .flatMap { metas =>
+                val env = vars.iterator
+                  .map(_._1)
+                  .zip(metas.iterator)
+                  .toMap[Type.Var, Type.Rho]
+                val in1 = Type.substituteRhoVar(in, env)
+                for {
+                  coerce <- subsCheckRho2(rho1, in1, left, right)
+                  ks <- checkedKinds
+                } yield coerce.andThen(TypedExpr.coerceRho(typeExists, ks))
+              }
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
             for {
@@ -811,7 +835,7 @@ object Infer {
               )
               coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
             } yield coerce
-          case (rho1, ta @ Type.TyApply(l2, r2)) =>
+          case (rho1: (Type.Leaf | Type.TyApply), ta @ Type.TyApply(l2, r2)) =>
             for {
               (kl, kr) <- validateKinds(ta, right)
               (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
@@ -830,7 +854,7 @@ object Infer {
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(ta, ks)
-          case (ta @ Type.TyApply(l1, r1), rho2) =>
+          case (ta @ Type.TyApply(l1, r1), rho2: Type.Leaf) =>
             // here we know that rho2 != TyApply
             for {
               (kl, kr) <- validateKinds(ta, left)
@@ -931,12 +955,12 @@ object Infer {
     // destructure apType in left[right]
     // invariant apType is being checked against some rho with validated kind: lKind[rKind]
     def unifyTyApp(
-        apType: Type.Rho,
+        apType: Type.Leaf | Type.TyApply,
         lKind: Kind,
         rKind: Kind,
         apRegion: Region,
         evidenceRegion: Region
-    ): Infer[(Type.Rho, Type)] =
+    ): Infer[(Type.Leaf | Type.TyApply, Type)] =
       apType match {
         case ta @ Type.TyApply(left, right) =>
           // this branch only happens when checking ta <:< (rho: lKind[rKind]) or >:> (rho)
@@ -1063,6 +1087,10 @@ object Infer {
 
     def unifyRho(t1: Type.Rho, t2: Type.Rho, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
+        case (_: Type.Exists, _) | (_, _: Type.Exists)=>
+          // TODO: We should be able to handle this more directly
+          // Meta should be able to hold Exists types
+          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
           validateKinds(t1, r1) &>
@@ -1303,7 +1331,7 @@ object Infer {
           // on different sides, so cases where both need solutions can't be done
           // with the current method that only solves one direction now.
           None
-      })
+        })
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
@@ -2355,9 +2383,9 @@ object Infer {
               for {
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
-            case (_, fa: Type.Quantified) =>
+            case (_, t: (Type.ForAll | Type.Exists)) =>
               // we have to instantiate a rho type
-              instantiate(fa)
+              instantiate(t)
                 .flatMap { case (_, faRho) =>
                   // We only need the instantiated rho here. Any existential
                   // skolems introduced by instantiate are embedded in faRho and
