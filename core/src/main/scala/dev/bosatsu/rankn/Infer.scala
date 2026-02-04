@@ -1312,11 +1312,9 @@ object Infer {
           }
         case _ =>
           None
-      }).orElse {
-        val (foralls, exists, body) = Type.splitQuantifiers(declared)
-        if (exists.nonEmpty) {
-          val inT = Type.forAll(foralls, body)
-          Type.instantiate(exists.iterator.toMap, inT, inferred, Map.empty).map {
+      }).orElse(declared match {
+        case Type.Exists(vars, inT) =>
+          Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
             case (_, subs) =>
               validateSubs(subs.toList, left, right)
                 .as {
@@ -1329,14 +1327,13 @@ object Infer {
                   }
                 }
           }
-        } else {
+        case _ =>
           // TODO: we should be able to handle Dual quantification which could
           // solve more cases. The challenge is existentials and universals appear
           // on different sides, so cases where both need solutions can't be done
           // with the current method that only solves one direction now.
           None
-        }
-      }
+        })
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
