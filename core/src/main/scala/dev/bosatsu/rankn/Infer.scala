@@ -854,7 +854,7 @@ object Infer {
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(ta, ks)
-          case (ta @ Type.TyApply(l1, r1), rho2: (Type.Leaf | Type.TyApply)) =>
+          case (ta @ Type.TyApply(l1, r1), rho2: Type.Leaf) =>
             // here we know that rho2 != TyApply
             for {
               (kl, kr) <- validateKinds(ta, left)

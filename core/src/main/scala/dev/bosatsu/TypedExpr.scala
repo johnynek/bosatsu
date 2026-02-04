@@ -1301,8 +1301,8 @@ object TypedExpr {
           if (t.sameAs(r)) Some(state)
           // this will mask solving for the inside values:
           else {
-            val vlist = Type.quantVars(t)
-            val (_, _, in) = Type.splitQuantifiers(t)
+            val (fa, ex, in) = Type.splitQuantifiers(t)
+            val vlist = fa ::: ex
 
             solve(
               in,
@@ -1340,20 +1340,19 @@ object TypedExpr {
         case (TyApply(_, _), _) => None
       }
 
-    val bs = Type.forallList(gen.quantType)
-    val (_, _, in) = Type.splitQuantifiers(gen.quantType)
+    val (freeList, exList, in) = Type.splitQuantifiers(gen.quantType)
 
-    val solveSet: Set[Var] = bs.iterator.map(_._1).toSet
+    val solveSet: Set[Var] = freeList.iterator.map(_._1).toSet
 
     val result =
-      solve(in, instTpe, Map.empty, solveSet, bs.toList.toMap)
+      solve(in, instTpe, Map.empty, solveSet, freeList.toMap)
         .map { subs =>
           val freeVars = solveSet -- subs.keySet
           val subBody = substituteTypeVar(gen.in, subs)
-          val freeExists = Type.existList(gen.quantType).filter { case (t, _) =>
+          val freeExists = exList.filter { case (t, _) =>
             freeVars(t)
           }
-          val freeForall = Type.forallList(gen.quantType).filter { case (t, _) =>
+          val freeForall = freeList.filter { case (t, _) =>
             freeVars(t)
           }
           val q = Type.quantify(
@@ -1362,7 +1361,7 @@ object TypedExpr {
             subBody.getType
           )
           q match {
-            case _: Type.Rho         => subBody
+            case _: (Type.Leaf | Type.TyApply) => subBody
             case _ =>
               Quantification
                 .fromLists(freeForall, freeExists)
@@ -2112,7 +2111,7 @@ object TypedExpr {
     }
 
     htype match {
-      case t if Type.forallList(t).nonEmpty =>
+      case t: (Type.ForAll | Type.Exists) =>
         val (foralls, exists, rho0) = Type.splitQuantifiers(t)
         // keep existentials inside the argument type (Exists is a Rho)
         val rho: Type.Rho =
