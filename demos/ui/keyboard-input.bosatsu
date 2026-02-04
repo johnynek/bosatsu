@@ -1,0 +1,75 @@
+package Demo/KeyboardInput
+
+from Bosatsu/UI import (
+  VNode, State,
+  h, text,
+  state, read, write,
+  on_keydown, on_keyup, on_click
+)
+from Bosatsu/Predef import (
+  String, Int, Unit,
+  add, concat_String, int_to_String
+)
+
+# Track the last key pressed and key press state
+last_key: State[String] = state("(none)")
+is_key_down: State[String] = state("No")
+key_count: State[Int] = state(0)
+
+# Handle keydown - update last key and set is_key_down
+def handle_keydown(key: String) -> Unit:
+  _ = write(last_key, key)
+  _ = write(is_key_down, concat_String(["Yes (", key, ")"]))
+  write(key_count, add(read(key_count), 1))
+
+# Handle keyup - clear is_key_down (we don't need which key was released)
+def handle_keyup(_: String) -> Unit:
+  write(is_key_down, "No")
+
+# Reset all state
+def handle_reset(_: Unit) -> Unit:
+  _ = write(last_key, "(none)")
+  _ = write(is_key_down, "No")
+  write(key_count, 0)
+
+# The UI
+view: VNode = h("div", [
+  ("id", "keyboard-demo"),
+  ("style", "font-family: sans-serif; padding: 20px;")
+], [
+  h("h1", [], [text("Keyboard Input Demo")]),
+
+  h("p", [], [text("Focus the input below and press keys:")]),
+
+  # Input field with keyboard handlers
+  h("input", [
+    ("id", "key-input"),
+    ("type", "text"),
+    ("placeholder", "Type here..."),
+    ("style", "padding: 10px; font-size: 16px; width: 300px;"),
+    on_keydown(handle_keydown),
+    on_keyup(handle_keyup)
+  ], []),
+
+  h("div", [
+    ("id", "key-info"),
+    ("style", "margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 5px;")
+  ], [
+    h("div", [("id", "last-key")], [
+      text(concat_String(["Last key pressed: ", read(last_key)]))
+    ]),
+    h("div", [("id", "is-down")], [
+      text(concat_String(["Key currently down: ", read(is_key_down)]))
+    ]),
+    h("div", [], [
+      text("Total key presses: "),
+      h("span", [("id", "count")], [text(int_to_String(read(key_count)))])
+    ])
+  ]),
+
+  h("button", [
+    ("id", "reset-btn"),
+    ("style", "margin-top: 15px; padding: 10px 20px;"),
+    on_click(handle_reset)
+  ], [text("Reset")])
+])

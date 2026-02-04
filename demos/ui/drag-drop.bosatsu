@@ -1,0 +1,136 @@
+package Demo/DragDrop
+
+from Bosatsu/UI import (
+  VNode, State,
+  h, text,
+  state, read, write,
+  on_click, on_dragstart, on_dragover, on_drop
+)
+from Bosatsu/Predef import (
+  String, Int, Unit,
+  add, concat_String, int_to_String
+)
+
+# Track which item is being dragged and drop counts
+dragging: State[String] = state("")
+drop_zone1_count: State[Int] = state(0)
+drop_zone2_count: State[Int] = state(0)
+last_action: State[String] = state("(none)")
+
+# Drag handlers
+def start_drag_item1(_: Unit) -> Unit:
+  _ = write(dragging, "Item 1")
+  write(last_action, "Started dragging Item 1")
+
+def start_drag_item2(_: Unit) -> Unit:
+  _ = write(dragging, "Item 2")
+  write(last_action, "Started dragging Item 2")
+
+# Drop zone 1 handlers
+def drag_over_zone1(_: Unit) -> Unit:
+  write(last_action, concat_String(["Hovering ", read(dragging), " over Zone 1"]))
+
+def drop_on_zone1(_: Unit) -> Unit:
+  _ = write(drop_zone1_count, add(read(drop_zone1_count), 1))
+  _ = write(last_action, concat_String(["Dropped ", read(dragging), " on Zone 1"]))
+  write(dragging, "")
+
+# Drop zone 2 handlers
+def drag_over_zone2(_: Unit) -> Unit:
+  write(last_action, concat_String(["Hovering ", read(dragging), " over Zone 2"]))
+
+def drop_on_zone2(_: Unit) -> Unit:
+  _ = write(drop_zone2_count, add(read(drop_zone2_count), 1))
+  _ = write(last_action, concat_String(["Dropped ", read(dragging), " on Zone 2"]))
+  write(dragging, "")
+
+# Reset all state
+def handle_reset(_: Unit) -> Unit:
+  _ = write(dragging, "")
+  _ = write(drop_zone1_count, 0)
+  _ = write(drop_zone2_count, 0)
+  write(last_action, "(reset)")
+
+# The UI
+view: VNode = h("div", [
+  ("id", "drag-drop-demo"),
+  ("style", "font-family: sans-serif; padding: 20px;")
+], [
+  h("h1", [], [text("Drag and Drop Demo")]),
+
+  h("p", [], [text("Drag the items below into the drop zones:")]),
+
+  # Draggable items container
+  h("div", [
+    ("style", "display: flex; gap: 15px; margin-bottom: 20px;")
+  ], [
+    # Draggable Item 1
+    h("div", [
+      ("id", "item1"),
+      ("draggable", "true"),
+      ("style", "padding: 20px; background: #4CAF50; color: white; border-radius: 5px; cursor: grab;"),
+      on_dragstart(start_drag_item1)
+    ], [text("Item 1")]),
+
+    # Draggable Item 2
+    h("div", [
+      ("id", "item2"),
+      ("draggable", "true"),
+      ("style", "padding: 20px; background: #2196F3; color: white; border-radius: 5px; cursor: grab;"),
+      on_dragstart(start_drag_item2)
+    ], [text("Item 2")])
+  ]),
+
+  # Drop zones container
+  h("div", [
+    ("style", "display: flex; gap: 20px; margin-bottom: 20px;")
+  ], [
+    # Drop Zone 1
+    h("div", [
+      ("id", "zone1"),
+      ("style", "width: 200px; height: 150px; border: 3px dashed #ccc; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f9f9f9;"),
+      on_dragover(drag_over_zone1),
+      on_drop(drop_on_zone1)
+    ], [
+      text("Drop Zone 1"),
+      h("div", [("style", "margin-top: 10px; font-size: 24px; font-weight: bold;")], [
+        text("Drops: "),
+        h("span", [("id", "zone1-count")], [text(int_to_String(read(drop_zone1_count)))])
+      ])
+    ]),
+
+    # Drop Zone 2
+    h("div", [
+      ("id", "zone2"),
+      ("style", "width: 200px; height: 150px; border: 3px dashed #ccc; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f9f9f9;"),
+      on_dragover(drag_over_zone2),
+      on_drop(drop_on_zone2)
+    ], [
+      text("Drop Zone 2"),
+      h("div", [("style", "margin-top: 10px; font-size: 24px; font-weight: bold;")], [
+        text("Drops: "),
+        h("span", [("id", "zone2-count")], [text(int_to_String(read(drop_zone2_count)))])
+      ])
+    ])
+  ]),
+
+  # Status display
+  h("div", [
+    ("id", "status"),
+    ("style", "padding: 15px; background: #f0f0f0; border-radius: 5px;")
+  ], [
+    h("div", [("id", "dragging-status")], [
+      text(concat_String(["Currently dragging: ", read(dragging)]))
+    ]),
+    h("div", [("id", "last-action")], [
+      text(concat_String(["Last action: ", read(last_action)]))
+    ])
+  ]),
+
+  # Reset button
+  h("button", [
+    ("id", "reset-btn"),
+    ("style", "margin-top: 15px; padding: 10px 20px;"),
+    on_click(handle_reset)
+  ], [text("Reset")])
+])

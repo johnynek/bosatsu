@@ -191,11 +191,11 @@ external def on_drop(handler: Unit -> Unit) -> (String, String)
 ```
 
 **Tasks:**
-- [ ] Add event types to ui.bosatsu
-- [ ] Implement in JsGen UIExternal
-- [ ] Generate event handler registration in UICommand
-- [ ] Create keyboard-input.bosatsu demo
-- [ ] Create drag-drop.bosatsu demo
+- [x] Add event types to ui.bosatsu (on_keydown, on_keyup, on_dragstart, on_dragover, on_drop)
+- [x] Implement in JsGen UIExternal
+- [x] Generate event handler registration in UICommand
+- [x] Create keyboard-input.bosatsu demo
+- [x] Create drag-drop.bosatsu demo
 
 **Files:**
 - `core/src/main/resources/bosatsu/ui.bosatsu` - Event types

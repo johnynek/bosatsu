@@ -667,6 +667,46 @@ object JsGen {
           Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("change"), args.head))
         )), 1),
 
+      // on_keydown(handler) -> returns prop tuple for h()
+      // Handler receives String (key name), returns Unit
+      Identifier.Name("on_keydown") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-onkeydown"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("keydown"), args.head))
+        )), 1),
+
+      // on_keyup(handler) -> returns prop tuple for h()
+      // Handler receives String (key name), returns Unit
+      Identifier.Name("on_keyup") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-onkeyup"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("keyup"), args.head))
+        )), 1),
+
+      // on_dragstart(handler) -> returns prop tuple for h()
+      // Handler receives Unit, returns Unit
+      Identifier.Name("on_dragstart") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-ondragstart"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("dragstart"), args.head))
+        )), 1),
+
+      // on_dragover(handler) -> returns prop tuple for h()
+      // Handler receives Unit, returns Unit
+      Identifier.Name("on_dragover") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-ondragover"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("dragover"), args.head))
+        )), 1),
+
+      // on_drop(handler) -> returns prop tuple for h()
+      // Handler receives Unit, returns Unit
+      Identifier.Name("on_drop") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-ondrop"),
+          Code.Call(Code.Ident("_ui_register_handler"), List(Code.StringLiteral("drop"), args.head))
+        )), 1),
+
       // ---------------------------------------------------------------------------
       // Dynamic List State Operations
       // ---------------------------------------------------------------------------

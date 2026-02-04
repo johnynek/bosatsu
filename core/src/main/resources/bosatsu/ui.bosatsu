@@ -13,7 +13,9 @@ export (
   h, text, fragment,
   state, read, write,
   list_state, list_read, list_append, list_remove_at, list_update_at, list_length,
-  on_click, on_input, on_change
+  on_click, on_input, on_change,
+  on_keydown, on_keyup,
+  on_dragstart, on_dragover, on_drop
 )
 
 # Virtual DOM node - represents either an element, text, or fragment
@@ -50,6 +52,21 @@ external def on_input(handler: String -> Unit) -> (String, String)
 
 # Change event handler - for checkboxes and selects
 external def on_change(handler: String -> Unit) -> (String, String)
+
+# Keyboard event handlers - handler receives the key name (e.g., "Enter", "Escape", "a")
+external def on_keydown(handler: String -> Unit) -> (String, String)
+external def on_keyup(handler: String -> Unit) -> (String, String)
+
+# Drag and drop event handlers
+# dragstart: fired when user starts dragging an element (handler receives Unit)
+external def on_dragstart(handler: Unit -> Unit) -> (String, String)
+
+# dragover: fired when dragged element is over a drop target (handler receives Unit)
+# Note: This needs to call e.preventDefault() in JS to allow dropping
+external def on_dragover(handler: Unit -> Unit) -> (String, String)
+
+# drop: fired when dragged element is dropped (handler receives Unit)
+external def on_drop(handler: Unit -> Unit) -> (String, String)
 
 # ---------------------------------------------------------------------------
 # Dynamic List State
