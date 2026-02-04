@@ -371,38 +371,19 @@ object TypedExpr {
     def unshadow(
         otherVars: Set[Type.Var.Bound]
     ): (Map[Type.Var, Type.TyVar], Quantification) = {
-      def unshadowNel(
-          nel: NonEmptyList[(Type.Var.Bound, Kind)]
-      ): (Map[Type.Var, Type.TyVar], NonEmptyList[(Type.Var.Bound, Kind)]) = {
-        val remap: Map[Type.Var, Type.Var.Bound] = {
-          val collisions = nel.toList.filter { case (b, _) => otherVars(b) }
-          val nonCollisions = nel.iterator.filterNot { case (b, _) =>
-            otherVars(b)
-          }
-          val colMap =
-            Type.alignBinders(collisions, otherVars ++ nonCollisions.map(_._1))
-          colMap.iterator.map { case ((b, _), b1) => (b, b1) }.toMap
-        }
-
-        val nel1 = nel.map { case bk @ (b, k) =>
-          remap.get(b) match {
-            case None     => bk
-            case Some(b1) => (b1, k)
-          }
-        }
-        (remap.view.mapValues(Type.TyVar(_)).toMap, nel1)
-      }
 
       if (vars.exists { case (b, _) => otherVars(b) }) {
         this match {
           case Quantification.Dual(foralls, exists) =>
-            val (mfa, fa) = unshadowNel(foralls)
-            val (mex, ex) = unshadowNel(exists)
+            val (mfa, fa) = Type.unshadow(foralls, otherVars)
+            val (mex, ex) = Type.unshadow(exists, otherVars)
             (mfa ++ mex, Quantification.Dual(fa, ex))
           case Quantification.ForAll(forAll) =>
-            unshadowNel(forAll).map(Quantification.ForAll(_))
+            val (m, fa) = Type.unshadow(forAll, otherVars)
+            (m, Quantification.ForAll(fa))
           case Quantification.Exists(exists) =>
-            unshadowNel(exists).map(Quantification.Exists(_))
+            val (m, ex) = Type.unshadow(exists, otherVars)
+            (m, Quantification.Exists(ex))
         }
       } else (Map.empty, this)
     }

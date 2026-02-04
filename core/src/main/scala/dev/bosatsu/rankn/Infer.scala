@@ -511,7 +511,7 @@ object Infer {
         region: Region
     ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
 
-      // Invariant: if t is Rho, then result._3 is Rho
+      // Invariant: if t is Leaf | TyApply, then result._3 is Leaf | TyApply
       def loop(
           t: Type,
           allCo: Boolean
@@ -543,14 +543,14 @@ object Infer {
             (varianceOfCons(ta, region), loop(left, allCo))
               .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
                 // due to loop invariant
-                val ltpe: Type.Rho = ltpe0.asInstanceOf[Type.Rho]
+                val ltpe: Type.Leaf | Type.TyApply = ltpe0.asInstanceOf[Type.Leaf | Type.TyApply]
                 val allCoRight = allCo && (consVar == Variance.co)
                 loop(right, allCoRight)
                   .map { case (sksr, er, rtpe) =>
                     (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe))
                   }
               }
-          case other: Type.Rho =>
+          case other: Type.Leaf =>
             // Rule PRMONO
             pure((Nil, Nil, other))
         }
@@ -960,7 +960,7 @@ object Infer {
         rKind: Kind,
         apRegion: Region,
         evidenceRegion: Region
-    ): Infer[(Type.Rho, Type)] =
+    ): Infer[(Type.Leaf | Type.TyApply, Type)] =
       apType match {
         case ta @ Type.TyApply(left, right) =>
           // this branch only happens when checking ta <:< (rho: lKind[rKind]) or >:> (rho)

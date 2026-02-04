@@ -94,7 +94,11 @@ object Type {
     }
 
     object TauApply {
-      def apply(on: Tau, arg: Tau): TauApply = TyApply(on, arg)
+      def apply(on: Tau, arg: Tau): TauApply = {
+        // TODO: when exists becomes tau, this needs to change:
+        val onLA = on.asInstanceOf[Leaf | TyApply]
+        TyApply(onLA, arg)
+      }
 
       // a scala3 zero allocation match result
       class TauApplyMatch(tau: Tau) extends AnyVal {
@@ -134,22 +138,61 @@ object Type {
     def unapply(t: Type): TauMatch = new TauMatch(t)
   }
 
+  case class TyConst(tpe: Const) extends Leaf
+  case class TyVar(toVar: Var) extends Leaf
+  case class TyMeta(toMeta: Meta) extends Leaf
+
+  // apply doesn't have nested Exists (apply binds tighter)
+  case class TyApply(on: Leaf | TyApply, arg: Type) extends Rho {
+    lazy val normalize: Rho = {
+      // normalization can't make a rho into an exists
+      val onLA = on.normalize.asInstanceOf[Leaf | TyApply]
+      TyApply(onLA, arg.normalize)
+    }
+  }
+
   case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho)
       extends Type {
     lazy val normalize: Type = Type.runNormalize(this)
   }
 
-  case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho)
+  // exists aren't nested, so in must be a Leaf or TyApply
+  case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Leaf | TyApply)
       extends Rho {
     lazy val normalize: Rho = Type.runNormalize(this).asInstanceOf[Rho]
   }
 
-  case class TyApply(on: Rho, arg: Type) extends Rho {
-    lazy val normalize: Rho = TyApply(on.normalize, arg.normalize)
+  def unshadow[V >: Type.Var.Bound](
+      nel: NonEmptyList[(Type.Var.Bound, Kind)],
+      otherVars: Set[V]
+  ): (Map[Type.Var, Type.TyVar], NonEmptyList[(Type.Var.Bound, Kind)]) = {
+    val remap: Map[Type.Var, Type.Var.Bound] = {
+      if (otherVars.isEmpty) Map.empty
+      else {
+        val collisions = nel.toList.filter { case (b, _) => otherVars(b) }
+        if (collisions.isEmpty) Map.empty
+        else {
+          val nonCollisions = nel.iterator.filterNot { case (b, _) =>
+            otherVars(b)
+          }
+          val colMap =
+            Type.alignBinders(collisions, otherVars ++ nonCollisions.map(_._1))
+          colMap.iterator.map { case ((b, _), b1) => (b, b1) }.toMap
+        }
+      }
+    }
+
+    if (remap.isEmpty) (Map.empty[Type.Var, Type.TyVar], nel)
+    else {
+      val nel1 = nel.map { case bk @ (b, k) =>
+        remap.get(b) match {
+          case None     => bk
+          case Some(b1) => (b1, k)
+        }
+      }
+      (remap.view.mapValues(Type.TyVar(_)).toMap, nel1)
+    }
   }
-  case class TyConst(tpe: Const) extends Leaf
-  case class TyVar(toVar: Var) extends Leaf
-  case class TyMeta(toMeta: Meta) extends Leaf
 
   def sameType(left: Type, right: Type): Boolean =
     left match {
@@ -195,16 +238,16 @@ object Type {
       case r: Rho => (Nil, r)
     }
 
-  private def splitExists(rho: Rho): (List[(Var.Bound, Kind)], Rho) = {
+  private def splitExists(rho: Rho): (List[(Var.Bound, Kind)], Leaf | TyApply) = {
     @annotation.tailrec
     def loop(
         rho: Rho,
         accRev: List[(Var.Bound, Kind)]
-    ): (List[(Var.Bound, Kind)], Rho) =
+    ): (List[(Var.Bound, Kind)], Leaf | TyApply) =
       rho match {
         case Exists(vars, in) =>
           loop(in, vars.toList.reverse_:::(accRev))
-        case other => (accRev.reverse, other)
+        case other: (Leaf | TyApply) => (accRev.reverse, other)
       }
 
     loop(rho, Nil)
@@ -212,7 +255,7 @@ object Type {
 
   def splitQuantifiers(
       t: Type
-  ): (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Rho) = {
+  ): (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Leaf | TyApply) = {
     val (fas, rho0) = splitForAll(t)
     val (exs, rho1) = splitExists(rho0)
     (fas, exs, rho1)
@@ -232,7 +275,7 @@ object Type {
   }
 
   @annotation.tailrec
-  def applyAllRho(rho: Rho, args: List[Type]): Rho =
+  private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =
     args match {
       case Nil     => rho
       case a :: as => applyAllRho(TyApply(rho, a), as)
@@ -240,7 +283,7 @@ object Type {
 
   def apply1(fn: Type, arg: Type): Type =
     fn match {
-      case rho: Rho => TyApply(rho, arg)
+      case rho: (Leaf | TyApply) => TyApply(rho, arg)
       case q        => applyAll(q, arg :: Nil)
     }
 
@@ -270,9 +313,9 @@ object Type {
               .map { case ((b0, _), b1) =>
                 (b0, TyVar(b1))
               }
-              .toMap[Var, Rho]
+              .toMap[Var, Leaf]
 
-            val rho1 = substituteRhoVar(rho, subMap)
+            val rho1 = substituteLeafApplyVar(rho, subMap)
 
             val fa2 = fa1.map { case ((_, k), b) => (b, k) }
             val ex2 = ex1.map { case ((_, k), b) => (b, k) }
@@ -280,7 +323,7 @@ object Type {
             quantify(fa2, ex2, applyAllRho(rho1, args))
           }
         }
-      case rho: Rho => applyAllRho(rho, args)
+      case lt: (Leaf | TyApply) => applyAllRho(lt, args)
     })
 
   def unapplyAll(fn: Type): (Type, List[Type]) = {
@@ -342,29 +385,32 @@ object Type {
       case rho: Rho => ForAll(vars, rho)
     }
 
+  final def existsRho(
+      vars: NonEmptyList[(Var.Bound, Kind)],
+      in: Rho
+  ): Rho =
+    in match {
+      case Exists(ne1, inner)   => Exists(vars ::: ne1, inner)
+      case la: (Leaf | TyApply) => Exists(vars, la)
+    }
+
   final def exists(
       vars: NonEmptyList[(Var.Bound, Kind)],
       in: Type
-  ): Type = {
-    def onRho(rho: Rho): Rho =
-      rho match {
-        case Exists(ne1, inner) => Exists(vars ::: ne1, inner)
-        case _                  => Exists(vars, rho)
-      }
-
+  ): Type =
     in match {
       case ForAll(fa, rho) =>
-        ForAll(fa, onRho(rho))
+        ForAll(fa, existsRho(vars, rho))
       case rho: Rho =>
-        onRho(rho)
+        existsRho(vars, rho)
     }
-  }
 
   final def exists(vars: List[(Var.Bound, Kind)], in: Type): Type =
     vars match {
       case h :: t => exists(NonEmptyList(h, t), in)
       case Nil    => in
     }
+
 
   final def quantify(
       forallList: List[(Var.Bound, Kind)],
@@ -518,17 +564,38 @@ object Type {
   def packageNamesIn(t: Type): List[PackageName] =
     allConsts(t :: Nil).map(_.tpe.toDefined.packageName).distinct
 
+  def substituteLeafApplyVar(t: Leaf | TyApply, env: Map[Type.Var, Leaf | TyApply]): Leaf | TyApply =
+    t match {
+      case v @ TyVar(n) =>
+        env.get(n) match {
+          case Some(la) => la
+          case None      => v
+        }
+      case TyApply(on, arg) =>
+        TyApply(substituteLeafApplyVar(on, env), substituteVar(arg, env))
+      case l: Leaf => l
+    }
+
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
       case TyApply(on, arg) =>
-        TyApply(substituteRhoVar(on, env), substituteVar(arg, env))
+        val arg1 = substituteVar(arg, env)
+        substituteRhoVar(on, env) match {
+          case la: (Leaf | TyApply) => TyApply(la, arg1)
+          case e: Exists =>
+            // we need (exists x, y, ... ff)[arg1]
+            // so if we lift the exists out, we need to rename so we don't shadow
+            // the rho substitution can't introduce ForAll, so the cast is safe:
+            applyAll(e, arg1 :: Nil).asInstanceOf[Rho]
+        }
+
       case Exists(vars, in) =>
         val boundSet = vars.iterator.map(_._1).toSet
         val env1 = env.iterator.filter {
           case (v: Type.Var.Bound, _) => !boundSet(v)
           case _                      => true
         }.toMap
-        Exists(vars, substituteRhoVar(in, env1))
+        existsRho(vars, substituteRhoVar(in, env1))
       case v @ TyVar(n) =>
         env.get(n) match {
           case Some(rho) => rho
@@ -935,7 +1002,7 @@ object Type {
   val TestType: Type.TyConst = TyConst(Const.predef("Test"))
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
 
-  def const(pn: PackageName, name: TypeName): Type.Rho =
+  def const(pn: PackageName, name: TypeName): Type.Leaf =
     TyConst(Type.Const.Defined(pn, name))
 
   object Fun {
@@ -1014,12 +1081,12 @@ object Type {
         }
     }
 
-    def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {
+    def apply(from: NonEmptyList[Type], to: Type): TyApply = {
       val arityFn = FnType.maybeFakeName(from.length)
-      val withArgs = from.foldLeft(arityFn: Type.Rho)(TyApply(_, _))
+      val withArgs = from.foldLeft(arityFn: (Leaf | TyApply))(TyApply(_, _))
       TyApply(withArgs, to)
     }
-    def apply(from: Type, to: Type): Type.Rho =
+    def apply(from: Type, to: Type): TyApply =
       apply(NonEmptyList.one(from), to)
 
     def arity(t: Type): Int =
@@ -1065,9 +1132,9 @@ object Type {
       loop(0, t, Nil)
     }
 
-    def apply(ts: List[Type]): Type = {
+    def apply(ts: List[Type]): Leaf | TyApply = {
       val sz = ts.size
-      val root: Type.Rho = Arity(sz)
+      val root: Leaf | TyApply = Arity(sz)
       ts.foldLeft(root)((acc, t) => TyApply(acc, t))
     }
 
@@ -1330,9 +1397,19 @@ object Type {
   )(mfn: Meta => F[Option[Type.Tau]]): F[Type.Rho] =
     t match {
       case Exists(vars, in) =>
-        zonkRhoMeta(in)(mfn).map(Exists(vars, _))
+        zonkRhoMeta(in)(mfn).map(existsRho(vars, _))
       case Type.TyApply(on, arg) =>
-        (zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
+        (zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN {
+          case (la: (Leaf | TyApply), arg) => applyAllRho(la, arg :: Nil)
+          case (e: Exists, arg) =>
+            // zonking replaced an inner Leaf | TyApply with an exists, but
+            // it may shadow values in arg. We need to lift it out
+            // but without pulling arg into the exists.
+            val frees = freeTyVars(arg :: Nil)
+            val (subst, newVars) = unshadow(e.vars, frees.toSet)
+            val newIn = substituteLeafApplyVar(e.in, subst)
+            existsRho(newVars, TyApply(newIn, arg))
+        }
       case t @ Type.TyMeta(m) =>
         mfn(m).map {
           case None      => t

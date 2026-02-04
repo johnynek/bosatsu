@@ -201,7 +201,10 @@ object NTypeGen {
       val recurse = Gen.lzy(genTypeRho(d - 1, genC))
       val genApply = Gen
         .zip(recurse, genDepth(d - 1, genC))
-        .map { case (a, b) => Type.TyApply(a, b) }
+        .map {
+          case (a: (Type.Leaf | Type.TyApply), b) => Type.TyApply(a, b)
+          case (exists, _) => exists
+        }
 
       Gen.frequency((3, root), (1, genApply))
     }
@@ -235,7 +238,7 @@ object NTypeGen {
       }
 
       val genApply = Gen.zip(genTypeRho(d - 1, genC), recurse).map {
-        case (a, b) => Type.TyApply(a, b)
+        case (a, b) => Type.apply1(a, b)
       }
 
       Gen.frequency(
