@@ -346,39 +346,13 @@ object ProtoConverter {
             for {
               inT <- tpe(in)
               args <- varKinds.toList.traverse(varKindFromProto)
-              res <- NonEmptyList.fromList(args) match {
-                case None => Success(inT)
-                case Some(nel) =>
-                  inT match {
-                    case rho: Type.Rho => Success(Type.ForAll(nel, rho))
-                    case _ =>
-                      Failure(
-                        new Exception(
-                          s"invalid forall body (expected rho) in $p"
-                        )
-                      )
-                  }
-              }
-            } yield res
+            } yield Type.forAll(args, inT)
 
           case Value.TypeExists(TypeExists(varKinds, in, _)) =>
             for {
               inT <- tpe(in)
               args <- varKinds.toList.traverse(varKindFromProto)
-              res <- NonEmptyList.fromList(args) match {
-                case None => Success(inT)
-                case Some(nel) =>
-                  inT match {
-                    case rho: Type.Rho => Success(Type.Exists(nel, rho))
-                    case _ =>
-                      Failure(
-                        new Exception(
-                          s"invalid exists body (expected rho) in $p"
-                        )
-                      )
-                  }
-              }
-            } yield res
+            } yield Type.exists(args, inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.apply1(_, _))

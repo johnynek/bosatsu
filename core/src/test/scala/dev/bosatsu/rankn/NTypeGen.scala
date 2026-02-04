@@ -107,14 +107,18 @@ object NTypeGen {
     def shrink(t: Type): LazyList[Type] =
       t match {
         case ForAll(items, in) =>
-          shrink(in).map(Type.forAll(items.tail, _))
+          Shrink.shrink((items.toList, in))
+            .to(LazyList)
+            .map { case (it, in) => Type.forAll(it, in) }
         case Exists(items, in) =>
-          shrink(in).map(Type.exists(items.tail, _))
+          Shrink.shrink((items.toList, in))
+            .to(LazyList)
+            .map { case (it, in) => Type.exists(it, in) }
         case _: Leaf          => LazyList.empty
         case TyApply(on, arg) =>
-          on #:: arg #:: shrink(on).collect { case r: Type.Rho =>
-            TyApply(r, arg)
-          } #::: shrink(arg).map(TyApply(on, _))
+          Shrink.shrink((on, arg))
+            .to(LazyList)
+            .collect { case (on: Type.Rho, arg) => TyApply(on, arg) }
       }
     Shrink.withLazyList(shrink)
   }

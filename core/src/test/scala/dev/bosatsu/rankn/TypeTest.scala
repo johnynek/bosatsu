@@ -123,6 +123,11 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("same as doesn't care about quant var order") {
+    assert(parse("forall a, b. a -> b").sameAs(parse("forall b, a. a -> b")))
+    assert(parse("exists a, b. a -> b").sameAs(parse("exists b, a. a -> b")))
+  }
+
   test("normalization never throws") {
     val prop = forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))

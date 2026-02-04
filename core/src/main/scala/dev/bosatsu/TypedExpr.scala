@@ -1316,8 +1316,7 @@ object TypedExpr {
               if (tpe.sameAs(right)) Some(state)
               else None
           }
-        case (t, r)
-            if Type.forallList(t).nonEmpty || Type.existList(t).nonEmpty =>
+        case (t: (Type.ForAll | Type.Exists), r) =>
           if (t.sameAs(r)) Some(state)
           // this will mask solving for the inside values:
           else {

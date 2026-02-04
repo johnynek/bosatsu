@@ -189,20 +189,11 @@ object Type {
       case _         => false
     }
 
-  private def splitForAll(t: Type): (List[(Var.Bound, Kind)], Rho) = {
-    @annotation.tailrec
-    def loop(
-        t: Type,
-        accRev: List[(Var.Bound, Kind)]
-    ): (List[(Var.Bound, Kind)], Rho) =
-      t match {
-        case ForAll(vars, in) =>
-          loop(in, vars.toList.reverse_:::(accRev))
-        case rho: Rho => (accRev.reverse, rho)
-      }
-
-    loop(t, Nil)
-  }
+  private def splitForAll(t: Type): (List[(Var.Bound, Kind)], Rho) =
+    t match {
+      case ForAll(vars, rho) => (vars.toList, rho)
+      case r: Rho => (Nil, r)
+    }
 
   private def splitExists(rho: Rho): (List[(Var.Bound, Kind)], Rho) = {
     @annotation.tailrec
@@ -444,8 +435,8 @@ object Type {
     else {
       // Drop identity substitutions to avoid unnecessary binder renames.
       val env1 = env.filterNot {
-        case (v, Type.TyVar(v1)) if v1.equals(v) => true
-        case _                                   => false
+        case (v, Type.TyVar(v1)) => v1 === v
+        case _                   => false
       }
       if (env1.isEmpty) t
       else
@@ -768,7 +759,7 @@ object Type {
 
   private def runNormalize(tpe: Type): Type =
     tpe match {
-      case t if hasQuantifiers(t) =>
+      case t: (ForAll | Exists) =>
         @inline def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
           def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
             lst match {
@@ -826,7 +817,7 @@ object Type {
           in0.normalize
         }
       case ta @ TyApply(_, _) => ta.normalize
-      case _                  => tpe
+      case leaf: Leaf         => leaf
     }
 
   def kindOfOption(
@@ -953,19 +944,6 @@ object Type {
       if (len <= FnType.MaxSize)
         Some(apply(from, to))
       else None
-    }
-
-    object MaybeQuant {
-      def unapply(
-          t: Type
-      ): Option[(NonEmptyList[Type], Type)] =
-        t match {
-          case t if hasQuantifiers(t) =>
-            val (_, _, rho) = splitQuantifiers(t)
-            Fun.unapply(rho)
-          case Fun(args, res) => Some((args, res))
-          case _              => None
-        }
     }
 
     def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {
