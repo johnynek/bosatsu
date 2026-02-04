@@ -163,18 +163,20 @@ object TlaCli {
 
           // Write to temp file and run TLC
           val tempFile = Files.createTempFile("bosatsu_race_", ".tla")
-          Files.writeString(tempFile, spec.render, StandardCharsets.UTF_8)
+          val result = try {
+            Files.writeString(tempFile, spec.render, StandardCharsets.UTF_8)
 
-          val options = TlcOptions(
-            workers = 1,
-            checkDeadlock = true,
-            depth = Some(100)
-          )
+            val options = TlcOptions(
+              workers = 1,
+              checkDeadlock = true,
+              depth = Some(100)
+            )
 
-          val result = TlcRunner.run(tempFile, options)
-
-          // Clean up
-          Files.deleteIfExists(tempFile)
+            TlcRunner.run(tempFile, options)
+          } finally {
+            // Always clean up temp file, even if write or TLC fails
+            Files.deleteIfExists(tempFile)
+          }
 
           if (result.skipped) {
             println(s"TLC not available: ${result.skipReason.getOrElse("unknown")}")
@@ -325,11 +327,12 @@ object TlcRunner {
     args += specFile.toAbsolutePath.toString
 
     Try {
-      val process = args.result().mkString(" ")
+      // Use Seq form of Process to handle file paths with spaces correctly
+      val cmdArgs = args.result()
       val output = new StringBuilder
       val errors = new StringBuilder
 
-      val exitCode = Process(process).!(ProcessLogger(
+      val exitCode = Process(cmdArgs).!(ProcessLogger(
         line => output.append(line).append("\n"),
         line => errors.append(line).append("\n")
       ))

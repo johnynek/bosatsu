@@ -80,7 +80,8 @@ case class TlaAction(
   guard: String,
   effect: String,
   pcFrom: String,
-  pcTo: String
+  pcTo: String,
+  multiInstance: Boolean = false  // For multi-instance specs, pc is a function
 ) derives CanEqual
 
 /**
@@ -102,11 +103,20 @@ case class TlaSpec(
     val varsDefn = s"vars == <<${variables.mkString(", ")}>>"
 
     val actionDefs = actions.map { a =>
-      s"""${a.name} ==
+      if (a.multiInstance) {
+        // Multi-instance: pc is a function, parameterize action by self
+        s"""${a.name}(self) ==
+    /\\ pc[self] = "${a.pcFrom}"
+    /\\ ${a.guard}
+    /\\ ${a.effect}
+    /\\ pc' = [pc EXCEPT ![self] = "${a.pcTo}"]"""
+      } else {
+        s"""${a.name} ==
     /\\ pc = "${a.pcFrom}"
     /\\ ${a.guard}
     /\\ ${a.effect}
     /\\ pc' = "${a.pcTo}""""
+      }
     }.mkString("\n\n")
 
     val invariantDefs = invariants.zipWithIndex.map { case (inv, i) =>

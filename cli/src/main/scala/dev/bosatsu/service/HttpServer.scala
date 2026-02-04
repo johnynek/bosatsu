@@ -92,7 +92,9 @@ object HttpServer {
       "/api" -> apiRoutes
     ).orNotFound
 
-    val serverPort = Port.fromInt(port).getOrElse(port"3000")
+    val serverPort = Port.fromInt(port).getOrElse {
+      throw new IllegalArgumentException(s"Invalid port: $port (must be 0-65535)")
+    }
 
     EmberServerBuilder
       .default[IO]

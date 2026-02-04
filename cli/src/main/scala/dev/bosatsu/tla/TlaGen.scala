@@ -121,6 +121,10 @@ object TlaGen {
   ): List[TlaAction] = {
     val stateVar = options.stateVariable
 
+    // For multi-instance specs, pc is a function so we need to compare pc[self] not pc
+    val pcAccessor = if (instances > 1) "pc[self]" else "pc"
+    val pcUpdate = if (instances > 1) "pc' = [pc EXCEPT ![self] = %s]" else "pc' = \"%s\""
+
     // Group operations by kind for state modeling
     val readOps = analysis.operations.filter(_.kind == OperationKind.Read)
     val writeOps = analysis.operations.filter(_.kind == OperationKind.Write)
@@ -133,7 +137,8 @@ object TlaGen {
         guard = "TRUE",
         effect = s"UNCHANGED $stateVar",
         pcFrom = if (i == 0) "start" else s"read_${i-1}",
-        pcTo = s"read_$i"
+        pcTo = s"read_$i",
+        multiInstance = instances > 1
       )
     }
 
@@ -148,7 +153,8 @@ object TlaGen {
         pcFrom = if (readOps.isEmpty && i == 0) "start"
                  else if (i == 0) s"read_${readOps.size - 1}"
                  else s"write_${i-1}",
-        pcTo = if (i == writeOps.size - 1) "done" else s"write_$i"
+        pcTo = if (i == writeOps.size - 1) "done" else s"write_$i",
+        multiInstance = instances > 1
       )
     }
 
@@ -159,8 +165,20 @@ object TlaGen {
         guard = "TRUE",
         effect = s"UNCHANGED $stateVar",
         pcFrom = "start",
-        pcTo = "done"
+        pcTo = "done",
+        multiInstance = instances > 1
       ))
+    } else if (writeActions.isEmpty && readActions.nonEmpty) {
+      // Read-only handlers: add transition from last read to done
+      val completeAction = TlaAction(
+        name = "Complete",
+        guard = "TRUE",
+        effect = s"UNCHANGED $stateVar",
+        pcFrom = s"read_${readActions.size - 1}",
+        pcTo = "done",
+        multiInstance = instances > 1
+      )
+      readActions :+ completeAction
     } else {
       readActions ++ writeActions
     }

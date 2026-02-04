@@ -111,39 +111,7 @@ case class HandlerResult(
   provenance: Option[String] = None  // Optional provenance trace JSON
 ) derives CanEqual
 
-/**
- * Service commands for CLI.
- */
-sealed trait ServiceCommand derives CanEqual
-
-object ServiceCommand {
-  case class Analyze(
-    file: String,
-    functionName: Option[String] = None,
-    outputJson: Boolean = false
-  ) extends ServiceCommand
-
-  case class Validate(file: String) extends ServiceCommand
-
-  case class Build(
-    file: String,
-    output: String = "dist",
-    target: BuildTarget = BuildTarget.Standalone
-  ) extends ServiceCommand
-
-  case class Serve(
-    file: String,
-    port: Int = 3000,
-    configFile: Option[String] = None,
-    staticDir: Option[String] = None
-  ) extends ServiceCommand
-
-  case class Mcp(
-    file: String,
-    configFile: Option[String] = None,
-    name: Option[String] = None
-  ) extends ServiceCommand
-}
+// Note: ServiceCommand was removed - CLI uses ServiceAction types directly
 
 /**
  * Deployment target for build command.

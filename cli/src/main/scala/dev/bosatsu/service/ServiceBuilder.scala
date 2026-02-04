@@ -63,7 +63,8 @@ object ServiceBuilder {
                         case Some((_, matchlessExpr)) =>
                           JsGen.renderBinding(name, matchlessExpr)
                         case None =>
-                          s"// Handler ${name.asString} not found in compiled output"
+                          // Define a placeholder function to avoid ReferenceError
+                          s"const ${name.asString} = () => { throw new Error('Handler ${name.asString} not compiled'); };"
                       }
 
                       // Analyze the handler

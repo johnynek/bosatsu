@@ -42,13 +42,22 @@ object ServiceCli {
               IO.println(s"Analysis failed: $err").as(ExitCode.Error)
 
             case Right(handlers) =>
-              val analyses = handlers.map(_.analysis)
+              // Filter by function name if specified
+              val filteredHandlers = functionName match {
+                case Some(fn) => handlers.filter(_.name == fn)
+                case None => handlers
+              }
+              if (filteredHandlers.isEmpty && functionName.isDefined) {
+                IO.println(s"Function '${functionName.get}' not found").as(ExitCode.Error)
+              } else {
+              val analyses = filteredHandlers.map(_.analysis)
               val output = if (outputJson) {
                 ServiceJson.renderAnalyses(analyses)
               } else {
                 formatAnalyses(analyses)
               }
               IO.println(output).as(ExitCode.Success)
+              }
           }
         }
         .handleErrorWith { err =>
@@ -149,14 +158,21 @@ $stats
   case class ServeAction(
     sourceFile: Path,
     port: Int,
-    configFile: Option[Path],
-    staticDir: Option[Path]
+    configFile: Option[Path],  // TODO: Not yet implemented
+    staticDir: Option[Path]    // TODO: Not yet implemented
   ) extends ServiceAction {
     def run: IO[ExitCode] = {
       given ec: Par.EC = Par.ecFromExecutionContext(
         using scala.concurrent.ExecutionContext.global
       )
 
+      // Warn about unimplemented options
+      val warnings = List(
+        configFile.map(_ => "Warning: --config option is not yet implemented"),
+        staticDir.map(_ => "Warning: --static option is not yet implemented")
+      ).flatten
+
+      warnings.traverse_(msg => IO(System.err.println(msg))) >>
       Files[IO].readAll(sourceFile)
         .through(fs2.text.utf8.decode)
         .compile
@@ -179,7 +195,7 @@ $stats
 
   case class McpAction(
     sourceFile: Path,
-    configFile: Option[Path],
+    configFile: Option[Path],  // TODO: Not yet implemented
     name: Option[String]
   ) extends ServiceAction {
     def run: IO[ExitCode] = {
@@ -187,8 +203,12 @@ $stats
         using scala.concurrent.ExecutionContext.global
       )
 
+      // Warn about unimplemented options
+      val warnings = configFile.map(_ => "Warning: --config option is not yet implemented").toList
+
       val serverName = name.getOrElse(sourceFile.fileName.toString.replace(".bosatsu", ""))
 
+      warnings.traverse_(msg => IO(System.err.println(msg))) >>
       Files[IO].readAll(sourceFile)
         .through(fs2.text.utf8.decode)
         .compile
@@ -199,7 +219,8 @@ $stats
               IO.println(s"Compilation failed: $err").as(ExitCode.Error)
 
             case Right(handlers) =>
-              IO.println(s"Starting MCP server '$serverName' with ${handlers.size} tools...") >>
+              // Write to stderr, not stdout - MCP uses stdout for JSON-RPC
+              IO(System.err.println(s"Starting MCP server '$serverName' with ${handlers.size} tools...")) >>
               McpServer.serve(serverName, handlers).as(ExitCode.Success)
           }
         }
