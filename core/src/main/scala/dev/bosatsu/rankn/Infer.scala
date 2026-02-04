@@ -698,9 +698,7 @@ object Infer {
     def skolemizeExistsOnly(t: Type): Infer[(List[Type.Var.Skolem], Type)] =
       t match {
         case quant: (Type.ForAll | Type.Exists) =>
-          val exists = Type.existList(t)
-          val foralls = Type.forallList(t)
-          val (_, _, rho) = Type.splitQuantifiers(t)
+          val (foralls, exists, rho) = Type.splitQuantifiers(t)
           exists.traverse { case (b, k) =>
             newSkolemTyVar(b, k, existential = true)
           }.map { skols =>
@@ -796,7 +794,7 @@ object Infer {
                 val in1 = Type.substituteRhoVar(in, env)
                 subsCheckRho2(in1, rho2, left, right)
               }
-          case (rho1, Type.Exists(vars, in)) =>
+          case (rho1, typeExists @ Type.Exists(vars, in)) =>
             // Exists on the right: choose a witness via fresh existential metas.
             vars
               .traverse { case (_, k) => newExistential(k) }
@@ -806,12 +804,10 @@ object Infer {
                   .zip(metas.iterator)
                   .toMap[Type.Var, Type.Rho]
                 val in1 = Type.substituteRhoVar(in, env)
-                subsCheckRho2(rho1, in1, left, right)
-                  .flatMap { coerce =>
-                    checkedKinds.map { ks =>
-                      coerce.andThen(TypedExpr.coerceRho(Type.Exists(vars, in), ks))
-                    }
-                  }
+                for {
+                  coerce <- subsCheckRho2(rho1, in1, left, right)
+                  ks <- checkedKinds
+                } yield coerce.andThen(TypedExpr.coerceRho(typeExists, ks))
               }
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
@@ -1092,10 +1088,11 @@ object Infer {
       Type.fullyResolvedDocument.document(t).render(80)
 
     def unifyRho(t1: Type.Rho, t2: Type.Rho, r1: Region, r2: Region): Infer[Unit] =
-      if (!Type.Tau.isTau(t1) || !Type.Tau.isTau(t2)) {
-        subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
-      } else
-        (t1, t2) match {
+      (t1, t2) match {
+        case (_: Type.Exists, _) | (_, _: Type.Exists)=>
+          // TODO: We should be able to handle this more directly
+          // Meta should be able to hold Exists types
+          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
           validateKinds(t1, r1) &>
