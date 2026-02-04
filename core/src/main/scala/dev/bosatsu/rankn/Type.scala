@@ -126,7 +126,7 @@ object Type {
         def get: TauExists = tau.asInstanceOf[Exists]
       }
 
-      def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
+      def unapply(t: Tau): TauExistsMatch = new TauExistsMatch(t)
     }
 
     def isTau(t: Type): Boolean = {

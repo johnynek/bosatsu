@@ -661,37 +661,18 @@ object Infer {
      * Return a Rho type (not a Forall), by assigning
      * new meta variables for each of the outer ForAll variables
      */
-    def instantiate(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
+    def instantiate(t: Type): Infer[Type.Rho] =
       t match {
-        case quant: (Type.ForAll | Type.Exists) =>
+        case Type.ForAll(univs, rho) =>
           // TODO: it may be possible to improve type checking
           // by pushing foralls into covariant constructors
           // but it's not trivial
-          val (univs, exists, rho) = Type.splitQuantifiers(quant)
-          val univRho =
-            NonEmptyList.fromList(univs) match {
-              case Some(vars) =>
-                vars
-                  .traverse { case (_, k) => newMetaType(k).map(Type.Tau(_)) }
-                  .map { vars1T =>
-                    substTyRho(vars.map(_._1), vars1T)(rho)
-                  }
-              case None => pure(rho)
+          univs
+            .traverse { case (_, k) => newMetaType(k).map(Type.Tau(_)) }
+            .map { vars1T =>
+              substTyRho(univs.map(_._1), vars1T)(rho)
             }
-
-          univRho.flatMap { rho =>
-            for {
-              skols <- exists.traverse { case (b, k) =>
-                newSkolemTyVar(b, k, existential = true)
-              }
-              env = exists.iterator
-                .map(_._1)
-                .zip(skols.iterator.map(Type.TyVar(_)))
-                .toMap[Type.Var, Type.TyVar]
-              rho1 = Type.substituteRhoVar(rho, env)
-            } yield (skols, rho1)
-          }
-        case rho: Type.Rho => pure((Nil, rho))
+        case rho: Type.Rho => pure(rho)
       }
 
     // Replace only the outer existentials with skolems, keep foralls intact.
@@ -757,10 +738,9 @@ object Infer {
             case None      =>
               // Rule SPEC
               for {
-                (exSkols, faRho) <- instantiate(t)
-                unskol = unskolemizeExists(exSkols)
+                faRho <- instantiate(t)
                 coerce <- subsCheckRho2(faRho, rho, left, right)
-              } yield coerce.andThen(unskol)
+              } yield coerce
           }
         // for existential lower bounds, we skolemize the existentials
         // then verify they don't escape after inference and unskolemize
@@ -902,11 +882,10 @@ object Infer {
           subsCheckRho(sigma, t, r, tr)
         case infer @ Expected.Inf(_) =>
           for {
-            (exSkols, rho) <- instantiate(sigma)
+            rho <- instantiate(sigma)
             _ <- infer.set((rho, r))
             ks <- checkedKinds
-            coerce = TypedExpr.coerceRho(rho, ks)
-          } yield coerce.andThen(unskolemizeExists(exSkols))
+          } yield TypedExpr.coerceRho(rho, ks)
       }
 
     def unifyFnRho(
@@ -2387,14 +2366,10 @@ object Infer {
               for {
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
-            case (_, t: (Type.ForAll | Type.Exists)) =>
+            case (_, t: Type.ForAll) =>
               // we have to instantiate a rho type
               instantiate(t)
-                .flatMap { case (_, faRho) =>
-                  // We only need the instantiated rho here. Any existential
-                  // skolems introduced by instantiate are embedded in faRho and
-                  // must remain rigid while pattern-checking; their scope is
-                  // handled by the enclosing inference/escape checks, not here.
+                .flatMap { faRho =>
                   loop(revArgs, leftKind, faRho)
                 }
             case ((v0, k) :: rest, _) =>
@@ -2402,9 +2377,10 @@ object Infer {
               for {
                 left <- newMetaType(Kind.Cons(k, leftKind))
                 right <- newMetaType(k.kind)
-                _ <- unifyType(
-                  Type.TyApply(left, right),
+                // We need to be able to to widen the sigma into a tyapply
+                _ <- subsCheck(
                   sigma,
+                  Type.TyApply(left, right),
                   reg,
                   sigmaRegion
                 )
