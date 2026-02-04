@@ -220,7 +220,9 @@ case class UICommand(
       sourceContent: String
   ): String = {
     // Generate bindings from UIAnalyzer (automatic detection via handler analysis)
-    val bindingsJs = UIAnalyzer.bindingsToJs(analysis.bindings)
+    // Pass state variable names so computeValue can generate state.value references
+    val allStateNames = (stateVarNames ++ listStateVarNames).toSet
+    val bindingsJs = UIAnalyzer.bindingsToJs(analysis.bindings, allStateNames)
 
     val runtimeJs = generateRuntimeJs()
     val stylesCss = generateStyles(config.theme)
@@ -450,6 +452,25 @@ function _updateBinding(binding, value) {
     if (el) _elements[binding.elementId] = el;
   }
   if (!el) return;
+
+  // For bindings with computeValue (e.g., style bindings with multiple dependencies),
+  // call computeValue() to get the actual value instead of using the raw state value
+  if (binding.computeValue) {
+    const computed = binding.computeValue();
+    // The computed result may be a Bosatsu string, convert to JS string
+    const displayValue = Array.isArray(computed)
+      ? _bosatsuStringToJs(computed)
+      : String(computed);
+
+    // Apply to the appropriate property
+    if (binding.property.startsWith('style.')) {
+      const styleProp = binding.property.slice(6);
+      el.style[styleProp] = displayValue;
+    } else {
+      el[binding.property] = displayValue;
+    }
+    return;
+  }
 
   // Check if value is a Bosatsu Bool - [0] for False, [1] for True
   // But be careful: [0] is also an empty Bosatsu string/list!

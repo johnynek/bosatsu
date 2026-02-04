@@ -715,41 +715,165 @@ object UIAnalyzer {
 
   /**
    * Extract bindings from props object.
-   * Also handles on_click handlers to create automatic className bindings.
+   * Handles:
+   * - Event handlers (on_click, on_input, etc.)
+   * - Attribute bindings where value depends on state
+   * - Style bindings (style-transform, style-opacity, etc.)
    */
   private def extractPropsBindings[A](
       propsExpr: TypedExpr[A],
       elementId: String,
       ctx: AnalysisContext[A]
   ): Unit = {
-    // Props is typically a list containing tuples and on_click handlers
     // Process the props list to find event handlers
     extractEventHandlersFromProps(propsExpr, elementId, ctx)
 
-    // Props would be a struct/record construction
-    // For now, we look for specific patterns
-    propsExpr match {
-      case TypedExpr.App(_, args, _, _) =>
-        // Could be record construction - analyze each arg
-        args.toList.foreach { arg =>
-          arg match {
-            case TypedExpr.Local(name, _, tag) =>
-              ctx.getPath(name).foreach { path =>
-                // This local is bound to a state path
-                // Determine property from context (would need more info)
-                ctx.recordBinding(DOMBinding(
-                  elementId = elementId,
-                  property = DOMProperty.ClassName, // Default, would need inference
-                  statePath = path,
-                  when = ctx.currentCondition,
-                  transform = None,
-                  sourceExpr = arg
-                ))
-              }
-            case _ => ()
+    // Process attribute bindings (key, value) tuples
+    extractAttributeBindings(propsExpr, elementId, ctx)
+  }
+
+  /**
+   * Extract attribute bindings from a props list.
+   * Looks for (key, value) tuples where the value depends on state.
+   *
+   * Supports:
+   * - ("style-transform", expr) -> Style("transform") binding
+   * - ("style-*", expr) -> Style(*) binding for any CSS property
+   * - ("class", expr) or ("className", expr) -> ClassName binding
+   * - ("value", expr) -> Value binding (for inputs)
+   *
+   * For expressions that depend on multiple state variables (e.g., make_transform(read(x), read(y))),
+   * creates a binding for EACH state path so the DOM updates when ANY of them change.
+   */
+  private def extractAttributeBindings[A](
+      propsExpr: TypedExpr[A],
+      elementId: String,
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    // Walk the props list looking for attribute tuples
+    walkPropsList(propsExpr) { tupleExpr =>
+      extractAttributeTuple(tupleExpr) match {
+        case Some((attrName, valueExpr)) =>
+          // Check if the value expression depends on state (collect ALL paths)
+          val statePaths = traceAllStateDependencies(valueExpr, ctx)
+
+          // Determine the DOM property based on attribute name
+          val domProp = attrNameToDOMProperty(attrName)
+
+          domProp.foreach { prop =>
+            // Extract transform function if value goes through a transformation
+            val transform = extractTransformForAttr(valueExpr, attrName)
+
+            // Create a binding for EACH state path
+            // This ensures the DOM updates when ANY dependency changes
+            statePaths.distinct.foreach { path =>
+              ctx.recordStateRead(path)
+              ctx.recordBinding(DOMBinding(
+                elementId = elementId,
+                property = prop,
+                statePath = path,
+                when = ctx.currentCondition,
+                transform = transform,
+                sourceExpr = valueExpr
+              ))
+            }
           }
+        case None => ()
+      }
+    }
+  }
+
+  /**
+   * Walk a props list and call the handler for each element.
+   */
+  private def walkPropsList[A](
+      propsExpr: TypedExpr[A]
+  )(handler: TypedExpr[A] => Unit): Unit = {
+    propsExpr match {
+      // NonEmptyList(head, tail) or Cons
+      case TypedExpr.App(fn, args, _, _) =>
+        val fnName = getFunctionName(fn)
+        if (fnName == "NonEmptyList" || fnName == "Cons") {
+          val argsList = args.toList
+          if (argsList.length >= 2) {
+            handler(argsList.head)
+            walkPropsList(argsList(1))(handler)
+          }
+        } else {
+          // Could be a tuple or other expression - try to handle it
+          handler(propsExpr)
+          args.toList.foreach(arg => walkPropsList(arg)(handler))
         }
+
+      case TypedExpr.Annotation(inner, _) =>
+        walkPropsList(inner)(handler)
+
+      case TypedExpr.Generic(_, inner) =>
+        walkPropsList(inner)(handler)
+
       case _ => ()
+    }
+  }
+
+  /**
+   * Extract attribute name and value expression from a tuple.
+   * Returns Some((attrName, valueExpr)) for (String, Expr) tuples.
+   */
+  private def extractAttributeTuple[A](
+      expr: TypedExpr[A]
+  ): Option[(String, TypedExpr[A])] = {
+    expr match {
+      case TypedExpr.App(fn, args, _, _) =>
+        val fnName = getFunctionName(fn)
+        // Tuple construction: Tuple2(key, value) or direct tuple
+        if (fnName == "Tuple2" || fnName == "") {
+          val argsList = args.toList
+          if (argsList.length >= 2) {
+            val keyExpr = argsList.head
+            val valueExpr = argsList(1)
+            // Key must be a string literal
+            extractStringLiteralDeep(keyExpr).map(key => (key, valueExpr))
+          } else None
+        } else None
+      case _ => None
+    }
+  }
+
+  /**
+   * Convert attribute name to DOM property.
+   *
+   * - "style-transform" -> Style("transform")
+   * - "style-opacity" -> Style("opacity")
+   * - "class" or "className" -> ClassName
+   * - "value" -> Value
+   * - etc.
+   */
+  private def attrNameToDOMProperty(attrName: String): Option[DOMProperty] = {
+    if (attrName.startsWith("style-")) {
+      val cssProperty = attrName.stripPrefix("style-")
+      Some(DOMProperty.Style(cssProperty))
+    } else attrName match {
+      case "class" | "className" => Some(DOMProperty.ClassName)
+      case "value" => Some(DOMProperty.Value)
+      case "checked" => Some(DOMProperty.Checked)
+      case "disabled" => Some(DOMProperty.Disabled)
+      case _ => None // Other attributes not supported for state binding
+    }
+  }
+
+  /**
+   * Extract transform function for attribute bindings.
+   * For style bindings, we don't apply additional transforms.
+   */
+  private def extractTransformForAttr[A](
+      expr: TypedExpr[A],
+      attrName: String
+  ): Option[String] = {
+    // For now, style bindings don't use transforms - the value is the CSS value directly
+    if (attrName.startsWith("style-")) {
+      None
+    } else {
+      extractTransform(expr)
     }
   }
 
@@ -859,40 +983,51 @@ object UIAnalyzer {
 
   /**
    * Trace an expression to find if it depends on state.
-   * Returns the state path if found.
+   * Returns the state path if found (first one if multiple).
    */
   private def traceStateDependency[A](
       expr: TypedExpr[A],
       ctx: AnalysisContext[A]
   ): Option[List[String]] = {
+    traceAllStateDependencies(expr, ctx).headOption
+  }
+
+  /**
+   * Trace an expression to find ALL state paths it depends on.
+   * Returns all state paths (for expressions like make_transform(read(x), read(y))).
+   */
+  private def traceAllStateDependencies[A](
+      expr: TypedExpr[A],
+      ctx: AnalysisContext[A]
+  ): List[List[String]] = {
     expr match {
       // Direct state read: read(state)
       case app: TypedExpr.App[A @unchecked] =>
         extractStateRead(app) match {
-          case Some(path) => Some(path)
+          case Some(path) => List(path)
           case None =>
-            // Function application - check if any argument reads state
-            // This handles transforms like int_to_String(read(count))
-            app.args.toList.flatMap(arg => traceStateDependency(arg, ctx)).headOption
+            // Function application - collect ALL state reads from arguments
+            // This handles transforms like make_transform(read(x), read(y))
+            app.args.toList.flatMap(arg => traceAllStateDependencies(arg, ctx))
         }
 
       // Local variable that's tracked
       case TypedExpr.Local(name, _, _) =>
-        ctx.getPath(name)
+        ctx.getPath(name).toList
 
       // Global variable that's tracked
       case TypedExpr.Global(_, name, _, _) =>
-        name.toBindable.flatMap(ctx.getPath)
+        name.toBindable.flatMap(ctx.getPath).toList
 
       // Annotation wrapper
       case TypedExpr.Annotation(inner, _) =>
-        traceStateDependency(inner, ctx)
+        traceAllStateDependencies(inner, ctx)
 
       // Generic wrapper
       case TypedExpr.Generic(_, inner) =>
-        traceStateDependency(inner, ctx)
+        traceAllStateDependencies(inner, ctx)
 
-      case _ => None
+      case _ => Nil
     }
   }
 
@@ -1253,8 +1388,11 @@ object UIAnalyzer {
    * Each binding now includes a `when` clause for conditional rendering:
    * - when: null for unconditional bindings
    * - when: { discriminant: ["path"], tag: "VariantName", isTotal: false } for conditional
+   *
+   * For style bindings with complex expressions (multiple state dependencies),
+   * a `computeValue` function is included to re-evaluate the expression.
    */
-  def bindingsToJs[A](bindings: List[DOMBinding[A]]): String = {
+  def bindingsToJs[A](bindings: List[DOMBinding[A]], stateNames: Set[String] = Set.empty): String = {
     val entries = createBindingMap(bindings).map { case (pathKey, bs) =>
       val bindingArrays = bs.map { b =>
         val whenJs = b.when match {
@@ -1264,15 +1402,136 @@ object UIAnalyzer {
           case None =>
             "null"
         }
+        // For style bindings, generate computeValue to re-evaluate complex expressions
+        val computeValueJs = b.property match {
+          case DOMProperty.Style(_) =>
+            sourceExprToJsGetter(b.sourceExpr, stateNames) match {
+              case Some(js) => Some(s""""computeValue": () => $js""")
+              case None => None
+            }
+          case _ => None
+        }
         val props = List(
           s""""elementId": "${b.elementId}"""",
           s""""property": "${DOMProperty.toJsProperty(b.property)}"""",
           s""""when": $whenJs"""
-        ) ++ b.transform.map(t => s""""transform": "$t"""")
+        ) ++ b.transform.map(t => s""""transform": "$t"""") ++ computeValueJs
         s"{${props.mkString(", ")}}"
       }
       s""""$pathKey": [${bindingArrays.mkString(", ")}]"""
     }
     s"{${entries.mkString(",\n  ")}}"
+  }
+
+  /**
+   * Convert a TypedExpr to a JavaScript getter expression.
+   * Used for style bindings where we need to re-evaluate the full expression
+   * when any dependency changes.
+   *
+   * Handles:
+   * - Function calls: func(args) -> func(convertedArgs)
+   * - State reads: read(state) -> state.value
+   * - Local variables: if state, var.value; otherwise var
+   * - Literals: numbers, strings
+   *
+   * Returns None if the expression can't be converted (e.g., complex patterns).
+   */
+  def sourceExprToJsGetter[A](
+      expr: TypedExpr[A],
+      stateNames: Set[String]
+  ): Option[String] = {
+    expr match {
+      // Function application
+      case app: TypedExpr.App[A @unchecked] =>
+        // Check if this is a read(state) call
+        val fnName = getFunctionName(app.fn)
+        if (fnName == "read" || fnName == "Bosatsu/UI::read") {
+          // read(state) -> state.value
+          app.args.toList.headOption.flatMap { arg =>
+            getLocalVarName(arg).map(name => s"$name.value")
+          }
+        } else {
+          // General function call: func(arg1, arg2, ...)
+          val convertedArgs = app.args.toList.map(arg => sourceExprToJsGetter(arg, stateNames))
+          if (convertedArgs.forall(_.isDefined)) {
+            val argsJs = convertedArgs.flatten.mkString(", ")
+            Some(s"$fnName($argsJs)")
+          } else {
+            None
+          }
+        }
+
+      // Local variable reference
+      case TypedExpr.Local(name, _, _) =>
+        val varName = name.asString
+        if (stateNames.contains(varName)) {
+          Some(s"$varName.value")
+        } else {
+          Some(varName)
+        }
+
+      // Global reference (e.g., function name)
+      case TypedExpr.Global(pack, name, _, _) =>
+        val packPrefix = pack.parts.toList match {
+          case Nil => ""
+          case parts => parts.mkString("_") + "$"
+        }
+        name.toBindable match {
+          case Some(b) =>
+            val fullName = packPrefix + b.asString
+            if (stateNames.contains(b.asString)) {
+              Some(s"$fullName.value")
+            } else {
+              Some(fullName)
+            }
+          case None => Some(name.asString)
+        }
+
+      // Annotation wrapper - unwrap and recurse
+      case TypedExpr.Annotation(inner, _) =>
+        sourceExprToJsGetter(inner, stateNames)
+
+      // Generic wrapper - unwrap and recurse
+      case TypedExpr.Generic(_, inner) =>
+        sourceExprToJsGetter(inner, stateNames)
+
+      // Literal values
+      case TypedExpr.Literal(lit, _, _) =>
+        import dev.bosatsu.Lit
+        lit match {
+          case Lit.Integer(n) => Some(n.toString)
+          case Lit.Str(s) => Some(s""""${escapeJs(s)}"""")
+          case Lit.Chr(c) => Some(s""""${escapeJs(c.toString)}"""")
+        }
+
+      // Let binding - convert to IIFE if needed
+      case TypedExpr.Let(name, value, body, _, _) =>
+        for {
+          valueJs <- sourceExprToJsGetter(value, stateNames)
+          bodyJs <- sourceExprToJsGetter(body, stateNames + name.asString)
+        } yield s"((${ name.asString }) => $bodyJs)($valueJs)"
+
+      case _ =>
+        // Unsupported expression type
+        None
+    }
+  }
+
+  /**
+   * Get the local variable name from an expression, if it's a simple local reference.
+   */
+  private def getLocalVarName[A](expr: TypedExpr[A]): Option[String] = {
+    expr match {
+      case TypedExpr.Local(name, _, _) => Some(name.asString)
+      case TypedExpr.Annotation(inner, _) => getLocalVarName(inner)
+      case TypedExpr.Generic(_, inner) => getLocalVarName(inner)
+      case TypedExpr.Global(pack, name, _, _) =>
+        val packPrefix = pack.parts.toList match {
+          case Nil => ""
+          case parts => parts.mkString("_") + "$"
+        }
+        name.toBindable.map(b => packPrefix + b.asString)
+      case _ => None
+    }
   }
 }

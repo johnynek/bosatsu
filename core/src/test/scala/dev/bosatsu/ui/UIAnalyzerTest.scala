@@ -1795,8 +1795,10 @@ class UIAnalyzerTest extends FunSuite {
   // Props with Local state bindings
   // ==========================================================================
 
-  test("extractPropsBindings with Local arg bound to state") {
+  test("extractPropsBindings with Local arg bound to state in generic App") {
     // h("div", someApp(stateVar), []) where stateVar is tracked
+    // When props is a generic function call (not attribute tuples), no bindings created
+    // because we can't determine the attribute name from just a function call
     val count = Identifier.unsafeBindable("count")
 
     val hFn = makeGlobal("Bosatsu/UI", "h")
@@ -1809,8 +1811,8 @@ class UIAnalyzerTest extends FunSuite {
     val hApp = makeApp(hFn, tag, propsApp, children)
 
     val analysis = UIAnalyzer.analyzeWithStateBindings(hApp, List(count))
-    // Should create className binding for the tracked state in props
-    assert(analysis.bindings.exists(_.property == UIAnalyzer.DOMProperty.ClassName))
+    // No bindings created - can't determine attribute from generic function call
+    assert(analysis.bindings.isEmpty)
   }
 
   // ==========================================================================

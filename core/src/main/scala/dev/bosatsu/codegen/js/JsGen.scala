@@ -365,6 +365,11 @@ object JsGen {
       Identifier.Name("to_Int") -> ((args: List[Code.Expression]) =>
         // Truncate to integer
         Code.Call(Code.Ident("Math").dot("trunc"), List(args.head)), 1),
+      Identifier.Name("double_to_String") -> ((args: List[Code.Expression]) =>
+        // Convert Double to Bosatsu String (linked list of chars)
+        Code.Call(Code.Ident("_js_to_bosatsu_string"), List(
+          Code.Call(Code.Ident("String"), List(args.head))
+        )), 1),
 
       // Comparison
       Identifier.Name("cmp_Double") -> (cmpDoubleFn, 2),
@@ -1347,6 +1352,11 @@ object JsGen {
   val runtimeCode: String =
     """// Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Bosatsu/Numeric constants
+var Bosatsu_Numeric$pi = Math.PI;
+var Bosatsu_Numeric$e = Math.E;
+
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
@@ -1414,6 +1424,9 @@ var _concat_String = (strList) => {
 
 // int_to_String
 var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// double_to_String - convert Double to Bosatsu string
+var _double_to_String = (n) => _js_to_bosatsu_string(String(n));
 
 // string_to_Int - returns Option: [0] for None, [1, value] for Some
 var _string_to_Int = (bstr) => {

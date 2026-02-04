@@ -1,0 +1,105 @@
+package Demo/Particles
+
+from Bosatsu/Predef import add, sub, Int, String, Unit, int_to_String, concat_String
+from Bosatsu/Numeric import (
+  Double, `+.`, `-.`, `*.`, `/.`, from_Int, sin, cos, pi, double_to_String
+)
+from Bosatsu/UI import (
+  VNode, State,
+  state, read, write,
+  h, text, on_click
+)
+
+# BosatsuUI Particles Demo
+#
+# Demonstrates style bindings for animations.
+# Particles can be moved by clicking buttons, showing how
+# style.transform bindings update when state changes.
+
+# Particle position state (using Doubles for smooth animation)
+particle_x: State[Double] = state(from_Int(100))
+particle_y: State[Double] = state(from_Int(100))
+
+# Animation state
+angle: State[Double] = state(from_Int(0))
+
+# Move particle to a new position based on angle
+def update_position(_: Unit) -> Unit:
+  # Get current angle
+  current_angle = read(angle)
+
+  # Calculate new position (circular motion)
+  radius = from_Int(80)
+  center_x = from_Int(150)
+  center_y = from_Int(150)
+
+  new_x = center_x +. (radius *. cos(current_angle))
+  new_y = center_y +. (radius *. sin(current_angle))
+
+  # Update position
+  _ = write(particle_x, new_x)
+  _ = write(particle_y, new_y)
+
+  # Increment angle for next update
+  step = pi /. from_Int(8)
+  write(angle, current_angle +. step)
+
+# Reset to center
+def reset_position(_: Unit) -> Unit:
+  _ = write(particle_x, from_Int(150))
+  _ = write(particle_y, from_Int(150))
+  write(angle, from_Int(0))
+
+# Build the transform style value
+def make_transform(x: Double, y: Double) -> String:
+  x_str = double_to_String(x)
+  y_str = double_to_String(y)
+  concat_String(["translate(", x_str, "px, ", y_str, "px)"])
+
+# Render the UI
+view = h("div", [("class", "container")], [
+  h("div", [("class", "card")], [
+    h("h1", [], [text("Particles Demo")]),
+    h("p", [("class", "subtitle")], [
+      text("Style bindings for animations - click to move the particle!")
+    ]),
+
+    # Animation area
+    h("div", [("class", "animation-area")], [
+      h("div", [
+        ("class", "particle"),
+        ("id", "particle-0"),
+        ("style-transform", make_transform(read(particle_x), read(particle_y)))
+      ], [])
+    ]),
+
+    # Position display
+    h("div", [("class", "position-display")], [
+      text("X: "),
+      h("span", [("id", "pos-x")], [text(double_to_String(read(particle_x)))]),
+      text(" Y: "),
+      h("span", [("id", "pos-y")], [text(double_to_String(read(particle_y)))])
+    ]),
+
+    # Control buttons
+    h("div", [("class", "buttons")], [
+      h("button", [on_click(update_position)], [text("Move (Next Position)")]),
+      h("button", [on_click(reset_position)], [text("Reset to Center")])
+    ])
+  ]),
+
+  h("div", [("class", "card")], [
+    h("h3", [], [text("How Style Bindings Work")]),
+    h("p", [], [
+      text("The particle's position is stored in State[Double] values.")
+    ]),
+    h("p", [], [
+      text("When state changes, the style.transform binding updates the DOM directly.")
+    ]),
+    h("p", [], [
+      text("This is O(1) - no virtual DOM diffing needed!")
+    ])
+  ])
+])
+
+main = view

@@ -156,16 +156,23 @@ h("div", [
 ```
 
 **Tasks:**
-- [ ] Add style binding detection to UIAnalyzer
-- [ ] Extract style property name from attribute string
-- [ ] Generate style-specific update code
-- [ ] Create particles.bosatsu demo using Math functions (sin, cos, random)
+- [x] Add style binding detection to UIAnalyzer
+- [x] Extract style property name from attribute string
+- [x] Generate style-specific update code (via `computeValue` functions)
+- [x] Create particles.bosatsu demo using Math functions (sin, cos)
+- [x] Fix TypedExprNormalization to preserve write() side effects (mayHaveSideEffects helper)
 - [ ] Update drag-animation benchmark to use real compiled Bosatsu
+
+**Infrastructure Fix Completed:**
+TypedExprNormalization was eliminating `_ = write(state, value)` patterns, breaking UI state updates.
+Fixed by adding `mayHaveSideEffects()` helper that detects external function calls (stored in TypeEnv.values).
+Now Match elimination, Match lifting, and Let elimination all preserve side-effecting calls.
 
 **Files:**
 - `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala` - Style binding extraction
+- `core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala` - Side-effect preservation (DONE)
 - `simulation-cli/src/main/scala/dev/bosatsu/simulation/UICommand.scala` - Style updates
-- `demos/ui/particles.bosatsu` - Animation demo
+- `demos/ui/particles.bosatsu` - Animation demo (DONE)
 - `demos/benchmarks/drag-animation/` - Real benchmark
 
 ### Phase 4: More Event Types
