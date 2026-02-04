@@ -109,6 +109,26 @@ object Type {
       def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
     }
 
+    opaque type TauExists <: Tau = Exists
+    implicit class TauExistsMethods(private val te: TauExists) extends AnyVal {
+      inline def vars: NonEmptyList[(Var.Bound, Kind)] = te.vars
+      inline def in: Tau = te.in
+      inline def toExists: Exists = te
+    }
+
+    object TauExists {
+      def apply(vars: NonEmptyList[(Var.Bound, Kind)], in: Tau): TauExists =
+        existsRho(vars, in)
+
+      // a scala3 zero allocation match result
+      class TauExistsMatch(tau: Tau) extends AnyVal {
+        def isEmpty: Boolean = !tau.isInstanceOf[Exists]
+        def get: TauExists = tau.asInstanceOf[Exists]
+      }
+
+      def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
+    }
+
     def isTau(t: Type): Boolean = {
       @annotation.tailrec
       def loop(ts: List[Type]): Boolean =
@@ -116,16 +136,17 @@ object Type {
           case (_: Leaf) :: rest => loop(rest)
           case TyApply(on, arg) :: rest =>
             loop(on :: arg :: rest)
+          case (Exists(_, in) :: rest) =>
+            loop(in :: rest)
           case (_: ForAll) :: _        => false
-          case (_: Exists) :: _        => false
           case Nil                     => true
         }
 
       t match {
         case _: Leaf => true
         case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
+        case Exists(_, in)   => loop(in :: Nil)
         case _: ForAll     => false
-        case _: Exists     => false
       }
     }
 
@@ -388,7 +409,7 @@ object Type {
   final def existsRho(
       vars: NonEmptyList[(Var.Bound, Kind)],
       in: Rho
-  ): Rho =
+  ): Exists =
     in match {
       case Exists(ne1, inner)   => Exists(vars ::: ne1, inner)
       case la: (Leaf | TyApply) => Exists(vars, la)
