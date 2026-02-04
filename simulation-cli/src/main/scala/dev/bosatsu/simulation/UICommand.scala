@@ -445,11 +445,12 @@ function _ui_register_handler(eventType, handler) {
 
 // Update a single DOM binding
 function _updateBinding(binding, value) {
-  let el = _elements[binding.elementId];
-  if (!el) {
-    el = document.getElementById(binding.elementId) ||
-         document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
-    if (el) _elements[binding.elementId] = el;
+  try {
+    let el = _elements[binding.elementId];
+    if (!el) {
+      el = document.getElementById(binding.elementId) ||
+           document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+      if (el) _elements[binding.elementId] = el;
   }
   if (!el) return;
 
@@ -539,6 +540,14 @@ function _updateBinding(binding, value) {
         el.style[styleProp] = displayValue;
       }
   }
+  } catch (e) {
+    console.error('BosatsuUI binding error:', {
+      elementId: binding.elementId,
+      property: binding.property,
+      statePath: binding.statePath,
+      error: e.message
+    });
+  }
 }
 
 // Track which element+eventType combinations have had handlers attached (to avoid duplicates)
@@ -566,24 +575,33 @@ function _initBindingCache() {
     els.forEach(el => {
 
       el.addEventListener(handler.type, (e) => {
-        // Call the handler - different events receive different arguments
-        if (handler.type === 'click' || handler.type === 'dragstart') {
-          handler.fn([]);  // Unit = empty tuple
-        } else if (handler.type === 'input' || handler.type === 'change') {
-          // Convert JS string to Bosatsu string
-          const bsString = _js_to_bosatsu_string(e.target.value);
-          handler.fn(bsString);
-        } else if (handler.type === 'keydown' || handler.type === 'keyup') {
-          // Pass the key name as a Bosatsu string
-          const bsKey = _js_to_bosatsu_string(e.key);
-          handler.fn(bsKey);
-        } else if (handler.type === 'dragover') {
-          // Must call preventDefault to allow dropping
-          e.preventDefault();
-          handler.fn([]);  // Unit
-        } else if (handler.type === 'drop') {
-          e.preventDefault();
-          handler.fn([]);  // Unit
+        try {
+          // Call the handler - different events receive different arguments
+          if (handler.type === 'click' || handler.type === 'dragstart') {
+            handler.fn([]);  // Unit = empty tuple
+          } else if (handler.type === 'input' || handler.type === 'change') {
+            // Convert JS string to Bosatsu string
+            const bsString = _js_to_bosatsu_string(e.target.value);
+            handler.fn(bsString);
+          } else if (handler.type === 'keydown' || handler.type === 'keyup') {
+            // Pass the key name as a Bosatsu string
+            const bsKey = _js_to_bosatsu_string(e.key);
+            handler.fn(bsKey);
+          } else if (handler.type === 'dragover') {
+            // Must call preventDefault to allow dropping
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          } else if (handler.type === 'drop') {
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          }
+        } catch (err) {
+          console.error('BosatsuUI handler error:', {
+            eventType: handler.type,
+            handlerId: handlerId,
+            error: err.message,
+            stack: err.stack
+          });
         }
       });
     });

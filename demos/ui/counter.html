@@ -195,6 +195,11 @@ p {
 
 // Bosatsu JS Runtime
 // Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Bosatsu/Numeric constants
+var Bosatsu_Numeric$pi = Math.PI;
+var Bosatsu_Numeric$e = Math.E;
+
 // GCD using Euclidean algorithm
 var _gcd = (a, b) => {
   a = Math.abs(a);
@@ -262,6 +267,9 @@ var _concat_String = (strList) => {
 
 // int_to_String
 var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// double_to_String - convert Double to Bosatsu string
+var _double_to_String = (n) => _js_to_bosatsu_string(String(n));
 
 // string_to_Int - returns Option: [0] for None, [1, value] for Some
 var _string_to_Int = (bstr) => {
@@ -458,18 +466,45 @@ function _ui_register_handler(eventType, handler) {
 
 // Update a single DOM binding
 function _updateBinding(binding, value) {
-  let el = _elements[binding.elementId];
-  if (!el) {
-    el = document.getElementById(binding.elementId) ||
-         document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
-    if (el) _elements[binding.elementId] = el;
+  try {
+    let el = _elements[binding.elementId];
+    if (!el) {
+      el = document.getElementById(binding.elementId) ||
+           document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+      if (el) _elements[binding.elementId] = el;
   }
   if (!el) return;
 
+  // For bindings with computeValue (e.g., style bindings with multiple dependencies),
+  // call computeValue() to get the actual value instead of using the raw state value
+  if (binding.computeValue) {
+    const computed = binding.computeValue();
+    // The computed result may be a Bosatsu string, convert to JS string
+    const displayValue = Array.isArray(computed)
+      ? _bosatsuStringToJs(computed)
+      : String(computed);
+
+    // Apply to the appropriate property
+    if (binding.property.startsWith('style.')) {
+      const styleProp = binding.property.slice(6);
+      el.style[styleProp] = displayValue;
+    } else {
+      el[binding.property] = displayValue;
+    }
+    return;
+  }
+
   // Check if value is a Bosatsu Bool - [0] for False, [1] for True
-  // Also handle raw integers 0/1 for numeric boolean pattern
-  const isBosatsuBool = Array.isArray(value) && (value[0] === 0 || value[0] === 1) && value.length <= 2;
+  // But be careful: [0] is also an empty Bosatsu string/list!
+  // A true Bosatsu Bool has exactly 1 element. A non-empty string has 3 elements.
+  // We'll check for bools only when length is exactly 1 AND for className bindings.
   const isIntBool = typeof value === 'number' && (value === 0 || value === 1);
+
+  // For arrays, try to detect if it's a string vs a simple bool
+  // Non-empty Bosatsu strings have structure [1, char, rest] with length 3
+  // Empty strings/lists are [0] with length 1 - same as False bool
+  // We'll treat arrays as strings first (safer for textContent), unless it's clearly a bool for className
+  const isBosatsuBool = Array.isArray(value) && value.length === 1 && (value[0] === 0 || value[0] === 1);
   const boolValue = isBosatsuBool ? value[0] === 1 : (isIntBool ? value === 1 : null);
 
   let displayValue;
@@ -479,7 +514,17 @@ function _updateBinding(binding, value) {
     displayValue = Array.isArray(transformResult)
       ? _bosatsuStringToJs(transformResult)
       : String(transformResult);
-  } else if (isBosatsuBool || isIntBool) {
+  } else if (Array.isArray(value)) {
+    // For arrays, convert as Bosatsu string first (handles both strings and lists)
+    // This correctly converts [0] to "" and [1, "a", [1, "b", [0]]] to "ab"
+    const strResult = _bosatsuStringToJs(value);
+    // Only use boolean logic for className with single-element arrays that look like bools
+    if (binding.property === 'className' && isBosatsuBool) {
+      displayValue = boolValue ? 'true' : 'false';
+    } else {
+      displayValue = strResult;
+    }
+  } else if (isIntBool) {
     displayValue = boolValue ? 'true' : 'false';
   } else {
     displayValue = String(value);
@@ -516,7 +561,19 @@ function _updateBinding(binding, value) {
         el.style[styleProp] = displayValue;
       }
   }
+  } catch (e) {
+    console.error('BosatsuUI binding error:', {
+      elementId: binding.elementId,
+      property: binding.property,
+      statePath: binding.statePath,
+      error: e.message
+    });
+  }
 }
+
+// Track which element+eventType combinations have had handlers attached (to avoid duplicates)
+// Key format: "${elementId}:${eventType}" or "${handlerId}" for uniqueness
+const _handlersAttached = new Set();
 
 // Initialize element cache for all bindings
 function _initBindingCache() {
@@ -528,19 +585,44 @@ function _initBindingCache() {
     }
   });
 
-  // Set up event handlers
+  // Set up event handlers (only once per element+eventType combination)
   Object.entries(_handlers).forEach(([handlerId, handler]) => {
+    // Skip if this specific handler has already been processed
+    if (_handlersAttached.has(handlerId)) return;
+    _handlersAttached.add(handlerId);
+
     // Find elements with this handler ID
     const els = document.querySelectorAll('[data-on' + handler.type + '="' + handlerId + '"]');
     els.forEach(el => {
+
       el.addEventListener(handler.type, (e) => {
-        // Call the handler - for click it receives Unit, for input it receives the value
-        if (handler.type === 'click') {
-          handler.fn([]);  // Unit = empty tuple
-        } else if (handler.type === 'input' || handler.type === 'change') {
-          // Convert JS string to Bosatsu string
-          const bsString = _js_to_bosatsu_string(e.target.value);
-          handler.fn(bsString);
+        try {
+          // Call the handler - different events receive different arguments
+          if (handler.type === 'click' || handler.type === 'dragstart') {
+            handler.fn([]);  // Unit = empty tuple
+          } else if (handler.type === 'input' || handler.type === 'change') {
+            // Convert JS string to Bosatsu string
+            const bsString = _js_to_bosatsu_string(e.target.value);
+            handler.fn(bsString);
+          } else if (handler.type === 'keydown' || handler.type === 'keyup') {
+            // Pass the key name as a Bosatsu string
+            const bsKey = _js_to_bosatsu_string(e.key);
+            handler.fn(bsKey);
+          } else if (handler.type === 'dragover') {
+            // Must call preventDefault to allow dropping
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          } else if (handler.type === 'drop') {
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          }
+        } catch (err) {
+          console.error('BosatsuUI handler error:', {
+            eventType: handler.type,
+            handlerId: handlerId,
+            error: err.message,
+            stack: err.stack
+          });
         }
       });
     });
@@ -651,11 +733,340 @@ function _js_to_bosatsu_string(s) {
   return result;
 }
 
+// Convert JS array to Bosatsu list
+function _js_to_bosatsu_list(arr) {
+  let result = [0]; // Empty list
+  for (let i = arr.length - 1; i >= 0; i--) {
+    result = [1, arr[i], result]; // Cons(head, tail)
+  }
+  return result;
+}
+
+// ============================================================================
+// Dynamic List State Management
+// ============================================================================
+
+// List state storage: { id: { id, items: [], templateBindings: {} } }
+const _listState = {};
+let _listStateIdCounter = 0;
+
+// Map list state objects to their binding keys
+const _listStateToBindingKey = new WeakMap();
+
+// Link a list state object to its binding key
+function _linkListStateToBinding(listStateObj, bindingKey) {
+  _listStateToBindingKey.set(listStateObj, bindingKey);
+}
+
+// Create a list state object
+function _ui_create_list_state(initialItems) {
+  const id = 'list_state_' + (_listStateIdCounter++);
+  // Convert Bosatsu list to JS array for internal storage
+  const items = _bosatsuListToArray(initialItems);
+  const listStateObj = {
+    id: id,
+    items: items,
+    templateBindings: {} // Will be populated from _listBindingTemplates
+  };
+  _listState[id] = listStateObj;
+  return listStateObj;
+}
+
+// Read list state - returns current items as Bosatsu list
+function _ui_list_read(listStateObj) {
+  return _js_to_bosatsu_list(listStateObj.items);
+}
+
+// Update bindings that depend on list properties (like list_length)
+// These bindings are registered under the list's bindingKey
+function _updateListDependentBindings(listStateObj) {
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  if (!bindingKey) return;
+
+  const bindings = _bindings[bindingKey];
+  if (bindings) {
+    bindings.forEach(binding => {
+      // For list_length bindings, the value is the length
+      // The transform (if any) handles int_to_String conversion
+      _updateBinding(binding, listStateObj.items.length);
+    });
+  }
+}
+
+// Append item to list - registers bindings for new item
+function _ui_list_append(listStateObj, item) {
+  const index = listStateObj.items.length;
+  listStateObj.items.push(item);
+
+  // Register bindings for the new item
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  if (bindingKey && _listBindingTemplates[bindingKey]) {
+    _registerListItemBindings(listStateObj, bindingKey, index);
+  }
+
+  // Trigger list re-render (simple approach - re-render container)
+  _renderListItems(listStateObj);
+
+  // Update bindings that depend on list properties (like list_length)
+  _updateListDependentBindings(listStateObj);
+
+  return []; // Unit
+}
+
+// Remove item at index - cleans up bindings
+function _ui_list_remove_at(listStateObj, index) {
+  if (index >= 0 && index < listStateObj.items.length) {
+    listStateObj.items.splice(index, 1);
+
+    // Cleanup bindings for removed item and re-index remaining
+    const bindingKey = _listStateToBindingKey.get(listStateObj);
+    if (bindingKey) {
+      _cleanupListItemBindings(bindingKey, index);
+      _reindexListBindings(bindingKey, index, listStateObj.items.length);
+    }
+
+    // Trigger list re-render
+    _renderListItems(listStateObj);
+
+    // Update bindings that depend on list properties (like list_length)
+    _updateListDependentBindings(listStateObj);
+  }
+
+  return []; // Unit
+}
+
+// Update item at index - triggers binding update
+function _ui_list_update_at(listStateObj, index, item) {
+  if (index >= 0 && index < listStateObj.items.length) {
+    listStateObj.items[index] = item;
+
+    // Trigger bindings for this item
+    const bindingKey = _listStateToBindingKey.get(listStateObj);
+    if (bindingKey) {
+      _updateListItemBindings(bindingKey, index, item);
+    }
+  }
+
+  return []; // Unit
+}
+
+// Template bindings for lists (populated at compile time)
+// Format: { "listName": { "$.field": { property, selectorPattern, transform } } }
+const _listBindingTemplates = {};
+
+// Register bindings for a new list item at given index
+function _registerListItemBindings(listStateObj, bindingKey, index) {
+  const templates = _listBindingTemplates[bindingKey];
+  if (!templates) return;
+
+  Object.entries(templates).forEach(([fieldPattern, template]) => {
+    // Create concrete binding key: "todos.0.completed" from "todos.$.completed"
+    const concreteKey = bindingKey + '.' + index + fieldPattern.substring(1);
+    const selector = template.selectorPattern.replace(/\$/g, String(index));
+
+    if (!_bindings[concreteKey]) {
+      _bindings[concreteKey] = [];
+    }
+    _bindings[concreteKey].push({
+      elementId: selector,
+      property: template.property,
+      transform: template.transform,
+      when: null
+    });
+  });
+}
+
+// Cleanup bindings for a removed list item
+function _cleanupListItemBindings(bindingKey, index) {
+  const prefix = bindingKey + '.' + index;
+  Object.keys(_bindings).forEach(key => {
+    if (key.startsWith(prefix)) {
+      delete _bindings[key];
+    }
+  });
+}
+
+// Re-index bindings after a removal
+function _reindexListBindings(bindingKey, removedIndex, newLength) {
+  // This is a simplified approach - for complex cases we might need
+  // to track the original indices and remap
+  // For now, we rely on re-rendering to fix element IDs
+}
+
+// Update bindings for a specific list item
+function _updateListItemBindings(bindingKey, index, item) {
+  const prefix = bindingKey + '.' + index;
+  Object.entries(_bindings).forEach(([key, bindings]) => {
+    if (key.startsWith(prefix)) {
+      bindings.forEach(binding => {
+        // Extract the field name from the binding key
+        const fieldPath = key.substring(prefix.length + 1);
+        const value = _getFieldValue(item, fieldPath);
+        _updateBinding(binding, value);
+      });
+    }
+  });
+}
+
+// Get a field value from an item (supports nested paths like "name" or "address.city")
+function _getFieldValue(item, fieldPath) {
+  if (!fieldPath) return item;
+  const parts = fieldPath.split('.');
+  let current = item;
+  for (const part of parts) {
+    if (current == null) return null;
+    // Bosatsu structs are arrays: [constructorIndex, field0, field1, ...]
+    if (Array.isArray(current) && !isNaN(parseInt(part))) {
+      current = current[parseInt(part) + 1]; // +1 because index 0 is constructor
+    } else if (typeof current === 'object') {
+      current = current[part];
+    } else {
+      return null;
+    }
+  }
+  return current;
+}
+
+// Container elements for list rendering
+const _listContainers = {};
+
+// Render list items into their container
+function _renderListItems(listStateObj) {
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  const containerId = _listContainers[listStateObj.id];
+  if (!containerId) return;
+
+  const container = document.getElementById(containerId) ||
+                    document.querySelector('[data-list-container="' + bindingKey + '"]');
+  if (!container) return;
+
+  // Get the item template (stored during initial render)
+  const template = _listItemTemplates[bindingKey];
+  if (!template) return;
+
+  // Clear and re-render all items
+  container.innerHTML = '';
+  listStateObj.items.forEach((item, index) => {
+    const itemEl = _renderListItem(template, item, index, bindingKey);
+    container.appendChild(itemEl);
+
+    // Cache elements and set up handlers
+    _cacheListItemElements(itemEl, index, bindingKey);
+  });
+
+  // Re-initialize handlers for new elements
+  _initBindingCache();
+}
+
+// Item templates for list rendering (populated from VNode analysis)
+const _listItemTemplates = {};
+
+// Render a single list item from template
+function _renderListItem(template, item, index, listKey) {
+  // Clone the template and fill in item data
+  const vnode = _instantiateTemplate(template, item, index, listKey);
+  return _renderVNode(vnode);
+}
+
+// Instantiate a template with item data
+function _instantiateTemplate(template, item, index, listKey) {
+  if (!template) return { type: 'text', text: String(item) };
+
+  if (template.type === 'text') {
+    // Check if text has a binding (even empty string means "use item directly")
+    if ('binding' in template) {
+      // If binding is empty string, use the item directly; otherwise use field path
+      const value = template.binding === '' ? item : _getFieldValue(item, template.binding);
+      // Convert Bosatsu string to JS string if needed
+      const textValue = Array.isArray(value) ? _bosatsuStringToJs(value) : String(value);
+      return { type: 'text', text: textValue };
+    }
+    return template;
+  }
+
+  if (template.type === 'element') {
+    // Clone props and substitute $INDEX
+    const props = template.props ? _bosatsuListToArray(template.props).map(prop => {
+      if (Array.isArray(prop) && prop.length >= 2) {
+        const key = _bosatsuStringToJs(prop[0]) || prop[0];
+        let value = _bosatsuStringToJs(prop[1]) || prop[1];
+        value = String(value).replace(/\$INDEX/g, String(index));
+        return [key, value];
+      }
+      return prop;
+    }) : [];
+
+    // Recursively instantiate children
+    const children = template.children ?
+      _bosatsuListToArray(template.children).map(child =>
+        _instantiateTemplate(child, item, index, listKey)
+      ) : [];
+
+    return {
+      type: 'element',
+      tag: template.tag,
+      props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
+      children: _js_to_bosatsu_list(children)
+    };
+  }
+
+  return template;
+}
+
+// Cache elements for a rendered list item
+function _cacheListItemElements(itemEl, index, listKey) {
+  // Find all elements with IDs or data-bosatsu-id and cache them
+  const elementsWithId = itemEl.querySelectorAll('[id], [data-bosatsu-id]');
+  elementsWithId.forEach(el => {
+    const id = el.id || el.getAttribute('data-bosatsu-id');
+    if (id) {
+      _elements[id] = el;
+    }
+  });
+}
+
+// Convert a DOM element to a VNode-like template structure
+// Used to capture list item templates from initial render
+function _vnodeFromDomElement(el) {
+  if (el.nodeType === Node.TEXT_NODE) {
+    return { type: 'text', text: el.textContent };
+  }
+
+  if (el.nodeType !== Node.ELEMENT_NODE) {
+    return null;
+  }
+
+  // Extract props from attributes
+  const props = [];
+  for (const attr of el.attributes) {
+    props.push([attr.name, attr.value]);
+  }
+
+  // Mark text content as a binding point (will be replaced with item data)
+  const children = [];
+  for (const child of el.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+      // Text nodes become binding points
+      children.push({ type: 'text', text: child.textContent, binding: '' });
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const childVNode = _vnodeFromDomElement(child);
+      if (childVNode) children.push(childVNode);
+    }
+  }
+
+  return {
+    type: 'element',
+    tag: el.tagName.toLowerCase(),
+    props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
+    children: _js_to_bosatsu_list(children)
+  };
+}
+
 // ============================================================================
 // Binding Map (extracted at compile time)
 // ============================================================================
 
-const _bindings = {"count": [{"elementId": "count-display", "property": "textContent", "conditional": false, "transform": "_int_to_String"}]};
+const _bindings = {"count": [{"elementId": "count-display", "property": "textContent", "when": null, "transform": "_int_to_String"}]};
 
 // ============================================================================
 // Compiled Bosatsu Code
@@ -727,6 +1138,9 @@ function init() {
   } else {
     console.error('No main or view binding found');
   }
+
+  // Link list state objects to their binding keys and containers
+
 
   // Initialize element cache for bindings
   _initBindingCache();

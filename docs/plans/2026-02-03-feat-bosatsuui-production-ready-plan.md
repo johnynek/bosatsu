@@ -204,30 +204,40 @@ external def on_drop(handler: Unit -> Unit) -> (String, String)
 - `demos/ui/keyboard-input.bosatsu` - New demo
 - `demos/ui/drag-drop.bosatsu` - New demo
 
-### Phase 5: Nested State Paths
+### Phase 5: Nested State Paths ✅ (Partial)
 
 **The Problem:** State is flat. Real apps have structured state.
 
-**The Solution:** Extend state path tracking through record field access:
+**Analysis:**
+- Bosatsu doesn't have dot notation for field access - uses pattern matching instead
+- UIAnalyzer already supports enum discriminant tracking through match expressions
+- Struct field access via pattern matching requires type info to determine variant index offset
 
+**Current Support:**
+- ✅ Enum variant conditionals: `match read(status): case Success(v): ... case Loading: ...`
+- ✅ Pattern bindings tracked with paths: `["status", "Success", "1"]` for enum fields
+- ⚠️ Single-constructor struct fields: Works at runtime, but bindings not extracted
+  - Workaround: Use separate state variables for each field
+
+**Recommended Pattern:**
 ```bosatsu
-struct User(name: String, age: Int)
-user: State[User] = state(User("Alice", 30))
+# Instead of:
+# struct User(name: String, age: Int)
+# user: State[User] = state(User("Alice", 30))
 
-# This should extract binding path ["user", "name"]
-text(read(user).name)
+# Use separate state variables (like React):
+name_state: State[String] = state("Alice")
+age_state: State[Int] = state(30)
 ```
 
 **Tasks:**
-- [ ] Extend UIAnalyzer to trace through struct field access
-- [ ] Handle nested paths in binding map generation
-- [ ] Generate nested state update code
-- [ ] Create user-profile.bosatsu demo with nested state
+- [x] Enum variant conditionals work via discriminant tracking
+- [x] Pattern bindings tracked through match expression analysis
+- [ ] (Deferred) Full struct field extraction requires type info for index offset
+- [ ] (Deferred) user-profile.bosatsu demo - use separate state pattern instead
 
 **Files:**
-- `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala` - Nested path extraction
-- `simulation-cli/src/main/scala/dev/bosatsu/simulation/UICommand.scala` - Nested updates
-- `demos/ui/user-profile.bosatsu` - New demo
+- `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala` - Pattern binding extraction works
 
 ### Phase 6: Error Boundaries (Simple)
 
@@ -258,13 +268,13 @@ function _safeHandler(handler) {
 ```
 
 **Tasks:**
-- [ ] Add try/catch wrapper to binding updates in generated runtime
-- [ ] Add try/catch wrapper to event handlers
-- [ ] Log errors with context (binding info, state path)
-- [ ] Optional: show visual error indicator on failed elements
+- [x] Add try/catch wrapper to binding updates in generated runtime
+- [x] Add try/catch wrapper to event handlers
+- [x] Log errors with context (binding info, state path, event type, handler ID)
+- [ ] Optional: show visual error indicator on failed elements (deferred)
 
 **Files:**
-- `simulation-cli/src/main/scala/dev/bosatsu/simulation/UICommand.scala` - Error handling
+- `simulation-cli/src/main/scala/dev/bosatsu/simulation/UICommand.scala` - Error handling (DONE)
 
 ### Phase 7: All Demos Are Real
 
