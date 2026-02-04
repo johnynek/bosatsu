@@ -195,7 +195,7 @@ ${updateStmts.mkString("\n")}
   Object.keys(_derivations).forEach(name => {
     const el = document.getElementById('val-' + name);
     if (el && _derivations[name].value !== undefined) {
-      el.textContent = _formatValue(_derivations[name].value);
+      el.textContent = _formatValue(_derivations[name].value, _derivations[name].valueType);
     }
   });
 
@@ -203,18 +203,22 @@ ${updateStmts.mkString("\n")}
   if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
-// Format a value for display
-function _formatValue(v) {
-  if (typeof v === 'number') {
-    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+// Format a value for display using compile-time type info
+// valueType comes from Bosatsu type analysis, NOT runtime introspection
+function _formatValue(v, valueType) {
+  if (v === undefined) return '(not captured)';
+  switch (valueType) {
+    case 'number':
+      return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+    case 'boolean':
+      // Bosatsu booleans are encoded as [0] (False) or [1] (True)
+      return (Array.isArray(v) ? v[0] === 1 : v) ? 'True' : 'False';
+    case 'string':
+      return String(v);
+    default:
+      // Unknown type - use basic string conversion
+      return String(v);
   }
-  if (Array.isArray(v)) {
-    // Bosatsu list/enum
-    if (v[0] === 0) return 'False/None/[]';
-    if (v[0] === 1 && v.length === 1) return 'True';
-    return JSON.stringify(v);
-  }
-  return String(v);
 }
 
 // Substitute variable names in formula with their actual values
@@ -225,7 +229,7 @@ function _substituteValues(formula) {
     if (d.value !== undefined) {
       // Replace whole-word matches only using word boundaries
       const regex = new RegExp('\\\\b' + name + '\\\\b', 'g');
-      result = result.replace(regex, _formatValue(d.value));
+      result = result.replace(regex, _formatValue(d.value, d.valueType));
     }
   });
   return result;
@@ -235,7 +239,7 @@ function _substituteValues(formula) {
 function _formatDerivationHeader(d) {
   switch (d.type) {
     case 'assumption':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value, d.valueType) + '</span> <span class="tag">input</span>';
     case 'computed':
     case 'conditional':
       // Show: name = formula = substituted = value
@@ -245,13 +249,13 @@ function _formatDerivationHeader(d) {
       if (isSubstituted) {
         result += '<br>&nbsp;&nbsp;= <span class="substituted">' + substituted + '</span>';
       }
-      result += '<br>&nbsp;&nbsp;= <span class="value">' + _formatValue(d.value) + '</span>';
+      result += '<br>&nbsp;&nbsp;= <span class="value">' + _formatValue(d.value, d.valueType) + '</span>';
       if (d.type === 'conditional') {
         result += ' <span class="tag">conditional</span>';
       }
       return result;
     default:
-      return d.name + ' = ' + _formatValue(d.value);
+      return d.name + ' = ' + _formatValue(d.value, d.valueType);
   }
 }"""
   }
@@ -405,7 +409,7 @@ function init() {
       const d = _derivations[name];
       const div = document.createElement('div');
       div.className = 'control-group';
-      div.innerHTML = '<span class="control-label">' + name + ':</span> <span class="value-display" id="val-' + name + '">' + _formatValue(d.value) + '</span>';
+      div.innerHTML = '<span class="control-label">' + name + ':</span> <span class="value-display" id="val-' + name + '">' + _formatValue(d.value, d.valueType) + '</span>';
       controlsDiv.appendChild(div);
     });
   }
@@ -560,6 +564,7 @@ function _recompute() {
 
   // For structs, result is an object or array
   // Try to display result fields
+  // Note: Using 'number' as default type since simulations typically produce numeric results
   const resultDiv = document.getElementById('results');
   if (resultDiv) {
     if (typeof result === 'object' && result !== null) {
@@ -567,16 +572,16 @@ function _recompute() {
       // Handle struct (named fields) or tuple (array)
       if (Array.isArray(result)) {
         result.forEach((val, i) => {
-          html += '<div class="result-item"><span class="result-label">field_' + i + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+          html += '<div class="result-item"><span class="result-label">field_' + i + ':</span> <span class="result-value">' + _formatValue(val, 'number') + '</span></div>';
         });
       } else {
         Object.entries(result).forEach(([key, val]) => {
-          html += '<div class="result-item"><span class="result-label">' + key + ':</span> <span class="result-value">' + _formatValue(val) + '</span></div>';
+          html += '<div class="result-item"><span class="result-label">' + key + ':</span> <span class="result-value">' + _formatValue(val, 'number') + '</span></div>';
         });
       }
       resultDiv.innerHTML = html;
     } else {
-      resultDiv.textContent = _formatValue(result);
+      resultDiv.textContent = _formatValue(result, 'number');
     }
   }
 
@@ -589,18 +594,22 @@ ${funcParams.map { case (name, _) =>
   if (typeof _redrawVisualization === 'function') _redrawVisualization();
 }
 
-// Format a value for display
-function _formatValue(v) {
-  if (typeof v === 'number') {
-    return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+// Format a value for display using compile-time type info
+// valueType comes from Bosatsu type analysis, NOT runtime introspection
+function _formatValue(v, valueType) {
+  if (v === undefined) return '(not captured)';
+  switch (valueType) {
+    case 'number':
+      return Number.isInteger(v) ? v.toString() : v.toFixed(2);
+    case 'boolean':
+      // Bosatsu booleans are encoded as [0] (False) or [1] (True)
+      return (Array.isArray(v) ? v[0] === 1 : v) ? 'True' : 'False';
+    case 'string':
+      return String(v);
+    default:
+      // Unknown type - use basic string conversion
+      return String(v);
   }
-  if (Array.isArray(v)) {
-    // Bosatsu list/enum
-    if (v[0] === 0) return 'False/None/[]';
-    if (v[0] === 1 && v.length === 1) return 'True';
-    return JSON.stringify(v);
-  }
-  return String(v);
 }"""
 
     // 3. Generate UI for inputs
@@ -726,18 +735,22 @@ function _formatNumber(v) {
   return v.toLocaleString();
 }
 
-// Format a value for display
-function _formatValue(v) {
-  if (typeof v === 'number') {
-    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+// Format a value for display using compile-time type info
+// valueType comes from Bosatsu type analysis, NOT runtime introspection
+function _formatValue(v, valueType) {
+  if (v === undefined) return '(not captured)';
+  switch (valueType) {
+    case 'number':
+      return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+    case 'boolean':
+      // Bosatsu booleans are encoded as [0] (False) or [1] (True)
+      return (Array.isArray(v) ? v[0] === 1 : v) ? 'True' : 'False';
+    case 'string':
+      return String(v);
+    default:
+      // Unknown type - use basic string conversion
+      return String(v);
   }
-  if (Array.isArray(v)) {
-    // Bosatsu list/enum
-    if (v[0] === 0) return 'False/None/[]';
-    if (v[0] === 1 && v.length === 1) return 'True';
-    return JSON.stringify(v);
-  }
-  return String(v);
 }"""
 
     // 4. Generate UI with config-driven inputs and outputs
@@ -882,18 +895,18 @@ function _explainDerivation(d, depth) {
 function _formatDerivationHeader(d) {
   switch (d.type) {
     case 'assumption':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag">input</span>';
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value, d.valueType) + '</span> <span class="tag">input</span>';
     case 'computed':
-      let result = '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span>';
+      let result = '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value, d.valueType) + '</span>';
       if (d.formula) {
         result += '<br><span class="formula">Formula: ' + d.formula + '</span>';
       }
       result += ' <span class="tag" style="background:#2196f3">computed</span>';
       return result;
     case 'conditional':
-      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value) + '</span> <span class="tag" style="background:#ff9800">conditional</span>';
+      return '<span class="name">' + d.name + '</span> = <span class="value">' + _formatValue(d.value, d.valueType) + '</span> <span class="tag" style="background:#ff9800">conditional</span>';
     default:
-      return d.name + ' = ' + _formatValue(d.value);
+      return d.name + ' = ' + _formatValue(d.value, d.valueType);
   }
 }
 
