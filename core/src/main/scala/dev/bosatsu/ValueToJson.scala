@@ -21,6 +21,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         // to represent None
         !canEncodeToNull(inner)
       case Type.ForAll(_, inner) => canEncodeToNull(inner)
+      case Type.Exists(_, inner) => canEncodeToNull(inner)
       case _                     => false
     }
 
@@ -43,6 +44,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Type.ListT(inner)               => loop(inner, t :: working)
         case Type.DictT(Type.StrType, inner) => loop(inner, t :: working)
         case Type.ForAll(_, _)               => bad
+        case Type.Exists(_, _)               => bad
         case Type.TyVar(_) | Type.TyMeta(_)  => bad
         case Type.Tuple(ts)                  =>
           val w1 = t :: working
@@ -210,6 +212,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               }
 
             case Type.ForAll(_, inner) =>
+              // we assume the generic positions don't matter and to continue
+              loop(inner, tpe :: revPath).value
+            case Type.Exists(_, inner) =>
               // we assume the generic positions don't matter and to continue
               loop(inner, tpe :: revPath).value
             case _ =>
@@ -446,6 +451,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 }
 
               case Type.ForAll(_, inner) =>
+                // we assume the generic positions don't matter and to continue
+                loop(inner, tpe :: revPath).value
+              case Type.Exists(_, inner) =>
                 // we assume the generic positions don't matter and to continue
                 loop(inner, tpe :: revPath).value
               case _ =>

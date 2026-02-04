@@ -56,9 +56,16 @@ object TestUtils {
             checkType(left, bound).asInstanceOf[Type.Rho],
             checkType(right, bound)
           )
-        case q: Type.Quantified =>
-          q.copy(in =
-            checkType(q.in, bound ++ q.vars.toList.map(_._1))
+        case Type.ForAll(vars, in) =>
+          Type.ForAll(
+            vars,
+            checkType(in, bound ++ vars.toList.map(_._1))
+              .asInstanceOf[Type.Rho]
+          )
+        case Type.Exists(vars, in) =>
+          Type.Exists(
+            vars,
+            checkType(in, bound ++ vars.toList.map(_._1))
               .asInstanceOf[Type.Rho]
           )
         case Type.TyConst(_) => t

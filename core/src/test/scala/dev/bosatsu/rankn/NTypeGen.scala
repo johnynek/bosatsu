@@ -115,8 +115,6 @@ object NTypeGen {
           on #:: arg #:: shrink(on).collect { case r: Type.Rho =>
             TyApply(r, arg)
           } #::: shrink(arg).map(TyApply(on, _))
-        case Quantified(_, rho) =>
-          rho #:: LazyList.empty
       }
     Shrink.withLazyList(shrink)
   }
@@ -180,13 +178,13 @@ object NTypeGen {
       as <- Gen.listOfN(c, Gen.zip(genBound, ks))
     } yield as
 
-  lazy val genQuant: Gen[Type.Quantification] =
+  lazy val genQuant: Gen[TypedExpr.Quantification] =
     Gen
       .zip(genQuantArgs, genQuantArgs)
       .flatMap { case (fa, ex0) =>
         val faSet = fa.map(_._1).toSet
         val ex = ex0.filterNot { case (b, _) => faSet(b) }
-        Type.Quantification.fromLists(fa, ex) match {
+        TypedExpr.Quantification.fromLists(fa, ex) match {
           case Some(q) => Gen.const(q)
           case None    => genQuant
         }
@@ -225,8 +223,11 @@ object NTypeGen {
           in <- recurse
         } yield Type.exists(as, in)
 
-      val genQ = Gen.zip(NTypeGen.genQuant, recurse).map { case (q, t) =>
-        Type.quantify(q, t)
+      val genQ = Gen.zip(genQuantArgs, genQuantArgs, recurse).map {
+        case (fa, ex0, t) =>
+          val faSet = fa.map(_._1).toSet
+          val ex = ex0.filterNot { case (b, _) => faSet(b) }
+          Type.quantify(forallList = fa, existList = ex, t)
       }
 
       val genApply = Gen.zip(genTypeRho(d - 1, genC), recurse).map {

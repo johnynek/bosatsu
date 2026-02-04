@@ -253,10 +253,10 @@ object TypedExpr {
         Order[Type].eqv(left, right)
 
       private def eqQuant(
-          left: Type.Quantification,
-          right: Type.Quantification
+          left: Quantification,
+          right: Quantification
       ): Boolean =
-        Order[Type.Quantification].eqv(left, right)
+        Order[Quantification].eqv(left, right)
 
       private def eqBindable(left: Bindable, right: Bindable): Boolean =
         Order[Bindable].eqv(left, right)
@@ -361,6 +361,144 @@ object TypedExpr {
         loop(left, right)
     }
 
+  sealed abstract class Quantification {
+    def vars: NonEmptyList[(Type.Var.Bound, Kind)]
+    def existList: List[(Type.Var.Bound, Kind)]
+    def forallList: List[(Type.Var.Bound, Kind)]
+    def concat(that: Quantification): Quantification
+
+    // Return this quantification, where the vars avoid otherVars
+    def unshadow(
+        otherVars: Set[Type.Var.Bound]
+    ): (Map[Type.Var, Type.TyVar], Quantification) = {
+      def unshadowNel(
+          nel: NonEmptyList[(Type.Var.Bound, Kind)]
+      ): (Map[Type.Var, Type.TyVar], NonEmptyList[(Type.Var.Bound, Kind)]) = {
+        val remap: Map[Type.Var, Type.Var.Bound] = {
+          val collisions = nel.toList.filter { case (b, _) => otherVars(b) }
+          val nonCollisions = nel.iterator.filterNot { case (b, _) =>
+            otherVars(b)
+          }
+          val colMap =
+            Type.alignBinders(collisions, otherVars ++ nonCollisions.map(_._1))
+          colMap.iterator.map { case ((b, _), b1) => (b, b1) }.toMap
+        }
+
+        val nel1 = nel.map { case bk @ (b, k) =>
+          remap.get(b) match {
+            case None     => bk
+            case Some(b1) => (b1, k)
+          }
+        }
+        (remap.view.mapValues(Type.TyVar(_)).toMap, nel1)
+      }
+
+      if (vars.exists { case (b, _) => otherVars(b) }) {
+        this match {
+          case Quantification.Dual(foralls, exists) =>
+            val (mfa, fa) = unshadowNel(foralls)
+            val (mex, ex) = unshadowNel(exists)
+            (mfa ++ mex, Quantification.Dual(fa, ex))
+          case Quantification.ForAll(forAll) =>
+            unshadowNel(forAll).map(Quantification.ForAll(_))
+          case Quantification.Exists(exists) =>
+            unshadowNel(exists).map(Quantification.Exists(_))
+        }
+      } else (Map.empty, this)
+    }
+
+    def filter(fn: Type.Var.Bound => Boolean): Option[Quantification] =
+      Quantification.fromLists(
+        forallList.filter { case (b, _) => fn(b) },
+        existList.filter { case (b, _) => fn(b) }
+      )
+
+    def existsQuant(fn: ((Type.Var.Bound, Kind)) => Boolean): Boolean
+  }
+
+  object Quantification {
+    case class ForAll(vars: NonEmptyList[(Type.Var.Bound, Kind)])
+        extends Quantification {
+      def existList: List[(Type.Var.Bound, Kind)] = Nil
+      def forallList: List[(Type.Var.Bound, Kind)] = vars.toList
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => ForAll(vars ::: vars1)
+          case Exists(evars) => Dual(vars, evars)
+          case Dual(f, e)    => Dual(vars ::: f, e)
+        }
+
+      def existsQuant(fn: ((Type.Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
+    }
+    case class Exists(vars: NonEmptyList[(Type.Var.Bound, Kind)])
+        extends Quantification {
+      def existList: List[(Type.Var.Bound, Kind)] = vars.toList
+      def forallList: List[(Type.Var.Bound, Kind)] = Nil
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => Dual(vars1, vars)
+          case Exists(evars) => Exists(vars ::: evars)
+          case Dual(f, e)    => Dual(f, vars ::: e)
+        }
+
+      def existsQuant(fn: ((Type.Var.Bound, Kind)) => Boolean): Boolean =
+        vars.exists(fn)
+    }
+    case class Dual(
+        foralls: NonEmptyList[(Type.Var.Bound, Kind)],
+        exists: NonEmptyList[(Type.Var.Bound, Kind)]
+    ) extends Quantification {
+
+      lazy val vars = foralls ::: exists
+      def existList: List[(Type.Var.Bound, Kind)] = exists.toList
+      def forallList: List[(Type.Var.Bound, Kind)] = foralls.toList
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => Dual(foralls ::: vars1, exists)
+          case Exists(evars) => Dual(foralls, exists ::: evars)
+          case Dual(f, e)    => Dual(foralls ::: f, exists ::: e)
+        }
+
+      def existsQuant(fn: ((Type.Var.Bound, Kind)) => Boolean): Boolean =
+        foralls.exists(fn) || exists.exists(fn)
+    }
+
+    implicit val quantificationOrder: Order[Quantification] =
+      new Order[Quantification] {
+        val nelist = Order[NonEmptyList[(Type.Var.Bound, Kind)]]
+
+        def compare(a: Quantification, b: Quantification): Int =
+          (a, b) match {
+            case (ForAll(v0), ForAll(v1))         => nelist.compare(v0, v1)
+            case (ForAll(_), _)                   => -1
+            case (Exists(_), ForAll(_))           => 1
+            case (Exists(v0), Exists(v1))         => nelist.compare(v0, v1)
+            case (Exists(_), _)                   => -1
+            case (Dual(fa0, ex0), Dual(fa1, ex1)) =>
+              val c1 = nelist.compare(fa0, fa1)
+              if (c1 != 0) c1
+              else nelist.compare(ex0, ex1)
+            case (Dual(_, _), _) => 1
+          }
+      }
+
+    def fromLists(
+        forallList: List[(Type.Var.Bound, Kind)],
+        existList: List[(Type.Var.Bound, Kind)]
+    ): Option[Quantification] =
+      forallList match {
+        case Nil =>
+          NonEmptyList.fromList(existList).map(Exists(_))
+        case head :: tail =>
+          Some(existList match {
+            case Nil      => ForAll(NonEmptyList(head, tail))
+            case eh :: et =>
+              Dual(NonEmptyList(head, tail), NonEmptyList(eh, et))
+          })
+      }
+  }
+
   type Rho[A] =
     TypedExpr[A] // an expression with a Rho type (no top level forall)
 
@@ -371,10 +509,10 @@ object TypedExpr {
     * The paper says to add TyLam and TyApp nodes, but it never mentions what to
     * do with them
     */
-  case class Generic[T](quant: Type.Quantification, in: TypedExpr[T])
+  case class Generic[T](quant: Quantification, in: TypedExpr[T])
       extends TypedExpr[T] {
-    lazy val quantType: Type.Quantified =
-      Type.quantify(quant, in.getType)
+    lazy val quantType: Type =
+      Type.quantify(quant.forallList, quant.existList, in.getType)
     def tag: T = in.tag
   }
   // Annotation really means "widen", the term has a type that is a subtype of coerce, so we are widening
@@ -1105,7 +1243,7 @@ object TypedExpr {
   type Coerce = FunctionK[TypedExpr, TypedExpr]
 
   private def pushDownCovariant(
-      tpe: Type.Quantified,
+      tpe: Type,
       kinds: Type => Option[Kind]
   ): Type =
     tpe match {
@@ -1178,27 +1316,30 @@ object TypedExpr {
               if (tpe.sameAs(right)) Some(state)
               else None
           }
-        case (fa: Type.Quantified, r) =>
-          if (fa.sameAs(r)) Some(state)
+        case (t, r)
+            if Type.forallList(t).nonEmpty || Type.existList(t).nonEmpty =>
+          if (t.sameAs(r)) Some(state)
           // this will mask solving for the inside values:
           else {
-            val vlist = fa.vars.toList
+            val vlist = Type.quantVars(t)
+            val (_, _, in) = Type.splitQuantifiers(t)
 
             solve(
-              fa.in,
+              in,
               r,
               state,
               solveSet -- vlist.iterator.map(_._1),
               varKinds ++ vlist
             )
           }
-        case (_, fa: Type.Quantified) =>
+        case (_, t)
+            if Type.forallList(t).nonEmpty || Type.existList(t).nonEmpty =>
           val kindsWithVars: Type => Option[Kind] = {
             case v: Type.TyVar => varKinds.get(v.toVar)
             case t             => kinds(t)
           }
-          val fa1 = pushDownCovariant(fa, kindsWithVars)
-          if (fa1 != fa) solve(left, fa1, state, solveSet, varKinds)
+          val t1 = pushDownCovariant(t, kindsWithVars)
+          if (t1 != t) solve(left, t1, state, solveSet, varKinds)
           else {
             // not clear what to do here,
             // the examples that come up look like un-unified
@@ -1219,10 +1360,8 @@ object TypedExpr {
         case (TyApply(_, _), _) => None
       }
 
-    val (bs, in) = gen.quantType match {
-      case Type.ForAll(a, in) => (a.toList, in)
-      case notForAll          => (Nil, notForAll)
-    }
+    val bs = Type.forallList(gen.quantType)
+    val (_, _, in) = Type.splitQuantifiers(gen.quantType)
 
     val solveSet: Set[Var] = bs.iterator.map(_._1).toSet
 
@@ -1231,10 +1370,10 @@ object TypedExpr {
         .map { subs =>
           val freeVars = solveSet -- subs.keySet
           val subBody = substituteTypeVar(gen.in, subs)
-          val freeExists = gen.quantType.existList.filter { case (t, _) =>
+          val freeExists = Type.existList(gen.quantType).filter { case (t, _) =>
             freeVars(t)
           }
-          val freeForall = gen.quantType.forallList.filter { case (t, _) =>
+          val freeForall = Type.forallList(gen.quantType).filter { case (t, _) =>
             freeVars(t)
           }
           val q = Type.quantify(
@@ -1244,14 +1383,19 @@ object TypedExpr {
           )
           q match {
             case _: Type.Rho         => subBody
-            case tq: Type.Quantified =>
-              val newGen = Generic(tq.quant, subBody)
-              pushGeneric(newGen) match {
-                case badOpt @ (None | Some(Generic(_, _))) =>
-                  // just wrap
-                  ann(badOpt.getOrElse(newGen), instTpe)
-                case Some(notGen) => notGen
-              }
+            case _ =>
+              Quantification
+                .fromLists(freeForall, freeExists)
+                .map { quant =>
+                  val newGen = Generic(quant, subBody)
+                  pushGeneric(newGen) match {
+                    case badOpt @ (None | Some(Generic(_, _))) =>
+                      // just wrap
+                      ann(badOpt.getOrElse(newGen), instTpe)
+                    case Some(notGen) => notGen
+                  }
+                }
+                .getOrElse(subBody)
           }
         }
 
@@ -1280,10 +1424,10 @@ object TypedExpr {
   // Invariant, nel must have at least one item in common with quant.vars
   private def filterQuant(
       nel: NonEmptyList[Type.Var],
-      quant: Type.Quantification
-  ): Type.Quantification = {
+      quant: Quantification
+  ): Quantification = {
     val innerSet = nel.toList.toSet
-    Type.Quantification
+    Quantification
       .fromLists(
         forallList = quant.forallList.filter { case (v, _) => innerSet(v) },
         existList = quant.existList.filter { case (v, _) => innerSet(v) }
@@ -1296,7 +1440,8 @@ object TypedExpr {
     g.in match {
       case AnnotatedLambda(args, body, a) =>
         val argFree = Type.freeBoundTyVars(args.toList.map(_._2)).toSet
-        val (outer, inner) = g.quantType.vars.toList.partition { case (b, _) =>
+        val (outer, inner) = Type.quantVars(g.quantType).partition {
+          case (b, _) =>
           argFree(b)
         }
         NonEmptyList.fromList(inner).map { inner =>
@@ -1317,7 +1462,7 @@ object TypedExpr {
           ts | allPatternTypes(p)
         }
         val argFree = Type.freeBoundTyVars(preTypes.toList).toSet
-        if (g.quantType.vars.exists { case (b, _) => argFree(b) }) {
+        if (Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }) {
           None
         } else {
           // the only the branches have generics
@@ -1330,7 +1475,7 @@ object TypedExpr {
         }
       case Let(b, v, in, rec, tag) =>
         val argFree = Type.freeBoundTyVars(v.getType :: Nil).toSet
-        if (g.quantType.vars.exists { case (b, _) => argFree(b) }) {
+        if (Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }) {
           None
         } else {
           val gin = Generic(g.quant, in)
@@ -1854,14 +1999,16 @@ object TypedExpr {
     quantVars(forallList = params.toList, Nil, expr)
 
   def normalizeQuantVars[A](
-      q: Type.Quantification,
+      q: Quantification,
       expr: TypedExpr[A]
   ): TypedExpr[A] =
     expr match {
       case Generic(oldQuant, ex0) =>
         normalizeQuantVars(q.concat(oldQuant), ex0)
       case Annotation(term, tpe)
-          if Type.quantify(q, tpe).sameAs(term.getType) =>
+          if Type
+            .quantify(q.forallList, q.existList, tpe)
+            .sameAs(term.getType) =>
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
       case Annotation(term, tpe)
@@ -1875,7 +2022,7 @@ object TypedExpr {
         if (genTerm.getType.sameAs(tpe)) genTerm
         else Annotation(normalizeQuantVars(q, term), tpe)
       case _ =>
-        import Type.Quantification._
+        import Quantification._
         // We cannot rebind to any used typed inside of expr, but we can reuse
         // any that are q
         val frees: Set[Type.Var.Bound] =
@@ -1948,7 +2095,7 @@ object TypedExpr {
       existList: List[(Type.Var.Bound, Kind)],
       expr: TypedExpr[A]
   ): TypedExpr[A] =
-    Type.Quantification.fromLists(
+    Quantification.fromLists(
       forallList = forallList,
       existList = existList
     ) match {
@@ -1971,7 +2118,7 @@ object TypedExpr {
       args: NonEmptyList[TypedExpr[A]],
       noshadow: Set[Type.Var.Bound]
   ): (
-      Option[Type.Quantification],
+      Option[Quantification],
       NonEmptyList[TypedExpr[A]]
   ) = {
 
@@ -1985,24 +2132,36 @@ object TypedExpr {
     }
 
     htype match {
-      case Type.Quantified(q, rho) =>
-        oq match {
-          case Some(qtail) =>
-            // we have to unshadow with noshadow + all the vars in the tail
-            val (map, q1) =
-              q.unshadow(noshadow ++ qtail.vars.toList.iterator.map(_._1))
-            val rho1 = Type.substituteRhoVar(rho, map)
-            (
-              Some(q1.concat(qtail)),
-              NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
-            )
+      case t if Type.forallList(t).nonEmpty =>
+        val (foralls, exists, rho0) = Type.splitQuantifiers(t)
+        // keep existentials inside the argument type (Exists is a Rho)
+        val rho: Type.Rho =
+          NonEmptyList.fromList(exists) match {
+            case None        => rho0
+            case Some(exNel) => Type.Exists(exNel, rho0)
+          }
+        Quantification.fromLists(foralls, Nil) match {
+          case Some(q) =>
+            oq match {
+              case Some(qtail) =>
+                // we have to unshadow with noshadow + all the vars in the tail
+                val (map, q1) =
+                  q.unshadow(noshadow ++ qtail.vars.toList.iterator.map(_._1))
+                val rho1 = Type.substituteRhoVar(rho, map)
+                (
+                  Some(q1.concat(qtail)),
+                  NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+                )
+              case None =>
+                val (map, q1) = q.unshadow(noshadow)
+                val rho1 = Type.substituteRhoVar(rho, map)
+                (
+                  Some(q1),
+                  NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+                )
+            }
           case None =>
-            val (map, q1) = q.unshadow(noshadow)
-            val rho1 = Type.substituteRhoVar(rho, map)
-            (
-              Some(q1),
-              NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
-            )
+            (oq, NonEmptyList(args.head, rest))
         }
 
       case _ =>

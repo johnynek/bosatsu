@@ -75,7 +75,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def tpeArity(t: Type): Int =
         t match {
-          case Type.Fun.MaybeQuant(_, args, _) => args.length
+          case Type.Fun.MaybeQuant(args, _) => args.length
           case _                               => 0
         }
 

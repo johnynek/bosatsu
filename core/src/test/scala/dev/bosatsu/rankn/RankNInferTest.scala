@@ -2173,8 +2173,10 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
 
     val res = infer.runFully(Map.empty, Map.empty, kinds)
     res match {
-      case Left(Infer.Error.NotUnifiable(_, _, _, _)) => assert(true)
-      case other => fail(s"expected NotUnifiable, got: $other")
+      case Left(Infer.Error.SubsumptionCheckFailure(_, _, _, _, _)) =>
+        assert(true)
+      case other =>
+        fail(s"expected SubsumptionCheckFailure, got: $other")
     }
   }
 
@@ -2204,8 +2206,10 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
 
     val res = infer.runFully(Map.empty, Map.empty, kinds)
     res match {
-      case Left(Infer.Error.NotUnifiable(_, _, _, _)) => assert(true)
-      case other => fail(s"expected NotUnifiable, got: $other")
+      case Left(Infer.Error.SubsumptionCheckFailure(_, _, _, _, _)) =>
+        assert(true)
+      case other =>
+        fail(s"expected SubsumptionCheckFailure, got: $other")
     }
   }
 
