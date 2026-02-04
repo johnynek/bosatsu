@@ -45,17 +45,14 @@ while ___t10[0] != 0:
 ___a7 = "".join(___t9)
 ___t11 = 0
 ___t12 = ___a7.partition("atticus")
-if ___t12[1] != "":
-    ___a8 = ___t12[0]
-    ___a9 = ___t12[2]
-    ___bleft0 = ___a8
-    ___bright0 = ___a9
-    ___a4 = (___bleft0, ___bright0)
-    ___a6 = ___a4[1]
-    ___a5 = ___a4[0]
-    res4 = (___a5 == "hello ") and (___a6 == " and mahina")
-else:
-    res4 = 0
+___a8 = ___t12[0]
+___a9 = ___t12[2]
+___bleft0 = ___a8
+___bright0 = ___a9
+___a4 = (___bleft0, ___bright0)
+___a6 = ___a4[1]
+___a5 = ___a4[0]
+res4 = (___a5 == "hello ") and (___a6 == " and mahina")
 
 test = (1,
     "interpolation",

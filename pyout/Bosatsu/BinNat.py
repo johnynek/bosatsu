@@ -2,6 +2,28 @@ import Bosatsu.Nat as ___iNat0
 import Bosatsu.Predef as ___iPredef1
 import unittest as ___iunittest2
 
+def ___h15(___bn20, ___bcur0, ___bnext0):
+    ___a40 = ___bn20
+    ___a42 = ___bcur0
+    ___a44 = ___bnext0
+    ___a37 = 1
+    ___t16 = ___a37 == 1
+    while ___t16:
+        if ___a40 == 0:
+            ___a37 = 0
+            ___a38 = ___a42
+        else:
+            ___a36 = ___a40 - 1
+            ___bn21 = ___a36
+            ___a39 = ___bn21
+            ___a41 = ___a44
+            ___a43 = add_BinNat(___a42, ___a44)
+            ___a40 = ___a39
+            ___a42 = ___a41
+            ___a44 = ___a43
+        ___t16 = ___a37 == 1
+    return ___a38
+
 def is_even(___bb0):
     return 1 if ___bb0[0] == 0 else ___bb0[0] == 2
 
@@ -236,7 +258,6 @@ def times_BinNat(___bleft7, ___bright11):
 one = (1, (0,))
 
 def divmod(___bnumerator0, ___bdivisor0):
-    ___t13 = (___bdivisor0,)
     def ___bloop0(___bnumerator1):
         if ___bnumerator1[0] == 1:
             ___bn16 = ___bnumerator1[1]
@@ -244,19 +265,19 @@ def divmod(___bnumerator0, ___bdivisor0):
             ___bd10 = ___a20[0]
             ___bm10 = ___a20[1]
             ___bm2 = (1, ___bm10)
-            ___a19 = cmp_BinNat(___bm2, ___t13[0])
+            ___a19 = cmp_BinNat(___bm2, ___bdivisor0)
             if ___a19 == 0:
                 return (times2(___bd10), ___bm2)
             else:
-                ___a16 = sub_Option(___bm2, ___t13[0])
+                ___a16 = sub_Option(___bm2, ___bdivisor0)
                 ___bm20 = ___a16[1] if ___a16[0] == 1 else (0,)
-                ___a18 = cmp_BinNat(___bm20, ___t13[0])
+                ___a18 = cmp_BinNat(___bm20, ___bdivisor0)
                 if ___a18 == 0:
                     return ((1, ___bd10), ___bm20)
                 elif ___a18 == 1:
                     return ((2, ___bd10), (0,))
                 else:
-                    ___a17 = sub_Option(___bm20, ___t13[0])
+                    ___a17 = sub_Option(___bm20, ___bdivisor0)
                     return ((2, ___bd10), ___a17[1] if ___a17[0] == 1 else (0,))
         elif ___bnumerator1[0] == 2:
             ___bn17 = ___bnumerator1[1]
@@ -264,29 +285,29 @@ def divmod(___bnumerator0, ___bdivisor0):
             ___bd11 = ___a25[0]
             ___bm11 = ___a25[1]
             ___bm3 = (2, ___bm11)
-            ___a24 = cmp_BinNat(___bm3, ___t13[0])
+            ___a24 = cmp_BinNat(___bm3, ___bdivisor0)
             if ___a24 == 0:
                 return (times2(___bd11), ___bm3)
             else:
-                ___a21 = sub_Option(___bm3, ___t13[0])
+                ___a21 = sub_Option(___bm3, ___bdivisor0)
                 ___bm21 = ___a21[1] if ___a21[0] == 1 else (0,)
-                ___a23 = cmp_BinNat(___bm21, ___t13[0])
+                ___a23 = cmp_BinNat(___bm21, ___bdivisor0)
                 if ___a23 == 0:
                     return ((1, ___bd11), ___bm21)
                 elif ___a23 == 1:
                     return ((2, ___bd11), (0,))
                 else:
-                    ___a22 = sub_Option(___bm21, ___t13[0])
+                    ___a22 = sub_Option(___bm21, ___bdivisor0)
                     return ((2, ___bd11), ___a22[1] if ___a22[0] == 1 else (0,))
         else:
             return ((0,), (0,))
     if ___bdivisor0[0] == 1:
         ___a26 = ___bdivisor0[1]
-        ___t14 = ___a26[0] == 0
+        ___t13 = ___a26[0] == 0
     else:
-        ___t14 = False
+        ___t13 = False
     return (___bnumerator0,
-        (0,)) if ___t14 else ___bloop0(___bnumerator0) if ___bdivisor0[0] == 1 else ___bloop0(___bnumerator0) if ___bdivisor0[0] == 2 else ((0,),
+        (0,)) if ___t13 else ___bloop0(___bnumerator0) if ___bdivisor0[0] == 1 else ___bloop0(___bnumerator0) if ___bdivisor0[0] == 2 else ((0,),
         ___bnumerator0)
 
 def exp(___bbase0, ___bpower0):
@@ -302,14 +323,13 @@ def exp(___bbase0, ___bpower0):
         return times_BinNat(___bbn10, ___bbn10)
 
 def fold_left_BinNat(___bfn1, ___binit0, ___bcnt0):
-    ___t15 = (___bfn1,)
     def ___bloop1(___binit1, ___bcnt1, ___bcnt__Nat0):
         ___a31 = ___binit1
         ___a33 = ___bcnt1
         ___a35 = ___bcnt__Nat0
         ___a28 = 1
-        ___t16 = ___a28 == 1
-        while ___t16:
+        ___t14 = ___a28 == 1
+        while ___t14:
             if ___a35 == 0:
                 ___a28 = 0
                 ___a29 = ___a31
@@ -317,40 +337,19 @@ def fold_left_BinNat(___bfn1, ___binit0, ___bcnt0):
                 ___a27 = ___a35 - 1
                 ___bprevNat0 = ___a27
                 ___bcnt2 = prev(___a33)
-                ___a30 = ___t15[0](___a31, ___bcnt2)
+                ___a30 = ___bfn1(___a31, ___bcnt2)
                 ___a32 = ___bcnt2
                 ___a34 = ___bprevNat0
                 ___a31 = ___a30
                 ___a33 = ___a32
                 ___a35 = ___a34
-            ___t16 = ___a28 == 1
+            ___t14 = ___a28 == 1
         return ___a29
     return ___bloop1(___binit0, ___bcnt0, toNat(___bcnt0))
 
 def fib(___bb10):
-    def ___bloop2(___bn20, ___bcur0, ___bnext0):
-        ___a40 = ___bn20
-        ___a42 = ___bcur0
-        ___a44 = ___bnext0
-        ___a37 = 1
-        ___t17 = ___a37 == 1
-        while ___t17:
-            if ___a40 == 0:
-                ___a37 = 0
-                ___a38 = ___a42
-            else:
-                ___a36 = ___a40 - 1
-                ___bn21 = ___a36
-                ___a39 = ___bn21
-                ___a41 = ___a44
-                ___a43 = add_BinNat(___a42, ___a44)
-                ___a40 = ___a39
-                ___a42 = ___a41
-                ___a44 = ___a43
-            ___t17 = ___a37 == 1
-        return ___a38
     ___bone0 = (1, (0,))
-    return ___bloop2(toNat(___bb10), ___bone0, ___bone0)
+    return ___h15(toNat(___bb10), ___bone0, ___bone0)
 
 def next_law(___bi0, ___bmsg0):
     return (0, toInt(next(toBinNat(___bi0))) == (___bi0 + 1), ___bmsg0)
@@ -364,18 +363,18 @@ three = next(two)
 
 four = next(three)
 
-def ___t18(___ba2):
+def ___t17(___ba2):
     ___bi2 = ___ba2[0]
     return (0, toInt(toBinNat(___bi2)) == ___bi2, ___ba2[1])
-def ___t19(___ba3):
+def ___t18(___ba3):
     return next_law(___ba3[0], ___ba3[1])
-def ___t20(___ba4):
+def ___t19(___ba4):
     return times2_law(___ba4[0], ___ba4[1])
-___t22 = []
-___t23 = (1, "fib(3) == 3 (got ", (1, toInt(fib(three)).__str__(), (1, ")", (0,))))
-while ___t23[0] != 0:
-    ___t22.append(___t23[1])
-    ___t23 = ___t23[2]
+___t21 = []
+___t22 = (1, "fib(3) == 3 (got ", (1, toInt(fib(three)).__str__(), (1, ")", (0,))))
+while ___t22[0] != 0:
+    ___t21.append(___t22[1])
+    ___t22 = ___t22[2]
 ___a45 = cmp_BinNat(toBinNat(54), toBinNat(54))
 test = (1,
     "BinNat tests",
@@ -416,7 +415,7 @@ test = (1,
                                                                                 (72,
                                                                                     "roundtrip 72"),
                                                                                 (0,)))))))))))),
-                                    ___t18)),
+                                    ___t17)),
                             (1,
                                 (1,
                                     "next law",
@@ -427,7 +426,7 @@ test = (1,
                                                 (1,
                                                     (10, "10.next"),
                                                     (1, (113, "113.next"), (0,))))),
-                                        ___t19)),
+                                        ___t18)),
                                 (1,
                                     (0, toInt(prev(next(toBinNat(0)))) == 0, "0.next().prev == 0"),
                                     (1,
@@ -457,7 +456,7 @@ test = (1,
                                                                             (1,
                                                                                 (10, "10 * 2"),
                                                                                 (0,)))))),
-                                                            ___t20)),
+                                                            ___t19)),
                                                     (1,
                                                         (0,
                                                             toInt(times_BinNat(toBinNat(10),
@@ -495,7 +494,7 @@ test = (1,
                                                                                 (1,
                                                                                     (0,
                                                                                         toInt(fib(three)) == 3,
-                                                                                        "".join(___t22)),
+                                                                                        "".join(___t21)),
                                                                                     (1,
                                                                                         (0,
                                                                                             toInt(fib(four)) == 5,
@@ -512,8 +511,8 @@ class BosatsuTests(___iunittest2.TestCase):
             if value[0] == 0:
                 self.assertTrue(value[1], value[2])
             else:
-                ___t24 = value[2]
-                while ___t24[0] != 0:
-                    test_loop(___t24[1])
-                    ___t24 = ___t24[2]
+                ___t23 = value[2]
+                while ___t23[0] != 0:
+                    test_loop(___t23[1])
+                    ___t23 = ___t23[2]
         test_loop(test)

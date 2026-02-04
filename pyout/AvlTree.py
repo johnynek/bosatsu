@@ -92,21 +92,20 @@ def balance(___bt0):
 
 def add_item(___bord0, ___btree0, ___bitem2):
     ___bfn0 = ___bord0
-    ___t0 = (___bfn0, ___bitem2)
     def ___bloop0(___btree1):
         if ___btree1[0] == 0:
-            return (1, 1, 1, ___t0[1], (0,), (0,))
+            return (1, 1, 1, ___bitem2, (0,), (0,))
         else:
             ___bs0 = ___btree1[1]
             ___bh0 = ___btree1[2]
             ___bitem00 = ___btree1[3]
             ___bleft5 = ___btree1[4]
             ___bright4 = ___btree1[5]
-            ___a9 = ___t0[0](___t0[1], ___bitem00)
+            ___a9 = ___bfn0(___bitem2, ___bitem00)
             return (1,
                 ___bs0,
                 ___bh0,
-                ___t0[1],
+                ___bitem2,
                 ___bleft5,
                 ___bright4) if ___a9 == 1 else balance(branch(___bs0 + 1,
                     ___bitem00,
@@ -119,12 +118,11 @@ def add_item(___bord0, ___btree0, ___bitem2):
 
 def contains(___bord1, ___btree2, ___bitem3):
     ___bfn1 = ___bord1
-    ___t1 = (___bfn1, ___bitem3)
     def ___bloop1(___btree3):
         ___a14 = ___btree3
         ___a11 = 1
-        ___t2 = ___a11 == 1
-        while ___t2:
+        ___t0 = ___a11 == 1
+        while ___t0:
             if ___a14[0] == 0:
                 ___a11 = 0
                 ___a12 = (0,)
@@ -132,7 +130,7 @@ def contains(___bord1, ___btree2, ___bitem3):
                 ___bkey0 = ___a14[3]
                 ___bleft6 = ___a14[4]
                 ___bright5 = ___a14[5]
-                ___a10 = ___t1[0](___t1[1], ___bkey0)
+                ___a10 = ___bfn1(___bitem3, ___bkey0)
                 if ___a10 == 1:
                     ___a11 = 0
                     ___a12 = (1, ___bkey0)
@@ -142,25 +140,25 @@ def contains(___bord1, ___btree2, ___bitem3):
                 else:
                     ___a13 = ___bright5
                     ___a14 = ___a13
-            ___t2 = ___a11 == 1
+            ___t0 = ___a11 == 1
         return ___a12
     return ___bloop1(___btree2)
 
 def min(___btree4):
     ___a19 = ___btree4
     ___a16 = 1
-    ___t4 = ___a16 == 1
-    while ___t4:
+    ___t2 = ___a16 == 1
+    while ___t2:
         if ___a19[0] == 0:
             ___a16 = 0
             ___a17 = (0,)
         else:
             if ___a19[0] == 1:
                 ___a15 = ___a19[4]
-                ___t3 = ___a15[0] == 0
+                ___t1 = ___a15[0] == 0
             else:
-                ___t3 = False
-            if ___t3:
+                ___t1 = False
+            if ___t1:
                 ___a16 = 0
                 ___bkey1 = ___a19[3]
                 ___a17 = (1, ___bkey1)
@@ -168,12 +166,11 @@ def min(___btree4):
                 ___bleft7 = ___a19[4]
                 ___a18 = ___bleft7
                 ___a19 = ___a18
-        ___t4 = ___a16 == 1
+        ___t2 = ___a16 == 1
     return ___a17
 
 def remove_item(___bord2, ___btree5, ___bitem4):
     ___bfn2 = ___bord2
-    ___t5 = (___bfn2, ___bitem4)
     def ___bloop2(___btree6):
         if ___btree6[0] == 0:
             return (0,)
@@ -182,7 +179,7 @@ def remove_item(___bord2, ___btree5, ___bitem4):
             ___bkey2 = ___btree6[3]
             ___bleft8 = ___btree6[4]
             ___bright6 = ___btree6[5]
-            ___a20 = ___t5[0](___t5[1], ___bkey2)
+            ___a20 = ___bfn2(___bitem4, ___bkey2)
             return (___bleft8 if ___bright6[0] == 0 else balance(branch(___bsize0 + -1,
                     ___bkey2,
                     ___bleft8,
@@ -212,21 +209,16 @@ def fold_right_Tree(___bt2, ___bright__v0, ___bfn4):
             ___bfn4)
 
 def module(___bord3):
-    ___t7 = (___bord3,)
-    def ___t6(___bt3, ___ba0):
-        return add_item(___t7[0], ___bt3, ___ba0)
-    ___t9 = (___bord3,)
-    def ___t8(___ba1):
-        return add_item(___t9[0], (0,), ___ba1)
-    ___t11 = (___bord3,)
-    def ___t10(___bt4, ___ba2):
-        return contains(___t11[0], ___bt4, ___ba2)
-    ___t13 = (___bord3,)
-    def ___t12(___bt5, ___ba3):
-        return remove_item(___t13[0], ___bt5, ___ba3)
-    return (___bord3, (0,), ___t6, ___t8, ___t10, ___t12, fold_left_Tree, fold_right_Tree)
+    return (___bord3,
+        (0,),
+        lambda ___bt3, ___ba0: add_item(___bord3, ___bt3, ___ba0),
+        lambda ___ba1: add_item(___bord3, (0,), ___ba1),
+        lambda ___bt4, ___ba2: contains(___bord3, ___bt4, ___ba2),
+        lambda ___bt5, ___ba3: remove_item(___bord3, ___bt5, ___ba3),
+        fold_left_Tree,
+        fold_right_Tree)
 
-_a = module(lambda ___t14, ___t15: 0 if ___t14 < ___t15 else 1 if ___t14 == ___t15 else 2)
+_a = module(lambda ___t7, ___t8: 0 if ___t7 < ___t8 else 1 if ___t7 == ___t8 else 2)
 
 ___a21 = _a[4](_a[2]((0,), 2), 2)
 ___a22 = _a[4](_a[2](_a[3](2), 2), 2)
@@ -280,29 +272,29 @@ size_tests = (1,
                     (1, rem_decreases_size(_a[2](_a[3](2), 3), 2, "single(2) + 3 - 2"), (0,)))))))
 
 def log2(___bi4):
-    ___t17 = 0 < ___bi4
-    ___t18 = 0
-    ___t19 = ___bi4
-    ___t20 = 0
-    while ___t17:
-        ___t21 = ___t19 // 2
-        ___t20 = ___t20 + 1
-        ___t17 = (0 < ___t21) and (___t21 < ___t19)
-        ___t19 = ___t21
-    return ___t20
+    ___t10 = 0 < ___bi4
+    ___t11 = 0
+    ___t12 = ___bi4
+    ___t13 = 0
+    while ___t10:
+        ___t14 = ___t12 // 2
+        ___t13 = ___t13 + 1
+        ___t10 = (0 < ___t14) and (___t14 < ___t12)
+        ___t12 = ___t14
+    return ___t13
 
-def ___t22(___bn1):
+def ___t15(___bn1):
     ___bt8 = ___iPredef0.foldl_List(___iPredef0.range(___bn1), (0,), _a[2])
     ___bh1 = 0 if ___bt8[0] == 0 else ___bt8[2]
     ___bn10 = 0 if ___bt8[0] == 0 else ___bt8[1]
     ___a34 = 0 if (___bh1 + ___bh1) < (log2(___bn10 + 2) + log2(___bn10 + 2) + log2(___bn10 + 2)) else 1 if (___bh1 + ___bh1) == (log2(___bn10 + 2) + log2(___bn10 + 2) + log2(___bn10 + 2)) else 2
-    ___t23 = []
-    ___t24 = (1, "size_law for range(", (1, ___bn10.__str__(), (1, ")", (0,))))
-    while ___t24[0] != 0:
-        ___t23.append(___t24[1])
-        ___t24 = ___t24[2]
-    return (0, ___a34 == 0, "".join(___t23))
-height_tests = (1, "height_tests", ___iPredef0.map_List(___iPredef0.range(30), ___t22))
+    ___t16 = []
+    ___t17 = (1, "size_law for range(", (1, ___bn10.__str__(), (1, ")", (0,))))
+    while ___t17[0] != 0:
+        ___t16.append(___t17[1])
+        ___t17 = ___t17[2]
+    return (0, ___a34 == 0, "".join(___t16))
+height_tests = (1, "height_tests", ___iPredef0.map_List(___iPredef0.range(30), ___t15))
 
 fold_left_tests = (1,
     "fold_left_tests",
@@ -360,8 +352,8 @@ class BosatsuTests(___iunittest1.TestCase):
             if value[0] == 0:
                 self.assertTrue(value[1], value[2])
             else:
-                ___t29 = value[2]
-                while ___t29[0] != 0:
-                    test_loop(___t29[1])
-                    ___t29 = ___t29[2]
+                ___t22 = value[2]
+                while ___t22[0] != 0:
+                    test_loop(___t22[1])
+                    ___t22 = ___t22[2]
         test_loop(tests)

@@ -12,12 +12,15 @@ from typing import Optional
 
 def pure(a): return (0, a)
 
-# Stubs for Bosatsu/IO and Bosatsu/UI - these are JS-only APIs
+# Stubs for Bosatsu/IO, Bosatsu/UI, and Bosatsu/Numeric - these are JS-only APIs
 def io_stub(*args):
     raise NotImplementedError("Bosatsu/IO externals are not supported in Python")
 
 def ui_stub(*args):
     raise NotImplementedError("Bosatsu/UI externals are not supported in Python")
+
+def numeric_stub(*args):
+    raise NotImplementedError("Bosatsu/Numeric externals are not supported in Python")
 def raise_error(e): return (1, e)
 def flat_map(p, f): return (2, p, f)
 def recover(p, f): return (3, p, f)

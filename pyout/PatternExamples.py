@@ -11,18 +11,15 @@ ___t2 = 0
 if combine.startswith("foo: ", 0):
     ___t2 = ___t2 + 5
     ___t3 = combine[5:].partition(" bar: ")
-    if ___t3[1] != "":
-        ___a3 = ___t3[0]
-        ___a4 = ___t3[2]
-        ___bf0 = ___a3
-        ___bb0 = ___a4
-        ___a0 = 0 if ___bf0 < "this is foo" else 1 if ___bf0 == "this is foo" else 2
-        ___a2 = ___a0 == 1
-        if ___a2 == 1:
-            ___a1 = 0 if ___bb0 < "this is bar" else 1 if ___bb0 == "this is bar" else 2
-            fb = ___a1 == 1
-        else:
-            fb = 0
+    ___a3 = ___t3[0]
+    ___a4 = ___t3[2]
+    ___bf0 = ___a3
+    ___bb0 = ___a4
+    ___a0 = 0 if ___bf0 < "this is foo" else 1 if ___bf0 == "this is foo" else 2
+    ___a2 = ___a0 == 1
+    if ___a2 == 1:
+        ___a1 = 0 if ___bb0 < "this is bar" else 1 if ___bb0 == "this is bar" else 2
+        fb = ___a1 == 1
     else:
         fb = 0
 else:
@@ -38,13 +35,10 @@ def get_foos(___bs0):
     if ___t7 > -1:
         ___t8 = ___t7 + 6
         ___t9 = ___bs0[___t8:].partition(")")
-        if ___t9[1] != "":
-            ___a5 = ___t9[0]
-            ___a6 = ___t9[2]
-            ___t6 = True
-            ___t5 = -1
-        else:
-            ___t5 = ___t7 + 1
+        ___a5 = ___t9[0]
+        ___a6 = ___t9[2]
+        ___t6 = True
+        ___t5 = -1
     else:
         ___t5 = -1
     if ___t6:

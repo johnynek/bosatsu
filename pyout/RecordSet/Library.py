@@ -7,12 +7,11 @@ def list_of_rows(___bb0):
     ___bgetters0 = ___bb0[2]
     ___btraverse0 = ___bb0[3]
     ___brecord__to__list0 = ___bb0[4]
-    ___t1 = (___brecord__to__list0, ___btraverse0, ___bgetters0, ___bfields0)
     def ___t0(___brow0):
-        ___t3 = (___t1[3], ___brow0)
-        def ___t2(___ba0):
-            return ___ba0[0](___t3[0])[1](___ba0[1](___t3[1]))
-        return ___t1[0](___t1[1](___t1[2])(___t2))
+        ___t2 = (___bfields0, ___brow0)
+        def ___t1(___ba0):
+            return ___ba0[0](___t2[0])[1](___ba0[1](___t2[1]))
+        return ___brecord__to__list0(___btraverse0(___bgetters0)(___t1))
     return ___iPredef0.map_List(___brows0, ___t0)
 
 def restructure(___ba1, ___bf0):
@@ -42,47 +41,37 @@ def ps(___bc0, ___bd0):
     ___bgetters10 = ___bd0[2]
     ___btraverse10 = ___bd0[3]
     ___brecord__to__list10 = ___bd0[4]
-    def ___t12(___bb1):
+    def ___t11(___bb1):
         ___bf10 = ___bb1[0]
         ___bv10 = ___bb1[1]
-        ___t14 = (___bf10,)
-        def ___t13(___ba10):
-            return ___t14[0](___ba10[1])
-        ___t16 = (___bv10,)
-        def ___t15(___ba11):
-            return ___t16[0](___ba11[1])
-        return (___t13, ___t15)
-    ___bgetters20 = ___btraverse10(___bgetters10)(___t12)
-    ___t18 = (___bfF0, ___breshaper1F0)
-    def ___t17(___bsh10):
-        return (___t18[0](___bsh10), ___t18[1](___bsh10))
-    ___t20 = (___bfV0, ___breshaper1V0)
-    def ___t19(___bsh11):
-        return (___t20[0](___bsh11), ___t20[1](___bsh11))
-    ___t24 = (___btraverse10,)
-    def ___t23(___ba14):
+        def ___t12(___ba10):
+            return ___bf10(___ba10[1])
+        def ___t13(___ba11):
+            return ___bv10(___ba11[1])
+        return (___t12, ___t13)
+    ___bgetters20 = ___btraverse10(___bgetters10)(___t11)
+    def ___t18(___ba14):
         ___bx0 = ___ba14[0]
         ___bsh22 = ___ba14[1]
-        ___t26 = (___bx0, ___t24[0], ___bsh22)
-        def ___t25(___bg0):
-            return (___bg0(___t26[0]), ___t26[1](___t26[2])(___bg0))
-        return ___t25
-    ___t28 = (___brecord__to__list10,)
-    def ___t27(___ba15):
-        return ___iPredef0.concat((1, ___ba15[0], (0,)), ___t28[0](___ba15[1]))
-    return (___t17,
-        ___t19,
+        ___t20 = (___bx0, ___btraverse10, ___bsh22)
+        def ___t19(___bg0):
+            return (___bg0(___t20[0]), ___t20[1](___t20[2])(___bg0))
+        return ___t19
+    def ___t21(___ba15):
+        return ___iPredef0.concat((1, ___ba15[0], (0,)), ___brecord__to__list10(___ba15[1]))
+    return (lambda ___bsh10: (___bfF0(___bsh10), ___breshaper1F0(___bsh10)),
+        lambda ___bsh11: (___bfV0(___bsh11), ___breshaper1V0(___bsh11)),
         ((lambda ___ba12: ___ba12[0], lambda ___ba13: ___ba13[0]), ___bgetters20),
-        ___t23,
-        ___t27)
+        ___t18,
+        ___t21)
 
 def equal_List(___bis__equal0, ___bl10, ___bl20):
     ___a7 = ___bis__equal0
     ___a9 = ___bl10
     ___a11 = ___bl20
     ___a4 = 1
-    ___t29 = ___a4 == 1
-    while ___t29:
+    ___t22 = ___a4 == 1
+    while ___t22:
         if ___a9[0] == 0:
             ___a4 = 0
             ___a5 = ___a11[0] == 0
@@ -104,7 +93,7 @@ def equal_List(___bis__equal0, ___bl10, ___bl20):
                 else:
                     ___a4 = 0
                     ___a5 = 0
-        ___t29 = ___a4 == 1
+        ___t22 = ___a4 == 1
     return ___a5
 
 def equal_RowEntry(___bre10, ___bre20):
@@ -195,22 +184,12 @@ def equal_RowEntry(___bre10, ___bre20):
 def equal_rows(___ba16, ___bb2):
     return equal_List(equal_RowEntry, ___ba16, ___bb2)
 
-def ___t30(___ba17):
-    ___brf0 = ("String field", lambda ___t31: (2, ___t31))
-    ___t33 = (___brf0,)
-    def ___t32(___ba18):
-        return ___t33[0]
-    ___brf1 = ("Int field", lambda ___t35: (1, ___t35))
-    ___t37 = (___brf1,)
-    def ___t36(___ba20):
-        return ___t37[0]
-    ___brf2 = ("Bool field", lambda ___t39: (0, ___t39))
-    ___t41 = (___brf2,)
-    def ___t40(___ba22):
-        return ___t41[0]
-    return ps((___t32, lambda ___ba19: ""),
-        ps((___t36, lambda ___ba21: 0), ps((___t40, lambda ___ba23: 1), ps_end)))
-rs_empty = restructure(new_record_set, ___t30)
+def ___t23(___ba17):
+    return ps((lambda ___ba18: ("String field", lambda ___t24: (2, ___t24)), lambda ___ba19: ""),
+        ps((lambda ___ba20: ("Int field", lambda ___t27: (1, ___t27)), lambda ___ba21: 0),
+            ps((lambda ___ba22: ("Bool field", lambda ___t30: (0, ___t30)), lambda ___ba23: 1),
+                ps_end)))
+rs_empty = restructure(new_record_set, ___t23)
 
 ___bfields2 = rs_empty[0]
 ___brows2 = rs_empty[1]
@@ -223,21 +202,17 @@ rs = (___bfields2,
     ___btraverse2,
     ___brecord__to__list2)
 
-def ___t43(___bd1):
+def ___t33(___bd1):
     ___a34 = ___bd1[1]
     ___a35 = ___a34[1]
     ___ba24 = ___bd1[0]
     ___bb3 = ___a34[0]
     ___bc1 = ___a35[0]
-    ___brf3 = ("Plus 2", lambda ___t44: (1, ___t44))
-    ___t46 = (___brf3,)
-    def ___t45(___ba25):
-        return ___t46[0]
-    ___t48 = (___bb3,)
-    def ___t47(___bsh0):
-        return ___t48[0][1](___bsh0) + 2
-    return ps(___bc1, ps(___bb3, ps(___ba24, ps((___t45, ___t47), ps_end))))
-rs0 = restructure(rs, ___t43)
+    ___brf3 = ("Plus 2", lambda ___t34: (1, ___t34))
+    def ___t36(___bsh0):
+        return ___bb3[1](___bsh0) + 2
+    return ps(___bc1, ps(___bb3, ps(___ba24, ps((lambda ___ba25: ___brf3, ___t36), ps_end))))
+rs0 = restructure(rs, ___t33)
 
 tests = (1,
     "reordering",
@@ -255,8 +230,8 @@ class BosatsuTests(___iunittest1.TestCase):
             if value[0] == 0:
                 self.assertTrue(value[1], value[2])
             else:
-                ___t49 = value[2]
-                while ___t49[0] != 0:
-                    test_loop(___t49[1])
-                    ___t49 = ___t49[2]
+                ___t37 = value[2]
+                while ___t37[0] != 0:
+                    test_loop(___t37[1])
+                    ___t37 = ___t37[2]
         test_loop(tests)
