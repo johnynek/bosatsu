@@ -3509,7 +3509,7 @@ def makeFoo(v: Int): Foo(Id(v))
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package Foo
-kind error: the type: ?1 of kind: (* -> *) -> * at: 
+kind error: the type: ?0 of kind: (* -> *) -> * at: 
 Region(183,188)
 
 cannot be unified with the type Foo::Id of kind: +* -> *
