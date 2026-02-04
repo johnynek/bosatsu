@@ -224,4 +224,156 @@ def double_it(x: Int) -> Int:
     assertNotEquals(write, unknown)
     assertNotEquals(read, unknown)
   }
+
+  test("BatchGroup - equality") {
+    val bg1 = BatchGroup("DB", "get", "getMany", Nil, 3)
+    val bg2 = BatchGroup("DB", "get", "getMany", Nil, 3)
+    val bg3 = BatchGroup("DB", "set", "setMany", Nil, 2)
+
+    assertEquals(bg1, bg2)
+    assertNotEquals(bg1, bg3)
+  }
+
+  test("BatchConfig - default values") {
+    val config = BatchConfig.default
+    assert(config.batchableMethods.contains("get"))
+    assert(config.readMethods.contains("get"))
+    assert(config.writeMethods.contains("set"))
+  }
+
+  test("HandlerParam - equality") {
+    import dev.bosatsu.Identifier
+    val name1 = Identifier.Name("x")
+    val param1 = HandlerParam(name1, false, Set.empty)
+    val param2 = HandlerParam(name1, false, Set.empty)
+    val param3 = HandlerParam(name1, true, Set("get"))
+
+    assertEquals(param1, param2)
+    assertNotEquals(param1, param3)
+  }
+
+  test("HandlerResult - equality") {
+    val hr1 = HandlerResult("{\"x\": 1}", Some("{\"trace\": []}"))
+    val hr2 = HandlerResult("{\"x\": 1}", Some("{\"trace\": []}"))
+    val hr3 = HandlerResult("{\"x\": 2}", None)
+
+    assertEquals(hr1, hr2)
+    assertNotEquals(hr1, hr3)
+  }
+
+  test("ServiceResponse.Success") {
+    val resp: ServiceResponse = ServiceResponse.Success("handler1", "{\"result\": 42}", None)
+    resp match {
+      case ServiceResponse.Success(h, r, p) =>
+        assertEquals(h, "handler1")
+        assertEquals(r, "{\"result\": 42}")
+        assertEquals(p, None)
+      case _ => fail("Expected Success")
+    }
+  }
+
+  test("ServiceResponse.Error") {
+    val resp: ServiceResponse = ServiceResponse.Error("handler1", "Something went wrong", 500)
+    resp match {
+      case ServiceResponse.Error(h, e, c) =>
+        assertEquals(h, "handler1")
+        assertEquals(e, "Something went wrong")
+        assertEquals(c, 500)
+      case _ => fail("Expected Error")
+    }
+  }
+
+  test("ServiceJson.renderAnalysis - single analysis") {
+    val analysis = ServiceAnalysis(
+      handlerName = "single_handler",
+      sourceFile = "single.bosatsu",
+      operations = Nil,
+      batchGroups = Nil,
+      canBatch = false,
+      totalQueries = 0,
+      batchedQueries = 0,
+      queriesSaved = 0
+    )
+
+    val json = ServiceJson.renderAnalysis(analysis)
+    assert(json.contains("single_handler"))
+    assert(json.contains("single.bosatsu"))
+  }
+
+  test("ServiceJson.renderResponse - success") {
+    val resp = ServiceResponse.Success("test", "{\"value\": 1}", None)
+    val json = ServiceJson.renderResponse(resp)
+    assert(json.contains("\"success\":true"))
+    assert(json.contains("\"handler\":\"test\""))
+  }
+
+  test("ServiceJson.renderResponse - error") {
+    val resp = ServiceResponse.Error("test", "failed", 400)
+    val json = ServiceJson.renderResponse(resp)
+    assert(json.contains("\"success\":false"))
+    assert(json.contains("\"error\":\"failed\""))
+    assert(json.contains("\"code\":400"))
+  }
+
+  test("ServiceJson.renderBuildResult") {
+    val result = BuildResult(List("handler1", "handler2"), "const x = 1;", BuildTarget.Standalone)
+    val json = ServiceJson.renderBuildResult(result)
+    assert(json.contains("handler1"))
+    assert(json.contains("handler2"))
+    assert(json.contains("\"target\" : \"standalone\""))
+  }
+
+  test("ServiceJson - OperationKind roundtrip") {
+    import io.circe.parser.decode
+    import ServiceJson.given
+
+    val encoded = io.circe.Encoder[OperationKind].apply(OperationKind.Read)
+    assertEquals(encoded.asString, Some("read"))
+
+    val decoded = decode[OperationKind]("\"write\"")
+    assertEquals(decoded, Right(OperationKind.Write))
+
+    val unknown = decode[OperationKind]("\"unknown\"")
+    assertEquals(unknown, Right(OperationKind.Unknown))
+  }
+
+  test("ServiceJson - invalid OperationKind") {
+    import io.circe.parser.decode
+    import ServiceJson.given
+
+    val invalid = decode[OperationKind]("\"invalid\"")
+    assert(invalid.isLeft)
+  }
+
+  test("ServiceJson - ServiceOperation roundtrip") {
+    import io.circe.parser.decode
+    import ServiceJson.given
+
+    val op = ServiceOperation("DB", "get", OperationKind.Read, true, Some("getMany"))
+    val json = io.circe.Encoder[ServiceOperation].apply(op)
+    val decoded = decode[ServiceOperation](json.noSpaces)
+
+    assertEquals(decoded, Right(op))
+  }
+
+  test("BuildResult - equality") {
+    val br1 = BuildResult(List("h1"), "code", BuildTarget.Vercel)
+    val br2 = BuildResult(List("h1"), "code", BuildTarget.Vercel)
+    val br3 = BuildResult(List("h2"), "code", BuildTarget.AwsLambda)
+
+    assertEquals(br1, br2)
+    assertNotEquals(br1, br3)
+  }
+
+  test("CompiledHandler - equality") {
+    import dev.bosatsu.Identifier
+    val analysis = ServiceAnalysis("h", "f.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val param = HandlerParam(Identifier.Name("x"), false, Set.empty)
+    val ch1 = CompiledHandler("handler", List(param), "code", analysis)
+    val ch2 = CompiledHandler("handler", List(param), "code", analysis)
+    val ch3 = CompiledHandler("other", Nil, "code2", analysis)
+
+    assertEquals(ch1, ch2)
+    assertNotEquals(ch1, ch3)
+  }
 }
