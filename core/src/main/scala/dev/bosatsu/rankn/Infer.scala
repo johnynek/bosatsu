@@ -835,7 +835,7 @@ object Infer {
               )
               coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
             } yield coerce
-          case (rho1, ta @ Type.TyApply(l2, r2)) =>
+          case (rho1: (Type.Leaf | Type.TyApply), ta @ Type.TyApply(l2, r2)) =>
             for {
               (kl, kr) <- validateKinds(ta, right)
               (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
@@ -854,7 +854,7 @@ object Infer {
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(ta, ks)
-          case (ta @ Type.TyApply(l1, r1), rho2) =>
+          case (ta @ Type.TyApply(l1, r1), rho2: (Type.Leaf | Type.TyApply)) =>
             // here we know that rho2 != TyApply
             for {
               (kl, kr) <- validateKinds(ta, left)
@@ -955,7 +955,7 @@ object Infer {
     // destructure apType in left[right]
     // invariant apType is being checked against some rho with validated kind: lKind[rKind]
     def unifyTyApp(
-        apType: Type.Rho,
+        apType: Type.Leaf | Type.TyApply,
         lKind: Kind,
         rKind: Kind,
         apRegion: Region,
@@ -977,8 +977,6 @@ object Infer {
             ap = Type.Tau.TauApply(Type.Tau(leftT), Type.Tau(rightT))
             _ <- unifyTau(Type.Tau(notApply), ap, apRegion, evidenceRegion)
           } yield (leftT, rightT)
-        case ex: Type.Exists =>
-          sys.error(s"didn't expect Exists in unifyTyApp: ${show(ex)}")
       }
 
     // invariant the flexible type variable ty1 is not bound
