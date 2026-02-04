@@ -596,6 +596,26 @@ object UIAnalyzer {
             // on_change(handler) - extract event handler
             extractEventHandler(app, "change", ctx)
 
+          case "on_keydown" =>
+            // on_keydown(handler) - extract keyboard event handler
+            extractEventHandler(app, "keydown", ctx)
+
+          case "on_keyup" =>
+            // on_keyup(handler) - extract keyboard event handler
+            extractEventHandler(app, "keyup", ctx)
+
+          case "on_dragstart" =>
+            // on_dragstart(handler) - extract drag event handler
+            extractEventHandler(app, "dragstart", ctx)
+
+          case "on_dragover" =>
+            // on_dragover(handler) - extract drag event handler
+            extractEventHandler(app, "dragover", ctx)
+
+          case "on_drop" =>
+            // on_drop(handler) - extract drag event handler
+            extractEventHandler(app, "drop", ctx)
+
           case _ =>
             // Other UI functions
             ()
@@ -934,6 +954,11 @@ object UIAnalyzer {
               case "on_click" => Some("click")
               case "on_input" => Some("input")
               case "on_change" => Some("change")
+              case "on_keydown" => Some("keydown")
+              case "on_keyup" => Some("keyup")
+              case "on_dragstart" => Some("dragstart")
+              case "on_dragover" => Some("dragover")
+              case "on_drop" => Some("drop")
               case _ => None
             }
             eventType.foreach { evtType =>

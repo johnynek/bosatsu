@@ -541,8 +541,9 @@ function _updateBinding(binding, value) {
   }
 }
 
-// Track which elements have had handlers attached (to avoid duplicates)
-const _handlersAttached = new WeakSet();
+// Track which element+eventType combinations have had handlers attached (to avoid duplicates)
+// Key format: "${elementId}:${eventType}" or "${handlerId}" for uniqueness
+const _handlersAttached = new Set();
 
 // Initialize element cache for all bindings
 function _initBindingCache() {
@@ -554,14 +555,15 @@ function _initBindingCache() {
     }
   });
 
-  // Set up event handlers (only once per element)
+  // Set up event handlers (only once per element+eventType combination)
   Object.entries(_handlers).forEach(([handlerId, handler]) => {
+    // Skip if this specific handler has already been processed
+    if (_handlersAttached.has(handlerId)) return;
+    _handlersAttached.add(handlerId);
+
     // Find elements with this handler ID
     const els = document.querySelectorAll('[data-on' + handler.type + '="' + handlerId + '"]');
     els.forEach(el => {
-      // Skip if already has handler attached
-      if (_handlersAttached.has(el)) return;
-      _handlersAttached.add(el);
 
       el.addEventListener(handler.type, (e) => {
         // Call the handler - different events receive different arguments
