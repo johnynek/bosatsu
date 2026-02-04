@@ -1,552 +1,893 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BosatsuUI Todo List Demo</title>
-    <style>
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        color: #f2f4ff;
-        min-height: 100vh;
-        padding: 40px 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-      }
-      .card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 20px;
-      }
-      h1 {
-        font-size: 28px;
-        margin-bottom: 8px;
-      }
-      .subtitle {
-        color: #9aa0d4;
-        font-size: 14px;
-        margin-bottom: 24px;
-      }
-      .stats {
-        display: flex;
-        gap: 16px;
-        margin-bottom: 20px;
-      }
-      .stat {
-        flex: 1;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 12px;
-        padding: 16px;
-        text-align: center;
-      }
-      .stat-value {
-        font-size: 32px;
-        font-weight: 700;
-        color: #f2683c;
-      }
-      .stat-label {
-        font-size: 12px;
-        color: #9aa0d4;
-        margin-top: 4px;
-      }
-      .input-row {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 20px;
-      }
-      input[type="text"] {
-        flex: 1;
-        padding: 14px 16px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.05);
-        color: #f2f4ff;
-        font-size: 16px;
-      }
-      input[type="text"]::placeholder {
-        color: #6b7280;
-      }
-      input[type="text"]:focus {
-        outline: none;
-        border-color: #f2683c;
-      }
-      button {
-        padding: 14px 24px;
-        border-radius: 12px;
-        border: none;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: transform 0.1s, background 0.2s;
-      }
-      button:active {
-        transform: scale(0.97);
-      }
-      .btn-primary {
-        background: #f2683c;
-        color: #0b0b14;
-      }
-      .btn-primary:hover {
-        background: #ff7a4d;
-      }
-      .btn-ghost {
-        background: rgba(255, 255, 255, 0.05);
-        color: #f2f4ff;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      .btn-ghost:hover {
-        background: rgba(255, 255, 255, 0.1);
-      }
-      .btn-danger {
-        background: #ef4444;
-        color: white;
-      }
-      .btn-danger:hover {
-        background: #dc2626;
-      }
-      .todo-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-      .todo-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 14px 16px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: background 0.2s;
-      }
-      .todo-item:hover {
-        background: rgba(255, 255, 255, 0.05);
-      }
-      .todo-item.completed .todo-text {
-        text-decoration: line-through;
-        color: #6b7280;
-      }
-      .todo-checkbox {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-        border: 2px solid #4b5563;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-      }
-      .todo-checkbox:hover {
-        border-color: #f2683c;
-      }
-      .todo-checkbox.checked {
-        background: #f2683c;
-        border-color: #f2683c;
-      }
-      .todo-checkbox.checked::after {
-        content: '✓';
-        color: #0b0b14;
-        font-weight: bold;
-      }
-      .todo-text {
-        flex: 1;
-        font-size: 15px;
-      }
-      .todo-delete {
-        opacity: 0;
-        padding: 8px;
-        cursor: pointer;
-        color: #ef4444;
-        transition: opacity 0.2s;
-      }
-      .todo-item:hover .todo-delete {
-        opacity: 1;
-      }
-      .empty-state {
-        text-align: center;
-        padding: 40px;
-        color: #6b7280;
-      }
-      .filter-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 16px;
-      }
-      .filter-btn {
-        padding: 8px 16px;
-        border-radius: 8px;
-        background: transparent;
-        color: #9aa0d4;
-        font-size: 14px;
-        border: 1px solid transparent;
-      }
-      .filter-btn.active {
-        background: rgba(242, 104, 60, 0.1);
-        color: #f2683c;
-        border-color: rgba(242, 104, 60, 0.3);
-      }
-      .binding-info {
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
-        padding: 12px;
-        font-family: 'SF Mono', Consolas, monospace;
-        font-size: 11px;
-        color: #9aa0d4;
-        margin-top: 16px;
-      }
-      .binding-info code {
-        color: #6ee7b7;
-      }
-      h3 {
-        font-size: 14px;
-        color: #9aa0d4;
-        margin-bottom: 12px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="card">
-        <h1>BosatsuUI Todo List</h1>
-        <p class="subtitle">
-          Each todo item has its own direct DOM binding - no VDOM diffing needed!
-        </p>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo List</title>
+  <style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-        <div class="stats">
-          <div class="stat">
-            <div class="stat-value" id="total-count" data-bosatsu-id="total-count">0</div>
-            <div class="stat-label">Total</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value" id="active-count" data-bosatsu-id="active-count">0</div>
-            <div class="stat-label">Active</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value" id="completed-count" data-bosatsu-id="completed-count">0</div>
-            <div class="stat-label">Completed</div>
-          </div>
-        </div>
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333333;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
 
-        <div class="input-row">
-          <input type="text" id="new-todo-input" placeholder="What needs to be done?" />
-          <button class="btn-primary" id="add-btn">Add</button>
-        </div>
+#app {
+  width: 100%;
+  max-width: 600px;
+}
 
-        <div class="filter-row">
-          <button class="filter-btn active" id="filter-all" data-filter="all">All</button>
-          <button class="filter-btn" id="filter-active" data-filter="active">Active</button>
-          <button class="filter-btn" id="filter-completed" data-filter="completed">Completed</button>
-        </div>
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
 
-        <div class="todo-list" id="todo-list">
-          <div class="empty-state">No todos yet. Add one above!</div>
-        </div>
+h1 {
+  margin-bottom: 30px;
+  font-weight: 600;
+  color: #667eea;
+}
 
-        <div class="binding-info">
-          <strong>BosatsuUI Bindings (per-item, O(1) updates):</strong><br>
-          <code>["todos", "{id}", "text"]</code> -> <code>#todo-{id}-text.textContent</code><br>
-          <code>["todos", "{id}", "completed"]</code> -> <code>#todo-{id}-checkbox.className</code><br>
-          <code>["stats", "total"]</code> -> <code>#total-count.textContent</code><br>
-          <code>["stats", "active"]</code> -> <code>#active-count.textContent</code><br>
-          <code>["stats", "completed"]</code> -> <code>#completed-count.textContent</code>
-        </div>
-      </div>
+.display {
+  font-size: 72px;
+  font-weight: bold;
+  margin: 30px 0;
+  color: #333333;
+}
 
-      <div class="card">
-        <h3>Why This Matters for Performance</h3>
-        <p style="font-size: 14px; color: #9aa0d4; line-height: 1.6;">
-          When you toggle a todo, BosatsuUI:
-        </p>
-        <ol style="font-size: 14px; color: #9aa0d4; line-height: 1.8; margin: 12px 0 0 20px;">
-          <li>Looks up bindings for <code style="color: #6ee7b7;">["todos", "3", "completed"]</code></li>
-          <li>Directly updates <code style="color: #6ee7b7;">#todo-3-checkbox.className</code></li>
-          <li>Also updates stat counters via their bindings</li>
-        </ol>
-        <p style="font-size: 14px; color: #9aa0d4; line-height: 1.6; margin-top: 12px;">
-          React/Elm would re-render the entire list and diff to find what changed.
-          With 100 todos, BosatsuUI is still O(1) while VDOM is O(100).
-        </p>
-      </div>
-    </div>
+.buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
 
-    <script>
-      // =========================================================================
-      // BosatsuUI Todo List Demo
-      //
-      // This demo shows how BosatsuUI handles lists with per-item bindings.
-      // Each todo item gets its own binding, enabling O(1) updates.
-      // =========================================================================
+button {
+  min-width: 80px;
+  min-height: 80px;
+  font-size: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #667eea;
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
 
-      // State
-      let state = {
-        todos: {},
-        filter: 'all',
-        nextId: 1,
-      };
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
 
-      // Element caches
-      const elementCache = new Map();
-      const bindingMap = new Map();
+button:active {
+  transform: scale(0.95);
+}
 
-      // DOM references
-      const todoList = document.getElementById('todo-list');
-      const totalCount = document.getElementById('total-count');
-      const activeCount = document.getElementById('active-count');
-      const completedCount = document.getElementById('completed-count');
-      const newTodoInput = document.getElementById('new-todo-input');
+input[type="text"], input[type="number"] {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 300px;
+}
 
-      // Initialize stats bindings
-      bindingMap.set('stats.total', [{ elementId: 'total-count', property: 'textContent' }]);
-      bindingMap.set('stats.active', [{ elementId: 'active-count', property: 'textContent' }]);
-      bindingMap.set('stats.completed', [{ elementId: 'completed-count', property: 'textContent' }]);
+input:focus {
+  outline: none;
+  border-color: #667eea;
+}
 
-      elementCache.set('total-count', totalCount);
-      elementCache.set('active-count', activeCount);
-      elementCache.set('completed-count', completedCount);
+/* Todo List Styles */
+.container {
+  width: 100%;
+  max-width: 600px;
+}
 
-      // Core BosatsuUI setState function
-      function setState(path, value) {
-        state = setAtPath(state, path, value);
-        applyBindings(path, value);
-      }
+.container .card {
+  margin-bottom: 20px;
+}
 
-      function setAtPath(obj, path, value) {
-        if (path.length === 0) return value;
-        const [first, ...rest] = path;
-        return {
-          ...obj,
-          [first]: rest.length === 0 ? value : setAtPath(obj[first] || {}, rest, value),
-        };
-      }
+.subtitle {
+  color: #9aa0d4;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
 
-      function getAtPath(obj, path) {
-        return path.reduce((o, k) => o?.[k], obj);
-      }
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0;
+  text-align: left;
+}
 
-      function applyBindings(path, value) {
-        const pathKey = path.join('.');
-        const bindings = bindingMap.get(pathKey) || [];
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  transition: background 0.2s;
+}
 
-        bindings.forEach(binding => {
-          const element = elementCache.get(binding.elementId);
-          if (element) {
-            if (binding.property === 'className') {
-              if (value) {
-                element.classList.add('checked');
-              } else {
-                element.classList.remove('checked');
-              }
-            } else {
-              element[binding.property] = String(value);
-            }
-          }
-        });
-      }
+.todo-item:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
 
-      // Update stats (computed from todos)
-      function updateStats() {
-        const todos = Object.values(state.todos);
-        const total = todos.length;
-        const completed = todos.filter(t => t.completed).length;
-        const active = total - completed;
+.todo-checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid #667eea;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
 
-        applyBindings(['stats', 'total'], total);
-        applyBindings(['stats', 'active'], active);
-        applyBindings(['stats', 'completed'], completed);
-      }
+.todo-checkbox:hover {
+  background: rgba(102, 126, 234, 0.2);
+}
 
-      // Add a new todo
-      function addTodo(text) {
-        if (!text.trim()) return;
+.todo-checkbox.checked {
+  background: #667eea;
+  border-color: #667eea;
+}
 
-        const id = String(state.nextId);
-        state.nextId++;
+.todo-checkbox.checked::after {
+  content: '✓';
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
 
-        const todo = {
-          id,
-          text: text.trim(),
-          completed: false,
-        };
+.todo-text {
+  flex: 1;
+  font-size: 15px;
+}
 
-        state.todos[id] = todo;
+.binding-info {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #666;
+  margin-top: 16px;
+  text-align: left;
+}
 
-        // Create DOM element and register bindings
-        createTodoElement(todo);
+h3 {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 12px;
+}
 
-        updateStats();
-        renderTodoList();
-      }
+p {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.6;
+}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+// ============================================================================
+// BosatsuUI Runtime
+// ============================================================================
 
-      // Create a todo DOM element and register its bindings
-      function createTodoElement(todo) {
-        const item = document.createElement('div');
-        item.className = 'todo-item';
-        item.id = `todo-${todo.id}`;
-        item.dataset.id = todo.id;
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
 
-        item.innerHTML = `
-          <div class="todo-checkbox ${todo.completed ? 'checked' : ''}"
-               id="todo-${todo.id}-checkbox"
-               data-bosatsu-id="todo-${todo.id}-checkbox"></div>
-          <span class="todo-text"
-                id="todo-${todo.id}-text"
-                data-bosatsu-id="todo-${todo.id}-text">${escapeHtml(todo.text)}</span>
-          <span class="todo-delete">✕</span>
-        `;
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
 
-        if (todo.completed) {
-          item.classList.add('completed');
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
+
+// ============================================================================
+// State Management
+// ============================================================================
+
+// State storage: { id: { id, value } }
+const _state = {};
+
+// Element cache for O(1) DOM lookups
+const _elements = {};
+
+// Handler registry
+const _handlers = {};
+let _handlerIdCounter = 0;
+
+// Map state objects to their binding keys (WeakMap for proper GC)
+const _stateToBindingKey = new WeakMap();
+
+// Link a state object to its binding key (called from init)
+function _linkStateToBinding(stateObj, bindingKey) {
+  _stateToBindingKey.set(stateObj, bindingKey);
+}
+
+// Create a state object (called by compiled Bosatsu code via state(initial))
+let _stateIdCounter = 0;
+function _ui_create_state(initialValue) {
+  const id = 'state_' + (_stateIdCounter++);
+  const stateObj = { id: id, value: initialValue };
+  _state[id] = stateObj;
+  return stateObj;
+}
+
+// Read state value (called by compiled code)
+function _ui_read(stateObj) {
+  return stateObj.value;
+}
+
+// Write state and trigger binding updates (called by compiled code)
+function _ui_write(stateObj, value) {
+  const oldValue = stateObj.value;
+  stateObj.value = value;
+
+  // Find bindings using the binding key (Bosatsu variable name)
+  const bindingKey = _stateToBindingKey.get(stateObj);
+  const bindings = bindingKey ? _bindings[bindingKey] : null;
+  if (bindings) {
+    bindings.forEach(binding => {
+      _updateBinding(binding, value);
+    });
+  }
+
+  return []; // Return Unit (empty tuple)
+}
+
+// Register an event handler and return its ID
+function _ui_register_handler(eventType, handler) {
+  const handlerId = 'handler_' + (_handlerIdCounter++);
+  _handlers[handlerId] = { type: eventType, fn: handler };
+  return handlerId;
+}
+
+// Update a single DOM binding
+function _updateBinding(binding, value) {
+  let el = _elements[binding.elementId];
+  if (!el) {
+    el = document.getElementById(binding.elementId) ||
+         document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+    if (el) _elements[binding.elementId] = el;
+  }
+  if (!el) return;
+
+  // Check if value is a Bosatsu Bool - [0] for False, [1] for True
+  // Also handle raw integers 0/1 for numeric boolean pattern
+  const isBosatsuBool = Array.isArray(value) && (value[0] === 0 || value[0] === 1) && value.length <= 2;
+  const isIntBool = typeof value === 'number' && (value === 0 || value === 1);
+  const boolValue = isBosatsuBool ? value[0] === 1 : (isIntBool ? value === 1 : null);
+
+  let displayValue;
+  if (binding.transform) {
+    const transformResult = eval(binding.transform)(value);
+    // Transform may return a Bosatsu string (array), convert to JS string
+    displayValue = Array.isArray(transformResult)
+      ? _bosatsuStringToJs(transformResult)
+      : String(transformResult);
+  } else if (isBosatsuBool || isIntBool) {
+    displayValue = boolValue ? 'true' : 'false';
+  } else {
+    displayValue = String(value);
+  }
+
+  switch (binding.property) {
+    case 'textContent':
+      el.textContent = displayValue;
+      break;
+    case 'className':
+      // For className with bool values (Bosatsu Bool or int 0/1), toggle a 'checked' class
+      if (isBosatsuBool || isIntBool) {
+        if (boolValue) {
+          el.classList.add('checked');
+        } else {
+          el.classList.remove('checked');
         }
-
-        // Register bindings for this todo
-        const textBindingKey = `todos.${todo.id}.text`;
-        const completedBindingKey = `todos.${todo.id}.completed`;
-
-        bindingMap.set(textBindingKey, [
-          { elementId: `todo-${todo.id}-text`, property: 'textContent' }
-        ]);
-        bindingMap.set(completedBindingKey, [
-          { elementId: `todo-${todo.id}-checkbox`, property: 'className' }
-        ]);
-
-        // Cache elements
-        elementCache.set(`todo-${todo.id}`, item);
-        elementCache.set(`todo-${todo.id}-checkbox`, item.querySelector('.todo-checkbox'));
-        elementCache.set(`todo-${todo.id}-text`, item.querySelector('.todo-text'));
-
-        // Event listeners
-        item.querySelector('.todo-checkbox').addEventListener('click', () => {
-          toggleTodo(todo.id);
-        });
-
-        item.querySelector('.todo-delete').addEventListener('click', () => {
-          deleteTodo(todo.id);
-        });
-
-        return item;
+      } else {
+        el.className = displayValue;
       }
-
-      function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+      break;
+    case 'value':
+      el.value = displayValue;
+      break;
+    case 'checked':
+      el.checked = !!value;
+      break;
+    case 'disabled':
+      el.disabled = !!value;
+      break;
+    default:
+      if (binding.property.startsWith('style.')) {
+        const styleProp = binding.property.slice(6);
+        el.style[styleProp] = displayValue;
       }
+  }
+}
 
-      // Toggle a todo's completed state
-      function toggleTodo(id) {
-        const todo = state.todos[id];
-        if (!todo) return;
+// Initialize element cache for all bindings
+function _initBindingCache() {
+  Object.values(_bindings).flat().forEach(binding => {
+    const el = document.getElementById(binding.elementId) ||
+               document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+    if (el) {
+      _elements[binding.elementId] = el;
+    }
+  });
 
-        const newCompleted = !todo.completed;
-        state.todos[id] = { ...todo, completed: newCompleted };
+  // Set up event handlers
+  Object.entries(_handlers).forEach(([handlerId, handler]) => {
+    // Find elements with this handler ID
+    const els = document.querySelectorAll('[data-on' + handler.type + '="' + handlerId + '"]');
+    els.forEach(el => {
+      el.addEventListener(handler.type, (e) => {
+        // Call the handler - for click it receives Unit, for input it receives the value
+        if (handler.type === 'click') {
+          handler.fn([]);  // Unit = empty tuple
+        } else if (handler.type === 'input' || handler.type === 'change') {
+          // Convert JS string to Bosatsu string
+          const bsString = _js_to_bosatsu_string(e.target.value);
+          handler.fn(bsString);
+        }
+      });
+    });
+  });
+}
 
-        // Apply the binding update - O(1)!
-        applyBindings(['todos', id, 'completed'], newCompleted);
+// Render a VNode to a DOM element
+function _renderVNode(vnode) {
+  if (!vnode) return document.createTextNode('');
 
-        // Update the item's visual state
-        const item = elementCache.get(`todo-${id}`);
-        if (item) {
-          if (newCompleted) {
-            item.classList.add('completed');
+  const type = vnode.type;
+
+  if (type === 'text') {
+    // Text node: { type: "text", text: "content" }
+    return document.createTextNode(vnode.text || '');
+  }
+
+  if (type === 'element') {
+    // Element node: { type: "element", tag: "div", props: [...], children: [...] }
+    // Tag may be a Bosatsu string (array), convert to JS string
+    const tag = _bosatsuStringToJs(vnode.tag) || vnode.tag || 'div';
+    const el = document.createElement(tag);
+
+    // Process props (array of [key, value] tuples in Bosatsu format)
+    if (vnode.props) {
+      const props = _bosatsuListToArray(vnode.props);
+      props.forEach(prop => {
+        // prop is a Bosatsu tuple: [key, value]
+        if (Array.isArray(prop) && prop.length >= 2) {
+          const key = _bosatsuStringToJs(prop[0]) || prop[0];
+          const value = _bosatsuStringToJs(prop[1]) || prop[1];
+
+          if (key.startsWith('data-on')) {
+            // Event handler attribute
+            el.setAttribute(key, value);
+          } else if (key === 'class') {
+            el.className = value;
+          } else if (key === 'id') {
+            el.id = value;
           } else {
-            item.classList.remove('completed');
+            el.setAttribute(key, value);
           }
         }
-
-        updateStats();
-        renderTodoList(); // For filter visibility
-      }
-
-      // Delete a todo
-      function deleteTodo(id) {
-        delete state.todos[id];
-
-        // Remove DOM element
-        const item = elementCache.get(`todo-${id}`);
-        if (item) {
-          item.remove();
-        }
-
-        // Clean up caches
-        elementCache.delete(`todo-${id}`);
-        elementCache.delete(`todo-${id}-checkbox`);
-        elementCache.delete(`todo-${id}-text`);
-        bindingMap.delete(`todos.${id}.text`);
-        bindingMap.delete(`todos.${id}.completed`);
-
-        updateStats();
-        renderTodoList();
-      }
-
-      // Render the todo list based on current filter
-      function renderTodoList() {
-        const todos = Object.values(state.todos);
-        const filter = state.filter;
-
-        const filtered = todos.filter(todo => {
-          if (filter === 'active') return !todo.completed;
-          if (filter === 'completed') return todo.completed;
-          return true;
-        });
-
-        todoList.innerHTML = '';
-
-        if (filtered.length === 0) {
-          todoList.innerHTML = '<div class="empty-state">No todos match the current filter</div>';
-          return;
-        }
-
-        filtered.forEach(todo => {
-          const existingItem = elementCache.get(`todo-${todo.id}`);
-          if (existingItem) {
-            todoList.appendChild(existingItem);
-          } else {
-            todoList.appendChild(createTodoElement(todo));
-          }
-        });
-      }
-
-      // Filter buttons
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          state.filter = btn.dataset.filter;
-          renderTodoList();
-        });
       });
+    }
 
-      // Add button
-      document.getElementById('add-btn').addEventListener('click', () => {
-        addTodo(newTodoInput.value);
-        newTodoInput.value = '';
-        newTodoInput.focus();
+    // Render children
+    if (vnode.children) {
+      const children = _bosatsuListToArray(vnode.children);
+      children.forEach(child => {
+        el.appendChild(_renderVNode(child));
       });
+    }
 
-      // Enter key in input
-      newTodoInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          addTodo(newTodoInput.value);
-          newTodoInput.value = '';
-        }
+    return el;
+  }
+
+  if (type === 'fragment') {
+    // Fragment: { type: "fragment", children: [...] }
+    const frag = document.createDocumentFragment();
+    if (vnode.children) {
+      const children = _bosatsuListToArray(vnode.children);
+      children.forEach(child => {
+        frag.appendChild(_renderVNode(child));
       });
+    }
+    return frag;
+  }
 
-      // Add some initial todos
-      addTodo('Learn about BosatsuUI bindings');
-      addTodo('Understand O(1) DOM updates');
-      addTodo('Compare with React VDOM');
-    </script>
-  </body>
+  // Unknown type - try to render as text
+  return document.createTextNode(String(vnode));
+}
+
+// Convert Bosatsu list to JS array
+// Bosatsu list: [1, head, [1, head2, [0]]] or [0] for empty
+function _bosatsuListToArray(list) {
+  const result = [];
+  let current = list;
+  while (Array.isArray(current) && current[0] === 1) {
+    result.push(current[1]);
+    current = current[2];
+  }
+  return result;
+}
+
+// Convert Bosatsu string to JS string
+// Bosatsu string: [1, "c", [1, "h", [0]]] - linked list of characters
+function _bosatsuStringToJs(str) {
+  if (typeof str === 'string') return str;
+  if (!Array.isArray(str)) return String(str);
+
+  let result = '';
+  let current = str;
+  while (Array.isArray(current) && current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+}
+
+// Convert JS string to Bosatsu string (for event handlers)
+function _js_to_bosatsu_string(s) {
+  if (s.length === 0) return [0];
+  let result = [0];
+  for (let i = s.length - 1; i >= 0; i--) {
+    result = [1, s[i], result];
+  }
+  return result;
+}
+
+// ============================================================================
+// Binding Map (extracted at compile time)
+// ============================================================================
+
+const _bindings = {"todo1_completed": [{"elementId": "todo-1-checkbox", "property": "className", "when": null}],
+  "todo3_completed": [{"elementId": "todo-3-checkbox", "property": "className", "when": null}],
+  "todo2_completed": [{"elementId": "todo-2-checkbox", "property": "className", "when": null}]};
+
+// ============================================================================
+// Compiled Bosatsu Code
+// ============================================================================
+
+const todo1_completed = _ui_create_state(0);
+const Demo_TodoList$todo1_completed = todo1_completed;
+const todo2_completed = _ui_create_state(0);
+const Demo_TodoList$todo2_completed = todo2_completed;
+const todo3_completed = _ui_create_state(1);
+const Demo_TodoList$todo3_completed = todo3_completed;
+const toggle1 = a => _ui_write(Demo_TodoList$todo1_completed, 1 - Demo_TodoList$todo1_completed.value);
+const Demo_TodoList$toggle1 = toggle1;
+const toggle2 = a => _ui_write(Demo_TodoList$todo2_completed, 1 - Demo_TodoList$todo2_completed.value);
+const Demo_TodoList$toggle2 = toggle2;
+const toggle3 = a => _ui_write(Demo_TodoList$todo3_completed, 1 - Demo_TodoList$todo3_completed.value);
+const Demo_TodoList$toggle3 = toggle3;
+const view = { type: "element",
+  tag: _js_to_bosatsu_string("div"),
+  props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("container")), [0]),
+  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+      tag: _js_to_bosatsu_string("div"),
+      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
+      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+          tag: _js_to_bosatsu_string("h1"),
+          props: [0],
+          children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+              text: _bosatsu_to_js_string(_js_to_bosatsu_string("BosatsuUI Todo List")) }, [0]) }, ((_a0, _a1) => [1,
+          _a0,
+          _a1])({ type: "element",
+            tag: _js_to_bosatsu_string("p"),
+            props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("subtitle")), [0]),
+            children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Each todo has its own state binding - O(1) updates per item!")) }, [0]) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "element",
+              tag: _js_to_bosatsu_string("div"),
+              props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                  _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-list")), [0]),
+              children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                  tag: _js_to_bosatsu_string("div"),
+                  props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])(((_a0, _a1) => [_a0,
+                        _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-1")), [0])),
+                  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("div"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-1-checkbox")), ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(["data-onclick",
+                              _ui_register_handler("click", Demo_TodoList$toggle1)], [0]))),
+                      children: [0] }, ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])({ type: "element",
+                        tag: _js_to_bosatsu_string("span"),
+                        props: ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                        children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                            text: _bosatsu_to_js_string(_js_to_bosatsu_string("Learn about BosatsuUI bindings")) }, [0]) }, [0])) }, ((_a0, _a1) => [1,
+                  _a0,
+                  _a1])({ type: "element",
+                    tag: _js_to_bosatsu_string("div"),
+                    props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                        _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-2")), [0])),
+                    children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                        tag: _js_to_bosatsu_string("div"),
+                        props: ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-2-checkbox")), ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(["data-onclick",
+                                _ui_register_handler("click", Demo_TodoList$toggle2)], [0]))),
+                        children: [0] }, ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("span"),
+                          props: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                          children: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "text",
+                              text: _bosatsu_to_js_string(_js_to_bosatsu_string("Understand O(1) DOM updates")) }, [0]) }, [0])) }, ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("div"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-item")), ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])(((_a0, _a1) => [_a0,
+                            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-3")), [0])),
+                      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("div"),
+                          props: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-checkbox")), ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("todo-3-checkbox")), ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])(["data-onclick",
+                                  _ui_register_handler("click", Demo_TodoList$toggle3)], [0]))),
+                          children: [0] }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "element",
+                            tag: _js_to_bosatsu_string("span"),
+                            props: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("todo-text")), [0]),
+                            children: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])({ type: "text",
+                                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Compare with React VDOM")) }, [0]) }, [0])) }, [0]))) }, ((_a0, _a1) => [1,
+              _a0,
+              _a1])({ type: "element",
+                tag: _js_to_bosatsu_string("div"),
+                props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                    _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("binding-info")), [0]),
+                children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                    tag: _js_to_bosatsu_string("strong"),
+                    props: [0],
+                    children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                        text: _bosatsu_to_js_string(_js_to_bosatsu_string("BosatsuUI Bindings (per-item, O(1) updates):")) }, [0]) }, ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("br"),
+                      props: [0],
+                      children: [0] }, ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])({ type: "text",
+                        text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo1_completed -> #todo-1-checkbox.className")) }, ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("br"),
+                          props: [0],
+                          children: [0] }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "text",
+                            text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo2_completed -> #todo-2-checkbox.className")) }, ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "element",
+                              tag: _js_to_bosatsu_string("br"),
+                              props: [0],
+                              children: [0] }, ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])({ type: "text",
+                                text: _bosatsu_to_js_string(_js_to_bosatsu_string("todo3_completed -> #todo-3-checkbox.className")) }, [0]))))))) }, [0])))) }, ((_a0, _a1) => [1,
+      _a0,
+      _a1])({ type: "element",
+        tag: _js_to_bosatsu_string("div"),
+        props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+            _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
+        children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+            tag: _js_to_bosatsu_string("h3"),
+            props: [0],
+            children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Why This Matters for Performance")) }, [0]) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "element",
+              tag: _js_to_bosatsu_string("p"),
+              props: [0],
+              children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                  text: _bosatsu_to_js_string(_js_to_bosatsu_string("When you toggle a todo, BosatsuUI updates ONLY that todo's checkbox class. React/Elm would re-render the entire list and diff to find what changed.")) }, [0]) }, [0])) }, [0])) };
+const Demo_TodoList$view = view;
+const main = Demo_TodoList$view;
+const Demo_TodoList$main = main;
+
+// ============================================================================
+// Initialize Application
+// ============================================================================
+
+function init() {
+  // Link state objects to their binding keys for lookup
+  if (typeof todo1_completed !== 'undefined') _linkStateToBinding(todo1_completed, "todo1_completed");
+  if (typeof todo2_completed !== 'undefined') _linkStateToBinding(todo2_completed, "todo2_completed");
+  if (typeof todo3_completed !== 'undefined') _linkStateToBinding(todo3_completed, "todo3_completed");
+
+  // Get the VNode from the compiled 'main' or 'view' binding
+  const vnode = typeof main !== 'undefined' ? main : (typeof view !== 'undefined' ? view : null);
+
+  if (vnode) {
+    const app = document.getElementById('app');
+    app.appendChild(_renderVNode(vnode));
+    console.log('Rendered VNode:', vnode);
+  } else {
+    console.error('No main or view binding found');
+  }
+
+  // Initialize element cache for bindings
+  _initBindingCache();
+
+  // Apply initial state values to DOM (for states that aren't 0/false)
+  _applyInitialBindings();
+}
+
+// Apply initial state values to DOM elements
+function _applyInitialBindings() {
+  Object.entries(_state).forEach(([stateId, stateObj]) => {
+    const bindingKey = _stateToBindingKey.get(stateObj);
+    const bindings = bindingKey ? _bindings[bindingKey] : null;
+    if (bindings && stateObj.value !== 0 && stateObj.value !== false) {
+      bindings.forEach(binding => {
+        _updateBinding(binding, stateObj.value);
+      });
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+  </script>
+</body>
 </html>

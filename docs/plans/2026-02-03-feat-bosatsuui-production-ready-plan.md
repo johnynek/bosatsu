@@ -292,16 +292,30 @@ function _safeHandler(handler) {
 | `drag-drop.html` | Port after drag events (Phase 4) | Low |
 
 **Tasks:**
-- [ ] Create `tests/e2e/demos-are-real.spec.ts` meta test
-- [ ] Update `scripts/regenerate_demos.sh` to include UI demos
-- [ ] Port feasible demos after prerequisite phases
-- [ ] Remove demos that need features outside scope
-- [ ] Ensure benchmarks use real compiled Bosatsu
+- [ ] Create `tests/e2e/demos-are-real.spec.ts` meta test (deferred)
+- [x] Update `scripts/regenerate_demos.sh` to include UI demos
+- [x] Port feasible demos after prerequisite phases (all existing demos have source)
+- [x] Remove demos that need features outside scope:
+  - Removed: spreadsheet.html (needs 2D data structures)
+  - Removed: nested-comments.html (needs recursive templates)
+  - Removed: shopping-cart-maps.html (needs maps)
+  - Removed: dashboard.html, kanban-board.html, shopping-cart*.html (hand-written, not generated)
+- [ ] Ensure benchmarks use real compiled Bosatsu (deferred - particles demo covers this)
+
+**Current State:**
+All 8 UI demos now have corresponding .bosatsu source files:
+- conditional.bosatsu → conditional.html ✅
+- counter.bosatsu → counter.html ✅
+- drag-drop.bosatsu → drag-drop.html ✅
+- form-input.bosatsu → form-input.html ✅
+- keyboard-input.bosatsu → keyboard-input.html ✅
+- particles.bosatsu → particles.html ✅
+- todo-dynamic.bosatsu → todo-dynamic.html ✅
+- todo-list.bosatsu → todo-list.html ✅
 
 **Files:**
-- `tests/e2e/demos-are-real.spec.ts` - Meta test
-- `scripts/regenerate_demos.sh` - Include UI demos
-- Various demo files
+- `tests/e2e/demos-are-real.spec.ts` - Meta test (deferred)
+- `scripts/regenerate_demos.sh` - Updated to include UI demos
 
 ## Implementation Order
 
