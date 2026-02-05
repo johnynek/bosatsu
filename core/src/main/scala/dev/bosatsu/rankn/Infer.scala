@@ -601,11 +601,6 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk)
 
-    private def widenCoerceRho(
-        co: TypedExpr.CoerceRho
-    ): TypedExpr.Coerce =
-      TypedExpr.widenCoerceRho(co)
-
     private val widenRho: FunctionK[TypedExpr.Rho, TypedExpr] =
       new FunctionK[TypedExpr.Rho, TypedExpr] {
         def apply[A](fa: TypedExpr.Rho[A]): TypedExpr[A] = fa
@@ -743,7 +738,7 @@ object Infer {
         right: Region
     ): Infer[TypedExpr.CoerceRho] =
       (t, rho) match {
-        case (t: (Type.ForAll | Type.Exists), rho) =>
+        case (t: Type.ForAll, rho) =>
           subsInstantiate(TypedExpr.Domain.RhoDom)(t, rho, left, right) match {
             case Some(inf) => inf
             case None      =>
@@ -798,21 +793,25 @@ object Infer {
                 subsCheckRho2(in1, rho2, left, right)
               }
           case (rho1, typeExists @ Type.Exists(vars, in)) =>
-            // Exists on the right: choose a witness via fresh existential metas.
-            vars
-              .traverse { case (_, k) => newExistential(k) }
-              .flatMap { metas =>
-                val env = vars.iterator
-                  .map(_._1)
-                  .zip(metas.iterator)
-                  .toMap[Type.Var, Type.Rho]
-                val in1 = Type.substituteRhoVar(in, env)
-                for {
-                  coerce <- subsCheckRho2(rho1, in1, left, right)
-                  ks <- checkedKinds
-                } yield widenCoerceRho(coerce)
-                  .andThen(TypedExpr.coerceRho(typeExists, ks))
-              }
+            subsInstantiate(TypedExpr.Domain.RhoDom)(rho1, typeExists, left, right) match {
+              case Some(inf) => inf
+              case None      =>
+                // Exists on the right: choose a witness via fresh existential metas.
+                vars
+                  .traverse { case (_, k) => newExistential(k) }
+                  .flatMap { metas =>
+                    val env = vars.iterator
+                      .map(_._1)
+                      .zip(metas.iterator)
+                      .toMap[Type.Var, Type.Rho]
+                    val in1 = Type.substituteRhoVar(in, env)
+                    for {
+                      coerce <- subsCheckRho2(rho1, in1, left, right)
+                      ks <- checkedKinds
+                    } yield TypedExpr.widenCoerceRho(coerce)
+                      .andThen(TypedExpr.coerceRho(typeExists, ks))
+                }
+            }
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
             for {
@@ -1109,9 +1108,7 @@ object Infer {
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
         case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          // TODO: We should be able to handle this more directly
-          // Meta should be able to hold Exists types
-          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
+          subsCheckRho2(t1, t2, r1, r2) &> subsCheckRho2(t2, t1, r2, r1).void
         case (left, right) =>
           fail(Error.NotUnifiable(left, right, r1, r2))
       }
@@ -1358,7 +1355,7 @@ object Infer {
             // subsCheck only needs a coercion; any meta writes happen during
             // subsCheckRho, and remaining existentials are handled by callers
             // that produce a TypedExpr (e.g. checkSigma/quantify).
-            subsCheckRho(inferred, rho, left, right).map(widenCoerceRho)
+            TypedExpr.substCoerceRho(subsCheckRho(inferred, rho, left, right))
           } {
             Error.SubsumptionCheckFailure(inferred, declared, left, right, _)
           }

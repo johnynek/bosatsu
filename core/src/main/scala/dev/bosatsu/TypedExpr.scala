@@ -734,7 +734,7 @@ object TypedExpr {
       expr.traverseType[cats.Id](fn)
     }
 
-    def exists[A](nel: NonEmptyList[(Type.Var.Bound, Kind)], rho: Rho[A]): Rho[A] =
+    inline def exists[A](nel: NonEmptyList[(Type.Var.Bound, Kind)], rho: Rho[A]): Rho[A] =
       // adding an existential wrapper on a Rho keeps it a rho
       TypedExpr.quantVars(
         forallList = Nil,
@@ -1355,6 +1355,7 @@ object TypedExpr {
 
   // we can always consider CoerceRho as a Coerce
   inline def widenCoerceRho(co: CoerceRho): Coerce = co
+  inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
 
   private def pushDownCovariant(
       tpe: Type,
