@@ -1,0 +1,50 @@
+package Bosatsu/IOError
+
+export IOError(), error_to_String
+
+enum IOError:
+  NotFound
+  AccessDenied
+  AlreadyExists
+  NotDirectory
+  IsDirectory
+  NotEmpty
+  TooManyOpenFiles
+  ReadOnlyFileSystem
+  CrossDeviceLink
+  NoSpace
+  QuotaExceeded
+  NameTooLong
+  InvalidArgument
+  InvalidUtf8
+  BadFileDescriptor
+  Interrupted
+  WouldBlock
+  TimedOut
+  BrokenPipe
+  Unsupported
+  Other(code: Int, message: String)
+
+def error_to_String(err: IOError) -> String:
+  match err:
+    case NotFound: "not found"
+    case AccessDenied: "access denied"
+    case AlreadyExists: "already exists"
+    case NotDirectory: "not a directory"
+    case IsDirectory: "is a directory"
+    case NotEmpty: "directory not empty"
+    case TooManyOpenFiles: "too many open files"
+    case ReadOnlyFileSystem: "read-only filesystem"
+    case CrossDeviceLink: "cross-device link"
+    case NoSpace: "no space left on device"
+    case QuotaExceeded: "quota exceeded"
+    case NameTooLong: "name too long"
+    case InvalidArgument: "invalid argument"
+    case InvalidUtf8: "invalid utf-8"
+    case BadFileDescriptor: "bad file descriptor"
+    case Interrupted: "interrupted"
+    case WouldBlock: "would block"
+    case TimedOut: "timed out"
+    case BrokenPipe: "broken pipe"
+    case Unsupported: "unsupported"
+    case Other(code, message): "other(${int_to_String(code)}): ${message}"

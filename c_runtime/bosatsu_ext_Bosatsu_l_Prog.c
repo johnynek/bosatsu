@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 
 /*
 # Prog is an ADT with the following values:
@@ -15,6 +16,165 @@
 # RemapEnv(p, f) => (6, p, f)
 # Effect(arg: BValue, f: BValue => BValue) => (7, f)
 */
+
+// Bosatsu/IOError enum variant indices (must match Bosatsu/IOError.bosatsu)
+enum
+{
+  BSTS_IOERR_NotFound = 0,
+  BSTS_IOERR_AccessDenied = 1,
+  BSTS_IOERR_AlreadyExists = 2,
+  BSTS_IOERR_NotDirectory = 3,
+  BSTS_IOERR_IsDirectory = 4,
+  BSTS_IOERR_NotEmpty = 5,
+  BSTS_IOERR_TooManyOpenFiles = 6,
+  BSTS_IOERR_ReadOnlyFileSystem = 7,
+  BSTS_IOERR_CrossDeviceLink = 8,
+  BSTS_IOERR_NoSpace = 9,
+  BSTS_IOERR_QuotaExceeded = 10,
+  BSTS_IOERR_NameTooLong = 11,
+  BSTS_IOERR_InvalidArgument = 12,
+  BSTS_IOERR_InvalidUtf8 = 13,
+  BSTS_IOERR_BadFileDescriptor = 14,
+  BSTS_IOERR_Interrupted = 15,
+  BSTS_IOERR_WouldBlock = 16,
+  BSTS_IOERR_TimedOut = 17,
+  BSTS_IOERR_BrokenPipe = 18,
+  BSTS_IOERR_Unsupported = 19,
+  BSTS_IOERR_Other = 20
+};
+
+static BValue bsts_ioerror_other(int code, const char *msg)
+{
+  if (!msg)
+  {
+    msg = "unknown error";
+  }
+  size_t len = strlen(msg);
+  BValue msgv = bsts_string_from_utf8_bytes_copy(len, (char *)msg);
+  BValue codev = bsts_integer_from_int(code);
+  return alloc_enum2(BSTS_IOERR_Other, codev, msgv);
+}
+
+static BValue bsts_ioerror_from_errno(int err)
+{
+  switch (err)
+  {
+#ifdef ENOENT
+  case ENOENT:
+    return alloc_enum0(BSTS_IOERR_NotFound);
+#endif
+#ifdef EACCES
+  case EACCES:
+    return alloc_enum0(BSTS_IOERR_AccessDenied);
+#endif
+#ifdef EEXIST
+  case EEXIST:
+    return alloc_enum0(BSTS_IOERR_AlreadyExists);
+#endif
+#ifdef ENOTDIR
+  case ENOTDIR:
+    return alloc_enum0(BSTS_IOERR_NotDirectory);
+#endif
+#ifdef EISDIR
+  case EISDIR:
+    return alloc_enum0(BSTS_IOERR_IsDirectory);
+#endif
+#ifdef ENOTEMPTY
+  case ENOTEMPTY:
+    return alloc_enum0(BSTS_IOERR_NotEmpty);
+#endif
+#ifdef EMFILE
+  case EMFILE:
+    return alloc_enum0(BSTS_IOERR_TooManyOpenFiles);
+#endif
+#ifdef EROFS
+  case EROFS:
+    return alloc_enum0(BSTS_IOERR_ReadOnlyFileSystem);
+#endif
+#ifdef EXDEV
+  case EXDEV:
+    return alloc_enum0(BSTS_IOERR_CrossDeviceLink);
+#endif
+#ifdef ENOSPC
+  case ENOSPC:
+    return alloc_enum0(BSTS_IOERR_NoSpace);
+#endif
+#ifdef EDQUOT
+  case EDQUOT:
+    return alloc_enum0(BSTS_IOERR_QuotaExceeded);
+#endif
+#ifdef ENAMETOOLONG
+  case ENAMETOOLONG:
+    return alloc_enum0(BSTS_IOERR_NameTooLong);
+#endif
+#ifdef EINVAL
+  case EINVAL:
+    return alloc_enum0(BSTS_IOERR_InvalidArgument);
+#endif
+#ifdef EILSEQ
+  case EILSEQ:
+    return alloc_enum0(BSTS_IOERR_InvalidUtf8);
+#endif
+#ifdef EBADF
+  case EBADF:
+    return alloc_enum0(BSTS_IOERR_BadFileDescriptor);
+#endif
+#ifdef EINTR
+  case EINTR:
+    return alloc_enum0(BSTS_IOERR_Interrupted);
+#endif
+#ifdef EAGAIN
+  case EAGAIN:
+    return alloc_enum0(BSTS_IOERR_WouldBlock);
+#endif
+#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
+  case EWOULDBLOCK:
+    return alloc_enum0(BSTS_IOERR_WouldBlock);
+#endif
+#ifdef ETIMEDOUT
+  case ETIMEDOUT:
+    return alloc_enum0(BSTS_IOERR_TimedOut);
+#endif
+#ifdef EPIPE
+  case EPIPE:
+    return alloc_enum0(BSTS_IOERR_BrokenPipe);
+#endif
+#ifdef EOPNOTSUPP
+  case EOPNOTSUPP:
+    return alloc_enum0(BSTS_IOERR_Unsupported);
+#endif
+#ifdef ENOTSUP
+  case ENOTSUP:
+    return alloc_enum0(BSTS_IOERR_Unsupported);
+#endif
+  default:
+    return bsts_ioerror_other(err, strerror(err));
+  }
+}
+
+static BValue bsts_ioerror_from_errno_default(int err)
+{
+  if (err == 0)
+  {
+#ifdef EIO
+    err = EIO;
+#else
+    return bsts_ioerror_other(0, "unknown error");
+#endif
+  }
+  return bsts_ioerror_from_errno(err);
+}
+
+static inline BValue bsts_ioerror_invalid_utf8()
+{
+  return alloc_enum0(BSTS_IOERR_InvalidUtf8);
+}
+
+static inline BValue bsts_ioerror_invalid_argument()
+{
+  return alloc_enum0(BSTS_IOERR_InvalidArgument);
+}
+
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
 {
@@ -38,13 +198,52 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_flat__map(BValue p, BValue f)
 
 BValue bsts_print_effect(BValue a)
 {
-  bsts_string_print(a);
+  char *bytes = bsts_string_utf8_bytes(a);
+  size_t len = bsts_string_utf8_len(a);
+  if (len > 0)
+  {
+    errno = 0;
+    size_t written = fwrite(bytes, 1, len, stdout);
+    if (written < len)
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno));
+    }
+  }
+  if (fflush(stdout) != 0)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno));
+  }
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
 }
 
 BValue bsts_println_effect(BValue a)
 {
-  bsts_string_println(a);
+  char *bytes = bsts_string_utf8_bytes(a);
+  size_t len = bsts_string_utf8_len(a);
+  if (len > 0)
+  {
+    errno = 0;
+    size_t written = fwrite(bytes, 1, len, stdout);
+    if (written < len)
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno));
+    }
+  }
+  errno = 0;
+  size_t wrote_newline = fwrite("\n", 1, 1, stdout);
+  if (wrote_newline != 1)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno));
+  }
+  if (fflush(stdout) != 0)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno));
+  }
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
 }
 
@@ -84,9 +283,15 @@ bsts_utf8_is_valid_prefix(const char *data, int len)
 BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
 {
   int requested = (int)bsts_integer_to_int32(size);
-  if (requested <= 0)
+  if (requested < 0)
   {
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument());
+  }
+  if (requested == 0)
+  {
+    // n=0 behaves like n=1 (there is no empty read command)
+    requested = 1;
   }
 
   /* We will never read more than requested + 4 bytes. */
@@ -94,7 +299,12 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
   char *buf = (char *)malloc((size_t)capacity + 1); // +1 for NUL
   if (!buf)
   {
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+    int err = 0;
+#ifdef ENOMEM
+    err = ENOMEM;
+#endif
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_other(err, "out of memory"));
   }
 
   int len = 0;
@@ -111,10 +321,9 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
     {
       if (ferror(stdin))
       {
-        // TODO: maybe we should return a better error than unit
-        // int err = errno ? errno : EIO;
         free(buf);
-        return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+        return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+            bsts_ioerror_from_errno_default(errno));
       }
       /* EOF */
       break;
@@ -143,7 +352,8 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
     if (!bsts_utf8_is_valid_prefix(buf, len))
     {
       free(buf);
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_invalid_utf8());
     }
     buf[len] = '\0';
     BValue result = ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_string_from_utf8_bytes_copy(len, buf));
@@ -168,7 +378,8 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
     {
       /* We've already added 4 extra bytes and still not valid -> invalid UTF-8. */
       free(buf);
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_invalid_utf8());
     }
 
     int ch = fgetc(stdin);
@@ -176,14 +387,14 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
     {
       if (ferror(stdin))
       {
-        // TODO: better error reporting
-        // int err = errno ? errno : EIO;
         free(buf);
-        return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+        return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+            bsts_ioerror_from_errno_default(errno));
       }
       /* EOF but current bytes don't end on a code point boundary -> invalid. */
       free(buf);
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(bsts_unit_value());
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_invalid_utf8());
     }
 
     buf[len++] = (char)ch;

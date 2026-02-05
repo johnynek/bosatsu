@@ -1,14 +1,16 @@
 package Bosatsu/Prog
 
+from Bosatsu/IOError import IOError, error_to_String
+
 export (unit, pure, raise_error, read_env, recover, remap_env,
   print, println, await, read_stdin_utf8_bytes, recursive, map, map_err,
-  with_env, Prog, Main())
+  with_env, show_error, Prog, Main())
 
 external struct Prog[env: -*, err: +*, res: +*]
 
-external def pure[env, res](a: res) -> Prog[env, forall e. e, res]
-external def raise_error[env, err](e: err) -> Prog[env, err, forall a. a]
-external read_env: forall a. Prog[a, forall e. e, a]
+external def pure[env, err, res](a: res) -> Prog[env, err, res]
+external def raise_error[env, err, res](e: err) -> Prog[env, err, res]
+external read_env: forall a, err. Prog[a, err, a]
 external def flat_map(prog: Prog[env, err, res], fn: res -> Prog[env, err, res1]) -> Prog[env, err, res1]
 
 def map(prog: Prog[env, err, res], fn: res -> res1) -> Prog[env, err, res1]:
@@ -27,19 +29,31 @@ external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err
 def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
   remap_env(p, _ -> env)
 
-external def println[env](str: String) -> Prog[env, forall e. e, Unit]
-external def print[env](str: String) -> Prog[env, forall e. e, Unit]
-# read about n bytes from the standard in. Returns empty string on EOF
-external def read_stdin_utf8_bytes[env](n: Int) -> Prog[env, Unit, String]
+external def println[env](str: String) -> Prog[env, IOError, Unit]
+external def print[env](str: String) -> Prog[env, IOError, Unit]
+# read about n bytes from the standard in (may read up to n + 4 bytes to
+# finish a UTF-8 codepoint). n=0 behaves like n=1 (there is no empty read);
+# empty string indicates EOF.
+external def read_stdin_utf8_bytes[env](n: Int) -> Prog[env, IOError, String]
 
 def await(p): fn -> p.flat_map(fn)
 
 def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a -> Prog[env, err, b]):
   a -> apply_fix(a, fn)
 
-unit: Prog[(), forall e. e, ()] = pure(())
+unit: forall env, err. Prog[env, err, ()] = pure(())
 
-struct Main(prog: Prog[List[String], forall e. e, Int])
+struct Main(prog: forall err. Prog[List[String], err, Int])
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+def show_error[env](p: Prog[env, IOError, Int]) -> forall e. Prog[env, e, Int]:
+  p.recover(ioe -> (
+    ioe_str = error_to_String(ioe)
+    _ <- ignore_err(println(ioe_str), ()).await()
+    pure(1)
+  ))
 
 count_down = recursive(loop -> (
     def compute(i):
@@ -52,7 +66,7 @@ count_down = recursive(loop -> (
     compute
   ))
 
-to_run = Main(
+to_run = Main(show_error(
     (
       args <- read_env.await()
       stdin <- read_stdin_utf8_bytes(1000).recover(_ -> (
@@ -66,4 +80,4 @@ to_run = Main(
       _ <- println("args = ${arg_str}").await()
       pure(0)
     )
-  )
+  ))
