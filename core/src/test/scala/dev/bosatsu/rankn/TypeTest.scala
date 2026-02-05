@@ -31,6 +31,101 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private val genTau: Gen[Type] =
+    NTypeGen.genDepth03.suchThat(Type.Tau.isTau)
+
+  private val genExistsVars: Gen[NonEmptyList[(Type.Var.Bound, Kind)]] =
+    for {
+      n <- Gen.choose(1, 4)
+      vars <- Gen.listOfN(n, Gen.zip(NTypeGen.genBound, NTypeGen.genKind))
+    } yield NonEmptyList.fromListUnsafe(vars)
+
+  test("Type.exists preserves Tau when input is Tau") {
+    forAll(genExistsVars, genTau) { (vars, in) =>
+      val ex = Type.exists(vars, in)
+      assert(Type.Tau.isTau(ex), s"exists($vars, $in) == $ex is not Tau")
+    }
+  }
+
+  test("Type.apply1 preserves Tau when both args are Tau") {
+    forAll(genTau, genTau) { (fn, arg) =>
+      val app = Type.apply1(fn, arg)
+      assert(Type.Tau.isTau(app), s"apply1($fn, $arg) == $app is not Tau")
+    }
+  }
+
+  private val genTauLeafOrApply: Gen[Type] =
+    genTau.suchThat {
+      case _: (Type.Leaf | Type.TyApply) => true
+      case _                             => false
+    }
+
+  test("Tau.unapply recognizes tau and rejects forall") {
+    forAll(genTau) { t =>
+      val m = Type.Tau.unapply(t)
+      assert(!m.isEmpty, s"Tau.unapply should match: $t")
+      val asTau = m.get
+      assert(Type.Tau.isTau(asTau), s"Tau.unapply get not Tau: $asTau")
+    }
+
+    val fa = Type.forAll(
+      NonEmptyList.one((Type.Var.Bound("a"), Kind.Type)),
+      Type.TyVar(Type.Var.Bound("a"))
+    )
+    assert(Type.Tau.unapply(fa).isEmpty, "Tau.unapply should reject ForAll")
+  }
+
+  test("TauApply apply/unapply round trip") {
+    forAll(genTauLeafOrApply, genTau) { (fn0, arg0) =>
+      val fn = Type.Tau.unapply(fn0).get
+      val arg = Type.Tau.unapply(arg0).get
+      val applied = Type.Tau.TauApply(fn, arg)
+
+      assert(Type.Tau.isTau(applied), s"TauApply result not Tau: $applied")
+
+      val m = Type.Tau.TauApply.unapply(applied)
+      assert(!m.isEmpty, s"TauApply.unapply should match: $applied")
+      val ta = m.get
+      assertEquals(ta.on, fn)
+      assertEquals(ta.arg, arg)
+      assertEquals(
+        ta.toTyApply,
+        Type.TyApply(fn.asInstanceOf[Type.Leaf | Type.TyApply], arg)
+      )
+    }
+  }
+
+  test("TauApply unapply rejects non-apply tau") {
+    val leaf = Type.Tau.unapply(Type.TyVar(Type.Var.Bound("a"))).get
+    val m = Type.Tau.TauApply.unapply(leaf)
+    assert(m.isEmpty, s"TauApply.unapply should be empty for: $leaf")
+  }
+
+  test("TauExists apply/unapply round trip") {
+    forAll(genExistsVars, genTau) { (vars, in0) =>
+      val in = Type.Tau.unapply(in0).get
+      val ex = Type.Tau.TauExists(vars, in)
+      val expected = Type.existsRho(vars, in)
+
+      assert(Type.Tau.isTau(ex), s"TauExists result not Tau: $ex")
+      assertEquals(ex.toExists, expected)
+      assertEquals(ex.vars, expected.vars)
+      assertEquals(ex.in.asInstanceOf[Type], expected.in: Type)
+
+      val m = Type.Tau.TauExists.unapply(ex)
+      assert(!m.isEmpty, s"TauExists.unapply should match: $ex")
+      val ex1 = m.get
+      assertEquals(ex1.vars, expected.vars)
+      assertEquals(ex1.in.asInstanceOf[Type], expected.in: Type)
+    }
+  }
+
+  test("TauExists unapply rejects non-exists tau") {
+    val leaf = Type.Tau.unapply(Type.TyVar(Type.Var.Bound("b"))).get
+    val m = Type.Tau.TauExists.unapply(leaf)
+    assert(m.isEmpty, s"TauExists.unapply should be empty for: $leaf")
+  }
+
   test("normalize preserves free vars") {
     forAll(NTypeGen.genDepth03) { ts =>
       val frees = Type.freeTyVars(ts :: Nil)

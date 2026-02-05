@@ -1130,9 +1130,7 @@ object Infer {
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
         case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          // TODO: We should be able to handle this more directly
-          // Meta should be able to hold Exists types
-          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
+          subsCheckRho2(t1, t2, r1, r2) &> subsCheckRho2(t2, t1, r2, r1).void
         case (left, right) =>
           fail(Error.NotUnifiable(left, right, r1, r2))
       }
