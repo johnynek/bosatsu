@@ -185,7 +185,10 @@ object Command {
 
     val install: Opts[F[Output[P]]] =
       Opts
-        .subcommand("install", "install the bosatsu c runtime") {
+        .subcommand(
+          "install",
+          "install the bosatsu c runtime (Makefile honors CFLAGS; default is -O2 unless overridden)"
+        ) {
           (
             repoRootOpt,
             gitShaOpt,

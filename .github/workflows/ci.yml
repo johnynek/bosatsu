@@ -185,7 +185,10 @@ jobs:
           make && git diff --quiet || { git diff; false; }
           make boehm_example
           make install
-          ./test_exe && ./boehm_example && cd ..
+          ./test_exe && ./boehm_example
+          make bench_exe
+          ./bench_exe 1000000 | tee bench_ci.txt
+          cd ..
       - name: "generate and compile c code"
         run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe"
       - name: "run generated c code"

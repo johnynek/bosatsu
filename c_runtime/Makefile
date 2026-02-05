@@ -1,8 +1,9 @@
-.PHONY: install
+.PHONY: install bench
 
 OS := $(shell uname)
 ROOTDIR ?= $(shell git rev-parse --show-toplevel)
 VERSION ?= $(shell $(ROOTDIR)/bosatsuj version -g)
+CFLAGS ?= -O2
 
 # Platform-specific settings
 ifneq ($(wildcard /opt/homebrew/Cellar/bdw-gc),)  # Check if the directory exists
@@ -35,6 +36,12 @@ test_exe: test.c bosatsu_runtime.o
 test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }
 	touch test_out
+
+bench_exe: bench.c bosatsu_runtime.o
+	gcc $(CFLAGS) -Wall -o bench_exe bench.c bosatsu_runtime.o $(LIBS)
+
+bench: bench_exe
+	./bench_exe
 
 bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 	gcc -Wall -Werror -c bosatsu_ext_Bosatsu_l_Predef.c
