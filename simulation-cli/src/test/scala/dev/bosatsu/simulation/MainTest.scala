@@ -84,6 +84,7 @@ def compute(x: Int) -> Int:
   test("Main.run processes valid bosatsu file with config") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString
@@ -99,6 +100,7 @@ def compute(x: Int) -> Int:
   test("Main.run handles title option") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString,
@@ -114,6 +116,7 @@ def compute(x: Int) -> Int:
   test("Main.run handles dark theme option") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString,
@@ -129,6 +132,7 @@ def compute(x: Int) -> Int:
   test("Main.run handles --no-why flag") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString,
@@ -142,6 +146,7 @@ def compute(x: Int) -> Int:
   test("Main.run handles --sweeps flag") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString,
@@ -155,6 +160,7 @@ def compute(x: Int) -> Int:
   test("Main.run handles --canvas flag") {
     withTempFiles(simpleSimulation, simpleConfig) { (tmpInput, tmpConfig, tmpOutput) =>
       val result = Main.run(List(
+        "sim",
         tmpInput.toString,
         tmpConfig.toString,
         "-o", tmpOutput.toString,

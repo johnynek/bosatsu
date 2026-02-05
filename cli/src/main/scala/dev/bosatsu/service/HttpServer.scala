@@ -31,16 +31,13 @@ object HttpServer {
   given CanEqual[Uri.Path, Uri.Path] = CanEqual.derived
 
   /**
-   * Start the HTTP server with the given handlers.
+   * Build API routes for the given handlers.
+   * Exposed for testing.
    */
-  def serve(
-    handlers: List[CompiledHandler],
-    port: Int,
-    staticDir: Option[Path]
-  ): IO[Unit] = {
+  def apiRoutes(handlers: List[CompiledHandler]): HttpRoutes[IO] = {
     val handlerMap = handlers.map(h => h.name -> h).toMap
 
-    val apiRoutes = HttpRoutes.of[IO] {
+    HttpRoutes.of[IO] {
       // Server info
       case GET -> Root =>
         Ok(Json.obj(
@@ -87,10 +84,24 @@ object HttpServer {
             NotFound(Json.obj("error" -> s"Handler '$name' not found".asJson))
         }
     }
+  }
 
-    val app = Router(
-      "/api" -> apiRoutes
-    ).orNotFound
+  /**
+   * Build the full HTTP app with API routes under /api.
+   * Exposed for testing.
+   */
+  def httpApp(handlers: List[CompiledHandler]): HttpApp[IO] =
+    Router("/api" -> apiRoutes(handlers)).orNotFound
+
+  /**
+   * Start the HTTP server with the given handlers.
+   */
+  def serve(
+    handlers: List[CompiledHandler],
+    port: Int,
+    staticDir: Option[Path]
+  ): IO[Unit] = {
+    val app = httpApp(handlers)
 
     val serverPort = Port.fromInt(port).getOrElse {
       throw new IllegalArgumentException(s"Invalid port: $port (must be 0-65535)")

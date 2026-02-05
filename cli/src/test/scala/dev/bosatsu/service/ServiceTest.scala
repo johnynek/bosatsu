@@ -1,6 +1,7 @@
 package dev.bosatsu.service
 
 import dev.bosatsu.Par
+import org.http4s.circe.CirceEntityCodec._
 
 class ServiceTest extends munit.FunSuite {
 
@@ -539,52 +540,242 @@ def with_match(x: Int) -> Int:
   }
 
   // ==========================================================================
-  // McpServer tests (unit testing the request processing logic)
+  // McpServer integration tests
   // ==========================================================================
 
-  test("McpServer - jsonRpcResponse format") {
-    // Test the format of JSON-RPC responses by parsing example responses
-    import io.circe.parser.parse
+  import cats.effect.unsafe.implicits.global
+  import io.circe.Json
+  import io.circe.syntax._
 
-    val response = io.circe.Json.obj(
-      "jsonrpc" -> io.circe.Json.fromString("2.0"),
-      "id" -> io.circe.Json.fromInt(1),
-      "result" -> io.circe.Json.obj("success" -> io.circe.Json.fromBoolean(true))
-    )
-
+  test("McpServer.jsonRpcResponse - with id") {
+    val response = McpServer.jsonRpcResponse(Some(Json.fromInt(1)), Json.obj("success" -> true.asJson))
     assertEquals(response.hcursor.downField("jsonrpc").as[String], Right("2.0"))
-    assert(response.hcursor.downField("result").focus.isDefined)
+    assertEquals(response.hcursor.downField("id").as[Int], Right(1))
+    assertEquals(response.hcursor.downField("result").downField("success").as[Boolean], Right(true))
   }
 
-  test("McpServer - jsonRpcError format") {
-    val error = io.circe.Json.obj(
-      "jsonrpc" -> io.circe.Json.fromString("2.0"),
-      "id" -> io.circe.Json.Null,
-      "error" -> io.circe.Json.obj(
-        "code" -> io.circe.Json.fromInt(-32601),
-        "message" -> io.circe.Json.fromString("Method not found")
+  test("McpServer.jsonRpcResponse - with null id") {
+    val response = McpServer.jsonRpcResponse(None, Json.obj())
+    assertEquals(response.hcursor.downField("id").focus, Some(Json.Null))
+  }
+
+  test("McpServer.jsonRpcError - format") {
+    val error = McpServer.jsonRpcError(Some(Json.fromInt(42)), -32601, "Method not found")
+    assertEquals(error.hcursor.downField("jsonrpc").as[String], Right("2.0"))
+    assertEquals(error.hcursor.downField("id").as[Int], Right(42))
+    assertEquals(error.hcursor.downField("error").downField("code").as[Int], Right(-32601))
+    assertEquals(error.hcursor.downField("error").downField("message").as[String], Right("Method not found"))
+  }
+
+  test("McpServer.processRequest - initialize") {
+    val handlers = List.empty[CompiledHandler]
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 1.asJson,
+      "method" -> "initialize".asJson,
+      "params" -> Json.obj()
+    )
+
+    val response = McpServer.processRequest("TestServer", handlers, request).unsafeRunSync()
+    assertEquals(response.hcursor.downField("result").downField("serverInfo").downField("name").as[String], Right("TestServer"))
+    assertEquals(response.hcursor.downField("result").downField("protocolVersion").as[String], Right("2024-11-05"))
+  }
+
+  test("McpServer.processRequest - tools/list") {
+    val analysis = ServiceAnalysis("myHandler", "test.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val handlers = List(CompiledHandler("myHandler", Nil, "code", analysis))
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 2.asJson,
+      "method" -> "tools/list".asJson
+    )
+
+    val response = McpServer.processRequest("TestServer", handlers, request).unsafeRunSync()
+    val tools = response.hcursor.downField("result").downField("tools").as[List[Json]]
+    assert(tools.isRight)
+    assertEquals(tools.toOption.get.size, 1)
+    assertEquals(tools.toOption.get.head.hcursor.downField("name").as[String], Right("myHandler"))
+  }
+
+  test("McpServer.processRequest - tools/call success") {
+    val analysis = ServiceAnalysis("handler1", "test.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val handlers = List(CompiledHandler("handler1", Nil, "code", analysis))
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 3.asJson,
+      "method" -> "tools/call".asJson,
+      "params" -> Json.obj(
+        "name" -> "handler1".asJson,
+        "arguments" -> Json.obj("x" -> 42.asJson)
       )
     )
 
-    assertEquals(error.hcursor.downField("error").downField("code").as[Int], Right(-32601))
+    val response = McpServer.processRequest("TestServer", handlers, request).unsafeRunSync()
+    val content = response.hcursor.downField("result").downField("content").as[List[Json]]
+    assert(content.isRight)
+    val text = content.toOption.get.head.hcursor.downField("text").as[String]
+    assert(text.isRight)
+    assert(text.toOption.get.contains("Executed handler1"))
+  }
+
+  test("McpServer.processRequest - tools/call not found") {
+    val handlers = List.empty[CompiledHandler]
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 4.asJson,
+      "method" -> "tools/call".asJson,
+      "params" -> Json.obj("name" -> "nonexistent".asJson)
+    )
+
+    val response = McpServer.processRequest("TestServer", handlers, request).unsafeRunSync()
+    assertEquals(response.hcursor.downField("error").downField("code").as[Int], Right(-32601))
+    assert(response.hcursor.downField("error").downField("message").as[String].toOption.get.contains("not found"))
+  }
+
+  test("McpServer.processRequest - shutdown") {
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 5.asJson,
+      "method" -> "shutdown".asJson
+    )
+
+    val response = McpServer.processRequest("TestServer", List.empty, request).unsafeRunSync()
+    assert(response.hcursor.downField("result").focus.isDefined)
+  }
+
+  test("McpServer.processRequest - notifications/initialized returns null") {
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "method" -> "notifications/initialized".asJson
+    )
+
+    val response = McpServer.processRequest("TestServer", List.empty, request).unsafeRunSync()
+    assert(response.isNull)
+  }
+
+  test("McpServer.processRequest - unknown method") {
+    val request = Json.obj(
+      "jsonrpc" -> "2.0".asJson,
+      "id" -> 6.asJson,
+      "method" -> "unknown/method".asJson
+    )
+
+    val response = McpServer.processRequest("TestServer", List.empty, request).unsafeRunSync()
+    assertEquals(response.hcursor.downField("error").downField("code").as[Int], Right(-32601))
+    assert(response.hcursor.downField("error").downField("message").as[String].toOption.get.contains("Method not found"))
   }
 
   // ==========================================================================
-  // HttpServer tests (unit testing route logic)
+  // HttpServer integration tests
   // ==========================================================================
 
-  test("HttpServer - handler map construction") {
-    import dev.bosatsu.Identifier
-    val analysis = ServiceAnalysis("h", "f.bosatsu", Nil, Nil, false, 0, 0, 0)
-    val handlers = List(
-      CompiledHandler("handler1", Nil, "code1", analysis),
-      CompiledHandler("handler2", Nil, "code2", analysis)
-    )
+  import org.http4s._
+  import org.http4s.implicits._
 
-    val handlerMap = handlers.map(h => h.name -> h).toMap
-    assertEquals(handlerMap.size, 2)
-    assert(handlerMap.contains("handler1"))
-    assert(handlerMap.contains("handler2"))
+  test("HttpServer.apiRoutes - GET / returns server info") {
+    val analysis = ServiceAnalysis("h1", "f.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val handlers = List(CompiledHandler("h1", Nil, "code", analysis))
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/")
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.Ok)
+    val body = response.as[Json].unsafeRunSync()
+    assertEquals(body.hcursor.downField("name").as[String], Right("Bosatsu Service"))
+    assertEquals(body.hcursor.downField("handlers").as[List[String]], Right(List("h1")))
+  }
+
+  test("HttpServer.apiRoutes - GET /handlers returns handler list") {
+    val analysis = ServiceAnalysis("handler1", "f.bosatsu", Nil, Nil, true, 5, 3, 2)
+    val handlers = List(CompiledHandler("handler1", Nil, "code", analysis))
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/handlers")
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.Ok)
+    val body = response.as[Json].unsafeRunSync()
+    val handlerList = body.as[List[Json]]
+    assert(handlerList.isRight)
+    assertEquals(handlerList.toOption.get.size, 1)
+    assertEquals(handlerList.toOption.get.head.hcursor.downField("name").as[String], Right("handler1"))
+    assertEquals(handlerList.toOption.get.head.hcursor.downField("canBatch").as[Boolean], Right(true))
+  }
+
+  test("HttpServer.apiRoutes - GET /handlers/:name/analysis returns analysis") {
+    val analysis = ServiceAnalysis("myHandler", "test.bosatsu", Nil, Nil, false, 10, 5, 5)
+    val handlers = List(CompiledHandler("myHandler", Nil, "code", analysis))
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/handlers/myHandler/analysis")
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.Ok)
+    val body = response.as[Json].unsafeRunSync()
+    assertEquals(body.hcursor.downField("handlerName").as[String], Right("myHandler"))
+    assertEquals(body.hcursor.downField("totalQueries").as[Int], Right(10))
+  }
+
+  test("HttpServer.apiRoutes - GET /handlers/:name/analysis not found") {
+    val handlers = List.empty[CompiledHandler]
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/handlers/nonexistent/analysis")
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.NotFound)
+  }
+
+  test("HttpServer.apiRoutes - POST /handlers/:name executes handler") {
+    val analysis = ServiceAnalysis("exec", "test.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val handlers = List(CompiledHandler("exec", Nil, "code", analysis))
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val body = Json.obj("input" -> "test".asJson)
+    val request = Request[cats.effect.IO](Method.POST, uri"/handlers/exec")
+      .withEntity(body)
+
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.Ok)
+    val responseBody = response.as[Json].unsafeRunSync()
+    assertEquals(responseBody.hcursor.downField("success").as[Boolean], Right(true))
+    assertEquals(responseBody.hcursor.downField("handler").as[String], Right("exec"))
+  }
+
+  test("HttpServer.apiRoutes - POST /handlers/:name not found") {
+    val handlers = List.empty[CompiledHandler]
+    val routes = HttpServer.apiRoutes(handlers)
+
+    val body = Json.obj("input" -> "test".asJson)
+    val request = Request[cats.effect.IO](Method.POST, uri"/handlers/missing")
+      .withEntity(body)
+
+    val response = routes.orNotFound.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.NotFound)
+  }
+
+  test("HttpServer.httpApp - routes under /api prefix") {
+    val analysis = ServiceAnalysis("h", "f.bosatsu", Nil, Nil, false, 0, 0, 0)
+    val handlers = List(CompiledHandler("h", Nil, "code", analysis))
+    val app = HttpServer.httpApp(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/api/")
+    val response = app.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.Ok)
+  }
+
+  test("HttpServer.httpApp - non-api routes return not found") {
+    val handlers = List.empty[CompiledHandler]
+    val app = HttpServer.httpApp(handlers)
+
+    val request = Request[cats.effect.IO](Method.GET, uri"/other")
+    val response = app.run(request).unsafeRunSync()
+
+    assertEquals(response.status, Status.NotFound)
   }
 
   // ==========================================================================
