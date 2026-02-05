@@ -601,9 +601,24 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk)
 
+    private def assumeRho[A](te: TypedExpr[A]): TypedExpr.Rho[A] =
+      TypedExpr.Rho.assumeRho(te)
+
+    private def coerceToRho[A](
+        co: TypedExpr.Coerce,
+        te: TypedExpr[A]
+    ): TypedExpr.Rho[A] =
+      assumeRho(co(te))
+
+    private val widenRho: FunctionK[TypedExpr.Rho, TypedExpr] =
+      new FunctionK[TypedExpr.Rho, TypedExpr] {
+        def apply[A](fa: TypedExpr.Rho[A]): TypedExpr[A] = fa
+      }
+
     val zonkTypeExprK: FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
       new FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] {
-        def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = zonkTypedExpr(fa)
+        def apply[A](fa: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
+          zonkTypedExpr(fa)
       }
 
     def initRef[E: HasRegion, A](
@@ -1690,7 +1705,7 @@ object Infer {
         }
         coerce <- instSigma(resT, expect, region(tag))
         res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
-      } yield coerce(res)
+      } yield coerceToRho(coerce, res)
 
     def checkAnnotated[A: HasRegion](
         inner: Expr[A],
@@ -1700,7 +1715,7 @@ object Infer {
     ): Infer[TypedExpr.Rho[A]] =
       (checkSigma(inner, tpe), instSigma(tpe, expect, tpeRegion))
         .parFlatMapN { (typedTerm, coerce) =>
-          zonkTypedExpr(typedTerm).map(coerce(_))
+          zonkTypedExpr(typedTerm).map(te => coerceToRho(coerce, te))
         }
 
     /** Invariant: if the second argument is (Check rho) then rho is in weak
@@ -1714,22 +1729,22 @@ object Infer {
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
-          instSigma(tpe, expect, region(term)).map(
-            _(TypedExpr.Literal(lit, tpe, t))
-          )
+          instSigma(tpe, expect, region(term)).map { co =>
+            coerceToRho(co, TypedExpr.Literal(lit, tpe, t))
+          }
         case Local(name, tag) =>
           for {
             vSigma <- lookupVarType((None, name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
             res0 = TypedExpr.Local(name, vSigma, tag)
             res <- zonkTypedExpr(res0)
-          } yield coerce(res)
+          } yield coerceToRho(coerce, res)
         case Global(pack, name, tag) =>
           for {
             vSigma <- lookupVarType((Some(pack), name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
             res <- zonkTypedExpr(TypedExpr.Global(pack, name, vSigma, tag))
-          } yield coerce(res)
+          } yield coerceToRho(coerce, res)
         case Annotation(App(fn, args, tag), resT, annTag) =>
           applyViaInst(fn, args, tag)
             .flatMap {
@@ -1743,14 +1758,16 @@ object Infer {
                   )
                   co2 <- instSigma(resT, expect, region(annTag))
                   z <- zonkTypedExpr(te)
-                } yield co2(co1(z))
+                } yield coerceToRho(co2, co1(z))
               case None =>
                 (
                   checkApply(fn, args, tag, resT, region(annTag)),
                   instSigma(resT, expect, region(annTag))
                 )
                   .parFlatMapN { (typedTerm, coerce) =>
-                    zonkTypedExpr(typedTerm).map(coerce(_))
+                    zonkTypedExpr(typedTerm).map(te =>
+                      coerceToRho(coerce, te)
+                    )
                   }
             }
         case App(fn, args, tag) =>
@@ -1760,11 +1777,11 @@ object Infer {
                 for {
                   co <- instSigma(te.getType, expect, HasRegion.region(tag))
                   z <- zonkTypedExpr(te)
-                } yield co(z)
+                } yield coerceToRho(co, z)
               case None =>
                 expect match {
                   case Expected.Check((rho, reg)) =>
-                    checkApply(fn, args, tag, rho, reg)
+                    checkApply(fn, args, tag, rho, reg).map(assumeRho)
                   case inf @ Expected.Inf(_) =>
                     applyRhoExpect(fn, args, tag, inf)
                 }
@@ -1774,7 +1791,7 @@ object Infer {
             unSkol <- inferForAll(tpes, in)
             // unSkol is not a Rho type, we need instantiate it
             coerce <- instSigma(unSkol.getType, expect, region(term))
-          } yield coerce(unSkol)
+          } yield coerceToRho(coerce, unSkol)
         case Lambda(args, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
@@ -1820,7 +1837,9 @@ object Infer {
                   } &>
                     checkRho(result, bodyTRho)
                 }
-              } yield TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
+              } yield assumeRho(
+                TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
+              )
             case infer @ Expected.Inf(_) =>
               for {
                 nameVarsT <- args.parTraverse {
@@ -1838,7 +1857,9 @@ object Infer {
                 _ <- infer.set(
                   (Type.Fun(nameVarsT.map(_._2), bodyT), region(term))
                 )
-              } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
+              } yield assumeRho(
+                TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
+              )
           }
         case Let(name, rhs, body, isRecursive, tag) =>
           if (isRecursive.isRecursive) {
@@ -1883,7 +1904,7 @@ object Infer {
               // we could do this after all typechecking is done
               val frees = TypedExpr.freeVars(rhs :: Nil)
               val isRecursive = RecursionKind.recursive(frees.contains(name))
-              TypedExpr.Let(name, rhs, body, isRecursive, tag)
+              assumeRho(TypedExpr.Let(name, rhs, body, isRecursive, tag))
             }
           } else {
             // In this branch, we typecheck the rhs *without* name in the environment
@@ -1908,12 +1929,14 @@ object Infer {
 
             rhsBody.map { case (rhs, body) =>
               // Note: in this branch, we know isRecursive.isRecursive == false
-              TypedExpr.Let(
-                name,
-                rhs,
-                body,
-                recursive = RecursionKind.NonRecursive,
-                tag
+              assumeRho(
+                TypedExpr.Let(
+                  name,
+                  rhs,
+                  body,
+                  recursive = RecursionKind.NonRecursive,
+                  tag
+                )
               )
             }
           }
@@ -1977,12 +2000,15 @@ object Infer {
                                   z <- zonkTypedExpr(
                                     TypedExpr.Annotation(te, rho)
                                   )
-                                } yield co(z)
+                                } yield coerceToRho(co, z)
                               case inf @ Expected.Inf(_) =>
                                 for {
                                   _ <- inf.set((rho, region(term)))
                                   ks <- checkedKinds
-                                } yield TypedExpr.coerceRho(rho, ks)(te)
+                                } yield coerceToRho(
+                                  TypedExpr.coerceRho(rho, ks),
+                                  te
+                                )
                             })
                           case _ =>
                             default
@@ -2048,7 +2074,9 @@ object Infer {
                             )
                           } yield tbranches.map(_._1)
                         }
-                    } yield unskol(TypedExpr.Match(tsigma, tbranches, tag))
+                    } yield assumeRho(
+                      unskol(TypedExpr.Match(tsigma, tbranches, tag))
+                    )
                   case infer @ Expected.Inf(_) =>
                     for {
                       tbranches <- branches.parTraverse { case (p, r) =>
@@ -2056,7 +2084,9 @@ object Infer {
                       }
                       (rho, regRho, resBranches) <- widenBranches(tbranches)
                       _ <- infer.set((rho, regRho))
-                    } yield unskol(TypedExpr.Match(tsigma, resBranches, tag))
+                    } yield assumeRho(
+                      unskol(TypedExpr.Match(tsigma, resBranches, tag))
+                    )
                 }
               }
             }
@@ -2123,7 +2153,7 @@ object Infer {
             // unfortunately we have to check each branch again to get the correct coerce
             subsCheckRho2(tpe, resTRho, region(te), resRegion)
               .map { coerce =>
-                (p, coerce(te))
+                (p, coerceToRho(coerce, te))
               }
           } else pure((p, te))
         }
@@ -2514,7 +2544,7 @@ object Infer {
     ): Infer[TypedExpr[A]] =
       for {
         e <- env
-        zrho <- zonkTypedExpr(rho)
+        zrho <- TypedExpr.Rho.zonkMeta(rho)(zonk)
         q <- TypedExpr.quantify(e, zrho, readMeta, writeMeta)
       } yield q
 
@@ -2572,7 +2602,7 @@ object Infer {
           val cRho = checkRhoK(rho)
           if (tpe == rho) {
             // we don't need to zonk here
-            pure(cRho)
+            pure(cRho.andThenMap(widenRho))
           } else {
             // we need to zonk before we unskolemize because some of the metas could be skolems
             pure(
@@ -2605,7 +2635,7 @@ object Infer {
       new FunctionK[[X] =>> (Expr[X], HasRegion[X]), [X] =>> Infer[
         TypedExpr.Rho[X]
       ]] {
-        def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr[A]] =
+        def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr.Rho[A]] =
           checkRho(fa._1, rho)(using fa._2)
       }
 

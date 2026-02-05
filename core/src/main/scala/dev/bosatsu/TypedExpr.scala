@@ -480,9 +480,6 @@ object TypedExpr {
       }
   }
 
-  type Rho[A] =
-    TypedExpr[A] // an expression with a Rho type (no top level forall)
-
   sealed abstract class Name[+A] extends TypedExpr[A] with Product
 
   /** This says that the resulting term is generic on a given param
@@ -664,6 +661,30 @@ object TypedExpr {
       ],
       tag: T
   ) extends TypedExpr[T]
+
+  /**
+   * A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have getType.isInstance[Type.Rho]
+   */
+  opaque type Rho[+A] <: TypedExpr[A] =
+    TypedExpr[A] // an expression with a Rho type (no top level forall)
+
+  object Rho {
+    // just assume something is rho, use only when it is safe
+    def assumeRho[A](r: TypedExpr[A]): Rho[A] = r
+
+    def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
+        fn: Type.Meta => F[Option[Type.Tau]]
+    ): F[Rho[A]] =
+      // zonking preserves Rho-ness
+      TypedExpr.zonkMeta(rho)(fn)
+
+    implicit class RhoMethods[A](private val rho: Rho[A]) extends AnyVal {
+      def getRhoType: Type.Rho =
+        // due to us maintaining invariants in this file, this cast must succeed
+        rho.getType.asInstanceOf[Type.Rho]
+    }
+  }
+
 
   def letAllNonRec[T](
       binds: NonEmptyList[(Bindable, TypedExpr[T])],
@@ -2091,6 +2112,10 @@ object TypedExpr {
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =
     HasRegion.instance[TypedExpr[T]](e => HasRegion.region(e.tag))
+
+  implicit def typedExprRhoHasRegion[T: HasRegion]
+      : HasRegion[TypedExpr.Rho[T]] =
+    HasRegion.instance[TypedExpr.Rho[T]](e => HasRegion.region(e.tag))
 
   // noshadow must include any free vars of args
   def liftQuantification[A](
