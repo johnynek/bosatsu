@@ -2500,7 +2500,6 @@ object Infer {
                 pushDownCovariant(rest, lefts, left)
               ) match {
                 case Type.ForAll(bs, l) =>
-                  // TODO: we could possibly have an existential here?
                   Type.forAll(bs, Type.apply1(l, right))
                 case rho /*: Type.Rho */ =>
                   Type.apply1(rho, right)
