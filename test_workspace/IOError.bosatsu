@@ -3,48 +3,54 @@ package Bosatsu/IOError
 export IOError(), error_to_String
 
 enum IOError:
-  NotFound
-  AccessDenied
-  AlreadyExists
-  NotDirectory
-  IsDirectory
-  NotEmpty
-  TooManyOpenFiles
-  ReadOnlyFileSystem
-  CrossDeviceLink
-  NoSpace
-  QuotaExceeded
-  NameTooLong
-  InvalidArgument
-  InvalidUtf8
-  BadFileDescriptor
-  Interrupted
-  WouldBlock
-  TimedOut
-  BrokenPipe
-  Unsupported
-  Other(code: Int, message: String)
+  NotFound(context: String)
+  AccessDenied(context: String)
+  AlreadyExists(context: String)
+  NotDirectory(context: String)
+  IsDirectory(context: String)
+  NotEmpty(context: String)
+  TooManyOpenFiles(context: String)
+  ReadOnlyFileSystem(context: String)
+  CrossDeviceLink(context: String)
+  NoSpace(context: String)
+  QuotaExceeded(context: String)
+  NameTooLong(context: String)
+  InvalidArgument(context: String)
+  InvalidUtf8(context: String)
+  BadFileDescriptor(context: String)
+  Interrupted(context: String)
+  WouldBlock(context: String)
+  TimedOut(context: String)
+  BrokenPipe(context: String)
+  Unsupported(context: String)
+  Other(context: String, code: Int, message: String)
 
 def error_to_String(err: IOError) -> String:
+  def add_context(msg: String, context: String) -> String:
+    match context:
+      case "": msg
+      case _: "${msg}: ${context}"
+
   match err:
-    case NotFound: "not found"
-    case AccessDenied: "access denied"
-    case AlreadyExists: "already exists"
-    case NotDirectory: "not a directory"
-    case IsDirectory: "is a directory"
-    case NotEmpty: "directory not empty"
-    case TooManyOpenFiles: "too many open files"
-    case ReadOnlyFileSystem: "read-only filesystem"
-    case CrossDeviceLink: "cross-device link"
-    case NoSpace: "no space left on device"
-    case QuotaExceeded: "quota exceeded"
-    case NameTooLong: "name too long"
-    case InvalidArgument: "invalid argument"
-    case InvalidUtf8: "invalid utf-8"
-    case BadFileDescriptor: "bad file descriptor"
-    case Interrupted: "interrupted"
-    case WouldBlock: "would block"
-    case TimedOut: "timed out"
-    case BrokenPipe: "broken pipe"
-    case Unsupported: "unsupported"
-    case Other(code, message): "other(${int_to_String(code)}): ${message}"
+    case NotFound(context): add_context("not found", context)
+    case AccessDenied(context): add_context("access denied", context)
+    case AlreadyExists(context): add_context("already exists", context)
+    case NotDirectory(context): add_context("not a directory", context)
+    case IsDirectory(context): add_context("is a directory", context)
+    case NotEmpty(context): add_context("directory not empty", context)
+    case TooManyOpenFiles(context): add_context("too many open files", context)
+    case ReadOnlyFileSystem(context): add_context("read-only filesystem", context)
+    case CrossDeviceLink(context): add_context("cross-device link", context)
+    case NoSpace(context): add_context("no space left on device", context)
+    case QuotaExceeded(context): add_context("quota exceeded", context)
+    case NameTooLong(context): add_context("name too long", context)
+    case InvalidArgument(context): add_context("invalid argument", context)
+    case InvalidUtf8(context): add_context("invalid utf-8", context)
+    case BadFileDescriptor(context): add_context("bad file descriptor", context)
+    case Interrupted(context): add_context("interrupted", context)
+    case WouldBlock(context): add_context("would block", context)
+    case TimedOut(context): add_context("timed out", context)
+    case BrokenPipe(context): add_context("broken pipe", context)
+    case Unsupported(context): add_context("unsupported", context)
+    case Other(context, code, message):
+      add_context("other(${int_to_String(code)}): ${message}", context)

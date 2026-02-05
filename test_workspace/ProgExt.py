@@ -24,80 +24,84 @@ def effect(f): return (7, f)
 
 _pure_unit = pure(())
 
-_IOERR_NOT_FOUND = (0,)
-_IOERR_ACCESS_DENIED = (1,)
-_IOERR_ALREADY_EXISTS = (2,)
-_IOERR_NOT_DIRECTORY = (3,)
-_IOERR_IS_DIRECTORY = (4,)
-_IOERR_NOT_EMPTY = (5,)
-_IOERR_TOO_MANY_OPEN_FILES = (6,)
-_IOERR_READ_ONLY_FILESYSTEM = (7,)
-_IOERR_CROSS_DEVICE_LINK = (8,)
-_IOERR_NO_SPACE = (9,)
-_IOERR_QUOTA_EXCEEDED = (10,)
-_IOERR_NAME_TOO_LONG = (11,)
-_IOERR_INVALID_ARGUMENT = (12,)
-_IOERR_INVALID_UTF8 = (13,)
-_IOERR_BAD_FILE_DESCRIPTOR = (14,)
-_IOERR_INTERRUPTED = (15,)
-_IOERR_WOULD_BLOCK = (16,)
-_IOERR_TIMED_OUT = (17,)
-_IOERR_BROKEN_PIPE = (18,)
-_IOERR_UNSUPPORTED = (19,)
+_IOERR_NOT_FOUND = 0
+_IOERR_ACCESS_DENIED = 1
+_IOERR_ALREADY_EXISTS = 2
+_IOERR_NOT_DIRECTORY = 3
+_IOERR_IS_DIRECTORY = 4
+_IOERR_NOT_EMPTY = 5
+_IOERR_TOO_MANY_OPEN_FILES = 6
+_IOERR_READ_ONLY_FILESYSTEM = 7
+_IOERR_CROSS_DEVICE_LINK = 8
+_IOERR_NO_SPACE = 9
+_IOERR_QUOTA_EXCEEDED = 10
+_IOERR_NAME_TOO_LONG = 11
+_IOERR_INVALID_ARGUMENT = 12
+_IOERR_INVALID_UTF8 = 13
+_IOERR_BAD_FILE_DESCRIPTOR = 14
+_IOERR_INTERRUPTED = 15
+_IOERR_WOULD_BLOCK = 16
+_IOERR_TIMED_OUT = 17
+_IOERR_BROKEN_PIPE = 18
+_IOERR_UNSUPPORTED = 19
+_IOERR_OTHER = 20
 
-def _ioerror_other(code: int, message: str):
-    return (20, code, message)
+def _ioerr(tag: int, context: str):
+    return (tag, context)
 
-def _ioerror_from_errno(err: Optional[int]):
+def _ioerror_other(context: str, code: int, message: str):
+    return (_IOERR_OTHER, context, code, message)
+
+def _ioerror_from_errno(err: Optional[int], context: str):
     if err is None:
-        return _ioerror_other(0, "unknown error")
+        return _ioerror_other(context, 0, "unknown error")
     if err == 0:
-        return _ioerror_other(0, "unknown error")
+        return _ioerror_other(context, 0, "unknown error")
     if err == _errno.ENOENT:
-        return _IOERR_NOT_FOUND
+        return _ioerr(_IOERR_NOT_FOUND, context)
     if err == _errno.EACCES:
-        return _IOERR_ACCESS_DENIED
+        return _ioerr(_IOERR_ACCESS_DENIED, context)
     if err == _errno.EEXIST:
-        return _IOERR_ALREADY_EXISTS
+        return _ioerr(_IOERR_ALREADY_EXISTS, context)
     if err == _errno.ENOTDIR:
-        return _IOERR_NOT_DIRECTORY
+        return _ioerr(_IOERR_NOT_DIRECTORY, context)
     if err == _errno.EISDIR:
-        return _IOERR_IS_DIRECTORY
+        return _ioerr(_IOERR_IS_DIRECTORY, context)
     if err == _errno.ENOTEMPTY:
-        return _IOERR_NOT_EMPTY
+        return _ioerr(_IOERR_NOT_EMPTY, context)
     if err == _errno.EMFILE:
-        return _IOERR_TOO_MANY_OPEN_FILES
+        return _ioerr(_IOERR_TOO_MANY_OPEN_FILES, context)
     if err == _errno.EROFS:
-        return _IOERR_READ_ONLY_FILESYSTEM
+        return _ioerr(_IOERR_READ_ONLY_FILESYSTEM, context)
     if err == _errno.EXDEV:
-        return _IOERR_CROSS_DEVICE_LINK
+        return _ioerr(_IOERR_CROSS_DEVICE_LINK, context)
     if err == _errno.ENOSPC:
-        return _IOERR_NO_SPACE
+        return _ioerr(_IOERR_NO_SPACE, context)
     if hasattr(_errno, "EDQUOT") and err == _errno.EDQUOT:
-        return _IOERR_QUOTA_EXCEEDED
+        return _ioerr(_IOERR_QUOTA_EXCEEDED, context)
     if err == _errno.ENAMETOOLONG:
-        return _IOERR_NAME_TOO_LONG
+        return _ioerr(_IOERR_NAME_TOO_LONG, context)
     if err == _errno.EINVAL:
-        return _IOERR_INVALID_ARGUMENT
+        return _ioerr(_IOERR_INVALID_ARGUMENT, context)
     if err == _errno.EILSEQ:
-        return _IOERR_INVALID_UTF8
+        return _ioerr(_IOERR_INVALID_UTF8, context)
     if err == _errno.EBADF:
-        return _IOERR_BAD_FILE_DESCRIPTOR
+        return _ioerr(_IOERR_BAD_FILE_DESCRIPTOR, context)
     if err == _errno.EINTR:
-        return _IOERR_INTERRUPTED
+        return _ioerr(_IOERR_INTERRUPTED, context)
     if err == _errno.EAGAIN:
-        return _IOERR_WOULD_BLOCK
+        return _ioerr(_IOERR_WOULD_BLOCK, context)
     if hasattr(_errno, "EWOULDBLOCK") and err == _errno.EWOULDBLOCK:
-        return _IOERR_WOULD_BLOCK
+        return _ioerr(_IOERR_WOULD_BLOCK, context)
     if err == _errno.ETIMEDOUT:
-        return _IOERR_TIMED_OUT
+        return _ioerr(_IOERR_TIMED_OUT, context)
     if err == _errno.EPIPE:
-        return _IOERR_BROKEN_PIPE
+        return _ioerr(_IOERR_BROKEN_PIPE, context)
     if hasattr(_errno, "EOPNOTSUPP") and err == _errno.EOPNOTSUPP:
-        return _IOERR_UNSUPPORTED
+        return _ioerr(_IOERR_UNSUPPORTED, context)
     if hasattr(_errno, "ENOTSUP") and err == _errno.ENOTSUP:
-        return _IOERR_UNSUPPORTED
-    return _ioerror_other(err, os.strerror(err))
+        return _ioerr(_IOERR_UNSUPPORTED, context)
+    return _ioerror_other(context, err, os.strerror(err))
 
 
 def println(s):
@@ -108,7 +112,7 @@ def println(s):
       sys.stdout.flush()
       return _pure_unit
     except OSError as exc:
-      return raise_error(_ioerror_from_errno(exc.errno))
+      return raise_error(_ioerror_from_errno(exc.errno, "writing to stdout"))
 
   return effect(fn)
 
@@ -119,7 +123,7 @@ def print_stdout(s):
       sys.stdout.flush()
       return _pure_unit
     except OSError as exc:
-      return raise_error(_ioerror_from_errno(exc.errno))
+      return raise_error(_ioerror_from_errno(exc.errno, "writing to stdout"))
 
   return effect(fn)
 
@@ -145,7 +149,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     """
 
     if requested < 0:
-        return (False, _IOERR_INVALID_ARGUMENT)
+        return (False, _ioerr(_IOERR_INVALID_ARGUMENT, "read_stdin_utf8_bytes argument"))
     if requested == 0:
         # n=0 behaves like n=1 (there is no empty read command)
         requested = 1
@@ -168,17 +172,17 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
         try:
             chunk = stream.read(to_read)
         except OSError as exc:
-            return (False, _ioerror_from_errno(exc.errno))
+            return (False, _ioerror_from_errno(exc.errno, "reading from stdin"))
 
         if chunk is None:
-            return (False, _ioerror_other(0, "unexpected None from read"))
+            return (False, _ioerror_other("reading from stdin", 0, "unexpected None from read"))
 
         if not chunk:  # EOF
             break
 
         if not isinstance(chunk, (bytes, bytearray)):
             # Stream wasn't binary; this is a misuse, treat as error
-            return (False, _ioerror_other(0, "stdin is not a binary stream"))
+            return (False, _ioerror_other("reading from stdin", 0, "stdin is not a binary stream"))
 
         buf.extend(chunk)
 
@@ -195,7 +199,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     # If we didn't even reach `requested`, we hit EOF with invalid/truncated
     # UTF-8; nothing more to read, so treat as error.
     if len(buf) < requested:
-        return (False, _IOERR_INVALID_UTF8)
+        return (False, _ioerr(_IOERR_INVALID_UTF8, "decoding bytes from stdin"))
 
     # 4. We have at least `requested` bytes, but they don't decode yet.
     #    Assume we may have cut the last code point. Read up to 4 more bytes,
@@ -207,16 +211,16 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
         try:
             chunk = stream.read(1)
         except OSError as exc:
-            return (False, _ioerror_from_errno(exc.errno))
+            return (False, _ioerror_from_errno(exc.errno, "reading from stdin"))
 
         if chunk is None:
-            return (False, _ioerror_other(0, "unexpected None from read"))
+            return (False, _ioerror_other("reading from stdin", 0, "unexpected None from read"))
 
         if not chunk:  # EOF
             break
 
         if not isinstance(chunk, (bytes, bytearray)):
-            return (False, _ioerror_other(0, "stdin is not a binary stream"))
+            return (False, _ioerror_other("reading from stdin", 0, "stdin is not a binary stream"))
 
         buf.extend(chunk)
         extra += 1
@@ -226,7 +230,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
             return (True, s)
 
     # Still invalid after up to 4 extra bytes → true UTF-8 error
-    return (False, _IOERR_INVALID_UTF8)
+    return (False, _ioerr(_IOERR_INVALID_UTF8, "decoding bytes from stdin"))
 
 def read_stdin_utf8_bytes(cnt):
   def fn():
