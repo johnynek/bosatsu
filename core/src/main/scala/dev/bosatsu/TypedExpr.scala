@@ -662,6 +662,61 @@ object TypedExpr {
       tag: T
   ) extends TypedExpr[T]
 
+  sealed trait Domain {
+    type TypeKind <: Type
+    type ExprKind[+A] <: TypedExpr[A]
+    type Co = FunctionK[TypedExpr, ExprKind]
+
+    def Annotation[T](term: TypedExpr[T], coerce: TypeKind): ExprKind[T]
+
+    def App[T](
+        fn: TypedExpr[T],
+        args: NonEmptyList[TypedExpr[T]],
+        result: TypeKind,
+        tag: T
+    ): ExprKind[T]
+  }
+
+  object Domain {
+    val TypeDom: Domain {
+      type TypeKind = Type
+      type ExprKind[+A] = TypedExpr[A]
+    } = new Domain {
+      type TypeKind = Type
+      type ExprKind[+A] = TypedExpr[A]
+
+      def Annotation[T](term: TypedExpr[T], coerce: Type): TypedExpr[T] =
+        TypedExpr.Annotation(term, coerce)
+
+      def App[T](
+          fn: TypedExpr[T],
+          args: NonEmptyList[TypedExpr[T]],
+          result: Type,
+          tag: T
+      ): TypedExpr[T] = TypedExpr.App(fn, args, result, tag)
+    }
+
+    val RhoDom: Domain {
+      type TypeKind = Type.Rho
+      type ExprKind[+A] = Rho[A]
+    } = new Domain {
+      type TypeKind = Type.Rho
+      type ExprKind[+A] = Rho[A]
+
+      def Annotation[T](term: TypedExpr[T], coerce: Type.Rho): Rho[T] =
+        TypedExpr.Annotation(term, coerce)
+
+      def App[T](
+          fn: TypedExpr[T],
+          args: NonEmptyList[TypedExpr[T]],
+          result: Type.Rho,
+          tag: T
+      ): Rho[T] =
+        // the type of App is result, which is a Rho
+        TypedExpr.App(fn, args, result, tag)
+    }
+  }
+
   /**
    * A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have getType.isInstance[Type.Rho]
    */
@@ -669,8 +724,61 @@ object TypedExpr {
     TypedExpr[A] // an expression with a Rho type (no top level forall)
 
   object Rho {
-    // just assume something is rho, use only when it is safe
-    def assumeRho[A](r: TypedExpr[A]): Rho[A] = r
+    def substTyExpr[A](
+        keys: NonEmptyList[Type.Var],
+        vals: NonEmptyList[Type.Tau],
+        expr: Rho[A]
+    ): Rho[A] = {
+      // replaceing vars with Taus can't make break Rho-ness
+      val fn = Type.substTy(keys, vals)
+      expr.traverseType[cats.Id](fn)
+    }
+
+    def exists[A](nel: NonEmptyList[(Type.Var.Bound, Kind)], rho: Rho[A]): Rho[A] =
+      // adding an existential wrapper on a Rho keeps it a rho
+      TypedExpr.quantVars(
+        forallList = Nil,
+        existList = nel.toList,
+        rho
+      )
+
+    def AnnotatedLambda[A](
+        args: NonEmptyList[(Bindable, Type)],
+        expr: TypedExpr[A],
+        tag: A
+    ): Rho[A] =
+      // Function types are always Rho types
+      TypedExpr.AnnotatedLambda(args, expr, tag)
+
+    def Let[A](
+        name: Bindable,
+        rhs: TypedExpr[A],
+        body: Rho[A],
+        recursive: RecursionKind,
+        tag: A
+    ): Rho[A] =
+      // if the body is Rho, this is a Let-rho
+      TypedExpr.Let(name, rhs, body, recursive, tag)
+
+    def Match[A](
+        arg: TypedExpr[A],
+        branches: NonEmptyList[
+          (Pattern[(PackageName, Constructor), Type], Rho[A])
+        ],
+        tag: A
+    ): Rho[A] =
+      // if all branches are Rho this is Rho
+      TypedExpr.Match(arg, branches, tag)
+
+    // Throw illegal argument exception if this isn't true,
+    // should always be true by construction, but this runtime check is to detect compiler bugs
+    def assertRho[A](r: TypedExpr[A]): Rho[A] =
+      r.getType match {
+        case _: Type.Rho => r
+        case notRho => throw new IllegalArgumentException(
+          s"type not Rho: ${r.reprString}"
+        )
+      }
 
     def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
         fn: Type.Meta => F[Option[Type.Tau]]
@@ -1243,6 +1351,10 @@ object TypedExpr {
     }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
+  type CoerceRho = FunctionK[TypedExpr, Rho]
+
+  // we can always consider CoerceRho as a Coerce
+  inline def widenCoerceRho(co: CoerceRho): Coerce = co
 
   private def pushDownCovariant(
       tpe: Type,
@@ -1488,19 +1600,20 @@ object TypedExpr {
   // This can assume that the coercion is safe, since it will
   // only matter when type-checking succeeds. It does not need to
   // type-check again
-  def coerceRho(tpe: Type.Rho, kinds: Type => Option[Kind]): Coerce =
+  def coerceRho(tpe: Type.Rho, kinds: Type => Option[Kind]): CoerceRho =
     tpe match {
       case Type.Fun(args, b: Type.Rho) =>
         val cb = coerceRho(b, kinds)
         val cas = args.map {
-          case aRho: Type.Rho => Some(coerceRho(aRho, kinds))
+          case aRho: Type.Rho =>
+            Some(widenCoerceRho(coerceRho(aRho, kinds)))
           case _              => None
         }
 
         coerceFn1(args, b, cas, cb, kinds)
       case _ =>
-        new FunctionK[TypedExpr, TypedExpr] { self =>
-          def apply[A](expr: TypedExpr[A]) =
+        new FunctionK[TypedExpr, Rho] { self =>
+          def apply[A](expr: TypedExpr[A]): Rho[A] =
             expr match {
               case _ if expr.getType.sameAs(tpe) => expr
               case Annotation(t, _)              => self(t)
@@ -1532,7 +1645,7 @@ object TypedExpr {
                         val cArgs = aargs.zip(argTs).map {
                           case (arg, rho: Type.Rho) =>
                             val carg = coerceRho(rho, kinds)
-                            (carg(arg), rho, Some(carg))
+                            (carg(arg), rho, Some(widenCoerceRho(carg)))
                           case (arg, nonRho) =>
                             (arg, nonRho, None)
                         }
@@ -1921,22 +2034,22 @@ object TypedExpr {
       args: NonEmptyList[Type],
       result: Type.Rho,
       coarg: NonEmptyList[Coerce],
-      cores: Coerce,
+      cores: CoerceRho,
       kinds: Type => Option[Kind]
-  ): Coerce =
+  ): CoerceRho =
     coerceFn1(args, result, coarg.map(Some(_)), cores, kinds)
 
   private def coerceFn1(
       arg: NonEmptyList[Type],
       result: Type.Rho,
       coargOpt: NonEmptyList[Option[Coerce]],
-      cores: Coerce,
+      cores: CoerceRho,
       kinds: Type => Option[Kind]
-  ): Coerce =
-    new FunctionK[TypedExpr, TypedExpr] { self =>
+  ): CoerceRho =
+    new FunctionK[TypedExpr, Rho] { self =>
       val fntpe = Type.Fun(arg, result)
 
-      def apply[A](expr: TypedExpr[A]) =
+      def apply[A](expr: TypedExpr[A]): Rho[A] =
         expr match {
           case _ if expr.getType.sameAs(fntpe)  => expr
           case Annotation(t, _)                 => self(t)
