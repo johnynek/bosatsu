@@ -1738,11 +1738,55 @@ struct Inv[a: *](item: a)
 any: exists a. a = T
 x: exists a. Inv[a] = Inv(any)
 """,
-      // TODO: it would be nice to be able to annotate this as
-      // Inv[exists a. a] and get that to pass too
-      // even though, I think exists a. Inv[a] is a tighter type
-      //
       "exists a. Inv[a]"
+    )
+
+    parseProgram(
+      """#
+enum B: T, F
+
+struct Inv[a: *](item: a)
+
+any: exists a. a = T
+x: Inv[exists a. a] = Inv(any)
+""",
+      "Inv[exists a. a]"
+    )
+  }
+
+  test("invariant annotations with existentials are accepted") {
+    parseProgram(
+      """#
+struct Inv[a: *](item: a)
+
+def f(x):
+  inv = Inv(x)
+  (invE1: Inv[exists a. a]) = inv
+  (invE2: Inv[exists b. b]) = inv
+  _ = invE1
+  _ = invE2
+  0
+
+main = f
+""",
+      "(exists a. a) -> Int"
+    )
+  }
+
+  test("invariant annotation with exists then concrete type is rejected") {
+    parseProgramIllTyped(
+      """#
+struct Inv[a: *](item: a)
+
+def f(x):
+  inv = Inv(x)
+  (invE: Inv[exists a. a]) = inv
+  (invI: Inv[Int]) = inv
+  _ = invE
+  0
+
+main = f
+"""
     )
   }
 
