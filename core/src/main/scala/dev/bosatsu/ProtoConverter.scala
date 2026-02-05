@@ -514,7 +514,7 @@ object ProtoConverter {
 
             (faList, exList, exprOf(expr))
               .mapN { (fa, ex, e) =>
-                Type.Quantification.fromLists(
+                TypedExpr.Quantification.fromLists(
                   forallList = fa.toList,
                   existList = ex.toList
                 ) match {
@@ -663,33 +663,21 @@ object ProtoConverter {
         case Some(p) => tabPure(p)
         case None    =>
           p match {
-            case q: Type.Quantified =>
-              val foralls = q.forallList
-              val exs = q.existList
-              val in = q.in
-              (
-                foralls.traverse { case (b, k) => varKindToProto(b, k) },
-                exs.traverse { case (b, k) => varKindToProto(b, k) },
-                typeToProto(in)
-              )
-                .flatMapN { (faids, exids, idx) =>
-                  val ft0 =
-                    if (exs.nonEmpty) {
-                      val withEx = Type.exists(exs, in)
-                      getTypeId(
-                        withEx,
-                        proto.Type(Value.TypeExists(TypeExists(exids, idx)))
-                      )
-                    } else tabPure(idx)
-
-                  ft0.flatMap { t0 =>
-                    if (foralls.nonEmpty) {
-                      getTypeId(
-                        p,
-                        proto.Type(Value.TypeForAll(TypeForAll(faids, t0)))
-                      )
-                    } else tabPure(t0)
-                  }
+            case Type.ForAll(vars, in) =>
+              (vars.toList.traverse { case (b, k) => varKindToProto(b, k) }, typeToProto(in))
+                .flatMapN { (faids, idx) =>
+                  getTypeId(
+                    p,
+                    proto.Type(Value.TypeForAll(TypeForAll(faids, idx)))
+                  )
+                }
+            case Type.Exists(vars, in) =>
+              (vars.toList.traverse { case (b, k) => varKindToProto(b, k) }, typeToProto(in))
+                .flatMapN { (exids, idx) =>
+                  getTypeId(
+                    p,
+                    proto.Type(Value.TypeExists(TypeExists(exids, idx)))
+                  )
                 }
             case Type.TyApply(on, arg) =>
               typeToProto(on)

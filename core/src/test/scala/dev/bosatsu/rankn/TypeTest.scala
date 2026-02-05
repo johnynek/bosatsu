@@ -3,7 +3,7 @@ package dev.bosatsu.rankn
 import cats.{Eq, Order}
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.Kind
+import dev.bosatsu.{Kind, TypedExpr}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -29,6 +29,101 @@ class TypeTest extends munit.ScalaCheckSuite {
       val frees = Type.freeTyVars(ts)
       assertEquals(frees.distinct, frees)
     }
+  }
+
+  private val genTau: Gen[Type] =
+    NTypeGen.genDepth03.suchThat(Type.Tau.isTau)
+
+  private val genExistsVars: Gen[NonEmptyList[(Type.Var.Bound, Kind)]] =
+    for {
+      n <- Gen.choose(1, 4)
+      vars <- Gen.listOfN(n, Gen.zip(NTypeGen.genBound, NTypeGen.genKind))
+    } yield NonEmptyList.fromListUnsafe(vars)
+
+  test("Type.exists preserves Tau when input is Tau") {
+    forAll(genExistsVars, genTau) { (vars, in) =>
+      val ex = Type.exists(vars, in)
+      assert(Type.Tau.isTau(ex), s"exists($vars, $in) == $ex is not Tau")
+    }
+  }
+
+  test("Type.apply1 preserves Tau when both args are Tau") {
+    forAll(genTau, genTau) { (fn, arg) =>
+      val app = Type.apply1(fn, arg)
+      assert(Type.Tau.isTau(app), s"apply1($fn, $arg) == $app is not Tau")
+    }
+  }
+
+  private val genTauLeafOrApply: Gen[Type] =
+    genTau.suchThat {
+      case _: (Type.Leaf | Type.TyApply) => true
+      case _                             => false
+    }
+
+  test("Tau.unapply recognizes tau and rejects forall") {
+    forAll(genTau) { t =>
+      val m = Type.Tau.unapply(t)
+      assert(!m.isEmpty, s"Tau.unapply should match: $t")
+      val asTau = m.get
+      assert(Type.Tau.isTau(asTau), s"Tau.unapply get not Tau: $asTau")
+    }
+
+    val fa = Type.forAll(
+      NonEmptyList.one((Type.Var.Bound("a"), Kind.Type)),
+      Type.TyVar(Type.Var.Bound("a"))
+    )
+    assert(Type.Tau.unapply(fa).isEmpty, "Tau.unapply should reject ForAll")
+  }
+
+  test("TauApply apply/unapply round trip") {
+    forAll(genTauLeafOrApply, genTau) { (fn0, arg0) =>
+      val fn = Type.Tau.unapply(fn0).get
+      val arg = Type.Tau.unapply(arg0).get
+      val applied = Type.Tau.TauApply(fn, arg)
+
+      assert(Type.Tau.isTau(applied), s"TauApply result not Tau: $applied")
+
+      val m = Type.Tau.TauApply.unapply(applied)
+      assert(!m.isEmpty, s"TauApply.unapply should match: $applied")
+      val ta = m.get
+      assertEquals(ta.on, fn)
+      assertEquals(ta.arg, arg)
+      assertEquals(
+        ta.toTyApply,
+        Type.TyApply(fn.asInstanceOf[Type.Leaf | Type.TyApply], arg)
+      )
+    }
+  }
+
+  test("TauApply unapply rejects non-apply tau") {
+    val leaf = Type.Tau.unapply(Type.TyVar(Type.Var.Bound("a"))).get
+    val m = Type.Tau.TauApply.unapply(leaf)
+    assert(m.isEmpty, s"TauApply.unapply should be empty for: $leaf")
+  }
+
+  test("TauExists apply/unapply round trip") {
+    forAll(genExistsVars, genTau) { (vars, in0) =>
+      val in = Type.Tau.unapply(in0).get
+      val ex = Type.Tau.TauExists(vars, in)
+      val expected = Type.existsRho(vars, in)
+
+      assert(Type.Tau.isTau(ex), s"TauExists result not Tau: $ex")
+      assertEquals(ex.toExists, expected)
+      assertEquals(ex.vars, expected.vars)
+      assertEquals(ex.in.asInstanceOf[Type], expected.in: Type)
+
+      val m = Type.Tau.TauExists.unapply(ex)
+      assert(!m.isEmpty, s"TauExists.unapply should match: $ex")
+      val ex1 = m.get
+      assertEquals(ex1.vars, expected.vars)
+      assertEquals(ex1.in.asInstanceOf[Type], expected.in: Type)
+    }
+  }
+
+  test("TauExists unapply rejects non-exists tau") {
+    val leaf = Type.Tau.unapply(Type.TyVar(Type.Var.Bound("b"))).get
+    val m = Type.Tau.TauExists.unapply(leaf)
+    assert(m.isEmpty, s"TauExists.unapply should be empty for: $leaf")
   }
 
   test("normalize preserves free vars") {
@@ -123,6 +218,11 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("same as doesn't care about quant var order") {
+    assert(parse("forall a, b. a -> b").sameAs(parse("forall b, a. a -> b")))
+    assert(parse("exists a, b. a -> b").sameAs(parse("exists b, a. a -> b")))
+  }
+
   test("normalization never throws") {
     val prop = forAll(NTypeGen.genDepth03) { t =>
       assert(t.sameAs(Type.normalize(t)))
@@ -134,26 +234,26 @@ class TypeTest extends munit.ScalaCheckSuite {
       import dev.bosatsu.Variance._
       import dev.bosatsu.Kind.{Arg, Cons, Type => KType}
 
-      val qt1 = Quantified(
-        Quantification.Dual(
-          NonEmptyList(
-            (
-              Bound("qsnMgkhqY"),
-              Cons(
-                Arg(Covariant, Cons(Arg(Covariant, KType), KType)),
-                Cons(Arg(Phantom, KType), KType)
-              )
-            ),
-            List(
-              (
-                Bound("u"),
-                Cons(
-                  Arg(Contravariant, KType),
-                  Cons(Arg(Invariant, KType), KType)
-                )
-              )
+      val qt1 = Type.forAll(
+        NonEmptyList(
+          (
+            Bound("qsnMgkhqY"),
+            Cons(
+              Arg(Covariant, Cons(Arg(Covariant, KType), KType)),
+              Cons(Arg(Phantom, KType), KType)
             )
           ),
+          List(
+            (
+              Bound("u"),
+              Cons(
+                Arg(Contravariant, KType),
+                Cons(Arg(Invariant, KType), KType)
+              )
+            )
+          )
+        ),
+        Type.exists(
           NonEmptyList(
             (
               Bound("nack"),
@@ -189,52 +289,50 @@ class TypeTest extends munit.ScalaCheckSuite {
                 )
               )
             )
-          )
-        ),
-        TyVar(Bound("u"))
+          ),
+          TyVar(Bound("u"))
+        )
       )
 
-      val qt2 = Quantified(
-        Quantification.Exists(
-          NonEmptyList(
+      val qt2 = Type.exists(
+        NonEmptyList(
+          (
+            Bound("chajb"),
+            Cons(
+              Arg(Contravariant, Cons(Arg(Covariant, KType), KType)),
+              Cons(Arg(Contravariant, KType), KType)
+            )
+          ),
+          List(
             (
-              Bound("chajb"),
+              Bound("e"),
               Cons(
-                Arg(Contravariant, Cons(Arg(Covariant, KType), KType)),
-                Cons(Arg(Contravariant, KType), KType)
+                Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+                Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
               )
             ),
-            List(
-              (
-                Bound("e"),
-                Cons(
-                  Arg(Invariant, Cons(Arg(Phantom, KType), KType)),
+            (
+              Bound("vg"),
+              Cons(
+                Arg(Phantom, Cons(Arg(Phantom, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
+              )
+            ),
+            (
+              Bound("vvki"),
+              Cons(
+                Arg(
+                  Contravariant,
                   Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
-                )
-              ),
-              (
-                Bound("vg"),
-                Cons(
-                  Arg(Phantom, Cons(Arg(Phantom, KType), KType)),
-                  Cons(Arg(Phantom, KType), KType)
-                )
-              ),
-              (
-                Bound("vvki"),
-                Cons(
-                  Arg(
-                    Contravariant,
-                    Cons(Arg(Phantom, KType), Cons(Arg(Phantom, KType), KType))
-                  ),
-                  KType
-                )
-              ),
-              (
-                Bound("e"),
-                Cons(
-                  Arg(Invariant, Cons(Arg(Invariant, KType), KType)),
-                  Cons(Arg(Phantom, KType), KType)
-                )
+                ),
+                KType
+              )
+            ),
+            (
+              Bound("e"),
+              Cons(
+                Arg(Invariant, Cons(Arg(Invariant, KType), KType)),
+                Cons(Arg(Phantom, KType), KType)
               )
             )
           )
@@ -261,7 +359,8 @@ class TypeTest extends munit.ScalaCheckSuite {
         assert(t.sameAs(normt), s"${show(t)}.sameAs(${show(normt)}) == false")
       }
 
-      assertEquals(Type.freeBoundTyVars(qt1.in :: Nil), List(Bound("u")))
+      val (_, _, qt1In) = Type.splitQuantifiers(qt1)
+      assertEquals(Type.freeBoundTyVars(qt1In :: Nil), List(Bound("u")))
     }
     prop
   }
@@ -631,7 +730,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("Quantification.toLists/fromList identity") {
     forAll(NTypeGen.genQuant) { q =>
       assertEquals(
-        Type.Quantification.fromLists(q.forallList, q.existList),
+        TypedExpr.Quantification.fromLists(q.forallList, q.existList),
         Some(q)
       )
     }
@@ -701,7 +800,9 @@ class TypeTest extends munit.ScalaCheckSuite {
           assertEquals(consts, Nil)
         case TyApply(left, right) =>
           assertEquals(consts, Type.allConsts(left :: right :: Nil))
-        case Quantified(_, in) =>
+        case Type.ForAll(_, in) =>
+          assertEquals(consts, allConsts(in :: Nil))
+        case Type.Exists(_, in) =>
           assertEquals(consts, allConsts(in :: Nil))
       }
     }
@@ -710,10 +811,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     def check(fn: String, expect: Option[String]) =
       parse(fn) match {
         case Type.Fun.SimpleUniversal((u, args, res)) =>
-          val resTpe = Type.Quantified(
-            Type.Quantification.ForAll(u),
-            Type.Fun(args, res)
-          )
+          val resTpe = Type.forAll(u, Type.Fun(args, res))
 
           expect match {
             case None =>

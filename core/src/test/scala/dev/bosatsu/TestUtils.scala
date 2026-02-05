@@ -44,7 +44,7 @@ object TestUtils {
   /** Make sure no illegal final types escaped into a TypedExpr
     */
   def assertValid[A](te: TypedExpr[A]): Unit = {
-    def checkType(t: Type, bound: Set[Type.Var.Bound]): Type =
+    def checkType[T <: Type](t: T, bound: Set[Type.Var.Bound]): T =
       t match {
         case t @ Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
@@ -52,15 +52,15 @@ object TestUtils {
         case t @ Type.TyMeta(_)            =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
-          Type.TyApply(
-            checkType(left, bound).asInstanceOf[Type.Rho],
+            checkType(left, bound)
             checkType(right, bound)
-          )
-        case q: Type.Quantified =>
-          q.copy(in =
-            checkType(q.in, bound ++ q.vars.toList.map(_._1))
-              .asInstanceOf[Type.Rho]
-          )
+            t
+        case Type.ForAll(vars, in) =>
+            checkType(in, bound ++ vars.toList.map(_._1))
+            t
+        case Type.Exists(vars, in) =>
+            checkType(in, bound ++ vars.toList.map(_._1))
+            t
         case Type.TyConst(_) => t
       }
     te.traverseType[cats.Id](checkType(_, Set.empty))

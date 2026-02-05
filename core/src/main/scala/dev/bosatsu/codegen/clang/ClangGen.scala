@@ -73,12 +73,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
     def stdExternals: ExternalResolver = {
 
-      def tpeArity(t: Type): Int =
-        t match {
-          case Type.Fun.MaybeQuant(_, args, _) => args.length
-          case _                               => 0
-        }
-
       val keyedExt = ns.externals
       val extMap = keyedExt.iterator.flatMap { case (k, allExt) =>
         allExt.iterator.map { case (p, vs) =>
@@ -86,7 +80,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           val fns = vs.iterator.map { case (n, tpe) =>
             val cIdent = generatedName(ns.rootKey, p, n)
-            n -> (cIdent, tpeArity(tpe))
+            n -> (cIdent, Type.Fun.arity(tpe))
           }.toMap
 
           (k, p) -> (Code.Include.quote(fileName), fns)

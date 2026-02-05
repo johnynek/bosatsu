@@ -521,8 +521,10 @@ object Shape {
           local: Map[rankn.Type.Var.Bound, Kind]
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {
-          case q: rankn.Type.Quantified =>
-            loop(q.in, local ++ q.vars.toList)
+          case rankn.Type.ForAll(vars, in) =>
+            loop(in, local ++ vars.toList)
+          case rankn.Type.Exists(vars, in) =>
+            loop(in, local ++ vars.toList)
           case ta @ rankn.Type.TyApply(on, arg) =>
             for {
               v1 <- loop(on, local)

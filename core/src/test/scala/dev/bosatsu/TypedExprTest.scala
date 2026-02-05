@@ -845,11 +845,7 @@ x = Foo
       // All the vars that are used in bounds
       val bounds: Set[Type.Var] = te
         .traverseType { (t: Type) =>
-          t match {
-            case q: Type.Quantified =>
-              Writer(SortedSet[Type.Var](q.vars.toList.map(_._1)*), t)
-            case _ => Writer(SortedSet[Type.Var](), t)
-          }
+          Writer(SortedSet[Type.Var](Type.quantVars(t).map(_._1)*), t)
         }
         .run
         ._1

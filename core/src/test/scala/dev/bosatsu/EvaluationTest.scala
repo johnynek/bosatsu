@@ -3559,7 +3559,7 @@ def quick_sort0(cmp, left, right):
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package QS
-type error: expected type Bosatsu/Predef::Fn3[(?13, ?9) -> Bosatsu/Predef::Comparison]
+type error: expected type Bosatsu/Predef::Fn3[(?17, ?9) -> Bosatsu/Predef::Comparison]
 Region(403,414)
 to be the same as type Bosatsu/Predef::Fn2
 hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
