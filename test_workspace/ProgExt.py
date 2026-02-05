@@ -149,7 +149,10 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     """
 
     if requested < 0:
-        return (False, _ioerr(_IOERR_INVALID_ARGUMENT, "read_stdin_utf8_bytes argument"))
+        return (False, _ioerr(
+            _IOERR_INVALID_ARGUMENT,
+            f"read_stdin_utf8_bytes negative argument: {requested}"
+        ))
     if requested == 0:
         # n=0 behaves like n=1 (there is no empty read command)
         requested = 1

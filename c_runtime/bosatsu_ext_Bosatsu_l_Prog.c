@@ -301,8 +301,12 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
   int requested = (int)bsts_integer_to_int32(size);
   if (requested < 0)
   {
+    char context[96];
+    snprintf(context, sizeof(context),
+             "read_stdin_utf8_bytes negative argument: %d",
+             requested);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_invalid_argument("read_stdin_utf8_bytes argument"));
+        bsts_ioerror_invalid_argument(context));
   }
   if (requested == 0)
   {
