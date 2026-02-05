@@ -143,7 +143,7 @@ static BValue bsts_ioerror_from_errno(int err)
   case EOPNOTSUPP:
     return alloc_enum0(BSTS_IOERR_Unsupported);
 #endif
-#ifdef ENOTSUP
+#if defined(ENOTSUP) && (!defined(EOPNOTSUPP) || (ENOTSUP != EOPNOTSUPP))
   case ENOTSUP:
     return alloc_enum0(BSTS_IOERR_Unsupported);
 #endif
