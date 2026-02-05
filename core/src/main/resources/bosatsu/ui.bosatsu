@@ -1,10 +1,15 @@
 package Bosatsu/UI
 
 from Bosatsu/Predef import String, Int, List, Unit
+from Bosatsu/IO import IO
+from Bosatsu/Numeric import Double
 
 # BosatsuUI module for reactive UI with direct DOM updates.
 # Uses static analysis on TypedExpr to extract state->DOM bindings at compile time.
 # At runtime, state changes trigger O(1) direct DOM property updates.
+#
+# Event handlers return IO[Unit] - the runtime executes the IO when the event fires.
+# This keeps the Bosatsu code pure - all side effects are described, not performed.
 
 export (
   VNode,
@@ -15,7 +20,9 @@ export (
   list_state, list_read, list_append, list_remove_at, list_update_at, list_length,
   on_click, on_input, on_change,
   on_keydown, on_keyup,
-  on_dragstart, on_dragover, on_drop
+  on_dragstart, on_dragover, on_drop,
+  on_frame,
+  use_io, use_double
 )
 
 # Virtual DOM node - represents either an element, text, or fragment
@@ -40,33 +47,34 @@ external def state[a](initial: a) -> State[a]
 # Read the current value from a state container
 external def read[a](state: State[a]) -> a
 
-# Write a new value to a state container (triggers DOM updates via bindings)
-external def write[a](state: State[a], value: a) -> Unit
+# Write a new value to a state container - returns an IO action
+# The IO is executed by the runtime when an event handler runs
+external def write[a](state: State[a], value: a) -> IO[Unit]
 
 # Event handler prop - returns a (name, value) tuple for use in h() props
-# Handler is a function that takes Unit and returns Unit (side effect via write)
-external def on_click(handler: Unit -> Unit) -> (String, String)
+# Handler returns IO[Unit] which is executed by the runtime when event fires
+external def on_click(handler: Unit -> IO[Unit]) -> (String, String)
 
 # Input event handler - for text inputs, handler receives the new value
-external def on_input(handler: String -> Unit) -> (String, String)
+external def on_input(handler: String -> IO[Unit]) -> (String, String)
 
 # Change event handler - for checkboxes and selects
-external def on_change(handler: String -> Unit) -> (String, String)
+external def on_change(handler: String -> IO[Unit]) -> (String, String)
 
 # Keyboard event handlers - handler receives the key name (e.g., "Enter", "Escape", "a")
-external def on_keydown(handler: String -> Unit) -> (String, String)
-external def on_keyup(handler: String -> Unit) -> (String, String)
+external def on_keydown(handler: String -> IO[Unit]) -> (String, String)
+external def on_keyup(handler: String -> IO[Unit]) -> (String, String)
 
 # Drag and drop event handlers
 # dragstart: fired when user starts dragging an element (handler receives Unit)
-external def on_dragstart(handler: Unit -> Unit) -> (String, String)
+external def on_dragstart(handler: Unit -> IO[Unit]) -> (String, String)
 
 # dragover: fired when dragged element is over a drop target (handler receives Unit)
 # Note: This needs to call e.preventDefault() in JS to allow dropping
-external def on_dragover(handler: Unit -> Unit) -> (String, String)
+external def on_dragover(handler: Unit -> IO[Unit]) -> (String, String)
 
 # drop: fired when dragged element is dropped (handler receives Unit)
-external def on_drop(handler: Unit -> Unit) -> (String, String)
+external def on_drop(handler: Unit -> IO[Unit]) -> (String, String)
 
 # ---------------------------------------------------------------------------
 # Dynamic List State
@@ -82,13 +90,32 @@ external def list_state[a](initial: List[a]) -> ListState[a]
 external def list_read[a](ls: ListState[a]) -> List[a]
 
 # Append an item to the list (triggers binding registration for new item)
-external def list_append[a](ls: ListState[a], item: a) -> Unit
+external def list_append[a](ls: ListState[a], item: a) -> IO[Unit]
 
 # Remove item at index (triggers binding cleanup)
-external def list_remove_at[a](ls: ListState[a], index: Int) -> Unit
+external def list_remove_at[a](ls: ListState[a], index: Int) -> IO[Unit]
 
 # Update item at index (triggers binding update for that item)
-external def list_update_at[a](ls: ListState[a], index: Int, item: a) -> Unit
+external def list_update_at[a](ls: ListState[a], index: Int, item: a) -> IO[Unit]
 
 # Get the current length of the list
 external def list_length[a](ls: ListState[a]) -> Int
+
+# ---------------------------------------------------------------------------
+# Animation
+# ---------------------------------------------------------------------------
+
+# Register a frame callback for the animation loop.
+# The callback receives delta time (seconds since last frame) and returns an IO action.
+# Registering a frame loop IS an effect, so on_frame returns IO[Unit].
+external def on_frame(update: Double -> IO[Unit]) -> IO[Unit]
+
+# ---------------------------------------------------------------------------
+# Import marker functions (satisfy unused import checker)
+# ---------------------------------------------------------------------------
+
+def use_io(io: IO[Unit]) -> IO[Unit]:
+  io
+
+def use_double(d: Double) -> Double:
+  d

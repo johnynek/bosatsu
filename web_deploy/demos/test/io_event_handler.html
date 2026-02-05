@@ -1,307 +1,189 @@
-package dev.bosatsu.simulation
-
-import cats.effect.IO
-import cats.implicits._
-import cats.data.{NonEmptyList, ValidatedNel, Validated}
-import com.monovore.decline._
-import java.nio.file.{Files, Path, Paths}
-
-import dev.bosatsu.{
-  Package,
-  PackageMap,
-  PackageName,
-  LocationMap,
-  Identifier,
-  Par,
-  TypedExpr,
-  MatchlessFromTypedExpr,
-  Predef,
-  Numeric,
-  UI
-}
-import dev.bosatsu.codegen.js.{JsGen, SourceMapGenerator}
-import dev.bosatsu.ui.{UIAnalyzer, UIGen}
-import dev.bosatsu.Parser
-
-/**
- * Command-line interface for generating reactive UI from Bosatsu/UI code.
- *
- * This implements the full pipeline:
- * 1. Parse .bosatsu file with Bosatsu/UI imports
- * 2. Type-check to get TypedExpr AST
- * 3. Run UIAnalyzer to extract state→DOM bindings at compile time
- * 4. Compile to JavaScript using JsGen with UIExternal intrinsics
- * 5. Generate HTML with VNode tree, binding map, and runtime
- *
- * The result is reactive HTML where state changes trigger O(1) direct DOM updates
- * (no virtual DOM diffing required).
- */
-case class UICommand(
-    input: Path,
-    output: Path,
-    title: Option[String],
-    theme: String,
-    includeSourceMap: Boolean
-) {
-
-  def run: IO[Unit] = {
-    given ec: Par.EC = Par.ecFromExecutionContext(
-      using scala.concurrent.ExecutionContext.global
-    )
-
-    for {
-      // 1. Read the input file
-      content <- IO(Files.readString(input))
-      _ <- IO(println(s"Parsing ${input.getFileName}..."))
-
-      // 2. Parse the file
-      parsed <- IO.fromEither(parseFile(content, input.getFileName.toString))
-      lm = LocationMap(content)
-      fileName = input.getFileName.toString.stripSuffix(".bosatsu").replace("-", "_")
-
-      _ <- IO(println(s"Package: ${parsed._2.name.asString}"))
-
-      // 3. Type-check with predef, numeric, io, and ui packages
-      typeChecked <- IO.fromEither {
-        val packs = NonEmptyList.one(((fileName, lm), parsed._2))
-        PackageMap.typeCheckParsed(packs, Nil, fileName).toEither.leftMap { errs =>
-          val sourceMap: Map[PackageName, (LocationMap, String)] = Map(
-            parsed._2.name -> (lm, fileName)
-          )
-          val errMsg = errs.toList.map(_.message(sourceMap, LocationMap.Colorize.None)).mkString("\n")
-          new RuntimeException(s"Type check errors:\n$errMsg")
-        }
-      }
-
-      // 4. Get the typed package
-      typedPackage = typeChecked.toMap.get(parsed._2.name).getOrElse(
-        throw new RuntimeException(s"Package ${parsed._2.name} not found after type checking")
-      )
-
-      _ <- IO(println(s"Type-checked successfully. Found ${typedPackage.lets.size} binding(s)."))
-
-      // 5. Find the main/view binding that produces VNode
-      mainBinding <- IO {
-        typedPackage.lets.find { case (name, _, _) =>
-          name.asString == "main" || name.asString == "view"
-        }.getOrElse(
-          throw new RuntimeException("No 'main' or 'view' binding found. UI file must export a view.")
-        )
-      }
-      mainName = mainBinding._1.asString
-      mainExpr = mainBinding._3
-
-      _ <- IO(println(s"Found UI binding: $mainName"))
-
-      // 5.5. Scan for state bindings (state(initial) and list_state(initial) calls)
-      allStateBindings <- IO {
-        typedPackage.lets.collect {
-          case (name, _, expr) if UIAnalyzer.isStateCreationExpr(expr) => name
-        }
-      }
-      // Separate list states from regular states
-      listStateBindings <- IO {
-        typedPackage.lets.collect {
-          case (name, _, expr) if UIAnalyzer.isListStateCreationExpr(expr) => name
-        }
-      }
-      stateBindings = allStateBindings.filterNot(listStateBindings.contains)
-      _ <- IO {
-        if (stateBindings.nonEmpty) {
-          println(s"Found state variables: ${stateBindings.map(_.asString).mkString(", ")}")
-        }
-        if (listStateBindings.nonEmpty) {
-          println(s"Found list state variables: ${listStateBindings.map(_.asString).mkString(", ")}")
-        }
-      }
-
-      // 5.6. Build a map of function bodies for resolving named handler references
-      functionBodies <- IO {
-        typedPackage.lets.collect {
-          case (name, _, expr) if !UIAnalyzer.isStateCreationExpr(expr) && name.asString != mainName =>
-            name.asString -> expr
-        }.toMap
-      }
-      _ <- IO {
-        if (functionBodies.nonEmpty) {
-          println(s"Found functions: ${functionBodies.keys.mkString(", ")}")
-        }
-      }
-
-      // 6. Run UIAnalyzer on the TypedExpr to extract bindings
-      // Include both regular state bindings AND list state bindings so the analyzer
-      // can track dependencies on list operations like list_length
-      _ <- IO(println("Analyzing UI bindings..."))
-      allStatesToAnalyze = stateBindings.toList ++ listStateBindings.toList
-      mainAnalysis = UIAnalyzer.analyzeWithFunctions(mainExpr, allStatesToAnalyze, functionBodies)
-
-      // Also scan top-level bindings for on_frame calls (they live outside main)
-      topLevelFrameCallbacks <- IO {
-        typedPackage.lets.flatMap { case (name, _, expr) =>
-          if (name.asString != mainName && !UIAnalyzer.isStateCreationExpr(expr)) {
-            val bindingAnalysis = UIAnalyzer.analyzeWithFunctions(expr, allStatesToAnalyze, functionBodies)
-            bindingAnalysis.frameCallbacks
-          } else Nil
-        }
-      }
-
-      // Collect names of top-level bindings that have IO type
-      // These need to be executed by _runIO at init time
-      ioBindingNames <- IO {
-        typedPackage.lets.collect { case (name, _, expr)
-          if name.asString != mainName && UIAnalyzer.hasIOType(expr) =>
-          name.asString
-        }
-      }
-      _ <- IO(if (ioBindingNames.nonEmpty) println(s"  IO bindings to execute: ${ioBindingNames.mkString(", ")}"))
-
-      // Merge frame callbacks from top-level bindings into main analysis
-      analysis = mainAnalysis.copy(
-        frameCallbacks = mainAnalysis.frameCallbacks ++ topLevelFrameCallbacks
-      )
-
-      _ <- IO(println(s"  State reads: ${analysis.stateReads.size}"))
-      _ <- IO(println(s"  DOM bindings: ${analysis.bindings.size}"))
-      _ <- IO(println(s"  Event handlers: ${analysis.eventHandlers.size}"))
-      _ <- IO(println(s"  Canvas bindings: ${analysis.canvasBindings.size}"))
-      _ <- IO(println(s"  Frame callbacks: ${analysis.frameCallbacks.size}"))
-
-      // Print detailed binding info
-      _ <- IO {
-        if (analysis.bindings.nonEmpty) {
-          println("  Bindings:")
-          analysis.bindings.foreach { b =>
-            println(s"    ${b.statePath.mkString(".")} → ${b.elementId}.${UIAnalyzer.DOMProperty.toJsProperty(b.property)}")
-          }
-        }
-        if (analysis.eventHandlers.nonEmpty) {
-          println("  Event handlers:")
-          analysis.eventHandlers.foreach { h =>
-            println(s"    ${h.elementId}: ${h.eventType}")
-          }
-        }
-        if (analysis.canvasBindings.nonEmpty) {
-          println("  Canvas bindings:")
-          analysis.canvasBindings.foreach { c =>
-            println(s"    ${c.elementId}: state=${c.statePath.mkString(".")}")
-          }
-        }
-        if (analysis.frameCallbacks.nonEmpty) {
-          println(s"  Frame callbacks: ${analysis.frameCallbacks.size} registered")
-        }
-      }
-
-      // 7. Compile to Matchless IR
-      _ <- IO(println("Compiling to JavaScript..."))
-      matchlessCompiled = MatchlessFromTypedExpr.compile((),
-        PackageMap.toAnyTyped(typeChecked)
-      )
-
-      packageBindings = matchlessCompiled.getOrElse(typedPackage.name, Nil)
-
-      // 8. Generate JavaScript using JsGen with UIExternal intrinsics
-      computeJs = JsGen.renderStatements(packageBindings, Some(typedPackage.name))
-
-      _ <- IO(println(s"Generated ${computeJs.length} bytes of JavaScript"))
-
-      // 9. Generate the HTML
-      _ <- IO(println("Generating HTML..."))
-      config = UIGen.UIConfig(
-        title = title.getOrElse(mainName),
-        theme = theme,
-        includeSourceMap = includeSourceMap
-      )
-
-      html = generateHTML(
-        computeJs,
-        analysis,
-        config,
-        stateBindings.map(_.asString).toList,
-        listStateBindings.map(_.asString).toList,
-        ioBindingNames,
-        input.getFileName.toString,
-        content
-      )
-
-      // 10. Write output
-      _ <- IO(Files.writeString(output, html))
-      _ <- IO(println(s"Generated: $output"))
-    } yield ()
-  }
-
-  private def parseFile(content: String, fileName: String): Either[Throwable, (LocationMap, Package.Parsed)] = {
-    Parser.parse(Package.parser(None), content).toEither.leftMap { errs =>
-      val lm = LocationMap(content)
-      val errMsg = errs.toList.map(_.showContext(LocationMap.Colorize.None).renderTrim(80)).mkString("; ")
-      new RuntimeException(s"Parse error in $fileName: $errMsg")
-    }.map { case (_, parsed) =>
-      (LocationMap(content), parsed)
-    }
-  }
-
-  /**
-   * Generate complete HTML with:
-   * - Compiled VNode JavaScript
-   * - Binding map for O(1) updates
-   * - State management runtime
-   * - Event handler registration
-   * - Optional source map for debugging
-   */
-  private def generateHTML[A](
-      computeJs: String,
-      analysis: UIAnalyzer.UIAnalysis[A],
-      config: UIGen.UIConfig,
-      stateVarNames: List[String],
-      listStateVarNames: List[String],
-      ioBindingNames: List[String],
-      sourceFileName: String,
-      sourceContent: String
-  ): String = {
-    // Generate bindings from UIAnalyzer (automatic detection via handler analysis)
-    // Pass state variable names so computeValue can generate state.value references
-    val allStateNames = (stateVarNames ++ listStateVarNames).toSet
-    val bindingsJs = UIAnalyzer.bindingsToJs(analysis.bindings, allStateNames)
-
-    val runtimeJs = generateRuntimeJs()
-    val stylesCss = generateStyles(config.theme)
-
-    // Generate code to link state objects to their binding keys
-    val stateLinkingCode = stateVarNames.map { name =>
-      s"""  if (typeof $name !== 'undefined') _linkStateToBinding($name, "$name");"""
-    }.mkString("\n")
-
-    // Generate code to execute top-level IO bindings (e.g., on_frame registrations)
-    val ioExecutionCode = if (ioBindingNames.isEmpty) "" else {
-      ioBindingNames.map { name =>
-        s"""  if (typeof $name !== 'undefined' && $name && $name.tag) _runIO($name);"""
-      }.mkString("\n")
-    }
-
-    // Generate code to link list state objects to their binding keys and containers
-    val listStateLinkingCode = listStateVarNames.map { name =>
-      s"""  if (typeof $name !== 'undefined') {
-    _linkListStateToBinding($name, "$name");
-    // Find container element with data-list-container="$name"
-    const container = document.querySelector('[data-list-container="$name"]');
-    if (container) {
-      _listContainers[$name.id] = container.id || 'list-container-$name';
-      if (!container.id) container.id = 'list-container-$name';
-      // Store the first child as template (if exists)
-      if (container.firstElementChild) {
-        _listItemTemplates["$name"] = _vnodeFromDomElement(container.firstElementChild);
-      }
-    }
-  }"""
-    }.mkString("\n")
-
-    s"""<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(config.title)}</title>
+  <title>main</title>
   <style>
-$stylesCss
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333333;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+#app {
+  width: 100%;
+  max-width: 600px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+h1 {
+  margin-bottom: 30px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.display {
+  font-size: 72px;
+  font-weight: bold;
+  margin: 30px 0;
+  color: #333333;
+}
+
+.buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+button {
+  min-width: 80px;
+  min-height: 80px;
+  font-size: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #667eea;
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:active {
+  transform: scale(0.95);
+}
+
+input[type="text"], input[type="number"] {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 300px;
+}
+
+input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+/* Todo List Styles */
+.container {
+  width: 100%;
+  max-width: 600px;
+}
+
+.container .card {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  color: #9aa0d4;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  transition: background 0.2s;
+}
+
+.todo-item:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.todo-checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid #667eea;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.todo-checkbox:hover {
+  background: rgba(102, 126, 234, 0.2);
+}
+
+.todo-checkbox.checked {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+.todo-checkbox.checked::after {
+  content: '✓';
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 15px;
+}
+
+.binding-info {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #666;
+  margin-top: 16px;
+  text-align: left;
+}
+
+h3 {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 12px;
+}
+
+p {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.6;
+}
   </style>
 </head>
 <body>
@@ -311,142 +193,222 @@ $stylesCss
 // BosatsuUI Runtime
 // ============================================================================
 
-${JsGen.runtimeCode}
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Bosatsu/Numeric constants
+var Bosatsu_Numeric$pi = Math.PI;
+var Bosatsu_Numeric$e = Math.E;
+
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
+
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
+
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// double_to_String - convert Double to Bosatsu string
+var _double_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
 
 // ============================================================================
 // State Management
 // ============================================================================
 
-$runtimeJs
-
-// ============================================================================
-// Canvas Runtime
-// ============================================================================
-
-${generateCanvasRuntimeJs()}
-
-// ============================================================================
-// Binding Map (extracted at compile time)
-// ============================================================================
-
-const _bindings = $bindingsJs;
-
-// ============================================================================
-// Compiled Bosatsu Code
-// ============================================================================
-
-$computeJs
-
-// ============================================================================
-// Initialize Application
-// ============================================================================
-
-function init() {
-  // Link state objects to their binding keys for lookup
-$stateLinkingCode
-
-  // Get the VNode from the compiled 'main' or 'view' binding
-  const vnode = typeof main !== 'undefined' ? main : (typeof view !== 'undefined' ? view : null);
-
-  if (vnode) {
-    const app = document.getElementById('app');
-    // Assign bosatsu IDs to VNode tree before rendering (matches UIAnalyzer DFS order)
-    _assignVNodeIds(vnode);
-    app.appendChild(_renderVNode(vnode));
-  } else {
-    console.error('No main or view binding found');
-  }
-
-  // Link list state objects to their binding keys and containers
-$listStateLinkingCode
-
-  // Initialize element cache for bindings
-  _initBindingCache();
-
-  // Apply initial state values to DOM (for states that aren't 0/false)
-  _applyInitialBindings();
-
-  // Execute top-level IO values (e.g., on_frame registrations)
-$ioExecutionCode
-
-  // Initialize canvas bindings and start animation loop
-  _initCanvasBindings();
-  _startAnimationLoop();
-}
-
-// Apply initial state values to DOM elements
-function _applyInitialBindings() {
-  Object.entries(_state).forEach(([stateId, stateObj]) => {
-    const bindingKey = _stateToBindingKey.get(stateObj);
-    const bindings = bindingKey ? _bindings[bindingKey] : null;
-    if (bindings && stateObj.value !== 0 && stateObj.value !== false) {
-      bindings.forEach(binding => {
-        _updateBinding(binding, stateObj.value);
-      });
-    }
-  });
-}
-
-document.addEventListener('DOMContentLoaded', init);
-${generateSourceMapComment(config.includeSourceMap, sourceFileName, sourceContent, computeJs)}
-  </script>
-</body>
-</html>"""
-  }
-
-  /**
-   * Generate an inline source map comment if enabled.
-   *
-   * The source map maps the compiled Bosatsu code section to the original .bosatsu file,
-   * enabling browser DevTools to show the original source.
-   */
-  private def generateSourceMapComment(
-      enabled: Boolean,
-      sourceFileName: String,
-      sourceContent: String,
-      compiledJs: String
-  ): String = {
-    if (!enabled) return ""
-
-    // Create a source map that maps the compiled JS to the original Bosatsu source
-    val builder = new SourceMapGenerator.Builder("inline")
-    val sourceIdx = builder.addSource(sourceFileName, Some(sourceContent))
-
-    // Count lines in the HTML before the compiled code section
-    // This is approximate - the compiled code starts after the "Compiled Bosatsu Code" comment
-    val preambleLines = 30  // Runtime, state management, bindings header
-
-    // Create mappings for each line of the compiled JS
-    // This is a basic 1:1 mapping - more precise mapping would require tracking
-    // positions through the compilation pipeline
-    val sourceLines = sourceContent.split('\n')
-    val compiledLines = compiledJs.split('\n')
-
-    // Map compiled lines to source lines where possible
-    var srcLine = 0
-    compiledLines.zipWithIndex.foreach { case (_, genLineIdx) =>
-      // Map generated line (relative to start of compiled section) to source line
-      if (srcLine < sourceLines.length) {
-        builder.addMapping(
-          genLine = preambleLines + genLineIdx,
-          genCol = 0,
-          sourceIdx = sourceIdx,
-          origLine = srcLine,
-          origCol = 0
-        )
-        srcLine += 1
-      }
-    }
-
-    val sourceMap = builder.build()
-    "\n" + sourceMap.toInlineComment
-  }
-
-  /**
-   * Generate the state management and rendering runtime.
-   */
-  private def generateRuntimeJs(): String = {
-    """// State storage: { id: { id, value } }
+// State storage: { id: { id, value } }
 const _state = {};
 
 // Element cache for O(1) DOM lookups
@@ -1189,211 +1151,13 @@ function _vnodeFromDomElement(el) {
     props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
     children: _js_to_bosatsu_list(children)
   };
-}"""
-  }
-
-  /**
-   * Generate CSS styles.
-   */
-  private def generateStyles(theme: String): String = {
-    val isDark = theme == "dark"
-    val bgColor = if (isDark) "#1a1a2e" else "#f0f4f8"
-    val cardBg = if (isDark) "#16213e" else "#ffffff"
-    val textColor = if (isDark) "#e0e0e0" else "#333333"
-    val accentColor = "#667eea"
-
-    s"""* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: $bgColor;
-  color: $textColor;
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 20px;
-}
+// ============================================================================
+// Canvas Runtime
+// ============================================================================
 
-#app {
-  width: 100%;
-  max-width: 600px;
-}
-
-.card {
-  background: $cardBg;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  text-align: center;
-}
-
-h1 {
-  margin-bottom: 30px;
-  font-weight: 600;
-  color: $accentColor;
-}
-
-.display {
-  font-size: 72px;
-  font-weight: bold;
-  margin: 30px 0;
-  color: $textColor;
-}
-
-.buttons {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
-}
-
-button {
-  min-width: 80px;
-  min-height: 80px;
-  font-size: 32px;
-  border: none;
-  border-radius: 50%;
-  background: $accentColor;
-  color: white;
-  cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-
-button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-button:active {
-  transform: scale(0.95);
-}
-
-input[type="text"], input[type="number"] {
-  padding: 12px 16px;
-  font-size: 16px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  width: 100%;
-  max-width: 300px;
-}
-
-input:focus {
-  outline: none;
-  border-color: $accentColor;
-}
-
-/* Todo List Styles */
-.container {
-  width: 100%;
-  max-width: 600px;
-}
-
-.container .card {
-  margin-bottom: 20px;
-}
-
-.subtitle {
-  color: #9aa0d4;
-  font-size: 14px;
-  margin-bottom: 24px;
-}
-
-.todo-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 20px 0;
-  text-align: left;
-}
-
-.todo-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(102, 126, 234, 0.05);
-  border-radius: 12px;
-  border: 1px solid rgba(102, 126, 234, 0.1);
-  transition: background 0.2s;
-}
-
-.todo-item:hover {
-  background: rgba(102, 126, 234, 0.1);
-}
-
-.todo-checkbox {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: 2px solid #667eea;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.todo-checkbox:hover {
-  background: rgba(102, 126, 234, 0.2);
-}
-
-.todo-checkbox.checked {
-  background: $accentColor;
-  border-color: $accentColor;
-}
-
-.todo-checkbox.checked::after {
-  content: '\u2713';
-  color: white;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.todo-text {
-  flex: 1;
-  font-size: 15px;
-}
-
-.binding-info {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-  padding: 12px;
-  font-family: 'SF Mono', Consolas, monospace;
-  font-size: 11px;
-  color: #666;
-  margin-top: 16px;
-  text-align: left;
-}
-
-h3 {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 12px;
-}
-
-p {
-  font-size: 14px;
-  color: #666;
-  line-height: 1.6;
-}"""
-  }
-
-  private def escapeHtml(s: String): String =
-    s.replace("&", "&amp;")
-      .replace("<", "&lt;")
-      .replace(">", "&gt;")
-      .replace("\"", "&quot;")
-
-  /**
-   * Generate canvas runtime JavaScript for rendering and animation.
-   */
-  private def generateCanvasRuntimeJs(): String = {
-    """// Canvas bindings: { id: { state, render } }
+// Canvas bindings: { id: { state, render } }
 const _canvasBindings = {};
 
 // Canvas contexts cache
@@ -1587,41 +1351,97 @@ function _startAnimationLoop() {
     _lastFrameTime = 0;
     requestAnimationFrame(_animationLoop);
   }
-}"""
-  }
 }
 
-object UICommand {
+// ============================================================================
+// Binding Map (extracted at compile time)
+// ============================================================================
 
-  implicit val pathArgument: Argument[Path] = new Argument[Path] {
-    def read(string: String): ValidatedNel[String, Path] =
-      try {
-        Validated.valid(Paths.get(string))
-      } catch {
-        case e: Exception => Validated.invalidNel(e.getMessage)
-      }
-    def defaultMetavar: String = "path"
+const _bindings = {"display_state": [{"elementId": "display", "property": "textContent", "when": null}]};
+
+// ============================================================================
+// Compiled Bosatsu Code
+// ============================================================================
+
+const display_state = _ui_create_state(_js_to_bosatsu_string(""));
+const Test_IOEventHandler$display_state = display_state;
+const input_handler = v => ({ tag: "Write",
+  state: Test_IOEventHandler$display_state,
+  value: v });
+const Test_IOEventHandler$input_handler = input_handler;
+const main = { type: "element",
+  tag: _js_to_bosatsu_string("div"),
+  props: [0],
+  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+      tag: _js_to_bosatsu_string("input"),
+      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+          _a1])(_js_to_bosatsu_string("type"), _js_to_bosatsu_string("text")), ((_a0, _a1) => [1,
+          _a0,
+          _a1])(((_a0, _a1) => [_a0,
+            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("input")), ((_a0, _a1) => [1,
+            _a0,
+            _a1])(["data-oninput",
+              _ui_register_handler("input", Test_IOEventHandler$input_handler)], [0]))),
+      children: [0] }, ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+        tag: _js_to_bosatsu_string("span"),
+        props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+            _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("display")), [0]),
+        children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+            text: _bosatsu_to_js_string(Test_IOEventHandler$display_state.value) }, [0]) }, [0])) };
+const Test_IOEventHandler$main = main;
+
+// ============================================================================
+// Initialize Application
+// ============================================================================
+
+function init() {
+  // Link state objects to their binding keys for lookup
+  if (typeof display_state !== 'undefined') _linkStateToBinding(display_state, "display_state");
+
+  // Get the VNode from the compiled 'main' or 'view' binding
+  const vnode = typeof main !== 'undefined' ? main : (typeof view !== 'undefined' ? view : null);
+
+  if (vnode) {
+    const app = document.getElementById('app');
+    // Assign bosatsu IDs to VNode tree before rendering (matches UIAnalyzer DFS order)
+    _assignVNodeIds(vnode);
+    app.appendChild(_renderVNode(vnode));
+  } else {
+    console.error('No main or view binding found');
   }
 
-  val opts: Opts[UICommand] = {
-    val input = Opts.argument[Path]("input")
-    val output = Opts
-      .option[Path]("output", "Output HTML file", "o")
-      .withDefault(Paths.get("output.html"))
-    val titleOpt = Opts.option[String]("title", "Page title", "t").orNone
-    val themeOpt = Opts
-      .option[String]("theme", "Theme: light or dark")
-      .withDefault("light")
-    val sourceMap = Opts.flag("source-map", "Include source map for debugging").orFalse
+  // Link list state objects to their binding keys and containers
 
-    (input, output, titleOpt, themeOpt, sourceMap).mapN {
-      (i, o, t, th, sm) => UICommand(i, o, t, th, sm)
+
+  // Initialize element cache for bindings
+  _initBindingCache();
+
+  // Apply initial state values to DOM (for states that aren't 0/false)
+  _applyInitialBindings();
+
+  // Execute top-level IO values (e.g., on_frame registrations)
+
+
+  // Initialize canvas bindings and start animation loop
+  _initCanvasBindings();
+  _startAnimationLoop();
+}
+
+// Apply initial state values to DOM elements
+function _applyInitialBindings() {
+  Object.entries(_state).forEach(([stateId, stateObj]) => {
+    const bindingKey = _stateToBindingKey.get(stateObj);
+    const bindings = bindingKey ? _bindings[bindingKey] : null;
+    if (bindings && stateObj.value !== 0 && stateObj.value !== false) {
+      bindings.forEach(binding => {
+        _updateBinding(binding, stateObj.value);
+      });
     }
-  }
-
-  val command: Command[UICommand] =
-    Command("bosatsu-ui", "Generate reactive UI HTML from Bosatsu/UI code")(opts)
-
-  def parse(args: List[String]): Either[Help, UICommand] =
-    command.parse(args)
+  });
 }
+
+document.addEventListener('DOMContentLoaded', init);
+
+  </script>
+</body>
+</html>

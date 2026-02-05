@@ -1,6 +1,6 @@
 package dev.bosatsu.ui
 
-import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit, Pattern}
+import dev.bosatsu.{TypedExpr, Identifier, PackageName, Lit, Pattern, TypeName}
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 import dev.bosatsu.rankn.Type
 import scala.collection.immutable.SortedSet
@@ -107,22 +107,46 @@ object UIAnalyzer {
   )
 
   /**
+   * Canvas binding for canvas_render props.
+   * Links a canvas element to a state and render function.
+   * When state changes, the render function is called and canvas is redrawn.
+   */
+  final case class CanvasBinding[A](
+      elementId: String,         // data-bosatsu-id of the canvas element
+      statePath: List[String],   // Path to the state being rendered
+      renderFn: TypedExpr[A],    // The render function (a -> CanvasCommands)
+      stateExpr: TypedExpr[A]    // Reference to the state expression
+  )
+
+  /**
+   * Frame callback for animation.
+   * Registered via on_frame, called each animation frame with delta time.
+   */
+  final case class FrameCallback[A](
+      handler: TypedExpr[A]      // The update function (Double -> Unit)
+  )
+
+  /**
    * Complete analysis result for a UI component.
    */
   final case class UIAnalysis[A](
-      stateReads: List[List[String]],     // All state paths read
-      bindings: List[DOMBinding[A]],      // State → DOM bindings
-      eventHandlers: List[EventBinding[A]] // Event handlers
+      stateReads: List[List[String]],       // All state paths read
+      bindings: List[DOMBinding[A]],        // State → DOM bindings
+      eventHandlers: List[EventBinding[A]], // Event handlers
+      canvasBindings: List[CanvasBinding[A]] = Nil, // Canvas render bindings
+      frameCallbacks: List[FrameCallback[A]] = Nil  // Animation frame callbacks
   )
 
   object UIAnalysis {
-    def empty[A]: UIAnalysis[A] = UIAnalysis(Nil, Nil, Nil)
+    def empty[A]: UIAnalysis[A] = UIAnalysis(Nil, Nil, Nil, Nil, Nil)
 
     def combine[A](a: UIAnalysis[A], b: UIAnalysis[A]): UIAnalysis[A] =
       UIAnalysis(
         a.stateReads ++ b.stateReads,
         a.bindings ++ b.bindings,
-        a.eventHandlers ++ b.eventHandlers
+        a.eventHandlers ++ b.eventHandlers,
+        a.canvasBindings ++ b.canvasBindings,
+        a.frameCallbacks ++ b.frameCallbacks
       )
   }
 
@@ -138,6 +162,8 @@ object UIAnalyzer {
       var stateReads: List[List[String]] = Nil,
       var bindings: List[DOMBinding[A]] = Nil,
       var eventHandlers: List[EventBinding[A]] = Nil,
+      var canvasBindings: List[CanvasBinding[A]] = Nil,
+      var frameCallbacks: List[FrameCallback[A]] = Nil,
       var idCounter: Int = 0,
       var inConditional: Boolean = false,
       // Track which bindings map to which state paths
@@ -174,6 +200,12 @@ object UIAnalyzer {
     def recordEventHandler(handler: EventBinding[A]): Unit =
       eventHandlers = handler :: eventHandlers
 
+    def recordCanvasBinding(binding: CanvasBinding[A]): Unit =
+      canvasBindings = binding :: canvasBindings
+
+    def recordFrameCallback(callback: FrameCallback[A]): Unit =
+      frameCallbacks = callback :: frameCallbacks
+
     def trackBinding(name: Bindable, path: List[String]): Unit =
       bindingToPath = bindingToPath + (name -> path)
 
@@ -183,7 +215,9 @@ object UIAnalyzer {
     def toAnalysis: UIAnalysis[A] = UIAnalysis(
       stateReads.reverse.distinct,
       bindings.reverse,
-      eventHandlers.reverse
+      eventHandlers.reverse,
+      canvasBindings.reverse,
+      frameCallbacks.reverse
     )
   }
 
@@ -527,6 +561,44 @@ object UIAnalyzer {
   private def isIOPackage(pack: PackageName): Boolean =
     pack.asString == "Bosatsu/IO" || pack.asString == "IO"
 
+  // ---------------------------------------------------------------------------
+  // Type-based IO Detection
+  // ---------------------------------------------------------------------------
+  // IO is the ONLY non-pure part of Bosatsu. Everything else is pure.
+  // These utilities use the TYPE SYSTEM to identify IO, not pattern matching on names.
+
+  /**
+   * Check if a type is IO[...] by examining the root type constructor.
+   * This is the authoritative way to detect IO in Bosatsu.
+   */
+  private def isIOType(tpe: Type): Boolean = {
+    Type.rootConst(tpe) match {
+      case Some(Type.TyConst(Type.Const.Defined(pn, tn))) =>
+        isIOPackage(pn) && tn.ident.asString == "IO"
+      case _ => false
+    }
+  }
+
+  /**
+   * Check if an expression has return type IO[...].
+   * This uses the type information from TypedExpr, not pattern matching on function names.
+   */
+  def hasIOType[A](expr: TypedExpr[A]): Boolean =
+    isIOType(expr.getType)
+
+  /**
+   * Extract the inner type from IO[A], returning Some(A) if the type is IO[A], None otherwise.
+   * Useful for understanding what type an IO action produces when executed.
+   */
+  def unwrapIOType(tpe: Type): Option[Type] = {
+    tpe match {
+      case Type.TyApply(root, inner) if isIOType(tpe) =>
+        Some(inner)
+      case _ =>
+        None
+    }
+  }
+
   /**
    * Check if an expression is a state creation: state(initial)
    * Handles annotation and generic wrappers around the function.
@@ -616,19 +688,38 @@ object UIAnalyzer {
             // on_drop(handler) - extract drag event handler
             extractEventHandler(app, "drop", ctx)
 
+          case "on_frame" =>
+            // on_frame(updateFn) - extract frame callback (IO action)
+            extractFrameCallback(app, ctx)
+
           case _ =>
             // Other UI functions
             ()
         }
 
+      case TypedExpr.Global(pack, name, _, _) if isCanvasPackage(pack) =>
+        // Canvas package functions
+        name.asString match {
+          case "canvas_render" =>
+            // canvas_render(state, renderFn) - extract canvas binding
+            extractCanvasRender(app, ctx)
+
+          case _ =>
+            // Other canvas functions (commands) - no special handling needed
+            ()
+        }
+
       case _ =>
-        // Not a recognized UI function
+        // Not a recognized UI/Canvas function
         ()
     }
   }
 
   private def isUIPackage(pack: PackageName): Boolean =
     pack.asString == "Bosatsu/UI" || pack.asString == "UI"
+
+  private def isCanvasPackage(pack: PackageName): Boolean =
+    pack.asString == "Bosatsu/Canvas" || pack.asString == "Canvas"
 
   /**
    * Extract explicit ID from props list.
@@ -1295,9 +1386,105 @@ object UIAnalyzer {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Canvas Binding Extraction
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract canvas_render binding from canvas_render(state, renderFn) calls.
+   * Records a CanvasBinding that links the canvas element to its state and render function.
+   */
+  private def extractCanvasRender[A](
+      app: TypedExpr.App[A],
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    val args = app.args.toList
+    if (args.length >= 2) {
+      val stateExpr = args(0)
+      val renderFn = args(1)
+
+      // Get the element ID for this canvas (parent element or generate one)
+      val elementId = ctx.currentParentElementId.getOrElse(ctx.freshId())
+
+      // Extract the state path from the state expression
+      val statePath = extractStatePath(stateExpr, ctx)
+
+      // Record the canvas binding
+      ctx.recordCanvasBinding(CanvasBinding(
+        elementId = elementId,
+        statePath = statePath,
+        renderFn = renderFn,
+        stateExpr = stateExpr
+      ))
+
+      // Also record the state read
+      if (statePath.nonEmpty) {
+        ctx.recordStateRead(statePath)
+      }
+    }
+  }
+
+  /**
+   * Extract on_frame callback from on_frame(updateFn) calls.
+   * Records a FrameCallback for animation loop registration.
+   */
+  private def extractFrameCallback[A](
+      app: TypedExpr.App[A],
+      ctx: AnalysisContext[A]
+  ): Unit = {
+    val args = app.args.toList
+    if (args.nonEmpty) {
+      val updateFn = args(0)
+
+      // Record the frame callback
+      ctx.recordFrameCallback(FrameCallback(
+        handler = updateFn
+      ))
+    }
+  }
+
+  /**
+   * Extract state path from a state expression.
+   * Handles State[a] variables directly and state(initial) expressions.
+   */
+  private def extractStatePath[A](
+      expr: TypedExpr[A],
+      ctx: AnalysisContext[A]
+  ): List[String] = {
+    val unwrapped = unwrapFunction(expr)
+    unwrapped match {
+      // Direct reference to a state variable (local binding)
+      case TypedExpr.Local(name, _, _) =>
+        ctx.getPath(name).getOrElse(List(name.asString))
+
+      // Global state variable (top-level binding)
+      case TypedExpr.Global(_, name, _, _) =>
+        // For globals, use the name directly as path
+        List(name.asString)
+
+      // state(initial) expression - not a bound variable yet
+      case TypedExpr.App(fn, _, _, _) if isStateCreation(unwrapped) =>
+        // Generate a path based on position
+        List(s"state_${ctx.idCounter}")
+
+      case _ =>
+        Nil
+    }
+  }
+
   /**
    * Extract state variable names that a handler writes to.
-   * Looks for write(stateVar, value) patterns in the expression.
+   * Understands IO monad patterns: write returns IO[Unit], effects are composed via flatMap.
+   *
+   * Recognized patterns:
+   * - write(state, value) - direct state write returning IO[Unit]
+   * - flatMap(io1, x -> io2) - sequence of IO operations
+   * - pure(value) - pure value wrapped in IO
+   *
+   * The IO structure enables the compiler to:
+   * 1. Track effect sequences and dependencies
+   * 2. Batch related DOM updates
+   * 3. Optimize away redundant reads/writes
    */
   private def extractStateWrites[A](
       expr: TypedExpr[A],
@@ -1308,6 +1495,7 @@ object UIAnalyzer {
       case TypedExpr.App(fn, args, _, _) =>
         val unwrappedFn = unwrapFunction(fn)
         unwrappedFn match {
+          // UI.write(state, value) -> IO[Unit]
           case TypedExpr.Global(pack, name, _, _)
               if isUIPackage(pack) && name.asString == "write" =>
             // First arg is the state variable - also need to unwrap it
@@ -1321,6 +1509,26 @@ object UIAnalyzer {
             }
             // Also check other args for nested writes
             stateNames ++ args.toList.tail.flatMap(arg => extractStateWrites(arg, ctx))
+
+          // IO.flatMap(io, continuation) - extract writes from both
+          // flatMap sequences IO operations: first io runs, then continuation(result) runs
+          case TypedExpr.Global(pack, name, _, _)
+              if isIOPackage(pack) && name.asString == "flatMap" =>
+            val argsList = args.toList
+            if (argsList.length >= 2) {
+              // First arg is the IO action
+              val io1Writes = extractStateWrites(argsList(0), ctx)
+              // Second arg is the continuation function (a -> IO[b])
+              val continuationWrites = extractStateWrites(argsList(1), ctx)
+              io1Writes ++ continuationWrites
+            } else {
+              Nil
+            }
+
+          // IO.pure(value) - no writes, just a pure value
+          case TypedExpr.Global(pack, name, _, _)
+              if isIOPackage(pack) && name.asString == "pure" =>
+            Nil
 
           case TypedExpr.Global(_, _, _, _) =>
             // Other global function - check all arguments for state writes

@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>main</title>
+  <style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4f8;
+  color: #333333;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+#app {
+  width: 100%;
+  max-width: 600px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+h1 {
+  margin-bottom: 30px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.display {
+  font-size: 72px;
+  font-weight: bold;
+  margin: 30px 0;
+  color: #333333;
+}
+
+.buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+button {
+  min-width: 80px;
+  min-height: 80px;
+  font-size: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #667eea;
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:active {
+  transform: scale(0.95);
+}
+
+input[type="text"], input[type="number"] {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 300px;
+}
+
+input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+/* Todo List Styles */
+.container {
+  width: 100%;
+  max-width: 600px;
+}
+
+.container .card {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  color: #9aa0d4;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  transition: background 0.2s;
+}
+
+.todo-item:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.todo-checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid #667eea;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.todo-checkbox:hover {
+  background: rgba(102, 126, 234, 0.2);
+}
+
+.todo-checkbox.checked {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+.todo-checkbox.checked::after {
+  content: '✓';
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 15px;
+}
+
+.binding-info {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #666;
+  margin-top: 16px;
+  text-align: left;
+}
+
+h3 {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 12px;
+}
+
+p {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.6;
+}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+// ============================================================================
+// BosatsuUI Runtime
+// ============================================================================
+
+// Bosatsu JS Runtime
+// Note: Using 'var' for all declarations to create true globals accessible from generated code
+
+// Bosatsu/Numeric constants
+var Bosatsu_Numeric$pi = Math.PI;
+var Bosatsu_Numeric$e = Math.E;
+
+// GCD using Euclidean algorithm
+var _gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+};
+
+// int_loop(i, state, fn) - countdown loop with accumulator
+// fn(i, state) returns [newI, newState]
+// continues while newI > 0 AND newI < i (ensures progress)
+var _int_loop = (i, state, fn) => {
+  let _i = i;
+  let _state = state;
+  while (_i > 0) {
+    const result = fn(_i, _state);
+    const newI = result[0];
+    const newState = result[1];
+    // Update state regardless
+    _state = newState;
+    // Check if we should continue
+    if (newI <= 0 || newI >= _i) {
+      // Reached 0 or no progress, return new state
+      return _state;
+    }
+    _i = newI;
+  }
+  return _state;
+};
+
+// Convert Bosatsu string list to JS string
+var _bosatsu_to_js_string = (bstr) => {
+  let result = '';
+  let current = bstr;
+  while (current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+};
+
+// Convert JS string to Bosatsu string list
+var _js_to_bosatsu_string = (str) => {
+  let result = [0]; // Empty list
+  for (let i = str.length - 1; i >= 0; i--) {
+    result = [1, str[i], result];
+  }
+  return result;
+};
+
+// concat_String - takes a Bosatsu list of strings and concatenates
+var _concat_String = (strList) => {
+  let result = '';
+  let current = strList;
+  while (current[0] === 1) {
+    result += _bosatsu_to_js_string(current[1]);
+    current = current[2];
+  }
+  return _js_to_bosatsu_string(result);
+};
+
+// int_to_String
+var _int_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// double_to_String - convert Double to Bosatsu string
+var _double_to_String = (n) => _js_to_bosatsu_string(String(n));
+
+// string_to_Int - returns Option: [0] for None, [1, value] for Some
+var _string_to_Int = (bstr) => {
+  const str = _bosatsu_to_js_string(bstr);
+  const n = parseInt(str, 10);
+  return isNaN(n) ? [0] : [1, n];
+};
+
+// char_to_String - char is already a single-char string (identity function)
+var _char_to_String = (c) => c;
+
+// trace - log message and return value
+var _trace = (msg, value) => {
+  console.log(_bosatsu_to_js_string(msg));
+  return value;
+};
+
+// cmp_String - compare two Bosatsu strings, return [0] (LT), [1] (EQ), or [2] (GT)
+// Returns boxed values for pattern matching consistency with cmp_Int
+var _cmp_String = (a, b) => {
+  const sa = _bosatsu_to_js_string(a);
+  const sb = _bosatsu_to_js_string(b);
+  return sa < sb ? [0] : (sa === sb ? [1] : [2]);
+};
+
+// partition_String - split string on first occurrence of separator
+// Returns tuple of (before, sep, after) or (original, empty, empty) if not found
+// partition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _partition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.indexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// rpartition_String - returns Option[(String, String)]
+// None if sep is empty or not found, Some((before, after)) otherwise
+var _rpartition_String = (str, sep) => {
+  const s = _bosatsu_to_js_string(str);
+  const sp = _bosatsu_to_js_string(sep);
+  // Empty separator returns None
+  if (sp.length === 0) return [0];
+  const idx = s.lastIndexOf(sp);
+  if (idx === -1) return [0]; // Not found: None
+  // Found: Some((before, after))
+  return [1, [
+    _js_to_bosatsu_string(s.substring(0, idx)),
+    _js_to_bosatsu_string(s.substring(idx + sp.length))
+  ]];
+};
+
+// range(n) - generate list [0, 1, 2, ..., n-1]
+var range = (n) => {
+  let result = [0];
+  for (let i = n - 1; i >= 0; i--) {
+    result = [1, i, result];
+  }
+  return result;
+};
+
+// foldl_List(list, init, fn) - left fold over a list
+var foldl_List = (list, init, fn) => {
+  let acc = init;
+  let current = list;
+  while (current[0] === 1) {
+    acc = fn(acc, current[1]);
+    current = current[2];
+  }
+  return acc;
+};
+
+// flat_map_List(list, fn) - flatMap over a list
+var flat_map_List = (list, fn) => {
+  let result = [0];
+  let current = list;
+  // First collect all results in reverse order
+  let reversed = [0];
+  while (current[0] === 1) {
+    const mapped = fn(current[1]);
+    // Prepend mapped items to reversed
+    let m = mapped;
+    while (m[0] === 1) {
+      reversed = [1, m[1], reversed];
+      m = m[2];
+    }
+    current = current[2];
+  }
+  // Now reverse to get correct order
+  current = reversed;
+  while (current[0] === 1) {
+    result = [1, current[1], result];
+    current = current[2];
+  }
+  return result;
+};
+
+// Bosatsu/Prog external functions
+// Prog is represented as a thunk that takes an environment and returns [result_type, value_or_error]
+// result_type: 0 = success, 1 = error
+var Bosatsu_Prog$pure = a => _env => [0, a];
+var Bosatsu_Prog$raise_error = e => _env => [1, e];
+var Bosatsu_Prog$read_env = env => [0, env];
+var Bosatsu_Prog$flat_map = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 0) {
+    return fn(result[1])(env);
+  }
+  return result; // propagate error
+};
+var Bosatsu_Prog$recover = (prog, fn) => env => {
+  const result = prog(env);
+  if (result[0] === 1) {
+    return fn(result[1])(env);
+  }
+  return result;
+};
+var Bosatsu_Prog$apply_fix = (a, fn) => {
+  const fixed = x => fn(fixed)(x);
+  return fixed(a);
+};
+var Bosatsu_Prog$remap_env = (p, f) => env => p(f(env));
+var Bosatsu_Prog$println = str => _env => { console.log(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$print = str => _env => { process.stdout.write(_bosatsu_to_js_string(str)); return [0, []]; };
+var Bosatsu_Prog$read_stdin_utf8_bytes = n => _env => [0, [0]]; // Return empty string for now
+
+
+// ============================================================================
+// State Management
+// ============================================================================
+
+// State storage: { id: { id, value } }
+const _state = {};
+
+// Element cache for O(1) DOM lookups
+const _elements = {};
+
+// Handler registry
+const _handlers = {};
+let _handlerIdCounter = 0;
+
+// Map state objects to their binding keys (WeakMap for proper GC)
+const _stateToBindingKey = new WeakMap();
+
+// Link a state object to its binding key (called from init)
+function _linkStateToBinding(stateObj, bindingKey) {
+  _stateToBindingKey.set(stateObj, bindingKey);
+}
+
+// Create a state object (called by compiled Bosatsu code via state(initial))
+let _stateIdCounter = 0;
+function _ui_create_state(initialValue) {
+  const id = 'state_' + (_stateIdCounter++);
+  const stateObj = { id: id, value: initialValue };
+  _state[id] = stateObj;
+  return stateObj;
+}
+
+// Read state value (called by compiled code)
+function _ui_read(stateObj) {
+  return stateObj.value;
+}
+
+// Write state and trigger binding updates (called by compiled code)
+function _ui_write(stateObj, value) {
+  const oldValue = stateObj.value;
+  stateObj.value = value;
+
+  // Find bindings using the binding key (Bosatsu variable name)
+  const bindingKey = _stateToBindingKey.get(stateObj);
+  const bindings = bindingKey ? _bindings[bindingKey] : null;
+  if (bindings) {
+    bindings.forEach(binding => {
+      _updateBinding(binding, value);
+    });
+  }
+
+  // Update canvas bindings that depend on this state
+  _updateCanvasBindings(stateObj);
+
+  return []; // Return Unit (empty tuple)
+}
+
+// Register an event handler and return its ID
+function _ui_register_handler(eventType, handler) {
+  const handlerId = 'handler_' + (_handlerIdCounter++);
+  _handlers[handlerId] = { type: eventType, fn: handler };
+  return handlerId;
+}
+
+// Update a single DOM binding
+function _updateBinding(binding, value) {
+  try {
+    let el = _elements[binding.elementId];
+    if (!el) {
+      el = document.getElementById(binding.elementId) ||
+           document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+      if (el) _elements[binding.elementId] = el;
+  }
+  if (!el) return;
+
+  // For bindings with computeValue (e.g., style bindings with multiple dependencies),
+  // call computeValue() to get the actual value instead of using the raw state value
+  if (binding.computeValue) {
+    const computed = binding.computeValue();
+    // The computed result may be a Bosatsu string, convert to JS string
+    const displayValue = Array.isArray(computed)
+      ? _bosatsuStringToJs(computed)
+      : String(computed);
+
+    // Apply to the appropriate property
+    if (binding.property.startsWith('style.')) {
+      const styleProp = binding.property.slice(6);
+      el.style[styleProp] = displayValue;
+    } else {
+      el[binding.property] = displayValue;
+    }
+    return;
+  }
+
+  // Check if value is a Bosatsu Bool - [0] for False, [1] for True
+  // But be careful: [0] is also an empty Bosatsu string/list!
+  // A true Bosatsu Bool has exactly 1 element. A non-empty string has 3 elements.
+  // We'll check for bools only when length is exactly 1 AND for className bindings.
+  const isIntBool = typeof value === 'number' && (value === 0 || value === 1);
+
+  // For arrays, try to detect if it's a string vs a simple bool
+  // Non-empty Bosatsu strings have structure [1, char, rest] with length 3
+  // Empty strings/lists are [0] with length 1 - same as False bool
+  // We'll treat arrays as strings first (safer for textContent), unless it's clearly a bool for className
+  const isBosatsuBool = Array.isArray(value) && value.length === 1 && (value[0] === 0 || value[0] === 1);
+  const boolValue = isBosatsuBool ? value[0] === 1 : (isIntBool ? value === 1 : null);
+
+  let displayValue;
+  if (binding.transform) {
+    const transformResult = eval(binding.transform)(value);
+    // Transform may return a Bosatsu string (array), convert to JS string
+    displayValue = Array.isArray(transformResult)
+      ? _bosatsuStringToJs(transformResult)
+      : String(transformResult);
+  } else if (Array.isArray(value)) {
+    // For arrays, convert as Bosatsu string first (handles both strings and lists)
+    // This correctly converts [0] to "" and [1, "a", [1, "b", [0]]] to "ab"
+    const strResult = _bosatsuStringToJs(value);
+    // Only use boolean logic for className with single-element arrays that look like bools
+    if (binding.property === 'className' && isBosatsuBool) {
+      displayValue = boolValue ? 'true' : 'false';
+    } else {
+      displayValue = strResult;
+    }
+  } else if (isIntBool) {
+    displayValue = boolValue ? 'true' : 'false';
+  } else {
+    displayValue = String(value);
+  }
+
+  switch (binding.property) {
+    case 'textContent':
+      el.textContent = displayValue;
+      break;
+    case 'className':
+      // For className with bool values (Bosatsu Bool or int 0/1), toggle a 'checked' class
+      if (isBosatsuBool || isIntBool) {
+        if (boolValue) {
+          el.classList.add('checked');
+        } else {
+          el.classList.remove('checked');
+        }
+      } else {
+        el.className = displayValue;
+      }
+      break;
+    case 'value':
+      el.value = displayValue;
+      break;
+    case 'checked':
+      el.checked = !!value;
+      break;
+    case 'disabled':
+      el.disabled = !!value;
+      break;
+    default:
+      if (binding.property.startsWith('style.')) {
+        const styleProp = binding.property.slice(6);
+        el.style[styleProp] = displayValue;
+      }
+  }
+  } catch (e) {
+    console.error('BosatsuUI binding error:', {
+      elementId: binding.elementId,
+      property: binding.property,
+      statePath: binding.statePath,
+      error: e.message
+    });
+  }
+}
+
+// Track which element+eventType combinations have had handlers attached (to avoid duplicates)
+// Key format: "${elementId}:${eventType}" or "${handlerId}" for uniqueness
+const _handlersAttached = new Set();
+
+// Initialize element cache for all bindings
+function _initBindingCache() {
+  Object.values(_bindings).flat().forEach(binding => {
+    const el = document.getElementById(binding.elementId) ||
+               document.querySelector('[data-bosatsu-id="' + binding.elementId + '"]');
+    if (el) {
+      _elements[binding.elementId] = el;
+    }
+  });
+
+  // Set up event handlers (only once per element+eventType combination)
+  Object.entries(_handlers).forEach(([handlerId, handler]) => {
+    // Skip if this specific handler has already been processed
+    if (_handlersAttached.has(handlerId)) return;
+    _handlersAttached.add(handlerId);
+
+    // Find elements with this handler ID
+    const els = document.querySelectorAll('[data-on' + handler.type + '="' + handlerId + '"]');
+    els.forEach(el => {
+
+      el.addEventListener(handler.type, (e) => {
+        try {
+          // Call the handler - different events receive different arguments
+          if (handler.type === 'click' || handler.type === 'dragstart') {
+            handler.fn([]);  // Unit = empty tuple
+          } else if (handler.type === 'input' || handler.type === 'change') {
+            // Convert JS string to Bosatsu string
+            const bsString = _js_to_bosatsu_string(e.target.value);
+            handler.fn(bsString);
+          } else if (handler.type === 'keydown' || handler.type === 'keyup') {
+            // Pass the key name as a Bosatsu string
+            const bsKey = _js_to_bosatsu_string(e.key);
+            handler.fn(bsKey);
+          } else if (handler.type === 'dragover') {
+            // Must call preventDefault to allow dropping
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          } else if (handler.type === 'drop') {
+            e.preventDefault();
+            handler.fn([]);  // Unit
+          }
+        } catch (err) {
+          console.error('BosatsuUI handler error:', {
+            eventType: handler.type,
+            handlerId: handlerId,
+            error: err.message,
+            stack: err.stack
+          });
+        }
+      });
+    });
+  });
+}
+
+// Render a VNode to a DOM element
+function _renderVNode(vnode) {
+  if (!vnode) return document.createTextNode('');
+
+  const type = vnode.type;
+
+  if (type === 'text') {
+    // Text node: { type: "text", text: "content" }
+    return document.createTextNode(vnode.text || '');
+  }
+
+  if (type === 'element') {
+    // Element node: { type: "element", tag: "div", props: [...], children: [...] }
+    // Tag may be a Bosatsu string (array), convert to JS string
+    const tag = _bosatsuStringToJs(vnode.tag) || vnode.tag || 'div';
+    const el = document.createElement(tag);
+
+    // Process props (array of [key, value] tuples in Bosatsu format)
+    if (vnode.props) {
+      const props = _bosatsuListToArray(vnode.props);
+      props.forEach(prop => {
+        // prop is a Bosatsu tuple: [key, value]
+        if (Array.isArray(prop) && prop.length >= 2) {
+          const key = _bosatsuStringToJs(prop[0]) || prop[0];
+          const value = _bosatsuStringToJs(prop[1]) || prop[1];
+
+          if (key.startsWith('data-on')) {
+            // Event handler attribute
+            el.setAttribute(key, value);
+          } else if (key === 'class') {
+            el.className = value;
+          } else if (key === 'id') {
+            el.id = value;
+          } else {
+            el.setAttribute(key, value);
+          }
+        }
+      });
+    }
+
+    // Render children
+    if (vnode.children) {
+      const children = _bosatsuListToArray(vnode.children);
+      children.forEach(child => {
+        el.appendChild(_renderVNode(child));
+      });
+    }
+
+    return el;
+  }
+
+  if (type === 'fragment') {
+    // Fragment: { type: "fragment", children: [...] }
+    const frag = document.createDocumentFragment();
+    if (vnode.children) {
+      const children = _bosatsuListToArray(vnode.children);
+      children.forEach(child => {
+        frag.appendChild(_renderVNode(child));
+      });
+    }
+    return frag;
+  }
+
+  // Unknown type - try to render as text
+  return document.createTextNode(String(vnode));
+}
+
+// Convert Bosatsu list to JS array
+// Bosatsu list: [1, head, [1, head2, [0]]] or [0] for empty
+function _bosatsuListToArray(list) {
+  const result = [];
+  let current = list;
+  while (Array.isArray(current) && current[0] === 1) {
+    result.push(current[1]);
+    current = current[2];
+  }
+  return result;
+}
+
+// Convert Bosatsu string to JS string
+// Bosatsu string: [1, "c", [1, "h", [0]]] - linked list of characters
+function _bosatsuStringToJs(str) {
+  if (typeof str === 'string') return str;
+  if (!Array.isArray(str)) return String(str);
+
+  let result = '';
+  let current = str;
+  while (Array.isArray(current) && current[0] === 1) {
+    result += current[1];
+    current = current[2];
+  }
+  return result;
+}
+
+// Convert JS string to Bosatsu string (for event handlers)
+function _js_to_bosatsu_string(s) {
+  if (s.length === 0) return [0];
+  let result = [0];
+  for (let i = s.length - 1; i >= 0; i--) {
+    result = [1, s[i], result];
+  }
+  return result;
+}
+
+// Convert JS array to Bosatsu list
+function _js_to_bosatsu_list(arr) {
+  let result = [0]; // Empty list
+  for (let i = arr.length - 1; i >= 0; i--) {
+    result = [1, arr[i], result]; // Cons(head, tail)
+  }
+  return result;
+}
+
+// Convert Bosatsu list to JS array (for canvas commands etc)
+function _bosatsu_list_to_array(list) {
+  const result = [];
+  let current = list;
+  while (Array.isArray(current) && current[0] === 1) {
+    result.push(current[1]);
+    current = current[2];
+  }
+  return result;
+}
+
+// ============================================================================
+// Dynamic List State Management
+// ============================================================================
+
+// List state storage: { id: { id, items: [], templateBindings: {} } }
+const _listState = {};
+let _listStateIdCounter = 0;
+
+// Map list state objects to their binding keys
+const _listStateToBindingKey = new WeakMap();
+
+// Link a list state object to its binding key
+function _linkListStateToBinding(listStateObj, bindingKey) {
+  _listStateToBindingKey.set(listStateObj, bindingKey);
+}
+
+// Create a list state object
+function _ui_create_list_state(initialItems) {
+  const id = 'list_state_' + (_listStateIdCounter++);
+  // Convert Bosatsu list to JS array for internal storage
+  const items = _bosatsuListToArray(initialItems);
+  const listStateObj = {
+    id: id,
+    items: items,
+    templateBindings: {} // Will be populated from _listBindingTemplates
+  };
+  _listState[id] = listStateObj;
+  return listStateObj;
+}
+
+// Read list state - returns current items as Bosatsu list
+function _ui_list_read(listStateObj) {
+  return _js_to_bosatsu_list(listStateObj.items);
+}
+
+// Update bindings that depend on list properties (like list_length)
+// These bindings are registered under the list's bindingKey
+function _updateListDependentBindings(listStateObj) {
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  if (!bindingKey) return;
+
+  const bindings = _bindings[bindingKey];
+  if (bindings) {
+    bindings.forEach(binding => {
+      // For list_length bindings, the value is the length
+      // The transform (if any) handles int_to_String conversion
+      _updateBinding(binding, listStateObj.items.length);
+    });
+  }
+}
+
+// Append item to list - registers bindings for new item
+function _ui_list_append(listStateObj, item) {
+  const index = listStateObj.items.length;
+  listStateObj.items.push(item);
+
+  // Register bindings for the new item
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  if (bindingKey && _listBindingTemplates[bindingKey]) {
+    _registerListItemBindings(listStateObj, bindingKey, index);
+  }
+
+  // Trigger list re-render (simple approach - re-render container)
+  _renderListItems(listStateObj);
+
+  // Update bindings that depend on list properties (like list_length)
+  _updateListDependentBindings(listStateObj);
+
+  return []; // Unit
+}
+
+// Remove item at index - cleans up bindings
+function _ui_list_remove_at(listStateObj, index) {
+  if (index >= 0 && index < listStateObj.items.length) {
+    listStateObj.items.splice(index, 1);
+
+    // Cleanup bindings for removed item and re-index remaining
+    const bindingKey = _listStateToBindingKey.get(listStateObj);
+    if (bindingKey) {
+      _cleanupListItemBindings(bindingKey, index);
+      _reindexListBindings(bindingKey, index, listStateObj.items.length);
+    }
+
+    // Trigger list re-render
+    _renderListItems(listStateObj);
+
+    // Update bindings that depend on list properties (like list_length)
+    _updateListDependentBindings(listStateObj);
+  }
+
+  return []; // Unit
+}
+
+// Update item at index - triggers binding update
+function _ui_list_update_at(listStateObj, index, item) {
+  if (index >= 0 && index < listStateObj.items.length) {
+    listStateObj.items[index] = item;
+
+    // Trigger bindings for this item
+    const bindingKey = _listStateToBindingKey.get(listStateObj);
+    if (bindingKey) {
+      _updateListItemBindings(bindingKey, index, item);
+    }
+  }
+
+  return []; // Unit
+}
+
+// Template bindings for lists (populated at compile time)
+// Format: { "listName": { "$.field": { property, selectorPattern, transform } } }
+const _listBindingTemplates = {};
+
+// Register bindings for a new list item at given index
+function _registerListItemBindings(listStateObj, bindingKey, index) {
+  const templates = _listBindingTemplates[bindingKey];
+  if (!templates) return;
+
+  Object.entries(templates).forEach(([fieldPattern, template]) => {
+    // Create concrete binding key: "todos.0.completed" from "todos.$.completed"
+    const concreteKey = bindingKey + '.' + index + fieldPattern.substring(1);
+    const selector = template.selectorPattern.replace(/\$/g, String(index));
+
+    if (!_bindings[concreteKey]) {
+      _bindings[concreteKey] = [];
+    }
+    _bindings[concreteKey].push({
+      elementId: selector,
+      property: template.property,
+      transform: template.transform,
+      when: null
+    });
+  });
+}
+
+// Cleanup bindings for a removed list item
+function _cleanupListItemBindings(bindingKey, index) {
+  const prefix = bindingKey + '.' + index;
+  Object.keys(_bindings).forEach(key => {
+    if (key.startsWith(prefix)) {
+      delete _bindings[key];
+    }
+  });
+}
+
+// Re-index bindings after a removal
+function _reindexListBindings(bindingKey, removedIndex, newLength) {
+  // This is a simplified approach - for complex cases we might need
+  // to track the original indices and remap
+  // For now, we rely on re-rendering to fix element IDs
+}
+
+// Update bindings for a specific list item
+function _updateListItemBindings(bindingKey, index, item) {
+  const prefix = bindingKey + '.' + index;
+  Object.entries(_bindings).forEach(([key, bindings]) => {
+    if (key.startsWith(prefix)) {
+      bindings.forEach(binding => {
+        // Extract the field name from the binding key
+        const fieldPath = key.substring(prefix.length + 1);
+        const value = _getFieldValue(item, fieldPath);
+        _updateBinding(binding, value);
+      });
+    }
+  });
+}
+
+// Get a field value from an item (supports nested paths like "name" or "address.city")
+function _getFieldValue(item, fieldPath) {
+  if (!fieldPath) return item;
+  const parts = fieldPath.split('.');
+  let current = item;
+  for (const part of parts) {
+    if (current == null) return null;
+    // Bosatsu structs are arrays: [constructorIndex, field0, field1, ...]
+    if (Array.isArray(current) && !isNaN(parseInt(part))) {
+      current = current[parseInt(part) + 1]; // +1 because index 0 is constructor
+    } else if (typeof current === 'object') {
+      current = current[part];
+    } else {
+      return null;
+    }
+  }
+  return current;
+}
+
+// Container elements for list rendering
+const _listContainers = {};
+
+// Render list items into their container
+function _renderListItems(listStateObj) {
+  const bindingKey = _listStateToBindingKey.get(listStateObj);
+  const containerId = _listContainers[listStateObj.id];
+  if (!containerId) return;
+
+  const container = document.getElementById(containerId) ||
+                    document.querySelector('[data-list-container="' + bindingKey + '"]');
+  if (!container) return;
+
+  // Get the item template (stored during initial render)
+  const template = _listItemTemplates[bindingKey];
+  if (!template) return;
+
+  // Clear and re-render all items
+  container.innerHTML = '';
+  listStateObj.items.forEach((item, index) => {
+    const itemEl = _renderListItem(template, item, index, bindingKey);
+    container.appendChild(itemEl);
+
+    // Cache elements and set up handlers
+    _cacheListItemElements(itemEl, index, bindingKey);
+  });
+
+  // Re-initialize handlers for new elements
+  _initBindingCache();
+}
+
+// Item templates for list rendering (populated from VNode analysis)
+const _listItemTemplates = {};
+
+// Render a single list item from template
+function _renderListItem(template, item, index, listKey) {
+  // Clone the template and fill in item data
+  const vnode = _instantiateTemplate(template, item, index, listKey);
+  return _renderVNode(vnode);
+}
+
+// Instantiate a template with item data
+function _instantiateTemplate(template, item, index, listKey) {
+  if (!template) return { type: 'text', text: String(item) };
+
+  if (template.type === 'text') {
+    // Check if text has a binding (even empty string means "use item directly")
+    if ('binding' in template) {
+      // If binding is empty string, use the item directly; otherwise use field path
+      const value = template.binding === '' ? item : _getFieldValue(item, template.binding);
+      // Convert Bosatsu string to JS string if needed
+      const textValue = Array.isArray(value) ? _bosatsuStringToJs(value) : String(value);
+      return { type: 'text', text: textValue };
+    }
+    return template;
+  }
+
+  if (template.type === 'element') {
+    // Clone props and substitute $INDEX
+    const props = template.props ? _bosatsuListToArray(template.props).map(prop => {
+      if (Array.isArray(prop) && prop.length >= 2) {
+        const key = _bosatsuStringToJs(prop[0]) || prop[0];
+        let value = _bosatsuStringToJs(prop[1]) || prop[1];
+        value = String(value).replace(/\$INDEX/g, String(index));
+        return [key, value];
+      }
+      return prop;
+    }) : [];
+
+    // Recursively instantiate children
+    const children = template.children ?
+      _bosatsuListToArray(template.children).map(child =>
+        _instantiateTemplate(child, item, index, listKey)
+      ) : [];
+
+    return {
+      type: 'element',
+      tag: template.tag,
+      props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
+      children: _js_to_bosatsu_list(children)
+    };
+  }
+
+  return template;
+}
+
+// Cache elements for a rendered list item
+function _cacheListItemElements(itemEl, index, listKey) {
+  // Find all elements with IDs or data-bosatsu-id and cache them
+  const elementsWithId = itemEl.querySelectorAll('[id], [data-bosatsu-id]');
+  elementsWithId.forEach(el => {
+    const id = el.id || el.getAttribute('data-bosatsu-id');
+    if (id) {
+      _elements[id] = el;
+    }
+  });
+}
+
+// Convert a DOM element to a VNode-like template structure
+// Used to capture list item templates from initial render
+function _vnodeFromDomElement(el) {
+  if (el.nodeType === Node.TEXT_NODE) {
+    return { type: 'text', text: el.textContent };
+  }
+
+  if (el.nodeType !== Node.ELEMENT_NODE) {
+    return null;
+  }
+
+  // Extract props from attributes
+  const props = [];
+  for (const attr of el.attributes) {
+    props.push([attr.name, attr.value]);
+  }
+
+  // Mark text content as a binding point (will be replaced with item data)
+  const children = [];
+  for (const child of el.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+      // Text nodes become binding points
+      children.push({ type: 'text', text: child.textContent, binding: '' });
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const childVNode = _vnodeFromDomElement(child);
+      if (childVNode) children.push(childVNode);
+    }
+  }
+
+  return {
+    type: 'element',
+    tag: el.tagName.toLowerCase(),
+    props: _js_to_bosatsu_list(props.map(p => [p[0], p[1]])),
+    children: _js_to_bosatsu_list(children)
+  };
+}
+
+// ============================================================================
+// Canvas Runtime
+// ============================================================================
+
+// Canvas bindings: { id: { state, render } }
+const _canvasBindings = {};
+
+// Canvas contexts cache
+const _canvasContexts = {};
+
+// Frame callbacks for animation loop
+const _frameCallbacks = [];
+
+// Last frame timestamp for delta time calculation
+let _lastFrameTime = 0;
+
+// Maximum delta time (33ms = ~30fps) to prevent physics explosions after tab switch
+const MAX_DT = 0.033;
+
+// Register a canvas render binding (called from compiled code)
+function _ui_register_canvas_render(stateObj, renderFn) {
+  const id = '_canvas_' + Object.keys(_canvasBindings).length;
+  _canvasBindings[id] = { state: stateObj, render: renderFn };
+  return id;
+}
+
+// Register a frame callback (called from compiled code)
+function _ui_register_frame_callback(updateFn) {
+  _frameCallbacks.push(updateFn);
+  return []; // Return Unit (empty tuple)
+}
+
+// Execute canvas commands on a 2D context
+function _executeCanvas(cmds, ctx) {
+  if (!cmds) return;
+
+  // Handle array of commands (from _bosatsu_list_to_array)
+  if (Array.isArray(cmds) && cmds.length > 0 && typeof cmds[0] === 'object' && 'type' in cmds[0]) {
+    cmds.forEach(cmd => _executeCanvas(cmd, ctx));
+    return;
+  }
+
+  // Handle Bosatsu list format
+  if (Array.isArray(cmds) && cmds[0] === 1) {
+    _executeCanvas(cmds[1], ctx);
+    _executeCanvas(cmds[2], ctx);
+    return;
+  }
+
+  // Skip empty list
+  if (Array.isArray(cmds) && cmds[0] === 0) return;
+
+  if (!cmds.type) return;
+
+  switch (cmds.type) {
+    case 'clear':
+      ctx.fillStyle = cmds.color;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      break;
+
+    case 'fill':
+      ctx.fillStyle = cmds.color;
+      break;
+
+    case 'stroke':
+      ctx.strokeStyle = cmds.color;
+      break;
+
+    case 'lineWidth':
+      ctx.lineWidth = cmds.width;
+      break;
+
+    case 'circle':
+      ctx.beginPath();
+      ctx.arc(cmds.x, cmds.y, cmds.r, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+
+    case 'rect':
+      ctx.fillRect(cmds.x, cmds.y, cmds.w, cmds.h);
+      break;
+
+    case 'line':
+      ctx.beginPath();
+      ctx.moveTo(cmds.x1, cmds.y1);
+      ctx.lineTo(cmds.x2, cmds.y2);
+      ctx.stroke();
+      break;
+
+    case 'text':
+      ctx.fillText(cmds.text, cmds.x, cmds.y);
+      break;
+
+    case 'arc':
+      ctx.beginPath();
+      ctx.arc(cmds.x, cmds.y, cmds.r, cmds.start, cmds.end);
+      ctx.stroke();
+      break;
+
+    case 'save':
+      ctx.save();
+      break;
+
+    case 'restore':
+      ctx.restore();
+      break;
+
+    case 'translate':
+      ctx.translate(cmds.x, cmds.y);
+      break;
+
+    case 'rotate':
+      ctx.rotate(cmds.angle);
+      break;
+
+    case 'scale':
+      ctx.scale(cmds.sx, cmds.sy);
+      break;
+
+    case 'sequence':
+      if (cmds.commands) {
+        cmds.commands.forEach(cmd => _executeCanvas(cmd, ctx));
+      }
+      break;
+  }
+}
+
+// Initialize canvas bindings
+function _initCanvasBindings() {
+  Object.entries(_canvasBindings).forEach(([id, binding]) => {
+    // Find canvas element with this binding
+    const canvas = document.querySelector('[data-canvas-render="' + id + '"]') ||
+                   document.querySelector('canvas[data-bosatsu-id]') ||
+                   document.querySelector('canvas');
+    if (canvas && canvas.getContext) {
+      const ctx = canvas.getContext('2d');
+      _canvasContexts[id] = ctx;
+
+      // Initial render
+      if (binding.state && binding.render) {
+        try {
+          const cmds = binding.render(binding.state.value);
+          _executeCanvas(cmds, ctx);
+        } catch (e) {
+          console.error('Canvas render error:', e);
+        }
+      }
+    }
+  });
+}
+
+// Update all canvas bindings (called when state changes)
+function _updateCanvasBindings(stateObj) {
+  Object.entries(_canvasBindings).forEach(([id, binding]) => {
+    if (binding.state === stateObj || (binding.state && binding.state.id === stateObj.id)) {
+      const ctx = _canvasContexts[id];
+      if (ctx && binding.render) {
+        try {
+          const cmds = binding.render(stateObj.value);
+          _executeCanvas(cmds, ctx);
+        } catch (e) {
+          console.error('Canvas render error:', e);
+        }
+      }
+    }
+  });
+}
+
+// Animation loop
+function _animationLoop(timestamp) {
+  if (_lastFrameTime === 0) {
+    _lastFrameTime = timestamp;
+  }
+
+  // Calculate delta time in seconds, capped to prevent physics explosions
+  let dt = (timestamp - _lastFrameTime) / 1000;
+  dt = Math.min(dt, MAX_DT);
+  _lastFrameTime = timestamp;
+
+  // Call all frame callbacks with delta time
+  _frameCallbacks.forEach(callback => {
+    try {
+      callback(dt);
+    } catch (e) {
+      console.error('Frame callback error:', e);
+    }
+  });
+
+  // Continue the loop
+  if (_frameCallbacks.length > 0) {
+    requestAnimationFrame(_animationLoop);
+  }
+}
+
+// Start the animation loop if there are frame callbacks
+function _startAnimationLoop() {
+  if (_frameCallbacks.length > 0) {
+    _lastFrameTime = 0;
+    requestAnimationFrame(_animationLoop);
+  }
+}
+
+// ============================================================================
+// Binding Map (extracted at compile time)
+// ============================================================================
+
+const _bindings = {"bounciness_display": [{"elementId": "bosatsu-12", "property": "textContent", "when": null}],
+  "gravity_display": [{"elementId": "bosatsu-8", "property": "textContent", "when": null}]};
+
+// ============================================================================
+// Compiled Bosatsu Code
+// ============================================================================
+
+const d_200 = 200;
+const BouncingBall$d_200 = d_200;
+const d_50 = 50;
+const BouncingBall$d_50 = d_50;
+const d_80 = 80;
+const BouncingBall$d_80 = d_80;
+const d_0 = 0;
+const BouncingBall$d_0 = d_0;
+const d_20 = 20;
+const BouncingBall$d_20 = d_20;
+const d_280 = 280;
+const BouncingBall$d_280 = d_280;
+const d_380 = 380;
+const BouncingBall$d_380 = d_380;
+const d_100 = 100;
+const BouncingBall$d_100 = d_100;
+const d_10 = 10;
+const BouncingBall$d_10 = d_10;
+const default_gravity = 500;
+const BouncingBall$default_gravity = default_gravity;
+const default_bounciness = 8 / BouncingBall$d_10;
+const BouncingBall$default_bounciness = default_bounciness;
+const ball = _ui_create_state(((_a0, _a1, _a2, _a3) => [_a0,
+    _a1,
+    _a2,
+    _a3])(BouncingBall$d_200, BouncingBall$d_50, BouncingBall$d_80, BouncingBall$d_0));
+const BouncingBall$ball = ball;
+const physics = _ui_create_state(((_a0, _a1) => [_a0,
+    _a1])(BouncingBall$default_gravity, BouncingBall$default_bounciness));
+const BouncingBall$physics = physics;
+const gravity_display = _ui_create_state(_js_to_bosatsu_string("500"));
+const BouncingBall$gravity_display = gravity_display;
+const bounciness_display = _ui_create_state(_js_to_bosatsu_string("0.8"));
+const BouncingBall$bounciness_display = bounciness_display;
+const update_physics = (s, params, dt) => (() => {
+  const px = s[0];
+  return (() => {
+    const py = s[1];
+    return (() => {
+      const pvx = s[2];
+      return (() => {
+        const pvy = s[3];
+        return (() => {
+          const gravity = params[0];
+          return (() => {
+            const bounciness = params[1];
+            return (() => {
+              const vy1 = pvy + (gravity * dt);
+              return (() => {
+                const x1 = px + (pvx * dt);
+                return (() => {
+                  const y1 = py + (vy1 * dt);
+                  return (() => {
+                    const _anon8 = (() => {
+                      const _anon1 = (() => {
+                        const _anon0 = Number.isNaN(y1) ? Number.isNaN(BouncingBall$d_280) ? [1] : [2] : Number.isNaN(BouncingBall$d_280) ? [0] : (y1 < BouncingBall$d_280) ? [0] : (y1 === BouncingBall$d_280) ? [1] : [2];
+                        return (_anon0[0] === 2) ? [1] : [0];
+                      })();
+                      return (_anon1[0] === 1) ? ((_a0, _a1) => [_a0,
+                          _a1])(BouncingBall$d_280, -(vy1 * bounciness)) : ((_a0, _a1) => [_a0,
+                          _a1])(y1, vy1);
+                    })();
+                    return (() => {
+                      const y2 = _anon8[0];
+                      return (() => {
+                        const vy2 = _anon8[1];
+                        return (() => {
+                          const _anon7 = (() => {
+                            const _anon3 = (() => {
+                              const _anon2 = Number.isNaN(x1) ? Number.isNaN(BouncingBall$d_20) ? [1] : [2] : Number.isNaN(BouncingBall$d_20) ? [0] : (x1 < BouncingBall$d_20) ? [0] : (x1 === BouncingBall$d_20) ? [1] : [2];
+                              return (_anon2[0] === 0) ? [1] : [0];
+                            })();
+                            return (_anon3[0] === 1) ? ((_a0, _a1) => [_a0,
+                                _a1])(BouncingBall$d_20, -(pvx * bounciness)) : ((_a0, _a1) => [_a0,
+                                _a1])(x1, pvx);
+                          })();
+                          return (() => {
+                            const x2a = _anon7[0];
+                            return (() => {
+                              const vx2a = _anon7[1];
+                              return (() => {
+                                const _anon6 = (() => {
+                                  const _anon5 = (() => {
+                                    const _anon4 = Number.isNaN(x2a) ? Number.isNaN(BouncingBall$d_380) ? [1] : [2] : Number.isNaN(BouncingBall$d_380) ? [0] : (x2a < BouncingBall$d_380) ? [0] : (x2a === BouncingBall$d_380) ? [1] : [2];
+                                    return (_anon4[0] === 2) ? [1] : [0];
+                                  })();
+                                  return (_anon5[0] === 1) ? ((_a0, _a1) => [_a0,
+                                      _a1])(BouncingBall$d_380, -(vx2a * bounciness)) : ((_a0, _a1) => [_a0,
+                                      _a1])(x2a, vx2a);
+                                })();
+                                return (() => {
+                                  const x2 = _anon6[0];
+                                  return (() => {
+                                    const vx2 = _anon6[1];
+                                    return ((_a0, _a1, _a2, _a3) => [_a0,
+                                      _a1,
+                                      _a2,
+                                      _a3])(x2, y2, vx2, vy2);
+                                  })();
+                                })();
+                              })();
+                            })();
+                          })();
+                        })();
+                      })();
+                    })();
+                  })();
+                })();
+              })();
+            })();
+          })();
+        })();
+      })();
+    })();
+  })();
+})();
+const BouncingBall$update_physics = update_physics;
+const render_ball = s => (() => {
+  const px = s[0];
+  return (() => {
+    const py = s[1];
+    return { type: "sequence",
+      commands: _bosatsu_list_to_array(((_a0, _a1) => [1,
+          _a0,
+          _a1])({ type: "clear",
+            color: _bosatsu_to_js_string(_js_to_bosatsu_string("#1a1a2e")) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "fill",
+              color: _bosatsu_to_js_string(_js_to_bosatsu_string("#ff6b8a")) }, ((_a0, _a1) => [1,
+              _a0,
+              _a1])({ type: "circle",
+                x: px,
+                y: py,
+                r: BouncingBall$d_20 }, [0])))) };
+  })();
+})();
+const BouncingBall$render_ball = render_ball;
+const reset_ball = a => _ui_write(BouncingBall$ball, ((_a0, _a1, _a2, _a3) => [_a0,
+    _a1,
+    _a2,
+    _a3])(BouncingBall$d_200, BouncingBall$d_50, BouncingBall$d_80, BouncingBall$d_0));
+const BouncingBall$reset_ball = reset_ball;
+const on_gravity_change = value => (() => {
+  const _anon9 = BouncingBall$physics.value;
+  return (() => {
+    const bounciness = _anon9[1];
+    return (() => {
+      const a = _ui_write(BouncingBall$physics, ((_a0, _a1) => [_a0,
+          _a1])(parseFloat(_bosatsu_to_js_string(value)) || 0.0, bounciness));
+      return _ui_write(BouncingBall$gravity_display, value);
+    })();
+  })();
+})();
+const BouncingBall$on_gravity_change = on_gravity_change;
+const on_bounciness_change = value => (() => {
+  const normalized = parseFloat(_bosatsu_to_js_string(value)) || 0.0 / BouncingBall$d_100;
+  return (() => {
+    const _anon10 = BouncingBall$physics.value;
+    return (() => {
+      const gravity = _anon10[0];
+      return (() => {
+        const a = _ui_write(BouncingBall$physics, ((_a0, _a1) => [_a0,
+            _a1])(gravity, normalized));
+        return _ui_write(BouncingBall$bounciness_display, _js_to_bosatsu_string(String(normalized)));
+      })();
+    })();
+  })();
+})();
+const BouncingBall$on_bounciness_change = on_bounciness_change;
+const frame_update = dt => _ui_write(BouncingBall$ball, BouncingBall$update_physics(BouncingBall$ball.value, BouncingBall$physics.value, dt));
+const BouncingBall$frame_update = frame_update;
+const frame_registration = _ui_register_frame_callback(BouncingBall$frame_update);
+const BouncingBall$frame_registration = frame_registration;
+const main = { type: "element",
+  tag: _js_to_bosatsu_string("div"),
+  props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("container")), [0]),
+  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+      tag: _js_to_bosatsu_string("div"),
+      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("card")), [0]),
+      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+          tag: _js_to_bosatsu_string("h1"),
+          props: [0],
+          children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+              text: _bosatsu_to_js_string(_js_to_bosatsu_string("Bouncing Ball")) }, [0]) }, ((_a0, _a1) => [1,
+          _a0,
+          _a1])({ type: "element",
+            tag: _js_to_bosatsu_string("p"),
+            props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("subtitle")), [0]),
+            children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                text: _bosatsu_to_js_string(_js_to_bosatsu_string("Physics simulation in pure Bosatsu")) }, [0]) }, ((_a0, _a1) => [1,
+            _a0,
+            _a1])({ type: "element",
+              tag: _js_to_bosatsu_string("canvas"),
+              props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                  _a1])(_js_to_bosatsu_string("width"), _js_to_bosatsu_string("400")), ((_a0, _a1) => [1,
+                  _a0,
+                  _a1])(((_a0, _a1) => [_a0,
+                    _a1])(_js_to_bosatsu_string("height"), _js_to_bosatsu_string("300")), ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])(((_a0, _a1) => [_a0,
+                      _a1])(_js_to_bosatsu_string("id"), _js_to_bosatsu_string("simulation")), ((_a0, _a1) => [1,
+                      _a0,
+                      _a1])(["data-canvas-render",
+                        _ui_register_canvas_render(BouncingBall$ball, BouncingBall$render_ball)], [0])))),
+              children: [0] }, ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                tag: _js_to_bosatsu_string("div"),
+                props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                    _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("controls")), [0]),
+                children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                    tag: _js_to_bosatsu_string("div"),
+                    props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                        _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("slider-row")), [0]),
+                    children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                        tag: _js_to_bosatsu_string("label"),
+                        props: [0],
+                        children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                            text: _bosatsu_to_js_string(_js_to_bosatsu_string("Gravity: ")) }, [0]) }, ((_a0, _a1) => [1,
+                        _a0,
+                        _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("input"),
+                          props: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])(((_a0, _a1) => [_a0,
+                              _a1])(_js_to_bosatsu_string("type"), _js_to_bosatsu_string("range")), ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("min"), _js_to_bosatsu_string("100")), ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])(((_a0, _a1) => [_a0,
+                                  _a1])(_js_to_bosatsu_string("max"), _js_to_bosatsu_string("1000")), ((_a0, _a1) => [1,
+                                  _a0,
+                                  _a1])(((_a0, _a1) => [_a0,
+                                    _a1])(_js_to_bosatsu_string("value"), _js_to_bosatsu_string("500")), ((_a0, _a1) => [1,
+                                    _a0,
+                                    _a1])(["data-oninput",
+                                      _ui_register_handler("input", BouncingBall$on_gravity_change)], [0]))))),
+                          children: [0] }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "element",
+                            tag: _js_to_bosatsu_string("span"),
+                            props: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("value")), [0]),
+                            children: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])({ type: "text",
+                                text: _bosatsu_to_js_string(BouncingBall$gravity_display.value) }, [0]) }, [0]))) }, ((_a0, _a1) => [1,
+                    _a0,
+                    _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("div"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                          _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("slider-row")), [0]),
+                      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                          tag: _js_to_bosatsu_string("label"),
+                          props: [0],
+                          children: ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "text",
+                              text: _bosatsu_to_js_string(_js_to_bosatsu_string("Bounciness: ")) }, [0]) }, ((_a0, _a1) => [1,
+                          _a0,
+                          _a1])({ type: "element",
+                            tag: _js_to_bosatsu_string("input"),
+                            props: ((_a0, _a1) => [1,
+                              _a0,
+                              _a1])(((_a0, _a1) => [_a0,
+                                _a1])(_js_to_bosatsu_string("type"), _js_to_bosatsu_string("range")), ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])(((_a0, _a1) => [_a0,
+                                  _a1])(_js_to_bosatsu_string("min"), _js_to_bosatsu_string("0")), ((_a0, _a1) => [1,
+                                  _a0,
+                                  _a1])(((_a0, _a1) => [_a0,
+                                    _a1])(_js_to_bosatsu_string("max"), _js_to_bosatsu_string("100")), ((_a0, _a1) => [1,
+                                    _a0,
+                                    _a1])(((_a0, _a1) => [_a0,
+                                      _a1])(_js_to_bosatsu_string("value"), _js_to_bosatsu_string("80")), ((_a0, _a1) => [1,
+                                      _a0,
+                                      _a1])(["data-oninput",
+                                        _ui_register_handler("input", BouncingBall$on_bounciness_change)], [0]))))),
+                            children: [0] }, ((_a0, _a1) => [1,
+                            _a0,
+                            _a1])({ type: "element",
+                              tag: _js_to_bosatsu_string("span"),
+                              props: ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])(((_a0, _a1) => [_a0,
+                                  _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("value")), [0]),
+                              children: ((_a0, _a1) => [1,
+                                _a0,
+                                _a1])({ type: "text",
+                                  text: _bosatsu_to_js_string(BouncingBall$bounciness_display.value) }, [0]) }, [0]))) }, [0])) }, ((_a0, _a1) => [1,
+                _a0,
+                _a1])({ type: "element",
+                  tag: _js_to_bosatsu_string("div"),
+                  props: ((_a0, _a1) => [1, _a0, _a1])(((_a0, _a1) => [_a0,
+                      _a1])(_js_to_bosatsu_string("class"), _js_to_bosatsu_string("buttons")), [0]),
+                  children: ((_a0, _a1) => [1, _a0, _a1])({ type: "element",
+                      tag: _js_to_bosatsu_string("button"),
+                      props: ((_a0, _a1) => [1, _a0, _a1])(["data-onclick",
+                          _ui_register_handler("click", BouncingBall$reset_ball)], [0]),
+                      children: ((_a0, _a1) => [1, _a0, _a1])({ type: "text",
+                          text: _bosatsu_to_js_string(_js_to_bosatsu_string("Reset")) }, [0]) }, [0]) }, [0]))))) }, [0]) };
+const BouncingBall$main = main;
+
+// ============================================================================
+// Initialize Application
+// ============================================================================
+
+function init() {
+  // Link state objects to their binding keys for lookup
+  if (typeof ball !== 'undefined') _linkStateToBinding(ball, "ball");
+  if (typeof physics !== 'undefined') _linkStateToBinding(physics, "physics");
+  if (typeof gravity_display !== 'undefined') _linkStateToBinding(gravity_display, "gravity_display");
+  if (typeof bounciness_display !== 'undefined') _linkStateToBinding(bounciness_display, "bounciness_display");
+
+  // Get the VNode from the compiled 'main' or 'view' binding
+  const vnode = typeof main !== 'undefined' ? main : (typeof view !== 'undefined' ? view : null);
+
+  if (vnode) {
+    const app = document.getElementById('app');
+    app.appendChild(_renderVNode(vnode));
+    console.log('Rendered VNode:', vnode);
+  } else {
+    console.error('No main or view binding found');
+  }
+
+  // Link list state objects to their binding keys and containers
+
+
+  // Initialize element cache for bindings
+  _initBindingCache();
+
+  // Apply initial state values to DOM (for states that aren't 0/false)
+  _applyInitialBindings();
+
+  // Initialize canvas bindings and start animation loop
+  _initCanvasBindings();
+  _startAnimationLoop();
+}
+
+// Apply initial state values to DOM elements
+function _applyInitialBindings() {
+  Object.entries(_state).forEach(([stateId, stateObj]) => {
+    const bindingKey = _stateToBindingKey.get(stateObj);
+    const bindings = bindingKey ? _bindings[bindingKey] : null;
+    if (bindings && stateObj.value !== 0 && stateObj.value !== false) {
+      bindings.forEach(binding => {
+        _updateBinding(binding, stateObj.value);
+      });
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+  </script>
+</body>
+</html>

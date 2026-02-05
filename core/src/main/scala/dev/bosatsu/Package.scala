@@ -550,6 +550,22 @@ object Package {
         sys.error(errorMsg)
     }
 
+  /** The parsed representation of the Canvas module.
+    * Unlike Predef, this is not auto-imported - users must explicitly import it.
+    * Extends BosatsuUI with canvas-based graphics for physics simulations.
+    */
+  lazy val canvasPackage: Package.Parsed =
+    parser(None).parse(Canvas.canvasString) match {
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val lm = LocationMap(Canvas.canvasString)
+        val errorMsg =
+          s"couldn't parse canvas:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
+        System.err.println(errorMsg)
+        sys.error(errorMsg)
+    }
+
   implicit val documentPackage: Document[Package.Typed[Any]] =
     new Document[Package.Typed[Any]] {
       def document(pack: Typed[Any]): Doc =

@@ -39,4 +39,34 @@ object FfiCall {
 
     def call(t: rankn.Type): Value = evalFn
   }
+
+  final case class Fn4(fn: (Value, Value, Value, Value) => Value) extends FfiCall(4) {
+    import Value.FnValue
+
+    private val evalFn: FnValue =
+      FnValue {
+        case NonEmptyList(e1, e2 :: e3 :: e4 :: _) => fn(e1, e2, e3, e4)
+        case badShape                              =>
+          sys.error(s"expected four arguments, found: $badShape")
+      }
+
+    def call(t: rankn.Type): Value = evalFn
+  }
+
+  final case class Fn5(fn: (Value, Value, Value, Value, Value) => Value) extends FfiCall(5) {
+    import Value.FnValue
+
+    private val evalFn: FnValue =
+      FnValue {
+        case NonEmptyList(e1, e2 :: e3 :: e4 :: e5 :: _) => fn(e1, e2, e3, e4, e5)
+        case badShape                                    =>
+          sys.error(s"expected five arguments, found: $badShape")
+      }
+
+    def call(t: rankn.Type): Value = evalFn
+  }
+
+  final case class Fn0(fn: () => Value) extends FfiCall(0) {
+    def call(t: rankn.Type): Value = fn()
+  }
 }

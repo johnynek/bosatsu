@@ -15,6 +15,10 @@ import cats.data.NonEmptyList
   *
   * State[A] is a reactive state container. Reading and writing state
   * is tracked so that bindings can be established at compile time.
+  *
+  * Event handlers return IO[Unit] - the IO structure enables the compiler to
+  * understand effect sequences and optimize DOM/canvas updates accordingly.
+  * The IO monad patterns (flatMap, pure, write) are recognized by UIAnalyzer.
   */
 object UI {
 
@@ -198,5 +202,10 @@ object UI {
           case UIListState(_, items: List[_]) => VInt(BigInt(items.length))
           case _ => VInt(BigInt(0))
         }
+      })
+      // on_frame(update) -> IO[Unit]
+      // Animation frame registration - the actual frame loop runs in the browser
+      .add(packageName, "on_frame", FfiCall.Fn1 { updateFn =>
+        UnitValue
       })
 }

@@ -614,12 +614,12 @@ object PackageMap {
     ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
-    Package.predefPackage :: Package.numericPackage :: Package.ioPackage :: Package.uiPackage :: ps.map(_.withImport(predefImports))
+    Package.predefPackage :: Package.numericPackage :: Package.ioPackage :: Package.uiPackage :: Package.canvasPackage :: ps.map(_.withImport(predefImports))
 
   def withPredefA[A](
       predefA: A,
       ps: List[(A, Package.Parsed)]
   ): List[(A, Package.Parsed)] =
-    (predefA, Package.predefPackage) :: (predefA, Package.numericPackage) :: (predefA, Package.ioPackage) :: (predefA, Package.uiPackage) :: withPredefImportsA(ps)
+    (predefA, Package.predefPackage) :: (predefA, Package.numericPackage) :: (predefA, Package.ioPackage) :: (predefA, Package.uiPackage) :: (predefA, Package.canvasPackage) :: withPredefImportsA(ps)
 
 }

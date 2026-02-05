@@ -1,12 +1,13 @@
 package Bosatsu/IO
 
-from Bosatsu/Predef import Int, String, List
+from Bosatsu/Predef import Int, String, List, Unit
 
 export (
   IO,
   pure, flatMap,
   capture, captureFormula,
-  sequence, trace, random_Int
+  sequence, trace, random_Int,
+  use_unit
 )
 
 external struct IO[a]
@@ -31,3 +32,11 @@ external def trace(unit: forall a. a) -> IO[String]
 
 # Generate a random integer between min and max (inclusive)
 external def random_Int(min: Int, max: Int) -> IO[Int]
+
+# ---------------------------------------------------------------------------
+# Import marker function (satisfy unused import checker)
+# ---------------------------------------------------------------------------
+
+# Marks Unit type as used
+def use_unit(u: Unit) -> Unit:
+  u

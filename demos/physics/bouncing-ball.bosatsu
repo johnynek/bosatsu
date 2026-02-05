@@ -1,0 +1,196 @@
+package BouncingBall
+
+from Bosatsu/Predef import Unit, True, False, Bool, Comparison, GT, LT, EQ
+from Bosatsu/Numeric import (
+  Double, `+.`, `-.`, `*.`, `/.`, from_Int, neg_Double, cmp_Double,
+  string_to_Double, double_to_String
+)
+from Bosatsu/UI import h, text, state, read, write, on_click, on_input, on_frame, State, VNode
+from Bosatsu/Canvas import (
+  CanvasCommands, circle, fill, clear, sequence, canvas_render
+)
+from Bosatsu/IO import IO, pure, flatMap
+
+export (main, frame_registration)
+
+# Ball physics state - position, velocity
+struct BallState(x: Double, y: Double, vx: Double, vy: Double)
+
+# Physics parameters - adjustable via sliders
+struct PhysicsParams(gravity: Double, bounciness: Double)
+
+# Helper to check if a > b
+def gt_double(a: Double, b: Double) -> Bool:
+  match cmp_Double(a, b):
+    case GT: True
+    case _: False
+
+# Helper to check if a < b
+def lt_double(a: Double, b: Double) -> Bool:
+  match cmp_Double(a, b):
+    case LT: True
+    case _: False
+
+# ---------------------------------------------------------------------------
+# Constants as Doubles
+# ---------------------------------------------------------------------------
+d_200 = from_Int(200)
+d_50 = from_Int(50)
+d_80 = from_Int(80)
+d_0 = from_Int(0)
+d_20 = from_Int(20)
+d_280 = from_Int(280)
+d_380 = from_Int(380)
+d_100 = from_Int(100)
+d_1000 = from_Int(1000)
+d_10 = from_Int(10)
+
+# Default physics parameters
+# Bounciness is 0.8 (8/10)
+default_gravity = from_Int(500)
+default_bounciness = `/.`(from_Int(8), d_10)
+
+# ---------------------------------------------------------------------------
+# State containers
+# ---------------------------------------------------------------------------
+ball = state(BallState(d_200, d_50, d_80, d_0))
+physics = state(PhysicsParams(default_gravity, default_bounciness))
+
+# State for slider display values
+gravity_display = state("500")
+bounciness_display = state("0.8")
+
+# ---------------------------------------------------------------------------
+# Pure physics function - all physics laws are in Bosatsu!
+# ---------------------------------------------------------------------------
+def update_physics(s: BallState, params: PhysicsParams, dt: Double) -> BallState:
+  match s:
+    case BallState(px, py, pvx, pvy):
+      match params:
+        case PhysicsParams(gravity, bounciness):
+          # Apply gravity to velocity
+          vy1 = `+.`(pvy, `*.`(gravity, dt))
+
+          # Update position
+          x1 = `+.`(px, `*.`(pvx, dt))
+          y1 = `+.`(py, `*.`(vy1, dt))
+
+          # Bounce off floor (y > 280)
+          (y2, vy2) = match gt_double(y1, d_280):
+            case True: (d_280, neg_Double(`*.`(vy1, bounciness)))
+            case False: (y1, vy1)
+
+          # Bounce off left wall (x < 20)
+          (x2a, vx2a) = match lt_double(x1, d_20):
+            case True: (d_20, neg_Double(`*.`(pvx, bounciness)))
+            case False: (x1, pvx)
+
+          # Bounce off right wall (x > 380)
+          (x2, vx2) = match gt_double(x2a, d_380):
+            case True: (d_380, neg_Double(`*.`(vx2a, bounciness)))
+            case False: (x2a, vx2a)
+
+          BallState(x2, y2, vx2, vy2)
+
+# ---------------------------------------------------------------------------
+# Pure render function - returns canvas commands
+# ---------------------------------------------------------------------------
+def render_ball(s: BallState) -> CanvasCommands:
+  match s:
+    case BallState(px, py, _, _):
+      sequence([
+        clear("#1a1a2e"),
+        fill("#ff6b8a"),
+        circle(px, py, d_20)
+      ])
+
+# ---------------------------------------------------------------------------
+# Event handlers - return IO actions
+# ---------------------------------------------------------------------------
+
+# Reset handler - returns IO that resets ball position
+def reset_ball(u: Unit) -> IO[Unit]:
+  match u:
+    case (): write(ball, BallState(d_200, d_50, d_80, d_0))
+
+# Gravity slider handler - returns IO that updates physics and display
+def on_gravity_change(value: String) -> IO[Unit]:
+  new_gravity = string_to_Double(value)
+  current = read(physics)
+  match current:
+    case PhysicsParams(_, bounciness):
+      flatMap(
+        write(physics, PhysicsParams(new_gravity, bounciness)),
+        _ -> write(gravity_display, value)
+      )
+
+# Bounciness slider handler (value 0-100, normalized to 0-1)
+def on_bounciness_change(value: String) -> IO[Unit]:
+  raw = string_to_Double(value)
+  normalized = `/.`(raw, d_100)
+  current = read(physics)
+  match current:
+    case PhysicsParams(gravity, _):
+      flatMap(
+        write(physics, PhysicsParams(gravity, normalized)),
+        _ -> write(bounciness_display, double_to_String(normalized))
+      )
+
+# Frame update handler - returns IO that updates physics
+def frame_update(dt: Double) -> IO[Unit]:
+  write(ball, update_physics(read(ball), read(physics), dt))
+
+# Register the frame callback - returns IO action
+frame_registration = on_frame(frame_update)
+
+# ---------------------------------------------------------------------------
+# UI layout with sliders
+# ---------------------------------------------------------------------------
+main = h("div", [("class", "container")], [
+  h("div", [("class", "card")], [
+    h("h1", [], [text("Bouncing Ball")]),
+    h("p", [("class", "subtitle")], [text("Physics simulation in pure Bosatsu")]),
+
+    # Canvas
+    h("canvas", [
+      ("width", "400"),
+      ("height", "300"),
+      ("id", "simulation"),
+      canvas_render(ball, render_ball)
+    ], []),
+
+    # Controls
+    h("div", [("class", "controls")], [
+      # Gravity slider
+      h("div", [("class", "slider-row")], [
+        h("label", [], [text("Gravity: ")]),
+        h("input", [
+          ("type", "range"),
+          ("min", "100"),
+          ("max", "1000"),
+          ("value", "500"),
+          on_input(on_gravity_change)
+        ], []),
+        h("span", [("class", "value")], [text(read(gravity_display))])
+      ]),
+
+      # Bounciness slider
+      h("div", [("class", "slider-row")], [
+        h("label", [], [text("Bounciness: ")]),
+        h("input", [
+          ("type", "range"),
+          ("min", "0"),
+          ("max", "100"),
+          ("value", "80"),
+          on_input(on_bounciness_change)
+        ], []),
+        h("span", [("class", "value")], [text(read(bounciness_display))])
+      ])
+    ]),
+
+    # Reset button
+    h("div", [("class", "buttons")], [
+      h("button", [on_click(reset_ball)], [text("Reset")])
+    ])
+  ])
+])

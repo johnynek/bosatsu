@@ -1,0 +1,17 @@
+package Test/IOReadThenWrite
+
+from Bosatsu/Predef import add, Int, String, Unit, int_to_String
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+from Bosatsu/IO import IO, flatMap
+
+counter = state(0)
+doubled = state(0)
+
+def click_handler(_: Unit) -> IO[Unit]:
+  flatMap(write(counter, add(read(counter), 1)), _ -> write(doubled, add(read(counter), read(counter))))
+
+main = h("div", [], [
+  h("span", [("id", "counter-display")], [text(int_to_String(read(counter)))]),
+  h("span", [("id", "doubled-display")], [text(int_to_String(read(doubled)))]),
+  h("button", [("id", "btn"), on_click(click_handler)], [text("Click")])
+])

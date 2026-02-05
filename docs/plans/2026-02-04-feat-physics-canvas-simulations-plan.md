@@ -4,218 +4,266 @@ type: feat
 date: 2026-02-04
 ---
 
-# Physics Canvas Simulations for BosatsuUI
+# Physics Canvas Simulations (Built on BosatsuUI)
 
 ## Overview
 
-Add canvas-based physics simulations to Bosatsu that are as visually appealing as burritoscript demos, with physics laws written in pure Bosatsu (not hardcoded in platform).
+Extend BosatsuUI to support canvas-based physics simulations. Canvas rendering is just another binding type - we reuse the existing UIAnalyzer, VNode, and state infrastructure.
 
 **Key constraints:**
 - No hand-written JS - all code generated from Bosatsu source
 - Physics laws in `.bosatsu` files, not platform
-- Leverage existing BosatsuUI patterns (State, VNode, events)
+- Build ON TOP of BosatsuUI, not beside it
 
 ## Technical Approach
 
-### Architecture
+### Canvas as a VNode Binding
 
-```
-.bosatsu file
-    │
-    ▼
-┌────────────────────────────────────────────────────┐
-│  Bosatsu Compiler + UIAnalyzer                     │
-│                                                    │
-│  1. Parse Bosatsu/Canvas imports                   │
-│  2. Type-check canvas command expressions          │
-│  3. Analyze state→canvas bindings                  │
-│  4. Compile to JS with CanvasExternal intrinsics   │
-└────────────────────────────────────────────────────┘
-    │
-    ▼
-┌────────────────────────────────────────────────────┐
-│  Generated HTML                                    │
-│                                                    │
-│  - Canvas element with id                          │
-│  - State management runtime (existing)             │
-│  - Canvas command executor runtime                 │
-│  - Animation loop runtime (requestAnimationFrame)  │
-│  - Event handlers (existing)                       │
-└────────────────────────────────────────────────────┘
-```
-
-### Static Optimization (Key Innovation)
-
-Just like BosatsuUI detects state→DOM bindings at compile time for O(1) updates, we can detect state→canvas bindings:
+Canvas is just an HTML element with a special render prop:
 
 ```bosatsu
-def render(s: BallState) -> CanvasCommands:
+from Bosatsu/UI import h, state, read
+from Bosatsu/Canvas import circle, fill, sequence, canvas_render
+
+ball = state(BallState(200.0, 50.0, 100.0, 0.0))
+
+def render_ball(s: BallState) -> CanvasCommands:
+  sequence([fill("#ff6b8a"), circle(s.x, s.y, 20.0)])
+
+main = h("canvas", [
+  ("width", "400"),
+  ("height", "300"),
+  canvas_render(ball, render_ball)  # special prop like on_click
+], [])
+```
+
+### What We Reuse from BosatsuUI
+
+| Component | How It's Reused |
+|-----------|-----------------|
+| VNode | Canvas is `h("canvas", props, [])` |
+| UIAnalyzer | Already walks TypedExpr, add canvas_render detection |
+| State bindings | Canvas render depends on state, same as textContent |
+| Event handlers | on_click for reset button, sliders for params |
+| Runtime | Add canvas executor alongside DOM updater |
+
+### What We Add
+
+| New Component | Purpose |
+|---------------|---------|
+| `Bosatsu/Canvas` library | Commands: circle, rect, fill, etc. |
+| `canvas_render` prop | Bind state to canvas render function |
+| `on_frame` hook | Animation loop for physics updates |
+| Canvas executor | Interprets CanvasCommands in runtime |
+
+### Static Optimization (Automatic)
+
+UIAnalyzer already extracts state dependencies. For canvas:
+
+```bosatsu
+def render_ball(s: BallState) -> CanvasCommands:
   sequence([
-    clear("#1a1a2e"),           # static - never changes
-    fill("#ff6b8a"),            # static
-    circle(s.x, s.y, 20.0)      # depends on s.x, s.y only
+    fill("#1a1a2e"),           # static - no state deps
+    circle(s.x, s.y, 20.0)     # depends on s.x, s.y
   ])
 ```
 
-**Compile-time analysis extracts:**
-```javascript
-// CanvasAnalyzer output
-const _canvasBindings = {
-  "ball.x": ["circle_0.x"],    // ball.x affects circle position
-  "ball.y": ["circle_0.y"],
-  // gravity, bounciness don't affect rendering!
-};
-```
-
-**Runtime uses this for:**
-1. **Partial re-render** - only redraw commands affected by changed state
-2. **Layered canvas** - static elements on background layer, animated on foreground
-3. **Dirty region tracking** - only clear/redraw the bounding box that changed
-
-This means:
-- User writes simple, readable Bosatsu code
-- Compiler extracts optimizations automatically
-- No need for user to write optimized (complex) code
-
-### Canvas Commands as Data
-
-Canvas rendering returns pure data (like VNode), not effects:
-
-```bosatsu
-# Returns List[CanvasCommand] - pure data
-def render(s: BallState) -> CanvasCommands:
-  sequence([
-    clear("#1a1a2e"),
-    fill("#ff6b8a"),
-    circle(s.x, s.y, 20.0)
-  ])
-```
-
-Platform interprets commands:
-```javascript
-function executeCommands(cmds, ctx) {
-  cmds.forEach(cmd => {
-    switch(cmd.type) {
-      case 'clear': ctx.fillStyle = cmd.color; ctx.fillRect(0,0,w,h); break;
-      case 'circle': ctx.beginPath(); ctx.arc(cmd.x, cmd.y, cmd.r, 0, 2*PI); ctx.fill(); break;
-      // ...
-    }
-  });
-}
-```
+UIAnalyzer detects: `ball.x` and `ball.y` affect canvas, but `ball.gravity` doesn't.
+Runtime only re-renders when those fields change.
 
 ## Implementation Phases
 
 ### Phase 1: Bosatsu/Canvas Library
 - [ ] Create `core/src/main/resources/bosatsu/canvas.bosatsu`
-  - CanvasCommands struct (external)
-  - Shape commands: rect, circle, line, text, arc, polygon
-  - Style commands: fill, stroke, line_width, font
-  - Transform commands: save, restore, translate, rotate, scale
-  - Composition: sequence, clear
-- [ ] Create `CanvasExternal.scala` in codegen/js
-  - Intrinsics for canvas commands
-  - Compile commands to JS objects
+  ```bosatsu
+  package Bosatsu/Canvas
 
-### Phase 2: Bosatsu/Animation Library
-- [ ] Create `core/src/main/resources/bosatsu/animation.bosatsu`
-  - on_frame: register update callback
-  - Receives delta time (Float) each frame
-- [ ] Add `AnimationExternal.scala` intrinsics
-  - Generate requestAnimationFrame loop
-  - Track last timestamp for dt calculation
+  export (CanvasCommands, circle, rect, line, text, fill, stroke,
+          sequence, clear, canvas_render, on_frame)
 
-### Phase 3: CanvasAnalyzer (Static Optimization)
-- [ ] Create `CanvasAnalyzer.scala` in ui package
-  - Walk TypedExpr of render function
-  - Extract state→command dependencies
-  - Identify static vs dynamic commands
-- [ ] Generate optimization hints
-  - Which commands depend on which state fields
-  - Bounding boxes for dirty region tracking
-  - Layering opportunities (static background vs animated foreground)
+  external struct CanvasCommands
+  external def circle(x: Float, y: Float, radius: Float) -> CanvasCommands
+  external def rect(x: Float, y: Float, w: Float, h: Float) -> CanvasCommands
+  external def fill(color: String) -> CanvasCommands
+  external def sequence(cmds: List[CanvasCommands]) -> CanvasCommands
+  external def canvas_render[a](state: State[a], render: a -> CanvasCommands) -> (String, String)
+  external def on_frame(update: Float -> Unit) -> Unit
+  ```
 
-### Phase 4: Canvas Runtime
-- [ ] Add canvas executor to UIGen runtime
-  - executeCanvasCommands(cmds, ctx)
-  - Handle all command types
-- [ ] Add optimized rendering path
-  - Use CanvasAnalyzer output for partial re-render
-  - Background/foreground layer separation
-  - Dirty region clearing
+### Phase 2: CanvasExternal Intrinsics
+- [ ] Add to `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala`
+  - CanvasExternal object with intrinsics
+  - Commands compile to JS objects: `{type: "circle", x, y, r}`
+  - `canvas_render` compiles to special prop marker
+  - `on_frame` compiles to requestAnimationFrame registration
 
-### Phase 5: Integration
-- [ ] Wire animation loop to canvas re-render
-  - on_frame callback updates state
-  - State change triggers canvas re-render (using CanvasAnalyzer hints)
-- [ ] Add canvas config to UICommand
-  - --canvas flag enables canvas runtime
-  - Canvas dimensions from h() props
+### Phase 3: UIAnalyzer Extension
+- [ ] Extend `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala`
+  - Detect `canvas_render` in VNode props
+  - Extract render function and its state dependencies
+  - Add CanvasBinding to analysis output
+  - Reuse existing dependency tracking
 
-### Phase 6: Demo - Bouncing Ball
+### Phase 4: Runtime Extension
+- [ ] Extend canvas executor in UIGen runtime
+  ```javascript
+  function _executeCanvas(cmds, ctx) {
+    cmds.forEach(cmd => {
+      switch(cmd.type) {
+        case 'fill': ctx.fillStyle = cmd.color; break;
+        case 'circle':
+          ctx.beginPath();
+          ctx.arc(cmd.x, cmd.y, cmd.r, 0, Math.PI*2);
+          ctx.fill();
+          break;
+        // ...
+      }
+    });
+  }
+  ```
+- [ ] Hook canvas re-render to state changes (like DOM updates)
+- [ ] Add animation loop for on_frame callbacks
+
+### Phase 5: Demo - Bouncing Ball
 - [ ] Create `demos/physics/bouncing-ball.bosatsu`
-  - BallState struct with physics values
-  - Pure update_physics function
-  - Pure render_ball function
-  - UI controls (reset button, sliders)
-- [ ] Verify no hand-written JS
-  - Check generated HTML source
-  - All physics code from Bosatsu
-- [ ] Verify optimizations applied
-  - Check that only ball position triggers redraw
-  - Background layer is static
+  ```bosatsu
+  package BouncingBall
 
-### Phase 7: Demo - Pendulum
+  from Bosatsu/UI import h, state, read, write, on_click
+  from Bosatsu/Canvas import circle, fill, clear, sequence, canvas_render, on_frame
+
+  struct BallState(x: Float, y: Float, vx: Float, vy: Float, gravity: Float)
+
+  ball = state(BallState(200.0, 50.0, 100.0, 0.0, 500.0))
+
+  # Pure physics - laws in Bosatsu!
+  def update_physics(s: BallState, dt: Float) -> BallState:
+    vy1 = add(s.vy, times(s.gravity, dt))
+    y1 = add(s.y, times(vy1, dt))
+    # ... collision detection
+    BallState(s.x, y1, s.vx, vy1, s.gravity)
+
+  def render_ball(s: BallState) -> CanvasCommands:
+    sequence([clear("#1a1a2e"), fill("#ff6b8a"), circle(s.x, s.y, 20.0)])
+
+  frame_handler = on_frame(\dt -> write(ball, update_physics(read(ball), dt)))
+
+  main = h("div", [], [
+    h("canvas", [("width", "400"), ("height", "300"), canvas_render(ball, render_ball)], []),
+    h("button", [on_click(\_ -> write(ball, BallState(200.0, 50.0, 100.0, 0.0, 500.0)))],
+      [text("Reset")])
+  ])
+  ```
+- [ ] Generate HTML with `bosatsu-sim ui`
+- [ ] Verify no hand-written JS in output
+- [ ] Verify physics runs at 60fps
+
+### Phase 6: Demo - Pendulum
 - [ ] Create `demos/physics/pendulum.bosatsu`
-  - PendulumState with angular motion
-  - Energy calculation
-  - Trail visualization (uses list for history)
-- [ ] Add gradient support to canvas commands
-  - linear_gradient, radial_gradient
-  - Multiple color stops
+  - Angular motion physics
+  - Trail visualization (list of past positions)
+  - Energy display
+- [ ] Add gradient commands if needed
 
-### Phase 8: Pretty Rendering
-- [ ] Gradient commands
-  - linear_gradient(x1, y1, x2, y2, stops)
-  - radial_gradient(x, y, r, stops)
-- [ ] Shadow/glow effects
-  - shadow_blur, shadow_color, shadow_offset
-- [ ] Bezier curves
-  - bezier_to, quadratic_to
+## Design Decisions (from SpecFlow Analysis)
+
+### Animation Loop
+- **Single shared loop**: All `on_frame` callbacks are called from one requestAnimationFrame loop
+- **dt capping**: Cap delta time at 33ms (1/30s) to prevent physics explosions after tab switch
+- **State batching**: All state changes within a frame callback are batched; canvas re-renders once at end
+
+### Error Handling
+- **Render function throws**: Wrap in try/catch, log to console, continue animation
+- **Invalid state (NaN/Infinity)**: Physics functions should guard against this; no runtime validation
+- **Canvas element missing**: Guard with `if (!ctx) return` - fail silently (existing pattern)
+
+### Type System
+- **Coordinates**: Use `Double` for consistency with `Bosatsu/Numeric`
+- **CanvasCommands**: External opaque struct (like VNode)
+
+### Tab Visibility
+- **Hidden tab**: requestAnimationFrame pauses naturally
+- **Tab returns**: dt is capped, so large time gaps are ignored (simulation "pauses" with user)
+
+### Multiple Canvases
+- Each `canvas_render` binding is tracked separately
+- All share the same animation loop
+- Each canvas has its own state and render function
 
 ## Acceptance Criteria
 
-### Functional Requirements
-- [ ] Bouncing ball simulation runs smoothly (60fps)
-- [ ] Physics laws are in .bosatsu source (grep confirms no hardcoded physics in platform)
-- [ ] Canvas renders correctly (ball bounces, pendulum swings)
-- [ ] User controls work (reset, parameter sliders)
+- [ ] Bouncing ball demo works (smooth 60fps animation)
+- [ ] All physics code is in .bosatsu files (grep confirms)
 - [ ] No hand-written JS in generated HTML
-
-### Quality Gates
-- [ ] All existing tests pass
-- [ ] New tests for CanvasExternal intrinsics
-- [ ] New tests for animation loop
-- [ ] Demo HTML files generated from Bosatsu source only
+- [ ] UIAnalyzer correctly detects canvas state dependencies
+- [ ] Only affected canvas regions re-render on state change
+- [ ] All existing BosatsuUI tests still pass
+- [ ] Tab switch doesn't cause physics explosion (dt capping works)
+- [ ] Render function errors are caught and logged (animation continues)
 
 ## Files to Create/Modify
 
-| File | Purpose |
-|------|---------|
-| `core/src/main/resources/bosatsu/canvas.bosatsu` | Canvas command library |
-| `core/src/main/resources/bosatsu/animation.bosatsu` | Animation loop library |
-| `core/src/main/scala/dev/bosatsu/codegen/js/CanvasExternal.scala` | JS intrinsics for canvas |
-| `core/src/main/scala/dev/bosatsu/codegen/js/AnimationExternal.scala` | JS intrinsics for animation |
-| `core/src/main/scala/dev/bosatsu/ui/CanvasAnalyzer.scala` | **Static analysis for canvas optimizations** |
-| `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala` | Add canvas binding detection |
-| `core/src/main/scala/dev/bosatsu/ui/UIGen.scala` | Add canvas runtime to output |
-| `demos/physics/bouncing-ball.bosatsu` | Bouncing ball demo |
-| `demos/physics/pendulum.bosatsu` | Pendulum demo |
+| File | Action | Purpose |
+|------|--------|---------|
+| `core/src/main/resources/bosatsu/canvas.bosatsu` | Create | Canvas command library |
+| `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala` | Modify | Add CanvasExternal intrinsics |
+| `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala` | Modify | Add canvas_render detection |
+| `core/src/main/scala/dev/bosatsu/ui/UIGen.scala` | Modify | Add canvas executor to runtime |
+| `simulation-cli/.../UICommand.scala` | Modify | Wire canvas support |
+| `demos/physics/bouncing-ball.bosatsu` | Create | Demo |
+| `demos/physics/pendulum.bosatsu` | Create | Demo |
+
+## Implementation Details (from Research)
+
+### UIAnalyzer Extension Pattern
+
+The existing UIAnalyzer extracts bindings via `extractUIConstruction`. To add canvas_render:
+
+```scala
+// In extractUIConstruction, detect canvas_render calls
+case "canvas_render" =>
+  val statePath = traceStateDependency(args(0), ctx)
+  val renderFn = args(1)
+  statePath.foreach { path =>
+    ctx.recordBinding(CanvasBinding(
+      elementId = currentElementId,
+      statePath = path,
+      renderFn = renderFn
+    ))
+  }
+```
+
+### JsGen Intrinsic Pattern
+
+Follow the existing UIExternal pattern in JsGen.scala:
+
+```scala
+// In CanvasExternal.results
+Identifier.Name("circle") -> ((args: List[Code.Expression]) =>
+  Code.ObjectLiteral(List(
+    "type" -> Code.StringLiteral("circle"),
+    "x" -> args(0),
+    "y" -> args(1),
+    "r" -> args(2)
+  )), 3)
+
+Identifier.Name("canvas_render") -> ((args: List[Code.Expression]) =>
+  Code.Call(Code.Ident("_ui_canvas_render"), List(args(0), args(1))), 2)
+```
+
+### DOM Selector Safety (from learnings)
+
+Define canvas selectors as constants to prevent drift:
+```javascript
+const CANVAS_ID_PREFIX = '_canvas_';
+// Use consistent naming: _canvas_0, _canvas_1, etc.
+```
 
 ## References
 
 - Brainstorm: `docs/brainstorms/2026-02-04-physics-canvas-simulations-brainstorm.md`
-- Burritoscript bouncing ball: `/Users/steven/Documents/Code/portToBosatsu/burritoscript/simulation-applets/framework/bouncing-ball.burrito.ts`
-- Burritoscript pendulum: `/Users/steven/Documents/Code/portToBosatsu/burritoscript/simulation-applets/framework/pendulum.burrito.ts`
-- Existing canvas API: `core/src/main/scala/dev/bosatsu/ui/CanvasVisualization.scala`
-- Existing UI library: `core/src/main/resources/bosatsu/ui.bosatsu`
+- BosatsuUI library: `core/src/main/resources/bosatsu/ui.bosatsu`
+- UIAnalyzer: `core/src/main/scala/dev/bosatsu/ui/UIAnalyzer.scala`
+- JsGen externals pattern: `core/src/main/scala/dev/bosatsu/codegen/js/JsGen.scala` (UIExternal object, lines 593-768)
+- Burritoscript examples: `/Users/steven/Documents/Code/portToBosatsu/burritoscript/simulation-applets/framework/`
+- Learnings: `docs/solutions/runtime-errors/canvas-visualization-container-selector-fixes.md`

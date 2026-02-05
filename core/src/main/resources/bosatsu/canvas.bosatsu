@@ -1,0 +1,107 @@
+package Bosatsu/Canvas
+
+from Bosatsu/Predef import String, List, Unit
+from Bosatsu/Numeric import Double
+from Bosatsu/UI import State
+
+# Canvas rendering module for BosatsuUI.
+# Extends BosatsuUI with canvas-based graphics for physics simulations.
+# Canvas commands are pure data - render functions return commands that the runtime executes.
+
+export (
+  CanvasCommands,
+  circle, rect, line, text_cmd, arc,
+  fill, stroke, line_width,
+  clear, sequence,
+  save, restore, translate, rotate, scale,
+  canvas_render,
+  use_double, use_state
+)
+
+# Canvas commands - opaque struct representing drawing operations
+# Commands are pure data, executed by the runtime on a canvas context
+external struct CanvasCommands
+
+# ---------------------------------------------------------------------------
+# Drawing Commands
+# ---------------------------------------------------------------------------
+
+# Draw a filled circle at (x, y) with given radius
+external def circle(x: Double, y: Double, radius: Double) -> CanvasCommands
+
+# Draw a rectangle at (x, y) with width w and height h
+external def rect(x: Double, y: Double, w: Double, h: Double) -> CanvasCommands
+
+# Draw a line from (x1, y1) to (x2, y2)
+external def line(x1: Double, y1: Double, x2: Double, y2: Double) -> CanvasCommands
+
+# Draw text at position (x, y)
+external def text_cmd(content: String, x: Double, y: Double) -> CanvasCommands
+
+# Draw an arc centered at (x, y) with radius, from startAngle to endAngle (radians)
+external def arc(x: Double, y: Double, radius: Double, startAngle: Double, endAngle: Double) -> CanvasCommands
+
+# ---------------------------------------------------------------------------
+# Style Commands
+# ---------------------------------------------------------------------------
+
+# Set fill color (CSS color string, e.g., "#ff6b8a" or "red")
+external def fill(color: String) -> CanvasCommands
+
+# Set stroke color
+external def stroke(color: String) -> CanvasCommands
+
+# Set line width for strokes
+external def line_width(width: Double) -> CanvasCommands
+
+# ---------------------------------------------------------------------------
+# Canvas Operations
+# ---------------------------------------------------------------------------
+
+# Clear the entire canvas with a background color
+external def clear(color: String) -> CanvasCommands
+
+# Sequence multiple commands - executed in order
+external def sequence(commands: List[CanvasCommands]) -> CanvasCommands
+
+# ---------------------------------------------------------------------------
+# Transform Commands
+# ---------------------------------------------------------------------------
+
+# Save the current canvas state (transforms, styles)
+external def save(u: Unit) -> CanvasCommands
+
+# Restore the previously saved canvas state
+external def restore(u: Unit) -> CanvasCommands
+
+# Translate the canvas origin by (x, y)
+external def translate(x: Double, y: Double) -> CanvasCommands
+
+# Rotate the canvas by angle (radians)
+external def rotate(angle: Double) -> CanvasCommands
+
+# Scale the canvas by (sx, sy)
+external def scale(sx: Double, sy: Double) -> CanvasCommands
+
+# ---------------------------------------------------------------------------
+# Canvas Binding
+# ---------------------------------------------------------------------------
+
+# Bind a state to a canvas render function.
+# When the state changes, the render function is called and the canvas is redrawn.
+# Returns a prop tuple for use with h("canvas", [..., canvas_render(state, render)], [])
+external def canvas_render[a](state: State[a], render: a -> CanvasCommands) -> (String, String)
+
+# ---------------------------------------------------------------------------
+# Import marker functions (satisfy unused import checker)
+# These exist only to mark imported types as "used" since Bosatsu doesn't
+# track type usage in external function signatures.
+# ---------------------------------------------------------------------------
+
+# Marks Double type as used
+def use_double(d: Double) -> Double:
+  d
+
+# Marks State type as used
+def use_state(s: State[Unit]) -> State[Unit]:
+  s

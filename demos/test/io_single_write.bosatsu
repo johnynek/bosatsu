@@ -1,0 +1,15 @@
+package Test/IOSingleWrite
+
+from Bosatsu/Predef import add, Int, String, Unit, int_to_String
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+from Bosatsu/IO import IO
+
+count = state(0)
+
+def increment(_: Unit) -> IO[Unit]:
+  write(count, add(read(count), 1))
+
+main = h("div", [], [
+  h("span", [("id", "display")], [text(int_to_String(read(count)))]),
+  h("button", [("id", "btn"), on_click(increment)], [text("Click")])
+])

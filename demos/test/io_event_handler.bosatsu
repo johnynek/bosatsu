@@ -1,0 +1,15 @@
+package Test/IOEventHandler
+
+from Bosatsu/Predef import String, Unit
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_input
+from Bosatsu/IO import IO
+
+display_state = state("")
+
+def input_handler(v: String) -> IO[Unit]:
+  write(display_state, v)
+
+main = h("div", [], [
+  h("input", [("type", "text"), ("id", "input"), on_input(input_handler)], []),
+  h("span", [("id", "display")], [text(read(display_state))])
+])

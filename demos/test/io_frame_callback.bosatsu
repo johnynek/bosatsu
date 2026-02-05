@@ -1,0 +1,19 @@
+package Test/IOFrameCallback
+
+from Bosatsu/Predef import add, Int, String, Unit, int_to_String
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_frame, use_double
+from Bosatsu/IO import IO
+from Bosatsu/Numeric import Double
+
+export (main, frame_loop)
+
+counter = state(0)
+
+def update(_: Double) -> IO[Unit]:
+  write(counter, add(read(counter), 1))
+
+frame_loop = on_frame(update)
+
+main = h("div", [], [
+  h("span", [("id", "counter")], [text(int_to_String(read(counter)))])
+])

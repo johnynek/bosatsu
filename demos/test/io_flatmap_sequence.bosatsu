@@ -1,0 +1,17 @@
+package Test/IOFlatMapSequence
+
+from Bosatsu/Predef import String, Unit
+from Bosatsu/UI import VNode, State, state, read, write, h, text, on_click
+from Bosatsu/IO import IO, flatMap
+
+state_a = state("_")
+state_b = state("_")
+
+def click_handler(_: Unit) -> IO[Unit]:
+  flatMap(write(state_a, "X"), _ -> write(state_b, "Y"))
+
+main = h("div", [], [
+  h("span", [("id", "display-a")], [text(read(state_a))]),
+  h("span", [("id", "display-b")], [text(read(state_b))]),
+  h("button", [("id", "btn"), on_click(click_handler)], [text("Click")])
+])

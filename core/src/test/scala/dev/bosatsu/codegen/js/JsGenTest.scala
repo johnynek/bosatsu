@@ -458,4 +458,116 @@ class JsGenTest extends ScalaCheckSuite {
       assertNotEquals(ident.name, word, s"Standard library name '$word' should be escaped")
     }
   }
+
+  // ==================
+  // IO Intrinsic Tests
+  // ==================
+
+  val IOPackage: PackageName = PackageName.parse("Bosatsu/IO").get
+  val UIPackage: PackageName = PackageName.parse("Bosatsu/UI").get
+
+  def ioGlobal(name: String): Matchless.Expr[Unit] =
+    Matchless.Global((), IOPackage, Name(name))
+
+  def uiGlobal(name: String): Matchless.Expr[Unit] =
+    Matchless.Global((), UIPackage, Name(name))
+
+  test("IOExternal pure generates Pure tagged object") {
+    val expr = App(ioGlobal("pure"), NonEmptyList.one(Literal(Lit.Integer(42))))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"Pure\""), s"Expected Pure tag, got: $result")
+    assert(result.contains("42"), s"Expected value 42, got: $result")
+    assert(result.contains("tag"), s"Expected 'tag' key, got: $result")
+    assert(result.contains("value"), s"Expected 'value' key, got: $result")
+  }
+
+  test("IOExternal flatMap generates FlatMap tagged object") {
+    val io = App(ioGlobal("pure"), NonEmptyList.one(Literal(Lit.Integer(1))))
+    val fn = Local(bindable("f"))
+    val expr = App(ioGlobal("flatMap"), NonEmptyList.of(io, fn))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"FlatMap\""), s"Expected FlatMap tag, got: $result")
+    assert(result.contains("io"), s"Expected 'io' key, got: $result")
+    assert(result.contains("fn"), s"Expected 'fn' key, got: $result")
+  }
+
+  test("IOExternal sequence generates Sequence tagged object") {
+    val ios = Local(bindable("myList"))
+    val expr = App(ioGlobal("sequence"), NonEmptyList.one(ios))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"Sequence\""), s"Expected Sequence tag, got: $result")
+    assert(result.contains("ios"), s"Expected 'ios' key, got: $result")
+  }
+
+  test("IOExternal trace generates Trace tagged object") {
+    val unit = MakeStruct(0)
+    val expr = App(ioGlobal("trace"), NonEmptyList.one(unit))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"Trace\""), s"Expected Trace tag, got: $result")
+  }
+
+  test("IOExternal random_Int generates RandomInt tagged object") {
+    val min = Literal(Lit.Integer(1))
+    val max = Literal(Lit.Integer(10))
+    val expr = App(ioGlobal("random_Int"), NonEmptyList.of(min, max))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"RandomInt\""), s"Expected RandomInt tag, got: $result")
+    assert(result.contains("min"), s"Expected 'min' key, got: $result")
+    assert(result.contains("max"), s"Expected 'max' key, got: $result")
+  }
+
+  test("UIExternal write generates Write tagged object") {
+    val stateObj = Local(bindable("myState"))
+    val value = Literal(Lit.Integer(99))
+    val expr = App(uiGlobal("write"), NonEmptyList.of(stateObj, value))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"Write\""), s"Expected Write tag, got: $result")
+    assert(result.contains("state"), s"Expected 'state' key, got: $result")
+    assert(result.contains("value"), s"Expected 'value' key, got: $result")
+  }
+
+  test("UIExternal on_frame generates RegisterFrameCallback tagged object") {
+    val updateFn = Local(bindable("myCallback"))
+    val expr = App(uiGlobal("on_frame"), NonEmptyList.one(updateFn))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("\"RegisterFrameCallback\""), s"Expected RegisterFrameCallback tag, got: $result")
+    assert(result.contains("updateFn"), s"Expected 'updateFn' key, got: $result")
+  }
+
+  test("UIExternal on_click generates handler registration") {
+    val handler = Local(bindable("myHandler"))
+    val expr = App(uiGlobal("on_click"), NonEmptyList.one(handler))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("data-onclick"), s"Expected data-onclick attribute, got: $result")
+    assert(result.contains("_ui_register_handler"), s"Expected handler registration call, got: $result")
+    assert(result.contains("\"click\""), s"Expected click event type, got: $result")
+  }
+
+  test("UIExternal on_input generates handler registration") {
+    val handler = Local(bindable("myHandler"))
+    val expr = App(uiGlobal("on_input"), NonEmptyList.one(handler))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains("data-oninput"), s"Expected data-oninput attribute, got: $result")
+    assert(result.contains("_ui_register_handler"), s"Expected handler registration call, got: $result")
+    assert(result.contains("\"input\""), s"Expected input event type, got: $result")
+  }
+
+  test("UIExternal read generates property access") {
+    val stateObj = Local(bindable("myState"))
+    val expr = App(uiGlobal("read"), NonEmptyList.one(stateObj))
+    val result = JsGen.renderExpr(expr)
+    assert(result.contains(".value"), s"Expected .value property access, got: $result")
+  }
+
+  test("IO intrinsics never generate function/thunk wrappers") {
+    // Verify IO data structures are plain objects, not wrapped in () => { ... }
+    val pureExpr = App(ioGlobal("pure"), NonEmptyList.one(Literal(Lit.Integer(1))))
+    val pureResult = JsGen.renderExpr(pureExpr)
+    assert(!pureResult.contains("() =>"), s"pure should not generate thunk, got: $pureResult")
+
+    val stateObj = Local(bindable("s"))
+    val writeExpr = App(uiGlobal("write"), NonEmptyList.of(stateObj, Literal(Lit.Integer(1))))
+    val writeResult = JsGen.renderExpr(writeExpr)
+    assert(!writeResult.contains("() =>"), s"write should not generate thunk, got: $writeResult")
+  }
 }

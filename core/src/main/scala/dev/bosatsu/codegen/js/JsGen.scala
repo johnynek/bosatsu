@@ -370,6 +370,11 @@ object JsGen {
         Code.Call(Code.Ident("_js_to_bosatsu_string"), List(
           Code.Call(Code.Ident("String"), List(args.head))
         )), 1),
+      Identifier.Name("string_to_Double") -> ((args: List[Code.Expression]) =>
+        // Parse Bosatsu String to Double (returns 0.0 on parse failure)
+        Code.Call(Code.Ident("parseFloat"), List(
+          Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args.head))
+        )) || Code.DoubleLiteral(0.0), 1),
 
       // Comparison
       Identifier.Name("cmp_Double") -> (cmpDoubleFn, 2),
@@ -425,8 +430,8 @@ object JsGen {
 
     /** Map of constants to their values */
     val constants: Map[Bindable, Code.Expression] = Map(
-      Identifier.Name("PI") -> Code.Ident("Math").dot("PI"),
-      Identifier.Name("E") -> Code.Ident("Math").dot("E")
+      Identifier.Name("pi") -> Code.Ident("Math").dot("PI"),
+      Identifier.Name("e_const") -> Code.Ident("Math").dot("E")
     )
 
     /** Check if an expression is a numeric external and extract its function */
@@ -441,133 +446,75 @@ object JsGen {
       PredefExternal.makeLambda(arity)(fn)
   }
 
-  /** IO module intrinsics - deferred execution with provenance tracking.
+  /** IO module intrinsics - IO as data structures (not thunks).
     *
-    * In JavaScript, IO is represented as a thunk: () => { value, trace }
-    * - pure(x) returns a thunk that yields { value: x, trace: [] }
-    * - flatMap(io, f) returns a thunk that runs io, applies f to result, runs that IO
-    * - capture(name, x) returns a thunk that yields { value: x, trace: [{name, value: x}] }
-    * - random_Int(min, max) returns a thunk that generates a random int
+    * In JavaScript, IO is represented as a tagged data structure:
+    * - pure(x) returns { tag: "Pure", value: x }
+    * - flatMap(io, f) returns { tag: "FlatMap", io: io, fn: f }
+    * - capture(name, x) returns { tag: "Capture", name: n, value: x }
+    * - random_Int(min, max) returns { tag: "RandomInt", min: min, max: max }
+    *
+    * The runtime's runIO() interpreter walks these structures to perform effects.
     */
   object IOExternal {
     import PredefExternal.IntrinsicFn
-    import cats.data.NonEmptyList
 
     val IOPackage: PackageName = PackageName.parse("Bosatsu/IO").get
 
     /** Map of intrinsic function names to (implementation, arity) */
     val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
       // pure :: a -> IO a
-      // () => ({ value: x, trace: [] })
       Identifier.Name("pure") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
-          "value" -> args.head,
-          "trace" -> Code.ArrayLiteral(Nil)
-        ))), 1),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("Pure"),
+          "value" -> args.head
+        )), 1),
 
       // flatMap :: IO a -> (a -> IO b) -> IO b
-      // () => { const _a = io(); const _b = f(_a.value)(); return { value: _b.value, trace: _a.trace.concat(_b.trace) }; }
       Identifier.Name("flatMap") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.Block(NonEmptyList.of(
-          Code.Const("_a", Code.Call(args(0), Nil)),
-          Code.Const("_b", Code.Call(Code.Call(args(1), List(Code.Ident("_a").dot("value"))), Nil)),
-          Code.Return(Some(Code.ObjectLiteral(List(
-            "value" -> Code.Ident("_b").dot("value"),
-            "trace" -> Code.Call(Code.Ident("_a").dot("trace").dot("concat"), List(Code.Ident("_b").dot("trace")))
-          ))))
-        ))), 2),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("FlatMap"),
+          "io" -> args(0),
+          "fn" -> args(1)
+        )), 2),
 
       // sequence :: List[IO a] -> IO[List a]
-      // Simplified: just return thunk that evaluates all IOs and collects results
-      // Note: This is a simplified implementation - real sequence would need recursive handling
       Identifier.Name("sequence") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.Block(NonEmptyList.of(
-          // Start with the Bosatsu list
-          Code.Let("_cur", Some(args.head)),
-          Code.Let("_results", Some(Code.ArrayLiteral(Nil))),
-          Code.Let("_traces", Some(Code.ArrayLiteral(Nil))),
-          // While loop: while _cur[0] !== 0 (0 = EmptyList, 1 = NonEmptyList)
-          Code.WhileLoop(
-            Code.BinExpr(Code.Ident("_cur").bracket(Code.IntLiteral(0)), Code.BinOp.NotEq, Code.IntLiteral(0)),
-            Code.Block(NonEmptyList.of(
-              // _cur = [1, head, tail] where head is an IO thunk
-              Code.Const("_r", Code.Call(Code.Ident("_cur").bracket(Code.IntLiteral(1)), Nil)),
-              Code.ExprStatement(Code.Call(Code.Ident("_results").dot("push"), List(Code.Ident("_r").dot("value")))),
-              Code.ExprStatement(Code.Call(Code.Ident("_traces").dot("push"), List(Code.Ident("_r").dot("trace")))),
-              Code.Assignment(Code.Ident("_cur"), Code.Ident("_cur").bracket(Code.IntLiteral(2)))
-            ))
-          ),
-          // Convert JS array back to Bosatsu list: arr.reduceRight((acc, item) => [1, item, acc], [0])
-          // Bosatsu list format: [0] = empty, [1, head, tail] = non-empty
-          Code.Return(Some(Code.ObjectLiteral(List(
-            "value" -> Code.Call(
-              Code.Ident("_results").dot("reduceRight"),
-              List(
-                Code.ArrowFunction(
-                  List("_acc", "_item"),
-                  Left(Code.ArrayLiteral(List(
-                    Code.IntLiteral(1),
-                    Code.Ident("_item"),
-                    Code.Ident("_acc")
-                  )))
-                ),
-                Code.ArrayLiteral(List(Code.IntLiteral(0)))  // Initial value: empty list
-              )
-            ),
-            "trace" -> Code.Call(Code.Ident("_traces").dot("flat"), Nil)
-          ))))
-        ))), 1),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("Sequence"),
+          "ios" -> args.head
+        )), 1),
 
       // capture :: String -> a -> IO a
-      // () => ({ value: x, trace: [{ name: n, value: x }] })
       Identifier.Name("capture") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
-          "value" -> args(1),
-          "trace" -> Code.ArrayLiteral(List(Code.ObjectLiteral(List(
-            "name" -> args(0),
-            "value" -> args(1)
-          ))))
-        ))), 2),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("Capture"),
+          "name" -> args(0),
+          "value" -> args(1)
+        )), 2),
 
       // captureFormula :: String -> String -> a -> IO a
-      // () => ({ value: x, trace: [{ name: n, formula: f, value: x }] })
       Identifier.Name("captureFormula") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
-          "value" -> args(2),
-          "trace" -> Code.ArrayLiteral(List(Code.ObjectLiteral(List(
-            "name" -> args(0),
-            "formula" -> args(1),
-            "value" -> args(2)
-          ))))
-        ))), 3),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("CaptureFormula"),
+          "name" -> args(0),
+          "formula" -> args(1),
+          "value" -> args(2)
+        )), 3),
 
       // trace :: () -> IO String
-      // Returns current trace as string (placeholder - full impl would need runtime context)
       Identifier.Name("trace") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
-          "value" -> Code.StringLiteral("[trace]"),
-          "trace" -> Code.ArrayLiteral(Nil)
-        ))), 1),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("Trace")
+        )), 1),
 
       // random_Int :: Int -> Int -> IO Int
-      // () => ({ value: Math.floor(Math.random() * (max - min + 1)) + min, trace: [] })
       Identifier.Name("random_Int") -> ((args: List[Code.Expression]) =>
-        Code.ArrowFunction(Nil, Code.ObjectLiteral(List(
-          "value" -> (
-            Code.Call(Code.Ident("Math").dot("floor"), List(
-              Code.BinExpr(
-                Code.Call(Code.Ident("Math").dot("random"), Nil),
-                Code.BinOp.Times,
-                Code.BinExpr(
-                  Code.BinExpr(args(1), Code.BinOp.Minus, args(0)),
-                  Code.BinOp.Plus,
-                  Code.IntLiteral(1)
-                )
-              )
-            )) + args(0)
-          ),
-          "trace" -> Code.ArrayLiteral(Nil)
-        ))), 2)
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("RandomInt"),
+          "min" -> args(0),
+          "max" -> args(1)
+        )), 2)
     )
 
     /** Check if an expression is an IO external and extract its function */
@@ -635,13 +582,14 @@ object JsGen {
       Identifier.Name("read") -> ((args: List[Code.Expression]) =>
         Code.PropertyAccess(args.head, "value"), 1),
 
-      // write(state, value) -> state.value = value; triggers binding updates
-      // Returns Unit (empty tuple)
+      // write(state, value) -> IO data structure describing a state write
+      // Returns IO[Unit] - the runtime's runIO will perform the actual write
       Identifier.Name("write") -> ((args: List[Code.Expression]) =>
-        Code.Call(
-          Code.Ident("_ui_write"),
-          List(args.head, args(1))
-        ), 2),
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("Write"),
+          "state" -> args.head,
+          "value" -> args(1)
+        )), 2),
 
       // on_click(handler) -> returns prop tuple for h()
       // Handler receives Unit, returns Unit
@@ -752,7 +700,15 @@ object JsGen {
         Code.PropertyAccess(
           Code.PropertyAccess(args.head, "items"),
           "length"
-        ), 1)
+        ), 1),
+
+      // on_frame(update) -> IO data structure describing frame callback registration
+      // Returns IO[Unit] - the runtime's runIO will register the callback
+      Identifier.Name("on_frame") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "tag" -> Code.StringLiteral("RegisterFrameCallback"),
+          "updateFn" -> args(0)
+        )), 1)
     )
 
     /** Check if an expression is a UI external and extract its function */
@@ -767,13 +723,188 @@ object JsGen {
       PredefExternal.makeLambda(arity)(fn)
   }
 
+  /**
+   * Intrinsic functions from Bosatsu/Canvas for canvas-based graphics.
+   * Extends BosatsuUI with canvas rendering for physics simulations.
+   * Commands compile to JS objects that the runtime executes on a canvas context.
+   */
+  object CanvasExternal {
+    import PredefExternal.IntrinsicFn
+
+    val CanvasPackage: PackageName = PackageName.parse("Bosatsu/Canvas").get
+
+    /** Map of intrinsic function names to (implementation, arity) */
+    val results: Map[Bindable, (IntrinsicFn, Int)] = Map(
+      // ---------------------------------------------------------------------------
+      // Drawing Commands - compile to command objects
+      // ---------------------------------------------------------------------------
+
+      // circle(x, y, radius) -> {type: "circle", x, y, r}
+      Identifier.Name("circle") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("circle"),
+          "x" -> args(0),
+          "y" -> args(1),
+          "r" -> args(2)
+        )), 3),
+
+      // rect(x, y, w, h) -> {type: "rect", x, y, w, h}
+      Identifier.Name("rect") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("rect"),
+          "x" -> args(0),
+          "y" -> args(1),
+          "w" -> args(2),
+          "h" -> args(3)
+        )), 4),
+
+      // line(x1, y1, x2, y2) -> {type: "line", x1, y1, x2, y2}
+      Identifier.Name("line") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("line"),
+          "x1" -> args(0),
+          "y1" -> args(1),
+          "x2" -> args(2),
+          "y2" -> args(3)
+        )), 4),
+
+      // text_cmd(content, x, y) -> {type: "text", text, x, y}
+      Identifier.Name("text_cmd") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("text"),
+          "text" -> Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args(0))),
+          "x" -> args(1),
+          "y" -> args(2)
+        )), 3),
+
+      // arc(x, y, radius, startAngle, endAngle) -> {type: "arc", x, y, r, start, end}
+      Identifier.Name("arc") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("arc"),
+          "x" -> args(0),
+          "y" -> args(1),
+          "r" -> args(2),
+          "start" -> args(3),
+          "end" -> args(4)
+        )), 5),
+
+      // ---------------------------------------------------------------------------
+      // Style Commands
+      // ---------------------------------------------------------------------------
+
+      // fill(color) -> {type: "fill", color}
+      Identifier.Name("fill") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("fill"),
+          "color" -> Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args(0)))
+        )), 1),
+
+      // stroke(color) -> {type: "stroke", color}
+      Identifier.Name("stroke") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("stroke"),
+          "color" -> Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args(0)))
+        )), 1),
+
+      // line_width(width) -> {type: "lineWidth", width}
+      Identifier.Name("line_width") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("lineWidth"),
+          "width" -> args(0)
+        )), 1),
+
+      // ---------------------------------------------------------------------------
+      // Canvas Operations
+      // ---------------------------------------------------------------------------
+
+      // clear(color) -> {type: "clear", color}
+      Identifier.Name("clear") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("clear"),
+          "color" -> Code.Call(Code.Ident("_bosatsu_to_js_string"), List(args(0)))
+        )), 1),
+
+      // sequence(commands) -> {type: "sequence", commands}
+      // commands is a Bosatsu list, convert to JS array
+      Identifier.Name("sequence") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("sequence"),
+          "commands" -> Code.Call(Code.Ident("_bosatsu_list_to_array"), List(args(0)))
+        )), 1),
+
+      // ---------------------------------------------------------------------------
+      // Transform Commands
+      // ---------------------------------------------------------------------------
+
+      // save(u) -> {type: "save"}
+      Identifier.Name("save") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("save")
+        )), 1),
+
+      // restore(u) -> {type: "restore"}
+      Identifier.Name("restore") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("restore")
+        )), 1),
+
+      // translate(x, y) -> {type: "translate", x, y}
+      Identifier.Name("translate") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("translate"),
+          "x" -> args(0),
+          "y" -> args(1)
+        )), 2),
+
+      // rotate(angle) -> {type: "rotate", angle}
+      Identifier.Name("rotate") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("rotate"),
+          "angle" -> args(0)
+        )), 1),
+
+      // scale(sx, sy) -> {type: "scale", sx, sy}
+      Identifier.Name("scale") -> ((args: List[Code.Expression]) =>
+        Code.ObjectLiteral(List(
+          "type" -> Code.StringLiteral("scale"),
+          "sx" -> args(0),
+          "sy" -> args(1)
+        )), 2),
+
+      // ---------------------------------------------------------------------------
+      // Canvas Binding
+      // ---------------------------------------------------------------------------
+
+      // canvas_render(state, renderFn) -> prop tuple for h()
+      // Returns ["data-canvas-render", handlerId] where handlerId references the render function
+      Identifier.Name("canvas_render") -> ((args: List[Code.Expression]) =>
+        Code.ArrayLiteral(List(
+          Code.StringLiteral("data-canvas-render"),
+          Code.Call(Code.Ident("_ui_register_canvas_render"), List(args(0), args(1)))
+        )), 2),
+
+    )
+
+    /** Check if an expression is a Canvas external and extract its function */
+    def unapply[A](expr: Expr[A]): Option[(IntrinsicFn, Int)] =
+      expr match {
+        case Matchless.Global(_, pack, name) if pack == CanvasPackage => results.get(name)
+        case _ => None
+      }
+
+    /** Create a lambda wrapper for a standalone intrinsic reference */
+    def makeLambda(arity: Int)(fn: IntrinsicFn): Code.Expression =
+      PredefExternal.makeLambda(arity)(fn)
+  }
+
   /** These are values replaced with JS operations (for intrinsicValues method) */
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
     Map(
       PackageName.PredefName -> PredefExternal.results.keySet,
       NumericExternal.NumericPackage -> (NumericExternal.results.keySet ++ NumericExternal.constants.keySet),
       IOExternal.IOPackage -> IOExternal.results.keySet,
-      UIExternal.UIPackage -> UIExternal.results.keySet
+      UIExternal.UIPackage -> UIExternal.results.keySet,
+      CanvasExternal.CanvasPackage -> CanvasExternal.results.keySet
     )
 
   // ==================
@@ -842,6 +973,10 @@ object JsGen {
       case UIExternal((fn, arity)) =>
         // Standalone reference to a UI intrinsic - wrap in lambda
         Env.pure(UIExternal.makeLambda(arity)(fn))
+
+      case CanvasExternal((fn, arity)) =>
+        // Standalone reference to a Canvas intrinsic - wrap in lambda
+        Env.pure(CanvasExternal.makeLambda(arity)(fn))
 
       case Global(_, pack, name) if pack == NumericExternal.NumericPackage && NumericExternal.constants.contains(name) =>
         // Numeric constant (PI, E)
@@ -933,6 +1068,12 @@ object JsGen {
 
       case App(UIExternal((fn, _)), args) =>
         // Inline application of UI intrinsic
+        for {
+          argsJs <- args.toList.traverse(exprToJs)
+        } yield fn(argsJs)
+
+      case App(CanvasExternal((fn, _)), args) =>
+        // Inline application of Canvas intrinsic
         for {
           argsJs <- args.toList.traverse(exprToJs)
         } yield fn(argsJs)

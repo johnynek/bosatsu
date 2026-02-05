@@ -1,6 +1,6 @@
 package Bosatsu/Numeric
 
-from Bosatsu/Predef import Int, Comparison, Bool, Unit
+from Bosatsu/Predef import Int, Comparison, Bool, Unit, String
 
 # Numeric module with Double type for floating-point arithmetic.
 # Uses symbolic operators (+.), (-.), (*.), (/.) to distinguish from Int ops.
@@ -10,6 +10,7 @@ export (
   Double,
   `+.`, `-.`, `*.`, `/.`,
   from_Int, to_Int,
+  double_to_String, string_to_Double,
   cmp_Double, eq_Double,
   neg_Double, abs_Double,
   sin, cos, tan,
@@ -31,6 +32,12 @@ external def `/.`(a: Double, b: Double) -> Double
 # Conversion between Int and Double
 external def from_Int(i: Int) -> Double
 external def to_Int(d: Double) -> Int
+
+# Convert Double to String (for display in UI)
+external def double_to_String(d: Double) -> String
+
+# Parse String to Double (for input handling, returns 0.0 on parse failure)
+external def string_to_Double(s: String) -> Double
 
 # Comparison
 external def cmp_Double(a: Double, b: Double) -> Comparison

@@ -237,7 +237,10 @@ object TypedExprNormalization {
             case Let(arg1, ex, in, rec, tag1)
                 if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(
                   ex
-                ) && doesntShadow(arg1) =>
+                ) && doesntShadow(arg1) && !Impl.mayHaveSideEffects(
+                  ex,
+                  typeEnv
+                ) =>
               // x ->
               //   y = z
               //   f(y)
@@ -247,6 +250,9 @@ object TypedExprNormalization {
               // avoid recomputing y if y is not simple. Note, we consider a lambda simple
               // since when compiling we can lift lambdas out anyway, so they are at most 1 allocation
               // but possibly 0.
+              // BUT: don't lift if y might have side effects (external function call)
+              // because that would cause the side effect to happen at lambda definition
+              // time instead of call time.
               //
               // TODO: we could reorder Lets if we have several in a row
               normalize1(
@@ -261,10 +267,12 @@ object TypedExprNormalization {
                 } && ((branches.length > 1) || !Impl.isSimple(
                   arg1,
                   lambdaSimple = true
-                )) =>
+                )) && !Impl.mayHaveSideEffects(arg1, typeEnv) =>
               // x -> match z: w
               // convert to match z: x -> w
               // but don't bother if the arg is simple or there is only 1 branch + simple arg
+              // DON'T lift if arg might have side effects (external function call)
+              // Otherwise the side effect would execute at lambda definition time
               val b1 = branches.traverse { case (p, b) =>
                 if (
                   !lamArgs.exists { case (arg, _) => p.names.contains(arg) }
@@ -423,19 +431,43 @@ object TypedExprNormalization {
                       }
                   }
                 } else {
-                  // let x = y in z if x isn't free in z = z
-                  Some(in1)
+                  // let x = y in z if x isn't free in z
+                  // Only eliminate if y doesn't have side effects
+                  // External function calls (like UI's write) might have side effects
+                  if (!Impl.mayHaveSideEffects(ex1, typeEnv)) {
+                    // y is pure (not an external call) - safe to eliminate
+                    Some(in1)
+                  } else {
+                    // y might have side effects (e.g., write(state, value))
+                    // Keep the let binding to preserve side effects
+                    // Return None if nothing changed to avoid infinite recursion
+                    if ((in1 eq in) && (ex1 eq ex)) None
+                    else Some(Let(arg, ex1, in1, rec, tag))
+                  }
                 }
             }
         }
 
-      case Match(_, NonEmptyList((p, e), Nil), _)
+      case Match(arg, NonEmptyList((p, e), Nil), tag)
           if !e.freeVarsDup.exists(p.names.toSet) =>
         // match x:
         //   foo: fn
         //
         // where foo has no names can become just fn
-        normalize1(namerec, e, scope, typeEnv)
+        // BUT: only if x doesn't have side effects
+        // If x is an external call like write(), we need to keep it
+        val arg1 = normalize1(namerec, arg, scope, typeEnv).get
+        if (!Impl.mayHaveSideEffects(arg1, typeEnv)) {
+          // arg is pure (not an external call) - safe to eliminate
+          normalize1(namerec, e, scope, typeEnv)
+        } else {
+          // arg might have side effects (external function call)
+          // Keep the match to preserve side effects
+          val e1 = normalize1(namerec, e, scope, typeEnv).get
+          // Keep the Match structure to preserve the side effect
+          if ((arg1 eq arg) && (e1 eq e)) None
+          else Some(Match(arg1, NonEmptyList((p, e1), Nil), tag))
+        }
       case Match(arg, NonEmptyList((Pattern.SinglyNamed(y), e), Nil), tag) =>
         // match x:
         //   y: fn
@@ -657,6 +689,45 @@ object TypedExprNormalization {
             isSimple(rest, lambdaSimple)
           }
       }
+
+    /** Check if an expression is a call to an external function (which might
+      * have side effects). In Bosatsu, all user-defined functions are pure. Only
+      * external bindings (imported via `external`) might have side effects.
+      *
+      * This is used to prevent optimizations that would eliminate or reorder
+      * calls to potentially side-effecting functions like UI's write/read/etc.
+      */
+    def mayHaveSideEffects[A](
+        expr: TypedExpr[A],
+        typeEnv: TypeEnv[_]
+    ): Boolean = {
+      // Get the function head for curried App chains
+      // e.g., for write(state)(value), we want to get `write`
+      @annotation.tailrec
+      def functionHead(e: TypedExpr[A]): TypedExpr[A] = e match {
+        case App(fn, _, _, _)  => functionHead(fn)
+        case Annotation(e, _)  => functionHead(e)
+        case Generic(_, e)     => functionHead(e)
+        case other             => other
+      }
+
+      expr match {
+        case App(fn, _, _, _) =>
+          functionHead(fn) match {
+            case Global(pack, name: Bindable, _, _) =>
+              // Non-constructor global - check if it's an external
+              // External values are in TypeEnv.values
+              typeEnv.getExternalValue(pack, name).isDefined
+            case _ =>
+              // Constructor applications are always pure
+              // Local function calls are always pure (Bosatsu is pure)
+              false
+          }
+        case _ =>
+          // Non-App expressions don't have side effects
+          false
+      }
+    }
 
     sealed abstract class EvalResult[A]
     object EvalResult {
