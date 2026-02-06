@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-53bf3438*
+0.0.0+1-48e2ef48*
 </div>
 </div>
 <div class="nav-toc">
@@ -73,7 +73,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-53bf3438*
+0.0.0+1-48e2ef48*
 </div>
 </div>
 <div class="nav-toc">
@@ -110,11 +110,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h1><a href="#generating-json-from-bosatsu-values" name="generating-json-from-bosatsu-values" class="anchor"><span class="anchor-link"></span></a>Generating JSON from Bosatsu Values</h1>
 <p>Like <a href="https://dhall-lang.org/">Dhall</a> Bosatsu can be used as a configuration language. This assumes you have installed the Bosatsu CLI; see <a href="getting_started.html">Getting started</a>.</p>
 <p>As an example, in the project repo try the following:</p>
-<pre><code>./bosatsu json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
+<pre><code>./bosatsu tool json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
 </code></pre>
-<p>you should see: <code>&quot;this is Foo&quot;</code>. The json subcommand gives you the ability to render values as JSON.</p>
+<p>you should see: <code>&quot;this is Foo&quot;</code>. The <code>tool json</code> subcommand gives you the ability to render values as JSON.</p>
 <p>For a more interesting example see:</p>
-<pre><code>./bosatsu json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
+<pre><code>./bosatsu tool json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
 </code></pre>
 <p>which should render:</p>
 <pre><code>{
@@ -224,7 +224,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-53bf3438-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-48e2ef48-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
