@@ -92,7 +92,7 @@ object Command {
     val desc = dep.desc
     DepInfo(
       name = dep.name,
-      version = desc.flatMap(_.version).map(Version.fromProto(_)),
+      version = Library.getVersion(dep),
       hashes = desc.toList.flatMap(_.hashes).toList,
       uris = desc.toList.flatMap(_.uris).toList,
       visibility = visibility
@@ -369,9 +369,7 @@ object Command {
       def previousThis: F[Option[DecodedLibrary[Algo.Blake3]]] =
         conf.previous.traverse { desc =>
           cas
-            .libFromCas(
-              proto.LibDependency(name = conf.name.name, desc = Some(desc))
-            )
+            .libFromCas(Library.dep(conf.name, desc))
             .flatMap {
               case Some(a) => DecodedLibrary.decode(a)
               case None    =>
@@ -722,10 +720,7 @@ object Command {
                   hashes = depHashes.map(_.toIdent),
                   uris = depUris
                 )
-                dep = proto.LibDependency(
-                  name = depName.name,
-                  desc = Some(desc)
-                )
+                dep = Library.dep(depName, desc)
                 conf1 = updateDeps(cc.conf, dep, visibility)
                 out0 = confOutput(cc.confDir, conf1)
                 out <-
@@ -950,17 +945,12 @@ object Command {
                 packages <- platformIO.readPackages(packs)
                 depLibs <- deps.traverse(platformIO.readLibrary(_))
                 decLibs <- depLibs.traverse(DecodedLibrary.decode(_))
-                depVersion = (d: proto.LibDependency) =>
-                  d.desc.flatMap(_.version) match {
-                    case None    => Version.zero
-                    case Some(v) => Version.fromProto(v)
-                  }
                 depMap = decLibs.iterator.map { lib =>
                   ((lib.protoLib.name, lib.version), lib)
                 }.toMap
                 directDeps = conf.publicDeps ::: conf.privateDeps
                 directDepDecodes = directDeps.flatMap { dep =>
-                  depMap.get((dep.name, depVersion(dep)))
+                  depMap.get((dep.name, Library.versionOrZero(dep)))
                 }
                 publicDepClosureLibs <-
                   if (directDepDecodes.isEmpty) moduleIOMonad.pure(Nil)
@@ -980,8 +970,8 @@ object Command {
 
                       val initial = prevDeps
                         .traverse { dep =>
-                          depMap.get((dep.name, depVersion(dep))) match {
-                            case Some(lib) => moduleIOMonad.pure(Some(lib))
+                          depMap.get((dep.name, Library.versionOrZero(dep))) match {
+                            case Some(existing) => moduleIOMonad.pure(Some(existing))
                             case None      => fromCas(dep)
                           }
                         }
@@ -1010,7 +1000,7 @@ object Command {
                                 else {
                                   val missStr = stillMissing
                                     .map(dep =>
-                                      show"${dep.name} ${depVersion(dep)}"
+                                      show"${dep.name} ${Library.versionOrZero(dep)}"
                                     )
                                     .mkString(", ")
                                   moduleIOMonad.raiseError[List[
@@ -1056,8 +1046,7 @@ object Command {
           for {
             cc <- fcc
             _ <- cc.conf.previous.traverse_ { desc =>
-              val dep =
-                proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
+              val dep = Library.dep(cc.conf.name, desc)
               cc.cas.fetchIfNeeded(dep).flatMap { fetchMap =>
                 val failed = fetchMap.collect { case (hash, Left(err)) =>
                   (hash, err)
@@ -1099,8 +1088,7 @@ object Command {
               }
             }
             prevPubDeps <- cc.conf.previous.traverse { desc =>
-              val dep =
-                proto.LibDependency(name = cc.conf.name.name, desc = Some(desc))
+              val dep = Library.dep(cc.conf.name, desc)
               cc.cas.libFromCas(dep).flatMap {
                 case Some(lib) =>
                   moduleIOMonad.pure(lib.arg.publicDependencies.toList)
@@ -1853,10 +1841,7 @@ object Command {
       dep.desc.toList.flatMap(_.uris)
 
     def versionOf(dep: proto.LibDependency): Version =
-      dep.desc.flatMap(_.version) match {
-        case None    => Version.zero
-        case Some(v) => Version.fromProto(v)
-      }
+      Library.versionOrZero(dep)
 
     def putIfAbsent(lib: Hashed[Algo.Blake3, proto.Library]): F[Unit] = {
       val path = hashPath(Algo.WithAlgo(lib.hash))

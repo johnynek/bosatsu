@@ -108,11 +108,9 @@ object DecodedLibrary {
       lib: DecodedLibrary[Algo.Blake3]
   ): ValidatedNec[DepClosureError, List[PublicDepRef]] =
     publicDepsOf(lib).traverse { dep =>
-      dep.desc.flatMap(_.version) match {
+      Library.getVersion(dep) match {
         case Some(v) =>
-          Validated.valid(
-            PublicDepRef(dep, Name(dep.name), Version.fromProto(v))
-          )
+          Validated.valid(PublicDepRef(dep, Name(dep.name), v))
         case None    =>
           Validated.invalidNec(DepClosureError.MissingVersion(lib))
       }
@@ -182,8 +180,8 @@ object DecodedLibrary {
   def versionOf[A: Algo](
       protoLib: Hashed[A, proto.Library]
   ): Either[Throwable, Version] =
-    protoLib.arg.descriptor.flatMap(_.version) match {
-      case Some(protoV) => Right(Version.fromProto(protoV))
+    Library.getVersion(protoLib.arg) match {
+      case Some(v) => Right(v)
       case None         =>
         Left(
           CliException(

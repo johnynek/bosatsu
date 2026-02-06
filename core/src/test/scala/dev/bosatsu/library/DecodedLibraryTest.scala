@@ -7,12 +7,6 @@ import dev.bosatsu.PackageMap
 
 class DecodedLibraryTest extends munit.FunSuite {
 
-  private def dep(name: String, v: Option[Version]): proto.LibDependency =
-    proto.LibDependency(
-      name = name,
-      desc = v.map(ver => proto.LibDescriptor(version = Some(ver.toProto)))
-    )
-
   private def lib(
       name: String,
       v: Version,
@@ -38,8 +32,8 @@ class DecodedLibraryTest extends munit.FunSuite {
   test("publicDepClosure includes transitive dependencies") {
     val v = Version(1, 0, 0)
     val libC = lib("c", v, Nil)
-    val libB = lib("b", v, dep("c", Some(v)) :: Nil)
-    val libA = lib("a", v, dep("b", Some(v)) :: Nil)
+    val libB = lib("b", v, Library.dep("c", v) :: Nil)
+    val libA = lib("a", v, Library.dep("b", v) :: Nil)
     val depMap = Map(
       (libA.name, libA.version) -> libA,
       (libB.name, libB.version) -> libB,
@@ -56,7 +50,7 @@ class DecodedLibraryTest extends munit.FunSuite {
 
   test("publicDepClosure reports missing version errors") {
     val v = Version(1, 0, 0)
-    val bad = lib("a", v, dep("b", None) :: Nil)
+    val bad = lib("a", v, Library.dep("b", Option.empty[Version]) :: Nil)
     val depMap = Map((bad.name, bad.version) -> bad)
 
     DecodedLibrary.publicDepClosure(bad :: Nil, depMap) match {
@@ -75,7 +69,7 @@ class DecodedLibraryTest extends munit.FunSuite {
 
   test("publicDepClosure reports missing transitive dependencies") {
     val v = Version(1, 0, 0)
-    val libA = lib("a", v, dep("b", Some(v)) :: Nil)
+    val libA = lib("a", v, Library.dep("b", v) :: Nil)
     val depMap = Map((libA.name, libA.version) -> libA)
 
     DecodedLibrary.publicDepClosure(libA :: Nil, depMap) match {

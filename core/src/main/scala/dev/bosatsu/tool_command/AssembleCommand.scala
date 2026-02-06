@@ -52,11 +52,6 @@ object AssembleCommand {
     }
   }
 
-  private def depVersion(
-      dep: proto.LibDependency
-  ): Option[Version] =
-    dep.desc.flatMap(_.version).map(Version.fromProto(_))
-
   private def depVersionOrError[IO[_], Path](
       module: MainModule[IO, Path],
       dep: proto.LibDependency,
@@ -64,7 +59,7 @@ object AssembleCommand {
   ): IO[Version] = {
     import module.platformIO.moduleIOMonad
 
-    depVersion(dep) match {
+    Library.getVersion(dep) match {
       case Some(v) => moduleIOMonad.pure(v)
       case None    =>
         moduleIOMonad.raiseError(
