@@ -71,13 +71,23 @@ sealed abstract class Output[+Path] {
         writeOut(doc, output).as(ExitCode.Success)
 
       case Output.DepsOutput(depinfo, output, style) =>
+        val tupleOrdering = Ordering.Tuple3(using
+          platformIO.pathOrdering,
+          Ordering[PackageName],
+          Ordering.String
+        )
+        val sortedDepInfo =
+          depinfo.sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }(using
+            tupleOrdering
+          )
+
         style match {
           case GraphOutput.Json =>
             def toJson(
                 dep: (Path, PackageName, FileKind, List[PackageName])
             ): Json =
               Json.JObject(
-                ("path", Json.JString(dep._1.toString())) ::
+                ("path", Json.JString(platformIO.pathToString(dep._1))) ::
                   ("package", Json.JString(dep._2.asString)) ::
                   ("kind", Json.JString(dep._3.name)) ::
                   (
@@ -89,16 +99,8 @@ sealed abstract class Output[+Path] {
                   Nil
               )
 
-            val tupleOrdering = Ordering.Tuple3(using
-              platformIO.pathOrdering,
-              Ordering[PackageName],
-              Ordering.String
-            )
             val asJson = Json.JArray(
-              depinfo
-                .sortBy { case (path, pn, fk, _) => (path, pn, fk.name) }(using
-                  tupleOrdering
-                )
+              sortedDepInfo
                 .map(toJson)
                 .toVector
             )
@@ -130,16 +132,16 @@ sealed abstract class Output[+Path] {
               (ident, decl)
             }
 
-            val knownPacks = depinfo.map(_._2).toSet
+            val knownPacks = sortedDepInfo.map(_._2).toSet
             val allPacks =
-              depinfo.flatMap(dep => dep._2 :: dep._4).distinct.sorted
+              sortedDepInfo.flatMap(dep => dep._2 :: dep._4).distinct.sorted
             val unknownPacks = allPacks.filterNot(knownPacks)
             type NodeMap = Map[PackageName, NonEmptyList[
               (Int, Option[FileKind], String, String)
             ]]
-            val depinfoSize = depinfo.size
+            val depinfoSize = sortedDepInfo.size
             val nodes: NodeMap =
-              (depinfo.zipWithIndex.map { case (dep, idx) =>
+              (sortedDepInfo.zipWithIndex.map { case (dep, idx) =>
                 val (ident, nstr) = makeNode(idx, dep)
                 (dep._2, (idx, Some(dep._3), ident, nstr))
               } ::: unknownPacks.mapWithIndex { (pn, idx0) =>
@@ -193,7 +195,7 @@ sealed abstract class Output[+Path] {
               .map(_._2)
             val nodesDoc = Doc.intercalate(Doc.hardLine, allNodes)
             val edges: List[Doc] =
-              depinfo.flatMap { case (_, pn, k, deps) =>
+              sortedDepInfo.flatMap { case (_, pn, k, deps) =>
                 deps.map { dep =>
                   Doc.text(makeEdge(pn, k, dep, nodes))
                 }

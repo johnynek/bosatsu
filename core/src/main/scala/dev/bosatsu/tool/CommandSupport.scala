@@ -150,6 +150,8 @@ object CommandSupport {
           )
         case PathParseError.FileError(path, err)   =>
           err match {
+            // This looks weird, but it is for scalajs which doesn't have the same
+            // class.
             case e
                 if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
               List(show"file not found: $path")

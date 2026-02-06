@@ -15,17 +15,15 @@ object JsonCommand {
     import platformIO.moduleIOMonad
     import LocationMap.Colorize
 
-    sealed abstract class JsonInput {
-      def read: F[String]
-    }
+    enum JsonInput {
+      case FromString(asString: String)
+      case FromPath(path: Path)
 
-    object JsonInput {
-      case class FromString(asString: String) extends JsonInput {
-        def read = moduleIOMonad.pure(asString)
-      }
-      case class FromPath(path: Path) extends JsonInput {
-        def read = platformIO.readUtf8(path)
-      }
+      def read: F[String] =
+        this match {
+          case JsonInput.FromString(asString) => moduleIOMonad.pure(asString)
+          case JsonInput.FromPath(path)       => platformIO.readUtf8(path)
+        }
     }
 
     enum JsonMode derives CanEqual {

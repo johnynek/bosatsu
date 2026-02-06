@@ -4,17 +4,20 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{LocationMap, Package, PackageName, PlatformIO, Referant, rankn}
 import dev.bosatsu.tool.{CommandSupport, CommonOpts, FileKind, GraphOutput, Output}
+import scala.collection.immutable.SortedSet
 
 object DepsCommand {
-  private def normalizeNames(lst: List[PackageName]): List[PackageName] =
-    lst
+  private def sortNonPredefPackNames(
+      iter: Iterator[PackageName]
+  ): List[PackageName] =
+    iter
       .filterNot(_ == PackageName.PredefName)
-      .distinct
-      .sorted
+      .to(SortedSet)
+      .toList
 
   private def interfaceDeps(iface: Package.Interface): List[PackageName] = {
     val pn = iface.name
-    normalizeNames(
+    sortNonPredefPackNames(
       iface.exports.iterator
         .flatMap { n =>
           n.tag match {
@@ -24,12 +27,11 @@ object DepsCommand {
         }
         .flatMap(rankn.Type.constantsOf)
         .collect { case rankn.Type.Const.Defined(p, _) if p != pn => p }
-        .toList
     )
   }
 
   private def packageDeps(pack: Package.Typed[Any]): List[PackageName] =
-    normalizeNames(pack.imports.map(_.pack.name))
+    sortNonPredefPackNames(pack.imports.iterator.map(_.pack.name))
 
   def opts[F[_], Path](
       platformIO: PlatformIO[F, Path],
@@ -70,7 +72,7 @@ object DepsCommand {
               errColor
             )
           } yield validated.map { case (path, (pn, imps, _)) =>
-            (path, pn, FileKind.Source, normalizeNames(imps.map(_.pack)))
+            (path, pn, FileKind.Source, sortNonPredefPackNames(imps.iterator.map(_.pack)))
           })
           depLibraries <- CommandSupport.readDepLibraries(
             platformIO,
