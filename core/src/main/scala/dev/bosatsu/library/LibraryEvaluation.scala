@@ -1,71 +1,54 @@
 package dev.bosatsu.library
 
 import cats.Eval
+import cats.Functor
 import cats.implicits._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{DefinedType, Type}
-import dev.bosatsu.{Externals, Identifier, Matchless, MatchlessFromTypedExpr, MatchlessToValue, Package, PackageName, Par, Value, ValueToDoc, ValueToJson}
-import org.typelevel.paiges.Doc
+import dev.bosatsu.{
+  Externals,
+  Identifier,
+  Matchless,
+  MatchlessFromTypedExpr,
+  MatchlessToValue,
+  Package,
+  PackageMap,
+  PackageName,
+  Par,
+  Test,
+  Value,
+  ValueToDoc,
+  ValueToJson
+}
 import scala.collection.immutable.SortedMap
 import scala.collection.mutable.{Map => MMap}
 
 import Identifier.Bindable
 
-case class LibraryEvaluation(
-    root: DecodedLibraryWithDeps[Algo.Blake3],
+case class LibraryEvaluation[K] private (
+    rootScope: K,
+    scopes: SortedMap[K, LibraryEvaluation.ScopeData[K]],
+    renderScope: K => String,
     externals: Externals
-)(implicit ec: Par.EC) {
-  type ScopeKey = (Name, Version)
+)(implicit keyOrder: Ordering[K], ec: Par.EC) {
+  import LibraryEvaluation.ScopeData
 
-  private def keyOrder: Ordering[ScopeKey] =
-    Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
+  private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
+    scopes.transform { case (scope, data) =>
+      MatchlessFromTypedExpr.compile(scope, data.packages)
+    }
 
-  private lazy val libsByKey: SortedMap[ScopeKey, DecodedLibraryWithDeps[
-    Algo.Blake3
-  ]] = {
-    def loop(
-        todo: List[DecodedLibraryWithDeps[Algo.Blake3]],
-        acc: SortedMap[ScopeKey, DecodedLibraryWithDeps[
-          Algo.Blake3
-        ]]
-    ): SortedMap[ScopeKey, DecodedLibraryWithDeps[
-      Algo.Blake3
-    ]] =
-      todo match {
-        case Nil         => acc
-        case h :: tail   =>
-          if (acc.contains(h.nameVersion)) loop(tail, acc)
-          else loop(h.deps.values.toList ::: tail, acc.updated(h.nameVersion, h))
-      }
-
-    loop(root :: Nil, SortedMap.empty(using keyOrder))
-  }
-
-  private lazy val compiled: SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[
-    ScopeKey
-  ]] =
-    libsByKey.transform((_, dep) => dep.compile)
-
-  private lazy val envCache: MMap[(ScopeKey, PackageName), Map[
-    Identifier,
-    Eval[Value]
-  ]] =
+  private lazy val envCache: MMap[(K, PackageName), Map[Identifier, Eval[Value]]] =
     MMap.empty
 
   private def packageInScope(
-      scope: ScopeKey,
+      scope: K,
       pack: PackageName
   ): Option[Package.Typed[Any]] =
-    libsByKey
-      .get(scope)
-      .flatMap(_.lib.implementations.toMap.get(pack))
+    scopes.get(scope).flatMap(_.packages.toMap.get(pack))
 
-  private def depFor(src: ScopeKey, pn: PackageName): ScopeKey =
-    libsByKey
-      .get(src)
-      .flatMap(_.depFor(pn))
-      .map(_.nameVersion)
-      .getOrElse(root.nameVersion)
+  private def depFor(src: K, pn: PackageName): K =
+    scopes.get(src).flatMap(_.depForPackage(pn)).getOrElse(rootScope)
 
   private def externalEnv(
       pack: Package.Typed[Any]
@@ -90,11 +73,11 @@ case class LibraryEvaluation(
   }
 
   private def evalLets(
-      scope: ScopeKey,
+      scope: K,
       packName: PackageName,
-      exprs: List[(Bindable, Matchless.Expr[ScopeKey])]
+      exprs: List[(Bindable, Matchless.Expr[K])]
   ): List[(Bindable, Eval[Value])] = {
-    val evalFn: (ScopeKey, PackageName, Identifier) => Eval[Value] =
+    val evalFn: (K, PackageName, Identifier) => Eval[Value] =
       { (srcScope, p, i) =>
         val targetScope = depFor(srcScope, p)
         if (keyOrder.equiv(targetScope, scope) && p == packName)
@@ -104,21 +87,23 @@ case class LibraryEvaluation(
 
     type F[A] = List[(Bindable, A)]
     type BindablePair[A] = (Bindable, A)
-    val ffunc: cats.Functor[F] =
-      cats.Functor[List].compose[BindablePair](using cats.Functor[BindablePair])
+    val ffunc: Functor[F] =
+      Functor[List].compose[BindablePair](using Functor[BindablePair])
 
-    MatchlessToValue.traverse[F, ScopeKey](exprs)(evalFn)(using ffunc)
+    MatchlessToValue.traverse[F, K](exprs)(evalFn)(using ffunc)
   }
 
   private def evaluate(
-      scope: ScopeKey,
+      scope: K,
       packName: PackageName
   ): Map[Identifier, Eval[Value]] =
     envCache.getOrElseUpdate(
       (scope, packName), {
         val pack = packageInScope(scope, packName).getOrElse {
           // $COVERAGE-OFF$
-          sys.error(s"missing package $packName in scope $scope")
+          sys.error(
+            s"missing package $packName in scope ${renderScope(scope)}"
+          )
         // $COVERAGE-ON$
         }
         val lets =
@@ -130,32 +115,29 @@ case class LibraryEvaluation(
       }
     )
 
-  private lazy val packageCandidates: Map[PackageName, List[(ScopeKey, Package.Typed[Any])]] =
-    libsByKey.iterator.flatMap { case (scope, dlwd) =>
-      dlwd.lib.implementations.toMap.iterator.map { case (pn, pack) =>
+  private lazy val packageCandidates: Map[PackageName, List[(K, Package.Typed[Any])]] =
+    scopes.iterator.flatMap { case (scope, data) =>
+      data.packages.toMap.iterator.map { case (pn, pack) =>
         (pn, (scope, pack))
       }
-    }.toList.groupBy(_._1).view.mapValues(_.map(_._2)).toMap
+    }.toList.groupMap(_._1)(_._2)
 
   private def selectScopeFor(
       pn: PackageName
-  ): Either[Throwable, ScopeKey] =
+  ): Either[Throwable, K] =
     packageCandidates.get(pn) match {
       case None | Some(Nil) =>
         Left(new Exception(s"package ${pn.asString} not found"))
       case Some((scope, _) :: Nil) =>
         Right(scope)
       case Some(scoped) =>
-        val rootScope = root.nameVersion
         scoped.find { case (scope, _) => keyOrder.equiv(scope, rootScope) } match {
           case Some((scope, _)) => Right(scope)
           case None             =>
-            val scopes = scoped.map(_._1).distinct.map { case (n, v) =>
-              s"${n.name}:${v.render}"
-            }
+            val scopeStrings = scoped.map(_._1).distinct.map(renderScope(_))
             Left(
               new Exception(
-                s"package ${pn.asString} is ambiguous in dependency tree: ${scopes.mkString(", ")}"
+                s"package ${pn.asString} is ambiguous in dependency tree: ${scopeStrings.mkString(", ")}"
               )
             )
         }
@@ -163,7 +145,7 @@ case class LibraryEvaluation(
 
   def evaluateMain(
       pn: PackageName
-  ): Either[Throwable, (ScopeKey, Eval[Value], Type)] =
+  ): Either[Throwable, (K, Eval[Value], Type)] =
     for {
       scope <- selectScopeFor(pn)
       pack <- packageInScope(scope, pn).toRight(
@@ -177,10 +159,17 @@ case class LibraryEvaluation(
       )
     } yield (scope, value, te.getType)
 
+  def evaluateMainValue(
+      pn: PackageName
+  ): Either[Throwable, (Eval[Value], Type)] =
+    evaluateMain(pn).map { case (_, value, tpe) =>
+      (value, tpe)
+    }
+
   def evaluateName(
       pn: PackageName,
       name: Bindable
-  ): Either[Throwable, (ScopeKey, Eval[Value], Type)] =
+  ): Either[Throwable, (K, Eval[Value], Type)] =
     for {
       scope <- selectScopeFor(pn)
       pack <- packageInScope(scope, pn).toRight(
@@ -194,13 +183,30 @@ case class LibraryEvaluation(
       )
     } yield (scope, value, te.getType)
 
+  def evaluateNameValue(
+      pn: PackageName,
+      name: Bindable
+  ): Either[Throwable, (Eval[Value], Type)] =
+    evaluateName(pn, name).map { case (_, value, tpe) =>
+      (value, tpe)
+    }
+
+  def evalTest(pn: PackageName): Option[Eval[Test]] =
+    selectScopeFor(pn).toOption.flatMap { scope =>
+      for {
+        pack <- packageInScope(scope, pn)
+        (name, _, _) <- Package.testValue(pack)
+        value <- evaluate(scope, pn).get(name)
+      } yield value.map(Test.fromValue(_))
+    }
+
   private def resolveDefinedType(
-      rootScope: ScopeKey,
+      scope: K,
       const: Type.Const
   ): Option[DefinedType[Any]] =
     const match {
       case Type.Const.Defined(pn, t) =>
-        val byScope = depFor(rootScope, pn)
+        val byScope = depFor(scope, pn)
         val inScope = packageInScope(byScope, pn).flatMap(_.types.getType(pn, t))
         inScope.orElse {
           packageCandidates
@@ -210,26 +216,95 @@ case class LibraryEvaluation(
         }
     }
 
-  def valueToJsonFor(scope: ScopeKey): ValueToJson =
+  def valueToJsonFor(scope: K): ValueToJson =
     ValueToJson(resolveDefinedType(scope, _))
 
-  def valueToDocFor(scope: ScopeKey): ValueToDoc =
+  def valueToDocFor(scope: K): ValueToDoc =
     ValueToDoc(resolveDefinedType(scope, _))
+
+  def valueToJson: ValueToJson =
+    valueToJsonFor(rootScope)
+
+  def valueToDoc: ValueToDoc =
+    valueToDocFor(rootScope)
 
   def packagesForShow(
       requested: List[PackageName]
   ): Either[Throwable, List[Package.Typed[Any]]] = {
-    val rootPacks =
-      libsByKey(root.nameVersion).lib.implementations.toMap.values.toList
-    if (requested.isEmpty) Right(rootPacks.sortBy(_.name))
-    else
-      requested.traverse { pn =>
-        for {
-          scope <- selectScopeFor(pn)
-          pack <- packageInScope(scope, pn).toRight(
-            new Exception(s"package ${pn.asString} not found")
-          )
-        } yield pack
+    scopes.get(rootScope).toRight(new Exception("missing root scope")).flatMap {
+      rootData =>
+        if (requested.isEmpty) Right(rootData.packages.toMap.values.toList.sortBy(_.name))
+        else
+          requested.traverse { pn =>
+            for {
+              scope <- selectScopeFor(pn)
+              pack <- packageInScope(scope, pn).toRight(
+                new Exception(s"package ${pn.asString} not found")
+              )
+            } yield pack
+          }
+    }
+  }
+}
+
+object LibraryEvaluation {
+  final case class ScopeData[K](
+      packages: PackageMap.Typed[Any],
+      depForPackage: PackageName => Option[K]
+  )
+
+  def fromPackageMap[T](
+      pm: PackageMap.Typed[T],
+      externals: Externals
+  )(implicit ec: Par.EC): LibraryEvaluation[Unit] = {
+    val data =
+      ScopeData[Unit](
+        packages = PackageMap.toAnyTyped(pm),
+        depForPackage = _ => Some(())
+      )
+
+    new LibraryEvaluation[Unit](
+      rootScope = (),
+      scopes = SortedMap(() -> data)(using Ordering.Unit),
+      renderScope = _ => "root",
+      externals = externals
+    )(using Ordering.Unit, ec)
+  }
+
+  def apply(
+      root: DecodedLibraryWithDeps[Algo.Blake3],
+      externals: Externals
+  )(implicit ec: Par.EC): LibraryEvaluation[(Name, Version)] = {
+    type ScopeKey = (Name, Version)
+    given Ordering[ScopeKey] = Ordering.Tuple2
+
+    def loop(
+        todo: List[DecodedLibraryWithDeps[Algo.Blake3]],
+        acc: SortedMap[ScopeKey, ScopeData[ScopeKey]]
+    ): SortedMap[ScopeKey, ScopeData[ScopeKey]] =
+      todo match {
+        case Nil => acc
+        case head :: tail =>
+          if (acc.contains(head.nameVersion)) loop(tail, acc)
+          else {
+            val data = ScopeData(
+              packages = head.lib.implementations,
+              depForPackage = pn => head.depFor(pn).map(_.nameVersion)
+            )
+            loop(head.deps.values.toList ::: tail, acc.updated(head.nameVersion, data))
+          }
       }
+
+    val scopes =
+      loop(root :: Nil, SortedMap.empty[ScopeKey, ScopeData[ScopeKey]])
+
+    new LibraryEvaluation[ScopeKey](
+      rootScope = root.nameVersion,
+      scopes = scopes,
+      renderScope = { case (name, version) =>
+        s"${name.name}:${version.render}"
+      },
+      externals = externals
+    )
   }
 }

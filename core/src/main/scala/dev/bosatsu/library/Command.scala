@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import cats.{Monad, MonoidK, Traverse}
 import cats.arrow.FunctionK
-import cats.data.{Chain, Ior, NonEmptyList}
+import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList}
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
@@ -24,7 +24,6 @@ import dev.bosatsu.{
   JsonEncodingError,
   PackageName,
   PackageMap,
-  Par,
   PlatformIO,
   Predef => BosatsuPredef
 }
@@ -572,22 +571,19 @@ object Command {
         pubDecodes: List[DecodedLibrary[Algo.Blake3]]
     ): F[List[DecodedLibrary[Algo.Blake3]]] = {
       type Key = (Name, Version)
-      def invalidClosure(errs: cats.data.NonEmptyChain[
-          DecodedLibrary.DepClosureError
-      ]): Throwable =
+      def invalidClosure(
+          errs: NonEmptyChain[DecodedLibrary.DepClosureError]
+      ): Throwable =
         CliException(
           "invalid dependency closure",
           DecodedLibrary.DepClosureError.toDoc(errs)
         )
 
       def loadFromCas(
-          name: Name,
-          version: Version
+          dep: proto.LibDependency,
+          key: Key
       ): F[DecodedLibrary[Algo.Blake3]] = {
-        val dep = proto.LibDependency(
-          name = name.name,
-          desc = Some(proto.LibDescriptor(version = Some(version.toProto)))
-        )
+        val (name, version) = key
         cas.libFromCas(dep).flatMap {
           case Some(lib) => DecodedLibrary.decode(lib)
           case None      =>
@@ -616,13 +612,13 @@ object Command {
                   .leftMap(invalidClosure)
                   .toEither
               )
-              .flatMap { depKeys =>
-                depKeys
-                  .foldLeftM((rest, acc)) { case ((todo0, acc0), key) =>
+              .flatMap { depRefs =>
+                depRefs
+                  .foldLeftM((rest, acc)) { case ((todo0, acc0), depRef) =>
+                    val key = depRef.depKey
                     if (acc0.contains(key)) moduleIOMonad.pure((todo0, acc0))
                     else {
-                      val (depName, depVersion) = key
-                      loadFromCas(depName, depVersion)
+                      loadFromCas(depRef.dep, key)
                         .map(dec => (dec :: todo0, acc0.updated(key, dec)))
                     }
                   }
@@ -1166,9 +1162,7 @@ object Command {
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDeps(colorize)
-                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
-                  summon[Par.EC]
-                )
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
                   target match {
                     case (pack, None)        => ev.evaluateMain(pack)
@@ -1213,9 +1207,7 @@ object Command {
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDeps(colorize)
-                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
-                  summon[Par.EC]
-                )
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 packs <- moduleIOMonad.fromEither(ev.packagesForShow(packages))
               } yield (Output.ShowOutput(packs, Nil, output): Output[P])
             }
@@ -1331,9 +1323,7 @@ object Command {
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDeps(colorize)
-                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
-                  summon[Par.EC]
-                )
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
                     case (pack, None)        => ev.evaluateMain(pack)
