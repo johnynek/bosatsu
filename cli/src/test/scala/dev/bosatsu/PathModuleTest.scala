@@ -25,7 +25,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
       Gen.listOf(str).map(parts => Paths.get(parts.mkString("/")))
     }
 
-  test("test some hand written examples") {
+  test("tool test some hand written examples") {
     def pn(roots: List[String], file: String): Option[PackageName] =
       pathPackage(roots.map(Paths.get(_)), Paths.get(file))
 
@@ -156,12 +156,12 @@ class PathModuleTest extends munit.ScalaCheckSuite {
           .unsafeRunSync()
     }
 
-  test("test direct run of a file") {
+  test("tool test direct run of a file") {
     val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
     val inputs =
       deps.map(n => s"--input test_workspace/${n}.bosatsu").mkString(" ")
     val out = run(
-      s"test $inputs --test_file test_workspace/Queue.bosatsu"
+      s"tool test $inputs --test_file test_workspace/Queue.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -176,9 +176,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("test search run of a file") {
+  test("tool test search run of a file") {
     val out = run(
-      "test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu"
+      "tool test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -194,9 +194,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("test python transpile on the entire test_workspace") {
+  test("tool test python transpile on the entire test_workspace") {
     val out = run(
-      "transpile --input_dir test_workspace/ --package_root test_workspace python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+      "tool transpile --input_dir test_workspace/ --package_root test_workspace python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
         .split("\\s+")
         .toSeq*
     )
@@ -207,10 +207,10 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("test search with json write") {
+  test("tool test search with json write") {
 
     val out = run(
-      "json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu"
+      "tool json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -228,9 +228,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("test search json apply") {
+  test("tool test search json apply") {
     val cmd =
-      "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[2, 4]"
 
@@ -240,9 +240,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("test search json traverse") {
+  test("tool test search json traverse") {
     val cmd =
-      "json traverse --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json traverse --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[[2, 4], [3, 5]]"
 
@@ -269,7 +269,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
     // ill-typed json fails
     val cmd =
-      "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
     fails(cmd, "[\"2\", 4]")
     fails(cmd, "[2, \"4\"]")
     // wrong arity
@@ -278,37 +278,37 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     fails(cmd, "[]")
     // unknown command fails
     val badName =
-      "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::foooooo --json_string 23"
+      "tool json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::foooooo --json_string 23"
     fails(badName)
     val badPack =
-      "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/DoesNotExist --json_string 23"
+      "tool json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/DoesNotExist --json_string 23"
     fails(badPack)
     // bad json fails
     fails(cmd, "[\"2\", foo, bla]")
     fails(cmd, "[42, 31] and some junk")
     // exercise unsupported, we cannot write mult, it is a function
     fails(
-      "json write --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult"
+      "tool json write --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult"
     )
     // a bad main name triggers help
     PathModule.run(
-      "json write --input_dir test_workspace --main Bo//".split(' ').toList
+      "tool json write --input_dir test_workspace --main Bo//".split(' ').toList
     ) match {
       case Left(_)  => ()
       case Right(_) => fail("expected invalid main name to fail")
     }
     PathModule.run(
-      "json write --input_dir test_workspace --main Bo:::boop".split(' ').toList
+      "tool json write --input_dir test_workspace --main Bo:::boop".split(' ').toList
     ) match {
       case Left(_)  => ()
       case Right(_) => fail("expected invalid main name to fail")
     }
   }
 
-  test("test running all test in test_workspace") {
+  test("tool test running all test in test_workspace") {
 
     val out = run(
-      "test --package_root test_workspace --input_dir test_workspace"
+      "tool test --package_root test_workspace --input_dir test_workspace"
         .split("\\s+")
         .toSeq*
     )
@@ -326,7 +326,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("evaluation by name with shadowing") {
     run(
-      "json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x"
+      "tool json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x"
         .split("\\s+")
         .toSeq*
     ) match {

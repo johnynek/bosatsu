@@ -8,12 +8,6 @@ import dev.bosatsu.IorMethods.IorExtension
 
 class LibConfigTest extends munit.FunSuite {
 
-  private def dep(name: String, v: Version): proto.LibDependency =
-    proto.LibDependency(
-      name = name,
-      desc = Some(proto.LibDescriptor(version = Some(v.toProto)))
-    )
-
   private def iface(pn: PackageName): Package.Interface =
     Package[Nothing, Nothing, Referant[Kind.Arg], Unit](pn, Nil, Nil, ())
 
@@ -56,10 +50,10 @@ class LibConfigTest extends munit.FunSuite {
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
 
-    val depA = dep("a", v)
-    val depB = dep("b", v)
-    val depC = dep("c", v)
-    val depD = dep("d", v)
+    val depA = Library.dep("a", v)
+    val depB = Library.dep("b", v)
+    val depC = Library.dep("c", v)
+    val depD = Library.dep("d", v)
 
     val dupPack = PackageName.parts("Bosatsu", "Dup")
     val aPack = PackageName.parts("Bosatsu", "A")

@@ -179,7 +179,7 @@ object TestUtils {
     }
 
     module.runWith(files)(
-      "eval" :: "--main" :: mainPackS :: makeInputArgs(files)
+      "tool" :: "eval" :: "--main" :: mainPackS :: makeInputArgs(files)
     ) match {
       case Right(Output.EvaluationResult(got, _, gotDoc)) =>
         val gv = got.value
@@ -208,7 +208,7 @@ object TestUtils {
     }
 
     module.runWith(files)(
-      "json" :: "write" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(
+      "tool" :: "json" :: "write" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(
         files
       )
     ) match {
@@ -231,7 +231,9 @@ object TestUtils {
     }
 
     module.runWith(files)(
-      "test" :: "--test_package" :: mainPackS :: makeInputArgs(files)
+      "tool" :: "test" :: "--test_package" :: mainPackS :: makeInputArgs(
+        files
+      )
     ) match {
       case Right(Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
