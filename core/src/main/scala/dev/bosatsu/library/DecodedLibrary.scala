@@ -34,12 +34,36 @@ case class DecodedLibrary[A](
     interfaceMap.toMap.keySet
 
   lazy val toHashed: Hashed[A, proto.Library] = Hashed(hashValue, protoLib)
+
+  def toDep(using algo: Algo[A]): proto.LibDependency = {
+    val desc0 = protoLib.descriptor.getOrElse(proto.LibDescriptor())
+    val depVersion = desc0.version.orElse(Some(version.toProto))
+    val depHashes = (hashValue.toIdent :: desc0.hashes.toList).distinct
+    proto.LibDependency(
+      name = name.name,
+      desc = Some(
+        proto.LibDescriptor(
+          version = depVersion,
+          hashes = depHashes,
+          uris = desc0.uris
+        )
+      )
+    )
+  }
 }
 
 object DecodedLibrary {
   enum DepClosureError {
     case MissingVersion(dep: DecodedLibrary[Algo.Blake3])
     case MissingTransitiveDep(name: Name, version: Version)
+  }
+
+  final case class PublicDepRef(
+      dep: proto.LibDependency,
+      name: Name,
+      version: Version
+  ) {
+    def depKey: (Name, Version) = (name, version)
   }
 
   object DepClosureError {
@@ -69,11 +93,13 @@ object DecodedLibrary {
 
   def publicDepReferences(
       lib: DecodedLibrary[Algo.Blake3]
-  ): ValidatedNec[DepClosureError, List[DepKey]] =
+  ): ValidatedNec[DepClosureError, List[PublicDepRef]] =
     publicDepsOf(lib).traverse { dep =>
       dep.desc.flatMap(_.version) match {
         case Some(v) =>
-          Validated.valid((Name(dep.name), Version.fromProto(v)))
+          Validated.valid(
+            PublicDepRef(dep, Name(dep.name), Version.fromProto(v))
+          )
         case None    =>
           Validated.invalidNec(DepClosureError.MissingVersion(lib))
       }
@@ -83,9 +109,6 @@ object DecodedLibrary {
       startLibs: List[DecodedLibrary[Algo.Blake3]],
       depMap: Map[DepKey, DecodedLibrary[Algo.Blake3]]
   ): ValidatedNec[DepClosureError, List[DecodedLibrary[Algo.Blake3]]] = {
-    val nameOrder = summon[Ordering[Name]]
-    val versionOrder = summon[Ordering[Version]]
-    val keyOrder = Ordering.Tuple2(using nameOrder, versionOrder)
     type SeenMap = SortedMap[DepKey, DecodedLibrary[Algo.Blake3]]
 
     @annotation.tailrec
@@ -105,24 +128,29 @@ object DecodedLibrary {
             publicDepReferences(lib) match {
               case Validated.Invalid(errs) =>
                 loop(rest, seen1, errs.toNonEmptyList.toList ::: errors)
-              case Validated.Valid(depKeys) =>
+              case Validated.Valid(depRefs) =>
                 val (nextTodo, nextErrors) =
-                  depKeys.foldLeft((rest, errors)) { case ((todo0, errs0), depKey) =>
-                    depMap.get(depKey) match {
-                      case Some(depLib) =>
-                        if (seen1.contains(depKey) || todo0.exists(d =>
-                            nameOrder.equiv(d.name, depLib.name) &&
-                              versionOrder.equiv(d.version, depLib.version)
-                          ))
-                          (todo0, errs0)
-                        else (depLib :: todo0, errs0)
-                      case None         =>
-                        (
-                          todo0,
-                          DepClosureError
-                            .MissingTransitiveDep(depKey._1, depKey._2) :: errs0
-                        )
-                    }
+                  depRefs.foldLeft((rest, errors)) {
+                    case ((todo0, errs0), depRef) =>
+                      val depKey = depRef.depKey
+                      depMap.get(depKey) match {
+                        case Some(depLib) =>
+                          if (seen1.contains(depKey) || todo0.exists(d =>
+                              Ordering[DepKey]
+                                .equiv(
+                                  (d.name, d.version),
+                                  (depLib.name, depLib.version)
+                                )
+                            ))
+                            (todo0, errs0)
+                          else (depLib :: todo0, errs0)
+                        case None         =>
+                          (
+                            todo0,
+                            DepClosureError
+                              .MissingTransitiveDep(depKey._1, depKey._2) :: errs0
+                          )
+                      }
                   }
 
                 loop(nextTodo, seen1, nextErrors)
@@ -130,9 +158,7 @@ object DecodedLibrary {
           }
       }
 
-    val initSeen = SortedMap.empty[DepKey, DecodedLibrary[Algo.Blake3]](
-      using keyOrder
-    )
+    val initSeen = SortedMap.empty[DepKey, DecodedLibrary[Algo.Blake3]]
     val (closure, errs0) = loop(startLibs, initSeen, Nil)
     NonEmptyChain.fromSeq(errs0.reverse.distinct) match {
       case Some(errs) => Validated.invalid(errs)

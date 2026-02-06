@@ -41,24 +41,6 @@ object AssembleCommand {
     }
   }
 
-  private def depFromDecoded(
-      dep: DecodedLibrary[Algo.Blake3]
-  ): proto.LibDependency = {
-    val desc0 = dep.protoLib.descriptor.getOrElse(proto.LibDescriptor())
-    val version = desc0.version.orElse(Some(dep.version.toProto))
-    val hashes = (dep.hashValue.toIdent :: desc0.hashes.toList).distinct
-    proto.LibDependency(
-      name = dep.name.name,
-      desc = Some(
-        proto.LibDescriptor(
-          version = version,
-          hashes = hashes,
-          uris = desc0.uris
-        )
-      )
-    )
-  }
-
   def opts[IO[_], Path](
       module: MainModule[IO, Path]
   ): Opts[module.MainCommand] = {
@@ -215,8 +197,8 @@ object AssembleCommand {
                 previous = prevDesc,
                 exportedPackages = exportedNames.map(PackageFilter.Name(_)),
                 allPackages = allNames.map(PackageFilter.Name(_)),
-                publicDeps = pubDeps.map(depFromDecoded(_)),
-                privateDeps = privDeps.map(depFromDecoded(_)),
+                publicDeps = pubDeps.map(_.toDep),
+                privateDeps = privDeps.map(_.toDep),
                 defaultMain = defaultMain
               )
               publicDepClosureLibs <- moduleIOMonad.fromEither(

@@ -226,24 +226,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       private def readDep(path: Path): IO[DecodedLibrary[Algo.Blake3]] =
         readLibrary(path).flatMap(DecodedLibrary.decode(_))
 
-      private def depFromDecoded(
-          dep: DecodedLibrary[Algo.Blake3]
-      ): proto.LibDependency = {
-        val desc0 = dep.protoLib.descriptor.getOrElse(proto.LibDescriptor())
-        val version = desc0.version.orElse(Some(dep.version.toProto))
-        val hashes = (dep.hashValue.toIdent :: desc0.hashes.toList).distinct
-        proto.LibDependency(
-          name = dep.name.name,
-          desc = Some(
-            proto.LibDescriptor(
-              version = version,
-              hashes = hashes,
-              uris = desc0.uris
-            )
-          )
-        )
-      }
-
       private def validateDepSet(
           pub: List[DecodedLibrary[Algo.Blake3]],
           priv: List[DecodedLibrary[Algo.Blake3]]
@@ -255,8 +237,8 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           previous = None,
           exportedPackages = Nil,
           allPackages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
-          publicDeps = pub.map(depFromDecoded(_)),
-          privateDeps = priv.map(depFromDecoded(_)),
+          publicDeps = pub.map(_.toDep),
+          privateDeps = priv.map(_.toDep),
           defaultMain = None
         )
         val validated = conf.validateDeps(pub ::: priv)
