@@ -13,7 +13,7 @@ final case class DefinedType[+A](
     packageName: PackageName,
     name: TypeName,
     annotatedTypeParams: List[(Type.Var.Bound, A)],
-    constructors: List[ConstructorFn]
+    constructors: List[ConstructorFn[A]]
 ) {
 
   def isOpaque: Boolean = constructors.isEmpty
@@ -98,7 +98,10 @@ final case class DefinedType[+A](
     ev.substituteCo[L](annotatedTypeParams)
   }
 
-  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Kind.Arg): Type = {
+  def fnTypeOf[B](cf: ConstructorFn[B])(implicit
+      evA: A <:< Kind.Arg,
+      evB: B <:< Kind.Arg
+  ): Type = {
     // evidence to prove that we only ask for this after inference
     val tc: Type.Leaf | Type.TyApply = Type.const(packageName, name)
 
@@ -109,7 +112,13 @@ final case class DefinedType[+A](
       case Some(nel) => Type.Fun(nel, res)
       case None      => res
     }
-    val typeArgs = toAnnotatedKinds.map { case (b, ka) => (b, ka.kind) }
+    type Exists[+X] = List[(Type.Var.Bound, X)]
+    val cExists: List[(Type.Var.Bound, Kind.Arg)] =
+      evB.substituteCo[Exists](cf.exists)
+    val typeArgs =
+      toAnnotatedKinds.map { case (b, ka) => (b, ka.kind) } ::: cExists.map {
+        case (b, ka) => (b, ka.kind)
+      }
     Type.forAll(typeArgs, resT)
   }
 
@@ -141,32 +150,49 @@ object DefinedType {
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {
       val listTup = Traverse[List].compose[[X] =>> (Type.Var.Bound, X)]
+      private def traverseCons[F[_]: Applicative, A, B](
+          cs: List[ConstructorFn[A]]
+      )(fn: A => F[B]): F[List[ConstructorFn[B]]] =
+        cs.traverse { cfn =>
+          listTup.traverse(cfn.exists)(fn).map(ex => cfn.copy(exists = ex))
+        }
+
       def traverse[F[_]: Applicative, A, B](
           da: DefinedType[A]
       )(fn: A => F[B]): F[DefinedType[B]] =
-        listTup.traverse(da.annotatedTypeParams)(fn).map { ap =>
-          DefinedType(
-            packageName = da.packageName,
-            name = da.name,
-            annotatedTypeParams = ap,
-            constructors = da.constructors
-          )
-        }
+        (listTup.traverse(da.annotatedTypeParams)(fn), traverseCons(da.constructors)(fn))
+          .mapN { (ap, cons) =>
+            DefinedType(
+              packageName = da.packageName,
+              name = da.name,
+              annotatedTypeParams = ap,
+              constructors = cons
+            )
+          }
 
       def foldRight[A, B](fa: DefinedType[A], b: Eval[B])(
           fn: (A, Eval[B]) => Eval[B]
       ): Eval[B] =
-        listTup.foldRight(fa.annotatedTypeParams, b)(fn)
+        listTup.foldRight(
+          fa.annotatedTypeParams,
+          fa.constructors.foldRight(b) { (cfn, acc) =>
+            listTup.foldRight(cfn.exists, acc)(fn)
+          }
+        )(fn)
 
       def foldLeft[A, B](fa: DefinedType[A], b: B)(fn: (B, A) => B): B =
-        listTup.foldLeft(fa.annotatedTypeParams, b)(fn)
+        fa.constructors.foldLeft(listTup.foldLeft(fa.annotatedTypeParams, b)(fn)) {
+          (acc, cfn) => listTup.foldLeft(cfn.exists, acc)(fn)
+        }
 
       override def map[A, B](fa: DefinedType[A])(fn: A => B): DefinedType[B] =
         DefinedType(
           packageName = fa.packageName,
           name = fa.name,
           annotatedTypeParams = listTup.map(fa.annotatedTypeParams)(fn),
-          constructors = fa.constructors
+          constructors = fa.constructors.map { cfn =>
+            cfn.copy(exists = listTup.map(cfn.exists)(fn))
+          }
         )
     }
 }

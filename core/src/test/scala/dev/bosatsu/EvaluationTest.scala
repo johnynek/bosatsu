@@ -3943,6 +3943,97 @@ test = Assertion(res matches Some(((1, _), Empty)), "one")
     )
   }
 
+  test("existential quantification in enum branch type params") {
+    runBosatsuTest(
+      List("""
+package Foo
+export maybeMapped, FreeF
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b -> a)
+
+def pure(a: a) -> FreeF[a]: Pure(a)
+def map[a, b](f: FreeF[a], fn: a -> b) -> FreeF[b]:
+  Mapped(f, fn)
+
+def maybeMapped[a](f: FreeF[a]) -> exists b. Option[(FreeF[b], b -> a)]:
+  match f:
+    case Mapped(prev, fn): Some((prev, fn))
+    case _: None
+
+def run[a](fa: FreeF[a]) -> a:
+  recur fa:
+    case Pure(a): a
+    case Mapped(prev, fn):
+      fn(run(prev))
+
+res = run(pure(0).map(x -> x.add(1)))
+test = Assertion(res matches 1, "one")
+"""),
+      "Foo",
+      1
+    )
+  }
+
+  test("missing enum branch type params reports branch-scoped error") {
+    val testCode = """
+package ErrorCheck
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(prev: FreeF[b], fn: b -> a)
+"""
+
+    val mappedRegion = Parser
+      .unsafeParse(Statement.parser, testCode)
+      .collectFirst {
+        case Statement.Enum(_, _, items) =>
+          items.get.toList
+            .collectFirst { case item if item.name.asString == "Mapped" =>
+              item.region
+            }
+      }
+      .flatten
+      .getOrElse(fail("expected to parse Mapped constructor"))
+
+    evalFail(List(testCode)) {
+      case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val message = sce.message(Map.empty, Colorize.None)
+        assert(
+          message.contains(
+            "FreeF.Mapped is missing type parameter declarations for [b]"
+          )
+        )
+        assert(message.contains("enum FreeF[a, b]"))
+        assert(message.contains("Mapped[b]("))
+        assert(message.contains(mappedRegion.toString))
+        ()
+    }
+  }
+
+  test("ill-kinded enum branch type params reports constructor context") {
+    val testCode = """
+package ErrorCheck
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b[a])
+"""
+
+    def assertMessage(message: String): Unit = {
+      assert(message.contains("constructor Mapped"))
+      assert(message.contains("b[a]"))
+    }
+
+    evalFail(List(testCode)) {
+      case kie @ PackageError.KindInferenceError(_, _, _) =>
+        assertMessage(kie.message(Map.empty, Colorize.None))
+      case kie @ PackageError.TypeErrorIn(_, _, _, _)    =>
+        assertMessage(kie.message(Map.empty, Colorize.None))
+    }
+  }
+
   test("tuples bigger than 32 fail") {
     val testCode = """
 package ErrorCheck

@@ -863,22 +863,27 @@ final class SourceConverter(
               }
             }
       case Enum(nm, typeArgs, items) =>
+        val topDeclaredSet =
+          typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
         items.get
-          .traverse { case (nm, args) =>
-            validateArgCount(nm, args.length, tds.region) *>
+          .traverse { item =>
+            validateArgCount(item.name, item.args.length, item.region) *>
               deep
-                .traverse(args)(toType(_, tds.region))
-                .map((nm, _))
+                .traverse(item.args)(toType(_, item.region))
+                .map((item, _))
           }
           .flatMap { conArgs =>
-            val constructorsS = conArgs.traverse { case (nm, argsType) =>
+            val constructorsS = conArgs.traverse { case (item, argsType) =>
               buildParams(argsType).map { params =>
-                (nm, params)
+                (item, params)
               }
             }
-            val declVars = typeArgs.iterator.flatMap(_.toList).map { p =>
-              Type.TyVar(p._1.toBoundVar)
-            }
+            val declVars = (
+              typeArgs.iterator.flatMap(_.toList) ++
+                conArgs.iterator.flatMap { case (item, _) =>
+                  item.typeArgs.iterator.flatMap(_.toList)
+                }
+            ).map { p => Type.TyVar(p._1.toBoundVar) }
             val initVars = existingVars(conArgs.toList.flatMap(_._2))
             val initState = (
               (initVars.toSet ++ declVars, initVars.reverse),
@@ -887,7 +892,7 @@ final class SourceConverter(
             val (((_, typeVars), _), constructors) =
               constructorsS.run(initState).value
             // we reverse to make sure we see in traversal order
-            val typeParams0 = reverseMap(typeVars) { tv =>
+            val discoveredTop0 = reverseMap(typeVars) { tv =>
               tv.toVar match {
                 case b @ Type.Var.Bound(_) => b
                 // $COVERAGE-OFF$ this should be unreachable
@@ -896,9 +901,104 @@ final class SourceConverter(
                 // $COVERAGE-ON$
               }
             }
-            updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
-              val finalCons = constructors.toList.map { case (c, params) =>
-                rankn.ConstructorFn(c, params)
+            val hasExplicitBranches = constructors.exists(_._1.typeArgs.nonEmpty)
+            val scopedMode = typeArgs.nonEmpty || hasExplicitBranches
+            val branchDeclaredSet =
+              constructors.iterator
+                .flatMap { case (item, _) =>
+                  item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar)
+                }
+                .toSet
+            val missingBranchTypeParams =
+              if (scopedMode) {
+                constructors.toList.flatMap { case (item, params) =>
+                  val localDeclared =
+                    item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
+                  val free = Type.freeTyVars(params.map(_._2)).collect {
+                    case b: Type.Var.Bound => b
+                  }
+                  val missing =
+                    free.filterNot { tv =>
+                      topDeclaredSet(tv) || localDeclared(tv)
+                    }
+                  NonEmptyList
+                    .fromList(missing.distinct.sorted)
+                    .map((item, _))
+                    .toList
+                }
+              } else Nil
+            val missingBranchTypesSet =
+              missingBranchTypeParams.iterator.flatMap(_._2.toList).toSet
+            val discoveredForTop =
+              if (hasExplicitBranches) discoveredTop0.filterNot(branchDeclaredSet)
+              else discoveredTop0.filterNot(missingBranchTypesSet)
+
+            val multipleOwners = {
+              val topDeclaredList =
+                typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
+              val topDeclaredSet = topDeclaredList.toSet
+              val topDupes =
+                topDeclaredList
+                  .groupBy(identity)
+                  .collect { case (b, owners) if owners.lengthCompare(1) > 0 => b }
+                  .toList
+              val branchDupes =
+                constructors.toList.flatMap { case (item, _) =>
+                  val local =
+                    item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
+                  local
+                    .groupBy(identity)
+                    .collect { case (b, owners) if owners.lengthCompare(1) > 0 => b }
+                    .toList
+                }
+              val topBranchOverlap =
+                constructors.iterator.flatMap { case (item, _) =>
+                  item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).filter(topDeclaredSet)
+                }.toList
+
+              (topDupes ::: branchDupes ::: topBranchOverlap).distinct.sorted
+            }
+            val topParams = updateInferedWithDecl(typeArgs, discoveredForTop)
+            val topParamsChecked =
+              if (hasExplicitBranches && typeArgs.isEmpty && discoveredForTop.nonEmpty) {
+                SourceConverter.addError(
+                  topParams,
+                  SourceConverter.UnscopedTypeParameters(
+                    discoveredForTop,
+                    tds
+                  )
+                )
+              } else topParams
+            val ownersChecked =
+              NonEmptyList.fromList(multipleOwners) match {
+                case None       => topParamsChecked
+                case Some(dups) =>
+                  SourceConverter.addError(
+                    topParamsChecked,
+                    SourceConverter.DuplicateTypeParamOwnership(dups, tds)
+                  )
+              }
+            val branchesChecked =
+              missingBranchTypeParams.foldLeft(ownersChecked) {
+                case (res, (item, missing)) =>
+                  SourceConverter.addError(
+                    res,
+                    SourceConverter.MissingEnumBranchTypeParameters(
+                      nm,
+                      typeArgs,
+                      item,
+                      missing
+                    )
+                  )
+              }
+
+            branchesChecked.map { typeParams =>
+              val finalCons = constructors.toList.map { case (item, params) =>
+                val exists =
+                  item.typeArgs.iterator.flatMap(_.toList).map {
+                    case (tv, k) => (tv.toBoundVar, k)
+                  }.toList
+                rankn.ConstructorFn(item.name, params, exists)
               }
               rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
             }
@@ -1964,6 +2064,57 @@ object SourceConverter {
           .renderTrim(80)
       val disc = tstr(discoveredTypes)
       s"${statement.name.asString} found declared: $decl, not a superset of $disc"
+    }
+  }
+
+  final case class UnscopedTypeParameters(
+      discoveredTypes: List[Type.Var.Bound],
+      statement: TypeDefinitionStatement
+  ) extends Error {
+    def region = statement.region
+    def message = {
+      def tstr(l: List[Type.Var.Bound]): String =
+        l.iterator.map(_.name).mkString("[", ", ", "]")
+
+      val disc = tstr(discoveredTypes)
+      s"${statement.name.asString} has constructor-local type parameter blocks, but found unscoped type variables: $disc"
+    }
+  }
+
+  final case class MissingEnumBranchTypeParameters(
+      enumName: Constructor,
+      enumTypeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      branch: Statement.EnumBranch,
+      missingTypes: NonEmptyList[Type.Var.Bound]
+  ) extends Error {
+    def region = branch.region
+
+    def message = {
+      val missingNames = missingTypes.toList.map(_.name)
+      val missing =
+        missingNames.mkString("[", ", ", "]")
+      val enumParamNames =
+        (enumTypeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar.name) ++ missingNames)
+          .toList
+          .distinct
+      val enumWithSuggestedParams =
+        if (enumParamNames.isEmpty) enumName.asString
+        else s"${enumName.asString}${enumParamNames.mkString("[", ", ", "]")}"
+      val branchWithSuggestedParams =
+        s"${branch.name.asString}${missingNames.mkString("[", ", ", "]")}("
+
+      s"${enumName.asString}.${branch.name.asString} is missing type parameter declarations for $missing; add them to either enum $enumWithSuggestedParams or $branchWithSuggestedParams"
+    }
+  }
+
+  final case class DuplicateTypeParamOwnership(
+      duplicateTypes: NonEmptyList[Type.Var.Bound],
+      statement: TypeDefinitionStatement
+  ) extends Error {
+    def region = statement.region
+    def message = {
+      val dups = duplicateTypes.toList.iterator.map(_.name).mkString("[", ", ", "]")
+      s"${statement.name.asString} has type variables declared in multiple scopes: $dups"
     }
   }
 

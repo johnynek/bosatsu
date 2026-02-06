@@ -1080,21 +1080,23 @@ object ProtoConverter {
 
       val constructors: Tab[List[proto.ConstructorFn]] =
         d.constructors.traverse { cf =>
-          cf.args
-            .traverse { case (b, t) =>
-              typeToProto(t).flatMap { tidx =>
-                getId(b.sourceCodeRepr)
-                  .map { n =>
-                    proto.FnParam(n, tidx)
-                  }
-              }
-            }
-            .flatMap { params =>
-              getId(cf.name.asString)
-                .map { id =>
-                  proto.ConstructorFn(id, params)
+          (
+            cf.args
+              .traverse { case (b, t) =>
+                typeToProto(t).flatMap { tidx =>
+                  getId(b.sourceCodeRepr)
+                    .map { n =>
+                      proto.FnParam(n, tidx)
+                    }
                 }
-            }
+              },
+            cf.exists.traverse(paramToProto)
+          ).flatMapN { (params, exists) =>
+            getId(cf.name.asString)
+              .map { id =>
+                proto.ConstructorFn(id, params, exists)
+              }
+          }
         }
 
       (protoTypeParams, constructors)
@@ -1127,18 +1129,18 @@ object ProtoConverter {
         tpe <- lookupType(p.typeOf, s"invalid type id: $p")
       } yield (bn, tpe)
 
-    def consFromProto(c: proto.ConstructorFn): DTab[rankn.ConstructorFn] =
+    def consFromProto(c: proto.ConstructorFn): DTab[rankn.ConstructorFn[Kind.Arg]] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
           ReaderT
             .liftF(toConstructor(cname))
             .flatMap { cname =>
-              // def
-              c.params.toList
-                .traverse(fnParamFromProto)
-                .map { fnParams =>
-                  rankn.ConstructorFn(cname, fnParams)
-                }
+              (
+                c.params.toList.traverse(fnParamFromProto),
+                c.exists.toList.traverse(paramFromProto)
+              ).mapN { (fnParams, exists) =>
+                rankn.ConstructorFn(cname, fnParams, exists)
+              }
             }
         }
 

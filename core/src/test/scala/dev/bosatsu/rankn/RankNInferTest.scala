@@ -106,11 +106,11 @@ class RankNInferTest extends munit.FunSuite {
     Map(
       (
         (PackageName.PredefName, Constructor("True")),
-        (Nil, Nil, Type.Const.predef("Bool"))
+        (Nil, Nil, Nil, Type.Const.predef("Bool"))
       ),
       (
         (PackageName.PredefName, Constructor("False")),
-        (Nil, Nil, Type.Const.predef("Bool"))
+        (Nil, Nil, Nil, Type.Const.predef("Bool"))
       )
     )
 
@@ -403,8 +403,8 @@ class RankNInferTest extends munit.FunSuite {
 
     val pn = testPackage
     val definedOption = Map(
-      ((pn, Constructor("Some")), (Nil, List(Type.IntType), optName)),
-      ((pn, Constructor("None")), (Nil, Nil, optName))
+      ((pn, Constructor("Some")), (Nil, Nil, List(Type.IntType), optName)),
+      ((pn, Constructor("None")), (Nil, Nil, Nil, optName))
     )
 
     val definedOptionGen = Map(
@@ -412,13 +412,14 @@ class RankNInferTest extends munit.FunSuite {
         (pn, Constructor("Some")),
         (
           List((Bound("a"), Kind.Type.co)),
+          Nil,
           List(Type.TyVar(Bound("a"))),
           optName
         )
       ),
       (
         (pn, Constructor("None")),
-        (List((Bound("a"), Kind.Type.co)), Nil, optName)
+        (List((Bound("a"), Kind.Type.co)), Nil, Nil, optName)
       )
     )
   }
@@ -616,6 +617,7 @@ class RankNInferTest extends munit.FunSuite {
         (pn, Constructor("Pure")),
         (
           List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
+          Nil,
           List(
             Type.forAll(
               NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),
@@ -627,11 +629,11 @@ class RankNInferTest extends munit.FunSuite {
       ),
       (
         (pn, Constructor("Some")),
-        (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)
+        (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, List(tv("a")), optName)
       ),
       (
         (pn, Constructor("None")),
-        (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)
+        (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, Nil, optName)
       )
     )
 
@@ -1900,6 +1902,46 @@ def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
       "forall a. FreeF[a] -> exists b. Opt[Tup[FreeF[b], b -> a]]"
     )
 
+  }
+
+  test("use branch type parameters in ADTs") {
+    parseProgram(
+      """#
+struct Tup(a, b)
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b -> a)
+
+enum Opt[a]: None, Some(a: a)
+
+def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
+  match b:
+    case Mapped(prev, fn): Some(Tup(prev, fn))
+    case _: None
+
+""",
+      "forall a. FreeF[a] -> exists b. Opt[Tup[FreeF[b], b -> a]]"
+    )
+  }
+
+  test("missing enum branch type params is rejected") {
+    parseProgramIllTyped(
+      """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(prev: FreeF[b], fn: b -> a)
+"""
+    )
+  }
+
+  test("ill-kinded enum branch type params is rejected") {
+    parseProgramIllTyped(
+      """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b[a])
+"""
+    )
   }
 
   test("we can use existentials to delay calls") {

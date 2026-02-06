@@ -8,7 +8,7 @@ class TypeEnv[+A] private (
     protected val values: SortedMap[(PackageName, Identifier), Type],
     protected val constructors: SortedMap[
       (PackageName, Constructor),
-      (DefinedType[A], ConstructorFn)
+      (DefinedType[A], ConstructorFn[A])
     ],
     val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]
 ) {
@@ -41,7 +41,7 @@ class TypeEnv[+A] private (
   def getConstructor(
       p: PackageName,
       c: Constructor
-  ): Option[(DefinedType[A], ConstructorFn)] =
+  ): Option[(DefinedType[A], ConstructorFn[A])] =
     constructors.get((p, c))
 
   def getConstructorParams(
@@ -90,7 +90,7 @@ class TypeEnv[+A] private (
   def addConstructor[A1 >: A](
       pack: PackageName,
       dt: DefinedType[A1],
-      cf: ConstructorFn
+      cf: ConstructorFn[A1]
   ): TypeEnv[A1] = {
     val nec = constructors.updated((pack, cf.name), (dt, cf))
     val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
@@ -121,7 +121,7 @@ class TypeEnv[+A] private (
         .foldLeft(
           constructors: SortedMap[
             (PackageName, Constructor),
-            (DefinedType[A1], ConstructorFn)
+            (DefinedType[A1], ConstructorFn[A1])
           ]
         ) { case (cons0, cf) =>
           cons0.updated((dt.packageName, cf.name), (dt, cf))
@@ -145,14 +145,14 @@ class TypeEnv[+A] private (
 
   lazy val typeConstructors: SortedMap[
     (PackageName, Constructor),
-    (List[(Type.Var.Bound, A)], List[Type], Type.Const.Defined)
+    (List[(Type.Var.Bound, A)], List[(Type.Var.Bound, A)], List[Type], Type.Const.Defined)
   ] =
     constructors.map { case (pc, (dt, cf)) =>
-      (pc, (dt.annotatedTypeParams, cf.args.map(_._2), dt.toTypeConst))
+      (pc, (dt.annotatedTypeParams, cf.exists, cf.args.map(_._2), dt.toTypeConst))
     }
 
   def definedTypeFor(c: (PackageName, Constructor)): Option[DefinedType[A]] =
-    typeConstructors.get(c).flatMap { case (_, _, d) => toDefinedType(d) }
+    typeConstructors.get(c).flatMap { case (_, _, _, d) => toDefinedType(d) }
 
   def toDefinedType(t: Type.Const): Option[DefinedType[A]] =
     t match {
@@ -179,7 +179,7 @@ object TypeEnv {
       SortedMap.empty[(PackageName, Identifier), Type],
       SortedMap.empty[
         (PackageName, Constructor),
-        (DefinedType[Nothing], ConstructorFn)
+        (DefinedType[Nothing], ConstructorFn[Nothing])
       ],
       SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]]
     )

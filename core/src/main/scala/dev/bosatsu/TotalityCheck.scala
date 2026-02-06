@@ -76,7 +76,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   ): Res[Unit] =
     inEnv.typeConstructors.get(nm) match {
       case None => Left(NonEmptyList.of(UnknownConstructor(nm, pat, inEnv)))
-      case Some((_, params, _)) =>
+      case Some((_, _, params, _)) =>
         val cmp = params.lengthCompare(size)
         if (cmp == 0) validUnit
         else

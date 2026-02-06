@@ -1139,6 +1139,12 @@ object Generators {
     smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKindArg)))
       .map(_.distinctBy(_._1))
 
+  val enumConstructorGen: Gen[Statement.EnumBranch] =
+    for {
+      (name, args) <- constructorGen
+      targs <- Gen.option(genTypeArgs).map(_.flatMap(NonEmptyList.fromList))
+    } yield Statement.EnumBranch(name, targs, args, emptyRegion)
+
   val genStruct: Gen[Statement] =
     Gen
       .zip(constructorGen, genTypeArgs)
@@ -1175,7 +1181,7 @@ object Generators {
       name <- consIdentGen
       ta <- genTypeArgs
       consc <- Gen.choose(1, 5)
-      cons <- optIndent(nonEmptyN(constructorGen, consc))
+      cons <- optIndent(nonEmptyN(enumConstructorGen, consc))
     } yield Statement.Enum(name, NonEmptyList.fromList(ta), cons)(emptyRegion)
 
   def genStatement(depth: Int): Gen[Statement] = {
@@ -1305,11 +1311,11 @@ object Generators {
       t <- typeNameGen
       paramKeys <- smallList(NTypeGen.genBound).map(_.distinct)
       params <- paramKeys.traverse(p => inner.map((p, _)))
-      genCons: Gen[rankn.ConstructorFn] =
+      genCons: Gen[rankn.ConstructorFn[A]] =
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-        } yield rankn.ConstructorFn(cons, ps)
+        } yield rankn.ConstructorFn[A](cons, ps)
       cons0 <- smallList(genCons)
       cons = cons0.map(cf => (cf.name, cf)).toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)

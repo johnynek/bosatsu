@@ -4,9 +4,10 @@ import cats.Eq
 import dev.bosatsu.PackageName
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 
-final case class ConstructorFn(
+final case class ConstructorFn[+A](
     name: Constructor,
-    args: List[(Bindable, Type)]
+    args: List[(Bindable, Type)],
+    exists: List[(Type.Var.Bound, A)] = Nil
 ) {
 
   def isZeroArg: Boolean = args == Nil
@@ -26,6 +27,6 @@ final case class ConstructorFn(
 }
 
 object ConstructorFn {
-  implicit val eqConstructorFn: Eq[ConstructorFn] =
+  implicit def eqConstructorFn[A]: Eq[ConstructorFn[A]] =
     Eq.fromUniversalEquals
 }
