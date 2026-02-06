@@ -1,6 +1,7 @@
 package Bosatsu/FibBench
 
-from Bosatsu/Prog import Prog, Main, println, read_env, await, ignore_env, pure
+from Bosatsu/Prog import Prog, Main, println, read_env, await, pure, show_error
+from Bosatsu/IOError import IOError
 from Bosatsu/Nat import Nat, to_Nat, Zero as NZero, Succ as NSucc
 
 def fib_Nat(n: Nat) -> Int:
@@ -28,9 +29,9 @@ def main(args: List[String]):
     case [_, n]: print_fib(n)
     case _: println("expected exactly one arg, got: ${int_to_String(list_len(args, 0))}")
 
-main = Main((
+main = Main(show_error((
   args <- read_env.await()
-  _ <- main(args).ignore_env().await()
+  _ <- main(args).await()
   pure(0)
-))
+)))
   
