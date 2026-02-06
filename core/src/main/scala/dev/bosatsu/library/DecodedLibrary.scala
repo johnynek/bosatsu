@@ -30,6 +30,19 @@ case class DecodedLibrary[A](
       interfaces
     )
 
+  lazy val internalPackageNames: SortedSet[PackageName] =
+    implementations.toMap.keySet
+
+  lazy val missingInterfaceImplementations: List[PackageName] =
+    interfaces.iterator
+      .map(_.name)
+      .filterNot(internalPackageNames)
+      .toList
+      .sorted
+
+  def isFullLibrary: Boolean =
+    missingInterfaceImplementations.isEmpty
+
   lazy val publicPackageNames: SortedSet[PackageName] =
     interfaceMap.toMap.keySet
 

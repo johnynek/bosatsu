@@ -21,7 +21,13 @@ import dev.bosatsu.tool.{
   PathParseError
 }
 import dev.bosatsu.cruntime
-import dev.bosatsu.library.{DecodedLibrary, LibConfig, Name, Version}
+import dev.bosatsu.library.{
+  DecodedLibrary,
+  LibConfig,
+  LibraryEvaluation,
+  Name,
+  Version
+}
 import dev.bosatsu.library.LibConfig.LibMethods
 import dev.bosatsu.hashing.Algo
 import org.typelevel.paiges.Document
@@ -538,52 +544,32 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
       type Result = Output.EvaluationResult
 
-      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] = withEC {
-        for {
-          (packs, names) <- inputs.packMap(this, List(mainPackage), errColor)
-          (mainPackageName, value) <- mainPackage.getMain(names)
-          out <-
-            if (packs.toMap.contains(mainPackageName)) {
-              val ev = Evaluation(packs, Predef.jvmExternals)
-
-              val res = value match {
-                case None        => ev.evaluateMain(mainPackageName)
-                case Some(ident) => ev.evaluateName(mainPackageName, ident)
+      def runEval: IO[(LibraryEvaluation[Unit], Output.EvaluationResult)] =
+        withEC {
+          for {
+            (packs, names) <- inputs.packMap(this, List(mainPackage), errColor)
+            (mainPackageName, value) <- mainPackage.getMain(names)
+            ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
+            (eval, tpe) <- moduleIOMonad.fromEither {
+              value match {
+                case None        => ev.evaluateMainValue(mainPackageName)
+                case Some(ident) => ev.evaluateNameValue(mainPackageName, ident)
               }
-
-              res match {
-                case None =>
-                  moduleIOMonad.raiseError(
-                    new Exception("found no main expression")
-                  )
-                case Some((eval, tpe)) =>
-                  // here is the doc:
-                  val memoE = eval.memoize
-                  val fn = ev.valueToDoc.toDoc(tpe)
-                  val edoc =
-                    memoE.map { v =>
-                      fn(v) match {
-                        case Right(d)  => d
-                        case Left(err) =>
-                          // $COVERAGE-OFF$ unreachable due to being well typed
-                          sys.error(s"got illtyped error: $err")
-                        // $COVERAGE-ON$
-                      }
-                    }
-
-                  moduleIOMonad.pure(
-                    (ev, Output.EvaluationResult(eval, tpe, edoc))
-                  )
-              }
-            } else {
-              moduleIOMonad.raiseError(
-                new Exception(
-                  s"package ${mainPackageName.asString} not found"
-                )
-              )
             }
-        } yield out
-      }
+            // here is the doc:
+            memoE = eval.memoize
+            fn = ev.valueToDoc.toDoc(tpe)
+            edoc = memoE.map { v =>
+              fn(v) match {
+                case Right(d)  => d
+                case Left(err) =>
+                  // $COVERAGE-OFF$ unreachable due to being well typed
+                  sys.error(s"got illtyped error: $err")
+                // $COVERAGE-ON$
+              }
+            }
+          } yield (ev, Output.EvaluationResult(eval, tpe, edoc))
+        }
 
       def run = runEval.map(_._2)
     }
@@ -787,7 +773,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
           val testPackages: List[PackageName] =
             testIt.toList.sorted.distinct
-          val ev = Evaluation(packs, Predef.jvmExternals)
+          val ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
           val res0 = testPackages.map(p => (p, ev.evalTest(p)))
           val res =
             if (testPacks.isEmpty) res0.filter { case (_, testRes) =>

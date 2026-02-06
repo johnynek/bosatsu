@@ -5,15 +5,52 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{MainModule, PackageName}
 import dev.bosatsu.hashing.Algo
-import dev.bosatsu.library.{DecodedLibrary, LibConfig, Name, Version}
+import dev.bosatsu.library.{DecodedLibrary, LibConfig, Library, Name, Version}
 import dev.bosatsu.library.LibConfig.{LibMethods, PackageFilter}
 import dev.bosatsu.tool.{CliException, Output}
 import org.typelevel.paiges.Doc
 
 object AssembleCommand {
+  private def requireFullDependencyLibraries[IO[_], Path](
+      module: MainModule[IO, Path],
+      visibility: String,
+      deps: List[(Path, DecodedLibrary[Algo.Blake3])]
+  ): IO[Unit] = {
+    import module.platformIO.{moduleIOMonad, showPath}
 
-  private def libraryFileName(name: Name, version: Version): String =
-    s"${name.name}-v${version.render}.bosatsu_lib"
+    val invalid =
+      deps.flatMap { case (path, dep) =>
+        if (dep.isFullLibrary) Nil
+        else (path, dep) :: Nil
+      }
+
+    if (invalid.isEmpty) moduleIOMonad.unit
+    else {
+      val details = Doc.intercalate(
+        Doc.hardLine,
+        invalid.map { case (path, dep) =>
+          val missing = dep.missingInterfaceImplementations.map(_.asString)
+          val missingDoc =
+            if (missing.isEmpty) Doc.text("(unknown)")
+            else Doc.text(missing.mkString(", "))
+          Doc.text(
+            s"${showPath.show(path)} (${dep.name.name} ${dep.version.render})"
+          ) +
+            (Doc.line + Doc.text("missing internal packages for exported interfaces:") +
+              (Doc.line + missingDoc).nested(2)).nested(2)
+        }
+      )
+
+      moduleIOMonad.raiseError(
+        CliException(
+          s"invalid $visibility dependency libraries",
+          Doc.text(
+            s"$visibility dependencies must be full .bosatsu_lib files; .bosatsu_ifacelib is not supported for assemble."
+          ) + Doc.line + details
+        )
+      )
+    }
+  }
 
   private def depVersion(
       dep: proto.LibDependency
@@ -88,15 +125,14 @@ object AssembleCommand {
       Opts
         .options[Path](
           "pub_dep",
-          help = "public dependency library (.bosatsu_lib or .bosatsu_ifacelib)"
+          help = "public dependency library (.bosatsu_lib)"
         )
         .orEmpty
     val privDepsOpt =
       Opts
         .options[Path](
           "priv_dep",
-          help =
-            "private dependency library (.bosatsu_lib or .bosatsu_ifacelib)"
+          help = "private dependency library (.bosatsu_lib)"
         )
         .orEmpty
     val prevLibOpt =
@@ -158,19 +194,31 @@ object AssembleCommand {
           val run =
             for {
               packs <- readPackages(packagePaths)
-              pubDeps <- pubDepPaths.traverse(readLibrary(_).flatMap(
-                DecodedLibrary.decode(_)
-              ))
-              privDeps <- privDepPaths.traverse(readLibrary(_).flatMap(
-                DecodedLibrary.decode(_)
-              ))
+              pubDepsWithPath <- pubDepPaths.traverse { path =>
+                readLibrary(path).flatMap(DecodedLibrary.decode(_)).map(path -> _)
+              }
+              _ <- requireFullDependencyLibraries(
+                module,
+                "public",
+                pubDepsWithPath
+              )
+              pubDeps = pubDepsWithPath.map(_._2)
+              privDepsWithPath <- privDepPaths.traverse { path =>
+                readLibrary(path).flatMap(DecodedLibrary.decode(_)).map(path -> _)
+              }
+              _ <- requireFullDependencyLibraries(
+                module,
+                "private",
+                privDepsWithPath
+              )
+              privDeps = privDepsWithPath.map(_._2)
               prevLib <- prevLibPath.traverse(readLibrary(_).flatMap(
                 DecodedLibrary.decode(_)
               ))
               out <- outputPath match {
                 case Some(path) => moduleIOMonad.pure(path)
                 case None       =>
-                  pathF(libraryFileName(name, version))
+                  pathF(Library.defaultFileName(name, version))
               }
               allPackNames = packs.map(_.name).distinct.sorted
               (exportedNames, allNames) =

@@ -879,9 +879,6 @@ object Command {
       )
     }
 
-    def libraryFileName(name: Name, version: Version): String =
-      show"${name}-v${version}.bosatsu_lib"
-
     val assembleCommand =
       Opts.subcommand(
         "assemble",
@@ -944,7 +941,9 @@ object Command {
                 outPath <- optOut match {
                   case Some(p) => moduleIOMonad.pure(p)
                   case None    =>
-                    platformIO.pathF(libraryFileName(name, conf.nextVersion))
+                    platformIO.pathF(
+                      Library.defaultFileName(name, conf.nextVersion)
+                    )
                 }
                 prevLib <- prevLibPath.traverse(platformIO.readLibrary(_))
                 prevLibDec <- prevLib.traverse(DecodedLibrary.decode(_))
@@ -1639,7 +1638,7 @@ object Command {
       }
 
     def libraryPath(outDir: P, name: Name, version: Version): P =
-      platformIO.resolve(outDir, libraryFileName(name, version))
+      platformIO.resolve(outDir, Library.defaultFileName(name, version))
 
     def toDesc(
         hashedLib: Hashed[Algo.Blake3, proto.Library],
@@ -1696,7 +1695,7 @@ object Command {
                 case Some(uriBase) =>
                   val uriBase1 =
                     if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
-                  val uri = uriBase1 + libraryFileName(
+                  val uri = uriBase1 + Library.defaultFileName(
                     cc.conf.name,
                     cc.conf.nextVersion
                   )

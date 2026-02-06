@@ -221,4 +221,108 @@ class ToolAndLibCommandTest extends FunSuite {
         }
     }
   }
+
+  test("tool assemble rejects interface-only dependency libraries") {
+    val depSrc =
+      """depValue = 9
+main = depValue
+"""
+    val appSrc =
+      """main = 1
+"""
+    val files = List(
+      Chain("dep", "Dep", "Foo.bosatsu") -> depSrc,
+      Chain("app", "App", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Foo.bosatsu",
+          "--output",
+          "out/Dep.Foo.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Foo.bosatsu_package",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runWithState(
+        List(
+          "tool",
+          "extract-iface",
+          "--input",
+          "out/dep.bosatsu_lib",
+          "--output",
+          "out/dep.bosatsu_ifacelib"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      s4 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "app",
+          "--input",
+          "app/App/Main.bosatsu",
+          "--output",
+          "out/App.Main.bosatsu_package"
+        ),
+        state3
+      )
+      (state4, _) = s4
+      s5 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "app",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/App.Main.bosatsu_package",
+          "--priv_dep",
+          "out/dep.bosatsu_ifacelib",
+          "--output",
+          "out/app.bosatsu_lib"
+        ),
+        state4
+      )
+    } yield s5
+
+    result match {
+      case Right((_, out)) =>
+        fail(
+          s"expected assemble failure when using .bosatsu_ifacelib as dependency, got: $out"
+        )
+      case Left(err)       =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(
+          msg.contains("invalid private dependency libraries"),
+          s"unexpected error: $msg"
+        )
+    }
+  }
 }
