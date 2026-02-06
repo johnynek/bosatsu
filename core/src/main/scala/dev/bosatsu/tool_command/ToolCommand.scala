@@ -3,22 +3,26 @@ package dev.bosatsu.tool_command
 import cats.MonoidK
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.MainModule
+import dev.bosatsu.PlatformIO
+import dev.bosatsu.tool.{CommonOpts, Output}
 
 object ToolCommand {
-  def opts[IO[_], Path](
-      module: MainModule[IO, Path]
-  ): Opts[module.MainCommand] =
+  def opts[F[_], Path](
+      platformIO: PlatformIO[F, Path]
+  ): Opts[F[Output[Path]]] = {
+    val commonOpts = new CommonOpts(platformIO)
+
     MonoidK[Opts].combineAllK(
-      CheckCommand.opts(module) ::
-        TestCommand.opts(module) ::
-        EvalCommand.opts(module) ::
-        JsonCommand.opts(module) ::
-        TranspileCommand.opts(module) ::
-        ShowCommand.opts(module) ::
-        DepsCommand.opts(module) ::
-        ExtractIfaceCommand.opts(module) ::
-        AssembleCommand.opts(module) ::
+      CheckCommand.opts(platformIO, commonOpts) ::
+        TestCommand.opts(platformIO, commonOpts) ::
+        EvalCommand.opts(platformIO, commonOpts) ::
+        JsonCommand.opts(platformIO, commonOpts) ::
+        TranspileCommand.opts(platformIO, commonOpts) ::
+        ShowCommand.opts(platformIO, commonOpts) ::
+        DepsCommand.opts(platformIO, commonOpts) ::
+        ExtractIfaceCommand.opts(platformIO) ::
+        AssembleCommand.opts(platformIO) ::
         Nil
     )
+  }
 }

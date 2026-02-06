@@ -56,13 +56,13 @@ object Command {
       case Some(v) => Version.fromProto(v).render
       case None    => "unknown"
     }
-    val versionDoc = Doc.text(s"version: $versionStr")
+    val versionDoc = Doc.text(show"version: $versionStr")
     val hashDoc =
       desc.hashes.toList match {
         case Nil =>
           Doc.text("hash: (none)")
         case h :: Nil =>
-          Doc.text(s"hash: $h")
+          Doc.text(show"hash: $h")
         case hs =>
           Doc.text("hashes:") + (Doc.line + Doc.intercalate(
             Doc.line,
@@ -74,7 +74,7 @@ object Command {
         case Nil =>
           Doc.text("uri: (none)")
         case u :: Nil =>
-          Doc.text(s"uri: $u")
+          Doc.text(show"uri: $u")
         case us =>
           Doc.text("uris:") + (Doc.line + Doc.intercalate(
             Doc.line,
@@ -842,7 +842,7 @@ object Command {
                         Doc.text(info.name) + (Doc.line + details).nested(2)
                       }
                       Some(
-                        Doc.text(s"$label deps:") + (Doc.line + Doc.intercalate(
+                        Doc.text(show"$label deps:") + (Doc.line + Doc.intercalate(
                           Doc.hardLine,
                           docs
                         )).nested(2)
@@ -1007,7 +1007,7 @@ object Command {
                                     DecodedLibrary[Algo.Blake3]
                                   ]](
                                     CliException.Basic(
-                                      s"missing previous public deps from CAS after fetch; ensure URIs are valid. Missing: $missStr"
+                                      show"missing previous public deps from CAS after fetch; ensure URIs are valid. Missing: $missStr"
                                     )
                                   )
                                 }
@@ -1058,7 +1058,7 @@ object Command {
                     case Some(v) => show"${Version.fromProto(v)}"
                   }
                   val header = Doc.text(
-                    s"failed to fetch previous ${dep.name} $versionStr"
+                    show"failed to fetch previous ${dep.name} $versionStr"
                   )
                   val detail = Doc.intercalate(
                     Doc.hardLine,
@@ -1163,7 +1163,7 @@ object Command {
                     case Right(d)  => d
                     case Left(err) =>
                       // $COVERAGE-OFF$ unreachable due to being well typed
-                      sys.error(s"got illtyped error: $err")
+                      sys.error(show"got illtyped error: $err")
                     // $COVERAGE-ON$
                   }
                 }
@@ -1215,11 +1215,10 @@ object Command {
         }
       }
 
-      sealed abstract class JsonMode derives CanEqual
-      object JsonMode {
-        case object Write extends JsonMode
-        case class Apply(in: JsonInput) extends JsonMode
-        case class Traverse(in: JsonInput) extends JsonMode
+      enum JsonMode derives CanEqual {
+        case Write
+        case Apply(in: JsonInput)
+        case Traverse(in: JsonInput)
       }
 
       val mainOpt =
@@ -1257,11 +1256,11 @@ object Command {
             val errMsg0 = str.substring(idx + 1)
             val errMsg =
               if (errMsg0.length > 20)
-                errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
+                errMsg0.take(20) + show"... (and ${errMsg0.length - 20} more)"
               else errMsg0
 
             moduleIOMonad.raiseError(
-              new Exception(s"$prefix at ${idx + 1}: $errMsg")
+              CliException.Basic(show"$prefix at ${idx + 1}: $errMsg")
             )
           }
 
@@ -1301,7 +1300,7 @@ object Command {
             val tpeStr = msg.render(80)
 
             moduleIOMonad.raiseError(
-              new Exception(s"cannot convert type to Json: $tpeStr")
+              CliException.Basic(show"cannot convert type to Json: $tpeStr")
             )
           }
 
@@ -1327,7 +1326,7 @@ object Command {
                         fn(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(s"unexpected value error: $valueError")
+                              new Exception(show"unexpected value error: $valueError")
                             )
                           case Right(j) =>
                             moduleIOMonad.pure(
@@ -1343,7 +1342,7 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(s"unexpected value error: $valueError")
+                              new Exception(show"unexpected value error: $valueError")
                             )
                           case Right(fn) =>
                             ioJson(in.read)
@@ -1352,8 +1351,8 @@ object Command {
                                   fn(ary) match {
                                     case Left(dataError) =>
                                       moduleIOMonad.raiseError[Json](
-                                        new Exception(
-                                          s"invalid input json: $dataError"
+                                        CliException.Basic(
+                                          show"invalid input json: $dataError"
                                         )
                                       )
                                     case Right(json) =>
@@ -1361,8 +1360,8 @@ object Command {
                                   }
                                 case otherJson =>
                                   moduleIOMonad.raiseError[Json](
-                                    new Exception(
-                                      s"required a json array of size $arity, found:\n\n${otherJson.render}"
+                                    CliException.Basic(
+                                      show"required a json array of size $arity, found:\n\n${otherJson.render}"
                                     )
                                   )
                               }
@@ -1377,7 +1376,7 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(s"unexpected value error: $valueError")
+                              new Exception(show"unexpected value error: $valueError")
                             )
                           case Right(fn) =>
                             ioJson(in.read)
@@ -1389,8 +1388,8 @@ object Command {
                                       fn(ary) match {
                                         case Left(dataError) =>
                                           moduleIOMonad.raiseError[Json](
-                                            new Exception(
-                                              s"invalid input json: $dataError"
+                                            CliException.Basic(
+                                              show"invalid input json: $dataError"
                                             )
                                           )
                                         case Right(json) =>
@@ -1398,15 +1397,15 @@ object Command {
                                       }
                                     case otherJson =>
                                       moduleIOMonad.raiseError[Json](
-                                        new Exception(
-                                          s"required a json array of size $arity, found:\n\n${otherJson.render}"
+                                        CliException.Basic(
+                                          show"required a json array of size $arity, found:\n\n${otherJson.render}"
                                         )
                                       )
                                   }
                                 case other =>
                                   moduleIOMonad.raiseError[List[Json]](
-                                    new Exception(
-                                      s"require an array for traverse, found: ${other.getClass}"
+                                    CliException.Basic(
+                                      show"require an array for traverse, found: ${other.getClass.getName}"
                                     )
                                   )
                               }
@@ -1540,7 +1539,7 @@ object Command {
                         CliException(
                           "no main defined",
                           Doc.text(
-                            s"no argument (--main_pack, -m) given to define main package and none found in ${cc.conf.name.name}"
+                            show"no argument (--main_pack, -m) given to define main package and none found in ${cc.conf.name.name}"
                           )
                         )
                       )
@@ -1889,20 +1888,20 @@ object Command {
                       // couldn't download
                       Left(
                         CliException(
-                          s"download failure: ${dep.name} with ${fails.size} fails.",
+                          show"download failure: ${dep.name} with ${fails.size} fails.",
                           if (fails.isEmpty)
                             Doc.text(
-                              s"failed to fetch ${dep.name} with no uris."
+                              show"failed to fetch ${dep.name} with no uris."
                             )
                           else {
                             Doc.text(
-                              s"failed to fetch ${dep.name} with ${fails.size} fails:"
+                              show"failed to fetch ${dep.name} with ${fails.size} fails:"
                             ) +
                               (Doc.line + Doc.intercalate(
                                 Doc.line + Doc.line,
                                 fails.map { case (uri, f) =>
                                   Doc.text(
-                                    s"uri=$uri failed with ${f.getMessage}"
+                                    show"uri=$uri failed with ${f.getMessage}"
                                   )
                                 }
                               )).nested(4)
@@ -1954,7 +1953,7 @@ object Command {
 
       def showFetchState(fs: FetchState): F[Doc] = {
         val depStr = if (fs.size == 1) "dependency" else "dependencies"
-        val header = Doc.text(s"fetched ${fs.size} transitive ${depStr}.")
+        val header = Doc.text(show"fetched ${fs.size} transitive ${depStr}.")
 
         val resultDoc = header + Doc.line + Doc.intercalate(
           Doc.hardLine,

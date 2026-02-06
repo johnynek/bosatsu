@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Eval
+import cats.Show
 import cats.data.NonEmptyList
 import cats.implicits._
 import java.math.BigInteger
@@ -624,12 +625,36 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 sealed abstract class JsonEncodingError
 object JsonEncodingError {
   sealed abstract class DataError extends JsonEncodingError
+  object DataError {
+    private def pathToString(path: List[Type]): String =
+      if (path.isEmpty) "root"
+      else path.map(Type.fullyResolvedDocument.document(_).render(80)).mkString(" -> ")
+
+    private def typeToString(tpe: Type): String =
+      Type.fullyResolvedDocument.document(tpe).render(80)
+
+    given showDataError: Show[DataError] =
+      Show.show {
+        case IllTyped(path, tpe, value) =>
+          show"ill-typed value at ${pathToString(path)} for expected type ${typeToString(tpe)}: ${value.getClass.getName}"
+        case IllTypedJson(path, tpe, value) =>
+          show"ill-typed json at ${pathToString(path)} for expected type ${typeToString(tpe)}: ${value.render}"
+      }
+  }
 
   final case class UnsupportedType(path: NonEmptyList[Type])
       extends JsonEncodingError
 
   final case class IllTyped(path: List[Type], tpe: Type, value: Value)
       extends DataError
+  object IllTyped {
+    given showIllTyped: Show[IllTyped] =
+      DataError.showDataError.contramap(identity)
+  }
   final case class IllTypedJson(path: List[Type], tpe: Type, value: Json)
       extends DataError
+  object IllTypedJson {
+    given showIllTypedJson: Show[IllTypedJson] =
+      DataError.showDataError.contramap(identity)
+  }
 }
