@@ -19,6 +19,25 @@ class LibBuildImplicitPackageTest extends FunSuite {
       err.toString
     )
 
+  private def runWithState(
+      cmd: List[String]
+  ): ErrorOr[(MemoryMain.State, Output[Chain[String]])] =
+    module.run(cmd) match {
+      case Left(help) =>
+        Left(new Exception(s"got help: $help on command: $cmd"))
+      case Right(io)  =>
+        for {
+          state <- MemoryMain.State.from[ErrorOr](baseFiles)
+          res <- io.run(state)
+        } yield res
+    }
+
+  private def hasFile(state: MemoryMain.State, path: Chain[String]): Boolean =
+    state.get(path).exists {
+      case Right(_) => true
+      case Left(_)  => false
+    }
+
   private val progSrc =
     """package Bosatsu/Prog
 
@@ -69,6 +88,48 @@ main = Main(0)
         val msg = errMsg(err)
         assert(msg.contains("known packages"), msg)
         assert(msg.contains("MyLib/Fib"), msg)
+    }
+  }
+
+  test("lib build allows -o without --outdir") {
+    val cmd =
+      List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib", "-o",
+        "main.c")
+
+    runWithState(cmd) match {
+      case Right((state, Output.Basic(_, _))) =>
+        assert(hasFile(state, Chain("main.c")))
+      case Right((_, other))                  =>
+        fail(s"unexpected output: $other")
+      case Left(err)                          =>
+        fail(errMsg(err))
+    }
+  }
+
+  test("lib build requires --outdir or -o") {
+    val cmd =
+      List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib")
+
+    module.run(cmd) match {
+      case Left(_)  => ()
+      case Right(_) =>
+        fail("expected parse failure when neither --outdir nor -o is set")
+    }
+  }
+
+  test("lib build -o is relative to cwd, not outdir") {
+    val cmd =
+      List("lib", "build", "--repo_root", "repo", "--outdir", "out", "-m",
+        "MyLib/Fib", "-o", "main.c")
+
+    runWithState(cmd) match {
+      case Right((state, Output.Basic(_, _))) =>
+        assert(hasFile(state, Chain("main.c")))
+        assert(!hasFile(state, Chain("out", "main.c")))
+      case Right((_, other))                  =>
+        fail(s"unexpected output: $other")
+      case Left(err)                          =>
+        fail(errMsg(err))
     }
   }
 }

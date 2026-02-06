@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
-import cats.data.{Chain, NonEmptyList}
+import cats.data.{Chain, Ior, NonEmptyList}
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
@@ -1128,18 +1128,84 @@ object Command {
           )
           .orNone
 
-        (
-          ClangTranspiler.justOptsGivenMode(
-            ConfigConf.opts.product(mainPack),
-            platformIO
-          ) {
-            case (_, Some(m)) =>
-              ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
-            case (fcc, None) =>
-              ClangTranspiler.Mode.Main(
-                fcc.flatMap { cc =>
+        val outFileOpt: Opts[P] =
+          Opts.option[P](
+            "output",
+            help = "name of output c code file.",
+            short = "o"
+          )
+
+        val outDirOrFileOpt: Opts[Ior[P, P]] =
+          (Transpiler.outDir[P], outFileOpt.orNone).mapN {
+            case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
+            case (outDir, None)          => Ior.left(outDir)
+          }.orElse(outFileOpt.map(Ior.right(_)))
+
+        val outputSpecOpt: Opts[(Option[P], ClangTranspiler.Output[F, P])] =
+          (
+            outDirOrFileOpt,
+            Opts("output.c").mapValidated(platformIO.path(_)),
+            (
+              Opts.option[P](
+                "exe_out",
+                help = "if set, compile the c code to an executable",
+                short = "e"
+              ),
+              ClangTranspiler.Output.ccConfOpt(platformIO)
+            ).tupled.orNone
+          ).mapN { (outDirOrFile, defaultOut, exeOut) =>
+            outDirOrFile match {
+              case Ior.Left(outDir)      =>
+                (
+                  Some(outDir),
+                  ClangTranspiler.Output(
+                    defaultOut,
+                    cOutRelativeToOutDir = true,
+                    exeOut = exeOut
+                  )
+                )
+              case Ior.Both(outDir, out) =>
+                (
+                  Some(outDir),
+                  ClangTranspiler.Output(
+                    out,
+                    cOutRelativeToOutDir = false,
+                    exeOut = exeOut
+                  )
+                )
+              case Ior.Right(out)        =>
+                (
+                  None,
+                  ClangTranspiler.Output(
+                    out,
+                    cOutRelativeToOutDir = false,
+                    exeOut = exeOut
+                  )
+                )
+            }
+          }
+
+        val buildArgs =
+          (
+            ConfigConf.opts,
+            mainPack,
+            outputSpecOpt,
+            ClangTranspiler.EmitMode.opts,
+            ClangTranspiler.GenExternalsMode.opts
+          ).tupled
+
+        (buildArgs, Colorize.optsConsoleDefault).mapN {
+          case ((fcc, mainPackOpt, (outDirOpt, output), emit, gen), colorize) =>
+            def mode(cc: ConfigConf): F[ClangTranspiler.Mode[F]] =
+              mainPackOpt match {
+                case Some(m) =>
+                  moduleIOMonad.pure(ClangTranspiler.Mode.Main(moduleIOMonad.pure(m)))
+                case None    =>
                   cc.conf.defaultMain match {
-                    case Some(m) => moduleIOMonad.pure(m)
+                    case Some(m) =>
+                      moduleIOMonad.pure(
+                        ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
+                      )
                     case None    =>
                       moduleIOMonad.raiseError(
                         CliException(
@@ -1150,15 +1216,30 @@ object Command {
                         )
                       )
                   }
+              }
+
+            def useOutDir(outDir: P): F[Output[P]] =
+              for {
+                cc <- fcc
+                m <- mode(cc)
+                trans = Transpiler.optioned(ClangTranspiler) {
+                  ClangTranspiler.Arguments(
+                    m,
+                    emit,
+                    gen,
+                    output,
+                    outDir,
+                    platformIO
+                  )
                 }
-              )
-          },
-          Colorize.optsConsoleDefault
-        ).mapN { case (((fcc, _), trans), colorize) =>
-          for {
-            cc <- fcc
-            msg <- cc.build(colorize, trans)
-          } yield (Output.Basic(msg, None): Output[P])
+                msg <- cc.build(colorize, trans)
+              } yield (Output.Basic(msg, None): Output[P])
+
+            outDirOpt match {
+              case Some(outDir) => useOutDir(outDir)
+              case None         =>
+                platformIO.withTempPrefix("build_outdir")(useOutDir)
+            }
         }
       }
 
@@ -1173,7 +1254,7 @@ object Command {
             Opts("test").mapValidated(platformIO.path(_)),
             ClangTranspiler.Output.ccConfOpt(platformIO)
           ).mapN { (o, e, conf) =>
-            ClangTranspiler.Output(o, Some((e, conf)))
+            ClangTranspiler.Output(o, cOutRelativeToOutDir = true, Some((e, conf)))
           }
 
         val testArgs =

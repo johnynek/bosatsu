@@ -137,7 +137,11 @@ case object ClangTranspiler extends Transpiler {
         .orElse(Opts(GenExternalsMode(false)))
   }
 
-  case class Output[F[_], P](cOut: P, exeOut: Option[(P, F[CcConf])])
+  case class Output[F[_], P](
+      cOut: P,
+      cOutRelativeToOutDir: Boolean,
+      exeOut: Option[(P, F[CcConf])]
+  )
   object Output {
     def ccConfOpt[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[CcConf]] = {
       import platformIO.{moduleIOMonad, pathArg, showPath}
@@ -216,7 +220,9 @@ case object ClangTranspiler extends Transpiler {
           ccConfOpt[F, P](platformIO)
         ).tupled
 
-      (cOpt, exeOpt.orNone).mapN(Output(_, _))
+      (cOpt, exeOpt.orNone).mapN { (cOut, exeOut) =>
+        Output(cOut, cOutRelativeToOutDir = true, exeOut = exeOut)
+      }
     }
   }
 
@@ -412,7 +418,7 @@ case object ClangTranspiler extends Transpiler {
                  val r = clangGen.renderTests(values = tvs.toList.sorted)
 
                  val exeIO = args.output match {
-                   case Output(_, Some((exeName, _))) if execute =>
+                   case Output(_, _, Some((exeName, _))) if execute =>
                      val exePath = args.platformIO.resolve(args.outDir, exeName)
                      args.platformIO
                        .system(args.platformIO.showPath.show(exePath), Nil)
@@ -438,7 +444,10 @@ case object ClangTranspiler extends Transpiler {
             )
 
           case Right((doc, effect)) =>
-            val outputName = resolve(args.outDir, args.output.cOut)
+            val outputName =
+              if (args.output.cOutRelativeToOutDir)
+                resolve(args.outDir, args.output.cOut)
+              else args.output.cOut
             val externalHeaders =
               if (args.generateExternals.generate) {
                 (new ClangGen(ns)).generateExternalsStub.iterator.map {
