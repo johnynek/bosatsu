@@ -2,6 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
+import cats.data.{NonEmptyChain, Validated, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.tool.CliException
@@ -36,6 +37,108 @@ case class DecodedLibrary[A](
 }
 
 object DecodedLibrary {
+  enum DepClosureError {
+    case MissingVersion(dep: DecodedLibrary[Algo.Blake3])
+    case MissingTransitiveDep(name: Name, version: Version)
+  }
+
+  object DepClosureError {
+    def toDoc(err: DepClosureError): Doc =
+      err match {
+        case DepClosureError.MissingVersion(dep) =>
+          Doc.text(
+            s"dependency ${dep.name.name} ${dep.version.render} has a public dependency without a version."
+          )
+        case DepClosureError.MissingTransitiveDep(name, version) =>
+          Doc.text(
+            s"missing transitive dependency ${name.name} ${version.render}."
+          )
+      }
+
+    def toDoc(errs: NonEmptyChain[DepClosureError]): Doc =
+      Doc.intercalate(Doc.line, errs.toNonEmptyList.toList.map(toDoc))
+  }
+
+  private type DepKey = (Name, Version)
+
+  private def publicDepsOf(
+      lib: DecodedLibrary[Algo.Blake3]
+  ): List[proto.LibDependency] =
+    lib.protoLib.publicDependencies.toList :::
+      lib.protoLib.unusedTransitivePublicDependencies.toList
+
+  def publicDepReferences(
+      lib: DecodedLibrary[Algo.Blake3]
+  ): ValidatedNec[DepClosureError, List[DepKey]] =
+    publicDepsOf(lib).traverse { dep =>
+      dep.desc.flatMap(_.version) match {
+        case Some(v) =>
+          Validated.valid((Name(dep.name), Version.fromProto(v)))
+        case None    =>
+          Validated.invalidNec(DepClosureError.MissingVersion(lib))
+      }
+    }
+
+  def publicDepClosure(
+      startLibs: List[DecodedLibrary[Algo.Blake3]],
+      depMap: Map[DepKey, DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[DepClosureError, List[DecodedLibrary[Algo.Blake3]]] = {
+    val nameOrder = summon[Ordering[Name]]
+    val versionOrder = summon[Ordering[Version]]
+    val keyOrder = Ordering.Tuple2(using nameOrder, versionOrder)
+    type SeenMap = SortedMap[DepKey, DecodedLibrary[Algo.Blake3]]
+
+    @annotation.tailrec
+    def loop(
+        todo: List[DecodedLibrary[Algo.Blake3]],
+        seen: SeenMap,
+        errors: List[DepClosureError]
+    ): (SeenMap, List[DepClosureError]) =
+      todo match {
+        case Nil =>
+          (seen, errors)
+        case lib :: rest =>
+          val key = (lib.name, lib.version)
+          if (seen.contains(key)) loop(rest, seen, errors)
+          else {
+            val seen1 = seen.updated(key, lib)
+            publicDepReferences(lib) match {
+              case Validated.Invalid(errs) =>
+                loop(rest, seen1, errs.toNonEmptyList.toList ::: errors)
+              case Validated.Valid(depKeys) =>
+                val (nextTodo, nextErrors) =
+                  depKeys.foldLeft((rest, errors)) { case ((todo0, errs0), depKey) =>
+                    depMap.get(depKey) match {
+                      case Some(depLib) =>
+                        if (seen1.contains(depKey) || todo0.exists(d =>
+                            nameOrder.equiv(d.name, depLib.name) &&
+                              versionOrder.equiv(d.version, depLib.version)
+                          ))
+                          (todo0, errs0)
+                        else (depLib :: todo0, errs0)
+                      case None         =>
+                        (
+                          todo0,
+                          DepClosureError
+                            .MissingTransitiveDep(depKey._1, depKey._2) :: errs0
+                        )
+                    }
+                  }
+
+                loop(nextTodo, seen1, nextErrors)
+            }
+          }
+      }
+
+    val initSeen = SortedMap.empty[DepKey, DecodedLibrary[Algo.Blake3]](
+      using keyOrder
+    )
+    val (closure, errs0) = loop(startLibs, initSeen, Nil)
+    NonEmptyChain.fromSeq(errs0.reverse.distinct) match {
+      case Some(errs) => Validated.invalid(errs)
+      case None       => Validated.valid(closure.values.toList)
+    }
+  }
 
   def versionOf[A: Algo](
       protoLib: Hashed[A, proto.Library]

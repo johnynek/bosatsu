@@ -6,15 +6,15 @@ language. This assumes you have installed the Bosatsu CLI; see
 
 As an example, in the project repo try the following:
 ```
-./bosatsu json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
+./bosatsu tool json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
 ```
-you should see: `"this is Foo"`. The json subcommand gives you the ability to
+you should see: `"this is Foo"`. The `tool json` subcommand gives you the ability to
 render values as JSON.
 
 For a more interesting example see:
 
 ```
-./bosatsu json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
+./bosatsu tool json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
 ```
 which should render:
 ```

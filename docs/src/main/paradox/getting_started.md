@@ -132,8 +132,10 @@ def greet(m: Mood) -> String:
 test = Assertion(greet(Happy) matches "hello", "greet Happy")
 ```
 
-Use `./bosatsu --help` to explore the available commands (check, eval, test,
-json, transpile, lib, etc.).
+Use `./bosatsu --help` to explore the available commands (`lib`, `tool`,
+`c-runtime`, etc.). Most language-level operations now live under `tool`, for
+example: `./bosatsu tool check`, `./bosatsu tool eval`, and
+`./bosatsu tool transpile`.
 
 ## 11) Run tests
 

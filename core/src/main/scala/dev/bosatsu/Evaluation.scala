@@ -8,7 +8,9 @@ import cats.implicits._
 
 import Identifier.Bindable
 
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals)(implicit
+    ec: Par.EC
+) {
 
   /** Holds the final value of the environment for each Package
     */
@@ -37,24 +39,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }.toMap
   }
 
-  private lazy val gdr = pm.getDataRepr
+  private lazy val compiled: MatchlessFromTypedExpr.Compiled[Unit] =
+    MatchlessFromTypedExpr.compile((), pm)
 
   private def evalLets(
-      thisPack: PackageName,
-      lets: List[(Bindable, RecursionKind, TypedExpr[T])]
+      thisPack: PackageName
   ): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr[Unit])] =
-      rankn.RefSpace.allocCounter
-        .flatMap { c =>
-          lets
-            .traverse { case (name, rec, te) =>
-              Matchless
-                .fromLet((), name, rec, te, gdr, c)
-                .map((name, _))
-            }
-        }
-        .run
-        .value
+      compiled.getOrElse(thisPack, Nil)
 
     val evalFn: (Unit, PackageName, Identifier) => Eval[Value] = { (_, p, i) =>
       if (p == thisPack) Eval.defer(evaluate(p)(i))
@@ -72,7 +64,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     envCache.getOrElseUpdate(
       packName, {
         val pack = pm.toMap(packName)
-        externalEnv(pack) ++ evalLets(packName, pack.lets)
+        externalEnv(pack) ++ evalLets(packName)
       }
     )
 

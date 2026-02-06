@@ -6,7 +6,9 @@ import cats.Traverse
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.Doc
+import _root_.bosatsu.{TypedAst => proto}
 import dev.bosatsu.Parser.argFromParser
+import dev.bosatsu.tool_command
 import dev.bosatsu.tool.{
   CliException,
   CompilerApi,
@@ -14,11 +16,16 @@ import dev.bosatsu.tool.{
   FileKind,
   GraphOutput,
   Output,
+  PathGen => ToolPathGen,
   PackageResolver,
   PathParseError
 }
 import dev.bosatsu.cruntime
+import dev.bosatsu.library.{DecodedLibrary, LibConfig, Name, Version}
+import dev.bosatsu.library.LibConfig.LibMethods
+import dev.bosatsu.hashing.Algo
 import org.typelevel.paiges.Document
+import java.util.regex.Pattern
 
 import codegen.Transpiler
 
@@ -209,16 +216,107 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       case class Traverse(in: JsonInput) extends JsonMode
     }
 
-    type PathGen = dev.bosatsu.tool.PathGen[IO, Path]
-    val PathGen = dev.bosatsu.tool.PathGen
+    type PathGen = ToolPathGen[IO, Path]
+    val PathGen = ToolPathGen
 
     sealed abstract class Inputs
     object Inputs {
+      private type DepDecode = (Path, DecodedLibrary[Algo.Blake3])
+
+      private def readDep(path: Path): IO[DecodedLibrary[Algo.Blake3]] =
+        readLibrary(path).flatMap(DecodedLibrary.decode(_))
+
+      private def depFromDecoded(
+          dep: DecodedLibrary[Algo.Blake3]
+      ): proto.LibDependency = {
+        val desc0 = dep.protoLib.descriptor.getOrElse(proto.LibDescriptor())
+        val version = desc0.version.orElse(Some(dep.version.toProto))
+        val hashes = (dep.hashValue.toIdent :: desc0.hashes.toList).distinct
+        proto.LibDependency(
+          name = dep.name.name,
+          desc = Some(
+            proto.LibDescriptor(
+              version = version,
+              hashes = hashes,
+              uris = desc0.uris
+            )
+          )
+        )
+      }
+
+      private def validateDepSet(
+          pub: List[DecodedLibrary[Algo.Blake3]],
+          priv: List[DecodedLibrary[Algo.Blake3]]
+      ): IO[Unit] = {
+        val conf = LibConfig(
+          name = Name("_tool"),
+          repoUri = "",
+          nextVersion = Version.zero,
+          previous = None,
+          exportedPackages = Nil,
+          allPackages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+          publicDeps = pub.map(depFromDecoded(_)),
+          privateDeps = priv.map(depFromDecoded(_)),
+          defaultMain = None
+        )
+        val validated = conf.validateDeps(pub ::: priv)
+        moduleIOMonad.fromTry(LibConfig.Error.toTry(validated)).void
+      }
+
+      private def readDepLibraries(
+          pubPaths: List[Path],
+          privPaths: List[Path]
+      ): IO[(List[DepDecode], List[DepDecode])] =
+        (
+          pubPaths.traverse(path => readDep(path).map(path -> _)),
+          privPaths.traverse(path => readDep(path).map(path -> _))
+        ).flatMapN { (pub, priv) =>
+          validateDepSet(pub.map(_._2), priv.map(_._2))
+            .as((pub, priv))
+        }
+
+      private def depInterfaces(
+          depLibs: (List[DepDecode], List[DepDecode])
+      ): List[Package.Interface] =
+        (depLibs._1 ::: depLibs._2).flatMap(_._2.interfaces)
+
+      private def depPacks(
+          depLibs: (List[DepDecode], List[DepDecode])
+      ): List[Package.Typed[Any]] =
+        (depLibs._1 ::: depLibs._2).flatMap { case (_, dec) =>
+          dec.implementations.toMap.values.toList
+        }
+
+      private def duplicatePackNames(
+          packs: List[Package.Typed[Any]]
+      ): List[PackageName] =
+        packs
+          .groupBy(_.name)
+          .collect { case (pn, _ :: _ :: _) => pn }
+          .toList
+          .sorted
+
+      private def ensureDistinctPackages(
+          packs: List[Package.Typed[Any]],
+          note: String
+      ): IO[Unit] = {
+        val dups = duplicatePackNames(packs)
+        if (dups.isEmpty) moduleIOMonad.unit
+        else
+          moduleIOMonad.raiseError(
+            CliException.Basic(
+              s"duplicate package names in $note: ${dups.map(_.asString).mkString(", ")}"
+            )
+          )
+      }
+
       // This allows interfaces
       class Compile(
           srcs: PathGen,
           ifaces: PathGen,
-          packageResolver: PackageResolver[IO, Path]
+          packageResolver: PackageResolver[IO, Path],
+          pubDeps: List[Path],
+          privDeps: List[Path]
       ) extends Inputs {
 
         private def inNel(cmd: MainCommand): IO[NonEmptyList[Path]] =
@@ -234,13 +332,14 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
             ec: Par.EC
         ): IO[PackageMap.Inferred] =
           for {
+            deps <- readDepLibraries(pubDeps, privDeps)
             ifpaths <- ifaces.read
             ifs <- readInterfaces(ifpaths)
             ins <- inNel(cmd)
             packPath <- CompilerApi.typeCheck(
               platformIO,
               ins,
-              ifs,
+              ifs ::: depInterfaces(deps),
               errColor,
               packageResolver
             )
@@ -251,7 +350,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           srcs: PathGen,
           ifaces: PathGen,
           includes: PathGen,
-          packageResolver: PackageResolver[IO, Path]
+          packageResolver: PackageResolver[IO, Path],
+          pubDeps: List[Path],
+          privDeps: List[Path]
       ) extends Inputs {
         def loadAndCompile(errColor: Colorize)(implicit
             ec: Par.EC
@@ -259,25 +360,34 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           (
             srcs.read,
             ifaces.read.flatMap(readInterfaces),
-            includes.read.flatMap(readPackages)
+            includes.read.flatMap(readPackages),
+            readDepLibraries(pubDeps, privDeps)
           )
             .flatMapN {
-              case (Nil, ifaces, packs) =>
-                moduleIOMonad.pure((ifaces, packs))
-              case (h :: t, ifaces, packs) =>
-                val packIfs = packs.map(Package.interfaceOf(_))
+              case (Nil, ifaces, packs, depLibs) =>
+                val depIfs = depInterfaces(depLibs)
+                val depPkgs = depPacks(depLibs)
+                val allPacks = packs ::: depPkgs
+                ensureDistinctPackages(allPacks, "show dependencies")
+                  .as((ifaces ::: depIfs, allPacks))
+              case (h :: t, ifaces, packs, depLibs) =>
+                val depIfs = depInterfaces(depLibs)
+                val depPkgs = depPacks(depLibs)
+                val existingPacks = packs ::: depPkgs
+                val packIfs = existingPacks.map(Package.interfaceOf(_))
                 for {
                   packPath <- CompilerApi.typeCheck(
                     platformIO,
                     NonEmptyList(h, t),
-                    ifaces ::: packIfs,
+                    ifaces ::: depIfs ::: packIfs,
                     errColor,
                     packageResolver
                   )
                   allPacks = (PackageMap.fromIterable(
-                    packs
+                    existingPacks
                   ) ++ packPath._1.toMap.map(_._2)).toMap.toList.map(_._2)
-                } yield (ifaces, allPacks)
+                  _ <- ensureDistinctPackages(allPacks, "show dependencies")
+                } yield (ifaces ::: depIfs, allPacks)
             }
       }
 
@@ -285,7 +395,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           srcs: PathGen,
           ifaces: PathGen,
           includes: PathGen,
-          val packageResolver: PackageResolver[IO, Path]
+          val packageResolver: PackageResolver[IO, Path],
+          pubDeps: List[Path],
+          privDeps: List[Path]
       ) extends Inputs {
 
         def srcList: IO[List[Path]] = srcs.read
@@ -294,19 +406,29 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           for {
             ifPaths <- ifaces.read
             withIf <- readInterfaces(ifPaths).map(ifPaths.zip(_))
-          } yield withIf
+            depLibs <- readDepLibraries(pubDeps, privDeps)
+            depIfs = (depLibs._1 ::: depLibs._2).flatMap { case (path, dep) =>
+              dep.interfaces.map(path -> _)
+            }
+          } yield withIf ::: depIfs
 
         def readPacks: IO[List[(Path, Package.Typed[Any])]] =
           for {
             pPaths <- includes.read
             withPs <- readPackages(pPaths).map(pPaths.zip(_))
-          } yield withPs
+            depLibs <- readDepLibraries(pubDeps, privDeps)
+            depPs = (depLibs._1 ::: depLibs._2).flatMap { case (path, dep) =>
+              dep.implementations.toMap.values.map(path -> _)
+            }
+          } yield withPs ::: depPs
       }
 
       class Runtime(
           srcs: PathGen,
           includes: PathGen,
-          packageResolver: PackageResolver[IO, Path]
+          packageResolver: PackageResolver[IO, Path],
+          pubDeps: List[Path],
+          privDeps: List[Path]
       ) extends Inputs {
 
         def packMap(
@@ -318,20 +440,39 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         ): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
           for {
             ins <- srcs.read
-            ds <- includes.read
+            includePaths <- includes.read
+            includePacks <- readPackages(includePaths)
+            depLibs <- readDepLibraries(pubDeps, privDeps)
+            depIfs = depInterfaces(depLibs)
+            depPackList = depPacks(depLibs)
             ins1 = MainIdentifier.addAnyAbsent(mis, ins)
-            pn <-
-              if (ds.isEmpty && ins1.isEmpty)
+            srcWithNames <-
+              if (includePacks.isEmpty && depPackList.isEmpty && ins1.isEmpty)
                 moduleIOMonad.raiseError(MainException.NoInputs(cmd))
-              else
-                CompilerApi.buildPackMap(
-                  platformIO,
-                  srcs = ins1,
-                  deps = ds,
-                  errColor,
-                  packageResolver
-                )
-          } yield pn
+              else {
+                NonEmptyList.fromList(ins1) match {
+                  case None =>
+                    moduleIOMonad.pure((PackageMap.empty, List.empty[(Path, PackageName)]))
+                  case Some(srcNel) =>
+                    val baseIfaces =
+                      includePacks.map(Package.interfaceOf(_)) ::: depIfs
+                    CompilerApi
+                      .typeCheck(
+                        platformIO,
+                        srcNel,
+                        baseIfaces,
+                        errColor,
+                        packageResolver
+                      )
+                      .map { case (pm, names) =>
+                        (PackageMap.toAnyTyped(pm), names.toList)
+                      }
+                }
+              }
+            (srcPacks, names) = srcWithNames
+            allPacks = includePacks ::: depPackList ::: srcPacks.toMap.values.toList
+            _ <- ensureDistinctPackages(allPacks, "runtime inputs and dependencies")
+          } yield (PackageMap.fromIterable(allPacks), names)
       }
 
       private val srcs =
@@ -347,21 +488,45 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         help = "compiled packages to include files",
         ".bosatsu_package"
       )(platformIO)
+      private val pubDeps =
+        Opts
+          .options[Path](
+            "pub_dep",
+            help =
+              "public dependency library (.bosatsu_lib or .bosatsu_ifacelib)"
+          )
+          .orEmpty
+      private val privDeps =
+        Opts
+          .options[Path](
+            "priv_dep",
+            help =
+              "private dependency library (.bosatsu_lib or .bosatsu_ifacelib)"
+          )
+          .orEmpty
 
       private val packRes = PackageResolver.opts(platformIO)
       private val noSearchRes = PackageResolver.noSearchOpts(platformIO)
 
       val compileOpts: Opts[Inputs.Compile] =
-        (srcs, ifaces, noSearchRes).mapN(new Compile(_, _, _))
+        (srcs, ifaces, noSearchRes, pubDeps, privDeps).mapN(
+          new Compile(_, _, _, _, _)
+        )
 
       val runtimeOpts: Opts[Inputs.Runtime] =
-        (srcs, includes, packRes).mapN(new Runtime(_, _, _))
+        (srcs, includes, packRes, pubDeps, privDeps).mapN(
+          new Runtime(_, _, _, _, _)
+        )
 
       val showOpts: Opts[Inputs.Show] =
-        (srcs, ifaces, includes, packRes).mapN(new Show(_, _, _, _))
+        (srcs, ifaces, includes, packRes, pubDeps, privDeps).mapN(
+          new Show(_, _, _, _, _, _)
+        )
 
       val depsOpts: Opts[Inputs.Deps] =
-        (srcs, ifaces, includes, packRes).mapN(new Deps(_, _, _, _))
+        (srcs, ifaces, includes, packRes, pubDeps, privDeps).mapN(
+          new Deps(_, _, _, _, _, _)
+        )
 
     }
 
@@ -745,202 +910,109 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           moduleIOMonad.raiseError(MainException.ParseErrors(errs, color))
       }
 
-    val opts: Opts[MainCommand] = {
-
-      implicit val argValue: Argument[(PackageName, Option[Bindable])] =
-        argFromParser(
-          (PackageName.parser ~ (P.string(
-            "::"
-          ) *> Identifier.bindableParser).?),
-          "valueIdent",
-          "package or package::name",
-          "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
-        )
-
-      val mainP =
-        MainIdentifier.opts(
-          Opts.option[(PackageName, Option[Bindable])](
-            "main",
-            help =
-              "main value to evaluate (package name or full identifier to a value)"
-          ),
-          Opts.option[Path](
-            "main_file",
-            help = "file containing the main package to evaluate"
-          )
-        )
-
-      val testP =
-        MainIdentifier.list(
-          Opts
-            .options[PackageName](
-              "test_package",
-              help = "package for which to run tests"
-            )
-            .map(_.map((_, None)))
-            .orEmpty,
-          Opts
-            .options[Path](
-              "test_file",
-              help = "file containing the package for which to run tests"
-            )
-            .orEmpty
-        )
-
-      val outputPath = Opts.option[Path]("output", help = "output path")
-      val interfaceOutputPath =
-        Opts.option[Path]("interface_out", help = "interface output path")
-
-      val jsonCommand = {
-        def toJsonOpt(modeOpt: Opts[JsonMode]) =
-          (
-            Inputs.runtimeOpts,
-            modeOpt,
-            mainP,
-            outputPath.orNone,
-            Colorize.optsConsoleDefault
-          )
-            .mapN(ToJson(_, _, _, _, _))
-
-        val input: Opts[JsonInput] =
-          Opts
-            .option[Path]("json_input", help = "json input path")
-            .map(JsonInput.FromPath(_))
-            .orElse(
-              Opts
-                .option[String]("json_string", help = "json string argument")
-                .map(JsonInput.FromString(_))
-            )
-
-        val applyInput = input.map(JsonMode.Apply(_))
-        val traverseInput = input.map(JsonMode.Traverse(_))
-
-        val subs = Opts
-          .subcommand("write", "write a bosatsu expression into json")(
-            toJsonOpt(Opts(JsonMode.Write))
-          )
-          .orElse(
-            Opts.subcommand(
-              "apply",
-              "apply a bosatsu function to a json array argument list"
-            )(toJsonOpt(applyInput))
-          )
-          .orElse(
-            Opts.subcommand(
-              "traverse",
-              "apply a bosatsu function to each element of an array or each value in an object"
-            )(toJsonOpt(traverseInput))
-          )
-
-        Opts.subcommand("json", "json writing and transformation tools")(subs)
-      }
-
-      val transpileOpt = (
-        Inputs.runtimeOpts,
-        Colorize.optsConsoleDefault,
-        transOpt
+    implicit val argValue: Argument[(PackageName, Option[Bindable])] =
+      argFromParser(
+        (PackageName.parser ~ (P.string("::") *> Identifier.bindableParser).?),
+        "valueIdent",
+        "package or package::name",
+        "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
       )
-        .mapN(TranspileCommand(_, _, _))
 
-      val evalOpt = (Inputs.runtimeOpts, mainP, Colorize.optsConsoleDefault)
-        .mapN(Evaluate(_, _, _))
-
-      val typeCheckOpt = (
-        Inputs.compileOpts,
-        outputPath.orNone,
-        interfaceOutputPath.orNone,
-        Colorize.optsConsoleDefault
+    val mainIdentifierOpt: Opts[MainIdentifier] =
+      MainIdentifier.opts(
+        Opts.option[(PackageName, Option[Bindable])](
+          "main",
+          help =
+            "main value to evaluate (package name or full identifier to a value)"
+        ),
+        Opts.option[Path](
+          "main_file",
+          help = "file containing the main package to evaluate"
+        )
       )
-        .mapN(Check(_, _, _, _))
 
-      val testOpt = (Inputs.runtimeOpts, testP, Colorize.optsConsoleDefault)
-        .mapN(RunTests(_, _, _))
+    val testIdentifiersOpt: Opts[List[MainIdentifier]] =
+      MainIdentifier.list(
+        Opts
+          .options[PackageName](
+            "test_package",
+            help = "package for which to run tests"
+          )
+          .map(_.map((_, None)))
+          .orEmpty,
+        Opts
+          .options[Path](
+            "test_file",
+            help = "file containing the package for which to run tests"
+          )
+          .orEmpty
+      )
 
-      Opts
-        .subcommand("eval", "evaluate an expression and print the output")(
-          evalOpt
-        )
-        .orElse(
-          Opts.subcommand("check", "type check a set of packages")(
-            typeCheckOpt
-          )
-        )
-        .orElse(
-          Opts.subcommand("test", "test a set of bosatsu modules")(testOpt)
-        )
-        .orElse(jsonCommand)
-        .orElse(
-          Opts.subcommand(
-            "transpile",
-            "transpile bosatsu into another language"
-          )(transpileOpt)
-        )
-        .orElse(
-          Opts.subcommand("show", "show compiled packages")(
-            (Inputs.showOpts, outputPath.orNone, Colorize.optsConsoleDefault)
-              .mapN(Show(_, _, _))
-          )
-        )
-        .orElse(
-          Opts.subcommand("deps", "emit a graph description of dependencies")(
-            (
-              Inputs.depsOpts,
-              outputPath.orNone,
-              Colorize.optsConsoleDefault,
-              GraphOutput.jsonOrDot
+    val outputPathOpt: Opts[Path] =
+      Opts.option[Path]("output", help = "output path")
+    val interfaceOutputPathOpt: Opts[Path] =
+      Opts.option[Path]("interface_out", help = "interface output path")
+
+    private val versionCommand: Opts[MainCommand] = {
+      val gitOpt =
+        BuildInfo.gitHeadCommit match {
+          case Some(gitVer) =>
+            // We can see at build time if the git version is set, if it isn't set
+            // don't create the option (in practice this will almost never happen)
+            Opts
+              .flag(
+                "git",
+                help =
+                  s"use the git-sha ($gitVer) the compiler was built at.",
+                "g"
+              )
+              .orFalse
+              .map(if (_) Some(gitVer) else None)
+          case None =>
+            Opts(None)
+        }
+
+      Opts.subcommand("version", "print to stdout the version of the tool")(
+        (
+          gitOpt,
+          Opts
+            .option[Path](
+              "output",
+              "file to write to, if not set, use stdout.",
+              "o"
             )
-              .mapN(Deps(_, _, _, _))
-          )
+            .orNone
         )
-        .orElse {
-          val gitOpt =
-            BuildInfo.gitHeadCommit match {
-              case Some(gitVer) =>
-                // We can see at build time if the git version is set, if it isn't set
-                // don't create the option (in practice this will almost never happen)
-                Opts
-                  .flag(
-                    "git",
-                    help =
-                      s"use the git-sha ($gitVer) the compiler was built at.",
-                    "g"
-                  )
-                  .orFalse
-                  .map(if (_) Some(gitVer) else None)
-              case None =>
-                Opts(None)
+          .mapN { (useGit, outPath) =>
+            val vStr = useGit match {
+              case Some(v) => v
+              case None    => BuildInfo.version
             }
 
-          Opts.subcommand("version", "print to stdout the version of the tool")(
-            (
-              gitOpt,
-              Opts
-                .option[Path](
-                  "output",
-                  "file to write to, if not set, use stdout.",
-                  "o"
-                )
-                .orNone
-            )
-              .mapN { (useGit, outPath) =>
-                val vStr = useGit match {
-                  case Some(v) => v
-                  case None    => BuildInfo.version
-                }
+            val out =
+              moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
+            FromOutput("version", out)
+          }
+      )
+    }
 
-                val out =
-                  moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath))
-                FromOutput("version", out)
-              }
-          )
-        }
+    def opts: Opts[MainCommand] =
+      Opts
+        .subcommand("lib", "tools for working with bosatsu libraries")(
+          library.Command
+            .opts(platformIO)
+            .map(FromOutput("lib", _))
+        )
         .orElse {
-          Opts.subcommand("lib", "tools for working with bosatsu libraries")(
-            library.Command
-              .opts(platformIO)
-              .map(FromOutput("lib", _))
+          Opts.subcommand(
+            "tool",
+            "lower-level file-based commands for build tool integration"
+          )(
+            tool_command.ToolCommand
+              .opts(MainModule.this)
           )
         }
+        .orElse(versionCommand)
         .orElse {
           Opts.subcommand(
             "c-runtime",
@@ -951,7 +1023,6 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
               .map(FromOutput("c-runtime", _))
           )
         }
-    }
 
     def command: Command[MainCommand] = {
       val versionInfo =

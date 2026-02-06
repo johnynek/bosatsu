@@ -1,6 +1,6 @@
 package dev.bosatsu.library
 
-import cats.{Monad, MonoidK}
+import cats.{Monad, MonoidK, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{Chain, Ior, NonEmptyList}
 import com.monovore.decline.{Argument, Opts}
@@ -14,12 +14,24 @@ import dev.bosatsu.tool.{
 import dev.bosatsu.codegen.Transpiler
 import dev.bosatsu.codegen.clang.ClangTranspiler
 import dev.bosatsu.Parser
+import cats.parse.{Parser => CP}
 import dev.bosatsu.hashing.Algo.WithAlgo.WithAlgoHashValue
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.{Json, PackageName, PackageMap, PlatformIO}
+import dev.bosatsu.{
+  Identifier,
+  Json,
+  JsonEncodingError,
+  PackageName,
+  PackageMap,
+  Par,
+  PlatformIO,
+  Predef => BosatsuPredef
+}
+import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
+import dev.bosatsu.Identifier.Bindable
 
 import _root_.bosatsu.{TypedAst => proto}
 
@@ -468,10 +480,9 @@ object Command {
           res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
         } yield res
 
-      def build(
-          colorize: Colorize,
-          trans: Transpiler.Optioned[F, P]
-      ): F[Doc] =
+      def decodedWithDeps(
+          colorize: Colorize
+      ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(colorize)
@@ -483,7 +494,6 @@ object Command {
             cs.prevPublicDepDecodes
           )
           vr <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
-          // we don't need a valid protoLib which will be published, just for resolving names/versions
           protoLib <- moduleIOMonad.fromEither(
             conf.unvalidatedAssemble(
               cs.prevThis,
@@ -495,20 +505,11 @@ object Command {
           hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
             _.toByteArray
           )
-          // TODO: it's wasteful to serialize, just do
-          decLib = DecodedLibrary(
-            conf.name,
-            conf.nextVersion,
-            hashedLib.hash,
-            protoLib,
-            Nil, // we can ignore interfaces when generating binaries
-            allPacks
-          )
+          decLib <- DecodedLibrary.decode(hashedLib)
           allDeps =
             (cs.pubDecodes.iterator ++ cs.privDecodes.iterator).map { dec =>
               (dec.name.name, dec.version) -> dec.toHashed
             }.toMap
-
           loadFn = { (dep: proto.LibDependency) =>
             val version = dep.desc
               .flatMap(_.version)
@@ -534,6 +535,14 @@ object Command {
             }
           }
           decWithLibs <- DecodedLibraryWithDeps.decodeAll(decLib)(loadFn)
+        } yield decWithLibs
+
+      def build(
+          colorize: Colorize,
+          trans: Transpiler.Optioned[F, P]
+      ): F[Doc] =
+        for {
+          decWithLibs <- decodedWithDeps(colorize)
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
           }
@@ -563,64 +572,79 @@ object Command {
         pubDecodes: List[DecodedLibrary[Algo.Blake3]]
     ): F[List[DecodedLibrary[Algo.Blake3]]] = {
       type Key = (Name, Version)
+      def invalidClosure(errs: cats.data.NonEmptyChain[
+          DecodedLibrary.DepClosureError
+      ]): Throwable =
+        CliException(
+          "invalid dependency closure",
+          DecodedLibrary.DepClosureError.toDoc(errs)
+        )
 
-      def publicDepsOf(
-          lib: DecodedLibrary[Algo.Blake3]
-      ): List[proto.LibDependency] =
-        lib.protoLib.publicDependencies.toList :::
-          lib.protoLib.unusedTransitivePublicDependencies.toList
-
-      def depVersion(dep: proto.LibDependency): Either[Throwable, Version] =
-        dep.desc.flatMap(_.version) match {
-          case Some(v) => Right(Version.fromProto(v))
-          case None    =>
-            Left(
+      def loadFromCas(
+          name: Name,
+          version: Version
+      ): F[DecodedLibrary[Algo.Blake3]] = {
+        val dep = proto.LibDependency(
+          name = name.name,
+          desc = Some(proto.LibDescriptor(version = Some(version.toProto)))
+        )
+        cas.libFromCas(dep).flatMap {
+          case Some(lib) => DecodedLibrary.decode(lib)
+          case None      =>
+            moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
               CliException(
-                "missing version",
+                "missing dep from cas",
                 Doc.text(
-                  show"public dependency ${dep.name} is missing a version."
+                  show"missing public dependency $name $version in CAS, run `lib fetch`."
                 )
               )
             )
         }
+      }
 
       def loop(
-          todo: List[proto.LibDependency],
+          todo: List[DecodedLibrary[Algo.Blake3]],
           acc: Map[Key, DecodedLibrary[Algo.Blake3]]
       ): F[Map[Key, DecodedLibrary[Algo.Blake3]]] =
         todo match {
-          case Nil         => moduleIOMonad.pure(acc)
-          case dep :: rest =>
-            moduleIOMonad.fromEither(depVersion(dep)).flatMap { v =>
-              val key = (Name(dep.name), v)
-              if (acc.contains(key)) loop(rest, acc)
-              else
-                cas.libFromCas(dep).flatMap {
-                  case Some(lib) =>
-                    DecodedLibrary.decode(lib).flatMap { dec =>
-                      loop(publicDepsOf(dec) ::: rest, acc.updated(key, dec))
+          case Nil => moduleIOMonad.pure(acc)
+          case lib :: rest =>
+            moduleIOMonad
+              .fromEither(
+                DecodedLibrary
+                  .publicDepReferences(lib)
+                  .leftMap(invalidClosure)
+                  .toEither
+              )
+              .flatMap { depKeys =>
+                depKeys
+                  .foldLeftM((rest, acc)) { case ((todo0, acc0), key) =>
+                    if (acc0.contains(key)) moduleIOMonad.pure((todo0, acc0))
+                    else {
+                      val (depName, depVersion) = key
+                      loadFromCas(depName, depVersion)
+                        .map(dec => (dec :: todo0, acc0.updated(key, dec)))
                     }
-                  case None =>
-                    moduleIOMonad.raiseError[Map[
-                      Key,
-                      DecodedLibrary[Algo.Blake3]
-                    ]](
-                      CliException(
-                        "missing dep from cas",
-                        Doc.text(
-                          show"missing public dependency ${dep.name} $v in CAS, run `lib fetch`."
-                        )
-                      )
-                    )
-                }
-            }
+                  }
+                  .flatMap { case (todo1, acc1) =>
+                    loop(todo1, acc1)
+                  }
+              }
         }
 
-      val initial = pubDecodes.iterator.map { dec =>
-        ((dec.name, dec.version), dec)
-      }.toMap
-      val initialTodo = pubDecodes.flatMap(publicDepsOf)
-      loop(initialTodo, initial).map(_.values.toList)
+      val initial = pubDecodes.iterator.map(dec =>
+        (dec.name, dec.version) -> dec
+      ).toMap
+
+      loop(pubDecodes, initial)
+        .flatMap { depMap =>
+          moduleIOMonad.fromEither(
+            DecodedLibrary
+              .publicDepClosure(pubDecodes, depMap)
+              .leftMap(invalidClosure)
+              .toEither
+          )
+        }
     }
 
     object ConfigConf {
@@ -1115,6 +1139,334 @@ object Command {
         }
       }
 
+    implicit val argValue: Argument[(PackageName, Option[Bindable])] =
+      Parser.argFromParser(
+        (PackageName.parser ~ (CP.string("::") *> Identifier.bindableParser).?),
+        "valueIdent",
+        "package or package::name",
+        "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
+      )
+
+    val evalCommand =
+      Opts.subcommand(
+        "eval",
+        "evaluate a value from this library or its dependency tree"
+      ) {
+        (
+          ConfigConf.opts,
+          Opts.option[(PackageName, Option[Bindable])](
+            "main",
+            help =
+              "main value to evaluate (package name or full identifier to a value)"
+          ),
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, target, colorize) =>
+          for {
+            cc <- fcc
+            out <- platformIO.withEC {
+              for {
+                dec <- cc.decodedWithDeps(colorize)
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
+                  summon[Par.EC]
+                )
+                (scope, value, tpe) <- moduleIOMonad.fromEither {
+                  target match {
+                    case (pack, None)        => ev.evaluateMain(pack)
+                    case (pack, Some(ident)) => ev.evaluateName(pack, ident)
+                  }
+                }
+                memoE = value.memoize
+                fn = ev.valueToDocFor(scope).toDoc(tpe)
+                edoc = memoE.map { v =>
+                  fn(v) match {
+                    case Right(d)  => d
+                    case Left(err) =>
+                      // $COVERAGE-OFF$ unreachable due to being well typed
+                      sys.error(s"got illtyped error: $err")
+                    // $COVERAGE-ON$
+                  }
+                }
+              } yield (Output.EvaluationResult(value, tpe, edoc): Output[P])
+            }
+          } yield out
+        }
+      }
+
+    val showCommand =
+      Opts.subcommand(
+        "show",
+        "show typed packages from this library or dependency tree"
+      ) {
+        (
+          ConfigConf.opts,
+          Opts
+            .options[PackageName](
+              "package",
+              help = "package names to show (defaults to local library packages)"
+            )
+            .orEmpty,
+          Opts.option[P]("output", help = "output path").orNone,
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, packages, output, colorize) =>
+          for {
+            cc <- fcc
+            out <- platformIO.withEC {
+              for {
+                dec <- cc.decodedWithDeps(colorize)
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
+                  summon[Par.EC]
+                )
+                packs <- moduleIOMonad.fromEither(ev.packagesForShow(packages))
+              } yield (Output.ShowOutput(packs, Nil, output): Output[P])
+            }
+          } yield out
+        }
+      }
+
+    val jsonCommand: Opts[F[Output[P]]] = {
+      sealed abstract class JsonInput {
+        def read: F[String]
+      }
+      object JsonInput {
+        case class FromString(asString: String) extends JsonInput {
+          def read = moduleIOMonad.pure(asString)
+        }
+        case class FromPath(path: P) extends JsonInput {
+          def read = platformIO.readUtf8(path)
+        }
+      }
+
+      sealed abstract class JsonMode derives CanEqual
+      object JsonMode {
+        case object Write extends JsonMode
+        case class Apply(in: JsonInput) extends JsonMode
+        case class Traverse(in: JsonInput) extends JsonMode
+      }
+
+      val mainOpt =
+        Opts.option[(PackageName, Option[Bindable])](
+          "main",
+          help =
+            "main value to evaluate (package name or full identifier to a value)"
+        )
+
+      val outputOpt =
+        Opts.option[P]("output", help = "output path").orNone
+
+      val input: Opts[JsonInput] =
+        Opts
+          .option[P]("json_input", help = "json input path")
+          .map(JsonInput.FromPath(_))
+          .orElse(
+            Opts
+              .option[String]("json_string", help = "json string argument")
+              .map(JsonInput.FromString(_))
+          )
+
+      val applyInput = input.map(JsonMode.Apply(_))
+      val traverseInput = input.map(JsonMode.Traverse(_))
+
+      def runMode(modeOpt: Opts[JsonMode]): Opts[F[Output[P]]] =
+        (
+          ConfigConf.opts,
+          modeOpt,
+          mainOpt,
+          outputOpt,
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, mode, target, output, colorize) =>
+          def showError[A](prefix: String, str: String, idx: Int): F[A] = {
+            val errMsg0 = str.substring(idx + 1)
+            val errMsg =
+              if (errMsg0.length > 20)
+                errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
+              else errMsg0
+
+            moduleIOMonad.raiseError(
+              new Exception(s"$prefix at ${idx + 1}: $errMsg")
+            )
+          }
+
+          def ioJson(io: F[String]): F[Json] =
+            io.flatMap { jsonString =>
+              Json.parserFile.parseAll(jsonString) match {
+                case Right(j)  => moduleIOMonad.pure(j)
+                case Left(err) =>
+                  val idx = err.failedAtOffset
+                  showError("could not parse a JSON record", jsonString, idx)
+              }
+            }
+
+          def unsupported[A](
+              j: JsonEncodingError.UnsupportedType
+          ): F[A] = {
+            def typeDoc(t: Type) =
+              Type.fullyResolvedDocument.document(t)
+            val path = j.path.init
+            val badType = j.path.last
+            val pathMsg = path match {
+              case Nil  => Doc.empty
+              case nonE =>
+                val sep =
+                  Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
+                val pd =
+                  (Doc.intercalate(sep, nonE.map(typeDoc(_))) + sep + typeDoc(
+                    badType
+                  )).nested(4)
+                pd + Doc.hardLine + Doc.hardLine + Doc.text(
+                  "but"
+                ) + Doc.hardLine + Doc.hardLine
+            }
+            val msg = pathMsg + Doc.text("the type") + Doc.space + typeDoc(
+              badType
+            ) + Doc.space + Doc.text("isn't supported")
+            val tpeStr = msg.render(80)
+
+            moduleIOMonad.raiseError(
+              new Exception(s"cannot convert type to Json: $tpeStr")
+            )
+          }
+
+          for {
+            cc <- fcc
+            out <- platformIO.withEC {
+              for {
+                dec <- cc.decodedWithDeps(colorize)
+                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)(using
+                  summon[Par.EC]
+                )
+                evaluated <- moduleIOMonad.fromEither {
+                  target match {
+                    case (pack, None)        => ev.evaluateMain(pack)
+                    case (pack, Some(ident)) => ev.evaluateName(pack, ident)
+                  }
+                }
+                (scope, value, tpe) = evaluated
+                v2j = ev.valueToJsonFor(scope)
+                out <- mode match {
+                  case JsonMode.Write =>
+                    v2j.toJson(tpe) match {
+                      case Left(unsup) => unsupported(unsup)
+                      case Right(fn)   =>
+                        fn(value.value) match {
+                          case Left(valueError) =>
+                            moduleIOMonad.raiseError(
+                              new Exception(s"unexpected value error: $valueError")
+                            )
+                          case Right(j) =>
+                            moduleIOMonad.pure(
+                              Output.JsonOutput(j, output): Output[P]
+                            )
+                        }
+                    }
+
+                  case JsonMode.Apply(in) =>
+                    v2j.valueFnToJsonFn(tpe) match {
+                      case Left(unsup)           => unsupported(unsup)
+                      case Right((arity, fnGen)) =>
+                        fnGen(value.value) match {
+                          case Left(valueError) =>
+                            moduleIOMonad.raiseError(
+                              new Exception(s"unexpected value error: $valueError")
+                            )
+                          case Right(fn) =>
+                            ioJson(in.read)
+                              .flatMap {
+                                case ary @ Json.JArray(items) if items.length == arity =>
+                                  fn(ary) match {
+                                    case Left(dataError) =>
+                                      moduleIOMonad.raiseError[Json](
+                                        new Exception(
+                                          s"invalid input json: $dataError"
+                                        )
+                                      )
+                                    case Right(json) =>
+                                      moduleIOMonad.pure(json)
+                                  }
+                                case otherJson =>
+                                  moduleIOMonad.raiseError[Json](
+                                    new Exception(
+                                      s"required a json array of size $arity, found:\n\n${otherJson.render}"
+                                    )
+                                  )
+                              }
+                              .map(j => Output.JsonOutput(j, output): Output[P])
+                        }
+                    }
+
+                  case JsonMode.Traverse(in) =>
+                    v2j.valueFnToJsonFn(tpe) match {
+                      case Left(unsup)           => unsupported(unsup)
+                      case Right((arity, fnGen)) =>
+                        fnGen(value.value) match {
+                          case Left(valueError) =>
+                            moduleIOMonad.raiseError(
+                              new Exception(s"unexpected value error: $valueError")
+                            )
+                          case Right(fn) =>
+                            ioJson(in.read)
+                              .flatMap {
+                                case Json.JArray(items) =>
+                                  items.toList.traverse {
+                                    case ary @ Json.JArray(inner)
+                                        if inner.length == arity =>
+                                      fn(ary) match {
+                                        case Left(dataError) =>
+                                          moduleIOMonad.raiseError[Json](
+                                            new Exception(
+                                              s"invalid input json: $dataError"
+                                            )
+                                          )
+                                        case Right(json) =>
+                                          moduleIOMonad.pure(json)
+                                      }
+                                    case otherJson =>
+                                      moduleIOMonad.raiseError[Json](
+                                        new Exception(
+                                          s"required a json array of size $arity, found:\n\n${otherJson.render}"
+                                        )
+                                      )
+                                  }
+                                case other =>
+                                  moduleIOMonad.raiseError[List[Json]](
+                                    new Exception(
+                                      s"require an array for traverse, found: ${other.getClass}"
+                                    )
+                                  )
+                              }
+                              .map(v =>
+                                Output.JsonOutput(
+                                  Json.JArray(v.toVector),
+                                  output
+                                ): Output[P]
+                              )
+                        }
+                    }
+                }
+              } yield out
+            }
+          } yield out
+        }
+
+      Opts.subcommand("json", "json writing and transformation tools") {
+        Opts
+          .subcommand("write", "write a bosatsu expression into json")(
+            runMode(Opts(JsonMode.Write))
+          )
+          .orElse(
+            Opts.subcommand(
+              "apply",
+              "apply a bosatsu function to a json array argument list"
+            )(runMode(applyInput))
+          )
+          .orElse(
+            Opts.subcommand(
+              "traverse",
+              "apply a bosatsu function to each element of an array of argument arrays"
+            )(runMode(traverseInput))
+          )
+      }
+    }
+
     val buildCommand =
       Opts.subcommand(
         "build",
@@ -1384,6 +1736,9 @@ object Command {
       initCommand ::
         listCommand ::
         depsCommand ::
+        evalCommand ::
+        jsonCommand ::
+        showCommand ::
         assembleCommand ::
         fetchCommand ::
         checkCommand ::
