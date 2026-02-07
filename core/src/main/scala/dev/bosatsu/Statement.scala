@@ -40,7 +40,11 @@ sealed abstract class Statement {
       case Struct(nm, typeArgs, args) =>
         Struct(nm, typeArgs, args)(r)
       case Enum(nm, typeArgs, parts) =>
-        Enum(nm, typeArgs, parts)(r)
+        Enum(
+          nm,
+          typeArgs,
+          parts.map(_.map(_.copy(region = r)))
+        )(r)
       case ExternalDef(name, ta, args, res) =>
         ExternalDef(name, ta, args, res)(r)
       case ExternalStruct(nm, targs) =>
@@ -62,7 +66,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
     this match {
       case Struct(nm, _, _)  => nm :: Nil
       case Enum(_, _, items) =>
-        items.get.toList.map { case (nm, _) => nm }
+        items.get.toList.map(_.name)
       case ExternalStruct(_, _) => Nil
     }
 }
@@ -142,12 +146,17 @@ object Statement {
   //////
   // TypeDefinitionStatement types:
   //////
+  final case class EnumBranch(
+      name: Constructor,
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      args: List[(Bindable, Option[TypeRef])],
+      region: Region
+  )
+
   case class Enum(
       name: Constructor,
       typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
-      items: OptIndent[
-        NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]
-      ]
+      items: OptIndent[NonEmptyList[EnumBranch]]
   )(val region: Region)
       extends TypeDefinitionStatement
   case class ExternalStruct(
@@ -283,10 +292,13 @@ object Statement {
 
     val enumP = {
       val constructorP =
-        (Identifier.consParser ~ argParser.parensLines1Cut.?)
+        (Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?)
+          .region
           .map {
-            case (n, None)       => (n, Nil)
-            case (n, Some(args)) => (n, args.toList)
+            case (region, ((n, targs), None)) =>
+              EnumBranch(n, targs, Nil, region)
+            case (region, ((n, targs), Some(args))) =>
+              EnumBranch(n, targs, args.toList, region)
           }
 
       val sep = (Indy
@@ -359,10 +371,13 @@ object Statement {
       }
     val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
 
-    implicit val consDoc =
-      Document.instance[(Constructor, List[(Bindable, Option[TypeRef])])] {
-        case (nm, parts) => constructor(nm, Doc.empty, parts)
+    implicit val consDoc: Document[EnumBranch] = Document.instance[EnumBranch] { item =>
+      val taDoc = item.typeArgs match {
+        case None     => Doc.empty
+        case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
       }
+      constructor(item.name, taDoc, item.args)
+    }
 
     Document.instance[Statement] {
       case Bind(bs) =>
@@ -392,11 +407,7 @@ object Statement {
             Doc.intercalate(itemSep, ne.toList.map(Document[T].document))
           }
 
-        val indentedCons = OptIndent
-          .document[NonEmptyList[
-            (Constructor, List[(Bindable, Option[TypeRef])])
-          ]]
-          .document(parts)
+        val indentedCons = OptIndent.document[NonEmptyList[EnumBranch]].document(parts)
 
         val taDoc = typeArgs match {
           case None     => Doc.empty

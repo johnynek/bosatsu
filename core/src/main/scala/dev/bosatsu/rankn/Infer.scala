@@ -100,10 +100,15 @@ object Infer {
     }
 
   /** The first element of the tuple are the the bound type vars for this type.
-    * the next are the types of the args of the constructor the final is the
+    * the next are constructor-local type vars, then constructor args, then the
     * defined type this creates
     */
-  type Cons = (List[(Type.Var.Bound, Kind.Arg)], List[Type], Type.Const.Defined)
+  type Cons = (
+      List[(Type.Var.Bound, Kind.Arg)],
+      List[(Type.Var.Bound, Kind.Arg)],
+      List[Type],
+      Type.Const.Defined
+  )
   type Name = (Option[PackageName], Identifier)
 
   class Env(
@@ -2401,7 +2406,8 @@ object Infer {
         reg: Region,
         sigmaRegion: Region
     ): Infer[List[Type]] =
-      GetDataCons(consName, reg).flatMap { case (args, consParams, tpeName) =>
+      GetDataCons(consName, reg).flatMap {
+        case (args, consExists, consParams, tpeName) =>
         val thisTpe = Type.TyConst(tpeName)
 
         // It seems like maybe we should be checking someting about the kinds
@@ -2510,8 +2516,16 @@ object Infer {
         val revArgs = args.reverse
         val pushedTpe = pushDownCovariant(revArgs, Nil, sigma)
         loop(revArgs, Kind.Type, pushedTpe)
-          .map { env =>
-            consParams.map(Type.substituteVar(_, env))
+          .flatMap { env =>
+            consExists
+              .traverse { case (b, ka) =>
+                newSkolemTyVar(b, ka.kind, existential = true)
+                  .map(sk => (b, Type.TyVar(sk)))
+              }
+              .map { skolemSubs =>
+                val fullSub = env ++ skolemSubs.toMap[Type.Var, Type]
+                consParams.map(Type.substituteVar(_, fullSub))
+              }
           }
       }
 

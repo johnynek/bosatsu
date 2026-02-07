@@ -49,7 +49,7 @@ sealed abstract class Referant[+A] {
 object Referant {
   case class Value(scheme: Type) extends Referant[Nothing]
   case class DefinedT[A](dtype: DefinedType[A]) extends Referant[A]
-  case class Constructor[A](dtype: DefinedType[A], fn: ConstructorFn)
+  case class Constructor[A](dtype: DefinedType[A], fn: ConstructorFn[A])
       extends Referant[A]
 
   private def imported[A, B, C](
@@ -98,14 +98,14 @@ object Referant {
       imps: List[Import[A, NonEmptyList[Referant[B]]]]
   ): Map[
     (PackageName, ConstructorName),
-    (List[(Type.Var.Bound, B)], List[Type], Type.Const.Defined)
+    (List[(Type.Var.Bound, B)], List[(Type.Var.Bound, B)], List[Type], Type.Const.Defined)
   ] = {
     val refs: Iterator[Referant[B]] =
       imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))
     refs.collect { case Constructor(dt, fn) =>
       (
         (dt.packageName, fn.name),
-        (dt.annotatedTypeParams, fn.args.map(_._2), dt.toTypeConst)
+        (dt.annotatedTypeParams, fn.exists, fn.args.map(_._2), dt.toTypeConst)
       )
     }.toMap
   }

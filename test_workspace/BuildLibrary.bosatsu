@@ -12,15 +12,15 @@ struct Library
 enum Build[a: *]:
   LoadFile(name: String, is_file: Leibniz[a, File])
   Pure(value: a)
-  Mapped(consume: exists b. (Build[b], b -> a))
-  Map2(consume: exists b, c. (Build[b], Build[c], (b, c) -> a))
+  Mapped[b](prev: Build[b], fn: b -> a)
+  Map2[b, c](left: Build[b], right: Build[c], fn: (b, c) -> a)
   BuildLib(files: Build[List[File]], deps: Build[List[Library]], is_lib: Leibniz[a, Library])
 
 def map_Build(b: Build[a], fn: a -> b) -> Build[b]:
-  Mapped((b, fn))
+  Mapped(b, fn)
 
 def map2_Build(ba: Build[a], bb: Build[b], fn: (a, b) -> c) -> Build[c]:
-  Map2((ba, bb, fn))
+  Map2(ba, bb, fn)
 
 def file(s: String) -> Build[File]:
     LoadFile(s, refl)

@@ -85,7 +85,7 @@ object KindFormula {
     }
 
     case class DeclaredType(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         constructorIdx: Int,
         quantified: rankn.Type,
         bound: rankn.Type.Var.Bound,
@@ -97,7 +97,7 @@ object KindFormula {
     }
 
     case class ImportedConst(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         constructorIdx: Int,
         const: rankn.Type.Const,
         kind: Kind,
@@ -109,20 +109,20 @@ object KindFormula {
     }
 
     // arg idx of a given constructor function
-    case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint {
+    case class Accessor(cfn: ConstructorFn[?], idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co || value == Variance.in)
     }
 
-    case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint {
+    case class RecursiveView(cfn: ConstructorFn[?], idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co)
     }
 
     case class HasView(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         idx: Int,
         bound: rankn.Type.Var.Bound,
         view: Var
@@ -137,7 +137,7 @@ object KindFormula {
     }
 
     case class UnifyVariance(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         idx: Int,
         inType: rankn.Type,
         variance: Variance
@@ -148,7 +148,7 @@ object KindFormula {
     }
 
     case class UnifyVar(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         idx: Int,
         inType: rankn.Type,
         variance: Var
@@ -163,7 +163,7 @@ object KindFormula {
 
     // if constrainted by this v + variance == v
     case class VarSubsumes(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         idx: Int,
         inType: rankn.Type,
         variance: Var
@@ -308,7 +308,10 @@ object KindFormula {
         case ((_, a), t) => Cons(a, t)
       }
       _ <- dtFormula.constructors.traverse { cfn =>
-        state.addConstraints(thisKind, cfn, kindMap)
+        val localKindMap = kindMap ++ cfn.exists.iterator.map { case (k, v) =>
+          (k, Impl.BoundState.IsArg(v))
+        }
+        state.addConstraints(thisKind, cfn, localKindMap)
       }
       constraints <- state.getConstraints
       dirs <- state.getDirections
@@ -580,7 +583,7 @@ object KindFormula {
         } yield Arg(v, form)
 
       def unifyKind(
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           cfnIdx: Int,
           tpe: rankn.Type,
           kind: Kind,
@@ -601,7 +604,7 @@ object KindFormula {
         }
 
       def unifyKindFormula(
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           cfnIdx: Int,
           tpe: rankn.Type,
           left: KindFormula,
@@ -627,7 +630,7 @@ object KindFormula {
         }
 
       def leftSubsumesRightKindFormula(
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           cfnIdx: Int,
           tpe: rankn.Type,
           left: KindFormula,
@@ -657,7 +660,7 @@ object KindFormula {
       def kindOfType(
           direction: Direction,
           thisKind: KindFormula,
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           idx: Int,
           tpe: rankn.Type,
           kinds: Map[rankn.Type.Var.Bound, BoundState]
@@ -753,7 +756,7 @@ object KindFormula {
       def addTypeConstraints(
           dir: Direction,
           thisKind: KindFormula,
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           idx: Int,
           view: Var,
           tpe: rankn.Type,
@@ -885,7 +888,7 @@ object KindFormula {
 
       def addConstraints(
           thisKind: KindFormula,
-          cfn: ConstructorFn,
+          cfn: ConstructorFn[?],
           kinds: Map[rankn.Type.Var.Bound, BoundState]
       ): RefSpace[Unit] =
         cfn.args.zipWithIndex.traverse_ { case ((_, tpe), idx) =>

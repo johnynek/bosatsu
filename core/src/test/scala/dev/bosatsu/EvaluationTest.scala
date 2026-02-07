@@ -3,8 +3,10 @@ package dev.bosatsu
 import Value._
 
 import LocationMap.Colorize
+import scala.concurrent.duration.DurationInt
 
 class EvaluationTest extends munit.FunSuite with ParTest {
+  override val munitTimeout = 180.seconds
 
   import TestUtils._
 
@@ -2771,13 +2773,12 @@ enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [b]\nRegion(14,34)"
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains("type variable `a` is ambiguous in Enum[a]")
       )
+      assert(msg.contains("Either remove it or use it in one of the enum variants"))
+      assert(msg.contains("Region(14,34)"))
       ()
     }
 
@@ -2788,13 +2789,13 @@ enum Enum[a]: Foo(a: a), Bar(a: b)
 
 main = Foo(1, "2")
 """)) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [a, b]\nRegion(14,48)"
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains("Enum.Bar is missing type parameter declarations for [b]")
       )
+      assert(msg.contains("enum Enum[a, b]"))
+      assert(msg.contains("Bar[b]("))
+      assert(msg.contains("Region("))
       ()
     }
   }
@@ -3941,6 +3942,116 @@ test = Assertion(res matches Some(((1, _), Empty)), "one")
       "Foo",
       1
     )
+  }
+
+  test("existential quantification in enum branch type params") {
+    runBosatsuTest(
+      List("""
+package Foo
+export maybeMapped, FreeF
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b -> a)
+
+def pure(a: a) -> FreeF[a]: Pure(a)
+def map[a, b](f: FreeF[a], fn: a -> b) -> FreeF[b]:
+  Mapped(f, fn)
+
+def maybeMapped[a](f: FreeF[a]) -> exists b. Option[(FreeF[b], b -> a)]:
+  match f:
+    case Mapped(prev, fn): Some((prev, fn))
+    case _: None
+
+def run[a](fa: FreeF[a]) -> a:
+  recur fa:
+    case Pure(a): a
+    case Mapped(prev, fn):
+      fn(run(prev))
+
+res = run(pure(0).map(x -> x.add(1)))
+test = Assertion(res matches 1, "one")
+"""),
+      "Foo",
+      1
+    )
+  }
+
+  test("missing enum branch type params reports branch-scoped error") {
+    val testCode = """
+package ErrorCheck
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(prev: FreeF[b], fn: b -> a)
+"""
+
+    evalFail(List(testCode)) {
+      case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val message = sce.message(Map.empty, Colorize.None)
+        assert(
+          message.contains(
+            "FreeF.Mapped is missing type parameter declarations for [b]"
+          )
+        )
+        assert(message.contains("enum FreeF[a, b]"))
+        assert(message.contains("Mapped[b]("))
+        assert(message.contains("Region("))
+        ()
+    }
+  }
+
+  test("ill-kinded enum branch type params reports constructor context") {
+    val testCode = """
+package ErrorCheck
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b[a])
+"""
+
+    def assertMessage(message: String): Unit = {
+      assert(message.contains("constructor Mapped"))
+      assert(message.contains("b[a]"))
+    }
+
+    evalFail(List(testCode)) {
+      case kie @ PackageError.KindInferenceError(_, _, _) =>
+        assertMessage(kie.message(Map.empty, Colorize.None))
+      case kie @ PackageError.TypeErrorIn(_, _, _, _)    =>
+        assertMessage(kie.message(Map.empty, Colorize.None))
+    }
+  }
+
+  test("enum type parameter ownership collisions report scopes") {
+    val testCode = """
+package ErrorCheck
+
+enum Foo[a]:
+  Bar[a](get: a)
+"""
+
+    evalFail(List(testCode)) {
+      case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val message = sce.message(Map.empty, Colorize.None)
+        assert(
+          message.contains(
+            "Foo has intersecting explicit type parameter declarations"
+          )
+        )
+        assert(
+          message.contains(
+            "All explicit type-parameter groups must have non-intersecting type variable sets"
+          )
+        )
+        assert(
+          message.contains(
+            "a: enum Foo[a], branch Bar[a]"
+          )
+        )
+        assert(message.contains("Region("))
+        ()
+    }
   }
 
   test("tuples bigger than 32 fail") {

@@ -79,7 +79,7 @@ object Shape {
 
   case class UnificationError(
       dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn,
+      cfn: ConstructorFn[?],
       left: Shape,
       right: Shape
   ) extends Error
@@ -92,19 +92,19 @@ object Shape {
 
   case class UnknownConst(
       dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn,
+      cfn: ConstructorFn[?],
       const: rankn.Type.Const
   ) extends Error
 
   case class UnboundVar(
       dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn,
+      cfn: ConstructorFn[?],
       bound: rankn.Type.Var.Bound
   ) extends Error
 
   case class ShapeMismatch(
       dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn,
+      cfn: ConstructorFn[?],
       outer: rankn.Type,
       tapply: rankn.Type.TyApply,
       rightShape: Shape
@@ -478,7 +478,7 @@ object Shape {
 
     // we can only apply s1(s2) if s1 is (k1 -> k2)k1
     def applyShape(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[?],
         outer: rankn.Type,
         inner: rankn.Type.TyApply, // has unknown shape
         s1: Shape,
@@ -512,19 +512,20 @@ object Shape {
     }
 
     def shapeOfType(
-        cfn: ConstructorFn,
+        cfn: ConstructorFn[Either[Shape, Kind.Arg]],
         scope: Env,
+        initialLocal: Map[rankn.Type.Var.Bound, Shape],
         tpe: rankn.Type // has Kind = Type which will be unified later
     ): RefSpace[ValidatedNec[Error, Shape]] = {
       def loop(
           inner: rankn.Type, // has unknown Kind
-          local: Map[rankn.Type.Var.Bound, Kind]
+          local: Map[rankn.Type.Var.Bound, Shape]
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {
           case rankn.Type.ForAll(vars, in) =>
-            loop(in, local ++ vars.toList)
+            loop(in, local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) })
           case rankn.Type.Exists(vars, in) =>
-            loop(in, local ++ vars.toList)
+            loop(in, local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) })
           case ta @ rankn.Type.TyApply(on, arg) =>
             for {
               v1 <- loop(on, local)
@@ -554,8 +555,8 @@ object Shape {
             RefSpace.pure(Validated.valid(shapeOf(k)))
           case tv @ rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) =>
             local.get(v) match {
-              case Some(k) =>
-                RefSpace.pure(Validated.valid(shapeOf(k)))
+              case Some(s) =>
+                RefSpace.pure(Validated.valid(s))
               case None =>
                 scope(tv) match {
                   case Some(shape) =>
@@ -573,7 +574,7 @@ object Shape {
             RefSpace.pure(Validated.valid(shapeOf(k)))
         }
 
-      loop(tpe, Map.empty)
+      loop(tpe, initialLocal)
     }
 
     def combineError[F[_]: cats.Foldable](
@@ -583,10 +584,16 @@ object Shape {
 
     def constrainFn(
         scope: Env,
-        cfn: ConstructorFn
-    ): RefSpace[ValidatedNec[Error, Unit]] =
+        cfn: ConstructorFn[Either[Shape, Kind.Arg]]
+    ): RefSpace[ValidatedNec[Error, Unit]] = {
+      val local: Map[rankn.Type.Var.Bound, Shape] =
+        cfn.exists.iterator.map {
+          case (b, Left(s))   => (b, s)
+          case (b, Right(ka)) => (b, shapeOf(ka.kind))
+        }.toMap
+
       cfn.args
-        .traverse { case (_, tpe) => shapeOfType(cfn, scope, tpe) }
+        .traverse { case (_, tpe) => shapeOfType(cfn, scope, local, tpe) }
         .flatMap {
           _.sequence match {
             case Validated.Valid(shapeList) =>
@@ -601,35 +608,60 @@ object Shape {
               RefSpace.pure(Validated.Invalid(errs))
           }
         }
+    }
 
-    def constrainAll(scope: Env): RefSpace[ValidatedNec[Error, Unit]] =
-      dt.constructors
+    def constrainAll(
+        scope: Env,
+        constructors: List[ConstructorFn[Either[Shape, Kind.Arg]]]
+    ): RefSpace[ValidatedNec[Error, Unit]] =
+      constructors
         .traverse(constrainFn(scope, _))
         .map(combineError[List](_))
 
-    val rf = for {
-      shapes <- dt.annotatedTypeParams.traverse {
-        case (v, None) =>
+    def shapeOrKnown(
+        v: rankn.Type.Var.Bound,
+        optK: Option[Kind.Arg]
+    ): RefSpace[(rankn.Type.Var.Bound, Either[Shape, Kind.Arg])] =
+      optK match {
+        case None =>
           RefSpace
             .newRef(UnknownState.free)
             .map(ref => (v, Left(Unknown(Right(v), ref): Shape)))
-        case (v, Some(ka)) =>
+        case Some(ka) =>
           RefSpace.pure((v, Right(ka)))
       }
-      check <- constrainAll(thisScope(shapes))
-      params1: List[ValidatedNec[
-        Error,
-        (rankn.Type.Var.Bound, Either[KnownShape, Kind.Arg])
-      ]] <-
-        shapes.traverse {
-          case (v, Left(s)) =>
-            shapeToKnown(s)
-              .map(k => k.map(s => (v, Left(s))))
+
+    val rf = for {
+      topShapes <- dt.annotatedTypeParams.traverse { case (v, optK) =>
+        shapeOrKnown(v, optK)
+      }
+      consShapes <- dt.constructors.traverse { cfn =>
+        cfn.exists.traverse { case (v, optK) =>
+          shapeOrKnown(v, optK)
+        }.map(exists => cfn.copy(exists = exists))
+      }
+      dtShapes = dt.copy(annotatedTypeParams = topShapes, constructors = consShapes)
+      check <- constrainAll(thisScope(dtShapes.annotatedTypeParams), dtShapes.constructors)
+      topKnowns <- dtShapes.annotatedTypeParams.traverse {
+        case (v, Left(s))   =>
+          shapeToKnown(s).map(_.map(k => (v, Left(k))))
+        case (v, Right(ka)) =>
+          RefSpace.pure(Validated.valid((v, Right(ka))))
+      }
+      consKnowns <- dtShapes.constructors.traverse { cfn =>
+        cfn.exists.traverse {
+          case (v, Left(s))   =>
+            shapeToKnown(s).map(_.map(k => (v, Left(k))))
           case (v, Right(ka)) =>
             RefSpace.pure(Validated.valid((v, Right(ka))))
-        }
-    } yield check *> params1.sequence.map { p =>
-      dt.copy(annotatedTypeParams = p)
+        }.map(_.sequence.map(ex => cfn.copy(exists = ex)))
+      }
+    } yield {
+      val topKnown = topKnowns.sequence
+      val consKnown = consKnowns.sequence
+      (check, topKnown, consKnown).mapN { (_, tparams, constructors) =>
+        dt.copy(annotatedTypeParams = tparams, constructors = constructors)
+      }
     }
 
     rf.run.value

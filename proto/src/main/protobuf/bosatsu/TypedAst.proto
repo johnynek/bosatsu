@@ -81,6 +81,7 @@ message FnParam {
 message ConstructorFn {
   int32 name = 1;
   repeated FnParam params = 2;
+  repeated TypeParam exists = 3;
 }
 
 message DefinedType {
@@ -388,4 +389,3 @@ message Library {
   // Default main package, may be empty for libraries
   string default_main = 12;
 }
-

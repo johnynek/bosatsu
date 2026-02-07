@@ -144,7 +144,7 @@ object ApiDiff {
   case class ConstructorRemoved(
       pack: PackageName,
       tycons: Type.TyConst,
-      cfn: ConstructorFn
+      cfn: ConstructorFn[Kind.Arg]
   ) extends Diff {
     def isValidWhen(dk: Version.DiffKind) = dk.isMajor
     def toDoc =
@@ -156,7 +156,7 @@ object ApiDiff {
   case class ConstructorAdded(
       pack: PackageName,
       tycons: Type.TyConst,
-      cfn: ConstructorFn
+      cfn: ConstructorFn[Kind.Arg]
   ) extends Diff {
     def isValidWhen(dk: Version.DiffKind) = dk.isMajor
     def toDoc =
