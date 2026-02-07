@@ -901,6 +901,15 @@ final class SourceConverter(
                 // $COVERAGE-ON$
               }
             }
+            // Source rules for enum constructor type parameters:
+            // 1) If no constructor has an explicit type-parameter group, all
+            // discovered type variables are treated as universally quantified at
+            // the enum type level.
+            // 2) Otherwise, every type variable must be scoped either at the
+            // enum level or on the constructor branch that uses it. A branch
+            // cannot reference a type variable outside enum scope unless that
+            // branch declares it in its own [..] group (which is existential
+            // when matching that constructor).
             val hasExplicitBranches = constructors.exists(_._1.typeArgs.nonEmpty)
             val scopedMode = typeArgs.nonEmpty || hasExplicitBranches
             val branchDeclaredSet =
@@ -927,6 +936,21 @@ final class SourceConverter(
                     .toList
                 }
               } else Nil
+            val explicitTopUses: Set[Type.Var.Bound] =
+              conArgs.iterator
+                .flatMap { case (_, argsType) =>
+                  Type.freeTyVars(argsType.flatMap(_._2)).collect {
+                    case b: Type.Var.Bound if topDeclaredSet(b) => b
+                  }
+                }
+                .toSet
+            val ambiguousTopTypeParams =
+              topDeclaredSet.diff(explicitTopUses).toList.sorted
+            val preferAmbiguousTopError =
+              typeArgs.nonEmpty &&
+                !hasExplicitBranches &&
+                missingBranchTypeParams.nonEmpty &&
+                ambiguousTopTypeParams.nonEmpty
             val missingBranchTypesSet =
               missingBranchTypeParams.iterator.flatMap(_._2.toList).toSet
             val discoveredForTop =
@@ -978,18 +1002,32 @@ final class SourceConverter(
                     SourceConverter.DuplicateTypeParamOwnership(dups, tds)
                   )
               }
-            val branchesChecked =
-              missingBranchTypeParams.foldLeft(ownersChecked) {
-                case (res, (item, missing)) =>
-                  SourceConverter.addError(
-                    res,
-                    SourceConverter.MissingEnumBranchTypeParameters(
-                      nm,
-                      typeArgs,
-                      item,
-                      missing
-                    )
+            val ambiguityChecked =
+              if (preferAmbiguousTopError) {
+                SourceConverter.addError(
+                  ownersChecked,
+                  SourceConverter.AmbiguousEnumTypeParameters(
+                    nm,
+                    ambiguousTopTypeParams,
+                    tds.region
                   )
+                )
+              } else ownersChecked
+            val branchesChecked =
+              if (preferAmbiguousTopError) ambiguityChecked
+              else {
+                missingBranchTypeParams.foldLeft(ambiguityChecked) {
+                  case (res, (item, missing)) =>
+                    SourceConverter.addError(
+                      res,
+                      SourceConverter.MissingEnumBranchTypeParameters(
+                        nm,
+                        typeArgs,
+                        item,
+                        missing
+                      )
+                    )
+                }
               }
 
             branchesChecked.map { typeParams =>
@@ -2104,6 +2142,26 @@ object SourceConverter {
         s"${branch.name.asString}${missingNames.mkString("[", ", ", "]")}("
 
       s"${enumName.asString}.${branch.name.asString} is missing type parameter declarations for $missing; add them to either enum $enumWithSuggestedParams or $branchWithSuggestedParams"
+    }
+  }
+
+  final case class AmbiguousEnumTypeParameters(
+      enumName: Constructor,
+      ambiguousTypes: List[Type.Var.Bound],
+      region: Region
+  ) extends Error {
+    def message = {
+      val names = ambiguousTypes.map(_.name)
+      val isSingle = names.lengthCompare(1) == 0
+      val label =
+        if (isSingle) s"type variable `${names.head}`"
+        else s"type variables ${names.mkString("[", ", ", "]")}"
+      val enumWithParams =
+        s"${enumName.asString}${names.mkString("[", ", ", "]")}"
+      val pronoun = if (isSingle) "it" else "they"
+      val removePronoun = if (isSingle) "it" else "them"
+
+      s"$label is ambiguous in $enumWithParams: $pronoun ${if (isSingle) "is" else "are"} never explicitly used. Either remove $removePronoun or use $pronoun in one of the enum variants."
     }
   }
 

@@ -3,6 +3,7 @@ package dev.bosatsu.rankn
 import cats.Eq
 import dev.bosatsu.PackageName
 import dev.bosatsu.Identifier.{Bindable, Constructor}
+import cats.syntax.all._
 
 final case class ConstructorFn[+A](
     name: Constructor,
@@ -27,6 +28,13 @@ final case class ConstructorFn[+A](
 }
 
 object ConstructorFn {
-  implicit def eqConstructorFn[A]: Eq[ConstructorFn[A]] =
-    Eq.fromUniversalEquals
+  implicit def eqConstructorFn[A: Eq]: Eq[ConstructorFn[A]] =
+    Eq.instance { (left, right) =>
+      (left.name == right.name) &&
+      (left.args == right.args) &&
+      (left.exists.lengthCompare(right.exists) == 0) &&
+      left.exists.iterator.zip(right.exists.iterator).forall {
+        case ((lb, la), (rb, ra)) => (lb === rb) && (la === ra)
+      }
+    }
 }

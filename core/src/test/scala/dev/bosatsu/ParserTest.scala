@@ -1637,7 +1637,7 @@ def foo(
     )
 
     roundTrip(
-      Statement.parser,
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
       """enum Option:
   None, Some(a)"""
     )

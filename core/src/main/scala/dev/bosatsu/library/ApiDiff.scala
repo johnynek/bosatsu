@@ -22,6 +22,7 @@ sealed abstract class Diff {
 }
 
 object ApiDiff {
+  private given cats.Eq[Kind.Arg] = cats.Eq.fromUniversalEquals
   type R = Referant[Kind.Arg]
   type V[A] = ValidatedNec[ApiDiff.Error, A]
 

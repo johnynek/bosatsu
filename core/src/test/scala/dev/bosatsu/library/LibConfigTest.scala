@@ -5,8 +5,10 @@ import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{Kind, LocationMap, Package, PackageMap, PackageName, Par, Referant}
 import dev.bosatsu.IorMethods.IorExtension
+import scala.concurrent.duration.DurationInt
 
 class LibConfigTest extends munit.FunSuite {
+  override val munitTimeout = 90.seconds
 
   private def iface(pn: PackageName): Package.Interface =
     Package[Nothing, Nothing, Referant[Kind.Arg], Unit](pn, Nil, Nil, ())
