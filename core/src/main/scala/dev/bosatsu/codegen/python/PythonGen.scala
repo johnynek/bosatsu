@@ -690,7 +690,7 @@ object PythonGen {
 
   // These are values replaced with python operations
   def intrinsicValues: Map[PackageName, Set[Bindable]] =
-    Map((PackageName.PredefName, Impl.PredefExternal.results.keySet))
+    Impl.PredefExternal.resultsByPackage.view.mapValues(_.keySet).toMap
 
   private object Impl {
 
@@ -710,6 +710,10 @@ object PythonGen {
       lst.get(2).simplify
 
     object PredefExternal {
+      private val predefPackage: PackageName = PackageName.PredefName
+      private val arrayPackage: PackageName =
+        PackageName.parts("Bosatsu", "Collection", "Array")
+
       private val cmpFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
           Code
@@ -721,6 +725,26 @@ object PythonGen {
             .simplify
         }
       }
+
+      private def arrayData(ary: Expression): Expression =
+        ary.get(0)
+      private def arrayOffset(ary: Expression): Expression =
+        ary.get(1)
+      private def arrayLen(ary: Expression): Expression =
+        ary.get(2)
+      private def selectItem(
+          target: Expression,
+          index: Expression
+      ): Expression =
+        Code.SelectItem(target, index)
+      private def makeArray(
+          data: Expression,
+          offset: Expression,
+          len: Expression
+      ): Expression =
+        Code.MakeTuple(data :: offset :: len :: Nil)
+      private val emptyArray: Expression =
+        makeArray(Code.MakeList(Nil), Code.Const.Zero, Code.Const.Zero)
 
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
@@ -1119,6 +1143,501 @@ object PythonGen {
           (Identifier.unsafeBindable("cmp_String"), (cmpFn, 2))
         )
 
+      val arrayResults
+          : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
+        Map(
+          (
+            Identifier.unsafeBindable("empty_Array"),
+            ((_: List[ValueLike]) => Env.pure(emptyArray), 0)
+          ),
+          (
+            Identifier.unsafeBindable("tabulate_Array"),
+            (
+              { input =>
+                (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
+                  case (data, idx) =>
+                    Env.onLasts(input) {
+                      case n :: fn :: Nil =>
+                        val tabulated = Code
+                          .block(
+                            data := Code.MakeList(Nil).evalTimes(n),
+                            idx := Code.Const.Zero,
+                            Code.While(
+                              idx :< n,
+                              Code.block(
+                                selectItem(data, idx) := fn(idx),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(
+                            makeArray(data, Code.Const.Zero, n)
+                          )
+                        Code.IfElse(
+                          NonEmptyList.one((n :> Code.Const.Zero, tabulated)),
+                          emptyArray
+                        )
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.unsafeBindable("from_List_Array"),
+            (
+              { input =>
+                Env.newAssignableVar.flatMap { pyList =>
+                  Env.onLastM(input.head) { bList =>
+                    bosatsuListToPython(pyList, bList).map { loop =>
+                      Code
+                        .block(
+                          pyList := Code.MakeList(Nil),
+                          loop
+                        )
+                        .withValue(
+                          makeArray(pyList, Code.Const.Zero, pyList.len())
+                        )
+                    }
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.unsafeBindable("to_List_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, res) =>
+                  Env.onLast(input.head) { ary =>
+                    Code
+                      .block(
+                        data := arrayData(ary),
+                        offset := arrayOffset(ary),
+                        size := arrayLen(ary),
+                        idx := (offset + size).evalMinus(Code.Const.One),
+                        res := emptyList,
+                        Code.While(
+                          !(idx :< offset),
+                          Code.block(
+                            res := consList(selectItem(data, idx), res),
+                            idx := idx.evalMinus(Code.Const.One)
+                          )
+                        )
+                      )
+                      .withValue(res)
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.unsafeBindable("size_Array"),
+            (
+              { input =>
+                Env.onLast(input.head)(arrayLen)
+              },
+              1
+            )
+          ),
+          (
+            Identifier.unsafeBindable("get_map_Array"),
+            (
+              { input =>
+                Env.onLasts(input) {
+                  case ary :: idx :: default :: fn :: Nil =>
+                    val valid =
+                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
+                    val item =
+                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
+                    Code.IfElse(
+                      NonEmptyList.one((valid, fn(item))),
+                      default(Code.Const.Unit)
+                    )
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected arity 4 got: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              },
+              4
+            )
+          ),
+          (
+            Identifier.unsafeBindable("get_or_Array"),
+            (
+              { input =>
+                Env.onLasts(input) {
+                  case ary :: idx :: default :: Nil =>
+                    val valid =
+                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
+                    val item =
+                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
+                    Code.IfElse(
+                      NonEmptyList.one((valid, item)),
+                      default(Code.Const.Unit)
+                    )
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected arity 3 got: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.unsafeBindable("foldl_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLasts(input) {
+                    case ary :: init :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          idx := Code.Const.Zero,
+                          acc := init,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              acc := fn(
+                                acc,
+                                selectItem(data, offset.evalPlus(idx))
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(acc)
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.unsafeBindable("map_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, out) =>
+                  Env.onLasts(input) {
+                    case ary :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          out := Code.MakeList(Nil).evalTimes(size),
+                          idx := Code.Const.Zero,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              selectItem(out, idx) := fn(
+                                selectItem(data, offset.evalPlus(idx))
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(out, Code.Const.Zero, size))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.unsafeBindable("set_or_self_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, copied) =>
+                  Env.onLasts(input) {
+                    case ary :: idx :: value :: Nil =>
+                      val valid =
+                        (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
+                      val updated = Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          copied := Code.SelectRange(
+                            data,
+                            Some(offset),
+                            Some(offset.evalPlus(size))
+                          ),
+                          selectItem(copied, idx) := value
+                        )
+                        .withValue(
+                          makeArray(copied, Code.Const.Zero, size)
+                        )
+                      Code.IfElse(NonEmptyList.one((valid, updated)), ary)
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.unsafeBindable("sort_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, items, i, j, curr) =>
+                  Env.onLasts(input) {
+                    case ary :: cmp :: Nil =>
+                      val itemAtJ = selectItem(items, j)
+                      val itemCmpCurr =
+                        cmp(itemAtJ, curr) =:= Code.fromInt(2)
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          items := Code.SelectRange(
+                            data,
+                            Some(offset),
+                            Some(offset.evalPlus(size))
+                          ),
+                          i := Code.Const.One,
+                          Code.While(
+                            i :< size,
+                            Code.block(
+                              curr := selectItem(items, i),
+                              j := i.evalMinus(Code.Const.One),
+                              Code.While(
+                                (!(j :< Code.Const.Zero)).evalAnd(itemCmpCurr),
+                                Code.block(
+                                  selectItem(items, j + 1) := itemAtJ,
+                                  j := j.evalMinus(Code.Const.One)
+                                )
+                              ),
+                              selectItem(items, j + 1) := curr,
+                              i := i + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(items, Code.Const.Zero, size))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.unsafeBindable("concat_all_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (
+                        parts,
+                        current,
+                        total,
+                        data,
+                        write,
+                        partIdx,
+                        part,
+                        partData,
+                        partOffset,
+                        partLen,
+                        idx
+                      ) =>
+                    Env.onLast(input.head) { arrays =>
+                      Code
+                        .block(
+                          parts := Code.MakeList(Nil),
+                          current := arrays,
+                          total := Code.Const.Zero,
+                          Code.While(
+                            isNonEmpty(current),
+                            Code.block(
+                              part := headList(current),
+                              current := tailList(current),
+                              Code.Call(
+                                parts.dot(Code.Ident("append"))(part)
+                              ),
+                              total := total.evalPlus(arrayLen(part))
+                            )
+                          ),
+                          data := Code.MakeList(Nil).evalTimes(total),
+                          write := Code.Const.Zero,
+                          partIdx := Code.Const.Zero,
+                          Code.While(
+                            partIdx :< parts.len(),
+                            Code.block(
+                              part := selectItem(parts, partIdx),
+                              partData := arrayData(part),
+                              partOffset := arrayOffset(part),
+                              partLen := arrayLen(part),
+                              idx := Code.Const.Zero,
+                              Code.While(
+                                idx :< partLen,
+                                Code.block(
+                                  selectItem(data, write.evalPlus(idx)) :=
+                                    selectItem(partData, partOffset.evalPlus(idx)),
+                                  idx := idx + 1
+                                )
+                              ),
+                              write := write.evalPlus(partLen),
+                              partIdx := partIdx + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(data, Code.Const.Zero, total))
+                    }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.unsafeBindable("slice_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, start1, end1) =>
+                  Env.onLasts(input) {
+                    case ary :: start :: end :: Nil =>
+                      val nonNegStart = !(start1 :< Code.Const.Zero)
+                      val nonNegEnd = !(end1 :< Code.Const.Zero)
+                      val ordered = !(start1 :> end1)
+                      val endInRange = !(end1 :> size)
+                      val sliceLen = end1.evalMinus(start1)
+                      val valid = nonNegStart
+                        .evalAnd(nonNegEnd)
+                        .evalAnd(ordered)
+                        .evalAnd(endInRange)
+                        .evalAnd(sliceLen :> Code.Const.Zero)
+
+                      val sliced = makeArray(
+                        data,
+                        offset.evalPlus(start1),
+                        sliceLen
+                      )
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          start1 := Code.Ternary(
+                            Code.Const.Zero,
+                            start :< Code.Const.Zero,
+                            start
+                          ),
+                          end1 := Code.Ternary(size, end :> size, end)
+                        )
+                        .withValue(
+                          Code.IfElse(
+                            NonEmptyList.one((valid, sliced)),
+                            emptyArray
+                          )
+                        )
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              3
+            )
+          )
+        )
+
+      val resultsByPackage
+          : Map[
+            PackageName,
+            Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)]
+          ] =
+        Map(predefPackage -> results, arrayPackage -> arrayResults)
+
       def bosatsuListToPython(
           pyList: Code.Ident,
           bList: Expression
@@ -1146,21 +1665,24 @@ object PythonGen {
           expr: Expr[A]
       ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
-          case Global(_, PackageName.PredefName, name) => results.get(name)
-          case _                                       => None
+          case Global(_, p, name) =>
+            resultsByPackage.get(p).flatMap(_.get(name))
+          case _                  => None
         }
 
       def makeLambda(
           arity: Int
       )(fn: List[ValueLike] => Env[ValueLike]): Env[ValueLike] =
-        for {
-          vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
-          body <- fn(vars)
-          // TODO: if body isn't an expression, how can just adding a lambda
-          // at the end be correct? the arguments will be below points that used it.
-          // the onLast has to handle Code.Lambda specially
-          res <- Env.onLast(body)(Code.Lambda(vars, _))
-        } yield res
+        if (arity == 0) fn(Nil)
+        else
+          for {
+            vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
+            body <- fn(vars)
+            // TODO: if body isn't an expression, how can just adding a lambda
+            // at the end be correct? the arguments will be below points that used it.
+            // the onLast has to handle Code.Lambda specially
+            res <- Env.onLast(body)(Code.Lambda(vars, _))
+          } yield res
     }
 
     class Ops[K](
