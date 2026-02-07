@@ -1,6 +1,5 @@
 package dev.bosatsu
 
-import dev.bosatsu.tool
 import cats.effect.{ExitCode, IO, IOApp}
 
 object Main extends IOApp {

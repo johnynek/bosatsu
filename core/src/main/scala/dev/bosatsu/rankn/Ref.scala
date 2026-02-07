@@ -156,6 +156,15 @@ object RefSpace {
   def newRef[A](initial: A): RefSpace[Ref[A]] =
     Alloc(initial)
 
+  // This is a Ref that silently ignores all attempts to change it
+  // it should almost never be used (really just for mocking or similar)
+  def constRef[A](a: A): Ref[A] =
+    new Ref[A] {
+      def get: RefSpace[A] = Pure(Eval.now(a))
+      def set(a: A): RefSpace[Unit] = Pure(Eval.Unit)
+      def reset: RefSpace[Unit] = Pure(Eval.Unit)
+    }
+
   implicit val monadForRefSpace: StackSafeMonad[RefSpace] =
     new StackSafeMonad[RefSpace] {
       def pure[A](a: A): RefSpace[A] = RefSpace.pure(a)

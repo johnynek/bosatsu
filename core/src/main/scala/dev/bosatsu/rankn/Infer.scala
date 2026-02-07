@@ -689,7 +689,7 @@ object Infer {
     // Replace only the outer existentials with skolems, keep foralls intact.
     def skolemizeExistsOnly(t: Type): Infer[(List[Type.Var.Skolem], Type)] =
       t match {
-        case quant: (Type.ForAll | Type.Exists) =>
+        case _: (Type.ForAll | Type.Exists) =>
           val (foralls, exists, rho) = Type.splitQuantifiers(t)
           exists.traverse { case (b, k) =>
             newSkolemTyVar(b, k, existential = true)
@@ -720,13 +720,16 @@ object Infer {
       // note due to contravariance in input, we reverse the order there
       for {
         // we know that they have the same length because we have already called unifyFnRho
-        coarg <- a2s.zip(a1s).parTraverse { case (a2, a1) =>
+        // We must still check argument subtyping to validate the function subtype
+        // relation (and report errors), but value-level argument coercions are
+        // inserted at application sites, not by TypedExpr.coerceFn.
+        _ <- a2s.zip(a1s).parTraverse { case (a2, a1) =>
           subsCheck(a2, a1, right, left)
         }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
         ks <- checkedKinds
-      } yield TypedExpr.coerceFn(a1s, r2, coarg, cores, ks)
+      } yield TypedExpr.coerceFn(a1s, r2, cores, ks)
 
     /*
      * If t <:< rho then coerce to rho
@@ -1524,8 +1527,7 @@ object Infer {
         fn: Expr[A],
         args: NonEmptyList[Expr[A]],
         tag: A,
-        tpe: dom.TypeKind,
-        tpeRegion: Region
+        tpe: dom.TypeKind
     ): Infer[Option[dom.ExprKind[A]]] = {
       val infOpt = maybeSimple(fn).flatTraverse { inferFnExpr =>
         inferFnExpr.map { fnTe =>
@@ -1620,7 +1622,7 @@ object Infer {
         tpe: Type,
         tpeRegion: Region
     ): Infer[TypedExpr[A]] =
-      checkApplyDom(TypedExpr.Domain.TypeDom)(fn, args, tag, tpe, tpeRegion)
+      checkApplyDom(TypedExpr.Domain.TypeDom)(fn, args, tag, tpe)
         .flatMap {
           case Some(res) => pure(res)
           case None =>
@@ -1640,7 +1642,7 @@ object Infer {
         rho: Type.Rho,
         tpeRegion: Region
     ): Infer[TypedExpr.Rho[A]] =
-      checkApplyDom(TypedExpr.Domain.RhoDom)(fn, args, tag, rho, tpeRegion)
+      checkApplyDom(TypedExpr.Domain.RhoDom)(fn, args, tag, rho)
         .flatMap {
           case Some(res) => pure(res)
           case None =>

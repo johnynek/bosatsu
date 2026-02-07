@@ -836,12 +836,6 @@ x = Foo
         case Type.TyVar(b) => b
       }.toSet
 
-      implicit def setM[A: Ordering]: cats.Monoid[SortedSet[A]] =
-        new cats.Monoid[SortedSet[A]] {
-          def empty = SortedSet.empty
-          def combine(a: SortedSet[A], b: SortedSet[A]) = a ++ b
-        }
-
       // All the vars that are used in bounds
       val bounds: Set[Type.Var] = te
         .traverseType { (t: Type) =>

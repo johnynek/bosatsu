@@ -1941,7 +1941,7 @@ object PythonGen {
                 // $COVERAGE-ON$
               }
             }.flatten
-          case Let(localOrBind, fn: Lambda[k], in) =>
+          case Let(localOrBind, fn: Lambda[?], in) =>
             localOrBind match {
               case Right(b) if fn.captures.isEmpty =>
                 for {

@@ -395,7 +395,7 @@ object Matchless {
         case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
-        case ms: MatchString[b] =>
+        case ms: MatchString[?] =>
           ms.copy(arg = substituteLocalsCheap(m, ms.arg))
         case LetBool(b, a, in) =>
           val m1 = b match {
@@ -433,9 +433,9 @@ object Matchless {
             case None      => e
           }
         case PrevNat(n)            => PrevNat(substituteLocals(m, n))
-        case ge: GetEnumElement[b] =>
+        case ge: GetEnumElement[?] =>
           ge.copy(arg = substituteLocalsCheap(m, ge.arg))
-        case gs: GetStructElement[b] =>
+        case gs: GetStructElement[?] =>
           gs.copy(arg = substituteLocalsCheap(m, gs.arg))
         case Lambda(c, r, as, b) =>
           val m1 = m -- as.toList

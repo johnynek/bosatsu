@@ -326,7 +326,7 @@ int main(int argc, char** argv) {
         var low = low0
         var high = high0
         var cont = true
-        var result: (BigInt, BigInt) = null
+        var result: (BigInt, BigInt) = (BigInt(0), BigInt(0))
         while (cont) {
           val mid = (high + low) >> 1
           val mod = l - mid * r

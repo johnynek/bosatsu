@@ -1,7 +1,6 @@
 package dev.bosatsu
 
 import cats.Semigroup
-import cats.syntax.all._
 import Identifier.Bindable
 
 sealed abstract class SelfCallKind derives CanEqual {

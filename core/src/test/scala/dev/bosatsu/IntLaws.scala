@@ -6,11 +6,11 @@ import org.scalacheck.Prop.forAll
 
 object IntLaws {
   implicit class BIMethods(val self: BigInteger) extends AnyVal {
-    def *(that: BigInteger) = self.multiply(that)
-    def /(that: BigInteger) = PredefImpl.divBigInteger(self, that)
-    def %(that: BigInteger) = PredefImpl.modBigInteger(self, that)
-    def +(that: BigInteger) = self.add(that)
-    def -(that: BigInteger) = self.subtract(that)
+    def *(that: BigInteger): BigInteger = self.multiply(that)
+    def /(that: BigInteger): BigInteger = PredefImpl.divBigInteger(self, that)
+    def %(that: BigInteger): BigInteger = PredefImpl.modBigInteger(self, that)
+    def +(that: BigInteger): BigInteger = self.add(that)
+    def -(that: BigInteger): BigInteger = self.subtract(that)
   }
 }
 

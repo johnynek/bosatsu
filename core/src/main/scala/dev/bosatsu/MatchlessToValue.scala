@@ -7,6 +7,7 @@ import cats.syntax.eq._
 import java.math.BigInteger
 import dev.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
+import NonNullFold.*
 
 import Identifier.Bindable
 import Value._
@@ -207,7 +208,7 @@ object MatchlessToValue {
             map2(sf, sa)(_(_))
         }
     }
-
+    
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
@@ -282,7 +283,7 @@ object MatchlessToValue {
                 // we have nothing to bind
                 loop(str).map { strV =>
                   val arg = strV.asExternal.toAny.asInstanceOf[String]
-                  StrPart.matchString(arg, pat, 0) != null
+                  StrPart.matchString(arg, pat, 0).notNull
                 }
               case _ =>
                 val bary = binds.iterator.collect { case LocalAnonMut(id) =>
@@ -296,15 +297,14 @@ object MatchlessToValue {
                 }
                 // if we mutate scope, it has to be dynamic
                 Dynamic { scope =>
-                  val res = matchScope(scope)
-                  if (res != null) {
+                  matchScope(scope).foldNN(false) { res =>
                     var idx = 0
                     while (idx < bary.length) {
                       scope.updateMut(bary(idx), ExternalValue(res(idx)))
                       idx = idx + 1
                     }
                     true
-                  } else false
+                  }
                 }
             }
         }

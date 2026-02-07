@@ -1,7 +1,6 @@
 package dev.bosatsu.tool_command
 
 import cats.MonoidK
-import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.PlatformIO
 import dev.bosatsu.tool.{CommonOpts, Output}

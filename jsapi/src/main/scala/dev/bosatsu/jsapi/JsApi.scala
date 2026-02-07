@@ -6,7 +6,6 @@ import org.typelevel.paiges.Doc
 import dev.bosatsu.tool.Output
 import scala.scalajs.js
 
-import js.|
 import js.annotation._
 
 import cats.implicits._

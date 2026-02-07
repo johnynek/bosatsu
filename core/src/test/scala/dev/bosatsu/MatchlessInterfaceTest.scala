@@ -1,7 +1,6 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
-import cats.syntax.all._
 import dev.bosatsu.IorMethods.IorExtension
 
 class MatchlessInterfaceTest extends munit.FunSuite {

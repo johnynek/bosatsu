@@ -1,7 +1,6 @@
 package dev.bosatsu
 
 import cats.{Eq, Functor}
-import cats.syntax.all._
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.spaces

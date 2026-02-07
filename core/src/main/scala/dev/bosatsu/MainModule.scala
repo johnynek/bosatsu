@@ -2,9 +2,7 @@ package dev.bosatsu
 
 import cats.syntax.all._
 import com.monovore.decline.{Command, Help, Opts}
-import dev.bosatsu.cruntime
 import dev.bosatsu.tool.{CliException, ExitCode, Output}
-import dev.bosatsu.tool_command
 import org.typelevel.paiges.Doc
 
 /** This is an implementation of the CLI tool where Path is abstracted. The idea

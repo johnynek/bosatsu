@@ -6,7 +6,7 @@ import com.monovore.decline.Opts
 import dev.bosatsu.{PackageName, PlatformIO}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{DecodedLibrary, LibConfig, Library, Name, Version}
-import dev.bosatsu.library.LibConfig.{LibMethods, PackageFilter}
+import dev.bosatsu.library.LibConfig.PackageFilter
 import dev.bosatsu.tool.{CliException, Output}
 import org.typelevel.paiges.Doc
 

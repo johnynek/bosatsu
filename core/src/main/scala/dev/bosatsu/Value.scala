@@ -253,11 +253,12 @@ object Value {
         def compare(v1: Value, v2: Value): Int = {
           // these Values are keys, but we need to convert them
           // back to tuples where the values are ignored for scala
+          val ignoredDummy = UnitValue
           val v =
             fn.applyAll(
               NonEmptyList(
-                new ProductValue(Array(v1, null)),
-                new ProductValue(Array(v2, null)) :: Nil
+                new ProductValue(Array(v1, ignoredDummy)),
+                new ProductValue(Array(v2, ignoredDummy)) :: Nil
               )
             ).asSum
               .variant
