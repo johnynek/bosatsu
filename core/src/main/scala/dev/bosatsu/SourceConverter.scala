@@ -1043,7 +1043,7 @@ final class SourceConverter(
               .map(item => s"branch ${item.name.asString}[${tv.name}] (declared more than once)")
 
           NonEmptyList.fromList(
-            (topOwners ++ overlapOwners ++ branchDuplicateOwners).distinct
+            (topOwners ::: overlapOwners ::: branchDuplicateOwners).distinct
           ).map(tv -> _)
         }
       }
