@@ -18,7 +18,7 @@ object PackageError {
   def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, Doc] = {
     // TODO: we should use the imports in each package to talk about (https://github.com/johnynek/bosatsu/issues/4)
     // types in ways that are local to that package
-    require(pack ne null)
+    Require(pack ne null)
     tpes.iterator.map { t =>
       (t, Type.fullyResolvedDocument.document(t))
     }.toMap

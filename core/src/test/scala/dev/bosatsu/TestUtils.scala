@@ -66,12 +66,12 @@ object TestUtils {
     te.traverseType[cats.Id](checkType(_, Set.empty))
     val tp = te.getType
     lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
-    scala.Predef.require(
+    Require(
       Type.freeTyVars(tp :: Nil).isEmpty,
       s"illegal inferred type: $teStr in: ${te.repr}"
     )
 
-    scala.Predef.require(
+    Require(
       Type.metaTvs(tp :: Nil).isEmpty,
       s"illegal inferred type: $teStr in: ${te.repr}"
     )

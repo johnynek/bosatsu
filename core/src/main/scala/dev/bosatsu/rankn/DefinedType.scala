@@ -1,7 +1,7 @@
 package dev.bosatsu.rankn
 
 import cats.{Applicative, Eval, Foldable, Traverse}
-import dev.bosatsu.{Kind, TypeName, PackageName, Identifier}
+import dev.bosatsu.{Kind, TypeName, PackageName, Identifier, Require}
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
@@ -22,7 +22,7 @@ final case class DefinedType[+A](
   val typeParams: List[Type.Var.Bound] =
     annotatedTypeParams.map(_._1)
 
-  require(typeParams.distinct === typeParams, typeParams.toString)
+  Require(typeParams.distinct === typeParams, typeParams.toString)
 
   /** This is not the full type, since the full type has a ForAll(typeParams,
     * ... in front if the typeParams is nonEmpty

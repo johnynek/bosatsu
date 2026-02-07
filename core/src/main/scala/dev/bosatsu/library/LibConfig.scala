@@ -12,7 +12,8 @@ import dev.bosatsu.{
   Package,
   PackageMap,
   PackageName,
-  ProtoConverter
+  ProtoConverter,
+  Require
 }
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.rankn.TypeEnv
@@ -1113,7 +1114,7 @@ object LibConfig {
       val prevOptV = prevDesc.version
       val prevVersion =
         prevOptV.map(Version.fromProto(_)).getOrElse(Version.zero)
-      require(
+      Require(
         Ordering[Version].lt(prevVersion, nextVersion),
         s"invalid version ordering: $prevVersion not < $nextVersion"
       )

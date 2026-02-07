@@ -25,7 +25,7 @@ object Shape {
   case class KnownCons(arg: KnownShape, res: KnownShape) extends KnownShape
 
   case class Cons(arg: Shape, res: Shape) extends NotKnownShape {
-    require(
+    Require(
       !(arg.isInstanceOf[KnownShape] && res.isInstanceOf[KnownShape]),
       s"cons must have one unknown: $this"
     )

@@ -189,7 +189,7 @@ object LocationMap {
   }
 
   def charsLineNumber(i: Int): Int = {
-    require(i >= 0, s"expect line > 0, found $i")
+    Require(i >= 0, s"expect line > 0, found $i")
     def go(i: Int, acc: Int): Int =
       if (i < 10) acc
       else go(i / 10, acc + 1)

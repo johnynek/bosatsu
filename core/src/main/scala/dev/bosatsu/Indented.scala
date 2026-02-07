@@ -5,7 +5,7 @@ import org.typelevel.paiges.{Doc, Document}
 import cats.parse.{Parser => P}
 
 case class Indented[T](spaces: Int, value: T) {
-  require(spaces > 0, s"need non-empty indentation: $spaces")
+  Require(spaces > 0, s"need non-empty indentation: $spaces")
 }
 
 object Indented {

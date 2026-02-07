@@ -11,7 +11,8 @@ import dev.bosatsu.{
   TypeName,
   Identifier,
   Parser,
-  TypeParser
+  TypeParser,
+  Require
 }
 import dev.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.{SortedSet, SortedMap}
@@ -1584,7 +1585,7 @@ object Type {
   def typeParser: TypeParser[Type] = FullResolved
 
   def tupleCodeGen(n: Int): String = {
-    require(n > 0)
+    Require(n > 0)
 
     val tpes = alignBinders((1 to n).toList, Set.empty)
 
