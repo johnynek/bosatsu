@@ -368,14 +368,6 @@ object PredefImpl {
   def size_Array(array: Value): Value =
     VInt(BigInt(asArray(array).len))
 
-  def get_Array(array: Value, index: Value): Value = {
-    val arr = asArray(array)
-    inRangeIndex(i(index), arr.len) match {
-      case Some(idx) => VOption.some(arr.data(arr.offset + idx))
-      case None      => VOption.none
-    }
-  }
-
   def get_map_Array(
       array: Value,
       index: Value,
