@@ -63,6 +63,16 @@ object Kind {
   case class Arg(variance: Variance, kind: Kind) {
     def returns(kindRes: Kind): Kind = Cons(this, kindRes)
   }
+  object Arg {
+    given Order[Arg] =
+      new Order[Arg] {
+        def compare(left: Arg, right: Arg) = {
+          val c1 = Order[Variance].compare(left.variance, right.variance)
+          if c1 == 0 then Order[Kind].compare(left.kind, right.kind)
+          else c1
+        }
+      }
+  }
 
   case object Type extends Kind
   // Int => *: Type
