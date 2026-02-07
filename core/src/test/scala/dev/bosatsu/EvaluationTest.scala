@@ -4023,6 +4023,37 @@ enum FreeF[a]:
     }
   }
 
+  test("enum type parameter ownership collisions report scopes") {
+    val testCode = """
+package ErrorCheck
+
+enum Foo[a]:
+  Bar[a](get: a)
+"""
+
+    evalFail(List(testCode)) {
+      case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val message = sce.message(Map.empty, Colorize.None)
+        assert(
+          message.contains(
+            "Foo has intersecting explicit type parameter declarations"
+          )
+        )
+        assert(
+          message.contains(
+            "All explicit type-parameter groups must have non-intersecting type variable sets"
+          )
+        )
+        assert(
+          message.contains(
+            "a: enum Foo[a], branch Bar[a]"
+          )
+        )
+        assert(message.contains("Region("))
+        ()
+    }
+  }
+
   test("tuples bigger than 32 fail") {
     val testCode = """
 package ErrorCheck

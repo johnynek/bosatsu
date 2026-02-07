@@ -1924,6 +1924,26 @@ def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
     )
   }
 
+  test("same branch-local type variable names can be reused across branches") {
+    parseProgram(
+      """#
+enum List[a]:
+  Empty
+  NonEmpty(head: a, tail: List[a])
+
+enum Foo[a]:
+  Bar[b](b: b, fn: b -> a)
+  Baz[b](list: List[b], fn: List[b] -> a)
+
+def run[a](fa: Foo[a]) -> a:
+  match fa:
+    case Bar(b, fn): fn(b)
+    case Baz(list, fn): fn(list)
+""",
+      "forall a. Foo[a] -> a"
+    )
+  }
+
   test("missing enum branch type params is rejected") {
     parseProgramIllTyped(
       """#

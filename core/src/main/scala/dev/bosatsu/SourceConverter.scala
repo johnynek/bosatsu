@@ -961,26 +961,66 @@ final class SourceConverter(
               val topDeclaredList =
                 typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
               val topDeclaredSet = topDeclaredList.toSet
-              val topDupes =
-                topDeclaredList
-                  .groupBy(identity)
-                  .collect { case (b, owners) if owners.lengthCompare(1) > 0 => b }
-                  .toList
-              val branchDupes =
-                constructors.toList.flatMap { case (item, _) =>
+              val topDeclaredCounts =
+                topDeclaredList.groupBy(identity).view.mapValues(_.length).toMap
+              val topDupes = topDeclaredCounts.collect {
+                case (b, cnt) if cnt > 1 => b
+              }.toSet
+
+              val branchDeclaredLists: List[(Statement.EnumBranch, List[Type.Var.Bound])] =
+                constructors.toList.map { case (item, _) =>
                   val local =
                     item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
-                  local
-                    .groupBy(identity)
-                    .collect { case (b, owners) if owners.lengthCompare(1) > 0 => b }
-                    .toList
+                  (item, local)
                 }
-              val topBranchOverlap =
-                constructors.iterator.flatMap { case (item, _) =>
-                  item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).filter(topDeclaredSet)
-                }.toList
+              val duplicateWithinBranch: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
+                branchDeclaredLists
+                  .flatMap { case (item, local) =>
+                    local
+                      .groupBy(identity)
+                      .collect { case (b, owners) if owners.lengthCompare(1) > 0 => (b, item) }
+                  }
+                  .groupBy(_._1)
+                  .view
+                  .mapValues(_.map(_._2).distinct)
+                  .toMap
+              val topBranchOverlap: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
+                branchDeclaredLists
+                  .flatMap { case (item, local) =>
+                    local.distinct.filter(topDeclaredSet).map(_ -> item)
+                  }
+                  .groupBy(_._1)
+                  .view
+                  .mapValues(_.map(_._2).distinct)
+                  .toMap
 
-              (topDupes ::: branchDupes ::: topBranchOverlap).distinct.sorted
+              val invalidVars =
+                (topDupes.iterator ++
+                  duplicateWithinBranch.keysIterator ++
+                  topBranchOverlap.keysIterator).toSet.toList.sorted
+
+              invalidVars.flatMap { tv =>
+                val topOwners = {
+                  val count = topDeclaredCounts.getOrElse(tv, 0)
+                  if (count <= 0) Nil
+                  else {
+                    val base = s"enum ${nm.asString}[${tv.name}]"
+                    if (count == 1) base :: Nil else s"$base (declared $count times)" :: Nil
+                  }
+                }
+                val overlapOwners =
+                  topBranchOverlap
+                    .getOrElse(tv, Nil)
+                    .map(item => s"branch ${item.name.asString}[${tv.name}]")
+                val branchDuplicateOwners =
+                  duplicateWithinBranch
+                    .getOrElse(tv, Nil)
+                    .map(item => s"branch ${item.name.asString}[${tv.name}] (declared more than once)")
+
+                NonEmptyList.fromList(
+                  (topOwners ++ overlapOwners ++ branchDuplicateOwners).distinct
+                ).map(tv -> _)
+              }
             }
             val topParams = updateInferedWithDecl(typeArgs, discoveredForTop)
             val topParamsChecked =
@@ -2166,13 +2206,17 @@ object SourceConverter {
   }
 
   final case class DuplicateTypeParamOwnership(
-      duplicateTypes: NonEmptyList[Type.Var.Bound],
+      duplicateTypes: NonEmptyList[(Type.Var.Bound, NonEmptyList[String])],
       statement: TypeDefinitionStatement
   ) extends Error {
     def region = statement.region
     def message = {
-      val dups = duplicateTypes.toList.iterator.map(_.name).mkString("[", ", ", "]")
-      s"${statement.name.asString} has type variables declared in multiple scopes: $dups"
+      val dups = duplicateTypes.toList
+        .map { case (tv, owners) =>
+          s"${tv.name}: ${owners.toList.mkString(", ")}"
+        }
+        .mkString("; ")
+      s"${statement.name.asString} has intersecting explicit type parameter declarations. All explicit type-parameter groups must have non-intersecting type variable sets. Collisions: $dups"
     }
   }
 
