@@ -746,102 +746,109 @@ final class SourceConverter(
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
 
+  private type DefinitionStateType =
+    ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
+  private type DefinitionVarState[A] = State[DefinitionStateType, A]
+
+  private val nextDefinitionTypeVar: DefinitionVarState[Type.TyVar] =
+    State[DefinitionStateType, Type.TyVar] { case ((set, lst), vs) =>
+      val vs1 = vs.dropWhile(set)
+      val v = vs1.head
+      val vs2 = vs1.tail
+      (((set + v, v :: lst), vs2), v)
+    }
+
+  private def buildDefinitionParam(
+      p: (Bindable, Option[Type])
+  ): DefinitionVarState[(Bindable, Type)] =
+    p match {
+      case (parname, Some(tpe)) =>
+        State.pure((parname, tpe))
+      case (parname, None)      =>
+        nextDefinitionTypeVar.map(v => (parname, v))
+    }
+
+  private def buildDefinitionParams(
+      args: List[(Bindable, Option[Type])]
+  ): DefinitionVarState[List[(Bindable, Type)]] =
+    args.traverse(buildDefinitionParam)
+
+  private def existingDefinitionVars[A](
+      ps: List[(A, Option[Type])]
+  ): List[Type.TyVar] = {
+    val pt = ps.flatMap(_._2)
+    Type.freeTyVars(pt).map(Type.TyVar(_))
+  }
+
+  private def updateInferredWithDeclaredTypeArgs(
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      typeParams0: List[Type.Var.Bound],
+      tds: TypeDefinitionStatement
+  ): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
+    typeArgs match {
+      case None       => success(typeParams0.map((_, None)))
+      case Some(decl) =>
+        val neBound = decl.map { case (v, k) => (v.toBoundVar, k) }
+        val declSet = neBound.toList.iterator.map(_._1).toSet
+        val missingFromDecl = typeParams0.filterNot(declSet)
+        if ((declSet.size != neBound.size) || missingFromDecl.nonEmpty) {
+          val bestEffort =
+            neBound.toList.distinctBy(_._1) ::: missingFromDecl.map((_, None))
+          // we have a lint that fails if declTV is not
+          // a superset of what you would derive from the args
+          // the purpose here is to control the *order* of
+          // and to allow introducing phantom parameters, not
+          // it is confusing if some are explicit, but some are not
+          SourceConverter.partial(
+            SourceConverter.InvalidTypeParameters(decl, typeParams0, tds),
+            bestEffort
+          )
+        } else success(neBound.toList ::: missingFromDecl.map((_, None)))
+    }
+
+  private def validateConstructorArgCount(
+      nm: Constructor,
+      args: Int,
+      region: Region
+  ): Result[Unit] =
+    if (args <= Type.FnType.MaxSize) SourceConverter.successUnit
+    else
+      SourceConverter.partial(
+        SourceConverter
+          .TooManyConstructorArgs(nm, args, Type.FnType.MaxSize, region),
+        ()
+      )
+
   def toDefinition(
       pname: PackageName,
       tds: TypeDefinitionStatement
   ): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
     import Statement._
 
-    type StT = ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
-    type VarState[A] = State[StT, A]
     type BindablePair[A] = (Bindable, A)
-
-    val nextVar: VarState[Type.TyVar] =
-      State[StT, Type.TyVar] { case ((set, lst), vs) =>
-        val vs1 = vs.dropWhile(set)
-        val v = vs1.head
-        val vs2 = vs1.tail
-        (((set + v, v :: lst), vs2), v)
-      }
-
-    def buildParam(p: (Bindable, Option[Type])): VarState[(Bindable, Type)] =
-      p match {
-        case (parname, Some(tpe)) =>
-          State.pure((parname, tpe))
-        case (parname, None) =>
-          nextVar.map(v => (parname, v))
-      }
-
-    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] = {
-      val pt = ps.flatMap(_._2)
-      Type.freeTyVars(pt).map(Type.TyVar(_))
-    }
-
-    def buildParams(
-        args: List[(Bindable, Option[Type])]
-    ): VarState[List[(Bindable, Type)]] =
-      args.traverse(buildParam)
 
     // This is a traverse on List[(Bindable, Option[A])]
     val deep =
       Traverse[List].compose[BindablePair].compose[Option]
 
-    def updateInferedWithDecl(
-        typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
-        typeParams0: List[Type.Var.Bound]
-    ): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
-      typeArgs match {
-        case None       => success(typeParams0.map((_, None)))
-        case Some(decl) =>
-          val neBound = decl.map { case (v, k) => (v.toBoundVar, k) }
-          val declSet = neBound.toList.iterator.map(_._1).toSet
-          val missingFromDecl = typeParams0.filterNot(declSet)
-          if ((declSet.size != neBound.size) || missingFromDecl.nonEmpty) {
-            val bestEffort =
-              neBound.toList.distinctBy(_._1) ::: missingFromDecl.map((_, None))
-            // we have a lint that fails if declTV is not
-            // a superset of what you would derive from the args
-            // the purpose here is to control the *order* of
-            // and to allow introducing phantom parameters, not
-            // it is confusing if some are explicit, but some are not
-            SourceConverter.partial(
-              SourceConverter.InvalidTypeParameters(decl, typeParams0, tds),
-              bestEffort
-            )
-          } else success(neBound.toList ::: missingFromDecl.map((_, None)))
-      }
-
-    def validateArgCount(
-        nm: Constructor,
-        args: Int,
-        region: Region
-    ): Result[Unit] =
-      if (args <= Type.FnType.MaxSize) SourceConverter.successUnit
-      else
-        SourceConverter.partial(
-          SourceConverter
-            .TooManyConstructorArgs(nm, args, Type.FnType.MaxSize, region),
-          ()
-        )
-
     // TODO we have to make sure we don't have more than 8 arguments to a struct
     // or the constructor Fn won't be a valid function
     tds match {
       case Struct(nm, typeArgs, args) =>
-        validateArgCount(nm, args.length, tds.region) *>
+        validateConstructorArgCount(nm, args.length, tds.region) *>
           deep
             .traverse(args)(toType(_, tds.region))
             .flatMap { argsType =>
               val declVars = typeArgs.iterator.flatMap(_.toList).map { p =>
                 Type.TyVar(p._1.toBoundVar)
               }
-              val initVars = existingVars(argsType)
+              val initVars = existingDefinitionVars(argsType)
               val initState = (
                 (initVars.toSet ++ declVars, initVars.reverse),
                 Type.allBinders.map(Type.TyVar(_))
               )
               val (((_, typeVars), _), params) =
-                buildParams(argsType).run(initState).value
+                buildDefinitionParams(argsType).run(initState).value
               // we reverse to make sure we see in traversal order
               val typeParams0 = reverseMap(typeVars) { tv =>
                 tv.toVar match {
@@ -855,7 +862,7 @@ final class SourceConverter(
                 }
               }
 
-              updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
+              updateInferredWithDeclaredTypeArgs(typeArgs, typeParams0, tds).map { typeParams =>
                 val tname = TypeName(nm)
                 val consFn = rankn.ConstructorFn(nm, params)
 
@@ -863,224 +870,7 @@ final class SourceConverter(
               }
             }
       case Enum(nm, typeArgs, items) =>
-        val topDeclaredSet =
-          typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
-        items.get
-          .traverse { item =>
-            validateArgCount(item.name, item.args.length, item.region) *>
-              deep
-                .traverse(item.args)(toType(_, item.region))
-                .map((item, _))
-          }
-          .flatMap { conArgs =>
-            val constructorsS = conArgs.traverse { case (item, argsType) =>
-              buildParams(argsType).map { params =>
-                (item, params)
-              }
-            }
-            val declVars = (
-              typeArgs.iterator.flatMap(_.toList) ++
-                conArgs.iterator.flatMap { case (item, _) =>
-                  item.typeArgs.iterator.flatMap(_.toList)
-                }
-            ).map { p => Type.TyVar(p._1.toBoundVar) }
-            val initVars = existingVars(conArgs.toList.flatMap(_._2))
-            val initState = (
-              (initVars.toSet ++ declVars, initVars.reverse),
-              Type.allBinders.map(Type.TyVar(_))
-            )
-            val (((_, typeVars), _), constructors) =
-              constructorsS.run(initState).value
-            // we reverse to make sure we see in traversal order
-            val discoveredTop0 = reverseMap(typeVars) { tv =>
-              tv.toVar match {
-                case b @ Type.Var.Bound(_) => b
-                // $COVERAGE-OFF$ this should be unreachable
-                case unexpected =>
-                  sys.error(s"unexpectedly parsed a non bound var: $unexpected")
-                // $COVERAGE-ON$
-              }
-            }
-            // Source rules for enum constructor type parameters:
-            // 1) If no constructor has an explicit type-parameter group, all
-            // discovered type variables are treated as universally quantified at
-            // the enum type level.
-            // 2) Otherwise, every type variable must be scoped either at the
-            // enum level or on the constructor branch that uses it. A branch
-            // cannot reference a type variable outside enum scope unless that
-            // branch declares it in its own [..] group (which is existential
-            // when matching that constructor).
-            val hasExplicitBranches = constructors.exists(_._1.typeArgs.nonEmpty)
-            val scopedMode = typeArgs.nonEmpty || hasExplicitBranches
-            val branchDeclaredSet =
-              constructors.iterator
-                .flatMap { case (item, _) =>
-                  item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar)
-                }
-                .toSet
-            val missingBranchTypeParams =
-              if (scopedMode) {
-                constructors.toList.flatMap { case (item, params) =>
-                  val localDeclared =
-                    item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
-                  val free = Type.freeTyVars(params.map(_._2)).collect {
-                    case b: Type.Var.Bound => b
-                  }
-                  val missing =
-                    free.filterNot { tv =>
-                      topDeclaredSet(tv) || localDeclared(tv)
-                    }
-                  NonEmptyList
-                    .fromList(missing.distinct.sorted)
-                    .map((item, _))
-                    .toList
-                }
-              } else Nil
-            val explicitTopUses: Set[Type.Var.Bound] =
-              conArgs.iterator
-                .flatMap { case (_, argsType) =>
-                  Type.freeTyVars(argsType.flatMap(_._2)).collect {
-                    case b: Type.Var.Bound if topDeclaredSet(b) => b
-                  }
-                }
-                .toSet
-            val ambiguousTopTypeParams =
-              topDeclaredSet.diff(explicitTopUses).toList.sorted
-            val preferAmbiguousTopError =
-              typeArgs.nonEmpty &&
-                !hasExplicitBranches &&
-                missingBranchTypeParams.nonEmpty &&
-                ambiguousTopTypeParams.nonEmpty
-            val missingBranchTypesSet =
-              missingBranchTypeParams.iterator.flatMap(_._2.toList).toSet
-            val discoveredForTop =
-              if (hasExplicitBranches) discoveredTop0.filterNot(branchDeclaredSet)
-              else discoveredTop0.filterNot(missingBranchTypesSet)
-
-            val multipleOwners = {
-              val topDeclaredList =
-                typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
-              val topDeclaredSet = topDeclaredList.toSet
-              val topDeclaredCounts =
-                topDeclaredList.groupBy(identity).view.mapValues(_.length).toMap
-              val topDupes = topDeclaredCounts.collect {
-                case (b, cnt) if cnt > 1 => b
-              }.toSet
-
-              val branchDeclaredLists: List[(Statement.EnumBranch, List[Type.Var.Bound])] =
-                constructors.toList.map { case (item, _) =>
-                  val local =
-                    item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
-                  (item, local)
-                }
-              val duplicateWithinBranch: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
-                branchDeclaredLists
-                  .flatMap { case (item, local) =>
-                    local
-                      .groupBy(identity)
-                      .collect { case (b, owners) if owners.lengthCompare(1) > 0 => (b, item) }
-                  }
-                  .groupBy(_._1)
-                  .view
-                  .mapValues(_.map(_._2).distinct)
-                  .toMap
-              val topBranchOverlap: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
-                branchDeclaredLists
-                  .flatMap { case (item, local) =>
-                    local.distinct.filter(topDeclaredSet).map(_ -> item)
-                  }
-                  .groupBy(_._1)
-                  .view
-                  .mapValues(_.map(_._2).distinct)
-                  .toMap
-
-              val invalidVars =
-                (topDupes.iterator ++
-                  duplicateWithinBranch.keysIterator ++
-                  topBranchOverlap.keysIterator).toSet.toList.sorted
-
-              invalidVars.flatMap { tv =>
-                val topOwners = {
-                  val count = topDeclaredCounts.getOrElse(tv, 0)
-                  if (count <= 0) Nil
-                  else {
-                    val base = s"enum ${nm.asString}[${tv.name}]"
-                    if (count == 1) base :: Nil else s"$base (declared $count times)" :: Nil
-                  }
-                }
-                val overlapOwners =
-                  topBranchOverlap
-                    .getOrElse(tv, Nil)
-                    .map(item => s"branch ${item.name.asString}[${tv.name}]")
-                val branchDuplicateOwners =
-                  duplicateWithinBranch
-                    .getOrElse(tv, Nil)
-                    .map(item => s"branch ${item.name.asString}[${tv.name}] (declared more than once)")
-
-                NonEmptyList.fromList(
-                  (topOwners ++ overlapOwners ++ branchDuplicateOwners).distinct
-                ).map(tv -> _)
-              }
-            }
-            val topParams = updateInferedWithDecl(typeArgs, discoveredForTop)
-            val topParamsChecked =
-              if (hasExplicitBranches && typeArgs.isEmpty && discoveredForTop.nonEmpty) {
-                SourceConverter.addError(
-                  topParams,
-                  SourceConverter.UnscopedTypeParameters(
-                    discoveredForTop,
-                    tds
-                  )
-                )
-              } else topParams
-            val ownersChecked =
-              NonEmptyList.fromList(multipleOwners) match {
-                case None       => topParamsChecked
-                case Some(dups) =>
-                  SourceConverter.addError(
-                    topParamsChecked,
-                    SourceConverter.DuplicateTypeParamOwnership(dups, tds)
-                  )
-              }
-            val ambiguityChecked =
-              if (preferAmbiguousTopError) {
-                SourceConverter.addError(
-                  ownersChecked,
-                  SourceConverter.AmbiguousEnumTypeParameters(
-                    nm,
-                    ambiguousTopTypeParams,
-                    tds.region
-                  )
-                )
-              } else ownersChecked
-            val branchesChecked =
-              if (preferAmbiguousTopError) ambiguityChecked
-              else {
-                missingBranchTypeParams.foldLeft(ambiguityChecked) {
-                  case (res, (item, missing)) =>
-                    SourceConverter.addError(
-                      res,
-                      SourceConverter.MissingEnumBranchTypeParameters(
-                        nm,
-                        typeArgs,
-                        item,
-                        missing
-                      )
-                    )
-                }
-              }
-
-            branchesChecked.map { typeParams =>
-              val finalCons = constructors.toList.map { case (item, params) =>
-                val exists =
-                  item.typeArgs.iterator.flatMap(_.toList).map {
-                    case (tv, k) => (tv.toBoundVar, k)
-                  }.toList
-                rankn.ConstructorFn(item.name, params, exists)
-              }
-              rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
-            }
-          }
+        toEnumDefinition(pname, tds, nm, typeArgs, items)
       case ExternalStruct(nm, targs) =>
         // TODO make a real check here of allowed kinds
         success(
@@ -1093,6 +883,229 @@ final class SourceConverter(
             Nil
           )
         )
+    }
+  }
+
+  private def toEnumDefinition(
+      pname: PackageName,
+      tds: TypeDefinitionStatement,
+      nm: Constructor,
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      items: OptIndent[NonEmptyList[Statement.EnumBranch]]
+  ): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
+    val topDeclaredSet =
+      typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
+
+    // Phase 1: validate constructor arity and convert constructor arg annotations.
+    val convertedCtorArgs: Result[List[(Statement.EnumBranch, List[(Bindable, Option[Type])])]] =
+      items.get.toList.traverse { item =>
+        validateConstructorArgCount(item.name, item.args.length, item.region) *>
+          item.args.traverse { case (argName, optTyRef) =>
+            optTyRef.traverse(toType(_, item.region)).map((argName, _))
+          }.map(item -> _)
+      }
+
+    convertedCtorArgs.flatMap { conArgs =>
+      // Phase 2: infer constructor parameter types and collect discovered type variables.
+      val constructorsS = conArgs.traverse { case (item, argsType) =>
+        buildDefinitionParams(argsType).map(params => (item, params))
+      }
+      val declVars = (
+        typeArgs.iterator.flatMap(_.toList) ++
+          conArgs.iterator.flatMap { case (item, _) =>
+            item.typeArgs.iterator.flatMap(_.toList)
+          }
+      ).map { p => Type.TyVar(p._1.toBoundVar) }
+      val initVars = existingDefinitionVars(conArgs.toList.flatMap(_._2))
+      val initState: DefinitionStateType = (
+        (initVars.toSet ++ declVars, initVars.reverse),
+        Type.allBinders.map(Type.TyVar(_))
+      )
+      val (((_, typeVars), _), constructors) =
+        constructorsS.run(initState).value
+      val discoveredTop0 = reverseMap(typeVars) { tv =>
+        tv.toVar match {
+          case b @ Type.Var.Bound(_) => b
+          // $COVERAGE-OFF$ this should be unreachable
+          case unexpected =>
+            sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+          // $COVERAGE-ON$
+        }
+      }
+
+      // Phase 3: analyze enum/branch type-variable scoping and detect scope issues.
+      val hasExplicitBranches = constructors.exists(_._1.typeArgs.nonEmpty)
+      val scopedMode = typeArgs.nonEmpty || hasExplicitBranches
+      val branchDeclaredSet =
+        constructors.iterator
+          .flatMap { case (item, _) =>
+            item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar)
+          }
+          .toSet
+      val missingBranchTypeParams =
+        if (scopedMode) {
+          constructors.toList.flatMap { case (item, params) =>
+            val localDeclared =
+              item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
+            val free = Type.freeTyVars(params.map(_._2)).collect {
+              case b: Type.Var.Bound => b
+            }
+            val missing =
+              free.filterNot { tv =>
+                topDeclaredSet(tv) || localDeclared(tv)
+              }
+            NonEmptyList
+              .fromList(missing.distinct.sorted)
+              .map((item, _))
+              .toList
+          }
+        } else Nil
+      val explicitTopUses: Set[Type.Var.Bound] =
+        conArgs.iterator
+          .flatMap { case (_, argsType) =>
+            Type.freeTyVars(argsType.flatMap(_._2)).collect {
+              case b: Type.Var.Bound if topDeclaredSet(b) => b
+            }
+          }
+          .toSet
+      val ambiguousTopTypeParams =
+        topDeclaredSet.diff(explicitTopUses).toList.sorted
+      val preferAmbiguousTopError =
+        typeArgs.nonEmpty &&
+          !hasExplicitBranches &&
+          missingBranchTypeParams.nonEmpty &&
+          ambiguousTopTypeParams.nonEmpty
+      val missingBranchTypesSet =
+        missingBranchTypeParams.iterator.flatMap(_._2.toList).toSet
+      val discoveredForTop =
+        if (hasExplicitBranches) discoveredTop0.filterNot(branchDeclaredSet)
+        else discoveredTop0.filterNot(missingBranchTypesSet)
+
+      // Phase 4: derive top-level parameters and attach enum scoping diagnostics.
+      val multipleOwners = {
+        val topDeclaredList =
+          typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
+        val topDeclaredSet = topDeclaredList.toSet
+        val topDeclaredCounts =
+          topDeclaredList.groupBy(identity).view.mapValues(_.length).toMap
+        val topDupes = topDeclaredCounts.collect {
+          case (b, cnt) if cnt > 1 => b
+        }.toSet
+
+        val branchDeclaredLists: List[(Statement.EnumBranch, List[Type.Var.Bound])] =
+          constructors.toList.map { case (item, _) =>
+            val local =
+              item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
+            (item, local)
+          }
+        val duplicateWithinBranch: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
+          branchDeclaredLists
+            .flatMap { case (item, local) =>
+              local
+                .groupBy(identity)
+                .collect { case (b, owners) if owners.lengthCompare(1) > 0 => (b, item) }
+            }
+            .groupBy(_._1)
+            .view
+            .mapValues(_.map(_._2).distinct)
+            .toMap
+        val topBranchOverlap: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
+          branchDeclaredLists
+            .flatMap { case (item, local) =>
+              local.distinct.filter(topDeclaredSet).map(_ -> item)
+            }
+            .groupBy(_._1)
+            .view
+            .mapValues(_.map(_._2).distinct)
+            .toMap
+
+        val invalidVars =
+          (topDupes.iterator ++
+            duplicateWithinBranch.keysIterator ++
+            topBranchOverlap.keysIterator).toSet.toList.sorted
+
+        invalidVars.flatMap { tv =>
+          val topOwners = {
+            val count = topDeclaredCounts.getOrElse(tv, 0)
+            if (count <= 0) Nil
+            else {
+              val base = s"enum ${nm.asString}[${tv.name}]"
+              if (count == 1) base :: Nil else s"$base (declared $count times)" :: Nil
+            }
+          }
+          val overlapOwners =
+            topBranchOverlap
+              .getOrElse(tv, Nil)
+              .map(item => s"branch ${item.name.asString}[${tv.name}]")
+          val branchDuplicateOwners =
+            duplicateWithinBranch
+              .getOrElse(tv, Nil)
+              .map(item => s"branch ${item.name.asString}[${tv.name}] (declared more than once)")
+
+          NonEmptyList.fromList(
+            (topOwners ++ overlapOwners ++ branchDuplicateOwners).distinct
+          ).map(tv -> _)
+        }
+      }
+      val topParams = updateInferredWithDeclaredTypeArgs(typeArgs, discoveredForTop, tds)
+      val topParamsChecked =
+        if (hasExplicitBranches && typeArgs.isEmpty && discoveredForTop.nonEmpty) {
+          SourceConverter.addError(
+            topParams,
+            SourceConverter.UnscopedTypeParameters(
+              discoveredForTop,
+              tds
+            )
+          )
+        } else topParams
+      val ownersChecked =
+        NonEmptyList.fromList(multipleOwners) match {
+          case None       => topParamsChecked
+          case Some(dups) =>
+            SourceConverter.addError(
+              topParamsChecked,
+              SourceConverter.DuplicateTypeParamOwnership(dups, tds)
+            )
+        }
+      val ambiguityChecked =
+        if (preferAmbiguousTopError) {
+          SourceConverter.addError(
+            ownersChecked,
+            SourceConverter.AmbiguousEnumTypeParameters(
+              nm,
+              ambiguousTopTypeParams,
+              tds.region
+            )
+          )
+        } else ownersChecked
+      val branchesChecked =
+        if (preferAmbiguousTopError) ambiguityChecked
+        else {
+          missingBranchTypeParams.foldLeft(ambiguityChecked) {
+            case (res, (item, missing)) =>
+              SourceConverter.addError(
+                res,
+                SourceConverter.MissingEnumBranchTypeParameters(
+                  nm,
+                  typeArgs,
+                  item,
+                  missing
+                )
+              )
+          }
+        }
+
+      // Phase 5: assemble the final constructors (with branch existentials) and result type.
+      branchesChecked.map { typeParams =>
+        val finalCons = constructors.toList.map { case (item, params) =>
+          val exists =
+            item.typeArgs.iterator.flatMap(_.toList).map {
+              case (tv, k) => (tv.toBoundVar, k)
+            }.toList
+          rankn.ConstructorFn(item.name, params, exists)
+        }
+        rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
+      }
     }
   }
 
