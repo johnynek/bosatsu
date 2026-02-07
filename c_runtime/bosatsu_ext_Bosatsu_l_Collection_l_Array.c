@@ -208,17 +208,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(BValue array) {
   return bsts_integer_from_int(arr->len);
 }
 
-BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__Array(BValue array, BValue index) {
-  BSTS_Array* arr = bsts_array_unbox(array);
-
-  if (bsts_array_index_in_range(index, arr->len)) {
-    int idx = (int)bsts_integer_to_int32(index);
-    return alloc_enum1(1, arr->data[arr->offset + idx]);
-  }
-
-  return alloc_enum0(0);
-}
-
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BValue index, BValue default_fn, BValue map_fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 

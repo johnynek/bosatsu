@@ -10,8 +10,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_to__List__Array(BValue array);
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(BValue array);
 
-BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__Array(BValue array, BValue index);
-
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BValue index, BValue default_fn, BValue map_fn);
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(BValue array, BValue index, BValue default_fn);
