@@ -219,7 +219,8 @@ object SeqPattern {
             .orElse(o6)
         }
 
-        val items = union.toArray.map(_.toList)
+        val items: Array[List[SeqPart[A]]] =
+          union.toArray.map(_.toList)
 
         val pairs = for {
           i <- (0 until items.length).iterator
@@ -230,9 +231,10 @@ object SeqPattern {
         // stop after the first unification and loop
         if (pairs.hasNext) {
           val (pair, i, j) = pairs.next()
-          items(i) = null
-          items(j) = null
-          val rest = items.iterator.filterNot(_ == null).toList
+          val rest = items.iterator.zipWithIndex
+            .filter { case (_, idx) => (idx != i) && (idx != j) }
+            .map(_._1)
+            .toList
           // let's look again
           unifyUnionList(pair :: rest)
         } else union

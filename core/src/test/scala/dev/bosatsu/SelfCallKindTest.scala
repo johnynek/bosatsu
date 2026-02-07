@@ -94,7 +94,8 @@ def for_all(xs: List[a], fn: a -> B) -> B:
 
     scs.foreach { a =>
       assertEquals(a.merge(a), a)
-      assertEquals((a.ifNoCallThen(null) eq null), (a == NoCall))
+      assertEquals(
+        scs.forall { other => (a.ifNoCallThen(other) eq other) }, (a == NoCall))
       assertEquals(NoCall.merge(a), a)
       assertEquals(NonTailCall.merge(a), NonTailCall)
       assert(a.callNotTail != TailCall)

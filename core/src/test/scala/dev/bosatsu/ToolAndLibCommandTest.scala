@@ -7,7 +7,7 @@ import cats.implicits._
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{ExitCode, FileKind, GraphOutput, Output}
+import dev.bosatsu.tool.{ExitCode, GraphOutput, Output}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap

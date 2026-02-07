@@ -299,7 +299,7 @@ x""")
 
   test("isCheap is constant under Annotation or Parens") {
     val prop = forAll(genDecl) { d =>
-      val an = Declaration.Annotation(d.toNonBinding, null)
+      val an = Declaration.Annotation(d.toNonBinding, TypeRef.TypeVar("a"))
       assertEquals(an.isCheap, d.isCheap)
       val p = Declaration.Parens(d)
       assertEquals(p.isCheap, d.isCheap)

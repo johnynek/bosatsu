@@ -80,7 +80,6 @@ object Dag {
         nfn: A => IterableOnce[A]
     ): SortedMap[A, SortedSet[A]] = {
       given Order[A] = Order.fromOrdering(using summon[Ordering[A]])
-      given Eq[SortedSet[A]] = Eq.by(_.toList)
       given Eq[SortedMap[A, SortedSet[A]]] = Eq.by(_.toList)
 
       def step(

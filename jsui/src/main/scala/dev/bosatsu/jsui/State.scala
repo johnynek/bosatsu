@@ -1,7 +1,7 @@
 package dev.bosatsu.jsui
 
 import scala.concurrent.duration.Duration
-import io.circe.{Json, Encoder, Decoder}
+import io.circe.{Json, Encoder, Decoder, DecodingFailure}
 import io.circe.syntax._
 import io.circe.parser.decode
 
@@ -59,6 +59,9 @@ object State {
       cursor.downField("type").as[String].flatMap {
         case "WithText" => cursor.as(using decodeWithText)
         case "Compiled" => cursor.as(using decodeCompiled)
+        case unexpected =>
+          val msg = s"expected \"WithText\" or \"Compiled\", got: \"$unexpected\""
+          Left(DecodingFailure(msg, cursor.history))
       }
     }
   }

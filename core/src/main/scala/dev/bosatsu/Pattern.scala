@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eq, Foldable, Order}
+import cats.{Applicative, Foldable, Order}
 import cats.data.NonEmptyList
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}

@@ -33,7 +33,11 @@ lazy val commonSettings = Seq(
     "utf-8",
     "-feature",
     "-unchecked",
-    "-language:strictEquality"
+    "-language:strictEquality",
+    "-Ycheck-all-patmat",
+    "-explain",
+    "-Wunused:all",
+    "-Werror",
   ),
   Test / testOptions += Tests.Argument("-oDF")
 )
@@ -205,6 +209,7 @@ lazy val core =
     name := "bosatsu-core",
     moduleName := "compiler-core",
     assembly / test := {},
+    scalacOptions += "-Yexplicit-nulls",
     libraryDependencies ++=
       Seq(
         blake3.value,

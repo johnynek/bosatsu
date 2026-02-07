@@ -6,7 +6,6 @@ import java.math.BigInteger
 import dev.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
-import cats.syntax.all._
 
 // Structs are represented as tuples
 // Enums are represented as tuples with an additional first field holding

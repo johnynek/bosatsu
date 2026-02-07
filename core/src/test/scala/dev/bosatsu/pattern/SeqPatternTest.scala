@@ -26,8 +26,6 @@ object StringSeqPatternGen {
     } yield list.mkString
 
   val genPart: Gen[SeqPart[Int]] = {
-    import SeqPart._
-
     Gen.frequency(
       (15, Gen.oneOf(lit('0'), lit('1'))),
       (2, Gen.const(AnyElem)),
@@ -454,8 +452,6 @@ class BoolSeqPatternTest
     Gen.oneOf(List(Set(true), Set(false), Set(true, false)))
 
   def genPart: Gen[SeqPart[Set[Boolean]]] = {
-    import SeqPart._
-
     Gen.frequency(
       (15, genSetBool.map(Lit(_))),
       (2, Gen.const(AnyElem)),

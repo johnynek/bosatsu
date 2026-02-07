@@ -555,8 +555,6 @@ object RingOpt {
         import Stack._
 
         private given Eq[A] = eqA
-        private given Eq[BigInt] = Eq.fromUniversalEquals
-        private given Eq[Op] = Eq.fromUniversalEquals
         private given Eq[Leaf[A]] =
           new Eq[Leaf[A]] {
             override def eqv(left: Leaf[A], right: Leaf[A]): Boolean =
@@ -1310,8 +1308,6 @@ object RingOpt {
       new Hash[Stack[A]] {
         private val hashA: Hash[A] = Hash[A]
         private given Eq[A] = hashA
-        private given Eq[BigInt] = Eq.fromUniversalEquals
-        private given Eq[Op] = Eq.fromUniversalEquals
         private given Eq[Leaf[A]] =
           new Eq[Leaf[A]] {
             override def eqv(left: Leaf[A], right: Leaf[A]): Boolean =
@@ -1817,7 +1813,7 @@ object RingOpt {
                       val rA: Expr[A] = r
                       val (c1, prodTerms) = Expr.flattenMult[A](lA :: rA :: Nil)
                       prodTerms match {
-                        case (add: Add[a]) :: Nil =>
+                        case (add: Add[?]) :: Nil =>
                           // make sure we never add singleton Add(_, _)
                           val c2 = c * c1
                           loop(

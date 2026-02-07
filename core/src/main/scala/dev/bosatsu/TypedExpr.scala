@@ -775,7 +775,7 @@ object TypedExpr {
     def assertRho[A](r: TypedExpr[A]): Rho[A] =
       r.getType match {
         case _: Type.Rho => r
-        case notRho => throw new IllegalArgumentException(
+        case _ => throw new IllegalArgumentException(
           s"type not Rho: ${r.reprString}"
         )
       }
@@ -1605,13 +1605,7 @@ object TypedExpr {
     tpe match {
       case Type.Fun(args, b: Type.Rho) =>
         val cb = coerceRho(b, kinds)
-        val cas = args.map {
-          case aRho: Type.Rho =>
-            Some(widenCoerceRho(coerceRho(aRho, kinds)))
-          case _              => None
-        }
-
-        coerceFn1(args, b, cas, cb, kinds)
+        coerceFn1(args, b, cb, kinds)
       case _ =>
         new FunctionK[TypedExpr, Rho] { self =>
           def apply[A](expr: TypedExpr[A]): Rho[A] =
@@ -1653,7 +1647,6 @@ object TypedExpr {
                         val fn1 = coerceFn1(
                           cArgs.map(_._2),
                           tpe,
-                          cArgs.map(_._3),
                           self,
                           kinds
                         )(fn)
@@ -2034,16 +2027,23 @@ object TypedExpr {
   def coerceFn(
       args: NonEmptyList[Type],
       result: Type.Rho,
-      coarg: NonEmptyList[Coerce],
       cores: CoerceRho,
       kinds: Type => Option[Kind]
   ): CoerceRho =
-    coerceFn1(args, result, coarg.map(Some(_)), cores, kinds)
+    coerceFn1(args, result, cores, kinds)
 
+  // `Infer.subsCheckFn` computes contravariant domain coercions as
+  // evidence that the function type relation is valid, but this value-level
+  // rewrite intentionally does not apply them.
+  //
+  // `coerceFn1` transforms a function expression in isolation, where there are
+  // no caller arguments to rewrite yet. Concrete argument coercions happen at
+  // application construction sites (`Infer.checkApply*` and `coerceRho` App
+  // cases). Applying domain coercions again here would duplicate that logic and
+  // can change evaluation structure by adding redundant wrappers.
   private def coerceFn1(
       arg: NonEmptyList[Type],
       result: Type.Rho,
-      coargOpt: NonEmptyList[Option[Coerce]],
       cores: CoerceRho,
       kinds: Type => Option[Kind]
   ): CoerceRho =

@@ -41,11 +41,14 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   implicit def arbExpr[A: Arbitrary]: Arbitrary[Expr[A]] =
     Arbitrary(genExpr(Arbitrary.arbitrary[A]))
 
-  implicit def shrinkExpr[A: Shrink: Order]: Shrink[Expr[A]] =
+  implicit def shrinkExpr[A](implicit
+      shrinkA: Shrink[A],
+      ordA: Order[A]
+  ): Shrink[Expr[A]] =
     Shrink.withLazyList[Expr[A]] {
       case Zero       => LazyList.empty
       case One        => Zero #:: LazyList.empty
-      case Symbol(a)  => LazyList.from(Shrink.shrink(a)).map(Symbol(_))
+      case Symbol(a)  => LazyList.from(shrinkA.shrink(a)).map(Symbol(_))
       case Integer(n) => LazyList.from(Shrink.shrink(n)).map(Integer(_))
       case Neg(x)     =>
         val shrinkX = LazyList.from(Shrink.shrink(x))
@@ -65,7 +68,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             Nil
         )
 
-        val normAdd = (add: Expr[A]).basicNorm
+        val normAdd = (add: Expr[A]).basicNorm(using ordA)
         if (normAdd =!= add) (normAdd #:: tail)
         else tail
 
@@ -79,7 +82,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             shrinkMult ::
             Nil
         )
-        val normMult = (mult: Expr[A]).basicNorm
+        val normMult = (mult: Expr[A]).basicNorm(using ordA)
         if (normMult =!= mult) (normMult #:: tail)
         else tail
     }

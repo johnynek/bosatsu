@@ -2,6 +2,7 @@ package dev.bosatsu.pattern
 
 import cats.Monoid
 import dev.bosatsu.{Pattern, Lit, Identifier}
+import dev.bosatsu.NonNullFold.*
 
 sealed abstract class StrPart derives CanEqual
 object StrPart {
@@ -72,7 +73,7 @@ object StrPart {
       str: String,
       pat: List[StrPart],
       binds: Int
-  ): Array[String] = {
+  ): Array[String] | Null = {
     val strLen = str.length()
     val results =
       if (binds > 0) new Array[String](binds) else emptyStringArray
@@ -210,16 +211,12 @@ object StrPart {
       case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
     }
 
-    val result = StrPart.matchString(str, pat, sbinds.length)
-    if (result == null) None
-    else {
-      // we match:
-      val matched = result.iterator
-        .zip(sbinds.iterator)
-        .map { case (m, fn) => fn(m) }
-        .toList
-
-      Some(matched)
+    StrPart.matchString(str, pat, sbinds.length).foldNN(None) { result =>
+        // we match:
+        Some(result.iterator
+          .zip(sbinds.iterator)
+          .map { case (m, fn) => fn(m) }
+          .toList)
     }
   }
 }

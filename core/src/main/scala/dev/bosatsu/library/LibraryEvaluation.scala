@@ -31,8 +31,6 @@ case class LibraryEvaluation[K] private (
     renderScope: K => String,
     externals: Externals
 )(implicit keyOrder: Ordering[K], ec: Par.EC) {
-  import LibraryEvaluation.ScopeData
-
   private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
     scopes.transform { case (scope, data) =>
       MatchlessFromTypedExpr.compile(scope, data.packages)

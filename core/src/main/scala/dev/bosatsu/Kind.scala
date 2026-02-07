@@ -190,26 +190,6 @@ object Kind {
   def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] =
     sortMergeIt(l1.iterator, l2.iterator).to(LazyList)
 
-  private def insertSortedIt[A: Ordering](
-      item: A,
-      as: Iterator[A]
-  ): Iterator[A] = {
-    val ord = implicitly[Ordering[A]]
-    val bas = as.buffered
-    new Iterator[A] {
-      var emitted = false
-      def hasNext = (!emitted) || bas.hasNext
-      def next() =
-        if (emitted) bas.next()
-        else if (!bas.hasNext || ord.lteq(item, bas.head)) {
-          emitted = true
-          item
-        } else {
-          bas.next()
-        }
-    }
-  }
-
   // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
   // returns all pairs such that the (idxLeft + idxRight) of the result is < len(items)
   def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =

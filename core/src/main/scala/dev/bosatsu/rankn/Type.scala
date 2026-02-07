@@ -1464,14 +1464,14 @@ object Type {
         }
         .map(TyVar(_))
 
-      // this null is bad, but we have no way to reallocate this
-      // and won't parse before type inference anyway
-      // the ideal solution is to better static type information
-      // to have fully inferred types with no skolems or metas
-      // TODO Kind
       val meta = (P.char('?') *> (existential ~ longParser))
         .map { case (opt, l) =>
-          TyMeta(Meta(Kind.Type, l, opt.isDefined, null))
+          // TODO Kind is wrong
+          // this constRef is safe because it
+          // won't parse before type inference anyway
+          // the ideal solution is to better static type information
+          // to have fully inferred types with no skolems or metas
+          TyMeta(Meta(Kind.Type, l, opt.isDefined, RefSpace.constRef(Option.empty)))
         }
 
       tvar.orElse(name).orElse(skolem).orElse(meta)

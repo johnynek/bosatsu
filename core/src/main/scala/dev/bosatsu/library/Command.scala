@@ -1,6 +1,6 @@
 package dev.bosatsu.library
 
-import cats.{Monad, MonoidK, Traverse}
+import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList}
 import com.monovore.decline.{Argument, Opts}

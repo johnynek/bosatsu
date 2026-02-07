@@ -34,7 +34,7 @@ object Operators {
   /** strings for operators allowed in single character operators (excludes =
     * and .)
     */
-  val singleToks =
+  val singleToks: List[String] =
     List("/", "%", "*", "-", "+", "<", ">", "!", "$", "&", "^", "|", "?", "~")
       .map(_.intern)
 

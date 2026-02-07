@@ -425,6 +425,8 @@ case object ClangTranspiler extends Transpiler {
                        .handleErrorWith {
                          case _: CliException =>
                            moduleIOMonad.raiseError(TestExecutionFailed)
+                         case other =>
+                           moduleIOMonad.raiseError(other)
                        }
                    case _ =>
                      moduleIOMonad.unit
