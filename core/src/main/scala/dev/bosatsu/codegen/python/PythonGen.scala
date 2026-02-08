@@ -713,6 +713,8 @@ object PythonGen {
       private val predefPackage: PackageName = PackageName.PredefName
       private val arrayPackage: PackageName =
         PackageName.parts("Bosatsu", "Collection", "Array")
+      private val float64Package: PackageName =
+        PackageName.parts("Bosatsu", "Float", "Float64")
 
       private val cmpFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
@@ -724,6 +726,330 @@ object PythonGen {
             )
             .simplify
         }
+      }
+
+      private def mathModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("math")))
+
+      private def structModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("struct")))
+
+      private def unaryMath(name: String): List[ValueLike] => Env[ValueLike] = {
+        input =>
+          mathModule.flatMap { math =>
+            Env.onLast(input.head) { arg =>
+              math.dot(Code.Ident(name))(arg)
+            }
+          }
+      }
+
+      private def binaryMath(
+          name: String
+      ): List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast2(input.head, input.tail.head) { (left, right) =>
+            math.dot(Code.Ident(name))(left, right)
+          }
+        }
+      }
+
+      private val unsigned64TopBitExpr = Code.PyInt(
+        java.math.BigInteger.ONE.shiftLeft(63)
+      )
+      private val unsigned64ModExpr = Code.PyInt(java.math.BigInteger.ONE.shiftLeft(64))
+
+      private def signedToUnsignedBits64(bits: Code.Expression): Code.Expression =
+        Code
+          .Ternary(
+            bits.evalPlus(unsigned64ModExpr),
+            bits :< Code.Const.Zero,
+            bits
+          )
+          .simplify
+
+      private def floatToUnsignedBits64(
+          struct: Code.Expression,
+          arg: Code.Expression
+      ): Code.Expression = {
+        val signedBits = struct
+          .dot(Code.Ident("unpack"))(
+            Code.PyString(">q"),
+            struct.dot(Code.Ident("pack"))(Code.PyString(">d"), arg)
+          )
+          .get(0)
+        signedToUnsignedBits64(
+          signedBits
+        )
+      }
+
+      private def unsignedToSignedBits64(bits: Code.Expression): Code.Expression = {
+        val bits1 = bits.eval(Code.Const.Mod, unsigned64ModExpr)
+        Code
+          .Ternary(
+            bits1.evalMinus(unsigned64ModExpr),
+            !(bits1 :< unsigned64TopBitExpr),
+            bits1
+          )
+          .simplify
+      }
+
+      private def unsignedBits64ToFloat(
+          struct: Code.Expression,
+          bits: Code.Expression
+      ): Code.Expression = {
+        val signedBits = unsignedToSignedBits64(bits)
+        struct
+          .dot(Code.Ident("unpack"))(
+            Code.PyString(">d"),
+            struct
+              .dot(Code.Ident("pack"))(
+                Code.PyString(">q"),
+                signedBits
+              )
+          )
+          .get(0)
+      }
+
+      private val cmpFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            val aNaN = math.dot(Code.Ident("isnan"))(arg0)
+            val bNaN = math.dot(Code.Ident("isnan"))(arg1)
+            val neitherNaN = Code
+              .Ternary(
+                0,
+                arg0 :< arg1,
+                Code.Ternary(1, arg0 =:= arg1, 2)
+              )
+              .simplify
+            Code
+              .Ternary(
+                Code.Ternary(1, bNaN, 0),
+                aNaN,
+                Code.Ternary(2, bNaN, neitherNaN)
+              )
+              .simplify
+          }
+        }
+      }
+
+      private val divFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            val arg1Zero = arg1 =:= Code.PyFloat(0.0)
+            val arg0Zero = arg0 =:= Code.PyFloat(0.0)
+            val arg0NaN = math.dot(Code.Ident("isnan"))(arg0)
+            val nanVal = Code.Ident("float")(Code.PyString("nan"))
+            val infBySign = {
+              val signMul = Code.Op(
+                math.dot(Code.Ident("copysign"))(Code.PyFloat(1.0), arg0),
+                Code.Const.Times,
+                math.dot(Code.Ident("copysign"))(Code.PyFloat(1.0), arg1)
+              )
+              Code
+                .Ternary(
+                  Code.Ident("float")(Code.PyString("-inf")),
+                  signMul :< Code.PyFloat(0.0),
+                  Code.Ident("float")(Code.PyString("inf"))
+                )
+                .simplify
+            }
+
+            Code
+              .Ternary(
+                Code.Ternary(
+                  nanVal,
+                  Code.Op(arg0NaN, Code.Const.Or, arg0Zero),
+                  infBySign
+                ),
+                arg1Zero,
+                Code.Op(arg0, Code.Const.Div, arg1)
+              )
+              .simplify
+          }
+        }
+      }
+
+      private val floatToStringFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            mathModule.flatMap { math =>
+              Env.onLast(input.head) { arg =>
+                val posInf = Code.PyString("\u221E")
+                val negInf = Code.PyString("-\u221E")
+                val isInf = math.dot(Code.Ident("isinf"))(arg)
+                val isNaN = math.dot(Code.Ident("isnan"))(arg)
+                val sign = math.dot(Code.Ident("copysign"))(Code.PyFloat(1.0), arg)
+                val infString = Code.Ternary(negInf, sign :< Code.PyFloat(0.0), posInf)
+                val bits = floatToUnsignedBits64(struct, arg)
+                val nanString = Code.Op(Code.PyString("NaN:0x%016x"), Code.Const.Mod, bits)
+                Code
+                  .Ternary(
+                    infString,
+                    isInf,
+                    Code.Ternary(nanString, isNaN, Code.Ident("repr")(arg))
+                  )
+                  .simplify
+              }
+            }
+          }
+      }
+
+      private val floatBitsToIntFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            Env.onLast(input.head) { arg => floatToUnsignedBits64(struct, arg) }
+          }
+      }
+
+      private val intBitsToFloatFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            Env.onLast(input.head) { arg =>
+              unsignedBits64ToFloat(struct, arg)
+            }
+          }
+      }
+
+      private val floatToIntFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast(input.head) { arg =>
+            val noneValue = Code.MakeTuple(Code.Const.Zero :: Nil)
+            def someValue(v: Code.Expression): Code.Expression =
+              Code.MakeTuple(Code.Const.One :: v :: Nil)
+            val nonFinite = Code
+              .Op(
+                math.dot(Code.Ident("isinf"))(arg),
+                Code.Const.Or,
+                math.dot(Code.Ident("isnan"))(arg)
+              )
+              .simplify
+            val floorV = math.dot(Code.Ident("floor"))(arg)
+            val frac = Code.Op(arg, Code.Const.Minus, floorV).simplify
+            val floorInt = Code.Ident("int")(floorV)
+            val floorPlusOne = Code.Op(floorInt, Code.Const.Plus, Code.Const.One).simplify
+            val floorIsEven = Code.Op(
+              Code.Op(floorInt, Code.Const.Mod, Code.fromInt(2)).simplify,
+              Code.Const.Eq,
+              Code.Const.Zero
+            ).simplify
+            val tieRounded = Code.Ternary(floorInt, floorIsEven, floorPlusOne).simplify
+            val roundedInt = Code
+              .Ternary(
+                floorInt,
+                frac :< Code.PyFloat(0.5),
+                Code.Ternary(
+                  floorPlusOne,
+                  frac :> Code.PyFloat(0.5),
+                  tieRounded
+                ).simplify
+              )
+              .simplify
+
+            Code.Ternary(noneValue, nonFinite, someValue(roundedInt)).simplify
+          }
+        }
+      }
+
+      private val intToFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.onLast(input.head) { arg =>
+          // float(i) raises OverflowError for huge ints; float(str(i)) yields
+          // the nearest representable float64 (or +/-inf when out of range).
+          Code.Ident("float")(Code.Ident("str")(arg))
+        }
+      }
+
+      private val stringToFloatFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            Env.importLiteral(NonEmptyList.one(Code.Ident("re"))).flatMap { re =>
+              (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
+                case (cleanedVar, cleanedLowerVar) =>
+                  Env.onLast(input.head) { s =>
+                    val noneValue = Code.MakeTuple(Code.Const.Zero :: Nil)
+                    def someValue(v: Code.Expression): Code.Expression =
+                      Code.MakeTuple(Code.Const.One :: v :: Nil)
+                    val cleaned: Code.Expression = cleanedVar
+                    val cleanedLower: Code.Expression = cleanedLowerVar
+
+                    val posInf = Code.Op(
+                      cleanedLower,
+                      Code.Const.In,
+                      Code.MakeTuple(
+                        Code.PyString("\u221E") ::
+                          Code.PyString("+\u221E") ::
+                          Code.PyString("infinity") ::
+                          Code.PyString("+infinity") ::
+                          Code.PyString("inf") ::
+                          Code.PyString("+inf") :: Nil
+                      )
+                    )
+                    val negInf = Code.Op(
+                      cleanedLower,
+                      Code.Const.In,
+                      Code.MakeTuple(
+                        Code.PyString("-\u221E") ::
+                          Code.PyString("-infinity") ::
+                          Code.PyString("-inf") :: Nil
+                      )
+                    )
+                    val isNaN = Code.Op(
+                      cleanedLower,
+                      Code.Const.In,
+                      Code.MakeTuple(Code.PyString(".nan") :: Code.PyString("nan") :: Nil)
+                    )
+                    val hasNanPrefix =
+                      cleanedLower.dot(Code.Ident("startswith"))(Code.PyString("nan:0x"))
+                    val hexPart = Code.SelectRange(cleaned, Some(Code.fromInt(6)), None)
+                    val fullHex = re
+                      .dot(Code.Ident("match"))(
+                        Code.PyString("^[0-9a-fA-F]{16}$"),
+                        hexPart
+                      )
+                      =!= Code.Ident("None")
+                    val nanByBits = hasNanPrefix.evalAnd(fullHex)
+                    val nanBits = Code.Ident("int")(hexPart, Code.fromInt(16))
+                    val nanByBitsValue = unsignedBits64ToFloat(struct, nanBits)
+                    val isNumeric = re
+                      .dot(Code.Ident("match"))(
+                        Code.PyString(
+                          "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                        ),
+                        cleaned
+                      )
+                      =!= Code.Ident("None")
+                    val parsedNumeric = Code.Ident("float")(cleaned)
+
+                    Code
+                      .block(
+                        cleanedVar := s.dot(Code.Ident("replace"))(
+                          Code.PyString("_"),
+                          Code.PyString("")
+                        ),
+                        cleanedLowerVar := cleanedVar.dot(Code.Ident("lower"))()
+                      )
+                      .withValue(
+                        Code.IfElse(
+                          NonEmptyList.of(
+                            (
+                              posInf,
+                              someValue(Code.Ident("float")(Code.PyString("inf")))
+                            ),
+                            (
+                              negInf,
+                              someValue(Code.Ident("float")(Code.PyString("-inf")))
+                            ),
+                            (isNaN, someValue(Code.Ident("float")(Code.PyString("nan")))),
+                            (nanByBits, someValue(nanByBitsValue)),
+                            (isNumeric, someValue(parsedNumeric))
+                          ),
+                          noneValue
+                        )
+                      )
+                  }
+              }
+            }
+          }
       }
 
       private def arrayData(ary: Expression): Expression =
@@ -749,14 +1075,14 @@ object PythonGen {
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.literal("add"),
+            Identifier.Name("add"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.literal("sub"),
+            Identifier.Name("sub"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -765,7 +1091,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("times"),
+            Identifier.Name("times"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -774,7 +1100,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("div"),
+            Identifier.Name("div"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -791,7 +1117,39 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("mod_Int"),
+            Identifier.Name("addf"),
+            (
+              input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
+              2
+            )
+          ),
+          (
+            Identifier.Name("subf"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("timesf"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("divf"),
+            (
+              divFloatFn,
+              2
+            )
+          ),
+          (
+            Identifier.Name("mod_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -807,9 +1165,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.literal("cmp_Int"), (cmpFn, 2)),
+          (Identifier.Name("cmp_Int"), (cmpFn, 2)),
           (
-            Identifier.literal("eq_Int"),
+            Identifier.Name("eq_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -819,8 +1177,9 @@ object PythonGen {
               2
             )
           ),
+          (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
           (
-            Identifier.literal("shift_left_Int"),
+            Identifier.Name("shift_left_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -831,7 +1190,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("shift_right_Int"),
+            Identifier.Name("shift_right_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -842,7 +1201,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("and_Int"),
+            Identifier.Name("and_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -853,7 +1212,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("or_Int"),
+            Identifier.Name("or_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -864,7 +1223,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("xor_Int"),
+            Identifier.Name("xor_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -875,7 +1234,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("not_Int"),
+            Identifier.Name("not_Int"),
             (
               {
                 // leverage not(x) == -1 - x
@@ -885,7 +1244,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("gcd_Int"),
+            Identifier.Name("gcd_Int"),
             (
               { input =>
                 (
@@ -937,7 +1296,7 @@ object PythonGen {
           //     _i = tmp_i
           //   return _a
           (
-            Identifier.literal("int_loop"),
+            Identifier.Name("int_loop"),
             (
               { input =>
                 (
@@ -994,7 +1353,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("concat_String"),
+            Identifier.Name("concat_String"),
             (
               { input =>
                 Env.onLastM(input.head) { listOfStrings =>
@@ -1019,7 +1378,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("int_to_String"),
+            Identifier.Name("int_to_String"),
             (
               { input =>
                 Env.onLast(input.head) {
@@ -1032,7 +1391,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("string_to_Int"),
+            Identifier.Name("string_to_Int"),
             (
               { input =>
                 Env.onLast(input.head) { s =>
@@ -1061,12 +1420,12 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("char_to_String"),
+            Identifier.Name("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
           ),
           (
-            Identifier.literal("trace"),
+            Identifier.Name("trace"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (msg, i) =>
@@ -1079,7 +1438,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("partition_String"),
+            Identifier.Name("partition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1111,7 +1470,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("rpartition_String"),
+            Identifier.Name("rpartition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1140,18 +1499,18 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.literal("cmp_String"), (cmpFn, 2))
+          (Identifier.Name("cmp_String"), (cmpFn, 2))
         )
 
       val arrayResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.literal("empty_Array"),
+            Identifier.Name("empty_Array"),
             ((_: List[ValueLike]) => Env.pure(emptyArray), 0)
           ),
           (
-            Identifier.literal("tabulate_Array"),
+            Identifier.Name("tabulate_Array"),
             (
               { input =>
                 (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
@@ -1190,7 +1549,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("from_List_Array"),
+            Identifier.Name("from_List_Array"),
             (
               { input =>
                 Env.newAssignableVar.flatMap { pyList =>
@@ -1212,7 +1571,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("to_List_Array"),
+            Identifier.Name("to_List_Array"),
             (
               { input =>
                 (
@@ -1246,7 +1605,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("size_Array"),
+            Identifier.Name("size_Array"),
             (
               { input =>
                 Env.onLast(input.head)(arrayLen)
@@ -1255,7 +1614,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("get_map_Array"),
+            Identifier.Name("get_map_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1280,7 +1639,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("get_or_Array"),
+            Identifier.Name("get_or_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1305,7 +1664,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("foldl_Array"),
+            Identifier.Name("foldl_Array"),
             (
               { input =>
                 (
@@ -1349,7 +1708,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("map_Array"),
+            Identifier.Name("map_Array"),
             (
               { input =>
                 (
@@ -1392,7 +1751,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("set_or_self_Array"),
+            Identifier.Name("set_or_self_Array"),
             (
               { input =>
                 (
@@ -1434,7 +1793,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("sort_Array"),
+            Identifier.Name("sort_Array"),
             (
               { input =>
                 (
@@ -1493,7 +1852,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("concat_all_Array"),
+            Identifier.Name("concat_all_Array"),
             (
               { input =>
                 (
@@ -1571,7 +1930,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("slice_Array"),
+            Identifier.Name("slice_Array"),
             (
               { input =>
                 (
@@ -1631,12 +1990,73 @@ object PythonGen {
           )
         )
 
+      val floatResults
+          : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
+        Map(
+          (Identifier.Name("abs"), (unaryMath("fabs"), 1)),
+          (Identifier.Name("acos"), (unaryMath("acos"), 1)),
+          (Identifier.Name("asin"), (unaryMath("asin"), 1)),
+          (Identifier.Name("atan"), (unaryMath("atan"), 1)),
+          (Identifier.Name("atan2"), (binaryMath("atan2"), 2)),
+          (Identifier.Name("ceil"), (unaryMath("ceil"), 1)),
+          (Identifier.Name("cos"), (unaryMath("cos"), 1)),
+          (Identifier.Name("cosh"), (unaryMath("cosh"), 1)),
+          (Identifier.Name("exp"), (unaryMath("exp"), 1)),
+          (Identifier.Name("floor"), (unaryMath("floor"), 1)),
+          (Identifier.Name("hypot"), (binaryMath("hypot"), 2)),
+          (Identifier.Name("log"), (unaryMath("log"), 1)),
+          (Identifier.Name("log10"), (unaryMath("log10"), 1)),
+          (Identifier.Name("pow"), (binaryMath("pow"), 2)),
+          (Identifier.Name("sin"), (unaryMath("sin"), 1)),
+          (Identifier.Name("sinh"), (unaryMath("sinh"), 1)),
+          (Identifier.Name("sqrt"), (unaryMath("sqrt"), 1)),
+          (Identifier.Name("tan"), (unaryMath("tan"), 1)),
+          (Identifier.Name("tanh"), (unaryMath("tanh"), 1)),
+          (
+            Identifier.Name("copy_sign"),
+            (binaryMath("copysign"), 2)
+          ),
+          (Identifier.Name("is_nan"), (unaryMath("isnan"), 1)),
+          (
+            Identifier.Name("is_infinite"),
+            (unaryMath("isinf"), 1)
+          ),
+          (
+            Identifier.Name("float64_to_String"),
+            (floatToStringFn, 1)
+          ),
+          (
+            Identifier.Name("string_to_Float64"),
+            (stringToFloatFn, 1)
+          ),
+          (
+            Identifier.Name("int_bits_to_Float64"),
+            (intBitsToFloatFn, 1)
+          ),
+          (
+            Identifier.Name("float64_bits_to_Int"),
+            (floatBitsToIntFn, 1)
+          ),
+          (
+            Identifier.Name("float64_to_Int"),
+            (floatToIntFn, 1)
+          ),
+          (
+            Identifier.Name("int_to_Float64"),
+            (intToFloatFn, 1)
+          )
+        )
+
       val resultsByPackage
           : Map[
             PackageName,
             Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)]
           ] =
-        Map(predefPackage -> results, arrayPackage -> arrayResults)
+        Map(
+          predefPackage -> results,
+          arrayPackage -> arrayResults,
+          float64Package -> floatResults
+        )
 
       def bosatsuListToPython(
           pyList: Code.Ident,
@@ -1754,7 +2174,19 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
         ix match {
-          case EqualsLit(expr, lit) =>
+          case EqualsLit(expr, lit: dev.bosatsu.Lit.Float64) =>
+            val literal = Code.litToExpr(lit)
+            if (java.lang.Double.isNaN(lit.toDouble)) {
+              Env.importLiteral(NonEmptyList.one(Code.Ident("math"))).flatMap {
+                math =>
+                  loop(expr, slotName, inlineSlots)
+                    .flatMap(Env.onLast(_)(ex => math.dot(Code.Ident("isnan"))(ex)))
+              }
+            } else {
+              loop(expr, slotName, inlineSlots)
+                .flatMap(Env.onLast(_)(ex => ex =:= literal))
+            }
+          case EqualsLit(expr, lit)           =>
             val literal = Code.litToExpr(lit)
             loop(expr, slotName, inlineSlots)
               .flatMap(Env.onLast(_)(ex => ex =:= literal))

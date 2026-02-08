@@ -117,6 +117,14 @@ BValue bsts_string_to_integer(BValue v);
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r);
 
+// Float64 values are stored by packing IEEE754 bits into the BValue word.
+BValue bsts_float64_from_bits(uint64_t bits);
+uint64_t bsts_float64_to_bits(BValue v);
+BValue bsts_float64_from_double(double d);
+double bsts_float64_to_double(BValue v);
+_Bool bsts_float64_equals(BValue left, BValue right);
+int bsts_float64_cmp_total(BValue left, BValue right);
+
 BValue alloc_external(void* eval, FreeFn free_fn);
 void* get_external(BValue v);
 

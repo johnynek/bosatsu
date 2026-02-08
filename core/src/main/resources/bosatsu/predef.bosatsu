@@ -5,6 +5,7 @@ export (
   Char,
   Comparison(),
   Int,
+  Float64,
   Option(),
   List(),
   String,
@@ -45,13 +46,16 @@ export (
   Unit(),
   Dict,
   add,
+  addf,
   add_key,
   build_List,
   char_to_String,
   cmp_Int,
+  cmp_Float64,
   concat,
   concat_String,
   div,
+  divf,
   clear_Dict,
   empty_Dict,
   eq_Int,
@@ -81,9 +85,11 @@ export (
   reverse,
   reverse_concat,
   sub,
+  subf,
   cmp_String,
   string_Order,
   times,
+  timesf,
   trace,
   uncurry2,
   uncurry3,
@@ -198,6 +204,7 @@ enum Option:
 # Int functions
 #############
 external struct Int
+external struct Float64
 
 external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
@@ -213,6 +220,11 @@ external def and_Int(a: Int, b: Int) -> Int
 external def or_Int(a: Int, b: Int) -> Int
 external def xor_Int(a: Int, b: Int) -> Int
 external def not_Int(a: Int) -> Int
+external def addf(a: Float64, b: Float64) -> Float64
+external def subf(a: Float64, b: Float64) -> Float64
+external def timesf(a: Float64, b: Float64) -> Float64
+external def divf(a: Float64, b: Float64) -> Float64
+external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a

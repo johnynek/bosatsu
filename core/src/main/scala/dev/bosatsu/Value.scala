@@ -168,6 +168,7 @@ object Value {
       case Lit.Str(s)     => ExternalValue(s)
       case Lit.Integer(i) => ExternalValue(i)
       case c @ Lit.Chr(_) => ExternalValue(c.asStr)
+      case f: Lit.Float64 => ExternalValue(java.lang.Double.valueOf(f.toDouble))
     }
 
   object VInt {
@@ -186,6 +187,15 @@ object Value {
       v match {
         case ExternalValue(str: String) => Some(str)
         case _                          => None
+      }
+  }
+
+  object VFloat {
+    def apply(v: Double): Value = ExternalValue(java.lang.Double.valueOf(v))
+    def unapply(v: Value): Option[Double] =
+      v match {
+        case ExternalValue(v: java.lang.Double) => Some(v.doubleValue)
+        case _                                  => None
       }
   }
 

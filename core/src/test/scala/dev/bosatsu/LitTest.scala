@@ -11,10 +11,22 @@ class LitTest extends munit.ScalaCheckSuite {
       if (Platform.isScalaJvm) 1000 else 100
     )
 
+  val genFloatNoNaN: Gen[Lit.Float64] =
+    Gen
+      .oneOf(
+        Arbitrary.arbitrary[Long].map(Lit.Float64.fromRawLongBits),
+        Gen.const(Lit.Float64.fromDouble(java.lang.Double.POSITIVE_INFINITY)),
+        Gen.const(Lit.Float64.fromDouble(java.lang.Double.NEGATIVE_INFINITY)),
+        Gen.const(Lit.Float64.fromDouble(-0.0d)),
+        Gen.const(Lit.Float64.fromDouble(0.0d))
+      )
+      .suchThat(f => !java.lang.Double.isNaN(f.toDouble))
+
   val genLit: Gen[Lit] =
     Gen.oneOf(
       Gen.choose(-10000, 10000).map(Lit.fromInt),
       Arbitrary.arbitrary[String].map(Lit(_)),
+      genFloatNoNaN,
       Gen
         .frequency(
           (10, Gen.choose(0, 0xd800)),
@@ -63,5 +75,33 @@ class LitTest extends munit.ScalaCheckSuite {
         Right(l)
       )
     }
+  }
+
+  test("Float64 ordering treats all NaNs as equal and sorts NaN first") {
+    val genNaN = Arbitrary.arbitrary[Long].map { seed =>
+      val frac = (seed & 0x000fffffffffffffL) | 0x1L
+      val bits = 0x7ff0000000000000L | frac
+      Lit.Float64.fromRawLongBits(bits)
+    }
+
+    forAll(genNaN, genNaN) { (a, b) =>
+      val cmp = Ordering[Lit].compare(a, b)
+      assertEquals(cmp, 0)
+      assert(Ordering[Lit].compare(a, Lit.Float64.fromDouble(0.0)) < 0)
+    }
+
+    assertEquals(
+      Ordering[Lit].compare(
+        Lit.Float64.fromDouble(-0.0),
+        Lit.Float64.fromDouble(0.0)
+      ),
+      0
+    )
+  }
+
+  test(".NaN renders and parses") {
+    val nan = Lit.Float64.fromDouble(java.lang.Double.NaN)
+    assertEquals(Document[Lit].document(nan).render(80), ".NaN")
+    assertEquals(Lit.float64Parser.parseAll(".NaN"), Right(nan))
   }
 }

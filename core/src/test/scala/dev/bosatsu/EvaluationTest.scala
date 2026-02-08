@@ -448,6 +448,124 @@ main = 6.gcd_Int(3)
     )
   }
 
+  test("test Float64 functions") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def eqf(a, b): cmp_Float64(a, b) matches EQ
+
+nan0 = divf(0.0, 0.0)
+inf0 = divf(1.0, 0.0)
+ninf0 = divf(-1.0, 0.0)
+
+def classify(x):
+  match x:
+    case .NaN: 0
+    case 0.0: 1
+    case 1.5: 2
+    case _: 3
+
+test = TestSuite("float", [
+  Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
+  Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
+  Assertion(eqf(timesf(1.5, 2.0), 3.0), "timesf"),
+  Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
+  Assertion(eqf(.NaN, nan0), "nan equality"),
+  Assertion(eqf(∞, inf0), "literal infinity"),
+  Assertion(eqf(-∞, ninf0), "literal negative infinity"),
+  Assertion(cmp_Float64(nan0, 0.0) matches LT, "nan sorts first"),
+  Assertion(cmp_Float64(0.0, nan0) matches GT, "non-nan sorts after"),
+  Assertion(cmp_Float64(-0.0, 0.0) matches EQ, "signed zero compare"),
+  Assertion(cmp_Float64(inf0, ninf0) matches GT, "inf order"),
+  Assertion(classify(nan0) matches 0, "nan literal pattern"),
+  Assertion(classify(.NaN) matches 0, "explicit nan pattern"),
+  Assertion(classify(-0.0) matches 1, "signed zero pattern equality got ${int_to_String(classify(-0.0))}"),
+  Assertion(classify(0.0) matches 1, "zero pattern"),
+])
+"""),
+      "Foo",
+      15
+    )
+  }
+
+  test("test Float64 string conversion function") {
+    runBosatsuTest(
+      List(
+        """
+package Bosatsu/Float/Float64
+
+from Bosatsu/Predef import Float64
+
+export (
+  float64_bits_to_Int,
+  float64_to_String,
+  inf,
+  int_bits_to_Float64,
+  neg_inf,
+  string_to_Float64,
+)
+
+external def float64_bits_to_Int(x: Float64) -> Int
+external def float64_to_String(x: Float64) -> String
+external def int_bits_to_Float64(int: Int) -> Float64
+external def string_to_Float64(s: String) -> Option[Float64]
+
+inf: Float64 = ∞
+neg_inf: Float64 = -∞
+""",
+        """
+package Foo
+
+from Bosatsu/Float/Float64 import (
+  float64_bits_to_Int,
+  float64_to_String,
+  inf,
+  int_bits_to_Float64,
+  neg_inf,
+  string_to_Float64,
+)
+
+nan0 = divf(0.0, 0.0)
+test = TestSuite("float64_to_String", [
+  Assertion(float64_to_String(1.0) matches "1.0", "1.0"),
+  Assertion(float64_to_String(1.25) matches "1.25", "1.25"),
+  Assertion(float64_to_String(inf) matches "∞", "inf"),
+  Assertion(float64_to_String(neg_inf) matches "-∞", "neg inf"),
+  Assertion(float64_bits_to_Int(int_bits_to_Float64(0x8000_0000_0000_0000)) matches 0x8000_0000_0000_0000, "signed zero bits"),
+  Assertion(float64_bits_to_Int(int_bits_to_Float64(-1)) matches 0xffff_ffff_ffff_ffff, "int bits low64"),
+  Assertion(
+    (
+      nanf = int_bits_to_Float64(0x7ff8_0000_0000_00ab)
+      parsed = string_to_Float64(float64_to_String(nanf))
+      match parsed:
+        case Some(v): float64_bits_to_Int(v) matches 0x7ff8_0000_0000_00ab
+        case None: False
+    ),
+    "nan payload roundtrip"),
+  Assertion(string_to_Float64("not-a-float") matches None, "invalid parse"),
+  Assertion(
+    (
+      match string_to_Float64(".NaN"):
+        case Some(_): True
+        case None: False
+    ),
+    ".NaN parses"),
+  Assertion(
+    (
+      match string_to_Float64(float64_to_String(nan0)):
+        case Some(_): True
+        case None: False
+    ),
+    "nan string parses"),
+])
+"""
+      ),
+      "Foo",
+      10
+    )
+  }
+
   test("use range") {
     evalTest(
       List("""

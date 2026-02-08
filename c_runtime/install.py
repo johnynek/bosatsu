@@ -42,6 +42,7 @@ def write_cc_conf(rootdir, version):
               libs.append(f"{os.path.join(boehm_gc, 'lib', 'libgc.a')}")
       elif os_type == "linux":
           libs.append("-lgc")
+      libs.append("-lm")
 
       # Find GCC path
       cc_path = subprocess.check_output(["which", "gcc"], text=True).strip()

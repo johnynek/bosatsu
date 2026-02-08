@@ -207,6 +207,7 @@ message Literal {
     int64 intValueAs64 = 2;
     string intValueAsString = 3;
     int32 charValue = 4;
+    fixed64 float64ValueAsBits = 5;
   }
 }
 
