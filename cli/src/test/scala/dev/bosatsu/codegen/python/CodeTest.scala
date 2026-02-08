@@ -519,6 +519,23 @@ else:
     prop
   }
 
+  test("simplify regression: i - (0 - s) keeps stable operand order") {
+    val s = "d74sju6AoOqU5hPIVoi"
+    val expr =
+      Code.Op(
+        Code.fromInt(-991),
+        Code.Const.Minus,
+        Code.Op(Code.Const.Zero, Code.Const.Minus, Code.PyString(s))
+      )
+
+    val simplified = expr.simplify
+    val expected =
+      Code.Op(Code.fromInt(-991), Code.Const.Plus, Code.PyString(s))
+
+    assertEquals(simplified, expected)
+    assertEquals(simplified.simplify, simplified)
+  }
+
   test("simplify on Ternary removes branches when possible") {
     forAll(genExpr(3), genExpr(3), genExpr(3)) { (t, c, f) =>
       val tern = Code.Ternary(t, c, f).simplify
