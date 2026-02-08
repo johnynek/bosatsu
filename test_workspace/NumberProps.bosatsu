@@ -11,7 +11,7 @@ from Bosatsu/Num/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to
   mul2 as mul2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
   mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
 
-from Bosatsu/Int/Binary import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
+from Bosatsu/Num/Binary import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
   negate as negate_BinNat, abs as abs_BinInt, sub as sub_BinInt, binNat_to_BinInt,
   cmp as cmp_BinInt, not as not_BinInt, eq as eq_BinInt,
   )
