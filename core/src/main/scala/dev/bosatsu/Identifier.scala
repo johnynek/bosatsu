@@ -139,7 +139,7 @@ object Identifier {
     cats.Show.show(_.sourceCodeRepr)
 
   def synthetic(name: String): Bindable = {
-    require(name.nonEmpty)
+    Require(name.nonEmpty)
     Name("_" + name)
   }
 }

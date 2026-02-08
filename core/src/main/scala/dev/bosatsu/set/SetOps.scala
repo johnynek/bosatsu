@@ -2,6 +2,7 @@ package dev.bosatsu.set
 
 import cats.Eq
 import cats.syntax.eq._
+import dev.bosatsu.Require
 
 /** These are set operations we can do on patterns
   */
@@ -212,7 +213,7 @@ object SetOps {
 
   def fromFinite[A](items: Iterable[A]): SetOps[Set[A]] =
     new SetOps[Set[A]] {
-      require(items.nonEmpty, "the empty set is not allowed")
+      Require(items.nonEmpty, "the empty set is not allowed")
 
       val itemsSet = items.toSet
       private given Eq[Set[A]] = Eq.fromUniversalEquals
