@@ -313,7 +313,3 @@ How that maps to Bosatsu practice:
    https://github.com/johnynek/bosatsu/issues/410
 1. Related Bosatsu implementation discussion:
    https://github.com/johnynek/bosatsu/pull/406
-1. Miles Sabin, "Aka 'the fuel pattern'" (tweet):
-   https://twitter.com/milessabin/status/1197977313809510400?s=20
-1. Jeremy Gibbons, "'Bove-Capretta Method'?" (tweet):
-   https://twitter.com/jer_gib/status/1053066342180446208
