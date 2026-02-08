@@ -2,6 +2,30 @@
 This guide is a quick tour of Bosatsu syntax. For installation and running code, see
 [Getting started](getting_started.html).
 
+## What "simple" means
+Bosatsu aims to be simple, but not always easy.
+
+Simple here means the language has a small core model:
+1. structs and enums
+1. creating values
+1. creating functions
+1. calling functions
+1. matching on values to take them apart
+
+Conceptually, this is close to the simply typed lambda calculus with algebraic
+data types, mapped onto a Python-like syntax. It is combined with a package
+system (`package`, `from ... import`, `export`) so code can be composed safely
+across libraries.
+
+It is deliberately missing many common language features: methods, subtyping,
+mutable variables (or any mutation), casts, exceptions, and built-in magical
+hash/equals/string rendering behavior.
+
+We want the language to be as simple as possible, but no simpler. If we relax
+the constraints too far, we risk losing non-negotiable properties: a sound type
+system we can trust, and recursion/loop forms with proven termination (so we do
+not admit nonsense inhabitants of types such as `forall a, b. a -> b`).
+
 ## Quick start (5 minutes)
 A tiny, complete file:
 
@@ -132,6 +156,34 @@ Bosatsu: lexical scope is always in play.
 We recommend not changing the type of a name in a given scope (and may enforce
 this in the future).
 
+### Naming style
+For consistency across the bosatsu compiler repository, prefer these naming
+conventions:
+
+1. Bindable names (defs, values, parameters, locals) use lowercase with
+   underscore separation.
+1. Type and constructor names use UpperCamelCase.
+1. If a bindable name includes a type name, put the full type name at the end
+   after an underscore.
+
+Examples:
+
+```bosatsu
+# preferred bindable names
+def fold_left_Tree(t: Tree[a], init: b, fn: (b, a) -> b) -> b: ...
+def one_of(ps: List[Parser[a]]) -> Parser[a]: ...
+def string_to_Int(s: String) -> Option[Int]: ...
+eq_TreeList_Int = eq_TreeList(eq_Int)
+
+# avoid
+def foldTree(...): ...     # camelCase bindable
+def Tree_fold(...): ...    # type name in first position
+def fold_T(...): ...       # partial/abbreviated type name
+```
+
+This convention keeps names readable and searchable, especially when multiple
+implementations of a common operation exist for different types.
+
 ### Block expressions
 You can group a sequence of bindings and defs in parentheses to produce a
 value. The last expression is the result:
@@ -252,8 +304,8 @@ from Bosatsu/Predef import add as operator +
 ```
 
 ### Recursive functions
-We have very limited support for recursion so that we may prove that all
-recursive functions terminate. Here is an example:
+Bosatsu supports recursion through `recur`, but only in forms the compiler can
+prove terminate. A simple structural example:
 ```
 def len(lst):
   recur lst:
@@ -261,24 +313,7 @@ def len(lst):
     case [_, *tail]: len(tail).add(1)
 ```
 
-In the above, we see the `recur` syntax. This is a normal match with two
-restrictions: 1. it can only be on a literal parameter of the nearest enclosing
-`def`, 2. a function may have at most one recur in a body, which is not enclosed
-by an inner def. Inside the branches of such a recur, recursion on the enclosing
-`def` is permitted if it meets certain constraints which prevent unbounded loops:
-
-In at least one branch of the recur match there must be a recursive call that
-must take a substructure of the argument the recur is matching on. In the above
-example, tail is a substructure of lst, and is used in the same parameter as
-list appeared in.
-
-These are strict rules, but they guarantee that each recursive function
-terminates in a finite number of steps, and can never loop forever. The
-recommendation is to avoid recursive defs as much as possible and limit the
-number of arguments as much as possible.
-
-Tail recursive loops are optimized into loops, which are safe for cases where
-recursion depth is high. If you can, prefer to use tail recursive loops:
+Tail-recursive style is common:
 ```
 def len(lst):
   def loop(acc, lst):
@@ -289,41 +324,22 @@ def len(lst):
   loop(0, lst)
 ```
 
+For full recursion rules and advanced patterns (fuel, divide-and-conquer with a
+size bound, string recursion, trees, Ackermann-style nested recursion), see
+[Recursion in Bosatsu](recursion.html).
+
 ## Loops (with `recur`)
-Bosatsu has no `while` or `for`. Looping is expressed with `recur` inside a
-`def`, and the compiler only allows recursion it can prove terminates. The
-test_workspace examples show two common strategies:
+Bosatsu has no `while` or `for`. Loops are recursive defs using `recur`. In
+practice this is stricter than loops in most languages users have seen: we allow
+loops, but only when the compiler can prove they terminate. That restriction is
+what preserves type-system soundness.
 
-### 1) Structural recursion (substructure)
-Recur on a recursive input and call the function on a smaller part. Simplified
-from `test_workspace/List.bosatsu`:
-```
-def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
-    case []: True
-    case [h, *t]:
-      if fn(h): for_all(t, fn)
-      else: False
-```
+Most loops are either:
+1. structural recursion on subvalues (like a list tail or tree branch), or
+1. explicit fuel recursion on a decreasing `Nat`.
 
-### 2) Fuel pattern (explicit bound)
-When the loop is not naturally substructural, compute a bound (a `Nat`, `List`,
-or `String`) that is at least as large as the number of steps, then recur on
-that fuel and make it smaller each time. Simplified from
-`test_workspace/BinNat.bosatsu`:
-```
-def fib(b: BinNat) -> BinNat:
-  def loop(fuel: Nat, cur: BinNat, next: BinNat) -> BinNat:
-    recur fuel:
-      case NatZero: cur
-      case NatSucc(n):
-        sum = add_BinNat(cur, next)
-        loop(n, next, sum)
-  one = Odd(Zero)
-  loop(toNat(b), one, one)
-```
-You can also use structural data as fuel. For example, `test_workspace/List.bosatsu`
-computes `size(list)` and recurs on that `Nat` as the loop bound during sort.
+See [Recursion in Bosatsu](recursion.html) for detailed examples from
+`test_workspace`.
 
 ## Pattern Matching
 Bosatsu has powerful pattern matching. You can match on literal values, strings
@@ -746,10 +762,39 @@ match on the types.
 
 Sometimes such opacity is useful to enforce modularity.
 
+## Purity, Effects, and `Prog`
+Bosatsu expressions are pure: evaluating Bosatsu code does not directly read
+stdin, write stdout, mutate state, or throw exceptions.
+
+Instead, effectful behavior is represented as data using `Prog[env, err, a]`.
+When you write I/O-heavy code, you are building a program description inside
+Bosatsu. That description can be transformed and composed (for example with
+`map`, `flat_map`, or `await`-style syntax), but it is not executed by Bosatsu
+itself.
+
+Execution happens only when a runtime is given a `Main` program entrypoint. In
+other words, Bosatsu builds the effectful program, and the runtime executes it.
+
+This is the same core idea used in pure functional programming (for example,
+Haskell `IO` or Scala `cats.effect.IO`): represent effects explicitly and keep
+core language evaluation pure. Bosatsu goes further by not exposing a general
+in-language escape hatch to "unsafely run" a `Prog` immediately.
+
+You can think of Bosatsu as a pure language for constructing executable programs
+with effects at the boundary. The goal is practical usability with strong safety:
+if pieces typecheck, they can be composed with confidence.
+
 ## External functions and values
-There is syntax for declaring external values and functions. This is obviously
-dangerous since it gives the user a chance to violate totality. Use with
-caution.
+There is syntax for declaring external values and functions, but regular Bosatsu
+library code cannot define new externals today.
+
+At the moment, external defs are only allowed in trusted libraries implemented
+inside the bosatsu compiler repository. This is intentional: Bosatsu is designed
+for safe composition, and if any dependency could hide unsafe behavior, that
+safety story gets much weaker.
+
+So "use with caution" mostly applies to maintainers of trusted runtime/predef
+code, not to ordinary Bosatsu library authors.
 
 An example function we cannot implement in Bosatsu is:
 ```
@@ -770,7 +815,8 @@ are substructures of inputs in the same position. This gives a simple proof
 that the loop will terminate.
 
 Instead, we implement this function in Predef as an external def that has to be
-supplied to the compiler with a promise that it is indeed total.
+supplied to the compiler with a promise that it is total and matches its
+declared type.
 ```
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 ```
@@ -783,6 +829,17 @@ repo. The functions must be implemented in the C runtime, and there is currently
 no provision for providing external implementations from outside the compiler
 repo. This restriction is intentional to preserve totality, and we do not expect
 to lift it any time soon.
+
+Because these externals are trusted code, each external def included with the
+compiler is reviewed and tested carefully to avoid breaking sound typing. This
+is the central safety goal: if a program typechecks, running it should not
+produce a value that violates its type.
+
+In the future, we may consider an explicit unsafe boundary (similar in spirit to
+Rust `unsafe`) where external defs and calls are marked and that annotation is
+propagated through callers. That would make the safety/power trade-off explicit.
+Our bias is strongly toward safety; if you want maximum unrestricted power, this
+is likely not the right language.
 
 # Note on Totality
 Totality is an interesting property that limits a language from being turing
@@ -805,7 +862,10 @@ exponentially large number of attempts. So we could easily build a function that
 would take `2^128` attempts which would take longer than the life of the sun to
 complete. Is this meaningfully different from an infinite loop?
 
-Our view is that the main value of totality is that we know that all functions
-can complete and return a value of their declared type. Therefore, the only
-possible error in running is exhausting memory, which is a risk in virtually
+Our view is that the first goal is a sound type system we can trust. Totality is
+one important tool for that goal: it helps ensure evaluation produces values of
+the declared type instead of getting stuck in partial behavior. Termination by
+itself is not a performance guarantee, since terminating programs can still be
+exponentially expensive. Therefore, the only possible runtime failure for
+well-typed pure Bosatsu code is exhausting memory, which is a risk in virtually
 every programming language.
