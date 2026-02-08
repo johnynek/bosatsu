@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#include <math.h>
 #include "gc.h"
 
 #include <assert.h>
@@ -70,6 +71,58 @@ BValue bsts_char_from_code_point(int codepoint) {
 
 int bsts_char_code_point_from_value(BValue ch) {
   return (int)PURE_VALUE(ch);
+}
+
+BValue bsts_float64_from_bits(uint64_t bits) {
+  return (BValue)(uintptr_t)bits;
+}
+
+uint64_t bsts_float64_to_bits(BValue v) {
+  return (uint64_t)(uintptr_t)v;
+}
+
+BValue bsts_float64_from_double(double d) {
+  union {
+    double d;
+    uint64_t u;
+  } conv;
+  conv.d = d;
+  return bsts_float64_from_bits(conv.u);
+}
+
+double bsts_float64_to_double(BValue v) {
+  union {
+    double d;
+    uint64_t u;
+  } conv;
+  conv.u = bsts_float64_to_bits(v);
+  return conv.d;
+}
+
+_Bool bsts_float64_equals(BValue left, BValue right) {
+  double l = bsts_float64_to_double(left);
+  double r = bsts_float64_to_double(right);
+  if (isnan(l) && isnan(r)) return 1;
+  return l == r;
+}
+
+int bsts_float64_cmp_total(BValue left, BValue right) {
+  double l = bsts_float64_to_double(left);
+  double r = bsts_float64_to_double(right);
+  _Bool l_nan = isnan(l);
+  _Bool r_nan = isnan(r);
+  if (l_nan) {
+    if (r_nan) {
+      return 0;
+    }
+    return -1;
+  }
+  if (r_nan) {
+    return 1;
+  }
+  if (l < r) return -1;
+  if (l > r) return 1;
+  return 0;
 }
 
 // Closures:
@@ -169,7 +222,7 @@ static void push(BSTS_OBJ* static_value) {
 }
 
 void free_on_close(BValue v) {
-  if (IS_POINTER(v)) {
+  if (v != NULL && GC_base(v) != NULL) {
     push(v);
   }
 }

@@ -191,6 +191,53 @@ int main(int argc, char** argv) {
     )
   }
 
+  test("float literals use packed bits") {
+    TestUtils.checkPackageMap("""
+main = 1.5
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("bsts_float64_from_bits"))
+      }
+    }
+  }
+
+  test("float literal pattern matching uses float equality helper") {
+    TestUtils.checkPackageMap("""
+def is_one(x):
+  match x:
+    case 1.0: 1
+    case _: 0
+
+main = is_one
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("bsts_float64_equals"))
+      }
+    }
+  }
+
   def mockCodePointFn(bytes: Array[Byte], offset: Int): Int = {
     def s(i: Int) = bytes(offset + i).toInt & 0xff
 

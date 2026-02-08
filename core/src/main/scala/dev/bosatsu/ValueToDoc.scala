@@ -46,6 +46,15 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 Left(IllTyped(revPath.reverse, tpe, other))
               // $COVERAGE-ON$
             }
+            case Type.Float64Type => {
+              case ExternalValue(v: java.lang.Double) =>
+                val bits = java.lang.Double.doubleToRawLongBits(v.doubleValue)
+                Right(Document[Lit].document(Lit.Float64.fromRawLongBits(bits)))
+              case other =>
+                // $COVERAGE-OFF$this should be unreachable
+                Left(IllTyped(revPath.reverse, tpe, other))
+              // $COVERAGE-ON$
+            }
             case Type.StrType => {
               case ExternalValue(v: String) =>
                 Right(Document[Lit].document(Lit.Str(v)))

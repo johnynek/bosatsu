@@ -2,15 +2,21 @@
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_add(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_addf(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b);
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_divf(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Int(BValue a, BValue b);
 
@@ -40,7 +46,11 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b);
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_trace(BValue a, BValue b);
 
