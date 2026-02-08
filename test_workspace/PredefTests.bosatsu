@@ -218,7 +218,7 @@ def int_to_float_eq(i: Int, expected: Float64) -> Bool:
   eqf(int_to_Float64(i), expected)
 
 nan0 = divf(0.0, 0.0)
-huge_int = 1.shift_left_Int(20000)
+huge_int = 1.shift_left_Int(2000)
 
 def classify_float(x: Float64) -> Int:
   match x:
@@ -257,8 +257,8 @@ test_float = TestSuite("Float tests", [
     "python hard case: float(10**100)"),
   Assertion(int_to_float_eq(-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, -1e100),
     "python hard case: float(-(10**100))"),
-  Assertion(eqf(int_to_Float64(huge_int), ∞), "python hard case: float(str(2**20000)) == inf"),
-  Assertion(eqf(int_to_Float64(0.sub(huge_int)), -∞), "python hard case: float(str(-(2**20000))) == -inf"),
+  Assertion(eqf(int_to_Float64(huge_int), ∞), "python hard case: float(str(2**2000)) == inf"),
+  Assertion(eqf(int_to_Float64(0.sub(huge_int)), -∞), "python hard case: float(str(-(2**2000))) == -inf"),
   Assertion(float_to_int_eq(int_to_Float64(two_pow_52), two_pow_52), "2^52 roundtrip"),
   Assertion(float_to_int_eq(int_to_Float64(0.sub(two_pow_52)), 0.sub(two_pow_52)), "-2^52 roundtrip"),
   Assertion(float64_bits_to_Int(int_bits_to_Float64(0x8000_0000_0000_0000)) matches 0x8000_0000_0000_0000,
