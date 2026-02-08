@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
+import cats.data.NonEmptyList
 import dev.bosatsu.rankn.Type
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -112,6 +113,41 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     forAll(
       Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
     )(testFn)
+  }
+
+  test("we can roundtrip Loop/Recur TypedExpr through proto") {
+    val intType = rankn.Type.IntType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, ())
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, ()))),
+      TypedExpr.Match(
+        xExpr,
+        NonEmptyList.of(
+          (Pattern.Literal(Lit.fromInt(0)), xExpr),
+          (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ()))
+        ),
+        ()
+      ),
+      ()
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          expr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- expr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(loopExpr)
   }
 
   test("we can roundtrip interface through proto") {

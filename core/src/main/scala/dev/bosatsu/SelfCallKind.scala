@@ -94,6 +94,17 @@ object SelfCallKind {
           apply(n, ex).callNotTail
             .merge(apply(n, in))
         }
+      case TypedExpr.Loop(args, body, _) =>
+        val argCalls =
+          args.foldLeft(SelfCallKind.NoCall: SelfCallKind) {
+            case (acc, (_, expr)) => acc.merge(apply(n, expr).callNotTail)
+          }
+        if (args.exists(_._1 == n)) argCalls
+        else argCalls.merge(apply(n, body))
+      case TypedExpr.Recur(args, _, _) =>
+        args.foldLeft(SelfCallKind.NoCall: SelfCallKind) {
+          case (acc, expr) => acc.merge(apply(n, expr).callNotTail)
+        }
       case TypedExpr.Literal(_, _, _)        => SelfCallKind.NoCall
       case TypedExpr.Match(arg, branches, _) =>
         apply(n, arg).callNotTail

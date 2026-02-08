@@ -442,6 +442,54 @@ foo = _ -> 1
       ()
     )
 
+  def hasLoop(te: TypedExpr[Unit]): Boolean =
+    te match {
+      case TypedExpr.Loop(_, _, _) =>
+        true
+      case TypedExpr.Generic(_, in) =>
+        hasLoop(in)
+      case TypedExpr.Annotation(in, _) =>
+        hasLoop(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        hasLoop(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        hasLoop(fn) || args.exists(hasLoop)
+      case TypedExpr.Let(_, expr, in, _, _) =>
+        hasLoop(expr) || hasLoop(in)
+      case TypedExpr.Recur(args, _, _) =>
+        args.exists(hasLoop)
+      case TypedExpr.Match(arg, branches, _) =>
+        hasLoop(arg) || branches.exists { case (_, b) => hasLoop(b) }
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        false
+    }
+
+  def hasRecursiveLet(te: TypedExpr[Unit]): Boolean =
+    te match {
+      case TypedExpr.Let(_, expr, in, rec, _) =>
+        rec.isRecursive || hasRecursiveLet(expr) || hasRecursiveLet(in)
+      case TypedExpr.Generic(_, in) =>
+        hasRecursiveLet(in)
+      case TypedExpr.Annotation(in, _) =>
+        hasRecursiveLet(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        hasRecursiveLet(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        hasRecursiveLet(fn) || args.exists(hasRecursiveLet)
+      case TypedExpr.Loop(args, body, _) =>
+        args.exists { case (_, init) => hasRecursiveLet(init) } || hasRecursiveLet(body)
+      case TypedExpr.Recur(args, _, _) =>
+        args.exists(hasRecursiveLet)
+      case TypedExpr.Match(arg, branches, _) =>
+        hasRecursiveLet(arg) || branches.exists { case (_, b) =>
+          hasRecursiveLet(b)
+        }
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        false
+    }
+
   test("test let substitution") {
     {
       // substitution in let
@@ -579,6 +627,213 @@ foo = _ -> 1
       ()
     )
     assertEquals(TypedExprNormalization.normalize(zeroL), Some(int(0)))
+  }
+
+  test("normalization can inline a tail-recursive function via Loop") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val fBody = TypedExpr.Match(
+      xVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), int(0)),
+        (Pattern.WildCard, app(fVar, int(0), intTpe))
+      ),
+      ()
+    )
+    val fDef = TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), fBody, ())
+    val useOnce =
+      lam("g", fnType, app(varTE("g", fnType), int(1), intTpe))
+    val root = letrec("f", fDef, app(useOnce, fVar, intTpe))
+
+    val normed = TypedExprNormalization.normalize(root)
+    assert(normed.isDefined)
+    val norm = normed.get
+    assert(hasLoop(norm), norm.reprString)
+    assertEquals(hasRecursiveLet(norm), false)
+    assertEquals(TypedExpr.allVarsSet(norm :: Nil).contains(fName), false)
+  }
+
+  test("normalizeAll lowers top-level recur defs to Loop and drops recursive kind") {
+    TestUtils.checkPackageMap("""
+enum List[a]: E, NE(head: a, tail: List[a])
+enum B: T, F
+
+def for_all(xs: List[a], fn: a -> B) -> B:
+  recur xs:
+    case E: T
+    case NE(head, tail):
+      match fn(head):
+        case T: for_all(tail, fn)
+        case F: F
+    """) { pm =>
+      val pack = pm.toMap(TestUtils.testPackage)
+      val (name, rec, te) = pack.lets.find(_._1 == Identifier.Name("for_all")).get
+      assertEquals(name, Identifier.Name("for_all"))
+      assertEquals(rec, RecursionKind.NonRecursive)
+      assert(hasLoop(te.void), te.reprString)
+      assertEquals(hasRecursiveLet(te.void), false, te.reprString)
+    }
+  }
+
+  test("normalization removes Loop when Recur is normalized away") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val loopBody = TypedExpr.Match(
+      int(0),
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xVar), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(NonEmptyList.one((xName, int(1))), loopBody, ())
+    assertEquals(TypedExprNormalization.normalize(loopExpr), Some(int(1)))
+  }
+
+  test("normalization lifts invariant loop arguments into let bindings") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val yPlusOne = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(yVar, int(1)),
+      intTpe,
+      ()
+    )
+    val loopBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yPlusOne), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.of((xName, int(10)), (yName, int(1))),
+      loopBody,
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(loopExpr)
+    val maybeLoop = normalized match {
+      case Some(TypedExpr.Loop(loopArgs, normBody, _)) =>
+        Some((loopArgs, normBody))
+      case Some(
+            TypedExpr.Let(
+              `xName`,
+              _,
+              TypedExpr.Loop(loopArgs, normBody, _),
+              RecursionKind.NonRecursive,
+              _
+            )
+          ) =>
+        Some((loopArgs, normBody))
+      case _ =>
+        None
+    }
+
+    maybeLoop match {
+      case Some((loopArgs, normBody)) =>
+        assertEquals(loopArgs.toList.map(_._1), List(yName))
+        normBody match {
+          case TypedExpr.Match(_, branches, _) =>
+            val recurArgs = branches.toList.collect {
+              case (_, TypedExpr.Recur(args, _, _)) => args
+            }
+            assertEquals(recurArgs.map(_.length), List(1))
+            assert(!recurArgs.exists(_.exists(_.freeVarsDup.contains(xName))))
+          case other =>
+            fail(s"expected normalized loop body match, got: ${other.repr}")
+        }
+      case None =>
+        fail(s"expected invariant lift into single-arg loop, got: $normalized")
+    }
+  }
+
+  test("normalization keeps final loop argument even when invariant") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val loopBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yVar), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.of((xName, int(10)), (yName, int(1))),
+      loopBody,
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(loopExpr)
+    val maybeLoop = normalized match {
+      case Some(TypedExpr.Loop(loopArgs, normBody, _)) =>
+        Some((loopArgs, normBody))
+      case Some(
+            TypedExpr.Let(
+              `xName`,
+              _,
+              TypedExpr.Loop(loopArgs, normBody, _),
+              RecursionKind.NonRecursive,
+              _
+            )
+          ) =>
+        Some((loopArgs, normBody))
+      case _ =>
+        None
+    }
+
+    maybeLoop match {
+      case Some((loopArgs, normBody)) =>
+        // Even when every recur argument is invariant, we retain one slot.
+        assertEquals(loopArgs.toList.map(_._1), List(yName))
+        normBody match {
+          case TypedExpr.Match(_, branches, _) =>
+            val recurArities = branches.toList.collect {
+              case (_, TypedExpr.Recur(args, _, _)) => args.length
+            }
+            assertEquals(recurArities, List(1))
+          case other =>
+            fail(s"expected normalized loop body match, got: ${other.repr}")
+        }
+      case None =>
+        fail(s"expected lifted invariant with retained final loop arg, got: $normalized")
+    }
+  }
+
+  test("normalization removes non-recursive identity let bindings") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val wrappedX = TypedExpr.Annotation(xVar, intTpe)
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(xVar, int(1)), intTpe, ())
+    val identLet =
+      TypedExpr.Let(xName, wrappedX, body, RecursionKind.NonRecursive, ())
+
+    assertEquals(
+      TypedExprNormalization.normalize(identLet),
+      TypedExprNormalization.normalize(body)
+    )
+  }
+
+  test("normalization removes direct non-recursive identity let bindings") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(xVar, int(1)), intTpe, ())
+    val identLet = TypedExpr.Let(xName, xVar, body, RecursionKind.NonRecursive, ())
+
+    assertEquals(
+      TypedExprNormalization.normalize(identLet),
+      TypedExprNormalization.normalize(body)
+    )
   }
 
   val normalLet =

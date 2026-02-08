@@ -37,6 +37,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case App(_, _, tpe, _)    => tpe
       case Let(_, _, in, _, _)  =>
         in.getType
+      case Loop(_, body, _) =>
+        body.getType
+      case Recur(_, tpe, _) =>
+        tpe
       case Literal(_, tpe, _) =>
         tpe
       case Match(_, branches, _) =>
@@ -53,6 +57,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
       case App(fn, args, _, _)   => fn.size + args.foldMap(_.size)
       case Let(_, e, in, _, _)   => e.size + in.size
+      case Loop(args, body, _) =>
+        args.foldMap(_._2.size) + body.size
+      case Recur(args, _, _) =>
+        args.foldMap(_.size)
       case Match(a, branches, _) =>
         a.size + branches.foldMap(_._2.size)
     }
@@ -122,6 +130,31 @@ sealed abstract class TypedExpr[+T] { self: Product =>
               ')'
             )
           )
+        case Loop(args, body, _) =>
+          val argsDoc = block(
+            Doc.intercalate(
+              Doc.line,
+              args.toList.map { case (n, expr) =>
+                block(
+                  Doc.char('[') + Doc.text(
+                    n.sourceCodeRepr
+                  ) + Doc.line + loop(expr) + Doc.char(']')
+                )
+              }
+            )
+          )
+          block(
+            Doc.text("(loop") + Doc.line + argsDoc + Doc.line + loop(
+              body
+            ) + Doc.char(')')
+          )
+        case Recur(args, tpe, _) =>
+          val argsDoc = block(Doc.intercalate(Doc.line, args.toList.map(loop)))
+          block(
+            Doc.text("(recur") + Doc.line + argsDoc + Doc.line + rept(
+              tpe
+            ) + Doc.char(')')
+          )
         case Literal(v, tpe, _) =>
           block(
             Doc.text("(lit") + Doc.line + Doc.text(
@@ -181,6 +214,12 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           } else argFree0
 
         argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ == arg))
+      case Loop(args, body, _) =>
+        val argsSet = args.iterator.map(_._1).toSet
+        val argsFree = args.foldMap(_._2.freeVarsDup)
+        argsFree ::: ListUtil.filterNot(body.freeVarsDup)(argsSet)
+      case Recur(args, _, _) =>
+        args.reduceMap(_.freeVarsDup)
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -232,6 +271,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
       case Let(arg, argE, in, _, _) =>
         arg :: (argE.allVarsDup ::: in.allVarsDup)
+      case Loop(args, body, _) =>
+        args.toList.map(_._1) ::: (args.foldMap(_._2.allVarsDup) ::: body.allVarsDup)
+      case Recur(args, _, _) =>
+        args.reduceMap(_.allVarsDup)
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -303,6 +346,14 @@ object TypedExpr {
       ): Boolean =
         eqNel(left, right)(loop)
 
+      private def eqLoopArgs(
+          left: NonEmptyList[(Bindable, TypedExpr[A])],
+          right: NonEmptyList[(Bindable, TypedExpr[A])]
+      ): Boolean =
+        eqNel(left, right) { case ((lb, le), (rb, re)) =>
+          eqBindable(lb, rb) && loop(le, re)
+        }
+
       private def eqBranches(
           left: NonEmptyList[
             (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
@@ -345,6 +396,14 @@ object TypedExpr {
             loop(le, re) &&
             loop(lin, rin) &&
             Eq[RecursionKind].eqv(lrec, rrec) &&
+            eqA.eqv(ltag, rtag)
+          case (Loop(largs, lbody, ltag), Loop(rargs, rbody, rtag)) =>
+            eqLoopArgs(largs, rargs) &&
+            loop(lbody, rbody) &&
+            eqA.eqv(ltag, rtag)
+          case (Recur(largs, ltype, ltag), Recur(rargs, rtype, rtag)) =>
+            eqExprs(largs, rargs) &&
+            eqType(ltype, rtype) &&
             eqA.eqv(ltag, rtag)
           case (Literal(llit, lt, ltag), Literal(rlit, rt, rtag)) =>
             Eq[Lit].eqv(llit, rlit) &&
@@ -652,6 +711,69 @@ object TypedExpr {
       }
     }
   }
+  case class Loop[T](
+      args: NonEmptyList[(Bindable, TypedExpr[T])],
+      body: TypedExpr[T],
+      tag: T
+  ) extends TypedExpr[T] {
+    def unshadowBody(freeSet: Set[Bindable]): Loop[T] = {
+      val clashIdent =
+        if (freeSet.isEmpty) Set.empty[Bindable]
+        else args.iterator.flatMap {
+          case (n, _) if freeSet(n) => n :: Nil
+          case _                    => Nil
+        }.toSet
+
+      if (clashIdent.isEmpty) this
+      else {
+        type I = Bindable
+        def inc(n: I, idx: Int): I =
+          n match {
+            case Identifier.Name(n) => Identifier.Name(n + idx.toString)
+            case _                  => Identifier.Name("a" + idx.toString)
+          }
+
+        def alloc(
+            head: (I, TypedExpr[T]),
+            tail: List[(I, TypedExpr[T])],
+            avoid: Set[I]
+        ): NonEmptyList[(I, TypedExpr[T])] = {
+          val (ident, expr) = head
+          val ident1 =
+            if (clashIdent(ident)) {
+              Iterator
+                .from(0)
+                .map(i => inc(ident, i))
+                .collectFirst { case n if !avoid(n) => n }
+                .get
+            } else ident
+
+          tail match {
+            case Nil    => NonEmptyList.one((ident1, expr))
+            case h :: t =>
+              (ident1, expr) :: alloc(h, t, avoid + ident1)
+          }
+        }
+
+        val avoids = freeSet | freeVarsSet(body :: args.toList.map(_._2))
+        val newArgs = alloc(args.head, args.tail, avoids)
+        val resSub = args.iterator
+          .map(_._1)
+          .zip(newArgs.iterator.map { case (n1, _) =>
+            { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }
+          })
+          .toMap
+
+        val body1 = substituteAll(resSub, body, enterLambda = true).get
+        Loop(newArgs, body1, tag)
+      }
+    }
+  }
+  case class Recur[T](
+      args: NonEmptyList[TypedExpr[T]],
+      tpe: Type,
+      tag: T
+  ) extends TypedExpr[T]
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](
@@ -898,6 +1020,12 @@ object TypedExpr {
               Type.freeTyVars(tpe :: Nil)
           case Let(_, exp, in, _, _) =>
             loop(exp) | loop(in)
+          case Loop(args, body, _) =>
+            args.foldLeft(loop(body)) { case (acc, (_, expr)) =>
+              acc | loop(expr)
+            }
+          case Recur(args, tpe, _) =>
+            args.foldLeft(Type.freeTyVars(tpe :: Nil).toSet)(_ | loop(_))
           case Literal(_, tpe, _) =>
             // this shouldn't happen but does in generated tests
             Type.freeTyVars(tpe :: Nil).toSet
@@ -952,6 +1080,16 @@ object TypedExpr {
           (exp.traverseType(fn), in.traverseType(fn)).mapN {
             Let(v, _, _, rec, tag)
           }
+        case Loop(args, body, tag) =>
+          (args.traverse { case (v, expr) =>
+            expr.traverseType(fn).map((v, _))
+          }, body.traverseType(fn)).mapN {
+            Loop(_, _, tag)
+          }
+        case Recur(args, tpe, tag) =>
+          (args.traverse(_.traverseType(fn)), fn(tpe)).mapN {
+            Recur(_, _, tag)
+          }
         case Literal(lit, tpe, tag) =>
           fn(tpe).map(Literal(lit, _, tag))
         case Match(expr, branches, tag) =>
@@ -994,6 +1132,14 @@ object TypedExpr {
           (loop(exp), loop(in))
             .mapN(Let(v, _, _, rec, tag))
             .flatMap(fn)
+        case Loop(args, body, tag) =>
+          (args.traverse { case (v, expr) =>
+            loop(expr).map((v, _))
+          }, loop(body))
+            .mapN(Loop(_, _, tag))
+            .flatMap(fn)
+        case Recur(args, tpe, tag) =>
+          args.traverse(loop(_)).map(Recur(_, tpe, tag)).flatMap(fn)
         case Match(expr, branches, tag) =>
           val tbranch = branches.traverse { case (p, t) =>
             loop(t).map((p, _))
@@ -1169,6 +1315,20 @@ object TypedExpr {
             .mapN { (f1, a1) =>
               App(f1, a1, tpe, tag)
             }
+        case Loop(args, body, tag) =>
+          val env1 = env + te.getType
+          val bodyEnv = env1 ++ args.iterator.map(_._2.getType)
+          (
+            args.traverse { case (n, expr) =>
+              deepQuantify(env1, expr).map((n, _))
+            },
+            deepQuantify(bodyEnv, body)
+          ).mapN {
+            Loop(_, _, tag)
+          }
+        case Recur(args, tpe, tag) =>
+          val env1 = env + te.getType
+          args.traverse(deepQuantify(env1, _)).map(Recur(_, tpe, tag))
         case Match(arg, branches, tag) =>
           /*
            * We consider the free metas of
@@ -1262,6 +1422,20 @@ object TypedExpr {
             (exp.traverse(fn), in.traverse(fn), fn(tag)).mapN {
               Let(v, _, _, rec, _)
             }
+          case Loop(args, body, tag) =>
+            (
+              args.traverse { case (v, expr) =>
+                expr.traverse(fn).map((v, _))
+              },
+              body.traverse(fn),
+              fn(tag)
+            ).mapN {
+              Loop(_, _, _)
+            }
+          case Recur(args, tpe, tag) =>
+            (args.traverse(_.traverse(fn)), fn(tag)).mapN {
+              Recur(_, tpe, _)
+            }
           case Literal(lit, tpe, tag) =>
             fn(tag).map(Literal(lit, tpe, _))
           case Match(expr, branches, tag) =>
@@ -1290,6 +1464,15 @@ object TypedExpr {
             val b1 = foldLeft(exp, b)(f)
             val b2 = foldLeft(in, b1)(f)
             f(b2, tag)
+          case Loop(args, body, tag) =>
+            val b1 = args.foldLeft(b) { case (bn, (_, expr)) =>
+              foldLeft(expr, bn)(f)
+            }
+            val b2 = foldLeft(body, b1)(f)
+            f(b2, tag)
+          case Recur(args, _, tag) =>
+            val b1 = args.foldLeft(b)((bn, a) => foldLeft(a, bn)(f))
+            f(b1, tag)
           case Literal(_, _, tag) =>
             f(b, tag)
           case Match(arg, branches, tag) =>
@@ -1319,6 +1502,15 @@ object TypedExpr {
           val b1 = f(tag, lb)
           val b2 = foldRight(in, b1)(f)
           foldRight(exp, b2)(f)
+        case Loop(args, body, tag) =>
+          val b1 = f(tag, lb)
+          val b2 = foldRight(body, b1)(f)
+          args.toList.foldRight(b2) { case ((_, expr), bn) =>
+            foldRight(expr, bn)(f)
+          }
+        case Recur(args, _, tag) =>
+          val b1 = f(tag, lb)
+          args.toList.foldRight(b1)((a, bn) => foldRight(a, bn)(f))
         case Literal(_, _, tag) =>
           f(tag, lb)
         case Match(arg, branches, tag) =>
@@ -1340,6 +1532,14 @@ object TypedExpr {
           case App(fnT, args, tpe, tag) =>
             App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
           case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+          case Loop(args, body, tag) =>
+            Loop(
+              args.map { case (b, expr) => (b, map(expr)(fn)) },
+              map(body)(fn),
+              fn(tag)
+            )
+          case Recur(args, tpe, tag) =>
+            Recur(args.map(a => map(a)(fn)), tpe, fn(tag))
           case lit @ Literal(_, _, _)    => lit.copy(tag = fn(lit.tag))
           case Match(arg, branches, tag) =>
             Match(
@@ -1663,6 +1863,10 @@ object TypedExpr {
                 }
               case Let(arg, argE, in, rec, tag) =>
                 Let(arg, argE, self(in), rec, tag)
+              case Loop(args, body, tag) =>
+                Loop(args, self(body), tag)
+              case Recur(_, _, _) =>
+                ann(expr, tpe)
               case Match(arg, branches, tag) =>
                 // TODO: this may be wrong. e.g. we could leaving meta in the types
                 // embedded in patterns, this does not seem to happen since we would
@@ -1818,6 +2022,26 @@ object TypedExpr {
             (loop(table, argE1), loop(nonShadowed, in1))
               .mapN(Let(arg1, _, _, rec1, tag1))
           }
+        case lp @ Loop(args, body, _) =>
+          if (!enterLambda) None
+          else {
+            val argsSet = args.iterator.map(_._1).toSet
+            val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
+            val subFrees = nonShadowed.iterator
+              .map { case (n, v) =>
+                val dummyTpe = body.getType
+                freeVarsSet(v(Local(n, tpe = dummyTpe, lp.tag)) :: Nil)
+              }
+              .foldLeft(nonShadowed.keySet)(_ | _)
+
+            val Loop(args1, body1, tag1) = lp.unshadowBody(subFrees)
+            val subBody = substituteAll(nonShadowed, body1, enterLambda = true).get
+            args1.traverse { case (n, expr) =>
+              loop(table, expr).map((n, _))
+            }.map(Loop(_, subBody, tag1))
+          }
+        case Recur(args, tpe, tag) =>
+          args.traverse(loop(table, _)).map(Recur(_, tpe, tag))
         case Match(arg, branches, tag) =>
           // Maintain the order we encounter things:
           val arg1 = loop(table, arg)
@@ -1964,6 +2188,20 @@ object TypedExpr {
             rec,
             tag
           )
+        case Loop(args, body, tag) =>
+          Loop(
+            args.map { case (n, expr) =>
+              (n, substituteTypeVar(expr, env))
+            },
+            substituteTypeVar(body, env),
+            tag
+          )
+        case Recur(args, tpe, tag) =>
+          Recur(
+            args.map(substituteTypeVar(_, env)),
+            Type.substituteVar(tpe, env),
+            tag
+          )
         case Literal(lit, tpe, tag) =>
           Literal(lit, Type.substituteVar(tpe, env), tag)
         case Match(expr, branches, tag) =>
@@ -2011,6 +2249,16 @@ object TypedExpr {
             Let(b, recur(e), in, r, t)
           }
         } else Let(b, recur(e), recur(in), r, t)
+      case Loop(args, body, tag) =>
+        val args1 = args.map { case (b, expr) =>
+          (b, recur(expr))
+        }
+        val body1 =
+          if (args.exists(_._1 == name)) body
+          else recur(body)
+        Loop(args1, body1, tag)
+      case Recur(args, tpe, tag) =>
+        Recur(args.map(recur), tpe, tag)
       case lit @ Literal(_, _, _)    => lit
       case Match(arg, branches, tag) =>
         Match(recur(arg), branches.map { case (p, t) => (p, recur(t)) }, tag)
@@ -2075,6 +2323,10 @@ object TypedExpr {
             ann(expr, fntpe)
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
+          case Loop(args, body, tag) =>
+            Loop(args, self(body), tag)
+          case Recur(_, _, _) =>
+            ann(expr, fntpe)
           case Match(arg, branches, tag) =>
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would

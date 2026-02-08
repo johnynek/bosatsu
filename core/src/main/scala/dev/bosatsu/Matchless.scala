@@ -460,131 +460,127 @@ object Matchless {
           )
       }
 
-    def loopFn(
-        captures: List[Expr[B]],
+    // assign any results to result and set the condition to false
+    // and replace any tail calls to nm(args) with assigning args to those values
+    case class ArgRecord(
+        name: Bindable,
+        tmp: LocalAnon,
+        loopVar: LocalAnonMut
+    )
+
+    def toWhileBody(
+        name: Bindable,
+        args: NonEmptyList[ArgRecord],
+        cond: LocalAnonMut,
+        result: LocalAnonMut,
+        body: Expr[B]
+    ): Expr[B] = {
+
+      def returnValue(v: Expr[B]): Expr[B] =
+        setAll((cond, FalseExpr) :: (result, v) :: Nil, UnitExpr)
+
+      // return Some(e) if this expression can be rewritten into a tail call to name,
+      // else None
+      def loop(expr: Expr[B]): Option[Expr[B]] =
+        expr match {
+          case App(Local(fnName), appArgs) if fnName == name =>
+            // this is a tail call
+            // we know the length of appArgs must match args or the code wouldn't have compiled
+            // we have to first assign to the temp variables, and then assign the temp variables
+            // to the results to make sure we don't have any data dependency issues with the values;
+            val tmpAssigns = appArgs.iterator
+              .zip(args.iterator)
+              .flatMap { case (appArg, argRecord) =>
+                val isSelfAssign = appArg match {
+                  case LocalAnonMut(id) => id == argRecord.loopVar.ident
+                  case _                => false
+                }
+                if (isSelfAssign)
+                  Iterator.empty
+                else
+                  // don't create self assignments
+                  Iterator.single(
+                    (
+                      (argRecord.tmp, appArg),
+                      (argRecord.loopVar, argRecord.tmp)
+                    )
+                  )
+              }
+              .toList
+
+            // this can be empty if all assignments were identities
+            Some(
+              letAnons(
+                tmpAssigns.map(_._1),
+                setAll(tmpAssigns.map(_._2), UnitExpr)
+              )
+            )
+          case If(c, tcase, fcase) =>
+            // this can potentially have tail calls inside the branches
+            (loop(tcase), loop(fcase)) match {
+              case (Some(t), Some(f)) =>
+                Some(If(c, t, f))
+              case (None, Some(f)) =>
+                Some(If(c, returnValue(tcase), f))
+              case (Some(t), None) =>
+                Some(If(c, t, returnValue(fcase)))
+              case (None, None) => None
+            }
+          case Always(c, e) =>
+            loop(e).map(Always(c, _))
+          case LetMut(m, e) =>
+            loop(e).map(LetMut(m, _))
+          case Let(b, v, in) =>
+            // in is in tail position
+            loop(in).map(Let(b, v, _))
+          // the rest cannot have a call in tail position
+          case App(_, _) | ClosureSlot(_) | GetEnumElement(_, _, _, _) |
+              GetStructElement(_, _, _) | Global(_, _, _) |
+              Lambda(_, _, _, _) | Literal(_) | Local(_) | LocalAnon(_) |
+              LocalAnonMut(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+              PrevNat(_) | SuccNat | WhileExpr(_, _, _) | ZeroNat =>
+            None
+        }
+
+      val bodyTrans = substituteLocals(
+        args.toList.map(a => (a.name, a.loopVar)).toMap,
+        body
+      )
+
+      // No tail call means this loop executes once and returns bodyTrans.
+      loop(bodyTrans).getOrElse(returnValue(bodyTrans))
+    }
+
+    def buildLoop(
         name: Bindable,
         args: NonEmptyList[Bindable],
+        initArgs: NonEmptyList[Expr[B]],
         body: Expr[B]
     ): F[Expr[B]] = {
-
-      // assign any results to result and set the condition to false
-      // and replace any tail calls to nm(args) with assigning args to those values
-      case class ArgRecord(
-          name: Bindable,
-          tmp: LocalAnon,
-          loopVar: LocalAnonMut
-      )
-      def toWhileBody(
-          args: NonEmptyList[ArgRecord],
-          cond: LocalAnonMut,
-          result: LocalAnonMut
-      ): Expr[B] = {
-
-        def returnValue(v: Expr[B]): Expr[B] =
-          setAll((cond, FalseExpr) :: (result, v) :: Nil, UnitExpr)
-
-        // return Some(e) if this expression can be rewritten into a tail call to name,
-        // in instead of the call, do a bunch of SetMut on the args, and set cond to false
-        // else None
-        def loop(expr: Expr[B]): Option[Expr[B]] =
-          expr match {
-            case App(Local(fnName), appArgs) if fnName == name =>
-              // this is a tail call
-              // we know the length of appArgs must match args or the code wouldn't have compiled
-              // we have to first assign to the temp variables, and then assign the temp variables
-              // to the results to make sure we don't have any data dependency issues with the values;
-              val tmpAssigns = appArgs.iterator
-                .zip(args.iterator)
-                .flatMap { case (appArg, argRecord) =>
-                  val isSelfAssign = appArg match {
-                    case LocalAnonMut(id) => id == argRecord.loopVar.ident
-                    case _                => false
-                  }
-                  if (isSelfAssign)
-                    Iterator.empty
-                  else
-                    // don't create self assignments
-                    Iterator.single(
-                      (
-                        (argRecord.tmp, appArg),
-                        (argRecord.loopVar, argRecord.tmp)
-                      )
-                    )
-                }
-                .toList
-
-              // there must be at least one assignment
-              Some(
-                letAnons(
-                  tmpAssigns.map(_._1),
-                  setAll(tmpAssigns.map(_._2), UnitExpr)
-                )
-              )
-            case If(c, tcase, fcase) =>
-              // this can possible have tail calls inside the branches
-              (loop(tcase), loop(fcase)) match {
-                case (Some(t), Some(f)) =>
-                  Some(If(c, t, f))
-                case (None, Some(f)) =>
-                  Some(If(c, returnValue(tcase), f))
-                case (Some(t), None) =>
-                  Some(If(c, t, returnValue(fcase)))
-                case (None, None) => None
-              }
-            case Always(c, e) =>
-              loop(e).map(Always(c, _))
-            case LetMut(m, e) =>
-              loop(e).map(LetMut(m, _))
-            case Let(b, v, in) =>
-              // in is in tail position
-              loop(in).map(Let(b, v, _))
-            // the rest cannot have a call in tail position
-            case App(_, _) | ClosureSlot(_) | GetEnumElement(_, _, _, _) |
-                GetStructElement(_, _, _) | Global(_, _, _) |
-                Lambda(_, _, _, _) | Literal(_) | Local(_) | LocalAnon(_) |
-                LocalAnonMut(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-                PrevNat(_) | SuccNat | WhileExpr(_, _, _) | ZeroNat =>
-              None
-          }
-
-        val bodyTrans = substituteLocals(
-          args.toList.map(a => (a.name, a.loopVar)).toMap,
-          body
-        )
-
-        loop(bodyTrans) match {
-          case Some(expr) => expr
-          case None       =>
-            sys.error(
-              "invariant violation: could not find tail calls in:" +
-                s"toWhileBody(name = $name, body = $body)"
-            )
-        }
-      }
       val mut = makeAnon.map(LocalAnonMut(_))
       val anon = makeAnon.map(LocalAnon(_))
       for {
         cond <- mut
         result <- mut
         args1 <- args.traverse(b => (anon, mut).mapN(ArgRecord(b, _, _)))
-        whileLoop = toWhileBody(args1, cond, result)
+        whileBody = toWhileBody(name, args1, cond, result, body)
         allMuts = cond :: result :: args1.toList.map(_.loopVar)
-        // we don't need to set the name on the lambda because this is no longer recursive
-      } yield Lambda(
-        captures,
-        None,
-        args,
+      } yield {
+        val initSets = args1.toList.zip(initArgs.toList).map {
+          case (argRec, initArg) =>
+            (argRec.loopVar, initArg)
+        }
         letMutAll(
           allMuts,
           setAll(
-            args1.toList.map(arg => (arg.loopVar, Local(arg.name))),
+            initSets,
             Always(
               SetMut(cond, TrueExpr),
-              WhileExpr(isTrueExpr(cond), whileLoop, result)
+              WhileExpr(isTrueExpr(cond), whileBody, result)
             )
           )
         )
-      )
+      }
     }
 
     def loopLetVal(
@@ -595,7 +591,7 @@ object Matchless {
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
-          lazy val e0 = loop(e, slots.inLet(name))
+          val e0 = loop(e, slots.inLet(name))
           def letrec(expr: Expr[B]): Expr[B] =
             expr match {
               case fn: Lambda[B] if fn.recursiveName == Some(name) => fn
@@ -610,33 +606,91 @@ object Matchless {
                 )
             }
 
-          // this could be tail recursive
-          if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
-            val arity = Type.Fun.arity(e.getType)
-            // we know that arity > 0 because, otherwise we can't have a total
-            // self recursive loop, but property checks send in ill-typed
-            // e and so we handle that by checking for arity > 0
-            TypedExpr.toArgsBody(arity, e) match {
-              case Some((params, body)) =>
-                // we know params is non-empty because arity > 0
-                val args = params.map(_._1)
-                val frees = TypedExpr.freeVars(e :: Nil)
-                val (slots1, caps) = slots.inLet(name).lambdaFrees(frees)
-                loop(body, slots1)
-                  .flatMap { v =>
-                    loopFn(caps, name, args, v)
-                  }
-              // $COVERAGE-OFF$
-              case _ =>
-                // TODO: I don't think this case should ever happen in real code
-                // but it definitely does in fuzz tests
-                e0.map(letrec)
-              // $COVERAGE-ON$
+          e0.map(letrec)
+        case RecursionKind.NonRecursive => loop(e, slots)
+      }
+
+    def recurToSelfCall(
+        loopName: Bindable,
+        loopType: Type,
+        te: TypedExpr[A],
+        inNestedLoop: Boolean
+    ): TypedExpr[A] =
+      te match {
+        case TypedExpr.Generic(q, in) =>
+          TypedExpr.Generic(q, recurToSelfCall(loopName, loopType, in, inNestedLoop))
+        case TypedExpr.Annotation(in, tpe) =>
+          TypedExpr.Annotation(
+            recurToSelfCall(loopName, loopType, in, inNestedLoop),
+            tpe
+          )
+        case TypedExpr.AnnotatedLambda(args, body, tag) =>
+          TypedExpr.AnnotatedLambda(
+            args,
+            recurToSelfCall(loopName, loopType, body, inNestedLoop),
+            tag
+          )
+        case TypedExpr.App(fn, args, tpe, tag) =>
+          TypedExpr.App(
+            recurToSelfCall(loopName, loopType, fn, inNestedLoop),
+            args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop)),
+            tpe,
+            tag
+          )
+        case TypedExpr.Let(arg, expr, in, rec, tag) =>
+          if (arg == loopName) {
+            if (rec.isRecursive) {
+              TypedExpr.Let(
+                arg,
+                expr,
+                in,
+                rec,
+                tag
+              )
+            } else {
+              TypedExpr.Let(
+                arg,
+                recurToSelfCall(loopName, loopType, expr, inNestedLoop),
+                in,
+                rec,
+                tag
+              )
             }
           } else {
-            e0.map(letrec)
+            TypedExpr.Let(
+              arg,
+              recurToSelfCall(loopName, loopType, expr, inNestedLoop),
+              recurToSelfCall(loopName, loopType, in, inNestedLoop),
+              rec,
+              tag
+            )
           }
-        case RecursionKind.NonRecursive => loop(e, slots)
+        case TypedExpr.Loop(args, body, tag) =>
+          TypedExpr.Loop(
+            args.map { case (n, expr) =>
+              (n, recurToSelfCall(loopName, loopType, expr, inNestedLoop))
+            },
+            recurToSelfCall(loopName, loopType, body, inNestedLoop = true),
+            tag
+          )
+        case TypedExpr.Recur(args, tpe, tag) =>
+          val args1 = args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop))
+          if (inNestedLoop) TypedExpr.Recur(args1, tpe, tag)
+          else {
+            val fn = TypedExpr.Local(loopName, loopType, tag)
+            TypedExpr.App(fn, args1, tpe, tag)
+          }
+        case TypedExpr.Match(arg, branches, tag) =>
+          TypedExpr.Match(
+            recurToSelfCall(loopName, loopType, arg, inNestedLoop),
+            branches.map { case (p, e) =>
+              (p, recurToSelfCall(loopName, loopType, e, inNestedLoop))
+            },
+            tag
+          )
+        case n @ (TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _)) =>
+          n
       }
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
@@ -673,9 +727,25 @@ object Matchless {
         case TypedExpr.App(fn, as, _, _) =>
           (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
             .mapN(App(_, _))
+        case TypedExpr.Loop(args, body, _) =>
+          val avoid = TypedExpr.allVarsSet(body :: args.toList.map(_._2))
+          val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
+          val loopArgs = args.map { case (n, arg) =>
+            (n, arg.getType)
+          }
+          val loopType = Type.Fun(loopArgs.map(_._2), body.getType)
+          val body1 = recurToSelfCall(loopName, loopType, body, inNestedLoop = false)
+          (loop(body1, slots), args.traverse { case (_, init) => loop(init, slots) })
+            .tupled
+            .flatMap { case (bodyExpr, initVals) =>
+              buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
+            }
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
             .mapN(Let(a, _, _))
+        case TypedExpr.Recur(_, _, _) =>
+          // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
+          sys.error(s"unreachable raw recur in Matchless lowering: ${te.repr.render(80)}")
         case TypedExpr.Literal(lit, _, _)      => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (

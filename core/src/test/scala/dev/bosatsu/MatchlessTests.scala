@@ -179,4 +179,53 @@ x = 1
       assertEquals(map(Identifier.Name("x")), Matchless.Literal(Lit(1)))
     }
   }
+
+  test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
+    val intType = rankn.Type.IntType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, ())
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, ()))),
+      TypedExpr.Match(
+        xExpr,
+        NonEmptyList.of(
+          (Pattern.Literal(Lit.fromInt(0)), xExpr),
+          (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ()))
+        ),
+        ()
+      ),
+      ()
+    )
+
+    def containsWhile(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.WhileExpr(_, _, _) => true
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(containsWhile) || containsWhile(body)
+        case Matchless.App(fn, args) =>
+          containsWhile(fn) || args.exists(containsWhile)
+        case Matchless.Let(_, expr, in) =>
+          containsWhile(expr) || containsWhile(in)
+        case Matchless.LetMut(_, in) =>
+          containsWhile(in)
+        case Matchless.If(_, t, f) =>
+          containsWhile(t) || containsWhile(f)
+        case Matchless.Always(_, e) =>
+          containsWhile(e)
+        case Matchless.PrevNat(e) =>
+          containsWhile(e)
+        case _ =>
+          false
+      }
+
+    val compiled =
+      Matchless.fromLet(
+        (),
+        Identifier.Name("loop_value"),
+        RecursionKind.NonRecursive,
+        loopExpr
+      )(fnFromTypeEnv(rankn.TypeEnv.empty))
+
+    assert(containsWhile(compiled), compiled.toString)
+  }
 }
