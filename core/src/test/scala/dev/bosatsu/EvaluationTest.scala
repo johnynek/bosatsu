@@ -861,7 +861,7 @@ def y(f):
 def ltEqZero(i):
   i.cmp_Int(0) matches (LT | EQ)
 
-fac = trace("made fac", y((f, i) -> 1 if ltEqZero(i) else f(i).times(i)))
+fac = trace("made fac", y((f, i) -> 1 if ltEqZero(i) else f(i).mul(i)))
 
 main = fac(6)
 """)) { case PackageError.KindInferenceError(_, _, _) =>
@@ -1087,8 +1087,8 @@ enum PNat: One, Even(of: PNat), Odd(of: PNat)
 def toInt(pnat):
   recur pnat:
     case One: 1
-    case Even(of): toInt(of).times(2)
-    case Odd(of): toInt(of).times(2).add(1)
+    case Even(of): toInt(of).mul(2)
+    case Odd(of): toInt(of).mul(2).add(1)
 
 main = toInt(Even(Even(One)))
 """),
@@ -1225,7 +1225,7 @@ package A
 
 doub = [(x, x) for x in range(4)]
 
-main = [x.times(y) for (x, y) in doub].foldl_List(0, add)
+main = [x.mul(y) for (x, y) in doub].foldl_List(0, add)
 """),
       "A",
       VInt(1 + 4 + 9)
@@ -1715,7 +1715,7 @@ main = Foo(1, `package`, 3, 4)
 package A
 
 operator + = add
-operator * = times
+operator * = mul
 
 main = 1 + 2 * 3
 """),

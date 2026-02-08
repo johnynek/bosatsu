@@ -119,7 +119,7 @@ new_favorites = ["mammoth", *favorite_animals]
 We can also build lists with comprehensions:
 
 ```
-squares = [times(i, i) for i in range(10)]
+squares = [mul(i, i) for i in range(10)]
 ```
 
 Just as we can build up lists literally, we can also use match to tear them down

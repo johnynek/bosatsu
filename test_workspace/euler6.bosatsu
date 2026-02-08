@@ -25,7 +25,7 @@ package Euler/P6
 
 operator + = add
 operator - = sub
-operator * = times
+operator * = mul
 operator == = eq_Int
 
 # sum 0 to n on the given function

@@ -63,7 +63,7 @@ def num_is_palindrome(n):
   is_palindrome(eq_Int, digits)
 
 def product_palindrome(n1, n2):
-  prod = n1.times(n2)
+  prod = n1.mul(n2)
   if num_is_palindrome(prod): Some(prod)
   else: None
 

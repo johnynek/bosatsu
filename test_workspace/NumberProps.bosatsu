@@ -1,14 +1,14 @@
 package Bosatsu/NumberProps
 
 from Bosatsu/Nat/Binary import (BinNat, toBinNat as int_to_BinNat, is_even as is_even_BinNat,
-    times2 as times2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
+    mul2 as mul2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
     times_BinNat, exp as exp_BinNat, cmp_BinNat, toInt as binNat_to_Int, add_BinNat,
     next as next_BinNat, sub_BinNat, eq_BinNat, sub_Option as sub_BinNat_Option,
     divmod as divmod_BinNat,
   )
 
 from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
-  times2 as times2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
+  mul2 as mul2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
   mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
 
 from Bosatsu/Int/Binary import (BinInt, int_to_BinInt, binInt_to_Int, add as add_BinInt,
@@ -40,7 +40,7 @@ int_props = suite_Prop(
     forall_Prop(prod_Rand(rand_Int, rand_Int), "divmod law", ((a, b)) -> (
       adivb = a.div(b)
       amodb = a.mod_Int(b)
-      a1 = adivb.times(b).add(amodb)
+      a1 = adivb.mul(b).add(amodb)
       Assertion(eq_Int(a1, a), "check")
     )),
   ]
@@ -63,7 +63,7 @@ def cmp_Comparison(c1: Comparison, c2: Comparison) -> Comparison:
                 case _: GT
 
 def exp_Int(base: Int, power: Int) -> Int:
-  int_loop(power, 1, (p, acc) -> (p.sub(1), acc.times(base)))
+  int_loop(power, 1, (p, acc) -> (p.sub(1), acc.mul(base)))
 
 small_rand_Nat: Rand[Nat] = int_range(7).map_Rand(int_to_Nat)
 small_rand_BinNat: Rand[BinNat] = int_range(7).map_Rand(int_to_BinNat)
@@ -71,14 +71,14 @@ small_rand_BinNat: Rand[BinNat] = int_range(7).map_Rand(int_to_BinNat)
 nat_props = suite_Prop(
   "Nat props",
   [
-    forall_Prop(rand_Nat, "if is_even(n) then times2(div2(n)) == n", n -> (
+    forall_Prop(rand_Nat, "if is_even(n) then mul2(div2(n)) == n", n -> (
       if is_even_Nat(n):
-        n1 = times2_Nat(div2_Nat(n))
-        Assertion(cmp_Nat(n1, n) matches EQ, "times2/div2")
+        n1 = mul2_Nat(div2_Nat(n))
+        Assertion(cmp_Nat(n1, n) matches EQ, "mul2/div2")
       else:
         # we return the previous number
-        n1 = times2_Nat(div2_Nat(n))
-        Assertion(cmp_Nat(NSucc(n1), n) matches EQ, "times2/div2")
+        n1 = mul2_Nat(div2_Nat(n))
+        Assertion(cmp_Nat(NSucc(n1), n) matches EQ, "mul2/div2")
     )),
     forall_Prop(prod_Rand(rand_Nat, rand_Nat), "cmp_Nat matches cmp_Int", ((n1, n2)) -> (
       cmp_n = cmp_Nat(n1, n2)
@@ -103,7 +103,7 @@ nat_props = suite_Prop(
     )),
     forall_Prop(prod_Rand(rand_Nat, rand_Nat), "mult homomorphism", ((n1, n2)) -> (
       n3 = mult_Nat(n1, n2)
-      i3 = times(n1.nat_to_Int(), n2.nat_to_Int())
+      i3 = mul(n1.nat_to_Int(), n2.nat_to_Int())
       Assertion(eq_Int(n3.nat_to_Int(), i3), "mult homomorphism")
     )),
     forall_Prop(prod_Rand(small_rand_Nat, small_rand_Nat), "exp homomorphism", ((n1, n2)) -> (
@@ -111,10 +111,10 @@ nat_props = suite_Prop(
       i3 = exp_Int(n1.nat_to_Int(), n2.nat_to_Int())
       Assertion(eq_Int(n3.nat_to_Int(), i3), "exp homomorphism")
     )),
-    forall_Prop(rand_Nat, "times2 == x -> mult(2, x)", n -> (
-      t2 = n.times2_Nat()
+    forall_Prop(rand_Nat, "mul2 == x -> mult(2, x)", n -> (
+      t2 = n.mul2_Nat()
       t2_2 = mult_Nat(n, NSucc(NSucc(NZero)))
-      Assertion(cmp_Nat(t2, t2_2) matches EQ, "times2 == mult(2, _)")
+      Assertion(cmp_Nat(t2, t2_2) matches EQ, "mul2 == mult(2, _)")
     )),
     forall_Prop(prod_Rand(rand_Nat, rand_Nat), "divmod homomorphism", ((n1, n2)) -> (
       (dn, mn) = divmod_Nat(n1, n2)
@@ -131,18 +131,18 @@ nat_props = suite_Prop(
 binnat_props = suite_Prop(
   "BinNat props",
   [
-    forall_Prop(rand_BinNat, "if is_even(n) then times2(div2(n)) == n", n -> (
+    forall_Prop(rand_BinNat, "if is_even(n) then mul2(div2(n)) == n", n -> (
       if is_even_BinNat(n):
-        n1 = times2_BinNat(div2_BinNat(n))
+        n1 = mul2_BinNat(div2_BinNat(n))
         n_str = binNat_to_Int(n).int_to_String()
         n1_str = binNat_to_Int(n1).int_to_String()
-        Assertion(cmp_BinNat(n1, n) matches EQ, "even, times2/div2: n = ${n_str}, n1 = ${n1_str}")
+        Assertion(cmp_BinNat(n1, n) matches EQ, "even, mul2/div2: n = ${n_str}, n1 = ${n1_str}")
       else:
         # we return the previous number
-        n1 = times2_BinNat(div2_BinNat(n))
+        n1 = mul2_BinNat(div2_BinNat(n))
         n_str = binNat_to_Int(n).int_to_String()
         n1_str = binNat_to_Int(n1).int_to_String()
-        Assertion(cmp_BinNat(n1.next_BinNat(), n) matches EQ, "times2/div2: n = ${n_str}, n1 = ${n1_str}")
+        Assertion(cmp_BinNat(n1.next_BinNat(), n) matches EQ, "mul2/div2: n = ${n_str}, n1 = ${n1_str}")
     )),
     forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "cmp_BinNat matches cmp_Int", ((n1, n2)) -> (
       cmp_n = cmp_BinNat(n1, n2)
@@ -181,7 +181,7 @@ binnat_props = suite_Prop(
     )),
     forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "mult homomorphism", ((n1, n2)) -> (
       n3 = times_BinNat(n1, n2)
-      i3 = times(n1.binNat_to_Int(), n2.binNat_to_Int())
+      i3 = mul(n1.binNat_to_Int(), n2.binNat_to_Int())
       Assertion(eq_Int(n3.binNat_to_Int(), i3), "mult homomorphism")
     )),
     forall_Prop(prod_Rand(small_rand_BinNat, small_rand_BinNat), "exp homomorphism", ((n1, n2)) -> (
@@ -189,10 +189,10 @@ binnat_props = suite_Prop(
       i3 = exp_Int(n1.binNat_to_Int(), n2.binNat_to_Int())
       Assertion(eq_Int(n3.binNat_to_Int(), i3), "exp homomorphism")
     )),
-    forall_Prop(rand_BinNat, "times2 == x -> mult(2, x)", n -> (
-      t2 = n.times2_BinNat()
+    forall_Prop(rand_BinNat, "mul2 == x -> mult(2, x)", n -> (
+      t2 = n.mul2_BinNat()
       t2_2 = times_BinNat(n, BNEven(BNZero))
-      Assertion(cmp_BinNat(t2, t2_2) matches EQ, "times2 == mult(2, _)")
+      Assertion(cmp_BinNat(t2, t2_2) matches EQ, "mul2 == mult(2, _)")
     )),
     forall_Prop(prod_Rand(rand_BinNat, rand_BinNat), "divmod homomorphism", ((n1, n2)) -> (
       (dn, mn) = divmod_BinNat(n1, n2)
@@ -230,7 +230,7 @@ binint_props = suite_Prop(
       sum = add_BinInt(x, binNat_to_BinInt(ax))
       xi = x.binInt_to_Int()
       if cmp_Int(xi, 0) matches GT:
-        Assertion(eq_Int(sum.binInt_to_Int(), times(xi, 2)), "x + |x| == 2|x|")
+        Assertion(eq_Int(sum.binInt_to_Int(), mul(xi, 2)), "x + |x| == 2|x|")
       else:
         Assertion(eq_Int(sum.binInt_to_Int(), 0), "x + |x| == 0 if x <= 0")
     )),

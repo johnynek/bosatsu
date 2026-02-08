@@ -8,7 +8,7 @@ from Bosatsu/List import for_all
 
 operator + = add
 operator - = sub
-operator * = times
+operator * = mul
 
 def factorial(n):
   int_loop(n, 1, (i, p) ->

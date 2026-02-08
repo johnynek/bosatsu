@@ -43,7 +43,7 @@ object Predef {
       .add(predefPackageName, "divf", FfiCall.Fn2(PredefImpl.divf(_, _)))
       .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
       .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
-      .add(predefPackageName, "times", FfiCall.Fn2(PredefImpl.times(_, _)))
+      .add(predefPackageName, "mul", FfiCall.Fn2(PredefImpl.mul(_, _)))
       .add(predefPackageName, "timesf", FfiCall.Fn2(PredefImpl.timesf(_, _)))
       .add(predefPackageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
       .add(
@@ -496,7 +496,7 @@ object PredefImpl {
   def subf(a: Value, b: Value): Value =
     vf(d(a) - d(b))
 
-  def times(a: Value, b: Value): Value =
+  def mul(a: Value, b: Value): Value =
     VInt(i(a).multiply(i(b)))
 
   def timesf(a: Value, b: Value): Value =
