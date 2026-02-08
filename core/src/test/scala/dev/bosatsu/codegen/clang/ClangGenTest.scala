@@ -9,7 +9,8 @@ import dev.bosatsu.{
   PackageMap,
   Par,
   TestUtils,
-  Identifier
+  Identifier,
+  Require
 }
 import org.scalacheck.{Prop, Gen}
 
@@ -364,11 +365,11 @@ main = is_one
       // low <= d <= high
       def search(low0: BigInt, high0: BigInt): (BigInt, BigInt) = {
         // we know that d fits in a 64 bit number
-        require(low0.bitLength <= wordSize * 2)
-        require(high0.bitLength <= wordSize * 2)
+        Require(low0.bitLength <= wordSize * 2)
+        Require(high0.bitLength <= wordSize * 2)
         // we know that div >= 1
-        require(low0 >= 1)
-        require(high0 >= low0)
+        Require(low0 >= 1)
+        Require(high0 >= low0)
 
         var low = low0
         var high = high0
@@ -384,14 +385,14 @@ main = is_one
           } else if (mod < 0) {
             // mid is too big
             high = mid
-            require(
+            Require(
               high != low,
               s"low == high but mid ($low) is isn't correct: from search($low0, $high0)"
             )
           } else {
             cont = false
             // the div result fits in 2 words
-            require(mid.bitLength <= 2 * wordSize)
+            Require(mid.bitLength <= 2 * wordSize)
             result = (mid, mod)
           }
         }
@@ -401,9 +402,9 @@ main = is_one
 
       // when maxWord * n > m > n
       def divModTop(l: BigInt, r: BigInt): (BigInt, BigInt) = {
-        require(l < (r << wordSize))
-        require(r < l)
-        require(r > 1)
+        Require(l < (r << wordSize))
+        Require(r < l)
+        Require(r > 1)
         val nwords = {
           val rlen = r.bitLength
           val wSize = rlen / wordSize
@@ -415,11 +416,11 @@ main = is_one
         val m1 = l >> shiftCount
         val n1 = r >> shiftCount
         // at this point, we have to have a relatively small number
-        require(
+        Require(
           m1.bitLength <= 2 * wordSize,
           s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}"
         )
-        require(
+        Require(
           n1.bitLength <= wordSize,
           s"m1 = $m1, bitlength = ${m1.bitLength}, n1 = $n1, bitlength = ${n1.bitLength}"
         )

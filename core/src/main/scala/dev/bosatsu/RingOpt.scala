@@ -1481,9 +1481,9 @@ object RingOpt {
 
   // Heuristic cost model (make Mult much costlier than Add)
   final case class Weights(mult: Int, add: Int, neg: Int) {
-    require(add > 0, s"add = $add must be > 0")
-    require(mult > 0, s"mult = $mult must be > 0")
-    require(neg > 0, s"neg = $neg must be > 0")
+    Require(add > 0, s"add = $add must be > 0")
+    Require(mult > 0, s"mult = $mult must be > 0")
+    Require(neg > 0, s"neg = $neg must be > 0")
 
     def cost[A](e: Expr[A]): Long = {
       @annotation.tailrec

@@ -1,5 +1,7 @@
 package dev.bosatsu.rankn
 
+import dev.bosatsu.Require
+
 /** How is a non-external data type represented
   */
 
@@ -15,7 +17,7 @@ object DataRepr {
       extends DataRepr
   // a struct with arity 1 can be elided, and is called a new-type
   case class Struct(arity: Int) extends DataRepr {
-    require(arity != 1)
+    Require(arity != 1)
   }
   case object NewType extends DataRepr
 

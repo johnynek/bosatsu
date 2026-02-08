@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Order
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
+import scala.quoted.{Expr, Quotes}
 
 import Parser.{lowerIdent, upperIdent}
 
@@ -123,6 +124,48 @@ object Identifier {
   def unsafeBindable(str: String): Bindable =
     unsafeParse(bindableParser, str)
 
+  /** Build an Identifier from a compile-time string literal.
+    *
+    * The literal must parse as either a [[Name]] or [[Constructor]], and the
+    * parsed `asString` must exactly match the provided literal content.
+    */
+  transparent inline def literal(inline str: String): Identifier =
+    ${ literalImpl('str) }
+
+  private def literalImpl(strExpr: Expr[String])(using q: Quotes): Expr[Identifier] = {
+    import q.reflect.report
+
+    strExpr.value match {
+      case Some(str) =>
+        parser.parseAll(str) match {
+          case Right(Name(name)) if name == str =>
+            '{ Name(${ Expr(str) }) }
+          case Right(Constructor(cons)) if cons == str =>
+            '{ Constructor(${ Expr(str) }) }
+          case Right(Name(name)) =>
+            report.errorAndAbort(
+              s"""Identifier.literal("$str") parsed as Name("$name"), which does not round-trip exactly."""
+            )
+          case Right(Constructor(cons)) =>
+            report.errorAndAbort(
+              s"""Identifier.literal("$str") parsed as Constructor("$cons"), which does not round-trip exactly."""
+            )
+          case Right(other) =>
+            report.errorAndAbort(
+              s"""Identifier.literal("$str") must parse as Name or Constructor, but parsed as ${other.sourceCodeRepr}."""
+            )
+          case Left(err) =>
+            report.errorAndAbort(
+              s"""Identifier.literal("$str") is invalid: $err"""
+            )
+        }
+      case None =>
+        report.errorAndAbort(
+          s"Identifier.literal requires a string literal, but found: ${strExpr.show}"
+        )
+    }
+  }
+
   def optionParse[A](pa: P0[A], str: String): Option[A] =
     Parser.optionParse(pa, str)
 
@@ -139,7 +182,7 @@ object Identifier {
     cats.Show.show(_.sourceCodeRepr)
 
   def synthetic(name: String): Bindable = {
-    require(name.nonEmpty)
+    Require(name.nonEmpty)
     Name("_" + name)
   }
 }

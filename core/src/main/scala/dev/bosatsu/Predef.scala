@@ -249,9 +249,9 @@ object PredefImpl {
   private val NaNBitsPrefix = "NaN:0x"
 
   final case class ArrayValue(data: Array[Value], offset: Int, len: Int) {
-    require(offset >= 0, s"offset must be >= 0: $offset")
-    require(len >= 0, s"len must be >= 0: $len")
-    require(offset + len <= data.length, s"invalid view ($offset, $len)")
+    Require(offset >= 0, s"offset must be >= 0: $offset")
+    Require(len >= 0, s"len must be >= 0: $len")
+    Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
 
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
