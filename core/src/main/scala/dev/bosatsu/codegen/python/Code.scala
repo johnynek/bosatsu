@@ -458,8 +458,16 @@ object Code {
           if (a == BigInteger.ZERO) right.simplify
           else {
             val r1 = right.simplify
-            // put the constant on the right
-            r1.evalPlus(i)
+            // only commute when that unlocks trailing-int folding;
+            // otherwise keep operand order stable for idempotence.
+            r1 match {
+              case PyInt(_) | Op(_, _: IntOp, PyInt(_)) =>
+                // put the constant on the right when we can merge constants
+                r1.evalPlus(i)
+              case _                                     =>
+                if (r1 == right) this
+                else Op(i, Const.Plus, r1)
+            }
           }
         case Op(left, Const.Plus, i @ PyInt(b)) =>
           if (b == BigInteger.ZERO) left.simplify

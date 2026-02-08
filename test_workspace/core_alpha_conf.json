@@ -9,7 +9,7 @@
           "https://github.com/johnynek/bosatsu/releases/download/v0.0.27/core_alpha-v0.1.5.bosatsu_lib" ]
     },
   "exported_packages": [ "Bosatsu/Bool", "Bosatsu/Char", "Bosatsu/Collection/Array",
-      "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IOError",
+      "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IO/Error", "Bosatsu/IO/Std",
       "Bosatsu/Int/Binary", "Bosatsu/List", "Bosatsu/Nat", "Bosatsu/Nat/Binary", "Bosatsu/Nothing",
       "Bosatsu/Option", "Bosatsu/Prog", "Bosatsu/Rand", "Bosatsu/Testing/Properties",
       "Bosatsu/Float/Float64" ],

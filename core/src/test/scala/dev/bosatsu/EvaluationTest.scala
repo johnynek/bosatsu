@@ -4362,6 +4362,72 @@ tests = TestSuite("array eval", [
     )
   }
 
+  test("prog and io/std externals evaluate and run recursively") {
+    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val ioErrorPack =
+      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+    val ioStdPack =
+      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
+
+    val progRunPack = """
+package ProgRun
+
+from Bosatsu/Prog import Prog, Main, pure, read_env, recover, await, recursive
+from Bosatsu/IO/Std import println, print, print_err, print_errln, read_stdin_utf8_bytes
+from Bosatsu/IO/Error import IOError
+
+sum_to = recursive(loop -> (
+    def go(state):
+      (i, acc) = state
+      if cmp_Int(i, 0) matches EQ | LT:
+        pure(acc)
+      else:
+        loop((i.sub(1), add(acc, i)))
+    go
+  ))
+
+main = Main(
+  (
+    args <- read_env.await()
+    bad <- read_stdin_utf8_bytes(-1).recover(_ -> pure("<bad>")).await()
+    stdin <- read_stdin_utf8_bytes(1).await()
+    _ <- print("start|").await()
+    _ <- println("stdin=${stdin}|bad=${bad}").await()
+    arg_count = args.foldl_List(0, (n, _) -> add(n, 1))
+    _ <- print_err("args=").await()
+    _ <- print_errln(int_to_String(arg_count)).await()
+    s <- sum_to((10000, 0)).await()
+    _ <- println("sum=${int_to_String(s)}").await()
+    pure(0)
+  ).recover(_ -> pure(0))
+)
+"""
+
+    testInferred(
+      List(progPack, ioErrorPack, ioStdPack, progRunPack),
+      "ProgRun",
+      { (pm, mainPack) =>
+        val ev = library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+        val (mainEval, _) =
+          ev.evaluateMainValue(mainPack).fold(err => fail(err.toString), identity)
+
+        val run =
+          PredefImpl.runProgMain(mainEval.value, List("one", "two"), "\u00E9xyz")
+
+        run.result match {
+          case Right(VInt(i)) => assertEquals(i.intValue, 0)
+          case other          => fail(s"unexpected prog result: $other")
+        }
+
+        assertEquals(
+          run.stdout,
+          "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
+        )
+        assertEquals(run.stderr, "args=2\n")
+      }
+    )
+  }
+
   test("test duplicate import error messages") {
     val testCode = List(
       """

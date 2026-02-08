@@ -6,9 +6,13 @@
     recover: ProgExt.recover,
     apply_fix: ProgExt.apply_fix,
     read_env: ProgExt.read_env,
-    remap_env: ProgExt.remap_env,
-    println: ProgExt.println,
-    print: ProgExt.print_stdout,
-    read_stdin_utf8_bytes: ProgExt.read_stdin_utf8_bytes
+    remap_env: ProgExt.remap_env
+  },
+  Bosatsu/IO/Std: {
+    println_impl: ProgExt.println,
+    print_impl: ProgExt.print_stdout,
+    print_err_impl: ProgExt.print_err,
+    print_errln_impl: ProgExt.print_errln,
+    read_stdin_utf8_bytes_impl: ProgExt.read_stdin_utf8_bytes
   }
 }
