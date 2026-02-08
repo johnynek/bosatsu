@@ -824,6 +824,18 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     )
   }
 
+  test("normalization removes direct non-recursive identity let bindings") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(xVar, int(1)), intTpe, ())
+    val identLet = TypedExpr.Let(xName, xVar, body, RecursionKind.NonRecursive, ())
+
+    assertEquals(
+      TypedExprNormalization.normalize(identLet),
+      TypedExprNormalization.normalize(body)
+    )
+  }
+
   val normalLet =
     let(
       "x",
