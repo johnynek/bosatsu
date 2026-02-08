@@ -37,8 +37,8 @@ def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse
   [record_to_list(getters.traverse()(getter_to_row_entry(row))) for row in rows]
 
 struct RestructureOutput[shape1, shape2](
-  reshaperFields: shape1[RecordField] -> shape2[RecordField],
-  reshaperValues: shape1[RecordValue] -> shape2[RecordValue],
+  reshaper_fields: shape1[RecordField] -> shape2[RecordField],
+  reshaper_values: shape1[RecordValue] -> shape2[RecordValue],
   getters: shape2[RecordGetter[shape2]],
   traverse: forall w1: * -> *, w2: * -> *. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2],
   record_to_list: forall w: * -> *. shape2[RecordRowEntry[w]] -> List[RowEntry[w]]
@@ -47,8 +47,8 @@ def restructure[
   shape1: (* -> *) -> *,
   shape2: (* -> *) -> *
 ](RecordSet(fields, rows, getters, _, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
-  RestructureOutput(reshaperF, reshaperV, new_getters, traverse, record_to_list) = f(getters)
-  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse, record_to_list)
+  RestructureOutput(reshaper_f, reshaper_v, new_getters, traverse, record_to_list) = f(getters)
+  RecordSet(reshaper_f(fields), rows.map_List(reshaper_v), new_getters, traverse, record_to_list)
 
 def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), more_rows):
   RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
@@ -71,12 +71,12 @@ def ps[
   shape2: (* -> *) -> *,
   t
 ](
-  RecordGetter(fF, fV): RecordGetter[shape1, t],
-  RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
+  RecordGetter(f_f, f_v): RecordGetter[shape1, t],
+  RestructureOutput(reshaper_1_f, reshaper_1_v, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
   getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(PS(_, sh2) -> f1(sh2), PS(_, sh2) -> v1(sh2)))
   RestructureOutput(
-    sh1 -> PS(fF(sh1), reshaper1F(sh1)),
-    sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    sh1 -> PS(f_f(sh1), reshaper_1_f(sh1)),
+    sh1 -> PS(f_v(sh1), reshaper_1_v(sh1)),
     PS(RecordGetter(PS(x,_) -> x, PS(x,_) -> x), getters2),
     PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
     PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))

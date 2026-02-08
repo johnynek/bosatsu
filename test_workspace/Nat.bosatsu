@@ -138,10 +138,10 @@ n5 = Succ(n4)
 def operator ==(i0: Int, i1: Int):
     eq_Int(i0, i1)
 
-def addLaw(n1: Nat, n2: Nat, label: String) -> Test:
+def add_law(n1: Nat, n2: Nat, label: String) -> Test:
   Assertion(add(n1, n2).to_Int() == (n1.to_Int() + n2.to_Int()), label)
 
-def multLaw(n1: Nat, n2: Nat, label: String) -> Test:
+def mult_law(n1: Nat, n2: Nat, label: String) -> Test:
   Assertion(mult(n1, n2).to_Int() == (n1.to_Int() * n2.to_Int()), label)
 
 def from_to_law(i: Int, message: String) -> Test:
@@ -158,17 +158,17 @@ from_to_suite = TestSuite("to_Nat/to_Int tests", [
 
 tests = TestSuite("Nat tests",
   [
-    addLaw(Zero, Zero, "0 + 0"),
-    addLaw(Zero, n1, "0 + 1"),
-    addLaw(n1, Zero, "1 + 0"),
-    addLaw(n1, n2, "1 + 2"),
-    addLaw(n2, n1, "2 + 1"),
+    add_law(Zero, Zero, "0 + 0"),
+    add_law(Zero, n1, "0 + 1"),
+    add_law(n1, Zero, "1 + 0"),
+    add_law(n1, n2, "1 + 2"),
+    add_law(n2, n1, "2 + 1"),
 
-    multLaw(Zero, Zero, "0 * 0"),
-    multLaw(Zero, n1, "0 * 1"),
-    multLaw(n1, Zero, "1 * 0"),
-    multLaw(n1, n2, "1 * 2"),
-    multLaw(n2, n1, "2 * 1"),
+    mult_law(Zero, Zero, "0 * 0"),
+    mult_law(Zero, n1, "0 * 1"),
+    mult_law(n1, Zero, "1 * 0"),
+    mult_law(n1, n2, "1 * 2"),
+    mult_law(n2, n1, "2 * 1"),
     from_to_suite,
     Assertion(exp(n2, n5).to_Int() matches 32, "exp(2, 5) == 32"),
     Assertion(n1.div2().to_Int() matches 0, "1 div2 == 0"),

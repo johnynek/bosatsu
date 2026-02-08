@@ -17,11 +17,11 @@ from Bosatsu/List import sum
 # so n = 35 is enough
 
 def fib(n):
-  range(n).foldl_List([], (revFib, _) ->
-    match revFib:
+  range(n).foldl_List([], (rev_fib, _) ->
+    match rev_fib:
       case []: [1]
       case [h]: [2, h]
-      case [h1, h2, *_]: [h1.add(h2), *revFib])
+      case [h1, h2, *_]: [h1.add(h2), *rev_fib])
 
 def keep(i):
   match i.cmp_Int(4000000):

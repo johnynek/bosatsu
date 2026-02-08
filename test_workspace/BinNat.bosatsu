@@ -2,7 +2,7 @@ package Bosatsu/Nat/Binary
 
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
-export (BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2, div2,
+export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, times2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
 # a natural number with three variants:
 # Zero = 0
@@ -17,21 +17,21 @@ def is_even(b: BinNat) -> Bool:
 
 # Convert a BinNat into the equivalent Int
 # this is O(log(b)) operation
-def toInt(b: BinNat) -> Int:
+def to_Int(b: BinNat) -> Int:
   recur b:
     case Zero: 0
-    case Odd(n): toInt(n).times(2).add(1)
-    case Even(n): toInt(n).times(2).add(2)
+    case Odd(n): to_Int(n).times(2).add(1)
+    case Even(n): to_Int(n).times(2).add(2)
 
 # This is an O(b) operation
-def toNat(b: BinNat) -> Nat:
+def to_Nat(b: BinNat) -> Nat:
   recur b:
     case Zero: NatZero
-    case Odd(n): NatSucc(toNat(n).times2_Nat())
-    case Even(n): NatSucc(NatSucc(toNat(n).times2_Nat()))
+    case Odd(n): NatSucc(to_Nat(n).times2_Nat())
+    case Even(n): NatSucc(NatSucc(to_Nat(n).times2_Nat()))
 
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
-def toBinNat(n: Int) -> BinNat:
+def to_BinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
   fns = int_loop(n, [], (n, fns) ->
     is_even = n.and_Int(1) matches 0
@@ -294,14 +294,14 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
     recur cnt_Nat:
       case NatZero: init
-      case NatSucc(prevNat):
+      case NatSucc(prev_nat):
         cnt = prev(cnt)
         init = fn(init, cnt)
-        loop(init, cnt, prevNat)
+        loop(init, cnt, prev_nat)
 
   # this is O(cnt) to build the Nat, but the fold is already
   # O(cnt), so this isn't a complexity change
-  loop(init, cnt, toNat(cnt))
+  loop(init, cnt, to_Nat(cnt))
 
 # fibonacci using the fuel pattern
 def fib(b: BinNat) -> BinNat:
@@ -312,16 +312,16 @@ def fib(b: BinNat) -> BinNat:
                 sum = add_BinNat(cur, next)
                 loop(n, next, sum)
     one = Odd(Zero)
-    loop(toNat(b), one, one)
+    loop(to_Nat(b), one, one)
 
 def round_trip_law(i, msg):
-  Assertion(i.toBinNat().toInt().eq_Int(i), msg)
+  Assertion(i.to_BinNat().to_Int().eq_Int(i), msg)
 
 def next_law(i, msg):
-  Assertion(i.toBinNat().next().toInt().eq_Int(i.add(1)), msg)
+  Assertion(i.to_BinNat().next().to_Int().eq_Int(i.add(1)), msg)
 
 def times2_law(i, msg):
-  Assertion(i.toBinNat().times2().toInt().eq_Int(i.times(2)), msg)
+  Assertion(i.to_BinNat().times2().to_Int().eq_Int(i.times(2)), msg)
 
 two = one.next()
 three = two.next()
@@ -330,11 +330,11 @@ four = three.next()
 
 test = TestSuite(
   "BinNat tests", [
-    Assertion(Zero.toInt().eq_Int(0), "0.toBinNat"),
-    Assertion(Odd(Zero).toInt().eq_Int(1), "1.toBinNat"),
-    Assertion(Even(Zero).toInt().eq_Int(2), "2.toBinNat"),
-    Assertion(Odd(Odd(Zero)).toInt().eq_Int(3), "3.toBinNat"),
-    Assertion(Even(Odd(Zero)).toInt().eq_Int(4), "4.toBinNat"),
+    Assertion(Zero.to_Int().eq_Int(0), "0.to_BinNat"),
+    Assertion(Odd(Zero).to_Int().eq_Int(1), "1.to_BinNat"),
+    Assertion(Even(Zero).to_Int().eq_Int(2), "2.to_BinNat"),
+    Assertion(Odd(Odd(Zero)).to_Int().eq_Int(3), "3.to_BinNat"),
+    Assertion(Even(Odd(Zero)).to_Int().eq_Int(4), "4.to_BinNat"),
     TestSuite("round trip laws", [ round_trip_law(i, m) for (i, m) in [
       (0, "roundtrip 0"),
       (1, "roundtrip 1"),
@@ -354,10 +354,10 @@ test = TestSuite(
       (10, "10.next"),
       (113, "113.next"),
     ]]),
-    Assertion(0.toBinNat().next().prev().toInt().eq_Int(0), "0.next().prev == 0"),
-    Assertion(5.toBinNat().next().prev().toInt().eq_Int(5), "5.next().prev == 5"),
-    Assertion(10.toBinNat().next().prev().toInt().eq_Int(10), "10.next().prev == 10"),
-    Assertion(10.toBinNat().add_BinNat(11.toBinNat()).toInt().eq_Int(21), "add_BinNat(10, 11) == 21"),
+    Assertion(0.to_BinNat().next().prev().to_Int().eq_Int(0), "0.next().prev == 0"),
+    Assertion(5.to_BinNat().next().prev().to_Int().eq_Int(5), "5.next().prev == 5"),
+    Assertion(10.to_BinNat().next().prev().to_Int().eq_Int(10), "10.next().prev == 10"),
+    Assertion(10.to_BinNat().add_BinNat(11.to_BinNat()).to_Int().eq_Int(21), "add_BinNat(10, 11) == 21"),
     TestSuite("times2 law", [times2_law(i, msg) for (i, msg) in [
       (0, "0 * 2"),
       (1, "1 * 2"),
@@ -365,14 +365,14 @@ test = TestSuite(
       (5, "5 * 2"),
       (10, "10 * 2"),
     ]]),
-    Assertion(10.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(110), "10*11 = 110"),
-    Assertion(0.toBinNat().times_BinNat(11.toBinNat()).toInt().eq_Int(0), "0*11 = 0"),
-    Assertion(fold_left_BinNat((n, _) -> n.next(), Zero, 10.toBinNat()).toInt().eq_Int(10), "1 + ... + 1 = 10"),
-    Assertion(fold_left_BinNat((n1, n2) -> n1.add_BinNat(n2), Zero, 4.toBinNat()).toInt().eq_Int(6), "1+2+3=6"),
-    Assertion(fib(Zero).toInt().eq_Int(1), "fib(0) == 1"),
-    Assertion(fib(one).toInt().eq_Int(1), "fib(1) == 1"),
-    Assertion(fib(two).toInt().eq_Int(2), "fib(2) == 2"),
-    Assertion(fib(three).toInt().eq_Int(3), "fib(3) == 3 (got ${int_to_String(fib(three).toInt())})"),
-    Assertion(fib(four).toInt().eq_Int(5), "fib(4) == 5"),
-    Assertion(cmp_BinNat(54.toBinNat(), 54.toBinNat()) matches EQ, "54 == 54"),
+    Assertion(10.to_BinNat().times_BinNat(11.to_BinNat()).to_Int().eq_Int(110), "10*11 = 110"),
+    Assertion(0.to_BinNat().times_BinNat(11.to_BinNat()).to_Int().eq_Int(0), "0*11 = 0"),
+    Assertion(fold_left_BinNat((n, _) -> n.next(), Zero, 10.to_BinNat()).to_Int().eq_Int(10), "1 + ... + 1 = 10"),
+    Assertion(fold_left_BinNat((n1, n2) -> n1.add_BinNat(n2), Zero, 4.to_BinNat()).to_Int().eq_Int(6), "1+2+3=6"),
+    Assertion(fib(Zero).to_Int().eq_Int(1), "fib(0) == 1"),
+    Assertion(fib(one).to_Int().eq_Int(1), "fib(1) == 1"),
+    Assertion(fib(two).to_Int().eq_Int(2), "fib(2) == 2"),
+    Assertion(fib(three).to_Int().eq_Int(3), "fib(3) == 3 (got ${int_to_String(fib(three).to_Int())})"),
+    Assertion(fib(four).to_Int().eq_Int(5), "fib(4) == 5"),
+    Assertion(cmp_BinNat(54.to_BinNat(), 54.to_BinNat()) matches EQ, "54 == 54"),
   ])

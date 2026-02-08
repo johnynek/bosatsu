@@ -8,7 +8,7 @@ enum Tree:
   Single(a: a)
   Branch(size: Int, head: a, left: Tree[a], right: Tree[a])
 
-def foldTree(t: Tree[a], init: b, fn: (b, a) -> b) -> b:
+def fold_Tree(t: Tree[a], init: b, fn: (b, a) -> b) -> b:
   # performance is better if we minimize the scope.
   # this is a good candidate for optimization to fix
   # this issue...
@@ -86,7 +86,7 @@ def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
     recur trees:
       case []: init
       case [h, *t]:
-        loop(t, h.foldTree(init, fn))
+        loop(t, h.fold_Tree(init, fn))
   loop(trees, init)
 
 def to_List(list: TreeList[a]) -> List[a]:
@@ -104,13 +104,13 @@ def eq_TreeList(fn)(a, b):
   )
   res
 
-def eq_Opt(fn)(a, b):
+def eq_Option(fn)(a, b):
   match (a, b):
     case (Some(a), Some(b)): fn(a, b)
     case (None, None): True
     case _: False
 
-eq_oi = eq_Opt(eq_Int)
+eq_oi = eq_Option(eq_Int)
 eq_ti = eq_TreeList(eq_Int)
 
 operator +/ = cons

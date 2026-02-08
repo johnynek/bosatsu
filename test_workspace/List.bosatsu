@@ -61,10 +61,10 @@ def size(list: List[a]) -> Nat:
     size1(list, Zero)
 
 def sort(ord: Order[a], list: List[a]) -> List[a]:
-    Order { to_Fn } = ord
+    Order(to_fn) = ord
 
-    def lt(x, h): to_Fn(x, h) matches LT
-    def gteq(x, h): to_Fn(x, h) matches (GT | EQ)
+    def lt(x, h): to_fn(x, h) matches LT
+    def gteq(x, h): to_fn(x, h) matches (GT | EQ)
 
     def loop(list: List[a], sz: Nat):
         recur sz:
@@ -85,17 +85,17 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
 
 operator =*= = eq_List(eq_Int)
 
-headTest = (
+head_test = (
     res = head([1, 2, 3]) matches Some(1)
     Assertion(res, "head test")
 )
 
-unconsTest = (
+uncons_test = (
     res = uncons([1, 2, 3]) matches Some((1, [2, 3]))
     Assertion(res, "uncons test")
 )
 
-zipTest = (
+zip_test = (
     test1 = zip([1, 2], ["1", "2"]) matches [(1, "1"), (2, "2")]
 
     test2 = zip([1], ["1", "2"]) matches [(1, "1")]
@@ -109,7 +109,7 @@ zipTest = (
     ])
 )
 
-sortTest = (
+sort_test = (
     sort_Int = list -> sort(Order(cmp_Int), list)
     test1 = sort_Int([3, 1, 2]) matches [1, 2, 3]
     test2 = sort_Int([1, 2, 3]) matches [1, 2, 3]
@@ -124,7 +124,7 @@ sortTest = (
     ])
 )
 
-stringTests = TestSuite("string tests", [
+string_tests = TestSuite("string tests", [
   Assertion(int_to_String(0) matches "0", "int_to_String(0) == ${int_to_String(0)}"),
   Assertion(int_to_String(1) matches "1", "int_to_String(1) == ${int_to_String(1)}"),
   Assertion(int_to_String(2) matches "2", "int_to_String(2) == ${int_to_String(2)}"),
@@ -148,11 +148,11 @@ tests = TestSuite("List tests", [
   #Assertion(range(6).sum().eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
   Assertion(range(6).exists(v -> v.eq_Int(5)), "range(6) does have 5"),
   Assertion(not(range(6).exists(v -> v.eq_Int(6))), "range(6) does not have 6"),
-  stringTests,
-  headTest,
-  unconsTest,
-  zipTest,
-  sortTest,
+  string_tests,
+  head_test,
+  uncons_test,
+  zip_test,
+  sort_test,
   Assertion(any([]) matches False, "any([])"),
   Assertion(any([True]) matches True, "any([True])"),
   Assertion(any([False]) matches False, "any([False])"),
@@ -161,4 +161,3 @@ tests = TestSuite("List tests", [
   Assertion(any([True, False]) matches True, "any([True, False])"),
   Assertion(any([True, True]) matches True, "any([True, True])"),
   ])
-
