@@ -124,63 +124,63 @@ static _Bool parse_hex_64(const char* bytes, size_t len, uint64_t* out) {
   return 1;
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_abs(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_abs(BValue a) {
   return bsts_boxf(fabs(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_acos(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_acos(BValue a) {
   return bsts_boxf(acos(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_asin(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_asin(BValue a) {
   return bsts_boxf(asin(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_atan(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_atan(BValue a) {
   return bsts_boxf(atan(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_atan2(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_atan2(BValue a, BValue b) {
   return bsts_boxf(atan2(bsts_unboxf(a), bsts_unboxf(b)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_ceil(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_ceil(BValue a) {
   return bsts_boxf(ceil(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_copy__sign(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_copy__sign(BValue a, BValue b) {
   return bsts_boxf(copysign(bsts_unboxf(a), bsts_unboxf(b)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_cos(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_cos(BValue a) {
   return bsts_boxf(cos(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_cosh(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_cosh(BValue a) {
   return bsts_boxf(cosh(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_exp(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_exp(BValue a) {
   return bsts_boxf(exp(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_floor(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_floor(BValue a) {
   return bsts_boxf(floor(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_hypot(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_hypot(BValue a, BValue b) {
   return bsts_boxf(hypot(bsts_unboxf(a), bsts_unboxf(b)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_is__infinite(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_is__infinite(BValue a) {
   return bsts_bool(isinf(bsts_unboxf(a)) != 0);
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_is__nan(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_is__nan(BValue a) {
   return bsts_bool(isnan(bsts_unboxf(a)) != 0);
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__to__String(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__String(BValue a) {
   double d = bsts_unboxf(a);
   if (isinf(d)) {
     return signbit(d) ? bsts_string_from_utf8_bytes_static(4, "-\xE2\x88\x9E")
@@ -215,7 +215,7 @@ BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__to__String(BValue a) {
   return bsts_string_from_utf8_bytes_copy((size_t)len, buf);
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(BValue a) {
   size_t len = bsts_string_utf8_len(a);
   char* bytes = bsts_string_utf8_bytes(a);
 
@@ -279,15 +279,15 @@ BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(BValue a) {
   return bsts_some(bsts_boxf(parsed));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_int__bits__to__Float64(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__bits__to__Float64(BValue a) {
   return bsts_float64_from_bits(bsts_int_to_low_uint64(a));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__bits__to__Int(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__bits__to__Int(BValue a) {
   return bsts_uint64_to_int(bsts_float64_to_bits(a));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__to__Int(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__Int(BValue a) {
   double d = bsts_unboxf(a);
   if (isnan(d) || isinf(d)) {
     return bsts_none();
@@ -296,7 +296,7 @@ BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__to__Int(BValue a) {
   return bsts_some(bsts_integral_double_to_int(rounded));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_int__to__Float64(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__to__Float64(BValue a) {
   BValue as_string = bsts_integer_to_string(a);
   size_t len = bsts_string_utf8_len(as_string);
   char* bytes = bsts_string_utf8_bytes(as_string);
@@ -314,34 +314,34 @@ BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_int__to__Float64(BValue a) {
   return bsts_boxf(parsed);
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_log(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_log(BValue a) {
   return bsts_boxf(log(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_log10(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_log10(BValue a) {
   return bsts_boxf(log10(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_pow(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_pow(BValue a, BValue b) {
   return bsts_boxf(pow(bsts_unboxf(a), bsts_unboxf(b)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_sin(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_sin(BValue a) {
   return bsts_boxf(sin(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_sinh(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_sinh(BValue a) {
   return bsts_boxf(sinh(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_sqrt(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_sqrt(BValue a) {
   return bsts_boxf(sqrt(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_tan(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_tan(BValue a) {
   return bsts_boxf(tan(bsts_unboxf(a)));
 }
 
-BValue ___bsts_g_Bosatsu_l_Float_l_Float64_l_tanh(BValue a) {
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_tanh(BValue a) {
   return bsts_boxf(tanh(bsts_unboxf(a)));
 }
