@@ -465,6 +465,31 @@ foo = _ -> 1
         false
     }
 
+  def hasRecursiveLet(te: TypedExpr[Unit]): Boolean =
+    te match {
+      case TypedExpr.Let(_, expr, in, rec, _) =>
+        rec.isRecursive || hasRecursiveLet(expr) || hasRecursiveLet(in)
+      case TypedExpr.Generic(_, in) =>
+        hasRecursiveLet(in)
+      case TypedExpr.Annotation(in, _) =>
+        hasRecursiveLet(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        hasRecursiveLet(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        hasRecursiveLet(fn) || args.exists(hasRecursiveLet)
+      case TypedExpr.Loop(args, body, _) =>
+        args.exists { case (_, init) => hasRecursiveLet(init) } || hasRecursiveLet(body)
+      case TypedExpr.Recur(args, _, _) =>
+        args.exists(hasRecursiveLet)
+      case TypedExpr.Match(arg, branches, _) =>
+        hasRecursiveLet(arg) || branches.exists { case (_, b) =>
+          hasRecursiveLet(b)
+        }
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        false
+    }
+
   test("test let substitution") {
     {
       // substitution in let
@@ -628,6 +653,7 @@ foo = _ -> 1
     assert(normed.isDefined)
     val norm = normed.get
     assert(hasLoop(norm), norm.reprString)
+    assertEquals(hasRecursiveLet(norm), false)
     assertEquals(TypedExpr.allVarsSet(norm :: Nil).contains(fName), false)
   }
 
