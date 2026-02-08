@@ -1,6 +1,6 @@
 # Release process
 
-This repo publishes releases when a `v*` tag is pushed. The GitHub Actions workflow builds and uploads all assets (jar, node JS, native images, c_runtime archive, bosatsu libs, SHA256SUMS), then commits updated `*_conf.json` files back to `main`.
+This repo publishes releases when a `v*` tag is pushed. The GitHub Actions workflow builds and uploads all assets (jar, node JS, native images, c_runtime archive, bosatsu libs, `TypedAst.proto`, `SHA256SUMS`, `B3SUMS`), then commits updated `*_conf.json` files back to `main`.
 
 ## Create a release
 

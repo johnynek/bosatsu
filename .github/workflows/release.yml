@@ -256,6 +256,7 @@ jobs:
           set -euo pipefail
           mkdir -p release_assets
           cp bosatsu release_assets/
+          cp proto/src/main/protobuf/bosatsu/TypedAst.proto release_assets/
           cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/
           chmod +x release_assets/bosatsu || true
           required_files=(
@@ -264,6 +265,7 @@ jobs:
             "bosatsu-linux"
             "bosatsu-macos"
             "bosatsu"
+            "TypedAst.proto"
             "${C_RUNTIME_ARCHIVE}"
           )
           for file in "${required_files[@]}"; do
