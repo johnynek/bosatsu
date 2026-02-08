@@ -42,12 +42,12 @@ def one_of(ps: List[Parser[a]]) -> Parser[a]:
     recur ps:
         case []: empty
         case [p1]: p1
-        case [Parser(headFn), *prest]:
-            Parser(tailFn) = one_of(prest)
+        case [Parser(head_fn), *prest]:
+            Parser(tail_fn) = one_of(prest)
             def parse(s):
-                match headFn(s):
-                    case None: tailFn(s)
-                    case notEmpty: notEmpty
+                match head_fn(s):
+                    case None: tail_fn(s)
+                    case not_empty: not_empty
 
             Parser(parse)
 
@@ -100,9 +100,9 @@ def digits_n(at_most: Int) -> Parser[Int]:
 
     # We add 1 because we want to go beyond the digit
     # and see that we have fully parsed
-    parseFn = in -> recur_max(S(to_Nat(at_most)), loop, in)
+    parse_fn = in -> recur_max(S(to_Nat(at_most)), loop, in)
     Parser(s ->
-        match parseFn((s, -1)):
+        match parse_fn((s, -1)):
             case Some(Some(a)): Some(a)
             case Some(None) | None: None)
 

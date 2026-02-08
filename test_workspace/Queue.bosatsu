@@ -73,13 +73,13 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
 ## TestSuites below
 ########
 
-def eq_Opt(eq_inner)(a, b):
+def eq_Option(eq_inner)(a, b):
     match (a, b):
         case (Some(a), Some(b)): eq_inner(a, b)
         case (None, None): True
         case _: False
 
-eq_oi = eq_Opt(eq_Int)
+eq_oi = eq_Option(eq_Int)
 eq_qi = eq_Queue(eq_Int)
 eq_li = eq_List(eq_Int)
 
@@ -124,9 +124,9 @@ def show_List[a](lst: List[a], showa: a -> String) -> String:
 
 def show_Queue[a](q: Queue[a], showa: a -> String) -> String:
   Queue(f, b) = q
-  frontStr = show_List(f, showa)
-  backStr = show_List(b, showa)
-  "Queue(${frontStr}, ${backStr})"
+  front_str = show_List(f, showa)
+  back_str = show_List(b, showa)
+  "Queue(${front_str}, ${back_str})"
 
 queue_laws = suite_Prop(
   "queue properties",

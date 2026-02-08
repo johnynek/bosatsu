@@ -9,11 +9,11 @@ export (
 
 struct Resolver(id: String, type: String, url: String)
 
-struct Options(buildHeader: List[String], languages: List[String],
+struct Options(build_header: List[String], languages: List[String],
   resolvers: List[Resolver],
   transitivity: String,
-  resolverType: String,
-  versionConflictPolicy: String)
+  resolver_type: String,
+  version_conflict_policy: String)
 
 maven_central = Resolver("mavencentral", "default", "https://repo.maven.apache.org/maven2/")
 

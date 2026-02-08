@@ -43,7 +43,7 @@ def first_of(n: Int, fn: Int -> Option[a]) -> Option[a]:
             case Succ(prev_nat):
                 match fn(n):
                     case None: loop(prev_nat, n.sub(1))
-                    case notNone: notNone
+                    case not_none: not_none
     loop(to_Nat(n), n)
 
 # we use int_loop here since we are recuring on Int
