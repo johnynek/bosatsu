@@ -48,6 +48,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_mul(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b);
