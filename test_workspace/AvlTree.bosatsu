@@ -248,8 +248,8 @@ height_tests =(
         t = all_n(n)
         h = height(t)
         n = size(t)
-        bound2 = 3.times(log2(n.add(2)))
-        good = h.times(2).cmp_Int(bound2) matches LT
+        bound2 = 3.mul(log2(n.add(2)))
+        good = h.mul(2).cmp_Int(bound2) matches LT
         Assertion(good, "size_law for range(${int_to_String(n)})")
 
 

@@ -1,7 +1,7 @@
 package Bosatsu/Nat
 
-from Bosatsu/Predef import add as operator +, times as operator *
-export Nat(), times2, add, sub_Nat, mult, exp, to_Int, to_Nat, is_even, div2, cmp_Nat, divmod
+from Bosatsu/Predef import add as operator +, mul as operator *
+export Nat(), mul2, add, sub_Nat, mult, exp, to_Int, to_Nat, is_even, div2, cmp_Nat, divmod
 
 # This is the traditional encoding of natural numbers
 # it is useful when you are iterating on all values
@@ -19,7 +19,7 @@ def cmp_Nat(a: Nat, b: Nat) -> Comparison:
                 case Succ(m): cmp_Nat(n, m)
 
 # This is an O(n) operation
-def times2(n: Nat) -> Nat:
+def mul2(n: Nat) -> Nat:
   def loop(n: Nat, acc: Nat):
       recur n:
         case Zero: acc

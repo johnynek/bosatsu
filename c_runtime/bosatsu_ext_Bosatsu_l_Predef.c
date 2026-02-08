@@ -226,8 +226,13 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) - bsts_float64_to_double(b));
 }
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Predef_l_mul(BValue a, BValue b) {
   return bsts_integer_times(a, b);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b) {
+  // compatibility alias for previously exported predef name
+  return ___bsts_g_Bosatsu_l_Predef_l_mul(a, b);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b) {

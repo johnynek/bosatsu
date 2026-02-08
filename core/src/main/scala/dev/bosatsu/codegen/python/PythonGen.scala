@@ -1091,7 +1091,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("times"),
+            Identifier.Name("mul"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))

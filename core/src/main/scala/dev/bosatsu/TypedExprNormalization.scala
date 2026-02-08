@@ -1528,7 +1528,7 @@ object TypedExprNormalization {
             case RingOpt.Mult(left, right) =>
               val untaggedFn = Global(
                 PackageName.PredefName,
-                Identifier.Name("times"),
+                Identifier.Name("mul"),
                 Fn2Int,
                 ()
               )
@@ -1700,7 +1700,7 @@ object TypedExprNormalization {
           case App(
                 timesFn @ Global(
                   PackageName.PredefName,
-                  Identifier.Name("times"),
+                  Identifier.Name("mul"),
                   Fn2Int,
                   _
                 ),
