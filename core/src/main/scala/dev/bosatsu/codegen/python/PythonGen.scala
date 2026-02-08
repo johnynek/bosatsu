@@ -1075,14 +1075,14 @@ object PythonGen {
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.literal("add"),
+            Identifier.Name("add"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.literal("sub"),
+            Identifier.Name("sub"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -1091,7 +1091,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("times"),
+            Identifier.Name("times"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -1100,7 +1100,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("div"),
+            Identifier.Name("div"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -1117,14 +1117,14 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("addf"),
+            Identifier.Name("addf"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.literal("subf"),
+            Identifier.Name("subf"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -1133,7 +1133,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("timesf"),
+            Identifier.Name("timesf"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -1142,14 +1142,14 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("divf"),
+            Identifier.Name("divf"),
             (
               divFloatFn,
               2
             )
           ),
           (
-            Identifier.literal("mod_Int"),
+            Identifier.Name("mod_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -1165,9 +1165,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.literal("cmp_Int"), (cmpFn, 2)),
+          (Identifier.Name("cmp_Int"), (cmpFn, 2)),
           (
-            Identifier.literal("eq_Int"),
+            Identifier.Name("eq_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1177,9 +1177,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.literal("cmp_Float64"), (cmpFloatFn, 2)),
+          (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
           (
-            Identifier.literal("shift_left_Int"),
+            Identifier.Name("shift_left_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1190,7 +1190,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("shift_right_Int"),
+            Identifier.Name("shift_right_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1201,7 +1201,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("and_Int"),
+            Identifier.Name("and_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1212,7 +1212,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("or_Int"),
+            Identifier.Name("or_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1223,7 +1223,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("xor_Int"),
+            Identifier.Name("xor_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1234,7 +1234,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("not_Int"),
+            Identifier.Name("not_Int"),
             (
               {
                 // leverage not(x) == -1 - x
@@ -1244,7 +1244,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("gcd_Int"),
+            Identifier.Name("gcd_Int"),
             (
               { input =>
                 (
@@ -1296,7 +1296,7 @@ object PythonGen {
           //     _i = tmp_i
           //   return _a
           (
-            Identifier.literal("int_loop"),
+            Identifier.Name("int_loop"),
             (
               { input =>
                 (
@@ -1353,7 +1353,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("concat_String"),
+            Identifier.Name("concat_String"),
             (
               { input =>
                 Env.onLastM(input.head) { listOfStrings =>
@@ -1378,7 +1378,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("int_to_String"),
+            Identifier.Name("int_to_String"),
             (
               { input =>
                 Env.onLast(input.head) {
@@ -1391,7 +1391,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("string_to_Int"),
+            Identifier.Name("string_to_Int"),
             (
               { input =>
                 Env.onLast(input.head) { s =>
@@ -1420,12 +1420,12 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("char_to_String"),
+            Identifier.Name("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
           ),
           (
-            Identifier.literal("trace"),
+            Identifier.Name("trace"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (msg, i) =>
@@ -1438,7 +1438,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("partition_String"),
+            Identifier.Name("partition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1470,7 +1470,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("rpartition_String"),
+            Identifier.Name("rpartition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1499,18 +1499,18 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.literal("cmp_String"), (cmpFn, 2))
+          (Identifier.Name("cmp_String"), (cmpFn, 2))
         )
 
       val arrayResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.literal("empty_Array"),
+            Identifier.Name("empty_Array"),
             ((_: List[ValueLike]) => Env.pure(emptyArray), 0)
           ),
           (
-            Identifier.literal("tabulate_Array"),
+            Identifier.Name("tabulate_Array"),
             (
               { input =>
                 (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
@@ -1549,7 +1549,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("from_List_Array"),
+            Identifier.Name("from_List_Array"),
             (
               { input =>
                 Env.newAssignableVar.flatMap { pyList =>
@@ -1571,7 +1571,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("to_List_Array"),
+            Identifier.Name("to_List_Array"),
             (
               { input =>
                 (
@@ -1605,7 +1605,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("size_Array"),
+            Identifier.Name("size_Array"),
             (
               { input =>
                 Env.onLast(input.head)(arrayLen)
@@ -1614,7 +1614,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("get_map_Array"),
+            Identifier.Name("get_map_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1639,7 +1639,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("get_or_Array"),
+            Identifier.Name("get_or_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1664,7 +1664,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("foldl_Array"),
+            Identifier.Name("foldl_Array"),
             (
               { input =>
                 (
@@ -1708,7 +1708,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("map_Array"),
+            Identifier.Name("map_Array"),
             (
               { input =>
                 (
@@ -1751,7 +1751,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("set_or_self_Array"),
+            Identifier.Name("set_or_self_Array"),
             (
               { input =>
                 (
@@ -1793,7 +1793,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("sort_Array"),
+            Identifier.Name("sort_Array"),
             (
               { input =>
                 (
@@ -1852,7 +1852,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("concat_all_Array"),
+            Identifier.Name("concat_all_Array"),
             (
               { input =>
                 (
@@ -1930,7 +1930,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.literal("slice_Array"),
+            Identifier.Name("slice_Array"),
             (
               { input =>
                 (
@@ -1993,56 +1993,56 @@ object PythonGen {
       val floatResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
-          (Identifier.literal("abs"), (unaryMath("fabs"), 1)),
-          (Identifier.literal("acos"), (unaryMath("acos"), 1)),
-          (Identifier.literal("asin"), (unaryMath("asin"), 1)),
-          (Identifier.literal("atan"), (unaryMath("atan"), 1)),
-          (Identifier.literal("atan2"), (binaryMath("atan2"), 2)),
-          (Identifier.literal("ceil"), (unaryMath("ceil"), 1)),
-          (Identifier.literal("cos"), (unaryMath("cos"), 1)),
-          (Identifier.literal("cosh"), (unaryMath("cosh"), 1)),
-          (Identifier.literal("exp"), (unaryMath("exp"), 1)),
-          (Identifier.literal("floor"), (unaryMath("floor"), 1)),
-          (Identifier.literal("hypot"), (binaryMath("hypot"), 2)),
-          (Identifier.literal("log"), (unaryMath("log"), 1)),
-          (Identifier.literal("log10"), (unaryMath("log10"), 1)),
-          (Identifier.literal("pow"), (binaryMath("pow"), 2)),
-          (Identifier.literal("sin"), (unaryMath("sin"), 1)),
-          (Identifier.literal("sinh"), (unaryMath("sinh"), 1)),
-          (Identifier.literal("sqrt"), (unaryMath("sqrt"), 1)),
-          (Identifier.literal("tan"), (unaryMath("tan"), 1)),
-          (Identifier.literal("tanh"), (unaryMath("tanh"), 1)),
+          (Identifier.Name("abs"), (unaryMath("fabs"), 1)),
+          (Identifier.Name("acos"), (unaryMath("acos"), 1)),
+          (Identifier.Name("asin"), (unaryMath("asin"), 1)),
+          (Identifier.Name("atan"), (unaryMath("atan"), 1)),
+          (Identifier.Name("atan2"), (binaryMath("atan2"), 2)),
+          (Identifier.Name("ceil"), (unaryMath("ceil"), 1)),
+          (Identifier.Name("cos"), (unaryMath("cos"), 1)),
+          (Identifier.Name("cosh"), (unaryMath("cosh"), 1)),
+          (Identifier.Name("exp"), (unaryMath("exp"), 1)),
+          (Identifier.Name("floor"), (unaryMath("floor"), 1)),
+          (Identifier.Name("hypot"), (binaryMath("hypot"), 2)),
+          (Identifier.Name("log"), (unaryMath("log"), 1)),
+          (Identifier.Name("log10"), (unaryMath("log10"), 1)),
+          (Identifier.Name("pow"), (binaryMath("pow"), 2)),
+          (Identifier.Name("sin"), (unaryMath("sin"), 1)),
+          (Identifier.Name("sinh"), (unaryMath("sinh"), 1)),
+          (Identifier.Name("sqrt"), (unaryMath("sqrt"), 1)),
+          (Identifier.Name("tan"), (unaryMath("tan"), 1)),
+          (Identifier.Name("tanh"), (unaryMath("tanh"), 1)),
           (
-            Identifier.literal("copy_sign"),
+            Identifier.Name("copy_sign"),
             (binaryMath("copysign"), 2)
           ),
-          (Identifier.literal("is_nan"), (unaryMath("isnan"), 1)),
+          (Identifier.Name("is_nan"), (unaryMath("isnan"), 1)),
           (
-            Identifier.literal("is_infinite"),
+            Identifier.Name("is_infinite"),
             (unaryMath("isinf"), 1)
           ),
           (
-            Identifier.literal("float64_to_String"),
+            Identifier.Name("float64_to_String"),
             (floatToStringFn, 1)
           ),
           (
-            Identifier.literal("string_to_Float64"),
+            Identifier.Name("string_to_Float64"),
             (stringToFloatFn, 1)
           ),
           (
-            Identifier.literal("int_bits_to_Float64"),
+            Identifier.Name("int_bits_to_Float64"),
             (intBitsToFloatFn, 1)
           ),
           (
-            Identifier.literal("float64_bits_to_Int"),
+            Identifier.Name("float64_bits_to_Int"),
             (floatBitsToIntFn, 1)
           ),
           (
-            Identifier.literal("float64_to_Int"),
+            Identifier.Name("float64_to_Int"),
             (floatToIntFn, 1)
           ),
           (
-            Identifier.literal("int_to_Float64"),
+            Identifier.Name("int_to_Float64"),
             (intToFloatFn, 1)
           )
         )
