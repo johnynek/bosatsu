@@ -3,7 +3,8 @@ package dev.bosatsu.codegen.python
 import cats.Eq
 import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
-import dev.bosatsu.{Lit, PredefImpl, StringUtil}
+import java.nio.charset.StandardCharsets
+import dev.bosatsu.{Lit, PredefImpl}
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
 
@@ -161,17 +162,48 @@ object Code {
   private val whileDoc = Doc.text("while")
   private val spaceEqSpace = Doc.text(" = ")
 
+  // Emit ASCII-only string literals so Python2/Jython does not require a source
+  // encoding declaration when the value contains non-ASCII bytes.
+  private def escapePyString(s: String): String = {
+    val sb = new java.lang.StringBuilder(s.length + 8)
+    val bytes = s.getBytes(StandardCharsets.UTF_8)
+    bytes.foreach { b =>
+      val ub = b.toInt & 0xff
+      ub match {
+        case 0x5c => sb.append("\\\\")
+        case 0x22 => sb.append("\\\"")
+        case 0x0a => sb.append("\\n")
+        case 0x0d => sb.append("\\r")
+        case 0x09 => sb.append("\\t")
+        case 0x08 => sb.append("\\b")
+        case 0x0c => sb.append("\\f")
+        case 0x0b => sb.append("\\v")
+        case c if c >= 0x20 && c <= 0x7e =>
+          sb.append(c.toChar)
+        case c =>
+          sb.append(f"\\x$c%02x")
+      }
+    }
+    sb.toString
+  }
+
   def exprToDoc(expr: Expression): Doc =
     expr match {
       case PyInt(bi)   => Doc.text(bi.toString)
+      case PyFloat(d)  =>
+        if (java.lang.Double.isNaN(d)) Doc.text("float(\"nan\")")
+        else if (d == java.lang.Double.POSITIVE_INFINITY) Doc.text("float(\"inf\")")
+        else if (d == java.lang.Double.NEGATIVE_INFINITY) Doc.text("float(\"-inf\")")
+        else Doc.text(java.lang.Double.toString(d))
       case PyString(s) =>
-        Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
+        Doc.char('"') + Doc.text(escapePyString(s)) + Doc.char('"')
       case PyBool(b) =>
         if (b) trueDoc
         else falseDoc
       case Not(n) =>
         val nd = n match {
-          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | Apply(_, _) |
+          case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | PyFloat(_) |
+              Apply(_, _) |
               DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
             exprToDoc(n)
           case p => par(exprToDoc(p))
@@ -223,7 +255,7 @@ object Code {
 
       case DotSelect(left, right) =>
         val ld = left match {
-          case PyInt(_) | Op(_, _, _) => par(exprToDoc(left))
+          case PyInt(_) | PyFloat(_) | Op(_, _, _) => par(exprToDoc(left))
           case _                      => exprToDoc(left)
         }
         ld + Doc.char('.') + exprToDoc(right)
@@ -286,6 +318,10 @@ object Code {
   /////////////////////////
 
   case class PyInt(toBigInteger: BigInteger) extends Expression {
+    def simplify: Expression = this
+    def countOf(i: Ident) = 0
+  }
+  case class PyFloat(toDouble: Double) extends Expression {
     def simplify: Expression = this
     def countOf(i: Ident) = 0
   }
@@ -495,6 +531,14 @@ object Code {
           fromBoolean(a != b)
         case Op(PyInt(a), Const.Eq, PyInt(b)) =>
           fromBoolean(a == b)
+        case Op(PyFloat(a), Const.Gt, PyFloat(b)) =>
+          fromBoolean(a > b)
+        case Op(PyFloat(a), Const.Lt, PyFloat(b)) =>
+          fromBoolean(a < b)
+        case Op(PyFloat(a), Const.Neq, PyFloat(b)) =>
+          fromBoolean(a != b)
+        case Op(PyFloat(a), Const.Eq, PyFloat(b)) =>
+          fromBoolean(a == b)
         case Op(a, Const.And, b) =>
           a.simplify match {
             case Const.True                      => b.simplify
@@ -534,7 +578,9 @@ object Code {
   case class Parens(expr: Expression) extends Expression {
     def simplify: Expression =
       expr.simplify match {
-        case x @ (PyBool(_) | Ident(_) | PyInt(_) | PyString(_) | Parens(_)) =>
+        case x @
+            (PyBool(_) | Ident(_) | PyInt(_) | PyFloat(_) | PyString(_) |
+                Parens(_)) =>
           x
         case exprS => Parens(exprS)
       }
@@ -585,6 +631,8 @@ object Code {
           if (b) ifTrue.simplify else ifFalse.simplify
         case PyInt(i) =>
           if (i != BigInteger.ZERO) ifTrue.simplify else ifFalse.simplify
+        case PyFloat(d) =>
+          if (d != 0.0) ifTrue.simplify else ifFalse.simplify
         case notStatic =>
 
           (ifTrue.simplify, ifFalse.simplify) match {
@@ -851,18 +899,20 @@ object Code {
 
   private def copyableExpr(expr: Expression, depth: Int = 1): Boolean =
     expr match {
-      case Ident(_) | PyInt(_) | PyString(_) | PyBool(_) => true
+      case Ident(_) | PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => true
       case Op(left, _, right) if depth > 0               =>
         copyableExpr(left, depth - 1) && copyableExpr(right, depth - 1)
       case SelectItem(arg: Ident, pos) =>
         pos match {
-          case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
+          case Ident(_) | PyInt(_) | PyFloat(_) | PyBool(_) | PyString(_) =>
+            true
           case _                                             => false
         }
       case SelectRange(arg: Ident, start, end) =>
         def simpleIdx(e: Expression): Boolean =
           e match {
-            case Ident(_) | PyInt(_) | PyBool(_) | PyString(_) => true
+            case Ident(_) | PyInt(_) | PyFloat(_) | PyBool(_) | PyString(_) =>
+              true
             case _                                             => false
           }
         start.forall(simpleIdx) && end.forall(simpleIdx)
@@ -1128,7 +1178,7 @@ object Code {
 
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
-      case PyInt(_) | PyString(_) | PyBool(_) => in
+      case PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => in
       case Not(n)                             => Not(substitute(subMap, n))
       case i @ Ident(_)                       =>
         subMap.get(i) match {
@@ -1182,7 +1232,7 @@ object Code {
   def freeIdents(ex: Expression): Set[Ident] = {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
-        case PyInt(_) | PyString(_) | PyBool(_) => Set.empty
+        case PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => Set.empty
         case Not(e)                             => loop(e, bound)
         case i @ Ident(n)                       =>
           if (pyKeywordList(n) || bound(i)) Set.empty
@@ -1261,6 +1311,7 @@ object Code {
       case Lit.Str(s)      => PyString(s)
       case Lit.Integer(bi) => PyInt(bi)
       case Lit.Chr(s)      => PyString(s)
+      case f: Lit.Float64  => PyFloat(f.toDouble)
     }
 
   implicit def fromInt(i: Int): Expression =

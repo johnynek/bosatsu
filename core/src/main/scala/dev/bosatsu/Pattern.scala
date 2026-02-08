@@ -1159,7 +1159,9 @@ object Pattern {
 
   private val pwild = P.char('_').as(WildCard)
   private val plit: P[Pattern[Nothing, Nothing]] = {
-    val intp = (Lit.integerParser | Lit.codePointParser).map(Literal(_))
+    val intp =
+      (Lit.float64Parser.backtrack | Lit.integerParser | Lit.codePointParser)
+        .map(Literal(_))
     val startStr = P.string("${").as { (opt: Option[Bindable]) =>
       opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_))
     }

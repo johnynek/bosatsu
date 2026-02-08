@@ -715,6 +715,8 @@ object ProtoConverter {
         proto.Literal.Value.CharValue(c.toCodePoint)
       case Lit.Str(str) =>
         proto.Literal.Value.StringValue(str)
+      case f: Lit.Float64 =>
+        proto.Literal.Value.Float64ValueAsBits(f.toRawLongBits)
     }
     proto.Literal(protoLit)
   }
@@ -731,6 +733,8 @@ object ProtoConverter {
         Success(Lit(l))
       case proto.Literal.Value.IntValueAsString(s) =>
         Success(Lit.Integer(new java.math.BigInteger(s)))
+      case proto.Literal.Value.Float64ValueAsBits(bits) =>
+        Success(Lit.Float64.fromRawLongBits(bits))
     }
 
   def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =

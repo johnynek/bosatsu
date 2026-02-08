@@ -1,0 +1,113 @@
+package Bosatsu/Float/Float64
+
+from Bosatsu/Predef import (
+  Float64,
+  addf as addf_predef,
+  subf as subf_predef,
+  timesf as timesf_predef,
+  divf as divf_predef,
+  cmp_Float64 as cmp_Float64_predef
+)
+
+export (
+  addf,
+  subf,
+  timesf,
+  divf,
+  cmp_Float64,
+  eq_Float64,
+  float64_bits_to_Int,
+  float64_to_String,
+  inf,
+  int_bits_to_Float64,
+  neg_inf,
+  abs,
+  acos,
+  asin,
+  atan,
+  atan2,
+  ceil,
+  copy_sign,
+  cos,
+  cosh,
+  exp,
+  floor,
+  hypot,
+  is_finite,
+  is_infinite,
+  is_nan,
+  log,
+  log10,
+  operator +,
+  operator -,
+  operator *,
+  operator /,
+  pow,
+  sin,
+  string_to_Float64,
+  sinh,
+  sqrt,
+  tan,
+  tanh,
+)
+
+external def abs(x: Float64) -> Float64
+external def acos(x: Float64) -> Float64
+external def asin(x: Float64) -> Float64
+external def atan(x: Float64) -> Float64
+external def atan2(y: Float64, x: Float64) -> Float64
+external def ceil(x: Float64) -> Float64
+external def copy_sign(x: Float64, sign: Float64) -> Float64
+external def cos(x: Float64) -> Float64
+external def cosh(x: Float64) -> Float64
+external def exp(x: Float64) -> Float64
+external def floor(x: Float64) -> Float64
+external def float64_bits_to_Int(x: Float64) -> Int
+external def float64_to_String(x: Float64) -> String
+external def hypot(x: Float64, y: Float64) -> Float64
+external def int_bits_to_Float64(int: Int) -> Float64
+external def is_infinite(x: Float64) -> Bool
+external def is_nan(x: Float64) -> Bool
+external def log(x: Float64) -> Float64
+external def log10(x: Float64) -> Float64
+external def pow(x: Float64, y: Float64) -> Float64
+external def sin(x: Float64) -> Float64
+external def string_to_Float64(s: String) -> Option[Float64]
+external def sinh(x: Float64) -> Float64
+external def sqrt(x: Float64) -> Float64
+external def tan(x: Float64) -> Float64
+external def tanh(x: Float64) -> Float64
+
+def addf(a: Float64, b: Float64) -> Float64:
+  addf_predef(a, b)
+
+def subf(a: Float64, b: Float64) -> Float64:
+  subf_predef(a, b)
+
+def timesf(a: Float64, b: Float64) -> Float64:
+  timesf_predef(a, b)
+
+def divf(a: Float64, b: Float64) -> Float64:
+  divf_predef(a, b)
+
+def cmp_Float64(a: Float64, b: Float64) -> Comparison:
+  cmp_Float64_predef(a, b)
+
+inf: Float64 = ∞
+neg_inf: Float64 = -∞
+
+def operator +(a, b): addf(a, b)
+def operator -(a, b): subf(a, b)
+def operator *(a, b): timesf(a, b)
+def operator /(a, b): divf(a, b)
+
+def eq_Float64(a: Float64, b: Float64) -> Bool:
+  cmp_Float64(a, b) matches EQ
+
+def is_finite(x: Float64) -> Bool:
+  if is_nan(x):
+    False
+  elif is_infinite(x):
+    False
+  else:
+    True

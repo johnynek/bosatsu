@@ -1281,9 +1281,11 @@ object Declaration {
       .map { case (r, l) => DictDecl(l)(using r) }
 
   val lits: P[Literal] =
-    (Lit.integerParser | Lit.codePointParser).region.map { case (r, l) =>
+    (Lit.float64Parser.backtrack | Lit.integerParser | Lit.codePointParser)
+      .region
+      .map { case (r, l) =>
       Literal(l)(using r)
-    }
+      }
 
   sealed abstract private class ParseMode derives CanEqual
   private object ParseMode {

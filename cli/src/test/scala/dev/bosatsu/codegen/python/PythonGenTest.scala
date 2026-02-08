@@ -4,7 +4,7 @@ import cats.{Eq, Show}
 import cats.syntax.all._
 import java.io.{ByteArrayInputStream, InputStream}
 import java.util.concurrent.Semaphore
-import dev.bosatsu.{PackageName, Par, TestUtils}
+import dev.bosatsu.{Lit, PackageName, Par, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
@@ -143,15 +143,88 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("float literal parsing matches python on hard cases") {
+    val cases = List(
+      "0.0",
+      "-0.0",
+      "1.0",
+      "-1.0",
+      ".5",
+      "5.",
+      "1e309",
+      "-1e309",
+      "1e-309",
+      "5e-324",
+      "2.2250738585072014e-308",
+      "2.2250738585072011e-308",
+      "1.7976931348623157e308",
+      "1.7976931348623159e308",
+      "3.141592653589793",
+      "2.718281828459045",
+      "1.0000000000000002",
+      "9007199254740992.0",
+      "9007199254740993.0",
+      "4.9406564584124654e-324",
+      "2.4703282292062327e-324",
+      "2.2250738585072014e-308",
+      "2.225073858507201e-308",
+      "+6.02214076e23",
+      "-6.02214076e23",
+      "9.999999999999999e22",
+      "7.2057594037927933e16",
+      "1.1754943508222875e-38",
+      "1.401298464324817e-45",
+      "3.4028234663852886e38"
+    )
+
+    JythonBarrier.run {
+      val py = new PythonInterpreter()
+      try {
+        cases.foreach { litStr =>
+          val parsed = Lit.float64Parser.parseAll(litStr)
+          parsed match {
+            case Left(err) =>
+              fail(s"failed to parse '$litStr' in Bosatsu: $err")
+            case Right(f)  =>
+              val pyBits = java.lang.Double.doubleToRawLongBits(
+                py.eval(s"float('$litStr')").asDouble()
+              )
+              assertEquals(
+                f.toRawLongBits,
+                pyBits,
+                s"mismatch for literal: $litStr"
+              )
+          }
+        }
+      } finally {
+        py.close()
+      }
+    }
+  }
+
+  test("bosatsu parser accepts .NaN literal") {
+    Lit.float64Parser.parseAll(".NaN") match {
+      case Right(f) =>
+        assert(java.lang.Double.isNaN(f.toDouble))
+      case Left(err) =>
+        fail(s"failed to parse .NaN: $err")
+    }
+  }
+
   JythonBarrier.run(intr.close())
 
-  def runBoTests(path: String, pn: PackageName, testName: String) =
+  def runBoTests(
+      path: String,
+      pn: PackageName,
+      testName: String,
+      extraPaths: String*
+  ) =
     JythonBarrier.run {
       val intr = new PythonInterpreter()
 
       val packMap =
         Par.noParallelism {
-          val bosatsuPM = compileFile(path)
+          val bosatsuPM = compileFile(path, extraPaths*)
           PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
         }
       val doc = packMap(())(pn)._2
@@ -190,7 +263,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     runBoTests(
       "test_workspace/PredefTests.bosatsu",
       PackageName.parts("PredefTests"),
-      "test"
+      "test",
+      "test_workspace/Float64.bosatsu"
     )
   }
+
 }

@@ -767,6 +767,100 @@ class SyntaxParseTest extends ParserTestBase {
     }
   }
 
+  test("we can parse Float64 literals") {
+    def withUnderscores(raw: String): Gen[String] =
+      if (raw.length <= 1) Gen.const(raw)
+      else {
+        val head = raw.head.toString
+        raw.tail.toList.foldLeft(Gen.const(head)) { (gen, c) =>
+          for {
+            prefix <- gen
+            sep <- Gen.oneOf("", "_")
+          } yield s"$prefix$sep$c"
+        }
+      }
+
+    def digits(min: Int, max: Int): Gen[String] =
+      for {
+        sz <- Gen.choose(min, max)
+        ds <- Gen.listOfN(sz, Gen.choose('0', '9'))
+        us <- withUnderscores(ds.mkString)
+      } yield us
+
+    val exponent =
+      for {
+        e <- Gen.oneOf("e", "E")
+        sign <- Gen.oneOf("", "+", "-")
+        ds <- digits(1, 5)
+      } yield s"$e$sign$ds"
+
+    val genFloatSyntax: Gen[String] =
+      for {
+        sign <- Gen.oneOf("", "+", "-")
+        whole <- digits(1, 8)
+        frac <- digits(1, 8)
+        expReq <- exponent
+        expOpt <- Gen.option(exponent)
+        form <- Gen.oneOf(0, 1, 2, 3, 4)
+      } yield {
+        val body = form match {
+          case 0 => s"$whole.$frac${expOpt.getOrElse("")}"
+          case 1 => s"$whole$expReq"
+          case 2 => s".$frac${expOpt.getOrElse("")}"
+          case 3 => s"$whole.$expReq"
+          case _ => s"$whole."
+        }
+        sign + body
+      }
+
+    val hardCases = List(
+      "0.0",
+      "-0.0",
+      "+0.0",
+      ".NaN",
+      "∞",
+      "-∞",
+      "+∞",
+      "1.",
+      ".5",
+      "1e309",
+      "-1e309",
+      "5e-324",
+      "2.2250738585072014e-308",
+      "1_234.5_6",
+      ".0_0_0_1",
+      "9_9_9e+3"
+    )
+
+    def expectedFloat(litStr: String): Lit.Float64 = {
+      val clean = litStr.filter(_ != '_')
+      val d =
+        clean match {
+          case ".NaN"       => java.lang.Double.NaN
+          case "∞" | "+∞" => java.lang.Double.POSITIVE_INFINITY
+          case "-∞"       => java.lang.Double.NEGATIVE_INFINITY
+          case _          => java.lang.Double.parseDouble(clean)
+        }
+      Lit.Float64.fromDouble(d)
+    }
+
+    hardCases.foreach { litStr =>
+      val expected = expectedFloat(litStr)
+      parseTestAll(Lit.float64Parser, litStr, expected)
+    }
+
+    forAll(genFloatSyntax) { litStr =>
+      val expected = expectedFloat(litStr)
+      parseTestAll(Lit.float64Parser, litStr, expected)
+    }
+  }
+
+  test("float parser does not consume dot-apply prefixes") {
+    assert(Lit.float64Parser.parseAll("2.foo").isLeft)
+    assert(Lit.float64Parser.parseAll("2.`foo`").isLeft)
+    assert(Lit.float64Parser.parseAll("2.(3)").isLeft)
+  }
+
   test("we can parse DefStatement") {
     val prop = forAll(
       Generators.defGen(Generators.optIndent(Generators.genDeclaration(0)))

@@ -1,5 +1,14 @@
 package PredefTests
 
+from Bosatsu/Float/Float64 import (
+  float64_bits_to_Int,
+  float64_to_String,
+  int_bits_to_Float64,
+  is_infinite,
+  is_nan,
+  string_to_Float64,
+)
+
 operator / = div
 operator % = mod_Int
 
@@ -97,7 +106,149 @@ test_string = TestSuite("String tests", [
   Assertion("foo".rpartition_String("x") matches None, "foo rpartition_String x"),
 ])
 
+def eqf(a, b): cmp_Float64(a, b) matches EQ
+def eqi(a, b): cmp_Int(a, b) matches EQ
+def andb(a, b):
+  match a:
+    case True: b
+    case False: False
+
+def notb(a):
+  match a:
+    case True: False
+    case False: True
+
+def eqb(a, b):
+  if a:
+    b
+  else:
+    notb(b)
+
+u64_mod = 1.shift_left_Int(64)
+lcg_mul = 6364136223846793005
+lcg_inc = 1442695040888963407
+
+def next_u64(seed: Int) -> Int:
+  seed.times(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
+
+def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    f = int_bits_to_Float64(seed1)
+    bits_back = float64_bits_to_Int(f)
+    ok1 = match is_nan(f):
+      case True: ok
+      case False: andb(ok, eqi(bits_back, seed1))
+    (n.sub(1), (seed1, ok1))
+  ))
+  state matches (_, True)
+
+def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    f = int_bits_to_Float64(seed1)
+    parsed = string_to_Float64(float64_to_String(f))
+    ok1 = match parsed:
+      case Some(f1):
+        match is_nan(f):
+          case True: is_nan(f1)
+          case False: eqf(f, f1)
+      case None: False
+    (n.sub(1), (seed1, andb(ok, ok1)))
+  ))
+  state matches (_, True)
+
+def pos_inf_matches_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    f = int_bits_to_Float64(seed1)
+    rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches GT)
+    ok1 = andb(ok, eqb(f matches ∞, rhs))
+    (n.sub(1), (seed1, ok1))
+  ))
+  state matches (_, True)
+
+def neg_inf_matches_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    f = int_bits_to_Float64(seed1)
+    rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches LT)
+    ok1 = andb(ok, eqb(f matches -∞, rhs))
+    (n.sub(1), (seed1, ok1))
+  ))
+  state matches (_, True)
+
+def nan_matches_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    f = int_bits_to_Float64(seed1)
+    ok1 = andb(ok, eqb(is_nan(f), f matches .NaN))
+    (n.sub(1), (seed1, ok1))
+  ))
+  state matches (_, True)
+
+nan0 = divf(0.0, 0.0)
+
+def classify_float(x: Float64) -> Int:
+  match x:
+    case .NaN: 0
+    case 0.0: 1
+    case 1.5: 2
+    case _: 3
+
+test_float = TestSuite("Float tests", [
+  Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
+  Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
+  Assertion(eqf(timesf(1.5, 2.0), 3.0), "timesf"),
+  Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
+  Assertion(eqf(.NaN, nan0), "nan equality"),
+  Assertion(eqf(1_234.5_6, 1234.56), "underscore parsing"),
+  Assertion(eqf(.5, 0.5), "leading dot"),
+  Assertion(eqf(5., 5.0), "trailing dot"),
+  Assertion(eqf(∞, divf(1.0, 0.0)), "literal infinity"),
+  Assertion(eqf(-∞, divf(-1.0, 0.0)), "literal negative infinity"),
+  Assertion(float64_bits_to_Int(int_bits_to_Float64(0x8000_0000_0000_0000)) matches 0x8000_0000_0000_0000,
+    "signed zero bit roundtrip"),
+  Assertion(float64_bits_to_Int(int_bits_to_Float64(-9223372036854775807)) matches 0x8000_0000_0000_0001,
+    "int_bits uses low 64 bits for negative ints"),
+  Assertion(
+    match string_to_Float64(float64_to_String(.NaN)):
+      case Some(v): is_nan(v)
+      case None: False,
+    "NaN string roundtrip remains NaN"),
+  Assertion(
+    (
+      match string_to_Float64(".NaN"):
+        case Some(v): is_nan(v)
+        case None: False
+    ),
+    ".NaN string parses"),
+  Assertion(string_to_Float64("not-a-float") matches None, "invalid float parse"),
+  Assertion(bits_roundtrip_law(300, 424242), "bits roundtrip law"),
+  Assertion(string_roundtrip_law(300, 424242), "string roundtrip law"),
+  Assertion(nan_matches_law(300, 171717), "is_nan(x) iff (x matches .NaN)"),
+  Assertion(pos_inf_matches_law(300, 272727), "positive infinity matches law"),
+  Assertion(neg_inf_matches_law(300, 373737), "negative infinity matches law"),
+  Assertion(eqf(5e-324, 5e-324), "min subnormal"),
+  Assertion(eqf(2.2250738585072014e-308, 2.2250738585072014e-308), "min normal"),
+  Assertion(cmp_Float64(nan0, 0.0) matches LT, "nan < non-nan"),
+  Assertion(cmp_Float64(0.0, nan0) matches GT, "non-nan > nan"),
+  Assertion(cmp_Float64(nan0, .NaN) matches EQ, "all nan compare equal"),
+  Assertion(cmp_Float64(-0.0, 0.0) matches EQ, "signed zero compare"),
+  Assertion(cmp_Float64(divf(1.0, 0.0), divf(-1.0, 0.0)) matches GT, "inf order"),
+  Assertion(classify_float(nan0) matches 0, "nan pattern match"),
+  Assertion(classify_float(.NaN) matches 0, "explicit nan literal pattern"),
+  Assertion(classify_float(-0.0) matches 1, "signed zero pattern match"),
+  Assertion(classify_float(0.0) matches 1, "zero pattern match"),
+])
+
 test = TestSuite("Predef tests", [
     test_int,
     test_string,
+    test_float,
 ])

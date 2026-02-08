@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
+import java.util.Locale
 object Predef {
 
   /** Loads a file *at compile time* as a means of embedding external files into
@@ -20,18 +21,29 @@ object Predef {
     PackageName.PredefName
   private def arrayPackageName: PackageName =
     PackageName.parts("Bosatsu", "Collection", "Array")
+  private def float64PackageName: PackageName =
+    PackageName.parts("Bosatsu", "Float", "Float64")
 
   val jvmExternals: Externals =
     Externals.empty
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
+      .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
+      .add(predefPackageName, "divf", FfiCall.Fn2(PredefImpl.divf(_, _)))
       .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
+      .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
       .add(predefPackageName, "times", FfiCall.Fn2(PredefImpl.times(_, _)))
+      .add(predefPackageName, "timesf", FfiCall.Fn2(PredefImpl.timesf(_, _)))
       .add(predefPackageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
       .add(
         predefPackageName,
         "cmp_Int",
         FfiCall.Fn2(PredefImpl.cmp_Int(_, _))
+      )
+      .add(
+        predefPackageName,
+        "cmp_Float64",
+        FfiCall.Fn2(PredefImpl.cmp_Float64(_, _))
       )
       .add(
         predefPackageName,
@@ -159,11 +171,82 @@ object Predef {
         "slice_Array",
         FfiCall.Fn3(PredefImpl.slice_Array(_, _, _))
       )
+      .add(float64PackageName, "abs", FfiCall.Fn1(PredefImpl.abs_Float64(_)))
+      .add(float64PackageName, "acos", FfiCall.Fn1(PredefImpl.acos_Float64(_)))
+      .add(float64PackageName, "asin", FfiCall.Fn1(PredefImpl.asin_Float64(_)))
+      .add(float64PackageName, "atan", FfiCall.Fn1(PredefImpl.atan_Float64(_)))
+      .add(
+        float64PackageName,
+        "atan2",
+        FfiCall.Fn2(PredefImpl.atan2_Float64(_, _))
+      )
+      .add(float64PackageName, "ceil", FfiCall.Fn1(PredefImpl.ceil_Float64(_)))
+      .add(float64PackageName, "cos", FfiCall.Fn1(PredefImpl.cos_Float64(_)))
+      .add(float64PackageName, "cosh", FfiCall.Fn1(PredefImpl.cosh_Float64(_)))
+      .add(float64PackageName, "exp", FfiCall.Fn1(PredefImpl.exp_Float64(_)))
+      .add(
+        float64PackageName,
+        "floor",
+        FfiCall.Fn1(PredefImpl.floor_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "hypot",
+        FfiCall.Fn2(PredefImpl.hypot_Float64(_, _))
+      )
+      .add(float64PackageName, "log", FfiCall.Fn1(PredefImpl.log_Float64(_)))
+      .add(
+        float64PackageName,
+        "log10",
+        FfiCall.Fn1(PredefImpl.log10_Float64(_))
+      )
+      .add(float64PackageName, "pow", FfiCall.Fn2(PredefImpl.pow_Float64(_, _)))
+      .add(float64PackageName, "sin", FfiCall.Fn1(PredefImpl.sin_Float64(_)))
+      .add(float64PackageName, "sinh", FfiCall.Fn1(PredefImpl.sinh_Float64(_)))
+      .add(float64PackageName, "sqrt", FfiCall.Fn1(PredefImpl.sqrt_Float64(_)))
+      .add(float64PackageName, "tan", FfiCall.Fn1(PredefImpl.tan_Float64(_)))
+      .add(float64PackageName, "tanh", FfiCall.Fn1(PredefImpl.tanh_Float64(_)))
+      .add(
+        float64PackageName,
+        "copy_sign",
+        FfiCall.Fn2(PredefImpl.copySign_Float64(_, _))
+      )
+      .add(
+        float64PackageName,
+        "is_nan",
+        FfiCall.Fn1(PredefImpl.isNaN_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "is_infinite",
+        FfiCall.Fn1(PredefImpl.isInfinite_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "float64_to_String",
+        FfiCall.Fn1(PredefImpl.float64_to_String(_))
+      )
+      .add(
+        float64PackageName,
+        "string_to_Float64",
+        FfiCall.Fn1(PredefImpl.string_to_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "int_bits_to_Float64",
+        FfiCall.Fn1(PredefImpl.int_bits_to_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "float64_bits_to_Int",
+        FfiCall.Fn1(PredefImpl.float64_bits_to_Int(_))
+      )
 }
 
 object PredefImpl {
 
   import Value._
+  private val NaNBitsPrefix = "NaN:0x"
 
   final case class ArrayValue(data: Array[Value], offset: Int, len: Int) {
     require(offset >= 0, s"offset must be >= 0: $offset")
@@ -181,6 +264,81 @@ object PredefImpl {
       case _        => sys.error(s"expected integer: $a")
     }
 
+  private def d(a: Value): Double =
+    a match {
+      case VFloat(v) => v
+      case _         => sys.error(s"expected float64: $a")
+    }
+
+  private def vf(v: Double): Value =
+    VFloat(v)
+
+  private def bool(b: Boolean): Value =
+    if (b) True else False
+
+  def compareFloat64Total(a: Double, b: Double): Int = {
+    val aNaN = java.lang.Double.isNaN(a)
+    val bNaN = java.lang.Double.isNaN(b)
+    if (aNaN) {
+      if (bNaN) 0 else -1
+    } else if (bNaN) {
+      1
+    } else if (a < b) {
+      -1
+    } else if (a > b) {
+      1
+    } else {
+      0
+    }
+  }
+
+  private def unsignedLongToBigInteger(bits: Long): BigInteger =
+    if (bits >= 0L) BigInteger.valueOf(bits)
+    else BigInteger.valueOf(bits & Long.MaxValue).setBit(63)
+
+  private def toUnsignedHex64(bits: Long): String = {
+    val raw = java.lang.Long.toUnsignedString(bits, 16)
+    if (raw.length >= 16) raw
+    else {
+      val zeros = new java.lang.String(Array.fill(16 - raw.length)('0'))
+      zeros + raw
+    }
+  }
+
+  private def parseUnsignedHex64(hex: String): Option[Long] =
+    if (hex.length != 16) None
+    else {
+      try Some(java.lang.Long.parseUnsignedLong(hex, 16))
+      catch {
+        case _: NumberFormatException => None
+      }
+    }
+
+  private def parseFloat64String(str: String): Option[Double] = {
+    val cleaned =
+      if (str.indexOf('_') >= 0) str.filter(_ != '_')
+      else str
+    val lowered = cleaned.toLowerCase(Locale.ROOT)
+
+    if (lowered.startsWith("nan:0x")) {
+      parseUnsignedHex64(cleaned.drop(6))
+        .map(java.lang.Double.longBitsToDouble(_))
+    } else {
+      val normalized =
+        lowered match {
+          case ".nan" | "nan"                   => "NaN"
+          case "∞" | "+∞" | "infinity" | "+infinity" | "inf" | "+inf" =>
+            "Infinity"
+          case "-∞" | "-infinity" | "-inf"      => "-Infinity"
+          case _                                 => cleaned
+        }
+      try Some(java.lang.Double.parseDouble(normalized))
+      catch {
+        case _: NumberFormatException => None
+      }
+    }
+  }
+
   private def asArray(a: Value): ArrayValue =
     a.asExternal.toAny match {
       case arr: ArrayValue => arr
@@ -192,6 +350,9 @@ object PredefImpl {
 
   def add(a: Value, b: Value): Value =
     VInt(i(a).add(i(b)))
+
+  def addf(a: Value, b: Value): Value =
+    vf(d(a) + d(b))
 
   def divBigInteger(a: BigInteger, b: BigInteger): BigInteger =
     if (b == BigInteger.ZERO) BigInteger.ZERO
@@ -222,11 +383,20 @@ object PredefImpl {
   def div(a: Value, b: Value): Value =
     VInt(divBigInteger(i(a), i(b)))
 
+  def divf(a: Value, b: Value): Value =
+    vf(d(a) / d(b))
+
   def sub(a: Value, b: Value): Value =
     VInt(i(a).subtract(i(b)))
 
+  def subf(a: Value, b: Value): Value =
+    vf(d(a) - d(b))
+
   def times(a: Value, b: Value): Value =
     VInt(i(a).multiply(i(b)))
+
+  def timesf(a: Value, b: Value): Value =
+    vf(d(a) * d(b))
 
   def eq_Int(a: Value, b: Value): Value =
     // since we have already typechecked, standard equals works
@@ -234,6 +404,58 @@ object PredefImpl {
 
   def cmp_Int(a: Value, b: Value): Value =
     Comparison.fromInt(i(a).compareTo(i(b)))
+
+  def cmp_Float64(a: Value, b: Value): Value =
+    Comparison.fromInt(compareFloat64Total(d(a), d(b)))
+
+  def abs_Float64(a: Value): Value = vf(java.lang.Math.abs(d(a)))
+  def acos_Float64(a: Value): Value = vf(java.lang.Math.acos(d(a)))
+  def asin_Float64(a: Value): Value = vf(java.lang.Math.asin(d(a)))
+  def atan_Float64(a: Value): Value = vf(java.lang.Math.atan(d(a)))
+  def atan2_Float64(a: Value, b: Value): Value =
+    vf(java.lang.Math.atan2(d(a), d(b)))
+  def ceil_Float64(a: Value): Value = vf(java.lang.Math.ceil(d(a)))
+  def cos_Float64(a: Value): Value = vf(java.lang.Math.cos(d(a)))
+  def cosh_Float64(a: Value): Value = vf(java.lang.Math.cosh(d(a)))
+  def exp_Float64(a: Value): Value = vf(java.lang.Math.exp(d(a)))
+  def floor_Float64(a: Value): Value = vf(java.lang.Math.floor(d(a)))
+  def hypot_Float64(a: Value, b: Value): Value =
+    vf(java.lang.Math.hypot(d(a), d(b)))
+  def log_Float64(a: Value): Value = vf(java.lang.Math.log(d(a)))
+  def log10_Float64(a: Value): Value = vf(java.lang.Math.log10(d(a)))
+  def pow_Float64(a: Value, b: Value): Value =
+    vf(java.lang.Math.pow(d(a), d(b)))
+  def sin_Float64(a: Value): Value = vf(java.lang.Math.sin(d(a)))
+  def sinh_Float64(a: Value): Value = vf(java.lang.Math.sinh(d(a)))
+  def sqrt_Float64(a: Value): Value = vf(java.lang.Math.sqrt(d(a)))
+  def tan_Float64(a: Value): Value = vf(java.lang.Math.tan(d(a)))
+  def tanh_Float64(a: Value): Value = vf(java.lang.Math.tanh(d(a)))
+  def copySign_Float64(a: Value, b: Value): Value =
+    vf(java.lang.Math.copySign(d(a), d(b)))
+  def isNaN_Float64(a: Value): Value =
+    bool(java.lang.Double.isNaN(d(a)))
+  def isInfinite_Float64(a: Value): Value =
+    bool(java.lang.Double.isInfinite(d(a)))
+  def float64_to_String(a: Value): Value = {
+    val bits = java.lang.Double.doubleToRawLongBits(d(a))
+    val value = java.lang.Double.longBitsToDouble(bits)
+    if (java.lang.Double.isNaN(value))
+      Value.Str(s"${NaNBitsPrefix}${toUnsignedHex64(bits)}")
+    else Value.Str(Lit.Float64.toLiteralString(Lit.Float64.fromRawLongBits(bits)))
+  }
+  def string_to_Float64(a: Value): Value =
+    a match {
+      case Value.Str(s) =>
+        parseFloat64String(s) match {
+          case Some(v) => Value.VOption.some(vf(v))
+          case None    => Value.VOption.none
+        }
+      case other        => sys.error(s"type error: $other")
+    }
+  def int_bits_to_Float64(a: Value): Value =
+    vf(java.lang.Double.longBitsToDouble(i(a).longValue()))
+  def float64_bits_to_Int(a: Value): Value =
+    Value.VInt(unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a))))
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))

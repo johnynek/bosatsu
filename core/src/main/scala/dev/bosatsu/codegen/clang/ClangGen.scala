@@ -388,6 +388,15 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       )(newLocalName)
                     }
                   }(newLocalName)
+                case _: Lit.Float64 =>
+                  vl.onExpr { e =>
+                    literal(lit).flatMap { litFloat =>
+                      Code.ValueLike.applyArgs(
+                        Code.Ident("bsts_float64_equals"),
+                        NonEmptyList(e, litFloat :: Nil)
+                      )(newLocalName)
+                    }
+                  }(newLocalName)
               }
             }
           case EqualsNat(expr, nat) =>
@@ -925,6 +934,12 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
 
           case Lit.Str(toStr) => StringApi.fromString(toStr)
+          case f: Lit.Float64 =>
+            pv(
+              Code.Ident("bsts_float64_from_bits")(
+                Code.IntLiteral(BigInt(f.toRawLongBits))
+              )
+            )
         }
 
       def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =

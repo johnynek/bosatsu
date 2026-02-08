@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import org.typelevel.paiges.{Document, Doc}
 import java.math.BigInteger
-import cats.parse.{Parser => P}
+import cats.parse.{Parser0 => P0, Parser => P}
 import cats.Eq
 
 import Parser.escape
@@ -14,13 +14,26 @@ sealed abstract class Lit {
       case c @ Lit.Chr(_) =>
         ".'" + escape('\'', c.asStr) + "'"
       case Lit.Str(s) => "\"" + escape('"', s) + "\""
+      case f: Lit.Float64 =>
+        Lit.Float64.toLiteralString(f)
     }
 
   def unboxToAny: Any
 }
 object Lit {
   implicit val eqLit: Eq[Lit] =
-    Eq.fromUniversalEquals
+    Eq.instance {
+      case (Integer(a), Integer(b)) => a == b
+      case (Str(a), Str(b))         => a == b
+      case (Chr(a), Chr(b))         => a == b
+      case (a: Float64, b: Float64) =>
+        val ad = a.toDouble
+        val bd = b.toDouble
+        // Float literal equality follows runtime Float64 equality:
+        // -0.0 == 0.0 and NaN == NaN.
+        (ad == bd) || (java.lang.Double.isNaN(ad) && java.lang.Double.isNaN(bd))
+      case _                        => false
+    }
   case class Integer(toBigInteger: BigInteger) extends Lit {
     def unboxToAny: Any = toBigInteger
   }
@@ -60,6 +73,27 @@ object Lit {
     def toCodePoint: Int = asStr.codePointAt(0)
     def unboxToAny: Any = asStr
   }
+  final case class Float64 private (toRawLongBits: Long) extends Lit {
+    def toDouble: Double = java.lang.Double.longBitsToDouble(toRawLongBits)
+    def unboxToAny: Any = java.lang.Double.valueOf(toDouble)
+  }
+  object Float64 {
+    def fromDouble(d: Double): Float64 =
+      Float64(java.lang.Double.doubleToRawLongBits(d))
+
+    def fromRawLongBits(bits: Long): Float64 =
+      Float64(bits)
+
+    // This is the canonical Bosatsu source literal rendering used by repr/document.
+    // Keep this aligned with float64Parser.
+    def toLiteralString(f: Float64): String = {
+      val d = f.toDouble
+      if (java.lang.Double.isNaN(d)) ".NaN"
+      else if (d == java.lang.Double.POSITIVE_INFINITY) "\u221E"
+      else if (d == java.lang.Double.NEGATIVE_INFINITY) "-\u221E"
+      else java.lang.Double.toString(d)
+    }
+  }
   object Chr {
     private def build(cp: Int): Chr =
       Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
@@ -95,6 +129,59 @@ object Lit {
   val integerParser: P[Integer] =
     Parser.integerWithBase.map { case (bi, _) => Integer(bi) }
 
+  private val float64TrailingDotEnd: P0[Unit] =
+    P.not(P.charIn("abcdefghijklmnopqrstuvwxyz`(")).void
+
+  private val digit: P[Char] = P.charIn('0' to '9')
+  private val digits: P[String] = digit.rep.string
+  private val digitPart: P[String] =
+    (digits ~ (P.char('_') ~ digits).rep0).string
+  private val exponentPart: P[String] =
+    (P.charIn("eE") ~ P.charIn("+-").?.string ~ digitPart).string
+
+  // This accepts python-style decimal float syntax plus optional leading sign.
+  private val float64StringParser: P[String] = {
+    val nanLiteral = P.string(".NaN").as("NaN")
+    val withFraction =
+      (digitPart ~ P.char('.') ~ digitPart ~ exponentPart.?).string
+    val withExpNoFraction = (digitPart ~ P.char('.') ~ exponentPart).string
+    val leadingDot = (P.char('.') ~ digitPart ~ exponentPart.?).string
+    val intWithExponent = (digitPart ~ exponentPart).string
+    val trailingDot = ((digitPart ~ P.char('.')).string <* float64TrailingDotEnd)
+    val body =
+      withFraction
+        .backtrack
+        .orElse(withExpNoFraction.backtrack)
+        .orElse(leadingDot.backtrack)
+        .orElse(intWithExponent.backtrack)
+        .orElse(trailingDot)
+
+    val infinity: P[String] =
+      (P.charIn("+-").?.with1 ~ P.char('\u221E')).map {
+        case (Some('-'), _) => "-Infinity"
+        case _              => "Infinity"
+      }
+
+    nanLiteral
+      .backtrack
+      .orElse(infinity.backtrack)
+      .orElse((P.charIn("+-") ~ body).string)
+      .orElse(body)
+  }
+
+  private def parseFloat64(str: String): Option[Float64] = {
+    val clean =
+      if (str.indexOf('_') >= 0) str.filter(_ != '_')
+      else str
+    try Some(Float64.fromDouble(java.lang.Double.parseDouble(clean)))
+    catch {
+      case _: NumberFormatException => None
+    }
+  }
+
+  val float64Parser: P[Float64] =
+    float64StringParser.mapFilter(parseFloat64)
+
   val stringParser: P[Str] = {
     val q1 = '\''
     val q2 = '"'
@@ -111,19 +198,42 @@ object Lit {
 
   implicit val litOrdering: Ordering[Lit] =
     new Ordering[Lit] {
+      private def compareFloat64(a: Float64, b: Float64): Int = {
+        val ad = a.toDouble
+        val bd = b.toDouble
+        val aNaN = java.lang.Double.isNaN(ad)
+        val bNaN = java.lang.Double.isNaN(bd)
+        if (aNaN) {
+          if (bNaN) 0
+          else -1
+        } else if (bNaN) {
+          1
+        } else if (ad < bd) {
+          -1
+        } else if (ad > bd) {
+          1
+        } else {
+          0
+        }
+      }
+
       def compare(a: Lit, b: Lit): Int =
         (a, b) match {
-          case (Integer(a), Integer(b))      => a.compareTo(b)
-          case (Integer(_), Str(_) | Chr(_)) => -1
-          case (Chr(_), Integer(_))          => 1
-          case (Chr(a), Chr(b))              => a.compareTo(b)
-          case (Chr(_), Str(_))              => -1
-          case (Str(_), Integer(_) | Chr(_)) => 1
-          case (Str(a), Str(b))              => a.compareTo(b)
+          case (Integer(a), Integer(b))                  => a.compareTo(b)
+          case (Integer(_), _: Float64 | Str(_) | Chr(_)) => -1
+          case (_: Float64, Integer(_))                 => 1
+          case (a: Float64, b: Float64)                 => compareFloat64(a, b)
+          case (_: Float64, Str(_) | Chr(_))            => -1
+          case (Chr(_), Integer(_) | (_: Float64))      => 1
+          case (Chr(a), Chr(b))                         => a.compareTo(b)
+          case (Chr(_), Str(_))                         => -1
+          case (Str(_), Integer(_) | (_: Float64) | Chr(_)) => 1
+          case (Str(a), Str(b))                         => a.compareTo(b)
         }
     }
 
-  val parser: P[Lit] = integerParser | stringParser | codePointParser
+  val parser: P[Lit] =
+    float64Parser.backtrack | integerParser | stringParser | codePointParser
 
   implicit val document: Document[Lit] =
     Document.instance[Lit] {
@@ -138,5 +248,7 @@ object Lit {
           if (str.contains('\'') && !str.contains('"')) (".\"", '"')
           else (".'", '\'')
         Doc.text(start) + Doc.text(escape(end, str)) + Doc.char(end)
+      case f: Float64 =>
+        Doc.text(Float64.toLiteralString(f))
     }
 }

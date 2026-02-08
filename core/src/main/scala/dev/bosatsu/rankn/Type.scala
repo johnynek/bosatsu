@@ -445,6 +445,7 @@ object Type {
       case Lit.Integer(_) => Type.IntType
       case Lit.Str(_)     => Type.StrType
       case Lit.Chr(_)     => Type.CharType
+      case _: Lit.Float64 => Type.Float64Type
     }
 
   /** types are var, meta, or const, or applied or forall on one of those. This
@@ -1016,6 +1017,7 @@ object Type {
     }
   }
   val IntType: Type.TyConst = TyConst(Const.predef("Int"))
+  val Float64Type: Type.TyConst = TyConst(Const.predef("Float64"))
   val ListType: Type.TyConst = TyConst(Const.predef("List"))
   val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
   val StrType: Type.TyConst = TyConst(Const.predef("String"))
@@ -1608,6 +1610,7 @@ object Type {
       BoolType -> Kind.Type,
       DictType -> Kind(Kind.Type.in, Kind.Type.co),
       IntType -> Kind.Type,
+      Float64Type -> Kind.Type,
       ListType -> Kind(Kind.Type.co),
       StrType -> Kind.Type,
       CharType -> Kind.Type,

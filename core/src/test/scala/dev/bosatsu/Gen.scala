@@ -762,7 +762,18 @@ object Generators {
 
     val bi =
       Arbitrary.arbitrary[BigInt].map(bi => Lit.Integer(bi.bigInteger))
-    Gen.oneOf(str, bi, char)
+    val float64 =
+      Gen
+        .oneOf(
+          Arbitrary.arbitrary[Long].map(Lit.Float64.fromRawLongBits),
+          Gen.const(Lit.Float64.fromDouble(java.lang.Double.POSITIVE_INFINITY)),
+          Gen.const(Lit.Float64.fromDouble(java.lang.Double.NEGATIVE_INFINITY)),
+          Gen.const(Lit.Float64.fromDouble(0.0d)),
+          Gen.const(Lit.Float64.fromDouble(-0.0d))
+        )
+        .suchThat(f => !java.lang.Double.isNaN(f.toDouble))
+
+    Gen.frequency((3, str), (5, bi), (2, char), (2, float64))
   }
 
   val identifierGen: Gen[Identifier] =
@@ -1078,6 +1089,10 @@ object Generators {
             LazyList
               .from(implicitly[Shrink[BigInt]].shrink(BigInt(s)))
               .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
+          case Pattern.Literal(Lit.Float64(bits)) =>
+            LazyList
+              .from(implicitly[Shrink[Long]].shrink(bits))
+              .map(b => Pattern.Literal(Lit.Float64.fromRawLongBits(b)))
           case Pattern.Literal(_)  => LazyList.empty
           case Pattern.ListPat(ls) =>
             if (ls.isEmpty) LazyList.empty

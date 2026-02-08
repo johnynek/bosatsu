@@ -216,12 +216,27 @@ object MatchlessToValue {
 
         ix match {
           case EqualsLit(expr, lit) =>
-            val litAny = lit.unboxToAny
-
             loop(expr).map { e =>
               val external = e.asExternal.toAny
-              // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
-              external === litAny
+              lit match {
+                case lf: Lit.Float64 =>
+                  external match {
+                    case d: java.lang.Double =>
+                      val left = lf.toDouble
+                      val right = d.doubleValue
+                      // Float literal matching follows numeric equality:
+                      // -0.0 == 0.0 and NaN matches NaN.
+                      (left == right) || (java.lang.Double.isNaN(left) && java.lang.Double.isNaN(right))
+                    case _                    =>
+                      // $COVERAGE-OFF$
+                      false
+                    // $COVERAGE-ON$
+                  }
+                case _               =>
+                  val litAny = lit.unboxToAny
+                  // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
+                  external === litAny
+              }
             }
 
           case EqualsNat(nat, zeroOrSucc) =>
