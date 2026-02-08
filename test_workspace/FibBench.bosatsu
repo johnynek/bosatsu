@@ -3,7 +3,7 @@ package Bosatsu/FibBench
 from Bosatsu/Prog import Prog, Main, read_env, await, pure, recover
 from Bosatsu/IO/Std import println
 from Bosatsu/IO/Error import IOError, error_to_String
-from Bosatsu/Nat import Nat, to_Nat, Zero as NZero, Succ as NSucc
+from Bosatsu/Num/Nat import Nat, to_Nat, Zero as NZero, Succ as NSucc
 
 def fib_Nat(n: Nat) -> Int:
   recur n:

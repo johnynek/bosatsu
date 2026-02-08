@@ -1,4 +1,4 @@
-package Bosatsu/Float/Float64
+package Bosatsu/Num/Float64
 
 from Bosatsu/Predef import (
   Float64,

@@ -1,6 +1,6 @@
 package Eval
 
-from Bosatsu/Nat import Nat, Zero, Succ, to_Nat
+from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
 
 export Eval, done, map, flat_map, bind, eval
 # port of cats.Eval to bosatsu

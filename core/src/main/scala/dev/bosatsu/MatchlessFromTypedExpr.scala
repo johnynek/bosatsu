@@ -26,7 +26,7 @@ object MatchlessFromTypedExpr {
     // NOTE: when compiling libraries, pm contains only local implementations.
     // Dependency packages are present only as imported interfaces on each
     // package, so pm.getDataRepr cannot see their constructors. Matchless
-    // needs constructor DataRepr for pattern compilation (e.g. Bosatsu/Nat
+    // needs constructor DataRepr for pattern compilation (e.g. Bosatsu/Num/Nat
     // Zero/Succ), otherwise it throws "could not find Constructor(...) in
     // global data types". We therefore fall back to constructor info derived
     // from imported interfaces to cover interface-only deps.
