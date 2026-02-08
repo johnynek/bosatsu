@@ -128,6 +128,16 @@ When recursion is not naturally "one structural child", introduce a decreasing
 bound computation is the same asymptotic order as the main algorithm, overall
 runtime complexity is unchanged in `O(...)` terms (though constants may grow).
 
+In the Bosatsu implementation, `Nat` used in this style is runtime-optimized to
+an integer-like counter representation rather than a linked unary structure. In
+practice, that means these loops compile down to counter-style code without
+per-step allocation, so this pattern is usually fast enough not to dominate
+runtime.
+
+Bosatsu is aiming for very fast, practically usable performance, but it is not
+trying to beat C or Rust on raw speed. The non-negotiable design goal is a sound
+type system you can trust, so libraries can be composed fearlessly.
+
 Seen this way, earlier structural recursion examples can be read as implicit
 fuel patterns too: in list recursion the list value is fuel, and in tree
 recursion the current subtree is fuel.

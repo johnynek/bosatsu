@@ -156,6 +156,34 @@ Bosatsu: lexical scope is always in play.
 We recommend not changing the type of a name in a given scope (and may enforce
 this in the future).
 
+### Naming style
+For consistency across the bosatsu compiler repository, prefer these naming
+conventions:
+
+1. Bindable names (defs, values, parameters, locals) use lowercase with
+   underscore separation.
+1. Type and constructor names use UpperCamelCase.
+1. If a bindable name includes a type name, put the full type name at the end
+   after an underscore.
+
+Examples:
+
+```bosatsu
+# preferred bindable names
+def fold_left_Tree(t: Tree[a], init: b, fn: (b, a) -> b) -> b: ...
+def one_of(ps: List[Parser[a]]) -> Parser[a]: ...
+def string_to_Int(s: String) -> Option[Int]: ...
+eq_TreeList_Int = eq_TreeList(eq_Int)
+
+# avoid
+def foldTree(...): ...     # camelCase bindable
+def Tree_fold(...): ...    # type name in first position
+def fold_T(...): ...       # partial/abbreviated type name
+```
+
+This convention keeps names readable and searchable, especially when multiple
+implementations of a common operation exist for different types.
+
 ### Block expressions
 You can group a sequence of bindings and defs in parentheses to produce a
 value. The last expression is the result:
@@ -734,10 +762,39 @@ match on the types.
 
 Sometimes such opacity is useful to enforce modularity.
 
+## Purity, Effects, and `Prog`
+Bosatsu expressions are pure: evaluating Bosatsu code does not directly read
+stdin, write stdout, mutate state, or throw exceptions.
+
+Instead, effectful behavior is represented as data using `Prog[env, err, a]`.
+When you write I/O-heavy code, you are building a program description inside
+Bosatsu. That description can be transformed and composed (for example with
+`map`, `flat_map`, or `await`-style syntax), but it is not executed by Bosatsu
+itself.
+
+Execution happens only when a runtime is given a `Main` program entrypoint. In
+other words, Bosatsu builds the effectful program, and the runtime executes it.
+
+This is the same core idea used in pure functional programming (for example,
+Haskell `IO` or Scala `cats.effect.IO`): represent effects explicitly and keep
+core language evaluation pure. Bosatsu goes further by not exposing a general
+in-language escape hatch to "unsafely run" a `Prog` immediately.
+
+You can think of Bosatsu as a pure language for constructing executable programs
+with effects at the boundary. The goal is practical usability with strong safety:
+if pieces typecheck, they can be composed with confidence.
+
 ## External functions and values
-There is syntax for declaring external values and functions. This is obviously
-dangerous since it gives the user a chance to violate type safety and totality.
-Use with caution.
+There is syntax for declaring external values and functions, but regular Bosatsu
+library code cannot define new externals today.
+
+At the moment, external defs are only allowed in trusted libraries implemented
+inside the bosatsu compiler repository. This is intentional: Bosatsu is designed
+for safe composition, and if any dependency could hide unsafe behavior, that
+safety story gets much weaker.
+
+So "use with caution" mostly applies to maintainers of trusted runtime/predef
+code, not to ordinary Bosatsu library authors.
 
 An example function we cannot implement in Bosatsu is:
 ```
@@ -777,6 +834,12 @@ Because these externals are trusted code, each external def included with the
 compiler is reviewed and tested carefully to avoid breaking sound typing. This
 is the central safety goal: if a program typechecks, running it should not
 produce a value that violates its type.
+
+In the future, we may consider an explicit unsafe boundary (similar in spirit to
+Rust `unsafe`) where external defs and calls are marked and that annotation is
+propagated through callers. That would make the safety/power trade-off explicit.
+Our bias is strongly toward safety; if you want maximum unrestricted power, this
+is likely not the right language.
 
 # Note on Totality
 Totality is an interesting property that limits a language from being turing
