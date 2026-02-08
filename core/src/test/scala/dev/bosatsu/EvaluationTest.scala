@@ -4184,6 +4184,66 @@ test = Assertion(fn(False), "")
     )
   }
 
+  test("array externals evaluate") {
+    runBosatsuTest(
+      List("""
+package Bosatsu/Collection/Array
+
+external struct Array[a: +*]
+
+external empty_Array: forall a. Array[a]
+external def tabulate_Array[a](n: Int, fn: Int -> a) -> Array[a]
+external def from_List_Array[a](xs: List[a]) -> Array[a]
+external def to_List_Array[a](ary: Array[a]) -> List[a]
+external def size_Array[a](ary: Array[a]) -> Int
+external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
+external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
+external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
+external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
+external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
+external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
+external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+
+def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
+  get_map_Array(ary, idx, _ -> None, x -> Some(x))
+
+def cmp_pair(left: (Int, String), right: (Int, String)) -> Comparison:
+  (li, _) = left
+  (ri, _) = right
+  cmp_Int(li, ri)
+
+a5 = tabulate_Array(5, i -> i)
+
+tests = TestSuite("array eval", [
+  Assertion(to_List_Array(a5) matches [0, 1, 2, 3, 4], "tabulate"),
+  Assertion(size_Array(a5) matches 5, "size"),
+  Assertion(get_Array(a5, 2) matches Some(2), "get some"),
+  Assertion(get_Array(a5, -1) matches None, "get none"),
+  Assertion(get_or_Array(a5, 20, _ -> 10) matches 10, "get_or"),
+  Assertion(foldl_Array(a5, 0, add) matches 10, "fold"),
+  Assertion(to_List_Array(map_Array(a5, x -> x.add(1))) matches [1, 2, 3, 4, 5], "map"),
+  Assertion(to_List_Array(set_or_self_Array(a5, 1, 9)) matches [0, 9, 2, 3, 4], "set in range"),
+  Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice"),
+  Assertion(to_List_Array(slice_Array(a5, -2, 2)) matches [0, 1], "slice clamp"),
+  Assertion(to_List_Array(slice_Array(a5, 4, 1)) matches [], "slice invalid"),
+  Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(2, i -> i)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
+  Assertion(
+    to_List_Array(
+      sort_Array(
+        from_List_Array([(1, "a"), (0, "z"), (1, "b"), (1, "c")]),
+        cmp_pair
+      )
+    ) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")],
+    "sort"
+  ),
+])
+"""),
+      "Bosatsu/Collection/Array",
+      13
+    )
+  }
+
   test("test duplicate import error messages") {
     val testCode = List(
       """

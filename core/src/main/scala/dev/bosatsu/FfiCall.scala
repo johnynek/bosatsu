@@ -7,6 +7,10 @@ sealed abstract class FfiCall(val arity: Int) {
 }
 
 object FfiCall {
+  final case class Const(value: Value) extends FfiCall(0) {
+    def call(t: rankn.Type): Value = value
+  }
+
   final case class Fn1(fn: Value => Value) extends FfiCall(1) {
     import Value.FnValue
 
@@ -35,6 +39,20 @@ object FfiCall {
         case NonEmptyList(e1, e2 :: e3 :: _) => fn(e1, e2, e3)
         case badShape                        =>
           sys.error(s"expected three arguments, found: $badShape")
+      }
+
+    def call(t: rankn.Type): Value = evalFn
+  }
+
+  final case class Fn4(fn: (Value, Value, Value, Value) => Value)
+      extends FfiCall(4) {
+    import Value.FnValue
+
+    private val evalFn: FnValue =
+      FnValue {
+        case NonEmptyList(e1, e2 :: e3 :: e4 :: _) => fn(e1, e2, e3, e4)
+        case badShape                              =>
+          sys.error(s"expected four arguments, found: $badShape")
       }
 
     def call(t: rankn.Type): Value = evalFn

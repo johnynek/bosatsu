@@ -111,23 +111,24 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
     val FromJvmExternals: ExternalResolver =
       new ExternalResolver {
-        val predef_c =
-          Code.Include.quote(stdExtFileName(PackageName.PredefName))
-
-        def predef(s: String, arity: Int) =
-          (PackageName.PredefName -> Identifier.Name(s)) -> (
-            predef_c,
+        def external(
+            p: PackageName,
+            s: String,
+            arity: Int
+        ) =
+          (p -> Identifier.Name(s)) -> (
+            Code.Include.quote(stdExtFileName(p)),
             generatedName(
               ns.rootKey,
-              PackageName.PredefName,
+              p,
               Identifier.Name(s)
             ),
             arity
           )
 
         val ext = Predef.jvmExternals.toMap.iterator
-          .map { case ((_, n), ffi) =>
-            predef(n, ffi.arity)
+          .map { case ((p, n), ffi) =>
+            external(p, n, ffi.arity)
           }
           .toMap[(PackageName, Identifier), (Code.Include, Code.Ident, Int)]
 
