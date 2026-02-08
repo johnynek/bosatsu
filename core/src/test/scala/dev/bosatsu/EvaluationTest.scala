@@ -4245,18 +4245,11 @@ tests = TestSuite("array eval", [
   }
 
   test("prog and io/std externals evaluate and run recursively") {
-    val progPack =
-      java.nio.file.Files.readString(
-        java.nio.file.Paths.get("test_workspace/Prog.bosatsu")
-      )
+    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
     val ioErrorPack =
-      java.nio.file.Files.readString(
-        java.nio.file.Paths.get("test_workspace/Bosatsu/IO/Error.bosatsu")
-      )
+      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
     val ioStdPack =
-      java.nio.file.Files.readString(
-        java.nio.file.Paths.get("test_workspace/Bosatsu/IO/Std.bosatsu")
-      )
+      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
 
     val progRunPack = """
 package ProgRun
