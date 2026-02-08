@@ -97,7 +97,7 @@ operator == = eq_opt_list_int
 
 test = TestSuite("applicative/traverse tests",
   [
-    Assertion(trav_list_opt(x -> Some(2.times(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
+    Assertion(trav_list_opt(x -> Some(2.mul(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
     Assertion(trav_list_opt(_ -> None, [1, 2, 3]) == None, "all to None"),
     Assertion(trav_list_opt(x -> None if x.eq_Int(3) else Some(x), [1, 2, 3]) == None, "3 to None"),
     Assertion(trav_list_opt(x -> None if x.eq_Int(3) else Some(x), []) == Some([]), "empty to Some"),

@@ -93,7 +93,7 @@ def digits_n(at_most: Int) -> Parser[Int]:
         match fn(s0):
             case Some((s1, d)):
                 acc = 0 if first else acc0
-                Cont((s1, acc.times(10).add(d)))
+                Cont((s1, acc.mul(10).add(d)))
             case None:
                 if first: Done(None)
                 else: Done(Some((s0, acc0)))

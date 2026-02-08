@@ -1,8 +1,8 @@
 package Bosatsu/Nat/Binary
 
-from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
+from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_Nat
 
-export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, times2, div2,
+export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, mul2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
 # a natural number with three variants:
 # Zero = 0
@@ -20,15 +20,15 @@ def is_even(b: BinNat) -> Bool:
 def to_Int(b: BinNat) -> Int:
   recur b:
     case Zero: 0
-    case Odd(n): to_Int(n).times(2).add(1)
-    case Even(n): to_Int(n).times(2).add(2)
+    case Odd(n): to_Int(n).mul(2).add(1)
+    case Even(n): to_Int(n).mul(2).add(2)
 
 # This is an O(b) operation
 def to_Nat(b: BinNat) -> Nat:
   recur b:
     case Zero: NatZero
-    case Odd(n): NatSucc(to_Nat(n).times2_Nat())
-    case Even(n): NatSucc(NatSucc(to_Nat(n).times2_Nat()))
+    case Odd(n): NatSucc(to_Nat(n).mul2_Nat())
+    case Even(n): NatSucc(NatSucc(to_Nat(n).mul2_Nat()))
 
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
 def to_BinNat(n: Int) -> BinNat:
@@ -132,11 +132,11 @@ def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
     case Zero: right
 
 # multiply by 2
-def times2(b: BinNat) -> BinNat:
+def mul2(b: BinNat) -> BinNat:
   recur b:
     case Odd(n):
       #2(2n + 1) = Even(2n)
-      Even(times2(n))
+      Even(mul2(n))
     case Even(n):
       #2(2(n + 1)) = 2((2n + 1) + 1)
       Even(Odd(n))
@@ -147,7 +147,7 @@ def doub_prev(b: BinNat) -> Option[BinNat]:
   match b:
     case Odd(n):
       # 2(2n + 1) - 1 = 4n + 1 = Odd(2n)
-      Some(Odd(times2(n)))
+      Some(Odd(mul2(n)))
     case Even(n):
       # 2(2n + 2) - 1 = 4n + 3 = 2(2n + 1) + 1
       Some(Odd(Odd(n)))
@@ -165,7 +165,7 @@ def sub_Option(left: BinNat, right: BinNat) -> Option[BinNat]:
         case Odd(right):
           # (2n + 1) - (2m + 1) = 2(n - m)
           match sub_Option(left, right):
-            case Some(n_m): Some(times2(n_m))
+            case Some(n_m): Some(mul2(n_m))
             case None: None
         case Even(right):
           # (2n + 1) - (2m + 2) = 2(n - m) - 1
@@ -186,7 +186,7 @@ def sub_Option(left: BinNat, right: BinNat) -> Option[BinNat]:
         case Even(right):
           # (2n + 2) - (2m + 2) = 2(n - m)
           match sub_Option(left, right):
-            case Some(n_m): Some(times2(n_m))
+            case Some(n_m): Some(mul2(n_m))
             case None: None
 
 def sub_BinNat(left: BinNat, right: BinNat) -> BinNat:
@@ -214,14 +214,14 @@ def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
         case right:
           # (2l + 1) * r = 2lr + r
           prod = times_BinNat(left, right)
-          times2(prod).add_BinNat(right)
+          mul2(prod).add_BinNat(right)
     case Even(left):
       match right:
         case Zero: Zero
         case right:
           # 2(l + 1) * n = 2(l*n + n)
           prod = times_BinNat(left, right)
-          times2(prod.add_BinNat(right))
+          mul2(prod.add_BinNat(right))
 
 one = Odd(Zero)
 
@@ -242,7 +242,7 @@ def divmod(numerator: BinNat, divisor: BinNat) -> (BinNat, BinNat):
         # we know m < y, so 2m + 1 < 2y + 1,
         # so we at most have to subtract 2 times
         match cmp_BinNat(m, divisor):
-          case LT: (d1.times2(), m)
+          case LT: (d1.mul2(), m)
           case _: 
             m2 = sub_BinNat(m, divisor)
             match cmp_BinNat(m2, divisor):
@@ -256,7 +256,7 @@ def divmod(numerator: BinNat, divisor: BinNat) -> (BinNat, BinNat):
         # subtracting twice: (2y + 2) - y - y < 2
         # so we at most have to subtract 2 times
         match cmp_BinNat(m, divisor):
-          case LT: (d1.times2(), m)
+          case LT: (d1.mul2(), m)
           case _: 
             m2 = sub_BinNat(m, divisor)
             match cmp_BinNat(m2, divisor):
@@ -320,8 +320,8 @@ def round_trip_law(i, msg):
 def next_law(i, msg):
   Assertion(i.to_BinNat().next().to_Int().eq_Int(i.add(1)), msg)
 
-def times2_law(i, msg):
-  Assertion(i.to_BinNat().times2().to_Int().eq_Int(i.times(2)), msg)
+def mul2_law(i, msg):
+  Assertion(i.to_BinNat().mul2().to_Int().eq_Int(i.mul(2)), msg)
 
 two = one.next()
 three = two.next()
@@ -358,7 +358,7 @@ test = TestSuite(
     Assertion(5.to_BinNat().next().prev().to_Int().eq_Int(5), "5.next().prev == 5"),
     Assertion(10.to_BinNat().next().prev().to_Int().eq_Int(10), "10.next().prev == 10"),
     Assertion(10.to_BinNat().add_BinNat(11.to_BinNat()).to_Int().eq_Int(21), "add_BinNat(10, 11) == 21"),
-    TestSuite("times2 law", [times2_law(i, msg) for (i, msg) in [
+    TestSuite("mul2 law", [mul2_law(i, msg) for (i, msg) in [
       (0, "0 * 2"),
       (1, "1 * 2"),
       (2, "2 * 2"),

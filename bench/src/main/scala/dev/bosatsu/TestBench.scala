@@ -139,7 +139,7 @@ def num_is_palindrome(n):
   is_palindrome(digits, eq_Int)
 
 def product_palindrome(n1, n2):
-  prod = n1.times(n2)
+  prod = n1.mul(n2)
   Some(prod) if num_is_palindrome(prod) else None
 
 max_pal_opt = max_of(99, n1 -> first_of(99, product_palindrome(n1)))

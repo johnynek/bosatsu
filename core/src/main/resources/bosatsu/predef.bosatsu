@@ -88,7 +88,7 @@ export (
   subf,
   cmp_String,
   string_Order,
-  times,
+  mul,
   timesf,
   trace,
   uncurry2,
@@ -208,7 +208,7 @@ external struct Float64
 
 external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
-external def times(a: Int, b: Int) -> Int
+external def mul(a: Int, b: Int) -> Int
 external def div(a: Int, b: Int) -> Int
 external def eq_Int(a: Int, b: Int) -> Bool
 external def gcd_Int(a: Int, b: Int) -> Int

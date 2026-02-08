@@ -35,7 +35,7 @@ def none_divide(primes, x):
 # to sum up to k^2 values to find the k^th prime.
 # we need to know a finite upper bound since we can't loop forever.
 def ith_prime(total):
-  max_size = range(total.times(total))
+  max_size = range(total.mul(total))
   # we could do int_loop or int_loop up, this was a bit simpler
   (ps, _) = max_size.foldl_List(([], 0), (prime_cnt, i) ->
     #2 is the first prime

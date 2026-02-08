@@ -406,10 +406,10 @@ foo = _ -> 1
       ()
     )
 
-  val PredefTimes: TypedExpr[Unit] =
+  val PredefMul: TypedExpr[Unit] =
     TypedExpr.Global(
       PackageName.PredefName,
-      Identifier.Name("times"),
+      Identifier.Name("mul"),
       Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), Type.IntType),
       ()
     )
@@ -605,7 +605,7 @@ foo = _ -> 1
 
   test("we can normalize multiplication") {
     val six = TypedExpr.App(
-      PredefTimes,
+      PredefMul,
       NonEmptyList.of(int(2), int(3)),
       Type.IntType,
       ()
@@ -613,7 +613,7 @@ foo = _ -> 1
     assertEquals(TypedExprNormalization.normalize(six), Some(int(6)))
 
     val zeroR = TypedExpr.App(
-      PredefTimes,
+      PredefMul,
       NonEmptyList.of(varTE("x", intTpe), int(0)),
       Type.IntType,
       ()
@@ -621,7 +621,7 @@ foo = _ -> 1
     assertEquals(TypedExprNormalization.normalize(zeroR), Some(int(0)))
 
     val zeroL = TypedExpr.App(
-      PredefTimes,
+      PredefMul,
       NonEmptyList.of(int(0), varTE("x", intTpe)),
       Type.IntType,
       ()
