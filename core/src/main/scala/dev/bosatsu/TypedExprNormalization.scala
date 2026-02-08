@@ -262,6 +262,182 @@ object TypedExprNormalization {
       loop(te)
     }
 
+  @annotation.tailrec
+  private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
+    te match {
+      case Generic(_, in)    => stripTypeWrappers(in)
+      case Annotation(in, _) => stripTypeWrappers(in)
+      case _                 => te
+    }
+
+  private def isSameLocalRef[A](expected: Bindable, te: TypedExpr[A]): Boolean =
+    stripTypeWrappers(te) match {
+      case Local(n, _, _) => n == expected
+      case _              => false
+    }
+
+  private def combineInvariantFlags(
+      left: Option[Vector[Boolean]],
+      right: Option[Vector[Boolean]]
+  ): Option[Vector[Boolean]] =
+    (left, right) match {
+      case (None, r) => r
+      case (l, None) => l
+      case (Some(l), Some(r)) =>
+        val merged =
+          if (l.length == r.length) {
+            l.iterator.zip(r.iterator).map { case (lb, rb) => lb && rb }.toVector
+          } else {
+            // Defensive fallback: typed programs should never mismatch arities.
+            Vector.fill(l.length max r.length)(false)
+          }
+        Some(merged)
+    }
+
+  // Return conjunction flags for outer recur arguments:
+  // flag(i) is true iff every outer recur passes the i-th loop binder unchanged.
+  private def outerRecurInvariantFlags[A](
+      te: TypedExpr[A],
+      loopNames: Vector[Bindable],
+      inNestedLoop: Boolean
+  ): Option[Vector[Boolean]] = {
+    def loopList(
+        exprs: List[TypedExpr[A]],
+        init: Option[Vector[Boolean]]
+    ): Option[Vector[Boolean]] =
+      exprs.foldLeft(init) { (acc, e) =>
+        combineInvariantFlags(
+          acc,
+          outerRecurInvariantFlags(e, loopNames, inNestedLoop)
+        )
+      }
+
+    te match {
+      case Generic(_, in) =>
+        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+      case Annotation(in, _) =>
+        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+      case AnnotatedLambda(_, in, _) =>
+        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+      case App(fn, args, _, _) =>
+        combineInvariantFlags(
+          outerRecurInvariantFlags(fn, loopNames, inNestedLoop),
+          loopList(args.toList, None)
+        )
+      case Let(_, expr, in, _, _) =>
+        combineInvariantFlags(
+          outerRecurInvariantFlags(expr, loopNames, inNestedLoop),
+          outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+        )
+      case Loop(loopArgs, loopBody, _) =>
+        val initFlags = loopArgs.toList.foldLeft(Option.empty[Vector[Boolean]]) {
+          case (acc, (_, initExpr)) =>
+            combineInvariantFlags(
+              acc,
+              outerRecurInvariantFlags(initExpr, loopNames, inNestedLoop)
+            )
+        }
+        combineInvariantFlags(
+          initFlags,
+          outerRecurInvariantFlags(loopBody, loopNames, inNestedLoop = true)
+        )
+      case Recur(args, _, _) if !inNestedLoop =>
+        if (args.length == loopNames.length) {
+          Some(
+            args.iterator
+              .zip(loopNames.iterator)
+              .map { case (arg, expected) => isSameLocalRef(expected, arg) }
+              .toVector
+          )
+        } else {
+          // Defensive fallback: typed programs should never mismatch arities.
+          Some(Vector.fill(loopNames.length)(false))
+        }
+      case Recur(_, _, _) =>
+        None
+      case Match(arg, branches, _) =>
+        combineInvariantFlags(
+          outerRecurInvariantFlags(arg, loopNames, inNestedLoop),
+          branches.toList.foldLeft(Option.empty[Vector[Boolean]]) {
+            case (acc, (_, branchExpr)) =>
+              combineInvariantFlags(
+                acc,
+                outerRecurInvariantFlags(branchExpr, loopNames, inNestedLoop)
+              )
+          }
+        )
+      case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+        None
+    }
+  }
+
+  // Rewrite outer recur nodes by dropping fixed argument positions.
+  // Nested loop bodies are excluded so inner recur nodes keep their own arity.
+  private def dropOuterRecurArgs[A](
+      te: TypedExpr[A],
+      dropPositions: Vector[Boolean],
+      inNestedLoop: Boolean
+  ): TypedExpr[A] =
+    te match {
+      case g @ Generic(q, in) =>
+        val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
+        if (in1 eq in) g else Generic(q, in1)
+      case a @ Annotation(in, tpe) =>
+        val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
+        if (in1 eq in) a else Annotation(in1, tpe)
+      case lam @ AnnotatedLambda(args, body, tag) =>
+        val body1 = dropOuterRecurArgs(body, dropPositions, inNestedLoop)
+        if (body1 eq body) lam
+        else AnnotatedLambda(args, body1, tag)
+      case app @ App(fn, args, tpe, tag) =>
+        val fn1 = dropOuterRecurArgs(fn, dropPositions, inNestedLoop)
+        val args1 = ListUtil.mapConserveNel(args) { arg =>
+          dropOuterRecurArgs(arg, dropPositions, inNestedLoop)
+        }
+        if ((fn1 eq fn) && (args1 eq args)) app
+        else App(fn1, args1, tpe, tag)
+      case let @ Let(arg, expr, in, rec, tag) =>
+        val expr1 = dropOuterRecurArgs(expr, dropPositions, inNestedLoop)
+        val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
+        if ((expr1 eq expr) && (in1 eq in)) let
+        else Let(arg, expr1, in1, rec, tag)
+      case lp @ Loop(args, body, tag) =>
+        val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
+          (n, dropOuterRecurArgs(initExpr, dropPositions, inNestedLoop))
+        }
+        val body1 = dropOuterRecurArgs(body, dropPositions, inNestedLoop = true)
+        if ((args1 eq args) && (body1 eq body)) lp
+        else Loop(args1, body1, tag)
+      case recur @ Recur(args, tpe, tag) =>
+        val args1 = ListUtil.mapConserveNel(args) { arg =>
+          dropOuterRecurArgs(arg, dropPositions, inNestedLoop)
+        }
+        if (inNestedLoop) {
+          if (args1 eq args) recur
+          else Recur(args1, tpe, tag)
+        } else if (args1.length == dropPositions.length) {
+          val kept = args1.toList.iterator
+            .zip(dropPositions.iterator)
+            .collect { case (arg, false) => arg }
+            .toList
+          val args2 = NonEmptyList.fromListUnsafe(kept)
+          if ((args1 eq args) && !dropPositions.contains(true)) recur
+          else Recur(args2, tpe, tag)
+        } else {
+          // Defensive fallback: typed programs should never mismatch arities.
+          recur
+        }
+      case m @ Match(arg, branches, tag) =>
+        val arg1 = dropOuterRecurArgs(arg, dropPositions, inNestedLoop)
+        val branches1 = ListUtil.mapConserveNel(branches) { case (p, branchExpr) =>
+          (p, dropOuterRecurArgs(branchExpr, dropPositions, inNestedLoop))
+        }
+        if ((arg1 eq arg) && (branches1 eq branches)) m
+        else Match(arg1, branches1, tag)
+      case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
+        n
+    }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A: Eq, V](
@@ -496,79 +672,84 @@ object TypedExprNormalization {
             (rec1, ex2)
           } else (rec, ex1)
 
-        ex2 match {
-          case Let(ex1a, ex1ex, ex1in, RecursionKind.NonRecursive, ex1tag)
-              if !rec1.isRecursive && in.notFree(ex1a) =>
-            // according to a SPJ paper, it is generally better
-            // to float lets out of nesting inside in:
-            // let foo = let bar = x in bar in foo
-            //
-            // is better to write:
-            // let bar = x in let foo = bar in foo
-            // since you are going to evaluate and keep in scope
-            // the expression
-            // we can lift
-            val l1 = Let(
-              ex1a,
-              ex1ex,
-              Let(arg, ex1in, in, RecursionKind.NonRecursive, tag),
-              RecursionKind.NonRecursive,
-              ex1tag
-            )
-            normalize1(namerec, l1, scope, typeEnv)
-          case _ =>
-            val scopeIn = si.updated(arg, (rec1, ex2, si))
+        if (!rec1.isRecursive && isSameLocalRef(arg, ex2)) {
+          // Non-recursive identity lets are pure no-ops:
+          // let x = x in body  ==>  body
+          normalize1(namerec, in, scope, typeEnv)
+        } else
+          ex2 match {
+            case Let(ex1a, ex1ex, ex1in, RecursionKind.NonRecursive, ex1tag)
+                if !rec1.isRecursive && in.notFree(ex1a) =>
+              // according to a SPJ paper, it is generally better
+              // to float lets out of nesting inside in:
+              // let foo = let bar = x in bar in foo
+              //
+              // is better to write:
+              // let bar = x in let foo = bar in foo
+              // since you are going to evaluate and keep in scope
+              // the expression
+              // we can lift
+              val l1 = Let(
+                ex1a,
+                ex1ex,
+                Let(arg, ex1in, in, RecursionKind.NonRecursive, tag),
+                RecursionKind.NonRecursive,
+                ex1tag
+              )
+              normalize1(namerec, l1, scope, typeEnv)
+            case _ =>
+              val scopeIn = si.updated(arg, (rec1, ex2, si))
 
-            val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
-            in1 match {
-              case Match(marg, branches, mtag)
-                  if !rec1.isRecursive && marg.notFree(arg) && branches.exists {
-                    case (p, r) => p.names.contains(arg) || r.notFree(arg)
-                  } =>
-                // x = y
-                // match z:
-                //   case w: ww
-                //
-                // can be rewritten as
-                // match z:
-                //   case w:
-                //     x = y
-                //     ww
-                //
-                // when z is not free in x, and at least one branch is not free in x
-                val b1 = branches.map { case (p, r) =>
-                  if (p.names.contains(arg) || r.notFree(arg)) (p, r)
-                  else (p, Let(arg, ex2, r, rec1, tag))
-                }
-                normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
-              case _ =>
-                val cnt = in1.freeVarsDup.count(_ == arg)
-                if (cnt > 0) {
-                  // the arg is needed
-                  val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
-                  val shouldInline = (!rec1.isRecursive) && {
-                    (cnt == 1) || isSimp
+              val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
+              in1 match {
+                case Match(marg, branches, mtag)
+                    if !rec1.isRecursive && marg.notFree(arg) && branches.exists {
+                      case (p, r) => p.names.contains(arg) || r.notFree(arg)
+                    } =>
+                  // x = y
+                  // match z:
+                  //   case w: ww
+                  //
+                  // can be rewritten as
+                  // match z:
+                  //   case w:
+                  //     x = y
+                  //     ww
+                  //
+                  // when z is not free in x, and at least one branch is not free in x
+                  val b1 = branches.map { case (p, r) =>
+                    if (p.names.contains(arg) || r.notFree(arg)) (p, r)
+                    else (p, Let(arg, ex2, r, rec1, tag))
                   }
-                  // we don't want to inline a value that is itself a function call
-                  // inside of lambdas
-                  val inlined =
-                    if (shouldInline)
-                      substitute(arg, ex2, in1, enterLambda = isSimp)
-                    else None
-                  inlined match {
-                    case Some(il) =>
-                      normalize1(namerec, il, scope, typeEnv)
-                    case None =>
-                      val step = Let(arg, ex2, in1, rec1, tag)
-                      if ((step: TypedExpr[A]) === te) None
-                      else normalize1(namerec, step, scope, typeEnv)
+                  normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
+                case _ =>
+                  val cnt = in1.freeVarsDup.count(_ == arg)
+                  if (cnt > 0) {
+                    // the arg is needed
+                    val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
+                    val shouldInline = (!rec1.isRecursive) && {
+                      (cnt == 1) || isSimp
+                    }
+                    // we don't want to inline a value that is itself a function call
+                    // inside of lambdas
+                    val inlined =
+                      if (shouldInline)
+                        substitute(arg, ex2, in1, enterLambda = isSimp)
+                      else None
+                    inlined match {
+                      case Some(il) =>
+                        normalize1(namerec, il, scope, typeEnv)
+                      case None =>
+                        val step = Let(arg, ex2, in1, rec1, tag)
+                        if ((step: TypedExpr[A]) === te) None
+                        else normalize1(namerec, step, scope, typeEnv)
+                    }
+                  } else {
+                    // let x = y in z if x isn't free in z = z
+                    Some(in1)
                   }
-                } else {
-                  // let x = y in z if x isn't free in z = z
-                  Some(in1)
-                }
-            }
-        }
+              }
+          }
       case Loop(args, body, tag) =>
         def hasOuterRecur(te: TypedExpr[A], inNestedLoop: Boolean): Boolean =
           te match {
@@ -613,9 +794,49 @@ object TypedExprNormalization {
             typeEnv
           )
         } else {
-          val loop1 = Loop(args1, body1, tag)
-          if ((loop1: TypedExpr[A]) === te) None
-          else Some(loop1)
+          val loopNames = args1.iterator.map(_._1).toVector
+          val invariantFlags =
+            outerRecurInvariantFlags(body1, loopNames, inNestedLoop = false)
+              .getOrElse(Vector.fill(loopNames.length)(false))
+
+          // Loop/Recur requires at least one argument.
+          // Keep the final slot to guarantee we never create an empty loop.
+          val liftFlags =
+            invariantFlags.updated(invariantFlags.length - 1, false)
+
+          if (liftFlags.contains(true)) {
+            val (liftedRev, keptRev) =
+              args1.toList.iterator
+                .zip(liftFlags.iterator)
+                .foldLeft(
+                  (
+                    List.empty[(Bindable, TypedExpr[A])],
+                    List.empty[(Bindable, TypedExpr[A])]
+                  )
+                ) { case ((liftedAcc, keptAcc), (argDef, shouldLift)) =>
+                  if (shouldLift) (argDef :: liftedAcc, keptAcc)
+                  else (liftedAcc, argDef :: keptAcc)
+                }
+
+            val lifted = liftedRev.reverse
+            val kept = keptRev.reverse
+            val body2 = dropOuterRecurArgs(body1, liftFlags, inNestedLoop = false)
+            val loop2 = Loop(NonEmptyList.fromListUnsafe(kept), body2, tag)
+            val rewritten =
+              NonEmptyList.fromList(lifted) match {
+                case Some(liftedNel) =>
+                  // Lifted loop invariants no longer need to be threaded through recur.
+                  TypedExpr.letAllNonRec(liftedNel, loop2, tag)
+                case None =>
+                  loop2
+              }
+
+            normalize1(namerec, rewritten, scope, typeEnv)
+          } else {
+            val loop1 = Loop(args1, body1, tag)
+            if ((loop1: TypedExpr[A]) === te) None
+            else Some(loop1)
+          }
         }
       case Recur(args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)

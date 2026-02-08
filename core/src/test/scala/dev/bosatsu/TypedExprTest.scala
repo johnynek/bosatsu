@@ -694,6 +694,136 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     assertEquals(TypedExprNormalization.normalize(loopExpr), Some(int(1)))
   }
 
+  test("normalization lifts invariant loop arguments into let bindings") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val yPlusOne = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(yVar, int(1)),
+      intTpe,
+      ()
+    )
+    val loopBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yPlusOne), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.of((xName, int(10)), (yName, int(1))),
+      loopBody,
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(loopExpr)
+    val maybeLoop = normalized match {
+      case Some(TypedExpr.Loop(loopArgs, normBody, _)) =>
+        Some((loopArgs, normBody))
+      case Some(
+            TypedExpr.Let(
+              `xName`,
+              _,
+              TypedExpr.Loop(loopArgs, normBody, _),
+              RecursionKind.NonRecursive,
+              _
+            )
+          ) =>
+        Some((loopArgs, normBody))
+      case _ =>
+        None
+    }
+
+    maybeLoop match {
+      case Some((loopArgs, normBody)) =>
+        assertEquals(loopArgs.toList.map(_._1), List(yName))
+        normBody match {
+          case TypedExpr.Match(_, branches, _) =>
+            val recurArgs = branches.toList.collect {
+              case (_, TypedExpr.Recur(args, _, _)) => args
+            }
+            assertEquals(recurArgs.map(_.length), List(1))
+            assert(!recurArgs.exists(_.exists(_.freeVarsDup.contains(xName))))
+          case other =>
+            fail(s"expected normalized loop body match, got: ${other.repr}")
+        }
+      case None =>
+        fail(s"expected invariant lift into single-arg loop, got: $normalized")
+    }
+  }
+
+  test("normalization keeps final loop argument even when invariant") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val loopBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yVar), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.of((xName, int(10)), (yName, int(1))),
+      loopBody,
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(loopExpr)
+    val maybeLoop = normalized match {
+      case Some(TypedExpr.Loop(loopArgs, normBody, _)) =>
+        Some((loopArgs, normBody))
+      case Some(
+            TypedExpr.Let(
+              `xName`,
+              _,
+              TypedExpr.Loop(loopArgs, normBody, _),
+              RecursionKind.NonRecursive,
+              _
+            )
+          ) =>
+        Some((loopArgs, normBody))
+      case _ =>
+        None
+    }
+
+    maybeLoop match {
+      case Some((loopArgs, normBody)) =>
+        // Even when every recur argument is invariant, we retain one slot.
+        assertEquals(loopArgs.toList.map(_._1), List(yName))
+        normBody match {
+          case TypedExpr.Match(_, branches, _) =>
+            val recurArities = branches.toList.collect {
+              case (_, TypedExpr.Recur(args, _, _)) => args.length
+            }
+            assertEquals(recurArities, List(1))
+          case other =>
+            fail(s"expected normalized loop body match, got: ${other.repr}")
+        }
+      case None =>
+        fail(s"expected lifted invariant with retained final loop arg, got: $normalized")
+    }
+  }
+
+  test("normalization removes non-recursive identity let bindings") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val wrappedX = TypedExpr.Annotation(xVar, intTpe)
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(xVar, int(1)), intTpe, ())
+    val identLet =
+      TypedExpr.Let(xName, wrappedX, body, RecursionKind.NonRecursive, ())
+
+    assertEquals(
+      TypedExprNormalization.normalize(identLet),
+      TypedExprNormalization.normalize(body)
+    )
+  }
+
   val normalLet =
     let(
       "x",
