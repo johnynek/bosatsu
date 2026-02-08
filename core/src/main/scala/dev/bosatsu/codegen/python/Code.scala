@@ -560,6 +560,10 @@ object Code {
           fromBoolean(a != b)
         case Op(PyInt(a), Const.Eq, PyInt(b)) =>
           fromBoolean(a == b)
+        // Python float comparisons here follow IEEE-754 (matching JVM behavior):
+        // NaN != NaN and ordered compares with NaN are false. Bosatsu Float64's
+        // total comparison/equality semantics are implemented via Bosatsu externals
+        // (e.g. cmp_Float64 and pattern compilation), not by relying on these ops.
         case Op(PyFloat(a), Const.Gt, PyFloat(b)) =>
           fromBoolean(a > b)
         case Op(PyFloat(a), Const.Lt, PyFloat(b)) =>

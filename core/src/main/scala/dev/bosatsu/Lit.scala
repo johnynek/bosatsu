@@ -26,12 +26,7 @@ object Lit {
       case (Integer(a), Integer(b)) => a == b
       case (Str(a), Str(b))         => a == b
       case (Chr(a), Chr(b))         => a == b
-      case (a: Float64, b: Float64) =>
-        val ad = a.toDouble
-        val bd = b.toDouble
-        // Float literal equality follows runtime Float64 equality:
-        // -0.0 == 0.0 and NaN == NaN.
-        (ad == bd) || (java.lang.Double.isNaN(ad) && java.lang.Double.isNaN(bd))
+      case (a: Float64, b: Float64) => Float64.semanticEquals(a, b)
       case _                        => false
     }
   case class Integer(toBigInteger: BigInteger) extends Lit {
@@ -95,6 +90,8 @@ object Lit {
     def semanticEquals(a: Float64, b: Float64): Boolean = {
       val ad = a.toDouble
       val bd = b.toDouble
+      // Float literal equality follows runtime Float64 equality:
+      // -0.0 == 0.0 and NaN == NaN.
       (ad == bd) || (java.lang.Double.isNaN(ad) && java.lang.Double.isNaN(bd))
     }
 
@@ -180,31 +177,24 @@ object Lit {
   // This accepts python-style decimal float syntax plus optional leading sign.
   private val float64StringParser: P[String] = {
     val nanLiteral = P.string(".NaN").as("NaN")
-    val withFraction =
-      (digitPart ~ P.char('.') ~ digitPart ~ exponentPart.?).string
-    val withExpNoFraction = (digitPart ~ P.char('.') ~ exponentPart).string
     val leadingDot = (P.char('.') ~ digitPart ~ exponentPart.?).string
-    val intWithExponent = (digitPart ~ exponentPart).string
-    val trailingDot = ((digitPart ~ P.char('.')).string <* float64TrailingDotEnd)
-    val body =
-      withFraction
-        .backtrack
-        .orElse(withExpNoFraction.backtrack)
-        .orElse(leadingDot.backtrack)
-        .orElse(intWithExponent.backtrack)
-        .orElse(trailingDot)
+    val dotTail =
+      (P.char('.') ~ (
+        (digitPart ~ exponentPart.?).string
+          .orElse(exponentPart)
+          .orElse(P.pure("") <* float64TrailingDotEnd)
+      )).string
+    val digitStartBody = (digitPart ~ (dotTail.orElse(exponentPart))).string
+    val body = leadingDot.orElse(digitStartBody)
 
-    val infinity: P[String] =
-      (P.charIn("+-").?.with1 ~ P.char('\u221E')).map {
-        case (Some('-'), _) => "-Infinity"
-        case _              => "Infinity"
-      }
+    val infinity = P.char('\u221E').as("Infinity")
+    val signed = (P.charIn("+-") ~ (infinity.orElse(body))).map {
+      case ('-', "Infinity") => "-Infinity"
+      case ('+', "Infinity") => "Infinity"
+      case (sign, value)      => sign.toString + value
+    }
 
-    nanLiteral
-      .backtrack
-      .orElse(infinity.backtrack)
-      .orElse((P.charIn("+-") ~ body).string)
-      .orElse(body)
+    nanLiteral.orElse(signed).orElse(infinity).orElse(body)
   }
 
   private def parseFloat64(str: String): Option[Float64] = {

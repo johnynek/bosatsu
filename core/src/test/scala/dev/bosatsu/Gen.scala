@@ -5,6 +5,7 @@ import cats.Traverse
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
+import scala.compiletime.summonFrom
 
 import rankn.NTypeGen.{consIdentGen, packageNameGen, lowerIdent, typeNameGen}
 
@@ -1070,6 +1071,25 @@ object Generators {
         }
     }
 
+  private def semanticShrinkDouble(d: Double): LazyList[Double] =
+    if (java.lang.Double.isNaN(d)) {
+      LazyList(java.lang.Double.POSITIVE_INFINITY, java.lang.Double.NEGATIVE_INFINITY)
+    } else if (d == java.lang.Double.POSITIVE_INFINITY) {
+      LazyList(java.lang.Double.MAX_VALUE, 1.0d, 0.0d)
+    } else if (d == java.lang.Double.NEGATIVE_INFINITY) {
+      LazyList(-java.lang.Double.MAX_VALUE, -1.0d, 0.0d)
+    } else if (d == 0.0d) {
+      LazyList.empty
+    } else {
+      LazyList(d * 0.5d, d * -0.95d, -d, 0.0d)
+    }
+
+  private inline def shrinkFloat64Semantics(d: Double): LazyList[Double] =
+    summonFrom {
+      case s: Shrink[Double] => LazyList.from(s.shrink(d))
+      case _                 => semanticShrinkDouble(d)
+    }
+
   implicit def shrinkPattern[N, T]: Shrink[Pattern[N, T]] = {
     lazy val res: Shrink[Pattern[N, T]] =
       Shrink.withLazyList { p =>
@@ -1090,9 +1110,8 @@ object Generators {
               .from(implicitly[Shrink[BigInt]].shrink(BigInt(s)))
               .map(s => Pattern.Literal(Lit.Integer(s.bigInteger)))
           case Pattern.Literal(Lit.Float64(bits)) =>
-            LazyList
-              .from(implicitly[Shrink[Long]].shrink(bits))
-              .map(b => Pattern.Literal(Lit.Float64.fromRawLongBits(b)))
+            shrinkFloat64Semantics(java.lang.Double.longBitsToDouble(bits))
+              .map(d => Pattern.Literal(Lit.Float64.fromDouble(d)))
           case Pattern.Literal(_)  => LazyList.empty
           case Pattern.ListPat(ls) =>
             if (ls.isEmpty) LazyList.empty
