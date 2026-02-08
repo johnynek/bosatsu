@@ -18,7 +18,7 @@ class SelfCallKindTest extends munit.ScalaCheckSuite {
     gen(Gen.const(()))
 
   test("test selfCallKind") {
-    import SelfCallKind.{NoCall, NonTailCall, TailCall, apply => selfCallKind}
+    import SelfCallKind.{NoCall, NonTailCall, apply => selfCallKind}
 
     checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
@@ -28,7 +28,7 @@ def list_len(list, acc):
   recur list:
     case E: acc
     case NE(_, t): list_len(t, S(acc))
-""")(te => assertEquals(selfCallKind(Name("list_len"), te), TailCall))
+""")(te => assertEquals(selfCallKind(Name("list_len"), te), NoCall))
 
     checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
@@ -64,11 +64,7 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         case T: for_all(tail, fn)
         case F: F
 """) { te =>
-      assertEquals(
-        SelfCallKind(Name("for_all"), te),
-        SelfCallKind.TailCall,
-        s"${te.repr}"
-      )
+      assertEquals(SelfCallKind(Name("for_all"), te), SelfCallKind.NoCall, s"${te.repr}")
     }
   }
 

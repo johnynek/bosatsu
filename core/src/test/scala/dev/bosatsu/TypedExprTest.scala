@@ -657,6 +657,28 @@ foo = _ -> 1
     assertEquals(TypedExpr.allVarsSet(norm :: Nil).contains(fName), false)
   }
 
+  test("normalizeAll lowers top-level recur defs to Loop and drops recursive kind") {
+    TestUtils.checkPackageMap("""
+enum List[a]: E, NE(head: a, tail: List[a])
+enum B: T, F
+
+def for_all(xs: List[a], fn: a -> B) -> B:
+  recur xs:
+    case E: T
+    case NE(head, tail):
+      match fn(head):
+        case T: for_all(tail, fn)
+        case F: F
+    """) { pm =>
+      val pack = pm.toMap(TestUtils.testPackage)
+      val (name, rec, te) = pack.lets.find(_._1 == Identifier.Name("for_all")).get
+      assertEquals(name, Identifier.Name("for_all"))
+      assertEquals(rec, RecursionKind.NonRecursive)
+      assert(hasLoop(te.void), te.reprString)
+      assertEquals(hasRecursiveLet(te.void), false, te.reprString)
+    }
+  }
+
   test("normalization removes Loop when Recur is normalized away") {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())

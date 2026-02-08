@@ -120,19 +120,19 @@ int main(int argc, char** argv) {
 #include <stdlib.h>
 #include "gc.h"
 
-BValue __bsts_t_closure0(BValue* __bstsi_slot,
-    BValue __bsts_b_a0,
-    BValue __bsts_b_b0) {
+BValue ___bsts_g_Bosatsu_l_Predef_l_foldl__List(BValue __bsts_b_lst0,
+    BValue __bsts_b_item0,
+    BValue __bsts_b_fn0) {
     BValue __bsts_a_0;
     BValue __bsts_a_1;
     BValue __bsts_a_3;
     BValue __bsts_a_5;
-    __bsts_a_3 = __bsts_b_a0;
-    __bsts_a_5 = __bsts_b_b0;
+    __bsts_a_3 = __bsts_b_lst0;
+    __bsts_a_5 = __bsts_b_item0;
     __bsts_a_0 = alloc_enum0(1);
-    _Bool __bsts_l_cond1;
-    __bsts_l_cond1 = get_variant_value(__bsts_a_0) == 1;
-    while (__bsts_l_cond1) {
+    _Bool __bsts_l_cond0;
+    __bsts_l_cond0 = get_variant_value(__bsts_a_0) == 1;
+    while (__bsts_l_cond0) {
         if (get_variant(__bsts_a_3) == 0) {
             __bsts_a_0 = alloc_enum0(0);
             __bsts_a_1 = __bsts_a_5;
@@ -141,38 +141,29 @@ BValue __bsts_t_closure0(BValue* __bstsi_slot,
             BValue __bsts_b_head0 = get_enum_index(__bsts_a_3, 0);
             BValue __bsts_b_tail0 = get_enum_index(__bsts_a_3, 1);
             BValue __bsts_a_2 = __bsts_b_tail0;
-            BValue __bsts_a_4 = call_fn2(__bstsi_slot[0],
+            BValue __bsts_a_4 = call_fn2(__bsts_b_fn0,
                 __bsts_a_5,
                 __bsts_b_head0);
             __bsts_a_3 = __bsts_a_2;
             __bsts_a_5 = __bsts_a_4;
         }
-        __bsts_l_cond1 = get_variant_value(__bsts_a_0) == 1;
+        __bsts_l_cond0 = get_variant_value(__bsts_a_0) == 1;
     }
     return __bsts_a_1;
 }
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_foldl__List(BValue __bsts_b_lst0,
-    BValue __bsts_b_item0,
-    BValue __bsts_b_fn0) {
-    BValue __bsts_l_captures2[1] = { __bsts_b_fn0 };
-    BValue __bsts_b_c0 = alloc_closure2(1,
-        __bsts_l_captures2,
-        __bsts_t_closure0);
-    return call_fn2(__bsts_b_c0, __bsts_b_lst0, __bsts_b_item0);
-}
-
-BValue __bsts_t_lambda3(BValue __bsts_b_a0, BValue __bsts_b_b0) {
+BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
+    BValue __bsts_b_back0) {
     BValue __bsts_a_6;
     BValue __bsts_a_7;
     BValue __bsts_a_9;
     BValue __bsts_a_11;
-    __bsts_a_9 = __bsts_b_a0;
-    __bsts_a_11 = __bsts_b_b0;
+    __bsts_a_9 = __bsts_b_front0;
+    __bsts_a_11 = __bsts_b_back0;
     __bsts_a_6 = alloc_enum0(1);
-    _Bool __bsts_l_cond4;
-    __bsts_l_cond4 = get_variant_value(__bsts_a_6) == 1;
-    while (__bsts_l_cond4) {
+    _Bool __bsts_l_cond1;
+    __bsts_l_cond1 = get_variant_value(__bsts_a_6) == 1;
+    while (__bsts_l_cond1) {
         if (get_variant(__bsts_a_9) == 0) {
             __bsts_a_6 = alloc_enum0(0);
             __bsts_a_7 = __bsts_a_11;
@@ -185,15 +176,9 @@ BValue __bsts_t_lambda3(BValue __bsts_b_a0, BValue __bsts_b_b0) {
             __bsts_a_9 = __bsts_a_8;
             __bsts_a_11 = __bsts_a_10;
         }
-        __bsts_l_cond4 = get_variant_value(__bsts_a_6) == 1;
+        __bsts_l_cond1 = get_variant_value(__bsts_a_6) == 1;
     }
     return __bsts_a_7;
-}
-
-BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
-    BValue __bsts_b_back0) {
-    BValue __bsts_b_c0 = alloc_boxed_pure_fn2(__bsts_t_lambda3);
-    return call_fn2(__bsts_b_c0, __bsts_b_front0, __bsts_b_back0);
 }
 
 int main(int argc, char** argv) {

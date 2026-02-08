@@ -70,23 +70,20 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
         val expected =
           "\n\n" +
-            """def ___h0(___ba0, ___bb0):
-    ___a4 = ___ba0
-    ___a6 = ___bb0
+            """def length_String(___bs0):
+    ___a4 = ___bs0
+    ___a6 = 0
     ___a1 = 1
-    ___t2 = True
-    while ___t2:
+    ___t1 = True
+    while ___t1:
         if ___a4 == "":
             ___a1 = 0
             ___a2 = ___a6
         else:
             ___a4 = ___a4[1:]
             ___a6 = ___a6 + 1
-        ___t2 = ___a1 == 1
-    return ___a2
-
-def length_String(___bs0):
-    return ___h0(___bs0, 0)"""
+        ___t1 = ___a1 == 1
+    return ___a2"""
         assertEquals(code, expected)
       }
     }
