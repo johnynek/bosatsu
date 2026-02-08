@@ -4,6 +4,7 @@
 * [Design Philosophy](design.md)
 * [Getting Started](getting_started.md)
 * [Language Guide](language_guide.md)
+* [Recursion In Bosatsu](recursion.md)
 * [Bosatsu for JSON Generation](generating_json.md)
 * [Compiling to Python](transpile_python.md)
 @@@
@@ -62,4 +63,3 @@ There are also some un-features, or items we don't currently and may never suppo
    arguments of functions), and recursive functions have to be a certain form that will always
    terminate
 1. There is no `while` syntax. The closest we have are tail-recursive functions which recurse on sub-values of the inputs. There is a design sketch of automatically translating for loops on lists into folds [issue 20](https://github.com/johnynek/bosatsu/issues/20).
-

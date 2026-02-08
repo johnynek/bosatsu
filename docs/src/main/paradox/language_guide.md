@@ -252,8 +252,8 @@ from Bosatsu/Predef import add as operator +
 ```
 
 ### Recursive functions
-We have very limited support for recursion so that we may prove that all
-recursive functions terminate. Here is an example:
+Bosatsu supports recursion through `recur`, but only in forms the compiler can
+prove terminate. A simple structural example:
 ```
 def len(lst):
   recur lst:
@@ -261,24 +261,7 @@ def len(lst):
     case [_, *tail]: len(tail).add(1)
 ```
 
-In the above, we see the `recur` syntax. This is a normal match with two
-restrictions: 1. it can only be on a literal parameter of the nearest enclosing
-`def`, 2. a function may have at most one recur in a body, which is not enclosed
-by an inner def. Inside the branches of such a recur, recursion on the enclosing
-`def` is permitted if it meets certain constraints which prevent unbounded loops:
-
-In at least one branch of the recur match there must be a recursive call that
-must take a substructure of the argument the recur is matching on. In the above
-example, tail is a substructure of lst, and is used in the same parameter as
-list appeared in.
-
-These are strict rules, but they guarantee that each recursive function
-terminates in a finite number of steps, and can never loop forever. The
-recommendation is to avoid recursive defs as much as possible and limit the
-number of arguments as much as possible.
-
-Tail recursive loops are optimized into loops, which are safe for cases where
-recursion depth is high. If you can, prefer to use tail recursive loops:
+Tail-recursive style is common:
 ```
 def len(lst):
   def loop(acc, lst):
@@ -289,41 +272,18 @@ def len(lst):
   loop(0, lst)
 ```
 
+For full recursion rules and advanced patterns (fuel, divide-and-conquer with a
+size bound, string recursion, trees, Ackermann-style nested recursion), see
+[Recursion in Bosatsu](recursion.html).
+
 ## Loops (with `recur`)
-Bosatsu has no `while` or `for`. Looping is expressed with `recur` inside a
-`def`, and the compiler only allows recursion it can prove terminates. The
-test_workspace examples show two common strategies:
+Bosatsu has no `while` or `for`. Loops are recursive defs using `recur`. In
+practice, most loops are either:
+1. structural recursion on subvalues (like a list tail or tree branch), or
+1. explicit fuel recursion on a decreasing `Nat`.
 
-### 1) Structural recursion (substructure)
-Recur on a recursive input and call the function on a smaller part. Simplified
-from `test_workspace/List.bosatsu`:
-```
-def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
-    case []: True
-    case [h, *t]:
-      if fn(h): for_all(t, fn)
-      else: False
-```
-
-### 2) Fuel pattern (explicit bound)
-When the loop is not naturally substructural, compute a bound (a `Nat`, `List`,
-or `String`) that is at least as large as the number of steps, then recur on
-that fuel and make it smaller each time. Simplified from
-`test_workspace/BinNat.bosatsu`:
-```
-def fib(b: BinNat) -> BinNat:
-  def loop(fuel: Nat, cur: BinNat, next: BinNat) -> BinNat:
-    recur fuel:
-      case NatZero: cur
-      case NatSucc(n):
-        sum = add_BinNat(cur, next)
-        loop(n, next, sum)
-  one = Odd(Zero)
-  loop(toNat(b), one, one)
-```
-You can also use structural data as fuel. For example, `test_workspace/List.bosatsu`
-computes `size(list)` and recurs on that `Nat` as the loop bound during sort.
+See [Recursion in Bosatsu](recursion.html) for detailed examples from
+`test_workspace`.
 
 ## Pattern Matching
 Bosatsu has powerful pattern matching. You can match on literal values, strings
