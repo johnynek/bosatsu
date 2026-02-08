@@ -2,6 +2,30 @@
 This guide is a quick tour of Bosatsu syntax. For installation and running code, see
 [Getting started](getting_started.html).
 
+## What "simple" means
+Bosatsu aims to be simple, but not always easy.
+
+Simple here means the language has a small core model:
+1. structs and enums
+1. creating values
+1. creating functions
+1. calling functions
+1. matching on values to take them apart
+
+Conceptually, this is close to the simply typed lambda calculus with algebraic
+data types, mapped onto a Python-like syntax. It is combined with a package
+system (`package`, `from ... import`, `export`) so code can be composed safely
+across libraries.
+
+It is deliberately missing many common language features: methods, subtyping,
+mutable variables (or any mutation), casts, exceptions, and built-in magical
+hash/equals/string rendering behavior.
+
+We want the language to be as simple as possible, but no simpler. If we relax
+the constraints too far, we risk losing non-negotiable properties: a sound type
+system we can trust, and recursion/loop forms with proven termination (so we do
+not admit nonsense inhabitants of types such as `forall a, b. a -> b`).
+
 ## Quick start (5 minutes)
 A tiny, complete file:
 
@@ -278,7 +302,11 @@ size bound, string recursion, trees, Ackermann-style nested recursion), see
 
 ## Loops (with `recur`)
 Bosatsu has no `while` or `for`. Loops are recursive defs using `recur`. In
-practice, most loops are either:
+practice this is stricter than loops in most languages users have seen: we allow
+loops, but only when the compiler can prove they terminate. That restriction is
+what preserves type-system soundness.
+
+Most loops are either:
 1. structural recursion on subvalues (like a list tail or tree branch), or
 1. explicit fuel recursion on a decreasing `Nat`.
 
@@ -708,8 +736,8 @@ Sometimes such opacity is useful to enforce modularity.
 
 ## External functions and values
 There is syntax for declaring external values and functions. This is obviously
-dangerous since it gives the user a chance to violate totality. Use with
-caution.
+dangerous since it gives the user a chance to violate type safety and totality.
+Use with caution.
 
 An example function we cannot implement in Bosatsu is:
 ```
@@ -730,7 +758,8 @@ are substructures of inputs in the same position. This gives a simple proof
 that the loop will terminate.
 
 Instead, we implement this function in Predef as an external def that has to be
-supplied to the compiler with a promise that it is indeed total.
+supplied to the compiler with a promise that it is total and matches its
+declared type.
 ```
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 ```
@@ -743,6 +772,11 @@ repo. The functions must be implemented in the C runtime, and there is currently
 no provision for providing external implementations from outside the compiler
 repo. This restriction is intentional to preserve totality, and we do not expect
 to lift it any time soon.
+
+Because these externals are trusted code, each external def included with the
+compiler is reviewed and tested carefully to avoid breaking sound typing. This
+is the central safety goal: if a program typechecks, running it should not
+produce a value that violates its type.
 
 # Note on Totality
 Totality is an interesting property that limits a language from being turing
@@ -765,7 +799,10 @@ exponentially large number of attempts. So we could easily build a function that
 would take `2^128` attempts which would take longer than the life of the sun to
 complete. Is this meaningfully different from an infinite loop?
 
-Our view is that the main value of totality is that we know that all functions
-can complete and return a value of their declared type. Therefore, the only
-possible error in running is exhausting memory, which is a risk in virtually
+Our view is that the first goal is a sound type system we can trust. Totality is
+one important tool for that goal: it helps ensure evaluation produces values of
+the declared type instead of getting stuck in partial behavior. Termination by
+itself is not a performance guarantee, since terminating programs can still be
+exponentially expensive. Therefore, the only possible runtime failure for
+well-typed pure Bosatsu code is exhausting memory, which is a risk in virtually
 every programming language.

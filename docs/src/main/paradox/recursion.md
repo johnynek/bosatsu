@@ -2,6 +2,12 @@
 Bosatsu is a total language. Recursion is restricted so every `def` is guaranteed
 to terminate.
 
+Loops in Bosatsu are intentionally stricter than loops in most programming
+languages. We still support loops through `recur`, but each loop must have a
+decreasing structural argument (or explicit decreasing fuel) so termination is
+provable. This is required for the main safety goal: a sound type system we can
+trust.
+
 This page expands the short notes in the language guide with concrete patterns
 from examples in the bosatsu compiler repository, plus background on the fuel
 pattern and Bove-Capretta/domain-predicate styles.
