@@ -1,7 +1,8 @@
 package Bosatsu/FibBench
 
-from Bosatsu/Prog import Prog, Main, println, read_env, await, pure, show_error
-from Bosatsu/IOError import IOError
+from Bosatsu/Prog import Prog, Main, read_env, await, pure, recover
+from Bosatsu/IO/Std import println
+from Bosatsu/IO/Error import IOError, error_to_String
 from Bosatsu/Nat import Nat, to_Nat, Zero as NZero, Succ as NSucc
 
 def fib_Nat(n: Nat) -> Int:
@@ -28,6 +29,16 @@ def main(args: List[String]):
   match args:
     case [_, n]: print_fib(n)
     case _: println("expected exactly one arg, got: ${int_to_String(list_len(args, 0))}")
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+def show_error[env](p: Prog[env, IOError, Int]) -> forall e. Prog[env, e, Int]:
+  p.recover(ioe -> (
+    ioe_str = error_to_String(ioe)
+    _ <- ignore_err(println(ioe_str), ()).await()
+    pure(1)
+  ))
 
 main = Main(show_error((
   args <- read_env.await()

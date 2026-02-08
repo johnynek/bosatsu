@@ -18,7 +18,7 @@ else ifeq ($(OS), Linux)
     LIBS += -lgc
 endif
 
-all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o
+all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_IO_l_Std.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o
 
 bosatsu_generated.h: typegen.py
 	python3 typegen.py impls > bosatsu_generated.h
@@ -49,14 +49,17 @@ bosatsu_ext_Bosatsu_l_Predef.o: bosatsu_ext_Bosatsu_l_Predef.c bosatsu_runtime.o
 bosatsu_ext_Bosatsu_l_Prog.o: bosatsu_ext_Bosatsu_l_Prog.c bosatsu_runtime.o
 	gcc $(CFLAGS) -Wall -Werror -c bosatsu_ext_Bosatsu_l_Prog.c
 
+bosatsu_ext_Bosatsu_l_IO_l_Std.o: bosatsu_ext_Bosatsu_l_IO_l_Std.c bosatsu_runtime.o
+	gcc $(CFLAGS) -Wall -Werror -c bosatsu_ext_Bosatsu_l_IO_l_Std.c
+
 bosatsu_ext_Bosatsu_l_Collection_l_Array.o: bosatsu_ext_Bosatsu_l_Collection_l_Array.c bosatsu_runtime.o
 	gcc $(CFLAGS) -Wall -Werror -c bosatsu_ext_Bosatsu_l_Collection_l_Array.c
 
-bosatsu_platform.a: bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_runtime.o
-	ar rcs bosatsu_platform.a bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_runtime.o
+bosatsu_platform.a: bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_IO_l_Std.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_runtime.o
+	ar rcs bosatsu_platform.a bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_IO_l_Std.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_runtime.o
 
 boehm_example: boehm_example.c
 	gcc $(CFLAGS) boehm_example.c $(LIBS) -o boehm_example
 
-install: bosatsu_platform.a bosatsu_decls_generated.h bosatsu_generated.h bosatsu_ext_Bosatsu_l_Predef.h bosatsu_ext_Bosatsu_l_Prog.h bosatsu_ext_Bosatsu_l_Collection_l_Array.h bosatsu_runtime.h
-	python3 install.py --root $(ROOTDIR) --include bosatsu_decls_generated.h --include bosatsu_generated.h --include bosatsu_ext_Bosatsu_l_Predef.h --include bosatsu_ext_Bosatsu_l_Prog.h --include bosatsu_ext_Bosatsu_l_Collection_l_Array.h --include bosatsu_runtime.h --lib bosatsu_platform.a --version $(VERSION)
+install: bosatsu_platform.a bosatsu_decls_generated.h bosatsu_generated.h bosatsu_ext_Bosatsu_l_Predef.h bosatsu_ext_Bosatsu_l_Prog.h bosatsu_ext_Bosatsu_l_IO_l_Std.h bosatsu_ext_Bosatsu_l_Collection_l_Array.h bosatsu_runtime.h
+	python3 install.py --root $(ROOTDIR) --include bosatsu_decls_generated.h --include bosatsu_generated.h --include bosatsu_ext_Bosatsu_l_Predef.h --include bosatsu_ext_Bosatsu_l_Prog.h --include bosatsu_ext_Bosatsu_l_IO_l_Std.h --include bosatsu_ext_Bosatsu_l_Collection_l_Array.h --include bosatsu_runtime.h --lib bosatsu_platform.a --version $(VERSION)
