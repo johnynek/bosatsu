@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Recursion in Bosatsu · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsurecursion.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="js/page.js"></script>
+<script type="text/javascript" src="js/warnOldVersion.js"></script>
+<script type="text/javascript" src="js/groups.js"></script>
+<script type="text/javascript" src="js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d472f389*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="recursion.html" class="active page">Recursion in Bosatsu</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d472f389*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="recursion.html" class="active page">Recursion in Bosatsu</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="index.html">Bosatsu Documentation</a></li>
+  <li>Recursion in Bosatsu</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#recursion-in-bosatsu" name="recursion-in-bosatsu" class="anchor"><span class="anchor-link"></span></a>Recursion in Bosatsu</h1>
+<p>Bosatsu is a total language. Recursion is restricted so every <code>def</code> is guaranteed to terminate.</p>
+<p>Loops in Bosatsu are intentionally stricter than loops in most programming languages. We still support loops through <code>recur</code>, but each loop must have a decreasing structural argument (or explicit decreasing fuel) so termination is provable. This is required for the main safety goal: a sound type system we can trust.</p>
+<p>This page expands the short notes in the language guide with concrete patterns from examples in the bosatsu compiler repository, plus background on the fuel pattern and Bove-Capretta/domain-predicate styles.</p>
+<h2><a href="#terms-used-in-this-page" name="terms-used-in-this-page" class="anchor"><span class="anchor-link"></span></a>Terms Used In This Page</h2>
+<p>Papers in the references use a few terms repeatedly. Here is what they mean in plain language:</p>
+<ol>
+  <li>Structural recursion (well-founded recursion):  each recursive call is on a strictly smaller argument under a well-founded  order (for example, list tail, tree child, predecessor <code>Nat</code>).</li>
+  <li>Fuel pattern (step-indexed style):  add an explicit counter/fuel argument, decrement it on each recursive call,  and stop when fuel reaches zero.</li>
+  <li>Accessibility predicate / domain predicate:  a predicate describing inputs on which a recursive function terminates.</li>
+  <li>Bove-Capretta method:  define a recursive function by structural recursion on evidence that the  input is in the domain predicate; then separately prove totality by proving  the domain predicate for all inputs of interest.</li>
+</ol>
+<p>Bosatsu source code usually does not pass explicit proof terms. Instead, the same idea appears operationally as carrying explicit bounds/companion values (<code>Nat</code> sizes, depths, budgets) that witness termination.</p>
+<h2><a href="#the-recur-form" name="the-recur-form" class="anchor"><span class="anchor-link"></span></a>The <code>recur</code> Form</h2>
+<p>Recursion is expressed through <code>recur</code>, which is a restricted <code>match</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def len(lst: List[a]) -&gt; Int:
+  recur lst:
+    case []: 0
+    case [_, *tail]: len(tail).add(1)
+</code></pre>
+<p>At a high level: 1. <code>recur</code> matches a parameter of the nearest enclosing <code>def</code>. 1. Recursive calls are allowed in branches only when they are structurally  smaller (or use an explicit decreasing fuel value). 1. These value-level restrictions are only part of totality. Bosatsu also  restricts recursive types to covariant positions (issue #104:  <a href="https://github.com/johnynek/bosatsu/issues/104)">https://github.com/johnynek/bosatsu/issues/104)</a>, so type-level recursion is  also constrained to preserve totality.</p>
+<h2><a href="#pattern-1-structural-recursion-on-lists" name="pattern-1-structural-recursion-on-lists" class="anchor"><span class="anchor-link"></span></a>Pattern 1: Structural Recursion On Lists</h2>
+<p>This is the most common pattern. Recur directly on the list and call the same function on a tail.</p>
+<p>In terminology above, this is structural/well-founded recursion where list shape gives the decreasing measure for free.</p>
+<p>From <code>List.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def for_all(xs: List[a], fn: a -&gt; Bool) -&gt; Bool:
+  recur xs:
+    case []: True
+    case [head, *tail]:
+      if fn(head): for_all(tail, fn)
+      else: False
+</code></pre>
+<p>Other examples: 1. <code>exists</code>, <code>eq_List</code>, <code>zip</code>, <code>size1</code> in <code>List.bosatsu</code>. 1. <code>equal_List</code> in <code>recordset.bosatsu</code>.</p>
+<h2><a href="#pattern-2-tail-recursion-with-accumulators" name="pattern-2-tail-recursion-with-accumulators" class="anchor"><span class="anchor-link"></span></a>Pattern 2: Tail Recursion With Accumulators</h2>
+<p>Same structural decrease as Pattern 1, but with accumulator state for constant stack in target runtimes that optimize tail loops.</p>
+<p>From <code>List.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def size1(list, acc):
+  recur list:
+    case []: acc
+    case [_, *t]: size1(t, Succ(acc))
+</code></pre>
+<p>Also used in <code>Nat.bosatsu</code> (<code>to_Int</code>, <code>times2</code>, <code>add</code>) and <code>FibBench.bosatsu</code> (<code>list_len</code>).</p>
+<h2><a href="#pattern-3-structural-recursion-on-trees" name="pattern-3-structural-recursion-on-trees" class="anchor"><span class="anchor-link"></span></a>Pattern 3: Structural Recursion On Trees</h2>
+<p>Recur on tree subtrees (<code>left</code>, <code>right</code>) instead of list tails.</p>
+<p>This style is especially useful when the tree-like structure is kept balanced. In that case, recursive depth is logarithmic in input size (<code>O(log n)</code>), so deep recursion risk is much lower. Many balanced tree-shaped data structures can use this pattern.</p>
+<p>This is again structural/well-founded recursion, with the tree structure supplying the decrease relation.</p>
+<p>From <code>AvlTree.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def fold_left_Tree(t: Tree[a], left_v: b, fn: (b, a) -&gt; b) -&gt; b:
+  recur t:
+    case Empty: left_v
+    case Branch { key, left, right, ... }:
+      v1 = fold_left_Tree(left, left_v, fn)
+      v2 = fn(v1, key)
+      fold_left_Tree(right, v2, fn)
+</code></pre>
+<p>Also used in <code>TreeList.bosatsu</code> (<code>fold_Tree</code>).</p>
+<h2><a href="#pattern-4-fuel-step-indexed-recursion-on-nat" name="pattern-4-fuel-step-indexed-recursion-on-nat" class="anchor"><span class="anchor-link"></span></a>Pattern 4: Fuel / Step-Indexed Recursion On <code>Nat</code></h2>
+<p>The fuel pattern means one function input is designated as &ldquo;fuel&rdquo; and consumed as recursion proceeds. A <code>Nat</code> is the most direct fuel: recurse on it, and decrement (<code>Succ(prev) -&gt; prev</code>) each step until <code>Zero</code>.</p>
+<p>This is equivalent to placing an explicit upper bound on how many recursive calls can happen.</p>
+<p>When recursion is not naturally &ldquo;one structural child&rdquo;, introduce a decreasing <code>Nat</code> budget (fuel). Often this bound is computed from the real inputs. If the bound computation is the same asymptotic order as the main algorithm, overall runtime complexity is unchanged in <code>O(...)</code> terms (though constants may grow).</p>
+<p>In the Bosatsu implementation, <code>Nat</code> used in this style is runtime-optimized to an integer-like counter representation rather than a linked unary structure. In practice, that means these loops compile down to counter-style code without per-step allocation, so this pattern is usually fast enough not to dominate runtime.</p>
+<p>Bosatsu is aiming for very fast, practically usable performance, but it is not trying to beat C or Rust on raw speed. The non-negotiable design goal is a sound type system you can trust, so libraries can be composed fearlessly.</p>
+<p>Seen this way, earlier structural recursion examples can be read as implicit fuel patterns too: in list recursion the list value is fuel, and in tree recursion the current subtree is fuel.</p>
+<p>In the literature this is also called step-indexed (or petrol-driven) evaluation.</p>
+<p>From <code>BinNat.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def fib(b: BinNat) -&gt; BinNat:
+  def loop(n: Nat, cur: BinNat, next: BinNat) -&gt; BinNat:
+    recur n:
+      case NatZero: cur
+      case NatSucc(n):
+        sum = add_BinNat(cur, next)
+        loop(n, next, sum)
+  one = Odd(Zero)
+  loop(to_Nat(b), one, one)
+</code></pre>
+<p>Other examples: 1. <code>run</code> in <code>Eval.bosatsu</code> (evaluation budget). 1. <code>recur_max</code> in <code>Parser.bosatsu</code> (bounded parse steps). 1. <code>rand_Queue_depth</code> and <code>geometric</code> in <code>Queue.bosatsu</code> and <code>Rand.bosatsu</code>.</p>
+<h2><a href="#pattern-5-compute-a-size-then-recur-on-that-size" name="pattern-5-compute-a-size-then-recur-on-that-size" class="anchor"><span class="anchor-link"></span></a>Pattern 5: Compute A Size, Then Recur On That Size</h2>
+<p>For divide-and-conquer algorithms, compute a bound first, then recurse against that bound.</p>
+<p>Why this works for sort: recursive partitioning can only go as deep as the input list length in the worst case. The function carries that maximum depth as fuel (<code>sz</code>) and consumes one unit per recursive step. Each recursive sublist is no larger than the previous bound, so by the time fuel reaches <code>Zero</code>, the remaining subproblem is already at base size (or empty), and returning it is correct.</p>
+<p>In domain-predicate terms, this bound is a concrete witness that each recursive call is still in the terminating domain. Bosatsu carries the witness as data (<code>sz</code>) rather than as an explicit proof object.</p>
+<p>From <code>List.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def sort(ord: Order[a], list: List[a]) -&gt; List[a]:
+  def loop(list: List[a], sz: Nat):
+    recur sz:
+      case Zero: list
+      case Succ(n):
+        match list:
+          case []: []
+          case [h, *t]:
+            lesser = [ta for ta in t if lt(ta, h)]
+            greater = [ta for ta in t if gteq(ta, h)]
+            [*loop(lesser, n), h, *loop(greater, n)]
+  loop(list, size(list))
+</code></pre>
+<p>This is the same idea called out in issue #406/#410: carry a companion value that witnesses termination.</p>
+<h2><a href="#pattern-6-convert-one-measure-to-another" name="pattern-6-convert-one-measure-to-another" class="anchor"><span class="anchor-link"></span></a>Pattern 6: Convert One Measure To Another</h2>
+<p>Sometimes the data is not directly convenient for recursion checking, so convert to a <code>Nat</code> bound and recurse on that.</p>
+<p>From <code>BinNat.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def fold_left_BinNat(fn: (a, BinNat) -&gt; a, init: a, cnt: BinNat) -&gt; a:
+  def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -&gt; a:
+    recur cnt_Nat:
+      case NatZero: init
+      case NatSucc(prev_nat):
+        cnt = prev(cnt)
+        init = fn(init, cnt)
+        loop(init, cnt, prev_nat)
+  loop(init, cnt, to_Nat(cnt))
+</code></pre>
+<h2><a href="#pattern-7-recur-directly-on-string" name="pattern-7-recur-directly-on-string" class="anchor"><span class="anchor-link"></span></a>Pattern 7: Recur Directly On <code>String</code></h2>
+<p>Bosatsu string patterns can expose the next char plus tail, so parsing-like loops can recurse structurally on the tail string.</p>
+<p>From <code>Char.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def length_String(s: String) -&gt; Int:
+  def loop(s, acc):
+    recur s:
+      case &quot;&quot;: acc
+      case &quot;$.{_}${tail}&quot;: loop(tail, acc.add(1))
+  loop(s, 0)
+</code></pre>
+<p>From <code>PatternExamples.bosatsu</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_foos(s) -&gt; List[String]:
+  recur s:
+    case &quot;${_}foo: (${foo})${rest}&quot;: [foo, *get_foos(rest)]
+    case _: []
+</code></pre>
+<h2><a href="#pattern-8-string-parsing-with-length-derived-fuel" name="pattern-8-string-parsing-with-length-derived-fuel" class="anchor"><span class="anchor-link"></span></a>Pattern 8: String Parsing With Length-Derived Fuel</h2>
+<p>If direct string recursion is awkward, you can compute a string length, convert to <code>Nat</code>, and recurse on that <code>Nat</code> as the parse budget.</p>
+<p>Sketch: 1. <code>len = to_Nat(length_String(input))</code> 1. <code>loop(len, input)</code> with <code>recur len</code> 1. consume string as you go, and always recurse with the predecessor fuel</p>
+<p>This is the same fuel pattern as Pattern 4, but with a string-derived bound.</p>
+<h2><a href="#pattern-9-non-obvious-nested-recursion-ackermann-style-" name="pattern-9-non-obvious-nested-recursion-ackermann-style-" class="anchor"><span class="anchor-link"></span></a>Pattern 9: Non-Obvious Nested Recursion (Ackermann-Style)</h2>
+<p><code>Ackermann.bosatsu</code> demonstrates a higher-order style where: 1. Outer recursion is on <code>n</code>. 1. Inner recursion is on <code>m</code>. 1. The recursive result from the smaller <code>n</code> (<code>ack_p</code>) is reused in the inner  loop.</p>
+<pre class="prettyprint"><code class="language-bosatsu">def ack1(n: Nat) -&gt; (Nat -&gt; Nat):
+  recur n:
+    case Zero: Succ
+    case Succ(n_prev):
+      ack_p = ack1(n_prev)
+      def inner(m: Nat) -&gt; Nat:
+        ack_p(recur m:
+          case Zero: Succ(Zero)
+          case Succ(m_prev): inner(m_prev))
+      inner
+</code></pre>
+<p>This is a useful pattern when recursion is nested but each recursive dimension still has a clear structural decrease.</p>
+<p>This is related to the nested-recursion discussion in Bove-Capretta-style presentations: each nested layer needs its own decreasing argument/evidence.</p>
+<h2><a href="#pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" name="pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" class="anchor"><span class="anchor-link"></span></a>Pattern 10: Random Choice / Divide Patterns With Explicit Size Fuel</h2>
+<p><code>Rand.bosatsu</code> function <code>one_of</code> computes <code>len(items)</code> as a <code>BinNat</code>, then recurses on that size while splitting the list. This is the same termination proof idea as sorting: derive a bound, decrease it, recurse.</p>
+<h2><a href="#int-loops-and-trusted-externals" name="int-loops-and-trusted-externals" class="anchor"><span class="anchor-link"></span></a>Int Loops And Trusted Externals</h2>
+<p>Bosatsu does not allow direct recursion on <code>Int</code> with an arbitrary comparison. When needed, the standard library uses trusted externals like <code>int_loop</code> (for example, in Euler problems and parsers). This keeps user recursion total while still allowing practical bounded integer iteration.</p>
+<h2><a href="#relation-to-fuel-and-bove-capretta" name="relation-to-fuel-and-bove-capretta" class="anchor"><span class="anchor-link"></span></a>Relation To Fuel And Bove-Capretta</h2>
+<p>The design request for this page is tracked at <a href="https://github.com/johnynek/bosatsu/issues/410">https://github.com/johnynek/bosatsu/issues/410</a>.</p>
+<p>How that maps to Bosatsu practice: 1. Fuel pattern: add a decreasing counter, return <code>None</code> or fallback on  exhaustion (<code>Eval.run</code>, <code>Parser.recur_max</code>, <code>BinNat.fib</code>). 1. Domain/companion pattern (Bove-Capretta spirit): build a companion structure  that justifies recursive calls (<code>List.sort</code> with <code>size</code>, <code>Rand.one_of</code> with  list length). 1. Bosatsu keeps these ideas at the program level (data and recursion shape)  instead of requiring explicit accessibility/domain proof terms in source  code.</p>
+<h2><a href="#choosing-a-pattern" name="choosing-a-pattern" class="anchor"><span class="anchor-link"></span></a>Choosing A Pattern</h2>
+<ol>
+  <li>If the recursive call is on an obvious subvalue, use structural recursion.</li>
+  <li>If not, compute a bound and recurse on that fuel (<code>Nat</code> is usually easiest).</li>
+  <li>If recursion is nested, make sure each nesting level has its own decreasing  argument (Ackermann example).</li>
+  <li>For parsing-like string scans, either recurse on string tail directly or use  length-derived fuel.</li>
+</ol>
+<h2><a href="#references" name="references" class="anchor"><span class="anchor-link"></span></a>References</h2>
+<ol>
+  <li>Ana Bove and Venanzio Capretta, &ldquo;Modelling general recursion in type  theory&rdquo; (MSCS, 2005): <a href="https://people.cs.nott.ac.uk/pszvc/publications/General_Recursion_MSCS_2005.pdf">https://people.cs.nott.ac.uk/pszvc/publications/General_Recursion_MSCS_2005.pdf</a></li>
+  <li>Ana Bove, &ldquo;General Recursion in Type Theory&rdquo; (TYPES 2002):  <a href="https://doi.org/10.1007/3-540-39185-1_3">https://doi.org/10.1007/3-540-39185-1_3</a></li>
+  <li>Venanzio Capretta, &ldquo;General Recursion via Coinductive Types&rdquo; (LMCS, 2005):  <a href="https://lmcs.episciences.org/2265">https://lmcs.episciences.org/2265</a></li>
+  <li>Conor McBride, &ldquo;Turing-Completeness Totally Free&rdquo; (2015):  <a href="https://personal.cis.strath.ac.uk/conor.mcbride/TotallyFree.pdf">https://personal.cis.strath.ac.uk/conor.mcbride/TotallyFree.pdf</a></li>
+  <li>Casper Bach Poulsen, Arjen Rouvoet, Andrew Tolmach, Robbert Krebbers, and  Eelco Visser, &ldquo;Intrinsically-Typed Definitional Interpreters for Imperative  Languages&rdquo; (POPL, 2018): <a href="https://casperbp.net/store/intrinsicallytyped.pdf">https://casperbp.net/store/intrinsicallytyped.pdf</a></li>
+  <li>Background on well-founded/domain-style termination arguments:  <a href="https://en.wikipedia.org/wiki/Well-founded_relation">https://en.wikipedia.org/wiki/Well-founded_relation</a></li>
+  <li>Project issue for this docs task:  <a href="https://github.com/johnynek/bosatsu/issues/410">https://github.com/johnynek/bosatsu/issues/410</a></li>
+  <li>Related Bosatsu implementation discussion:  <a href="https://github.com/johnynek/bosatsu/pull/406">https://github.com/johnynek/bosatsu/pull/406</a></li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/recursion.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="generating_json.html">Generating JSON from Bosatsu Values</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="recursion.html#recursion-in-bosatsu" class="header">Recursion in Bosatsu</a>
+  <ul>
+    <li><a href="recursion.html#terms-used-in-this-page" class="header">Terms Used In This Page</a></li>
+    <li><a href="recursion.html#the-recur-form" class="header">The <code>recur</code> Form</a></li>
+    <li><a href="recursion.html#pattern-1-structural-recursion-on-lists" class="header">Pattern 1: Structural Recursion On Lists</a></li>
+    <li><a href="recursion.html#pattern-2-tail-recursion-with-accumulators" class="header">Pattern 2: Tail Recursion With Accumulators</a></li>
+    <li><a href="recursion.html#pattern-3-structural-recursion-on-trees" class="header">Pattern 3: Structural Recursion On Trees</a></li>
+    <li><a href="recursion.html#pattern-4-fuel-step-indexed-recursion-on-nat" class="header">Pattern 4: Fuel / Step-Indexed Recursion On <code>Nat</code></a></li>
+    <li><a href="recursion.html#pattern-5-compute-a-size-then-recur-on-that-size" class="header">Pattern 5: Compute A Size, Then Recur On That Size</a></li>
+    <li><a href="recursion.html#pattern-6-convert-one-measure-to-another" class="header">Pattern 6: Convert One Measure To Another</a></li>
+    <li><a href="recursion.html#pattern-7-recur-directly-on-string" class="header">Pattern 7: Recur Directly On <code>String</code></a></li>
+    <li><a href="recursion.html#pattern-8-string-parsing-with-length-derived-fuel" class="header">Pattern 8: String Parsing With Length-Derived Fuel</a></li>
+    <li><a href="recursion.html#pattern-9-non-obvious-nested-recursion-ackermann-style-" class="header">Pattern 9: Non-Obvious Nested Recursion (Ackermann-Style)</a></li>
+    <li><a href="recursion.html#pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" class="header">Pattern 10: Random Choice / Divide Patterns With Explicit Size Fuel</a></li>
+    <li><a href="recursion.html#int-loops-and-trusted-externals" class="header">Int Loops And Trusted Externals</a></li>
+    <li><a href="recursion.html#relation-to-fuel-and-bove-capretta" class="header">Relation To Fuel And Bove-Capretta</a></li>
+    <li><a href="recursion.html#choosing-a-pattern" class="header">Choosing A Pattern</a></li>
+    <li><a href="recursion.html#references" class="header">References</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="js/magellan.js"></script>
+
+<style type="text/css">@import "lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d472f389-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>

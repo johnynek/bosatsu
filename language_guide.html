@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-856d87b8*
+0.0.0+1-d472f389*
 </div>
 </div>
 <div class="nav-toc">
@@ -40,6 +40,7 @@
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="active page">Language Guide</a></li>
+  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
@@ -73,7 +74,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-856d87b8*
+0.0.0+1-d472f389*
 </div>
 </div>
 <div class="nav-toc">
@@ -81,6 +82,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="active page">Language Guide</a></li>
+  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
@@ -109,6 +111,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#language-guide" name="language-guide" class="anchor"><span class="anchor-link"></span></a>Language Guide</h1>
 <p>This guide is a quick tour of Bosatsu syntax. For installation and running code, see <a href="getting_started.html">Getting started</a>.</p>
+<h2><a href="#what-means" name="what-means" class="anchor"><span class="anchor-link"></span></a>What &ldquo;simple&rdquo; means</h2>
+<p>Bosatsu aims to be simple, but not always easy.</p>
+<p>Simple here means the language has a small core model: 1. structs and enums 1. creating values 1. creating functions 1. calling functions 1. matching on values to take them apart</p>
+<p>Conceptually, this is close to the simply typed lambda calculus with algebraic data types, mapped onto a Python-like syntax. It is combined with a package system (<code>package</code>, <code>from ... import</code>, <code>export</code>) so code can be composed safely across libraries.</p>
+<p>It is deliberately missing many common language features: methods, subtyping, mutable variables (or any mutation), casts, exceptions, and built-in magical hash/equals/string rendering behavior.</p>
+<p>We want the language to be as simple as possible, but no simpler. If we relax the constraints too far, we risk losing non-negotiable properties: a sound type system we can trust, and recursion/loop forms with proven termination (so we do not admit nonsense inhabitants of types such as <code>forall a, b. a -&gt; b</code>).</p>
 <h2><a href="#quick-start-5-minutes-" name="quick-start-5-minutes-" class="anchor"><span class="anchor-link"></span></a>Quick start (5 minutes)</h2>
 <p>A tiny, complete file:</p>
 <pre class="prettyprint"><code class="language-bosatsu">package Demo/Hello
@@ -186,6 +194,26 @@ first = &quot;first letter: $.{letter}&quot;
 <p>This is a legal program. Don&rsquo;t think of x being mutated (since it isn&rsquo;t if it is captured by an anonymous function). Think of each new line being a new variable that happens to have the same value.</p>
 <p>Note this is a difference from python: in python capturing works by reference, not by value, so if the original value is changed, so is the capture. Not so in Bosatsu: lexical scope is always in play.</p>
 <p>We recommend not changing the type of a name in a given scope (and may enforce this in the future).</p>
+<h3><a href="#naming-style" name="naming-style" class="anchor"><span class="anchor-link"></span></a>Naming style</h3>
+<p>For consistency across the bosatsu compiler repository, prefer these naming conventions:</p>
+<ol>
+  <li>Bindable names (defs, values, parameters, locals) use lowercase with  underscore separation.</li>
+  <li>Type and constructor names use UpperCamelCase.</li>
+  <li>If a bindable name includes a type name, put the full type name at the end  after an underscore.</li>
+</ol>
+<p>Examples:</p>
+<pre class="prettyprint"><code class="language-bosatsu"># preferred bindable names
+def fold_left_Tree(t: Tree[a], init: b, fn: (b, a) -&gt; b) -&gt; b: ...
+def one_of(ps: List[Parser[a]]) -&gt; Parser[a]: ...
+def string_to_Int(s: String) -&gt; Option[Int]: ...
+eq_TreeList_Int = eq_TreeList(eq_Int)
+
+# avoid
+def foldTree(...): ...     # camelCase bindable
+def Tree_fold(...): ...    # type name in first position
+def fold_T(...): ...       # partial/abbreviated type name
+</code></pre>
+<p>This convention keeps names readable and searchable, especially when multiple implementations of a common operation exist for different types.</p>
 <h3><a href="#block-expressions" name="block-expressions" class="anchor"><span class="anchor-link"></span></a>Block expressions</h3>
 <p>You can group a sequence of bindings and defs in parentheses to produce a value. The last expression is the result:</p>
 <pre><code>result = (
@@ -256,16 +284,13 @@ y = 1 == 1
 <pre><code>from Bosatsu/Predef import add as operator +
 </code></pre>
 <h3><a href="#recursive-functions" name="recursive-functions" class="anchor"><span class="anchor-link"></span></a>Recursive functions</h3>
-<p>We have very limited support for recursion so that we may prove that all recursive functions terminate. Here is an example:</p>
+<p>Bosatsu supports recursion through <code>recur</code>, but only in forms the compiler can prove terminate. A simple structural example:</p>
 <pre><code>def len(lst):
   recur lst:
     case []: 0
     case [_, *tail]: len(tail).add(1)
 </code></pre>
-<p>In the above, we see the <code>recur</code> syntax. This is a normal match with two restrictions: 1. it can only be on a literal parameter of the nearest enclosing <code>def</code>, 2. a function may have at most one recur in a body, which is not enclosed by an inner def. Inside the branches of such a recur, recursion on the enclosing <code>def</code> is permitted if it meets certain constraints which prevent unbounded loops:</p>
-<p>In at least one branch of the recur match there must be a recursive call that must take a substructure of the argument the recur is matching on. In the above example, tail is a substructure of lst, and is used in the same parameter as list appeared in.</p>
-<p>These are strict rules, but they guarantee that each recursive function terminates in a finite number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much as possible and limit the number of arguments as much as possible.</p>
-<p>Tail recursive loops are optimized into loops, which are safe for cases where recursion depth is high. If you can, prefer to use tail recursive loops:</p>
+<p>Tail-recursive style is common:</p>
 <pre><code>def len(lst):
   def loop(acc, lst):
     recur lst:
@@ -274,30 +299,11 @@ y = 1 == 1
 
   loop(0, lst)
 </code></pre>
+<p>For full recursion rules and advanced patterns (fuel, divide-and-conquer with a size bound, string recursion, trees, Ackermann-style nested recursion), see <a href="recursion.html">Recursion in Bosatsu</a>.</p>
 <h2><a href="#loops-with-recur-" name="loops-with-recur-" class="anchor"><span class="anchor-link"></span></a>Loops (with <code>recur</code>)</h2>
-<p>Bosatsu has no <code>while</code> or <code>for</code>. Looping is expressed with <code>recur</code> inside a <code>def</code>, and the compiler only allows recursion it can prove terminates. The test_workspace examples show two common strategies:</p>
-<h3><a href="#1-structural-recursion-substructure-" name="1-structural-recursion-substructure-" class="anchor"><span class="anchor-link"></span></a>1) Structural recursion (substructure)</h3>
-<p>Recur on a recursive input and call the function on a smaller part. Simplified from <code>test_workspace/List.bosatsu</code>:</p>
-<pre><code>def for_all(xs: List[a], fn: a -&gt; Bool) -&gt; Bool:
-  recur xs:
-    case []: True
-    case [h, *t]:
-      if fn(h): for_all(t, fn)
-      else: False
-</code></pre>
-<h3><a href="#2-fuel-pattern-explicit-bound-" name="2-fuel-pattern-explicit-bound-" class="anchor"><span class="anchor-link"></span></a>2) Fuel pattern (explicit bound)</h3>
-<p>When the loop is not naturally substructural, compute a bound (a <code>Nat</code>, <code>List</code>, or <code>String</code>) that is at least as large as the number of steps, then recur on that fuel and make it smaller each time. Simplified from <code>test_workspace/BinNat.bosatsu</code>:</p>
-<pre><code>def fib(b: BinNat) -&gt; BinNat:
-  def loop(fuel: Nat, cur: BinNat, next: BinNat) -&gt; BinNat:
-    recur fuel:
-      case NatZero: cur
-      case NatSucc(n):
-        sum = add_BinNat(cur, next)
-        loop(n, next, sum)
-  one = Odd(Zero)
-  loop(toNat(b), one, one)
-</code></pre>
-<p>You can also use structural data as fuel. For example, <code>test_workspace/List.bosatsu</code> computes <code>size(list)</code> and recurs on that <code>Nat</code> as the loop bound during sort.</p>
+<p>Bosatsu has no <code>while</code> or <code>for</code>. Loops are recursive defs using <code>recur</code>. In practice this is stricter than loops in most languages users have seen: we allow loops, but only when the compiler can prove they terminate. That restriction is what preserves type-system soundness.</p>
+<p>Most loops are either: 1. structural recursion on subvalues (like a list tail or tree branch), or 1. explicit fuel recursion on a decreasing <code>Nat</code>.</p>
+<p>See <a href="recursion.html">Recursion in Bosatsu</a> for detailed examples from <code>test_workspace</code>.</p>
 <h2><a href="#pattern-matching" name="pattern-matching" class="anchor"><span class="anchor-link"></span></a>Pattern Matching</h2>
 <p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later. Use <code>case</code> in every match branch.</p>
 <p>Here are some examples:</p>
@@ -569,8 +575,16 @@ def foldO(oo, if_none, if_some):
 </code></pre>
 <p>Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and a fold function to tear it down, but we can&rsquo;t explicitly pattern match on the types.</p>
 <p>Sometimes such opacity is useful to enforce modularity.</p>
+<h2><a href="#purity-effects-and-prog" name="purity-effects-and-prog" class="anchor"><span class="anchor-link"></span></a>Purity, Effects, and <code>Prog</code></h2>
+<p>Bosatsu expressions are pure: evaluating Bosatsu code does not directly read stdin, write stdout, mutate state, or throw exceptions.</p>
+<p>Instead, effectful behavior is represented as data using <code>Prog[env, err, a]</code>. When you write I/O-heavy code, you are building a program description inside Bosatsu. That description can be transformed and composed (for example with <code>map</code>, <code>flat_map</code>, or <code>await</code>-style syntax), but it is not executed by Bosatsu itself.</p>
+<p>Execution happens only when a runtime is given a <code>Main</code> program entrypoint. In other words, Bosatsu builds the effectful program, and the runtime executes it.</p>
+<p>This is the same core idea used in pure functional programming (for example, Haskell <code>IO</code> or Scala <code>cats.effect.IO</code>): represent effects explicitly and keep core language evaluation pure. Bosatsu goes further by not exposing a general in-language escape hatch to &ldquo;unsafely run&rdquo; a <code>Prog</code> immediately.</p>
+<p>You can think of Bosatsu as a pure language for constructing executable programs with effects at the boundary. The goal is practical usability with strong safety: if pieces typecheck, they can be composed with confidence.</p>
 <h2><a href="#external-functions-and-values" name="external-functions-and-values" class="anchor"><span class="anchor-link"></span></a>External functions and values</h2>
-<p>There is syntax for declaring external values and functions. This is obviously dangerous since it gives the user a chance to violate totality. Use with caution.</p>
+<p>There is syntax for declaring external values and functions, but regular Bosatsu library code cannot define new externals today.</p>
+<p>At the moment, external defs are only allowed in trusted libraries implemented inside the bosatsu compiler repository. This is intentional: Bosatsu is designed for safe composition, and if any dependency could hide unsafe behavior, that safety story gets much weaker.</p>
+<p>So &ldquo;use with caution&rdquo; mostly applies to maintainers of trusted runtime/predef code, not to ordinary Bosatsu library authors.</p>
 <p>An example function we cannot implement in Bosatsu is:</p>
 <pre><code>def int_loop(int_v: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
   if cmp_Int(int_v, 0) matches GT:
@@ -584,24 +598,26 @@ def foldO(oo, if_none, if_some):
     state
 </code></pre>
 <p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of inputs in the same position. This gives a simple proof that the loop will terminate.</p>
-<p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is indeed total.</p>
+<p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is total and matches its declared type.</p>
 <pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
 </code></pre>
 <p>External values and types work exactly like internally defined types from any other point of view.</p>
 <p>External defs are only supported in libraries implemented inside the compiler repo. The functions must be implemented in the C runtime, and there is currently no provision for providing external implementations from outside the compiler repo. This restriction is intentional to preserve totality, and we do not expect to lift it any time soon.</p>
+<p>Because these externals are trusted code, each external def included with the compiler is reviewed and tested carefully to avoid breaking sound typing. This is the central safety goal: if a program typechecks, running it should not produce a value that violates its type.</p>
+<p>In the future, we may consider an explicit unsafe boundary (similar in spirit to Rust <code>unsafe</code>) where external defs and calls are marked and that annotation is propagated through callers. That would make the safety/power trade-off explicit. Our bias is strongly toward safety; if you want maximum unrestricted power, this is likely not the right language.</p>
 <h1><a href="#note-on-totality" name="note-on-totality" class="anchor"><span class="anchor-link"></span></a>Note on Totality</h1>
 <p>Totality is an interesting property that limits a language from being turing complete, however, it is not obvious if that is much of a practical limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.</p>
 <p>One can easily argue that total languages are still too big. For instance imagine a function with type <code>a -&gt; Either[a, b]</code> which takes an <code>a</code> and either returns a final <code>b</code> value or the next step <code>a</code> that we should call again. If we have a non-total language we could repeatedly call the function when we have left to build <code>a -&gt; b</code>. In a total language, we could build a</p>
 <pre><code>def repeat(n: Int, fn: a -&gt; Either[a, b]) -&gt; (a -&gt; Either[a, b])
 </code></pre>
 <p>to repeat <code>n</code> times the fn unless we find a b and build a function of the same type that loops more times. By repeatedly applying this function: <code>repeat(1000, repeat(1000, ... repeat(1000, fn)...</code> we can make an exponentially large number of attempts. So we could easily build a function that would take <code>2^128</code> attempts which would take longer than the life of the sun to complete. Is this meaningfully different from an infinite loop?</p>
-<p>Our view is that the main value of totality is that we know that all functions can complete and return a value of their declared type. Therefore, the only possible error in running is exhausting memory, which is a risk in virtually every programming language.</p>
+<p>Our view is that the first goal is a sound type system we can trust. Totality is one important tool for that goal: it helps ensure evaluation produces values of the declared type instead of getting stuck in partial behavior. Termination by itself is not a performance guarantee, since terminating programs can still be exponentially expensive. Therefore, the only possible runtime failure for well-typed pure Bosatsu code is exhausting memory, which is a risk in virtually every programming language.</p>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/language_guide.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="generating_json.html">Generating JSON from Bosatsu Values</a></p>
+<p><strong>Next:</strong> <a href="recursion.html">Recursion in Bosatsu</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -612,6 +628,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="language_guide.html#language-guide" class="header">Language Guide</a>
   <ul>
+    <li><a href="language_guide.html#what-means" class="header">What &ldquo;simple&rdquo; means</a></li>
     <li><a href="language_guide.html#quick-start-5-minutes-" class="header">Quick start (5 minutes)</a></li>
     <li><a href="language_guide.html#source-files-and-packages" class="header">Source files and packages</a></li>
     <li><a href="language_guide.html#literals" class="header">Literals</a></li>
@@ -623,6 +640,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
     <li><a href="language_guide.html#types" class="header">Types</a></li>
     <li><a href="language_guide.html#the-bosatsu-predef" class="header">The Bosatsu Predef</a></li>
     <li><a href="language_guide.html#packages" class="header">Packages</a></li>
+    <li><a href="language_guide.html#purity-effects-and-prog" class="header">Purity, Effects, and <code>Prog</code></a></li>
     <li><a href="language_guide.html#external-functions-and-values" class="header">External functions and values</a></li>
     <li><a href="language_guide.html#note-on-totality" class="header">Note on Totality</a></li>
   </ul></li>
@@ -692,7 +710,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-856d87b8-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d472f389-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
