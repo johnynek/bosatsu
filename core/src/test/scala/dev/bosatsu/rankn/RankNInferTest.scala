@@ -95,11 +95,11 @@ class RankNInferTest extends munit.FunSuite {
     Map(
       (
         Some(PackageName.PredefName),
-        Identifier.unsafe("True")
+        Identifier.literal("True")
       ) -> Type.BoolType,
       (
         Some(PackageName.PredefName),
-        Identifier.unsafe("False")
+        Identifier.literal("False")
       ) -> Type.BoolType
     )
   val boolTypes: Map[(PackageName, Constructor), Infer.Cons] =
@@ -429,7 +429,7 @@ class RankNInferTest extends munit.FunSuite {
 
     val constructors = Map(
       (
-        Identifier.unsafe("Some"),
+        Identifier.literal("Some"),
         Type.Fun(Type.IntType, optType)
       )
     )
@@ -505,7 +505,7 @@ class RankNInferTest extends munit.FunSuite {
 
     val constructors = Map(
       (
-        Identifier.unsafe("Some"),
+        Identifier.literal("Some"),
         Type.forAll(
           NonEmptyList.of(b("a")),
           Type.Fun(
@@ -515,7 +515,7 @@ class RankNInferTest extends munit.FunSuite {
         )
       ),
       (
-        Identifier.unsafe("None"),
+        Identifier.literal("None"),
         Type.forAll(
           NonEmptyList.of(b("a")),
           Type.TyApply(optType, tv("a"))
@@ -639,7 +639,7 @@ class RankNInferTest extends munit.FunSuite {
 
     val constructors = Map(
       (
-        Identifier.unsafe("Pure"),
+        Identifier.literal("Pure"),
         Type.forAll(
           NonEmptyList.of(b1("f")),
           Type.Fun(
@@ -652,7 +652,7 @@ class RankNInferTest extends munit.FunSuite {
         )
       ),
       (
-        Identifier.unsafe("Some"),
+        Identifier.literal("Some"),
         Type.forAll(
           NonEmptyList.of(b("a")),
           Type.Fun(
@@ -662,7 +662,7 @@ class RankNInferTest extends munit.FunSuite {
         )
       ),
       (
-        Identifier.unsafe("None"),
+        Identifier.literal("None"),
         Type.forAll(
           NonEmptyList.of(b("a")),
           Type.TyApply(optType, tv("a"))
