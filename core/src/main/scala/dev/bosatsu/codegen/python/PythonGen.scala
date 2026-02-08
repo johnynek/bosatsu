@@ -911,6 +911,54 @@ object PythonGen {
           }
       }
 
+      private val floatToIntFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast(input.head) { arg =>
+            val noneValue = Code.MakeTuple(Code.Const.Zero :: Nil)
+            def someValue(v: Code.Expression): Code.Expression =
+              Code.MakeTuple(Code.Const.One :: v :: Nil)
+            val nonFinite = Code
+              .Op(
+                math.dot(Code.Ident("isinf"))(arg),
+                Code.Const.Or,
+                math.dot(Code.Ident("isnan"))(arg)
+              )
+              .simplify
+            val floorV = math.dot(Code.Ident("floor"))(arg)
+            val frac = Code.Op(arg, Code.Const.Minus, floorV).simplify
+            val floorInt = Code.Ident("int")(floorV)
+            val floorPlusOne = Code.Op(floorInt, Code.Const.Plus, Code.Const.One).simplify
+            val floorIsEven = Code.Op(
+              Code.Op(floorInt, Code.Const.Mod, Code.fromInt(2)).simplify,
+              Code.Const.Eq,
+              Code.Const.Zero
+            ).simplify
+            val tieRounded = Code.Ternary(floorInt, floorIsEven, floorPlusOne).simplify
+            val roundedInt = Code
+              .Ternary(
+                floorInt,
+                frac :< Code.PyFloat(0.5),
+                Code.Ternary(
+                  floorPlusOne,
+                  frac :> Code.PyFloat(0.5),
+                  tieRounded
+                ).simplify
+              )
+              .simplify
+
+            Code.Ternary(noneValue, nonFinite, someValue(roundedInt)).simplify
+          }
+        }
+      }
+
+      private val intToFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.onLast(input.head) { arg =>
+          // float(i) raises OverflowError for huge ints; float(str(i)) yields
+          // the nearest representable float64 (or +/-inf when out of range).
+          Code.Ident("float")(Code.Ident("str")(arg))
+        }
+      }
+
       private val stringToFloatFn: List[ValueLike] => Env[ValueLike] = {
         input =>
           structModule.flatMap { struct =>
@@ -1988,6 +2036,14 @@ object PythonGen {
           (
             Identifier.literal("float64_bits_to_Int"),
             (floatBitsToIntFn, 1)
+          ),
+          (
+            Identifier.literal("float64_to_Int"),
+            (floatToIntFn, 1)
+          ),
+          (
+            Identifier.literal("int_to_Float64"),
+            (intToFloatFn, 1)
           )
         )
 

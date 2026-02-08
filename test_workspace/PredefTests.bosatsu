@@ -2,8 +2,10 @@ package PredefTests
 
 from Bosatsu/Float/Float64 import (
   float64_bits_to_Int,
+  float64_to_Int,
   float64_to_String,
   int_bits_to_Float64,
+  int_to_Float64,
   is_infinite,
   is_nan,
   string_to_Float64,
@@ -125,6 +127,8 @@ def eqb(a, b):
     notb(b)
 
 u64_mod = 1.shift_left_Int(64)
+two_pow_52 = 1.shift_left_Int(52)
+two_pow_53 = 1.shift_left_Int(53)
 lcg_mul = 6364136223846793005
 lcg_inc = 1442695040888963407
 
@@ -192,7 +196,29 @@ def nan_matches_law(trials: Int, seed0: Int) -> Bool:
   ))
   state matches (_, True)
 
+def int_float_roundtrip_law(trials: Int, seed0: Int) -> Bool:
+  state = int_loop(trials, (seed0, True), (n, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    i0 = seed1.mod_Int(two_pow_53).sub(two_pow_52)
+    back = float64_to_Int(int_to_Float64(i0))
+    ok1 = match back:
+      case Some(i1): andb(ok, eqi(i0, i1))
+      case None: False
+    (n.sub(1), (seed1, ok1))
+  ))
+  state matches (_, True)
+
+def float_to_int_eq(f: Float64, expected: Int) -> Bool:
+  match float64_to_Int(f):
+    case Some(v): eqi(v, expected)
+    case None: False
+
+def int_to_float_eq(i: Int, expected: Float64) -> Bool:
+  eqf(int_to_Float64(i), expected)
+
 nan0 = divf(0.0, 0.0)
+huge_int = 1.shift_left_Int(20000)
 
 def classify_float(x: Float64) -> Int:
   match x:
@@ -212,6 +238,29 @@ test_float = TestSuite("Float tests", [
   Assertion(eqf(5., 5.0), "trailing dot"),
   Assertion(eqf(∞, divf(1.0, 0.0)), "literal infinity"),
   Assertion(eqf(-∞, divf(-1.0, 0.0)), "literal negative infinity"),
+  Assertion(float_to_int_eq(0.5, 0), "python hard case: round(0.5) == 0"),
+  Assertion(float_to_int_eq(1.5, 2), "python hard case: round(1.5) == 2"),
+  Assertion(float_to_int_eq(2.5, 2), "python hard case: round(2.5) == 2"),
+  Assertion(float_to_int_eq(3.5, 4), "python hard case: round(3.5) == 4"),
+  Assertion(float_to_int_eq(-0.5, 0), "python hard case: round(-0.5) == 0"),
+  Assertion(float_to_int_eq(-1.5, -2), "python hard case: round(-1.5) == -2"),
+  Assertion(float_to_int_eq(-2.5, -2), "python hard case: round(-2.5) == -2"),
+  Assertion(float_to_int_eq(0.49999999999999994, 0), "python hard case: round(0.49999999999999994) == 0"),
+  Assertion(float_to_int_eq(4503599627370495.5, 4503599627370496), "python hard case near 2^52"),
+  Assertion(float_to_int_eq(9007199254740992.0, 9007199254740992), "python hard case at 2^53"),
+  Assertion(float64_to_Int(.NaN) matches None, "python hard case: round(nan) is invalid"),
+  Assertion(float64_to_Int(∞) matches None, "python hard case: round(inf) is invalid"),
+  Assertion(float64_to_Int(-∞) matches None, "python hard case: round(-inf) is invalid"),
+  Assertion(int_to_float_eq(9007199254740993, 9007199254740992.0), "python hard case: float(2^53 + 1)"),
+  Assertion(int_to_float_eq(-9007199254740993, -9007199254740992.0), "python hard case: float(-(2^53 + 1))"),
+  Assertion(int_to_float_eq(10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, 1e100),
+    "python hard case: float(10**100)"),
+  Assertion(int_to_float_eq(-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, -1e100),
+    "python hard case: float(-(10**100))"),
+  Assertion(eqf(int_to_Float64(huge_int), ∞), "python hard case: float(str(2**20000)) == inf"),
+  Assertion(eqf(int_to_Float64(0.sub(huge_int)), -∞), "python hard case: float(str(-(2**20000))) == -inf"),
+  Assertion(float_to_int_eq(int_to_Float64(two_pow_52), two_pow_52), "2^52 roundtrip"),
+  Assertion(float_to_int_eq(int_to_Float64(0.sub(two_pow_52)), 0.sub(two_pow_52)), "-2^52 roundtrip"),
   Assertion(float64_bits_to_Int(int_bits_to_Float64(0x8000_0000_0000_0000)) matches 0x8000_0000_0000_0000,
     "signed zero bit roundtrip"),
   Assertion(float64_bits_to_Int(int_bits_to_Float64(-9223372036854775807)) matches 0x8000_0000_0000_0001,
@@ -231,6 +280,7 @@ test_float = TestSuite("Float tests", [
   Assertion(string_to_Float64("not-a-float") matches None, "invalid float parse"),
   Assertion(bits_roundtrip_law(300, 424242), "bits roundtrip law"),
   Assertion(string_roundtrip_law(300, 424242), "string roundtrip law"),
+  Assertion(int_float_roundtrip_law(300, 515151), "int <-> float reversible law for [-2^52, 2^52)"),
   Assertion(nan_matches_law(300, 171717), "is_nan(x) iff (x matches .NaN)"),
   Assertion(pos_inf_matches_law(300, 272727), "positive infinity matches law"),
   Assertion(neg_inf_matches_law(300, 373737), "negative infinity matches law"),

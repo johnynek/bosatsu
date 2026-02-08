@@ -17,9 +17,11 @@ export (
   cmp_Float64,
   eq_Float64,
   float64_bits_to_Int,
+  float64_to_Int,
   float64_to_String,
   inf,
   int_bits_to_Float64,
+  int_to_Float64,
   neg_inf,
   abs,
   acos,
@@ -63,9 +65,11 @@ external def cosh(x: Float64) -> Float64
 external def exp(x: Float64) -> Float64
 external def floor(x: Float64) -> Float64
 external def float64_bits_to_Int(x: Float64) -> Int
+external def float64_to_Int(f: Float64) -> Option[Int]
 external def float64_to_String(x: Float64) -> String
 external def hypot(x: Float64, y: Float64) -> Float64
 external def int_bits_to_Float64(int: Int) -> Float64
+external def int_to_Float64(i: Int) -> Float64
 external def is_infinite(x: Float64) -> Bool
 external def is_nan(x: Float64) -> Bool
 external def log(x: Float64) -> Float64

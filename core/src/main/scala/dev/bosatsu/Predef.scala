@@ -252,6 +252,16 @@ object Predef {
         "float64_bits_to_Int",
         FfiCall.Fn1(PredefImpl.float64_bits_to_Int(_))
       )
+      .add(
+        float64PackageName,
+        "float64_to_Int",
+        FfiCall.Fn1(PredefImpl.float64_to_Int(_))
+      )
+      .add(
+        float64PackageName,
+        "int_to_Float64",
+        FfiCall.Fn1(PredefImpl.int_to_Float64(_))
+      )
       .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
       .add(
         progPackageName,
@@ -410,6 +420,29 @@ object PredefImpl {
     }
   }
 
+  private def finiteDoubleToNearestInt(d: Double): BigInteger = {
+    val rounded = java.lang.Math.rint(d)
+    if (rounded == 0.0d) BigInteger.ZERO
+    else {
+      val bits = java.lang.Double.doubleToRawLongBits(rounded)
+      val isNegative = (bits >>> 63) == 1L
+      val exponentBits = ((bits >>> 52) & 0x7ffL).toInt
+      val significandBits = bits & 0x000fffffffffffffL
+      val unbiasedExponent = exponentBits - 1023
+      val significand =
+        if (exponentBits == 0) BigInteger.valueOf(significandBits)
+        else BigInteger.valueOf((1L << 52) | significandBits)
+
+      val shift = unbiasedExponent - 52
+      val magnitude =
+        if (shift >= 0) significand.shiftLeft(shift)
+        else significand.shiftRight(-shift)
+
+      if (isNegative) magnitude.negate
+      else magnitude
+    }
+  }
+
   private def asArray(a: Value): ArrayValue =
     a.asExternal.toAny match {
       case arr: ArrayValue => arr
@@ -527,6 +560,14 @@ object PredefImpl {
     vf(java.lang.Double.longBitsToDouble(i(a).longValue()))
   def float64_bits_to_Int(a: Value): Value =
     Value.VInt(unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a))))
+  def float64_to_Int(a: Value): Value = {
+    val value = d(a)
+    if (java.lang.Double.isFinite(value))
+      Value.VOption.some(Value.VInt(finiteDoubleToNearestInt(value)))
+    else Value.VOption.none
+  }
+  def int_to_Float64(a: Value): Value =
+    vf(i(a).doubleValue())
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))
