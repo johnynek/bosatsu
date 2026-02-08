@@ -292,6 +292,14 @@ object PredefImpl {
     }
   }
 
+  private def copySignDouble(magnitude: Double, sign: Double): Double = {
+    val magnitudeBits =
+      java.lang.Double.doubleToRawLongBits(magnitude) & 0x7fffffffffffffffL
+    val signBits =
+      java.lang.Double.doubleToRawLongBits(sign) & 0x8000000000000000L
+    java.lang.Double.longBitsToDouble(magnitudeBits | signBits)
+  }
+
   private def unsignedLongToBigInteger(bits: Long): BigInteger =
     if (bits >= 0L) BigInteger.valueOf(bits)
     else BigInteger.valueOf(bits & Long.MaxValue).setBit(63)
@@ -431,7 +439,7 @@ object PredefImpl {
   def tan_Float64(a: Value): Value = vf(java.lang.Math.tan(d(a)))
   def tanh_Float64(a: Value): Value = vf(java.lang.Math.tanh(d(a)))
   def copySign_Float64(a: Value, b: Value): Value =
-    vf(java.lang.Math.copySign(d(a), d(b)))
+    vf(copySignDouble(d(a), d(b)))
   def isNaN_Float64(a: Value): Value =
     bool(java.lang.Double.isNaN(d(a)))
   def isInfinite_Float64(a: Value): Value =

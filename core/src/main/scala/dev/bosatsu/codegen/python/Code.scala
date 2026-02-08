@@ -3,7 +3,6 @@ package dev.bosatsu.codegen.python
 import cats.Eq
 import cats.data.{Chain, NonEmptyList}
 import java.math.BigInteger
-import java.nio.charset.StandardCharsets
 import dev.bosatsu.{Lit, PredefImpl}
 import org.typelevel.paiges.Doc
 import scala.language.implicitConversions
@@ -162,14 +161,31 @@ object Code {
   private val whileDoc = Doc.text("while")
   private val spaceEqSpace = Doc.text(" = ")
 
-  // Emit ASCII-only string literals so Python2/Jython does not require a source
-  // encoding declaration when the value contains non-ASCII bytes.
+  // Render Python strings as ASCII source while preserving Unicode content.
+  // This avoids source-encoding issues and avoids bosatsu-specific escaping
+  // (e.g. '$' interpolation escapes) leaking into Python regex/string literals.
   private def escapePyString(s: String): String = {
+    def appendHex(
+        sb: java.lang.StringBuilder,
+        prefix: String,
+        width: Int,
+        value: Int
+    ): Unit = {
+      sb.append(prefix)
+      val hex = java.lang.Integer.toHexString(value)
+      var pad = hex.length
+      while (pad < width) {
+        sb.append('0')
+        pad += 1
+      }
+      sb.append(hex)
+    }
+
     val sb = new java.lang.StringBuilder(s.length + 8)
-    val bytes = s.getBytes(StandardCharsets.UTF_8)
-    bytes.foreach { b =>
-      val ub = b.toInt & 0xff
-      ub match {
+    var idx = 0
+    while (idx < s.length) {
+      val cp = s.codePointAt(idx)
+      cp match {
         case 0x5c => sb.append("\\\\")
         case 0x22 => sb.append("\\\"")
         case 0x0a => sb.append("\\n")
@@ -180,9 +196,14 @@ object Code {
         case 0x0b => sb.append("\\v")
         case c if c >= 0x20 && c <= 0x7e =>
           sb.append(c.toChar)
+        case c if c <= 0xff =>
+          appendHex(sb, "\\x", 2, c)
+        case c if c <= 0xffff =>
+          appendHex(sb, "\\u", 4, c)
         case c =>
-          sb.append(f"\\x$c%02x")
+          appendHex(sb, "\\U", 8, c)
       }
+      idx += Character.charCount(cp)
     }
     sb.toString
   }

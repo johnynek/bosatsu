@@ -76,8 +76,45 @@ object Lit {
   final case class Float64 private (toRawLongBits: Long) extends Lit {
     def toDouble: Double = java.lang.Double.longBitsToDouble(toRawLongBits)
     def unboxToAny: Any = java.lang.Double.valueOf(toDouble)
+
+    override def equals(that: Any): Boolean =
+      that match {
+        case f: Float64 => Float64.semanticEquals(this, f)
+        case _          => false
+      }
+
+    override val hashCode: Int =
+      Float64.semanticHash(this)
   }
   object Float64 {
+    private def canonicalDoubleForEq(d: Double): Double =
+      if (java.lang.Double.isNaN(d)) java.lang.Double.NaN
+      else if (d == 0.0d) 0.0d
+      else d
+
+    def semanticEquals(a: Float64, b: Float64): Boolean = {
+      val ad = a.toDouble
+      val bd = b.toDouble
+      (ad == bd) || (java.lang.Double.isNaN(ad) && java.lang.Double.isNaN(bd))
+    }
+
+    def semanticHash(f: Float64): Int =
+      java.lang.Double.hashCode(canonicalDoubleForEq(f.toDouble))
+
+    private val NegZeroBits: Long =
+      java.lang.Double.doubleToRawLongBits(-0.0d)
+
+    private def finiteLiteralString(bits: Long, d: Double): String = {
+      if (bits == NegZeroBits) "-0.0"
+      else {
+        val raw = java.lang.Double.toString(d)
+        if (
+          raw.indexOf('.') >= 0 || raw.indexOf('e') >= 0 || raw.indexOf('E') >= 0
+        ) raw
+        else raw + ".0"
+      }
+    }
+
     def fromDouble(d: Double): Float64 =
       Float64(java.lang.Double.doubleToRawLongBits(d))
 
@@ -87,11 +124,12 @@ object Lit {
     // This is the canonical Bosatsu source literal rendering used by repr/document.
     // Keep this aligned with float64Parser.
     def toLiteralString(f: Float64): String = {
+      val bits = f.toRawLongBits
       val d = f.toDouble
       if (java.lang.Double.isNaN(d)) ".NaN"
       else if (d == java.lang.Double.POSITIVE_INFINITY) "\u221E"
       else if (d == java.lang.Double.NEGATIVE_INFINITY) "-\u221E"
-      else java.lang.Double.toString(d)
+      else finiteLiteralString(bits, d)
     }
   }
   object Chr {
