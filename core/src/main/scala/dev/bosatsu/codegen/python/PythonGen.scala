@@ -749,14 +749,14 @@ object PythonGen {
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.unsafeBindable("add"),
+            Identifier.literal("add"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.unsafeBindable("sub"),
+            Identifier.literal("sub"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -765,7 +765,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("times"),
+            Identifier.literal("times"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -774,7 +774,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("div"),
+            Identifier.literal("div"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -791,7 +791,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("mod_Int"),
+            Identifier.literal("mod_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -807,9 +807,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.unsafeBindable("cmp_Int"), (cmpFn, 2)),
+          (Identifier.literal("cmp_Int"), (cmpFn, 2)),
           (
-            Identifier.unsafeBindable("eq_Int"),
+            Identifier.literal("eq_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -820,7 +820,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("shift_left_Int"),
+            Identifier.literal("shift_left_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -831,7 +831,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("shift_right_Int"),
+            Identifier.literal("shift_right_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -842,7 +842,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("and_Int"),
+            Identifier.literal("and_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -853,7 +853,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("or_Int"),
+            Identifier.literal("or_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -864,7 +864,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("xor_Int"),
+            Identifier.literal("xor_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -875,7 +875,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("not_Int"),
+            Identifier.literal("not_Int"),
             (
               {
                 // leverage not(x) == -1 - x
@@ -885,7 +885,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("gcd_Int"),
+            Identifier.literal("gcd_Int"),
             (
               { input =>
                 (
@@ -937,7 +937,7 @@ object PythonGen {
           //     _i = tmp_i
           //   return _a
           (
-            Identifier.unsafeBindable("int_loop"),
+            Identifier.literal("int_loop"),
             (
               { input =>
                 (
@@ -994,7 +994,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("concat_String"),
+            Identifier.literal("concat_String"),
             (
               { input =>
                 Env.onLastM(input.head) { listOfStrings =>
@@ -1019,7 +1019,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("int_to_String"),
+            Identifier.literal("int_to_String"),
             (
               { input =>
                 Env.onLast(input.head) {
@@ -1032,7 +1032,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("string_to_Int"),
+            Identifier.literal("string_to_Int"),
             (
               { input =>
                 Env.onLast(input.head) { s =>
@@ -1061,12 +1061,12 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("char_to_String"),
+            Identifier.literal("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
           ),
           (
-            Identifier.unsafeBindable("trace"),
+            Identifier.literal("trace"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (msg, i) =>
@@ -1079,7 +1079,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("partition_String"),
+            Identifier.literal("partition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1111,7 +1111,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("rpartition_String"),
+            Identifier.literal("rpartition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1140,18 +1140,18 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.unsafeBindable("cmp_String"), (cmpFn, 2))
+          (Identifier.literal("cmp_String"), (cmpFn, 2))
         )
 
       val arrayResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.unsafeBindable("empty_Array"),
+            Identifier.literal("empty_Array"),
             ((_: List[ValueLike]) => Env.pure(emptyArray), 0)
           ),
           (
-            Identifier.unsafeBindable("tabulate_Array"),
+            Identifier.literal("tabulate_Array"),
             (
               { input =>
                 (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
@@ -1190,7 +1190,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("from_List_Array"),
+            Identifier.literal("from_List_Array"),
             (
               { input =>
                 Env.newAssignableVar.flatMap { pyList =>
@@ -1212,7 +1212,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("to_List_Array"),
+            Identifier.literal("to_List_Array"),
             (
               { input =>
                 (
@@ -1246,7 +1246,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("size_Array"),
+            Identifier.literal("size_Array"),
             (
               { input =>
                 Env.onLast(input.head)(arrayLen)
@@ -1255,7 +1255,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("get_map_Array"),
+            Identifier.literal("get_map_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1280,7 +1280,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("get_or_Array"),
+            Identifier.literal("get_or_Array"),
             (
               { input =>
                 Env.onLasts(input) {
@@ -1305,7 +1305,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("foldl_Array"),
+            Identifier.literal("foldl_Array"),
             (
               { input =>
                 (
@@ -1349,7 +1349,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("map_Array"),
+            Identifier.literal("map_Array"),
             (
               { input =>
                 (
@@ -1392,7 +1392,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("set_or_self_Array"),
+            Identifier.literal("set_or_self_Array"),
             (
               { input =>
                 (
@@ -1434,7 +1434,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("sort_Array"),
+            Identifier.literal("sort_Array"),
             (
               { input =>
                 (
@@ -1493,7 +1493,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("concat_all_Array"),
+            Identifier.literal("concat_all_Array"),
             (
               { input =>
                 (
@@ -1571,7 +1571,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.unsafeBindable("slice_Array"),
+            Identifier.literal("slice_Array"),
             (
               { input =>
                 (
