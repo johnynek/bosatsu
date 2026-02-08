@@ -1,6 +1,6 @@
-package Bosatsu/Nat/Binary
+package Bosatsu/Num/BinNat
 
-from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_Nat
+from Bosatsu/Num/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_Nat
 
 export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, mul2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)

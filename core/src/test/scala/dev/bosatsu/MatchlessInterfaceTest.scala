@@ -24,7 +24,7 @@ class MatchlessInterfaceTest extends munit.FunSuite {
 
   test("Matchless can compile constructors from imported interfaces") {
     val natSrc =
-      """package Bosatsu/Nat
+      """package Bosatsu/Num/Nat
         |
         |export Nat()
         |
@@ -33,13 +33,13 @@ class MatchlessInterfaceTest extends munit.FunSuite {
 
     val natPm = typeCheck(natSrc, Nil)
     val natPack =
-      natPm.toMap(PackageName.parts("Bosatsu", "Nat"))
+      natPm.toMap(PackageName.parts("Bosatsu", "Num", "Nat"))
     val natIface = Package.interfaceOf(natPack)
 
     val fibSrc =
       """package My/Fib
         |
-        |from Bosatsu/Nat import Nat, Zero, Succ
+        |from Bosatsu/Num/Nat import Nat, Zero, Succ
         |
         |def pred_or_zero(n: Nat) -> Nat:
         |  match n:

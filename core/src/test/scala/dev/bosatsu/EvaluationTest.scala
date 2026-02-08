@@ -493,7 +493,7 @@ test = TestSuite("float", [
     runBosatsuTest(
       List(
         """
-package Bosatsu/Float/Float64
+package Bosatsu/Num/Float64
 
 from Bosatsu/Predef import Float64
 
@@ -517,7 +517,7 @@ neg_inf: Float64 = -∞
         """
 package Foo
 
-from Bosatsu/Float/Float64 import (
+from Bosatsu/Num/Float64 import (
   float64_bits_to_Int,
   float64_to_String,
   inf,

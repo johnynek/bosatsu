@@ -1,13 +1,13 @@
 package Bosatsu/NumberProps
 
-from Bosatsu/Nat/Binary import (BinNat, to_BinNat as int_to_BinNat, is_even as is_even_BinNat,
+from Bosatsu/Num/BinNat import (BinNat, to_BinNat as int_to_BinNat, is_even as is_even_BinNat,
     mul2 as mul2_BinNat, div2 as div2_BinNat, Zero as BNZero, Even as BNEven,
     times_BinNat, exp as exp_BinNat, cmp_BinNat, to_Int as binNat_to_Int, add_BinNat,
     next as next_BinNat, sub_BinNat, eq_BinNat, sub_Option as sub_BinNat_Option,
     divmod as divmod_BinNat,
   )
 
-from Bosatsu/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
+from Bosatsu/Num/Nat import (Nat, Zero as NZero, Succ as NSucc, to_Nat as int_to_Nat, is_even as is_even_Nat,
   mul2 as mul2_Nat, div2 as div2_Nat, cmp_Nat, to_Int as nat_to_Int, add as add_Nat,
   mult as mult_Nat, exp as exp_Nat, sub_Nat, divmod as divmod_Nat)
 

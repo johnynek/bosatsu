@@ -10,8 +10,8 @@
     },
   "exported_packages": [ "Bosatsu/Bool", "Bosatsu/Char", "Bosatsu/Collection/Array",
       "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IO/Error", "Bosatsu/IO/Std",
-      "Bosatsu/Int/Binary", "Bosatsu/List", "Bosatsu/Nat", "Bosatsu/Nat/Binary", "Bosatsu/Nothing",
+      "Bosatsu/Int/Binary", "Bosatsu/List", "Bosatsu/Num/Nat", "Bosatsu/Num/BinNat", "Bosatsu/Nothing",
       "Bosatsu/Option", "Bosatsu/Prog", "Bosatsu/Rand", "Bosatsu/Testing/Properties",
-      "Bosatsu/Float/Float64" ],
+      "Bosatsu/Num/Float64" ],
   "all_packages": [ ".*" ]
 }

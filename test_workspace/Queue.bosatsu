@@ -4,7 +4,7 @@ from Bosatsu/List import eq_List
 from Bosatsu/Rand import (Rand, sequence_Rand, map_Rand, flat_map_Rand,
   int_range as int_range_Rand, geometric_Int, one_of, prod_Rand)
 
-from Bosatsu/Nat import (Nat, Zero, Succ, to_Nat as int_to_Nat)
+from Bosatsu/Num/Nat import (Nat, Zero, Succ, to_Nat as int_to_Nat)
 
 from Bosatsu/Testing/Properties import Prop, forall_Prop, suite_Prop, run_Prop
 

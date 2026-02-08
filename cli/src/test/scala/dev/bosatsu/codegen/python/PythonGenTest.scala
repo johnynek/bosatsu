@@ -95,7 +95,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         val bosatsuPM = compileFile(natPathBosatu)
         PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
       }
-    val natDoc = packMap(())(PackageName.parts("Bosatsu", "Nat"))._2
+    val natDoc = packMap(())(PackageName.parts("Bosatsu", "Num", "Nat"))._2
     val natStr = natDoc.renderTrim(80)
 
     JythonBarrier.run {

@@ -1,6 +1,6 @@
 package Bosatsu/Int/Binary
 
-from Bosatsu/Nat/Binary import (BinNat, Zero as BNZero,
+from Bosatsu/Num/BinNat import (BinNat, Zero as BNZero,
   prev as prev_BinNat, next as next_BinNat, sub_Option, sub_BinNat,
   add_BinNat, to_Int as binNat_to_Int, to_BinNat as int_to_BinNat,
   cmp_BinNat, eq_BinNat,

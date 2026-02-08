@@ -230,7 +230,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search json apply") {
     val cmd =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[2, 4]"
 
@@ -242,7 +242,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search json traverse") {
     val cmd =
-      "tool json traverse --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json traverse --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[[2, 4], [3, 5]]"
 
@@ -269,7 +269,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
     // ill-typed json fails
     val cmd =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
     fails(cmd, "[\"2\", 4]")
     fails(cmd, "[2, \"4\"]")
     // wrong arity
@@ -278,7 +278,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     fails(cmd, "[]")
     // unknown command fails
     val badName =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Nat::foooooo --json_string 23"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::foooooo --json_string 23"
     fails(badName)
     val badPack =
       "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/DoesNotExist --json_string 23"
@@ -288,7 +288,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     fails(cmd, "[42, 31] and some junk")
     // exercise unsupported, we cannot write mult, it is a function
     fails(
-      "tool json write --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Nat::mult"
+      "tool json write --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult"
     )
     // a bad main name triggers help
     PathModule.run(
