@@ -2,6 +2,13 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
+import java.nio.ByteBuffer
+import java.nio.charset.{
+  CharacterCodingException,
+  CodingErrorAction,
+  StandardCharsets
+}
+import scala.util.DynamicVariable
 object Predef {
 
   /** Loads a file *at compile time* as a means of embedding external files into
@@ -20,6 +27,10 @@ object Predef {
     PackageName.PredefName
   private def arrayPackageName: PackageName =
     PackageName.parts("Bosatsu", "Collection", "Array")
+  private def progPackageName: PackageName =
+    PackageName.parts("Bosatsu", "Prog")
+  private def ioStdPackageName: PackageName =
+    PackageName.parts("Bosatsu", "IO", "Std")
 
   val jvmExternals: Externals =
     Externals.empty
@@ -159,6 +170,58 @@ object Predef {
         "slice_Array",
         FfiCall.Fn3(PredefImpl.slice_Array(_, _, _))
       )
+      .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
+      .add(
+        progPackageName,
+        "raise_error",
+        FfiCall.Fn1(PredefImpl.prog_raise_error(_))
+      )
+      .add(
+        progPackageName,
+        "flat_map",
+        FfiCall.Fn2(PredefImpl.prog_flat_map(_, _))
+      )
+      .add(
+        progPackageName,
+        "recover",
+        FfiCall.Fn2(PredefImpl.prog_recover(_, _))
+      )
+      .add(
+        progPackageName,
+        "apply_fix",
+        FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
+      )
+      .add(progPackageName, "read_env", FfiCall.Const(PredefImpl.prog_read_env))
+      .add(
+        progPackageName,
+        "remap_env",
+        FfiCall.Fn2(PredefImpl.prog_remap_env(_, _))
+      )
+      .add(
+        ioStdPackageName,
+        "print_impl",
+        FfiCall.Fn1(PredefImpl.prog_print(_))
+      )
+      .add(
+        ioStdPackageName,
+        "println_impl",
+        FfiCall.Fn1(PredefImpl.prog_println(_))
+      )
+      .add(
+        ioStdPackageName,
+        "print_err_impl",
+        FfiCall.Fn1(PredefImpl.prog_print_err(_))
+      )
+      .add(
+        ioStdPackageName,
+        "print_errln_impl",
+        FfiCall.Fn1(PredefImpl.prog_print_errln(_))
+      )
+      .add(
+        ioStdPackageName,
+        "read_stdin_utf8_bytes_impl",
+        FfiCall.Fn1(PredefImpl.prog_read_stdin_utf8_bytes(_))
+      )
 }
 
 object PredefImpl {
@@ -254,6 +317,359 @@ object PredefImpl {
     VInt(gcdBigInteger(i(a), i(b)))
 
   private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
+
+  private val ProgTagPure = 0
+  private val ProgTagRaise = 1
+  private val ProgTagFlatMap = 2
+  private val ProgTagRecover = 3
+  private val ProgTagApplyFix = 4
+  private val ProgTagReadEnv = 5
+  private val ProgTagRemapEnv = 6
+  private val ProgTagEffect = 7
+
+  private val IOErrorTagInvalidArgument = 12
+  private val IOErrorTagInvalidUtf8 = 13
+
+  private sealed trait ProgStack derives CanEqual
+  private case object ProgStackDone extends ProgStack
+  private final case class ProgStackFlatMap(fn: Value, tail: ProgStack)
+      extends ProgStack
+  private final case class ProgStackRecover(fn: Value, tail: ProgStack)
+      extends ProgStack
+  private final case class ProgStackRestore(env: Value, tail: ProgStack)
+      extends ProgStack
+
+  final case class ProgRuntimeState(
+      stdin: Array[Byte],
+      var stdinOffset: Int,
+      stdout: StringBuilder,
+      stderr: StringBuilder
+  )
+
+  final case class ProgRunResult(
+      result: Either[Value, Value],
+      stdout: String,
+      stderr: String
+  )
+
+  private val currentProgRuntime: DynamicVariable[Option[ProgRuntimeState]] =
+    new DynamicVariable(None)
+
+  private def callFn1(fn: Value, arg: Value): Value =
+    fn.asFn(NonEmptyList(arg, Nil))
+
+  private def ioerror_known(tag: Int, context: String): Value =
+    SumValue(tag, ProductValue.single(Str(context)))
+
+  private def ioerror_invalid_argument(context: String): Value =
+    ioerror_known(IOErrorTagInvalidArgument, context)
+
+  private def ioerror_invalid_utf8(context: String): Value =
+    ioerror_known(IOErrorTagInvalidUtf8, context)
+
+  private def asString(v: Value): String =
+    v match {
+      case Str(s) => s
+      case other  => sys.error(s"type error, expected String: $other")
+    }
+
+  private def asInt(v: Value): BigInteger =
+    v match {
+      case VInt(i) => i
+      case other   => sys.error(s"type error, expected Int: $other")
+    }
+
+  private def prog_effect(arg: Value, fn: Value => Value): Value =
+    SumValue(
+      ProgTagEffect,
+      ProductValue.fromList(
+        arg :: FnValue { case NonEmptyList(a, _) => fn(a) } :: Nil
+      )
+    )
+
+  def prog_pure(a: Value): Value =
+    SumValue(ProgTagPure, ProductValue.single(a))
+
+  def prog_raise_error(e: Value): Value =
+    SumValue(ProgTagRaise, ProductValue.single(e))
+
+  def prog_flat_map(prog: Value, fn: Value): Value =
+    SumValue(ProgTagFlatMap, ProductValue.fromList(prog :: fn :: Nil))
+
+  def prog_recover(prog: Value, fn: Value): Value =
+    SumValue(ProgTagRecover, ProductValue.fromList(prog :: fn :: Nil))
+
+  def prog_apply_fix(a: Value, fn: Value): Value =
+    SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
+
+  val prog_read_env: Value = SumValue(ProgTagReadEnv, UnitValue)
+
+  def prog_remap_env(prog: Value, fn: Value): Value =
+    SumValue(ProgTagRemapEnv, ProductValue.fromList(prog :: fn :: Nil))
+
+  def prog_print(str: Value): Value =
+    prog_effect(str, v => {
+      currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
+      prog_pure(UnitValue)
+    })
+
+  def prog_println(str: Value): Value =
+    prog_effect(str, v => {
+      currentProgRuntime.value.foreach { runtime =>
+        runtime.stdout.append(asString(v))
+        runtime.stdout.append('\n')
+      }
+      prog_pure(UnitValue)
+    })
+
+  def prog_print_err(str: Value): Value =
+    prog_effect(str, v => {
+      currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
+      prog_pure(UnitValue)
+    })
+
+  def prog_print_errln(str: Value): Value =
+    prog_effect(str, v => {
+      currentProgRuntime.value.foreach { runtime =>
+        runtime.stderr.append(asString(v))
+        runtime.stderr.append('\n')
+      }
+      prog_pure(UnitValue)
+    })
+
+  private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
+    val decoder =
+      StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+
+    try Some(decoder.decode(ByteBuffer.wrap(bytes)).toString)
+    catch {
+      case _: CharacterCodingException => None
+    }
+  }
+
+  private def runtimeRead(runtime: ProgRuntimeState, count: Int): Array[Byte] = {
+    val remaining = runtime.stdin.length - runtime.stdinOffset
+    if (count <= 0 || remaining <= 0) Array.emptyByteArray
+    else {
+      val toRead = if (count <= remaining) count else remaining
+      val out = java.util.Arrays.copyOfRange(
+        runtime.stdin,
+        runtime.stdinOffset,
+        runtime.stdinOffset + toRead
+      )
+      runtime.stdinOffset = runtime.stdinOffset + toRead
+      out
+    }
+  }
+
+  private def runtimeReadOne(runtime: ProgRuntimeState): Option[Byte] = {
+    val remaining = runtime.stdin.length - runtime.stdinOffset
+    if (remaining <= 0) None
+    else {
+      val b = runtime.stdin(runtime.stdinOffset)
+      runtime.stdinOffset = runtime.stdinOffset + 1
+      Some(b)
+    }
+  }
+
+  private def read_utf8_chunk(
+      runtime: ProgRuntimeState,
+      requestedRaw: BigInteger
+  ): Either[Value, String] = {
+    if (requestedRaw.signum < 0) {
+      Left(
+        ioerror_invalid_argument(
+          s"read_stdin_utf8_bytes negative argument: ${requestedRaw.toString}"
+        )
+      )
+    } else {
+      val requested =
+        if (requestedRaw.signum == 0) 1
+        else if (requestedRaw.compareTo(MaxIntBI) > 0) Int.MaxValue
+        else requestedRaw.intValue
+
+      val initial = runtimeRead(runtime, requested)
+      if (initial.isEmpty) Right("")
+      else
+        decodeUtf8(initial) match {
+          case Some(s) => Right(s)
+          case None    =>
+            if (initial.length < requested) Left(
+              ioerror_invalid_utf8("decoding bytes from stdin")
+            )
+            else {
+              val bytes = new java.io.ByteArrayOutputStream(initial.length + 4)
+              bytes.write(initial)
+              var extras = 0
+              var done = false
+              var result: Option[String] = None
+
+              while (!done && extras < 4) {
+                runtimeReadOne(runtime) match {
+                  case None      => done = true
+                  case Some(byte) =>
+                    bytes.write(byte.toInt & 0xff)
+                    extras = extras + 1
+                    decodeUtf8(bytes.toByteArray) match {
+                      case Some(valid) =>
+                        result = Some(valid)
+                        done = true
+                      case None        => ()
+                    }
+                }
+              }
+
+              result match {
+                case Some(valid) => Right(valid)
+                case None        =>
+                  Left(ioerror_invalid_utf8("decoding bytes from stdin"))
+              }
+            }
+        }
+    }
+  }
+
+  def prog_read_stdin_utf8_bytes(size: Value): Value =
+    prog_effect(size, v => {
+      val requested = asInt(v)
+      val ioResult = currentProgRuntime.value match {
+        case Some(runtime) => read_utf8_chunk(runtime, requested)
+        case None          =>
+          if (requested.signum < 0)
+            Left(
+              ioerror_invalid_argument(
+                s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
+              )
+            )
+          else Right("")
+      }
+
+      ioResult match {
+        case Right(str) => prog_pure(Str(str))
+        case Left(err)  => prog_raise_error(err)
+      }
+    })
+
+  private def prog_step_fix(arg: Value, fixfn: Value): Value = {
+    lazy val fixed: Value =
+      FnValue { case NonEmptyList(a, _) =>
+        prog_apply_fix(a, fixfn)
+      }
+
+    callFn1(callFn1(fixfn, fixed), arg)
+  }
+
+  private def run_prog(prog: Value, env0: Value): Either[Value, Value] = {
+    var stack: ProgStack = ProgStackDone
+    var env: Value = env0
+    var arg: Value = prog
+
+    while (true) {
+      val sum = arg.asSum
+      sum.variant match {
+        case ProgTagFlatMap =>
+          stack = ProgStackFlatMap(sum.value.get(1), stack)
+          arg = sum.value.get(0)
+
+        case ProgTagPure =>
+          val item = sum.value.get(0)
+          var searching = true
+          while (searching) {
+            stack match {
+              case ProgStackDone =>
+                return Right(item)
+              case ProgStackFlatMap(fn, tail) =>
+                stack = tail
+                arg = callFn1(fn, item)
+                searching = false
+              case ProgStackRecover(_, tail) =>
+                stack = tail
+              case ProgStackRestore(prevEnv, tail) =>
+                env = prevEnv
+                stack = tail
+            }
+          }
+
+        case ProgTagRaise =>
+          val err = sum.value.get(0)
+          var searching = true
+          while (searching) {
+            stack match {
+              case ProgStackDone =>
+                return Left(err)
+              case ProgStackFlatMap(_, tail) =>
+                stack = tail
+              case ProgStackRecover(fn, tail) =>
+                stack = tail
+                arg = callFn1(fn, err)
+                searching = false
+              case ProgStackRestore(prevEnv, tail) =>
+                env = prevEnv
+                stack = tail
+            }
+          }
+
+        case ProgTagRecover =>
+          stack = ProgStackRecover(sum.value.get(1), stack)
+          arg = sum.value.get(0)
+
+        case ProgTagApplyFix =>
+          arg = prog_step_fix(sum.value.get(0), sum.value.get(1))
+
+        case ProgTagReadEnv =>
+          arg = prog_pure(env)
+
+        case ProgTagRemapEnv =>
+          stack = ProgStackRestore(env, stack)
+          env = callFn1(sum.value.get(1), env)
+          arg = sum.value.get(0)
+
+        case ProgTagEffect =>
+          arg = callFn1(sum.value.get(1), sum.value.get(0))
+
+        case other =>
+          sys.error(s"invalid Prog tag: $other")
+      }
+    }
+
+    // unreachable
+    Left(Str("unreachable"))
+  }
+
+  def runProg(
+      prog: Value,
+      env: Value,
+      stdin: String = ""
+  ): ProgRunResult = {
+    val runtime =
+      ProgRuntimeState(
+        stdin = stdin.getBytes(StandardCharsets.UTF_8),
+        stdinOffset = 0,
+        stdout = new StringBuilder,
+        stderr = new StringBuilder
+      )
+
+    val result = currentProgRuntime.withValue(Some(runtime)) {
+      run_prog(prog, env)
+    }
+    ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
+  }
+
+  def runProgMain(
+      main: Value,
+      args: List[String],
+      stdin: String = ""
+  ): ProgRunResult = {
+    val prog =
+      main match {
+        case p: ProductValue if p.values.nonEmpty => p.get(0)
+        case other                                => other
+      }
+    val env = VList(args.map(Str(_)))
+    runProg(prog, env, stdin)
+  }
 
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {
     val bi = b.intValue()

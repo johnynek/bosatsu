@@ -127,6 +127,29 @@ def print_stdout(s):
 
   return effect(fn)
 
+def print_err(s):
+  def fn():
+    try:
+      sys.stderr.write(s)
+      sys.stderr.flush()
+      return _pure_unit
+    except OSError as exc:
+      return raise_error(_ioerror_from_errno(exc.errno, "writing to stderr"))
+
+  return effect(fn)
+
+def print_errln(s):
+  def fn():
+    try:
+      sys.stderr.write(s)
+      sys.stderr.write("\n")
+      sys.stderr.flush()
+      return _pure_unit
+    except OSError as exc:
+      return raise_error(_ioerror_from_errno(exc.errno, "writing to stderr"))
+
+  return effect(fn)
+
 def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     """
     Read from standard input (or another binary stream) and return the shortest

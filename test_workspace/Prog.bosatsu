@@ -1,10 +1,7 @@
 package Bosatsu/Prog
 
-from Bosatsu/IOError import IOError, error_to_String
-
-export (unit, pure, raise_error, read_env, recover, remap_env,
-  print, println, await, read_stdin_utf8_bytes, recursive, map, map_err,
-  with_env, show_error, Prog, Main())
+export (unit, pure, raise_error, read_env, recover, remap_env, await,
+  recursive, map, map_err, with_env, Prog, Main())
 
 external struct Prog[env: -*, err: +*, res: +*]
 
@@ -29,13 +26,6 @@ external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err
 def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
   remap_env(p, _ -> env)
 
-external def println[env](str: String) -> Prog[env, IOError, Unit]
-external def print[env](str: String) -> Prog[env, IOError, Unit]
-# read about n bytes from the standard in (may read up to n + 4 bytes to
-# finish a UTF-8 codepoint). n=0 behaves like n=1 (there is no empty read);
-# empty string indicates EOF.
-external def read_stdin_utf8_bytes[env](n: Int) -> Prog[env, IOError, String]
-
 def await(p): fn -> p.flat_map(fn)
 
 def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a -> Prog[env, err, b]):
@@ -44,40 +34,3 @@ def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a ->
 unit: forall env, err. Prog[env, err, ()] = pure(())
 
 struct Main(prog: forall err. Prog[List[String], err, Int])
-
-def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
-  p.recover(_ -> pure(default))
-
-def show_error[env](p: Prog[env, IOError, Int]) -> forall e. Prog[env, e, Int]:
-  p.recover(ioe -> (
-    ioe_str = error_to_String(ioe)
-    _ <- ignore_err(println(ioe_str), ()).await()
-    pure(1)
-  ))
-
-count_down = recursive(loop -> (
-    def compute(i):
-      if cmp_Int(i, 0) matches EQ | LT:
-        println("\ndone")
-      else:
-        _ <- print("${int_to_String(i)}, ").await()
-        loop(i.sub(1))
-    
-    compute
-  ))
-
-to_run = Main(show_error(
-    (
-      args <- read_env.await()
-      stdin <- read_stdin_utf8_bytes(1000).recover(_ -> (
-        println("<failed to read stdin").map(_ -> "")
-      )).await()
-      _ <- println("found stdin: ${stdin}").await()
-      _ <- count_down(10).await()
-      arg_str = args.foldl_List("", (s, item) -> match s:
-        case "": item
-        case _: "${s}, ${item}")
-      _ <- println("args = ${arg_str}").await()
-      pure(0)
-    )
-  ))

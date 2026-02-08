@@ -1,4 +1,4 @@
-package Bosatsu/IOError
+package Bosatsu/IO/Error
 
 export IOError(), error_to_String
 

@@ -40,7 +40,7 @@ jobs:
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "generate python code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
       - name: "run python tests"
         run: "PYTHONPATH=$PYTHONPATH:$(pwd)/test_workspace:$(pwd)/pyout python3 -m unittest discover pyout -v --pattern \"*.py\""
     strategy:
@@ -118,7 +118,7 @@ jobs:
           cp cli/target/native-image/bosatsu-cli bosatsu
       - name: "run bosatsu tests"
         run: |
-          ./bosatsu tool test --input_dir test_workspace/ --package_root test_workspace/
+          ./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/
     strategy:
       matrix:
         java:
@@ -141,7 +141,7 @@ jobs:
           sbt "cliJSJS/fullOptJS"
       - name: "run bosatsu tests"
         run: |
-          ./bosatsu_node tool test --input_dir test_workspace/ --package_root test_workspace/
+          ./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/
       - name: "install boehm"
         run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
       - name: "install c runtime"
@@ -190,7 +190,7 @@ jobs:
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "run lib test"
