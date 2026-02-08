@@ -201,6 +201,21 @@ message LetExpr {
   RecursionKind rec = 4;
 }
 
+message LoopArg {
+  int32 varName = 1;
+  int32 initExpr = 2;
+}
+
+message LoopExpr {
+  repeated LoopArg args = 1;
+  int32 bodyExpr = 2;
+}
+
+message RecurExpr {
+  repeated int32 argExpr = 1;
+  int32 typeOf = 2;
+}
+
 message Literal {
   oneof value {
     string stringValue = 1;
@@ -297,6 +312,8 @@ message TypedExpr {
     LetExpr letExpr = 6;
     LiteralExpr literalExpr = 7;
     MatchExpr matchExpr = 8;
+    LoopExpr loopExpr = 9;
+    RecurExpr recurExpr = 10;
   }
 }
 

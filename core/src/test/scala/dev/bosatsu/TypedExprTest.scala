@@ -442,6 +442,29 @@ foo = _ -> 1
       ()
     )
 
+  def hasLoop(te: TypedExpr[Unit]): Boolean =
+    te match {
+      case TypedExpr.Loop(_, _, _) =>
+        true
+      case TypedExpr.Generic(_, in) =>
+        hasLoop(in)
+      case TypedExpr.Annotation(in, _) =>
+        hasLoop(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        hasLoop(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        hasLoop(fn) || args.exists(hasLoop)
+      case TypedExpr.Let(_, expr, in, _, _) =>
+        hasLoop(expr) || hasLoop(in)
+      case TypedExpr.Recur(args, _, _) =>
+        args.exists(hasLoop)
+      case TypedExpr.Match(arg, branches, _) =>
+        hasLoop(arg) || branches.exists { case (_, b) => hasLoop(b) }
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        false
+    }
+
   test("test let substitution") {
     {
       // substitution in let
@@ -579,6 +602,48 @@ foo = _ -> 1
       ()
     )
     assertEquals(TypedExprNormalization.normalize(zeroL), Some(int(0)))
+  }
+
+  test("normalization can inline a tail-recursive function via Loop") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val fBody = TypedExpr.Match(
+      xVar,
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), int(0)),
+        (Pattern.WildCard, app(fVar, int(0), intTpe))
+      ),
+      ()
+    )
+    val fDef = TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), fBody, ())
+    val useOnce =
+      lam("g", fnType, app(varTE("g", fnType), int(1), intTpe))
+    val root = letrec("f", fDef, app(useOnce, fVar, intTpe))
+
+    val normed = TypedExprNormalization.normalize(root)
+    assert(normed.isDefined)
+    val norm = normed.get
+    assert(hasLoop(norm), norm.reprString)
+    assertEquals(TypedExpr.allVarsSet(norm :: Nil).contains(fName), false)
+  }
+
+  test("normalization removes Loop when Recur is normalized away") {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val loopBody = TypedExpr.Match(
+      int(0),
+      NonEmptyList.of(
+        (Pattern.Literal(Lit.fromInt(0)), xVar),
+        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xVar), intTpe, ()))
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(NonEmptyList.one((xName, int(1))), loopBody, ())
+    assertEquals(TypedExprNormalization.normalize(loopExpr), Some(int(1)))
   }
 
   val normalLet =

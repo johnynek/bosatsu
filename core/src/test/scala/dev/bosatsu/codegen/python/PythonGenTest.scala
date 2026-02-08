@@ -70,9 +70,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
         val expected =
           "\n\n" +
-            """def ___h0(___bs1, ___bacc0):
-    ___a4 = ___bs1
-    ___a6 = ___bacc0
+            """def ___h0(___ba0, ___bb0):
+    ___a4 = ___ba0
+    ___a6 = ___bb0
     ___a1 = 1
     ___t2 = True
     while ___t2:

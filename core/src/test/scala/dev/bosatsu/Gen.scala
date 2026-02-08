@@ -1449,6 +1449,24 @@ object Generators {
             TypedExpr.Let(n, ex, in, rec, tag)
           }
 
+      val loopGen =
+        Gen
+          .zip(
+            smallNonEmptyList(Gen.zip(bindIdentGen, recurse), 6),
+            recurse,
+            genTag
+          )
+          .map { case (args, body, tag) =>
+            TypedExpr.Loop(args, body, tag)
+          }
+
+      val recurGen =
+        Gen
+          .zip(smallNonEmptyList(recurse, 6), typeGen, genTag)
+          .map { case (args, tpe, tag) =>
+            TypedExpr.Recur(args, tpe, tag)
+          }
+
       val matchGen =
         Gen
           .zip(
@@ -1472,6 +1490,8 @@ object Generators {
         globalGen,
         app,
         let,
+        loopGen,
+        recurGen,
         lit,
         matchGen
       )

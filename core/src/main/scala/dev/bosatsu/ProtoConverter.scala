@@ -581,6 +581,29 @@ object ProtoConverter {
             val tryRec = recursionKindFromProto(rec, ex.toString)
             (bindable(nm), exprOf(nmexpr), exprOf(inexpr), tryRec)
               .mapN(TypedExpr.Let(_, _, _, _, ()))
+          case Value.LoopExpr(proto.LoopExpr(args, bodyExpr, _)) =>
+            def decodeArg(
+                arg: proto.LoopArg
+            ): Try[(Bindable, TypedExpr[Unit])] =
+              (bindable(arg.varName), exprOf(arg.initExpr)).tupled
+
+            NonEmptyList.fromList(args.toList) match {
+              case Some(nel) =>
+                (nel.traverse(decodeArg), exprOf(bodyExpr))
+                  .mapN(TypedExpr.Loop(_, _, ()))
+              case None =>
+                Failure(new Exception(s"invalid empty loop args in $ex"))
+            }
+          case Value.RecurExpr(proto.RecurExpr(args, tpe, _)) =>
+            (args.toList.traverse(exprOf), typeOf(tpe))
+              .flatMapN { (as, tpe) =>
+                NonEmptyList.fromList(as) match {
+                  case Some(nel) =>
+                    Success(TypedExpr.Recur(nel, tpe, ()))
+                  case None =>
+                    Failure(new Exception(s"invalid empty recur args in $ex"))
+                }
+              }
           case Value.LiteralExpr(proto.LiteralExpr(lit, tpe, _)) =>
             lit match {
               case None =>
@@ -977,6 +1000,31 @@ object ProtoConverter {
                   writeExpr(
                     let,
                     proto.TypedExpr(proto.TypedExpr.Value.LetExpr(ex))
+                  )
+                }
+            case loop @ Loop(args, bodyExpr, _) =>
+              args.toList
+                .traverse { case (nm, initExpr) =>
+                  (getId(nm.sourceCodeRepr), typedExprToProto(initExpr))
+                    .mapN(proto.LoopArg(_, _))
+                }
+                .product(typedExprToProto(bodyExpr))
+                .flatMap { case (pargs, bodyId) =>
+                  val ex = proto.LoopExpr(pargs, bodyId)
+                  writeExpr(
+                    loop,
+                    proto.TypedExpr(proto.TypedExpr.Value.LoopExpr(ex))
+                  )
+                }
+            case recur @ Recur(args, tpe0, _) =>
+              args.toList
+                .traverse(typedExprToProto)
+                .product(typeToProto(tpe0))
+                .flatMap { case (pargs, tpe) =>
+                  val ex = proto.RecurExpr(pargs, tpe)
+                  writeExpr(
+                    recur,
+                    proto.TypedExpr(proto.TypedExpr.Value.RecurExpr(ex))
                   )
                 }
             case lit @ Literal(l, tpe, _) =>

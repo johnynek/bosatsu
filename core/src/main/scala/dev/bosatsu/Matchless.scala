@@ -595,7 +595,7 @@ object Matchless {
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
-          lazy val e0 = loop(e, slots.inLet(name))
+          val e0 = loop(e, slots.inLet(name))
           def letrec(expr: Expr[B]): Expr[B] =
             expr match {
               case fn: Lambda[B] if fn.recursiveName == Some(name) => fn
@@ -610,33 +610,91 @@ object Matchless {
                 )
             }
 
-          // this could be tail recursive
-          if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
-            val arity = Type.Fun.arity(e.getType)
-            // we know that arity > 0 because, otherwise we can't have a total
-            // self recursive loop, but property checks send in ill-typed
-            // e and so we handle that by checking for arity > 0
-            TypedExpr.toArgsBody(arity, e) match {
-              case Some((params, body)) =>
-                // we know params is non-empty because arity > 0
-                val args = params.map(_._1)
-                val frees = TypedExpr.freeVars(e :: Nil)
-                val (slots1, caps) = slots.inLet(name).lambdaFrees(frees)
-                loop(body, slots1)
-                  .flatMap { v =>
-                    loopFn(caps, name, args, v)
-                  }
-              // $COVERAGE-OFF$
-              case _ =>
-                // TODO: I don't think this case should ever happen in real code
-                // but it definitely does in fuzz tests
-                e0.map(letrec)
-              // $COVERAGE-ON$
+          e0.map(letrec)
+        case RecursionKind.NonRecursive => loop(e, slots)
+      }
+
+    def recurToSelfCall(
+        loopName: Bindable,
+        loopType: Type,
+        te: TypedExpr[A],
+        inNestedLoop: Boolean
+    ): TypedExpr[A] =
+      te match {
+        case TypedExpr.Generic(q, in) =>
+          TypedExpr.Generic(q, recurToSelfCall(loopName, loopType, in, inNestedLoop))
+        case TypedExpr.Annotation(in, tpe) =>
+          TypedExpr.Annotation(
+            recurToSelfCall(loopName, loopType, in, inNestedLoop),
+            tpe
+          )
+        case TypedExpr.AnnotatedLambda(args, body, tag) =>
+          TypedExpr.AnnotatedLambda(
+            args,
+            recurToSelfCall(loopName, loopType, body, inNestedLoop),
+            tag
+          )
+        case TypedExpr.App(fn, args, tpe, tag) =>
+          TypedExpr.App(
+            recurToSelfCall(loopName, loopType, fn, inNestedLoop),
+            args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop)),
+            tpe,
+            tag
+          )
+        case TypedExpr.Let(arg, expr, in, rec, tag) =>
+          if (arg == loopName) {
+            if (rec.isRecursive) {
+              TypedExpr.Let(
+                arg,
+                expr,
+                in,
+                rec,
+                tag
+              )
+            } else {
+              TypedExpr.Let(
+                arg,
+                recurToSelfCall(loopName, loopType, expr, inNestedLoop),
+                in,
+                rec,
+                tag
+              )
             }
           } else {
-            e0.map(letrec)
+            TypedExpr.Let(
+              arg,
+              recurToSelfCall(loopName, loopType, expr, inNestedLoop),
+              recurToSelfCall(loopName, loopType, in, inNestedLoop),
+              rec,
+              tag
+            )
           }
-        case RecursionKind.NonRecursive => loop(e, slots)
+        case TypedExpr.Loop(args, body, tag) =>
+          TypedExpr.Loop(
+            args.map { case (n, expr) =>
+              (n, recurToSelfCall(loopName, loopType, expr, inNestedLoop))
+            },
+            recurToSelfCall(loopName, loopType, body, inNestedLoop = true),
+            tag
+          )
+        case TypedExpr.Recur(args, tpe, tag) =>
+          val args1 = args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop))
+          if (inNestedLoop) TypedExpr.Recur(args1, tpe, tag)
+          else {
+            val fn = TypedExpr.Local(loopName, loopType, tag)
+            TypedExpr.App(fn, args1, tpe, tag)
+          }
+        case TypedExpr.Match(arg, branches, tag) =>
+          TypedExpr.Match(
+            recurToSelfCall(loopName, loopType, arg, inNestedLoop),
+            branches.map { case (p, e) =>
+              (p, recurToSelfCall(loopName, loopType, e, inNestedLoop))
+            },
+            tag
+          )
+        case n @ (TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _)) =>
+          n
       }
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
@@ -673,9 +731,36 @@ object Matchless {
         case TypedExpr.App(fn, as, _, _) =>
           (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
             .mapN(App(_, _))
+        case TypedExpr.Loop(args, body, _) =>
+          val avoid = TypedExpr.allVarsSet(body :: args.toList.map(_._2))
+          val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
+          val loopArgs = args.map { case (n, arg) =>
+            (n, arg.getType)
+          }
+          val loopType = Type.Fun(loopArgs.map(_._2), body.getType)
+          val body1 = recurToSelfCall(loopName, loopType, body, inNestedLoop = false)
+          val bound = loopArgs.iterator.map(_._1).toSet + loopName
+          val frees = TypedExpr
+            .freeVars(body :: Nil)
+            .filterNot(bound)
+          val (slots1, captures) = slots.inLet(loopName).lambdaFrees(frees)
+          (loop(body1, slots1), args.traverse { case (_, init) => loop(init, slots) })
+            .tupled
+            .flatMap { case (bodyExpr, initVals) =>
+              loopFn(captures, loopName, loopArgs.map(_._1), bodyExpr).map { fn =>
+                Let(
+                  Right(loopName),
+                  fn,
+                  App(Local(loopName), initVals)
+                )
+              }
+            }
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r, slots.unname), loop(in, slots))
             .mapN(Let(a, _, _))
+        case TypedExpr.Recur(_, _, _) =>
+          // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
+          sys.error(s"unreachable raw recur in Matchless lowering: ${te.repr.render(80)}")
         case TypedExpr.Literal(lit, _, _)      => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (
