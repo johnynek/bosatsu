@@ -78,7 +78,7 @@ class OperatorTest extends ParserTestBase {
 package Test
 
 operator + = add
-operator * = times
+operator * = mul
 operator == = eq_Int
 def operator %(a, b): mod_Int(a, b)
 
@@ -124,7 +124,7 @@ package T1
 export operator +, operator *, operator ==
 
 operator + = add
-operator * = times
+operator * = mul
 operator == = eq_Int
 """,
         """

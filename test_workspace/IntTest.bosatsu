@@ -2,7 +2,7 @@ package IntTest
 
 def operator +(a, b): a.add(b)
 def operator -(a, b): a.sub(b)
-def operator *(a, b): a.times(b)
+def operator *(a, b): a.mul(b)
 def operator ==(a, b): a.eq_Int(b)
 def operator &(a, b): a.and_Int(b)
 def operator |(a, b): a.or_Int(b)

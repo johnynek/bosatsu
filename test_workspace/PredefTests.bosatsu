@@ -133,7 +133,7 @@ lcg_mul = 6364136223846793005
 lcg_inc = 1442695040888963407
 
 def next_u64(seed: Int) -> Int:
-  seed.times(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
+  seed.mul(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
 
 def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
   state = int_loop(trials, (seed0, True), (n, state) -> (
