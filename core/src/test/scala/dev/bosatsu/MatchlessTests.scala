@@ -292,6 +292,120 @@ x = 1
     }
   }
 
+  test("Matchless.allNames has expected results on simple nodes") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val g = Identifier.Name("g")
+    val rec = Identifier.Name("loop")
+    val arg = Identifier.Name("arg")
+
+    assertEquals(Matchless.allNames(Matchless.Local(x)), Set(x: Bindable))
+    assertEquals(
+      Matchless.allNames(Matchless.Global((), TestUtils.testPackage, g)),
+      Set(g: Bindable)
+    )
+
+    val lam = Matchless.Lambda(
+      captures = Matchless.Local(y) :: Nil,
+      recursiveName = Some(rec),
+      args = NonEmptyList.one(arg),
+      body = Matchless.Local(x)
+    )
+    assertEquals(Matchless.allNames(lam), Set(x: Bindable, y, rec, arg))
+
+    val letRight: Matchless.Expr[Unit] =
+      Matchless.Let(x, Matchless.Local(y), Matchless.Local(y))
+    assertEquals(Matchless.allNames(letRight), Set(x: Bindable, y))
+
+    val letLeft: Matchless.Expr[Unit] =
+      Matchless.Let(Left(Matchless.LocalAnon(1)), Matchless.Local(y), Matchless.Local(y))
+    assertEquals(Matchless.allNames(letLeft), Set(y: Bindable))
+  }
+
+  test("Matchless.allNames is a superset of names from expression parts") {
+    def checkExpr(expr: Matchless.Expr[Unit]): Unit = {
+      val full = Matchless.allNames(expr)
+
+      def requireSubset(sub: Matchless.Expr[Unit]): Unit = {
+        val subNames = Matchless.allNames(sub)
+        assert(
+          subNames.subsetOf(full),
+          s"expected $subNames to be subset of $full in $expr"
+        )
+        checkExpr(sub)
+      }
+
+      def checkBool(boolExpr: Matchless.BoolExpr[Unit]): Unit =
+        boolExpr match {
+          case Matchless.EqualsLit(e, _) =>
+            requireSubset(e)
+          case Matchless.EqualsNat(e, _) =>
+            requireSubset(e)
+          case Matchless.And(l, r) =>
+            checkBool(l)
+            checkBool(r)
+          case Matchless.CheckVariant(e, _, _, _) =>
+            requireSubset(e)
+          case Matchless.MatchString(arg, _, _, _) =>
+            requireSubset(arg)
+          case Matchless.SetMut(_, e) =>
+            requireSubset(e)
+          case Matchless.TrueConst =>
+            ()
+          case Matchless.LetBool(arg, value, in) =>
+            arg match {
+              case Right(name) => assert(full(name), s"missing let-bound name $name in $expr")
+              case _           => ()
+            }
+            requireSubset(value)
+            checkBool(in)
+          case Matchless.LetMutBool(_, in) =>
+            checkBool(in)
+        }
+
+      expr match {
+        case Matchless.Lambda(captures, rec, args, body) =>
+          rec.foreach { n => assert(full(n), s"missing recursive name $n in $expr") }
+          args.toList.foreach { n => assert(full(n), s"missing lambda arg $n in $expr") }
+          captures.foreach(requireSubset)
+          requireSubset(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          checkBool(cond)
+          requireSubset(effectExpr)
+        case Matchless.App(fn, args) =>
+          requireSubset(fn)
+          args.toList.foreach(requireSubset)
+        case Matchless.Let(arg, value, in) =>
+          arg match {
+            case Right(name) => assert(full(name), s"missing let-bound name $name in $expr")
+            case _           => ()
+          }
+          requireSubset(value)
+          requireSubset(in)
+        case Matchless.LetMut(_, span) =>
+          requireSubset(span)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          checkBool(cond)
+          requireSubset(thenExpr)
+          requireSubset(elseExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          checkBool(cond)
+          requireSubset(thenExpr)
+        case Matchless.PrevNat(of) =>
+          requireSubset(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          ()
+        case _: Matchless.CheapExpr[?] =>
+          ()
+      }
+    }
+
+    forAll(genMatchlessExpr) { expr =>
+      checkExpr(expr)
+    }
+  }
+
   test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
