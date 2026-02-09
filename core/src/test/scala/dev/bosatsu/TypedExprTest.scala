@@ -1387,6 +1387,46 @@ x = Foo
   def countLet[A](te: TypedExpr[A]) = count(te) {
     case TypedExpr.Let(_, _, _, _, _) => true
   }
+  def countLambdaCapturing[A](te: TypedExpr[A], name: Bindable): Int =
+    count(te) {
+      case lam @ TypedExpr.AnnotatedLambda(_, _, _) =>
+        TypedExpr.freeVars(lam :: Nil).contains(name)
+    }
+
+  def inferUnoptimizedAndNormalizedExpr(
+      statement: String,
+      letName: String
+  ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val (fullTypeEnv, unoptProgram) =
+      Package.inferBodyUnopt(TestUtils.testPackage, Nil, stmts) match {
+        case cats.data.Ior.Right(res) =>
+          res
+        case cats.data.Ior.Both(errs, _) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+        case cats.data.Ior.Left(errs) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+      }
+
+    val targetName = Identifier.Name(letName)
+    val unoptimizedExpr = unoptProgram.lets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None =>
+        fail(s"missing let: $letName in ${unoptProgram.lets.map(_._1)}")
+    }
+    val normalizedLets =
+      TypedExprNormalization.normalizeAll(
+        TestUtils.testPackage,
+        unoptProgram.lets,
+        fullTypeEnv
+      )
+    val normalizedExpr = normalizedLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing normalized let: $letName in ${normalizedLets.map(_._1)}")
+    }
+    (unoptimizedExpr, normalizedExpr)
+  }
 
   test("test match removed from some examples") {
     checkLast("""
@@ -1463,6 +1503,54 @@ x = (
         )
       }
     }
+  }
+
+  test("normalization rewrites non-escaping recursive local loop closures") {
+    val fnName = Identifier.Name("fn")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z, fn):
+    def loop(lst):
+      recur lst:
+        case E: y
+        case NE(_, t): fn(loop(t))
+    loop(z)
+
+  go(1, NE(2, E), x -> x)
+)
+""",
+      "x"
+    )
+
+    assert(countLambdaCapturing(unoptimizedExpr, fnName) > 0, unoptimizedExpr.reprString)
+    assertEquals(
+      countLambdaCapturing(normalizedExpr, fnName),
+      0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("normalization keeps closures when recursive local loops escape") {
+    val fnName = Identifier.Name("fn")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+def makeLoop(fn):
+  def loop(lst):
+    recur lst:
+      case E: 1
+      case NE(_, t): fn(loop(t))
+  loop
+""",
+      "makeLoop"
+    )
+
+    assert(countLambdaCapturing(unoptimizedExpr, fnName) > 0, unoptimizedExpr.reprString)
+    assert(countLambdaCapturing(normalizedExpr, fnName) > 0, normalizedExpr.reprString)
   }
 
   test("toArgsBody always terminates") {

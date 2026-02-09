@@ -438,6 +438,262 @@ object TypedExprNormalization {
         n
     }
 
+  private def freeLocalTypes[A](te: TypedExpr[A]): Map[Bindable, Type] = {
+    def addType(
+        acc: Map[Bindable, Type],
+        name: Bindable,
+        tpe: Type
+    ): Map[Bindable, Type] =
+      acc.get(name) match {
+        case Some(_) => acc
+        case None    => acc.updated(name, tpe)
+      }
+
+    def loop(
+        expr: TypedExpr[A],
+        bound: Set[Bindable],
+        acc: Map[Bindable, Type]
+    ): Map[Bindable, Type] =
+      expr match {
+        case Generic(_, in) =>
+          loop(in, bound, acc)
+        case Annotation(in, _) =>
+          loop(in, bound, acc)
+        case AnnotatedLambda(args, body, _) =>
+          loop(body, bound ++ args.iterator.map(_._1), acc)
+        case App(fn, args, _, _) =>
+          args.foldLeft(loop(fn, bound, acc)) { (acc0, a) =>
+            loop(a, bound, acc0)
+          }
+        case Let(arg, expr, in, rec, _) =>
+          val acc1 =
+            if (rec.isRecursive) loop(expr, bound + arg, acc)
+            else loop(expr, bound, acc)
+          loop(in, bound + arg, acc1)
+        case Loop(args, body, _) =>
+          val acc1 = args.toList.foldLeft(acc) { case (acc0, (_, initExpr)) =>
+            loop(initExpr, bound, acc0)
+          }
+          loop(body, bound ++ args.iterator.map(_._1), acc1)
+        case Recur(args, _, _) =>
+          args.foldLeft(acc)((acc0, a) => loop(a, bound, acc0))
+        case Match(arg, branches, _) =>
+          val acc1 = loop(arg, bound, acc)
+          branches.toList.foldLeft(acc1) { case (acc0, (p, b)) =>
+            loop(b, bound ++ p.names, acc0)
+          }
+        case Local(n, tpe, _) =>
+          if (bound(n)) acc
+          else addType(acc, n, tpe)
+        case Global(_, _, _, _) | Literal(_, _, _) =>
+          acc
+      }
+
+    loop(te, Set.empty, Map.empty)
+  }
+
+  // Return true when fnName appears in a non-direct-call position.
+  // Direct calls are applications where the function expression resolves to fnName.
+  private def hasEscapingFnRef[A](
+      te: TypedExpr[A],
+      fnName: Bindable,
+      fnVisible: Boolean
+  ): Boolean =
+    te match {
+      case Generic(_, in) =>
+        hasEscapingFnRef(in, fnName, fnVisible)
+      case Annotation(in, _) =>
+        hasEscapingFnRef(in, fnName, fnVisible)
+      case AnnotatedLambda(args, body, _) =>
+        val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
+        hasEscapingFnRef(body, fnName, fnVisibleBody)
+      case App(fn, args, _, _) =>
+        val fnEscapes =
+          if (fnVisible && isSameLocalRef(fnName, fn)) false
+          else hasEscapingFnRef(fn, fnName, fnVisible)
+        fnEscapes || args.exists(hasEscapingFnRef(_, fnName, fnVisible))
+      case Let(arg, expr, in, rec, _) =>
+        if (arg == fnName) {
+          if (rec.isRecursive) false
+          else hasEscapingFnRef(expr, fnName, fnVisible)
+        } else {
+          hasEscapingFnRef(expr, fnName, fnVisible) ||
+            hasEscapingFnRef(in, fnName, fnVisible)
+        }
+      case Loop(args, body, _) =>
+        val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
+        args.exists { case (_, initExpr) =>
+          hasEscapingFnRef(initExpr, fnName, fnVisible)
+        } || hasEscapingFnRef(body, fnName, fnVisibleBody)
+      case Recur(args, _, _) =>
+        args.exists(hasEscapingFnRef(_, fnName, fnVisible))
+      case Match(arg, branches, _) =>
+        hasEscapingFnRef(arg, fnName, fnVisible) || branches.exists {
+          case (p, branchExpr) =>
+            val fnVisibleBranch = fnVisible && !p.names.contains(fnName)
+            hasEscapingFnRef(branchExpr, fnName, fnVisibleBranch)
+        }
+      case Local(n, _, _) =>
+        fnVisible && (n == fnName)
+      case Global(_, _, _, _) | Literal(_, _, _) =>
+        false
+    }
+
+  private def prependArgsToFnCalls[A](
+      te: TypedExpr[A],
+      fnName: Bindable,
+      extraArgs: List[TypedExpr[A]],
+      fnVisible: Boolean
+  ): TypedExpr[A] =
+    te match {
+      case g @ Generic(q, in) =>
+        val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
+        if (in1 eq in) g else Generic(q, in1)
+      case a @ Annotation(in, tpe) =>
+        val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
+        if (in1 eq in) a else Annotation(in1, tpe)
+      case lam @ AnnotatedLambda(args, body, tag) =>
+        val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
+        val body1 = prependArgsToFnCalls(body, fnName, extraArgs, fnVisibleBody)
+        if (body1 eq body) lam
+        else AnnotatedLambda(args, body1, tag)
+      case app @ App(fn, args, tpe, tag) =>
+        val fnIsCall = fnVisible && isSameLocalRef(fnName, fn)
+        val fn1 =
+          if (fnIsCall) fn
+          else prependArgsToFnCalls(fn, fnName, extraArgs, fnVisible)
+        val args1 = ListUtil.mapConserveNel(args) { arg =>
+          prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
+        }
+        if (fnIsCall) {
+          val args2 = NonEmptyList.fromListUnsafe(extraArgs ::: args1.toList)
+          App(fn1, args2, tpe, tag)
+        } else if ((fn1 eq fn) && (args1 eq args)) app
+        else App(fn1, args1, tpe, tag)
+      case let @ Let(arg, expr, in, rec, tag) =>
+        if (arg == fnName) {
+          if (rec.isRecursive) let
+          else {
+            val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
+            if (expr1 eq expr) let
+            else Let(arg, expr1, in, rec, tag)
+          }
+        } else {
+          val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
+          val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
+          if ((expr1 eq expr) && (in1 eq in)) let
+          else Let(arg, expr1, in1, rec, tag)
+        }
+      case lp @ Loop(args, body, tag) =>
+        val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
+          (n, prependArgsToFnCalls(initExpr, fnName, extraArgs, fnVisible))
+        }
+        val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
+        val body1 = prependArgsToFnCalls(body, fnName, extraArgs, fnVisibleBody)
+        if ((args1 eq args) && (body1 eq body)) lp
+        else Loop(args1, body1, tag)
+      case recur @ Recur(args, tpe, tag) =>
+        val args1 = ListUtil.mapConserveNel(args) { arg =>
+          prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
+        }
+        if (args1 eq args) recur
+        else Recur(args1, tpe, tag)
+      case m @ Match(arg, branches, tag) =>
+        val arg1 = prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
+        val branches1 = ListUtil.mapConserveNel(branches) { case (p, branchExpr) =>
+          val fnVisibleBranch = fnVisible && !p.names.contains(fnName)
+          (p, prependArgsToFnCalls(branchExpr, fnName, extraArgs, fnVisibleBranch))
+        }
+        if ((arg1 eq arg) && (branches1 eq branches)) m
+        else Match(arg1, branches1, tag)
+      case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
+        n
+    }
+
+  private def prependLambdaArgs[A](
+      te: TypedExpr[A],
+      extraArgs: List[(Bindable, Type)]
+  ): Option[TypedExpr[A]] =
+    if (extraArgs.isEmpty) Some(te)
+    else
+      te match {
+        case Generic(q, in) =>
+          prependLambdaArgs(in, extraArgs).map(Generic(q, _))
+        case Annotation(in, tpe) =>
+          prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe))
+        case AnnotatedLambda(args, body, tag) =>
+          val allArgs = NonEmptyList.fromListUnsafe(extraArgs ::: args.toList)
+          Some(AnnotatedLambda(allArgs, body, tag))
+        case _ =>
+          None
+      }
+
+  private case class CapturedClosureVar(
+      name: Bindable,
+      capture: Bindable,
+      tpe: Type
+  )
+
+  private def rewriteNonEscapingClosureBinding[A](
+      arg: Bindable,
+      expr: TypedExpr[A],
+      in: TypedExpr[A],
+      rec: RecursionKind,
+      tag: A
+  ): Option[TypedExpr[A]] =
+    if (in.notFree(arg)) None
+    else {
+      val closureNames = TypedExpr.freeVars(expr :: Nil).filterNot(_ == arg)
+      if (
+        closureNames.isEmpty ||
+        hasEscapingFnRef(expr, arg, fnVisible = true) ||
+        hasEscapingFnRef(in, arg, fnVisible = true)
+      ) None
+      else {
+        val closureTypes = freeLocalTypes(expr)
+        closureNames
+          .traverse { n =>
+            closureTypes.get(n).map(tpe => (n, tpe))
+          }
+          .flatMap { namedTypes =>
+            val avoid =
+              TypedExpr.allVarsSet(expr :: in :: Nil).toSet ++ closureNames + arg
+            val fresh = Expr.nameIterator().filterNot(avoid)
+            val captures = namedTypes.map { case (n, tpe) =>
+              CapturedClosureVar(n, fresh.next(), tpe)
+            }
+            val renameMap: Map[Bindable, Local[A] => TypedExpr[A]] =
+              captures.iterator.map { case CapturedClosureVar(n, cap, _) =>
+                n -> { (loc: Local[A]) =>
+                  Local(cap, loc.tpe, loc.tag): TypedExpr[A]
+                }
+              }.toMap
+
+            val expr1 = TypedExpr.substituteAll(renameMap, expr, enterLambda = true).get
+            val extraParams = captures.map(c => (c.capture, c.tpe))
+            prependLambdaArgs(expr1, extraParams).map { expr2 =>
+              val callExtraArgs: List[TypedExpr[A]] =
+                captures.map(c => Local(c.capture, c.tpe, tag): TypedExpr[A])
+              val expr3 =
+                prependArgsToFnCalls(expr2, arg, callExtraArgs, fnVisible = true)
+              val in1 =
+                prependArgsToFnCalls(in, arg, callExtraArgs, fnVisible = true)
+              val rewrittenLet = Let(arg, expr3, in1, rec, tag)
+              NonEmptyList.fromList(
+                captures.map { c =>
+                  (c.capture, Local(c.name, c.tpe, tag): TypedExpr[A])
+                }
+              ) match {
+                case Some(captureLets) =>
+                  TypedExpr.letAllNonRec(captureLets, rewrittenLet, tag)
+                case None =>
+                  rewrittenLet
+              }
+            }
+          }
+      }
+    }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A: Eq, V](
@@ -701,52 +957,62 @@ object TypedExprNormalization {
               val scopeIn = si.updated(arg, (rec1, ex2, si))
 
               val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
-              in1 match {
-                case Match(marg, branches, mtag)
-                    if !rec1.isRecursive && marg.notFree(arg) && branches.exists {
-                      case (p, r) => p.names.contains(arg) || r.notFree(arg)
-                    } =>
-                  // x = y
-                  // match z:
-                  //   case w: ww
-                  //
-                  // can be rewritten as
-                  // match z:
-                  //   case w:
-                  //     x = y
-                  //     ww
-                  //
-                  // when z is not free in x, and at least one branch is not free in x
-                  val b1 = branches.map { case (p, r) =>
-                    if (p.names.contains(arg) || r.notFree(arg)) (p, r)
-                    else (p, Let(arg, ex2, r, rec1, tag))
-                  }
-                  normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
-                case _ =>
-                  val cnt = in1.freeVarsDup.count(_ == arg)
-                  if (cnt > 0) {
-                    // the arg is needed
-                    val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
-                    val shouldInline = (!rec1.isRecursive) && {
-                      (cnt == 1) || isSimp
-                    }
-                    // we don't want to inline a value that is itself a function call
-                    // inside of lambdas
-                    val inlined =
-                      if (shouldInline)
-                        substitute(arg, ex2, in1, enterLambda = isSimp)
-                      else None
-                    inlined match {
-                      case Some(il) =>
-                        normalize1(namerec, il, scope, typeEnv)
-                      case None =>
-                        val step = Let(arg, ex2, in1, rec1, tag)
-                        if ((step: TypedExpr[A]) === te) None
-                        else normalize1(namerec, step, scope, typeEnv)
-                    }
-                  } else {
-                    // let x = y in z if x isn't free in z = z
-                    Some(in1)
+              val maybeRewritten =
+                if (rec.isRecursive)
+                  rewriteNonEscapingClosureBinding(arg, ex2, in1, rec1, tag)
+                else None
+
+              maybeRewritten match {
+                case Some(rewritten) =>
+                  normalize1(namerec, rewritten, scope, typeEnv)
+                case None =>
+                  in1 match {
+                    case Match(marg, branches, mtag)
+                        if !rec1.isRecursive && marg.notFree(arg) && branches.exists {
+                          case (p, r) => p.names.contains(arg) || r.notFree(arg)
+                        } =>
+                      // x = y
+                      // match z:
+                      //   case w: ww
+                      //
+                      // can be rewritten as
+                      // match z:
+                      //   case w:
+                      //     x = y
+                      //     ww
+                      //
+                      // when z is not free in x, and at least one branch is not free in x
+                      val b1 = branches.map { case (p, r) =>
+                        if (p.names.contains(arg) || r.notFree(arg)) (p, r)
+                        else (p, Let(arg, ex2, r, rec1, tag))
+                      }
+                      normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
+                    case _ =>
+                      val cnt = in1.freeVarsDup.count(_ == arg)
+                      if (cnt > 0) {
+                        // the arg is needed
+                        val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
+                        val shouldInline = (!rec1.isRecursive) && {
+                          (cnt == 1) || isSimp
+                        }
+                        // we don't want to inline a value that is itself a function call
+                        // inside of lambdas
+                        val inlined =
+                          if (shouldInline)
+                            substitute(arg, ex2, in1, enterLambda = isSimp)
+                          else None
+                        inlined match {
+                          case Some(il) =>
+                            normalize1(namerec, il, scope, typeEnv)
+                          case None =>
+                            val step = Let(arg, ex2, in1, rec1, tag)
+                            if ((step: TypedExpr[A]) === te) None
+                            else normalize1(namerec, step, scope, typeEnv)
+                        }
+                      } else {
+                        // let x = y in z if x isn't free in z = z
+                        Some(in1)
+                      }
                   }
               }
           }
