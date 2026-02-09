@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-a7a80e94*
+0.0.0+1-7f3f7252*
 </div>
 </div>
 <div class="nav-toc">
@@ -74,7 +74,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-a7a80e94*
+0.0.0+1-7f3f7252*
 </div>
 </div>
 <div class="nav-toc">
@@ -159,6 +159,18 @@ EOF
 <h2><a href="#8-install-the-c-runtime" name="8-install-the-c-runtime" class="anchor"><span class="anchor-link"></span></a>8) Install the C runtime</h2>
 <pre class="prettyprint"><code class="language-sh">./bosatsu c-runtime install
 </code></pre>
+<p>The runtime install picks up your compiler toolchain and flags from standard variables:</p>
+<ul>
+  <li><code>CC</code></li>
+  <li><code>CFLAGS</code></li>
+  <li><code>CPPFLAGS</code></li>
+  <li><code>LDFLAGS</code></li>
+  <li><code>LIBS</code></li>
+</ul>
+<p>On Linux/macOS, Boehm GC flags are discovered with <code>pkg-config bdw-gc</code> when available, with common-path fallbacks.</p>
+<p>Use <code>--profile debug</code> for debug-friendly runtime builds (<code>release</code> is the default profile):</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu c-runtime install --profile debug
+</code></pre>
 <h2><a href="#9-initialize-a-library-config" name="9-initialize-a-library-config" class="anchor"><span class="anchor-link"></span></a>9) Initialize a library config</h2>
 <p>Pick a source root for your Bosatsu packages (e.g. <code>src</code>) and initialize the library config:</p>
 <pre class="prettyprint"><code class="language-sh">mkdir -p src
@@ -190,6 +202,10 @@ test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet Happy&quot;
 <h2><a href="#11-run-tests" name="11-run-tests" class="anchor"><span class="anchor-link"></span></a>11) Run tests</h2>
 <p>From the repo root:</p>
 <pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+</code></pre>
+<p>To override compile/link flags for a single invocation, use repeatable flags:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test --cc_flag=-O0 --cc_lib=-lm
+./bosatsu lib build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/getting_started.md">here</a>.
@@ -285,7 +301,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-a7a80e94-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7f3f7252-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
