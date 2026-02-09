@@ -2162,6 +2162,18 @@ baz = bar
       )
       ()
     }
+
+    val missingIfaceImport = PackageError.UnknownImportFromInterface(
+      PackageName.parts("Bosatsu", "Prog"),
+      PackageName.parts("Bosatsu", "Prog"),
+      Nil,
+      ImportedName.OriginalName(Identifier.Name("ignore_env"), ()),
+      Nil
+    )
+    assertEquals(
+      missingIfaceImport.message(Map.empty, Colorize.None),
+      "in file: <unknown source>, package Bosatsu/Prog\ndoes not have name ignore_env."
+    )
   }
 
   test("pattern example from pair to triple") {

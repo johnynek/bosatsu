@@ -93,7 +93,7 @@ object PackageError {
               .toLineCol(r.start)
               .map { case (l, c) => s":${l + 1}:${c + 1}" }
               .getOrElse("")
-            s"${n.asString}$pos"
+            s"${n.sourceCodeRepr}$pos"
           }
       val candstr = candidates.mkString("\n\t", "\n\t", "\n")
       val suggestion =
@@ -216,14 +216,19 @@ object PackageError {
         nearest(iname.originalName, exportMap, 3)
           .map(ident => Doc.text(ident._1.sourceCodeRepr))
 
-      val near = Doc.text(" Nearest: ") +
-        (Doc
-          .intercalate(Doc.text(",") + Doc.line, candidates)
-          .nested(4)
-          .grouped)
+      val near =
+        if (candidates.isEmpty) {
+          Doc.empty
+        } else {
+          Doc.text(" Nearest: ") +
+            Doc
+              .intercalate(Doc.text(",") + Doc.line, candidates)
+              .nested(4)
+              .grouped
+        }
 
       (sourceMap.headLine(importingName, None) + Doc.hardLine + Doc.text(
-        s"does not have name ${iname.originalName}."
+        s"does not have name ${iname.originalName.sourceCodeRepr}."
       ) + near).render(80)
     }
   }
@@ -255,7 +260,7 @@ object PackageError {
         errColor: Colorize
     ) =
       s"failed to infer variance in ${from.asString} of " + failed.toList
-        .map(_.name.ident.asString)
+        .map(_.name.ident.sourceCodeRepr)
         .sorted
         .mkString(", ")
   }
@@ -362,7 +367,7 @@ object PackageError {
 
                 val candidates: List[String] =
                   nearest(name, names.map((_, ())), 3)
-                    .map { case (n, _) => n.asString }
+                    .map { case (n, _) => n.sourceCodeRepr }
 
                 val cmessage =
                   if (candidates.nonEmpty)
@@ -406,7 +411,7 @@ object PackageError {
               uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap,
               3
             )
-              .map { case (n, _) => n.asString }
+              .map { case (n, _) => n.sourceCodeRepr }
 
             val nearStr =
               if (near.isEmpty) ""
@@ -418,7 +423,8 @@ object PackageError {
                   Doc.str(region)
                 ) // we should highlight the whole region
 
-            val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
+            val doc =
+              Doc.text("unknown constructor ") + Doc.text(n.sourceCodeRepr) +
               Doc.text(nearStr) + Doc.hardLine + context
             (doc, Some(region))
           case Infer.Error.KindCannotTyApply(applied, region) =>
@@ -619,7 +625,7 @@ object PackageError {
 
             (
               Doc.text(
-                s"Use of unimported type. Add `from ${const.packageName.asString} import ${const.name.asString}`"
+                s"Use of unimported type. Add `from ${const.packageName.asString} import ${const.name.ident.sourceCodeRepr}`"
               ) + Doc.hardLine + context,
               Some(reg)
             )
@@ -676,7 +682,7 @@ object PackageError {
 
           val missingDoc = Doc.intercalate(
             Doc.comma + Doc.space,
-            allMissing.sorted.map(m => Doc.text(m.asString))
+            allMissing.sorted.map(m => Doc.text(m.sourceCodeRepr))
           )
 
           val fieldStr =
@@ -770,10 +776,10 @@ object PackageError {
           err match {
             case ArityMismatch((_, n), _, _, exp, found) =>
               Doc.text(
-                s"arity mismatch: ${n.asString} expected $exp parameters, found $found"
+                s"arity mismatch: ${n.sourceCodeRepr} expected $exp parameters, found $found"
               )
             case UnknownConstructor((_, n), _, _) =>
-              Doc.text(s"unknown constructor: ${n.asString}")
+              Doc.text(s"unknown constructor: ${n.sourceCodeRepr}")
             case InvalidStrPat(pat, _) =>
               Doc.text(s"invalid string pattern: ") +
                 Document[Pattern.Parsed].document(pat) +
