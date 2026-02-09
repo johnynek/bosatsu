@@ -229,7 +229,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def appendStatement(stmt: Code.Statement): T[Unit]
       def error[A](e: => Error): T[A]
       def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident]
-      def bind[A](bn: Bindable)(in: T[A]): T[A]
+      def bind[A](
+          bn: Bindable,
+          directFn: Option[(Code.Ident, Boolean, Int)] = None
+      )(in: T[A]): T[A]
       def getBinding(bn: Bindable): T[Code.Ident]
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
       def getAnon(idx: Long): T[Code.Ident]
@@ -331,19 +334,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       ): T[Code.ValueLike] =
         name match {
           case Right(arg) =>
-            // arg isn't in scope for argV
-            innerToValue(argV).flatMap { v =>
-              bind(arg) {
+            argV match {
+              case fn: Lambda[K] if fn.captures.isEmpty =>
+                // Non-closure lambdas can be called directly by lifted static name.
                 for {
-                  name <- getBinding(arg)
-                  result <- in
-                  stmt <- Code.ValueLike.declareVar(
-                    Code.TypeIdent.BValue,
-                    name,
-                    v
-                  )(newLocalName)
-                } yield stmt +: result
-              }
+                  fnName <- liftedFnName(fn)
+                  result <- bind(arg, Some((fnName, false, fn.arity)))(in)
+                } yield result
+              case _ =>
+                // arg isn't in scope for argV
+                innerToValue(argV).flatMap { v =>
+                  bind(arg) {
+                    for {
+                      name <- getBinding(arg)
+                      result <- in
+                      stmt <- Code.ValueLike.declareVar(
+                        Code.TypeIdent.BValue,
+                        name,
+                        v
+                      )(newLocalName)
+                    } yield stmt +: result
+                  }
+                }
             }
           case Left(LocalAnon(idx)) =>
             // LocalAnon(idx) isn't in scope for argV
@@ -843,37 +855,34 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def boxFn(ident: Code.Ident, arity: Int): Code.Expression =
         Code.Ident(s"alloc_boxed_pure_fn$arity")(ident)
 
-      // We have to lift functions to the top level and not
-      // create any nesting
-      def innerFn(fn: Lambda[K]): T[Code.ValueLike] = {
+      def liftedFnName(fn: Lambda[K]): T[Code.Ident] = {
         val nameSuffix = fn.recursiveName match {
           case None    => ""
           case Some(n) => Idents.escape("_", n.asString)
         }
+        val prefix = if (fn.captures.isEmpty) "lambda" else "closure"
+        cachedIdent(fn) {
+          for {
+            ident <- newTopName(prefix + nameSuffix)
+            stmt <- fnStatement(ident, fn)
+            _ <- appendStatement(stmt)
+          } yield ident
+        }
+      }
+
+      // We have to lift functions to the top level and not
+      // create any nesting
+      def innerFn(fn: Lambda[K]): T[Code.ValueLike] = {
         if (fn.captures.isEmpty) {
-          cachedIdent(fn) {
-            for {
-              ident <- newTopName("lambda" + nameSuffix)
-              stmt <- fnStatement(ident, fn)
-              _ <- appendStatement(stmt)
-            } yield ident
-          }.map { ident =>
+          liftedFnName(fn).map { ident =>
             boxFn(ident, fn.arity);
           }
         } else {
           // we create the function, then we allocate
           // values for the capture
           // alloc_closure<n>(capLen, captures, fnName)
-          val maybeCached = cachedIdent(fn) {
-            for {
-              ident <- newTopName("closure" + nameSuffix)
-              stmt <- fnStatement(ident, fn)
-              _ <- appendStatement(stmt)
-            } yield ident
-          }
-
           for {
-            ident <- maybeCached
+            ident <- liftedFnName(fn)
             capName <- newLocalName("captures")
             capValues <- fn.captures.traverse(innerToValue(_))
             decl <- Code.ValueLike.declareArray(
@@ -1319,7 +1328,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             def ident: Code.Ident
           }
           object BindingKind {
-            case class Normal(bn: Bindable, idx: Int) extends BindingKind {
+            case class Normal(
+                bn: Bindable,
+                idx: Int,
+                localFn: Option[(Code.Ident, Boolean, Int)]
+            ) extends BindingKind {
               val ident = Code.Ident(
                 Idents.escape("__bsts_b_", bn.asString + idx.toString)
               )
@@ -1336,8 +1349,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               // by invariant this tail should never fail
               copy(stack = stack.tail)
 
-            def nextBind(bn: Bindable): BindState =
-              copy(count = count + 1, BindingKind.Normal(bn, count) :: stack)
+            def nextBind(
+                bn: Bindable,
+                directFn: Option[(Code.Ident, Boolean, Int)] = None
+            ): BindState =
+              copy(
+                count = count + 1,
+                BindingKind.Normal(bn, count, directFn) :: stack
+              )
 
             def nextRecursive(
                 fnName: Code.Ident,
@@ -1481,13 +1500,16 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
             }
 
-          def bind[A](bn: Bindable)(in: T[A]): T[A] = {
+          def bind[A](
+              bn: Bindable,
+              directFn: Option[(Code.Ident, Boolean, Int)]
+          )(in: T[A]): T[A] = {
             val init: T[Unit] = update { s =>
               val bs0 = s.binds.get(bn) match {
                 case None     => BindState.empty
                 case Some(bs) => bs
               }
-              val bs1 = bs0.nextBind(bn)
+              val bs1 = bs0.nextBind(bn, directFn)
               (s.copy(binds = s.binds.updated(bn, bs1)), ())
             }
 
@@ -1596,6 +1618,13 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               s.binds.get(b) match {
                 case Some(
                       BindState(_, BindingKind.Recursive(n, c, a, _) :: _)
+                    ) =>
+                  Some((n, c, a))
+                case Some(
+                      BindState(
+                        _,
+                        BindingKind.Normal(_, _, Some((n, c, a))) :: _
+                      )
                     ) =>
                   Some((n, c, a))
                 case _ =>
