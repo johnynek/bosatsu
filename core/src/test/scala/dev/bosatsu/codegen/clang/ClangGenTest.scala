@@ -100,11 +100,7 @@ BValue __bsts_t_lambda__loop0(BValue __bsts_b_a0,
 BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_b_fn0,
     BValue __bsts_b_acc0) {
-    BValue __bsts_b_loop0 = alloc_boxed_pure_fn3(__bsts_t_lambda__loop0);
-    return call_fn3(__bsts_b_loop0,
-        __bsts_b_acc0,
-        __bsts_b_fn0,
-        __bsts_b_list0);
+    return __bsts_t_lambda__loop0(__bsts_b_acc0, __bsts_b_fn0, __bsts_b_list0);
 }
 
 int main(int argc, char** argv) {
