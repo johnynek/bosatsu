@@ -301,14 +301,20 @@ object Infer {
     case class ExpectedRho(tpe: Type, context: String, region: Region)
         extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"expected $tpe to be a Type.Rho, at $context"
+      def message = {
+        val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
+        s"expected $tpeStr to be a Type.Rho, at $context"
+      }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class UnknownKindOfVar(tpe: Type, region: Region, mess: String)
         extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"unknown var in $tpe: $mess at $region"
+      def message = {
+        val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
+        s"unknown var in $tpeStr: $mess at $region"
+      }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
