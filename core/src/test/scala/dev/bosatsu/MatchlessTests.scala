@@ -246,27 +246,92 @@ x = 1
     )
   }
 
-  test("Matchless.recoverTopLevelLambda pushes apply into branches") {
+  test("Matchless.applyArgs beta-reduces Lambda into Lets") {
+    val x = Identifier.Name("x")
+    val f = Identifier.Name("f")
+    val yExpr: Matchless.Expr[Unit] = Matchless.Local(Identifier.Name("y"))
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(x),
+        body = Matchless.App(
+          Matchless.Local(f),
+          NonEmptyList.one(Matchless.Local(x))
+        )
+      )
+
+    Matchless.applyArgs(lam, NonEmptyList.one(yExpr)) match {
+      case Matchless.Let(
+            Right(tmp),
+            `yExpr`,
+            Matchless.Let(
+              Right(`x`),
+              Matchless.Local(tmpRef),
+              Matchless.App(Matchless.Local(`f`), appArgs)
+            )
+          ) =>
+        assertEquals(tmp, tmpRef)
+        assertEquals(appArgs, NonEmptyList.one(Matchless.Local(x)))
+      case other =>
+        fail(s"expected beta-reduced lets, found: $other")
+    }
+  }
+
+  test("Matchless.recoverTopLevelLambda pushes apply into branches and beta-reduces") {
     val a = Identifier.Name("a")
     val b = Identifier.Name("b")
+    val left = Identifier.Name("left")
+    val right = Identifier.Name("right")
     val branchFn1: Matchless.Expr[Unit] =
-      Matchless.Lambda(Nil, None, NonEmptyList.one(a), Matchless.Local(a))
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(a),
+        Matchless.App(Matchless.Local(left), NonEmptyList.one(Matchless.Local(a)))
+      )
     val branchFn2: Matchless.Expr[Unit] =
-      Matchless.Lambda(Nil, None, NonEmptyList.one(b), Matchless.Local(b))
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(b),
+        Matchless.App(Matchless.Local(right), NonEmptyList.one(Matchless.Local(b)))
+      )
 
     val expr: Matchless.Expr[Unit] =
       Matchless.If(Matchless.TrueConst, branchFn1, branchFn2)
 
     Matchless.recoverTopLevelLambda(expr) match {
       case Matchless.Lambda(Nil, None, args, body) =>
-        val callArgs = args.map[Matchless.Expr[Unit]](Matchless.Local(_))
-        val expectedBody: Matchless.Expr[Unit] =
-          Matchless.If(
-            Matchless.TrueConst,
-            Matchless.App(branchFn1, callArgs),
-            Matchless.App(branchFn2, callArgs)
-          )
-        assertEquals(body, expectedBody)
+        val topArg: Matchless.Expr[Unit] = Matchless.Local(args.head)
+        body match {
+          case Matchless.If(Matchless.TrueConst, tBranch, fBranch) =>
+            def assertReducedBranch(
+                branch: Matchless.Expr[Unit],
+                fnName: Bindable,
+                fnArg: Bindable
+            ): Unit =
+              branch match {
+                case Matchless.Let(
+                      Right(tmp),
+                      `topArg`,
+                      Matchless.Let(
+                        Right(`fnArg`),
+                        Matchless.Local(tmpRef),
+                        Matchless.App(Matchless.Local(`fnName`), appArgs)
+                      )
+                    ) =>
+                  assertEquals(tmp, tmpRef)
+                  assertEquals(appArgs, NonEmptyList.one(Matchless.Local(fnArg)))
+                case other =>
+                  fail(s"expected beta-reduced branch, found: $other")
+              }
+
+            assertReducedBranch(tBranch, left, a)
+            assertReducedBranch(fBranch, right, b)
+          case other =>
+            fail(s"expected recovered branch if, found: $other")
+        }
       case other =>
         fail(s"expected recovered lambda, found: $other")
     }

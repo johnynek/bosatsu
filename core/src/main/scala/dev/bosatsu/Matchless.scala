@@ -72,13 +72,162 @@ object Matchless {
       }
   }
 
-  /** Apply args to an expression while pushing through branch structure.
-    *
-    * For now this intentionally does not push through `Let`/`LetMut` because
-    * doing so safely requires unshadowing/substitution.
+  private def allNamesMany[A](exprs: IterableOnce[Expr[A]]): Set[Bindable] =
+    exprs.iterator.foldLeft(Set.empty[Bindable]) { case (acc, ex) =>
+      acc ++ allNames(ex)
+    }
+
+  private def freshSyntheticNames(
+      prefix: String,
+      count: Int,
+      usedNames: Set[Bindable]
+  ): List[Bindable] =
+    Iterator
+      .from(0)
+      .map(i => Identifier.synthetic(s"${prefix}_$i"))
+      .filterNot(usedNames)
+      .take(count)
+      .toList
+
+  private def substituteClosureSlots[A](
+      slots: Vector[CheapExpr[A]],
+      expr: Expr[A]
+  ): Expr[A] = {
+    def loopExpr(ex: Expr[A]): Expr[A] =
+      ex match {
+        case ClosureSlot(idx) =>
+          slots.lift(idx) match {
+            case Some(ch) => ch
+            case None     =>
+              // $COVERAGE-OFF$
+              sys.error(
+                s"missing closure slot $idx in expression: $expr"
+              )
+            // $COVERAGE-ON$
+          }
+        case Lambda(captures, recName, args, body) =>
+          // ClosureSlot indices are local to each lambda body, so we only
+          // rewrite captures and leave the inner body unchanged.
+          Lambda(captures.map(loopExpr), recName, args, body)
+        case App(fn, appArgs) =>
+          applyArgs(loopExpr(fn), appArgs.map(loopExpr))
+        case Let(arg, value, in) =>
+          Let(arg, loopExpr(value), loopExpr(in))
+        case LetMut(name, in) =>
+          LetMut(name, loopExpr(in))
+        case If(cond, thenExpr, elseExpr) =>
+          If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
+        case Always(cond, thenExpr) =>
+          Always(loopBool(cond), loopExpr(thenExpr))
+        case WhileExpr(cond, effectExpr, result) =>
+          WhileExpr(loopBool(cond), loopExpr(effectExpr), result)
+        case PrevNat(of) =>
+          PrevNat(loopExpr(of))
+        case ge: GetEnumElement[?] =>
+          ge.copy(arg = loopCheap(ge.arg))
+        case gs: GetStructElement[?] =>
+          gs.copy(arg = loopCheap(gs.arg))
+        case Local(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
+            Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+            ZeroNat =>
+          ex
+      }
+
+    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      loopExpr(ex) match {
+        case ch: CheapExpr[A] => ch
+        case notCheap         =>
+          // $COVERAGE-OFF$
+          sys.error(
+            s"invariant violation: expected cheap expression when rewriting closure slots, got: $notCheap"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def loopBool(ex: BoolExpr[A]): BoolExpr[A] =
+      ex match {
+        case EqualsLit(arg, lit) =>
+          EqualsLit(loopCheap(arg), lit)
+        case EqualsNat(arg, nat) =>
+          EqualsNat(loopCheap(arg), nat)
+        case And(left, right) =>
+          And(loopBool(left), loopBool(right))
+        case CheckVariant(arg, expect, size, famArities) =>
+          CheckVariant(loopCheap(arg), expect, size, famArities)
+        case ms: MatchString[?] =>
+          ms.copy(arg = loopCheap(ms.arg))
+        case SetMut(target, value) =>
+          SetMut(target, loopExpr(value))
+        case LetBool(arg, value, in) =>
+          LetBool(arg, loopExpr(value), loopBool(in))
+        case LetMutBool(name, in) =>
+          LetMutBool(name, loopBool(in))
+        case TrueConst =>
+          TrueConst
+      }
+
+    loopExpr(expr)
+  }
+
+  /** Apply args to an expression while pushing through branch structure and
+    * reducing immediate lambda application into lets.
     */
   def applyArgs[A](fn: Expr[A], args: NonEmptyList[Expr[A]]): Expr[A] =
     fn match {
+      case Lambda(captures, recName, lamArgs, body) if lamArgs.length == args.length =>
+        val captureCount = captures.length
+        val argCount = args.length
+        val usedNames =
+          allNames(body) ++
+            allNamesMany(captures) ++
+            allNamesMany(args.toList) ++
+            lamArgs.toList ++
+            recName.toSet
+
+        val tmpNames =
+          freshSyntheticNames(
+            prefix = "bsts_apply",
+            count = captureCount + argCount,
+            usedNames = usedNames
+          )
+        val (captureTmpNames, argTmpNames) = tmpNames.splitAt(captureCount)
+        val captureTmpLocals: List[CheapExpr[A]] =
+          captureTmpNames.map(Local(_))
+
+        val bodyWithCaptures =
+          substituteClosureSlots(captureTmpLocals.toVector, body)
+
+        val bodyWithArgs =
+          lamArgs.toList.zip(argTmpNames).foldRight(bodyWithCaptures) {
+            case ((argName, argTmp), in) =>
+              Let(argName, Local(argTmp), in)
+          }
+
+        val bodyWithRec =
+          recName match {
+            case Some(name) =>
+              val recLam =
+                Lambda(
+                  captures = captureTmpLocals.map[Expr[A]](x => x),
+                  recursiveName = recName,
+                  args = lamArgs,
+                  body = body
+                )
+              Let(name, recLam, bodyWithArgs)
+            case None =>
+              bodyWithArgs
+          }
+
+        val withArgTmps =
+          argTmpNames.zip(args.toList).foldRight(bodyWithRec) {
+            case ((argTmp, argExpr), in) =>
+              Let(argTmp, argExpr, in)
+          }
+
+        captureTmpNames.zip(captures).foldRight(withArgTmps) {
+          case ((captureTmp, captureExpr), in) =>
+            Let(captureTmp, captureExpr, in)
+        }
       case If(cond, thenExpr, elseExpr) =>
         If(cond, applyArgs(thenExpr, args), applyArgs(elseExpr, args))
       case Always(cond, thenExpr) =>
@@ -91,8 +240,11 @@ object Matchless {
             !args.exists(a => allNames(a)(name))
         }
         if (canPushPastLet) Let(arg, expr, applyArgs(in, args))
+        // We stop when the let-bound name appears in any argument. Pushing would
+        // risk changing which binder those argument references resolve to.
         else App(let, args)
       case other =>
+        // No additional structure to push through; keep this as a regular call.
         App(other, args)
     }
 
@@ -388,7 +540,7 @@ object Matchless {
     private val consFn = MakeEnum(1, 2, listFamArities)
 
     def cons[A](h: Expr[A], t: Expr[A]): Expr[A] =
-      App(consFn, NonEmptyList(h, t :: List.empty))
+      applyArgs(consFn, NonEmptyList(h, t :: List.empty))
 
     def notNil[A](e: CheapExpr[A]): BoolExpr[A] =
       CheckVariant(e, 1, 2, listFamArities)
@@ -558,7 +710,7 @@ object Matchless {
     def substituteLocals(m: Map[Bindable, CheapExpr[B]], e: Expr[B]): Expr[B] =
       e match {
         case App(fn, appArgs) =>
-          App(substituteLocals(m, fn), appArgs.map(substituteLocals(m, _)))
+          applyArgs(substituteLocals(m, fn), appArgs.map(substituteLocals(m, _)))
         case If(c, tcase, fcase) =>
           If(
             substituteLocalsBool(m, c),
@@ -874,7 +1026,7 @@ object Matchless {
           Monad[F].pure(slots(bind))
         case TypedExpr.App(fn, as, _, _) =>
           (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
-            .mapN(App(_, _))
+            .mapN(applyArgs(_, _))
         case TypedExpr.Loop(args, body, _) =>
           val avoid = TypedExpr.allVarsSet(body :: args.toList.map(_._2))
           val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
@@ -1142,7 +1294,7 @@ object Matchless {
                             optAnonLeft match {
                               case Some((anonLeft, ln)) =>
                                 val revList =
-                                  App(
+                                  applyArgs(
                                     reverseFn(from),
                                     NonEmptyList.one(anonLeft)
                                   )
