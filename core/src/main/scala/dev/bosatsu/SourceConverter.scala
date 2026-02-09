@@ -1029,18 +1029,20 @@ final class SourceConverter(
             val count = topDeclaredCounts.getOrElse(tv, 0)
             if (count <= 0) Nil
             else {
-              val base = s"enum ${nm.asString}[${tv.name}]"
+              val base = s"enum ${nm.sourceCodeRepr}[${tv.name}]"
               if (count == 1) base :: Nil else s"$base (declared $count times)" :: Nil
             }
           }
           val overlapOwners =
             topBranchOverlap
               .getOrElse(tv, Nil)
-              .map(item => s"branch ${item.name.asString}[${tv.name}]")
+              .map(item => s"branch ${item.name.sourceCodeRepr}[${tv.name}]")
           val branchDuplicateOwners =
             duplicateWithinBranch
               .getOrElse(tv, Nil)
-              .map(item => s"branch ${item.name.asString}[${tv.name}] (declared more than once)")
+              .map(item =>
+                s"branch ${item.name.sourceCodeRepr}[${tv.name}] (declared more than once)"
+              )
 
           NonEmptyList.fromList(
             (topOwners ::: overlapOwners ::: branchDuplicateOwners).distinct
@@ -2084,7 +2086,8 @@ object SourceConverter {
         case _ =>
           Doc.text(" in") + Doc.lineOrSpace + syntax.toDoc
       }
-      (Doc.text(s"unknown constructor ${name.asString}") + maybeDoc).render(80)
+      (Doc.text(s"unknown constructor ${name.sourceCodeRepr}") + maybeDoc)
+        .render(80)
     }
   }
   final case class InvalidArgCount(
@@ -2096,7 +2099,7 @@ object SourceConverter {
   ) extends ConstructorError {
     def message =
       (Doc.text(
-        s"invalid argument count in ${name.asString}, found $argCount expected $expected"
+        s"invalid argument count in ${name.sourceCodeRepr}, found $argCount expected $expected"
       ) + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
   final case class MissingArg(
@@ -2108,7 +2111,7 @@ object SourceConverter {
   ) extends ConstructorError {
     def message =
       (Doc.text(
-        s"missing field ${missing.asString} in ${name.asString}"
+        s"missing field ${missing.sourceCodeRepr} in ${name.sourceCodeRepr}"
       ) + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
   final case class UnexpectedField(
@@ -2122,15 +2125,15 @@ object SourceConverter {
       val plural = if (unexpected.tail.isEmpty) "field" else "fields"
       val unexDoc = Doc.intercalate(
         Doc.comma + Doc.lineOrSpace,
-        unexpected.toList.map(b => Doc.text(b.asString))
+        unexpected.toList.map(b => Doc.text(b.sourceCodeRepr))
       )
       val exDoc = Doc.intercalate(
         Doc.comma + Doc.lineOrSpace,
-        expected.map(b => Doc.text(b.asString))
+        expected.map(b => Doc.text(b.sourceCodeRepr))
       )
       (Doc.text(s"unexpected $plural: ") + unexDoc + Doc.lineOrSpace +
         Doc.text(
-          s"in ${name.asString}, expected: "
+          s"in ${name.sourceCodeRepr}, expected: "
         ) + exDoc + Doc.lineOrSpace + syntax.toDoc).render(80)
     }
   }
@@ -2154,7 +2157,7 @@ object SourceConverter {
           }
           .renderTrim(80)
       val disc = tstr(discoveredTypes)
-      s"${statement.name.asString} found declared: $decl, not a superset of $disc"
+      s"${statement.name.sourceCodeRepr} found declared: $decl, not a superset of $disc"
     }
   }
 
@@ -2168,7 +2171,7 @@ object SourceConverter {
         l.iterator.map(_.name).mkString("[", ", ", "]")
 
       val disc = tstr(discoveredTypes)
-      s"${statement.name.asString} has constructor-local type parameter blocks, but found unscoped type variables: $disc"
+      s"${statement.name.sourceCodeRepr} has constructor-local type parameter blocks, but found unscoped type variables: $disc"
     }
   }
 
@@ -2189,12 +2192,12 @@ object SourceConverter {
           .toList
           .distinct
       val enumWithSuggestedParams =
-        if (enumParamNames.isEmpty) enumName.asString
-        else s"${enumName.asString}${enumParamNames.mkString("[", ", ", "]")}"
+        if (enumParamNames.isEmpty) enumName.sourceCodeRepr
+        else s"${enumName.sourceCodeRepr}${enumParamNames.mkString("[", ", ", "]")}"
       val branchWithSuggestedParams =
-        s"${branch.name.asString}${missingNames.mkString("[", ", ", "]")}("
+        s"${branch.name.sourceCodeRepr}${missingNames.mkString("[", ", ", "]")}("
 
-      s"${enumName.asString}.${branch.name.asString} is missing type parameter declarations for $missing; add them to either enum $enumWithSuggestedParams or $branchWithSuggestedParams"
+      s"${enumName.sourceCodeRepr}.${branch.name.sourceCodeRepr} is missing type parameter declarations for $missing; add them to either enum $enumWithSuggestedParams or $branchWithSuggestedParams"
     }
   }
 
@@ -2210,7 +2213,7 @@ object SourceConverter {
         if (isSingle) s"type variable `${names.head}`"
         else s"type variables ${names.mkString("[", ", ", "]")}"
       val enumWithParams =
-        s"${enumName.asString}${names.mkString("[", ", ", "]")}"
+        s"${enumName.sourceCodeRepr}${names.mkString("[", ", ", "]")}"
       val pronoun = if (isSingle) "it" else "they"
       val removePronoun = if (isSingle) "it" else "them"
 
@@ -2229,7 +2232,7 @@ object SourceConverter {
           s"${tv.name}: ${owners.toList.mkString(", ")}"
         }
         .mkString("; ")
-      s"${statement.name.asString} has intersecting explicit type parameter declarations. All explicit type-parameter groups must have non-intersecting type variable sets. Collisions: $dups"
+      s"${statement.name.sourceCodeRepr} has intersecting explicit type parameter declarations. All explicit type-parameter groups must have non-intersecting type variable sets. Collisions: $dups"
     }
   }
 
@@ -2262,13 +2265,13 @@ object SourceConverter {
         .renderTrim(80)
 
       val freeStr = tstr(free)
-      s"${name.asString} found declared types: $decl, not $expectation $freeStr"
+      s"${name.sourceCodeRepr} found declared types: $decl, not $expectation $freeStr"
     }
   }
 
   final case class UnknownTypeName(tpe: Constructor, region: Region)
       extends Error {
-    def message = s"unknown type: ${tpe.asString}"
+    def message = s"unknown type: ${tpe.sourceCodeRepr}"
   }
 
   final case class InvalidArity(size: Int, region: Region) extends Error {
@@ -2292,7 +2295,7 @@ object SourceConverter {
       } else {
         Doc
           .text(
-            s"invalid argument count in constructor for ${name.asString} found $argCount maximum allowed $max"
+            s"invalid argument count in constructor for ${name.sourceCodeRepr} found $argCount maximum allowed $max"
           )
           .render(80)
       }
