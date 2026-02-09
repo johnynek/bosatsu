@@ -264,7 +264,8 @@ object PackageError {
       tpeErr: Infer.Error,
       pack: PackageName,
       lets: List[(Identifier.Bindable, RecursionKind, Expr[Declaration])],
-      externals: Map[Identifier.Bindable, (Type, Region)]
+      externals: Map[Identifier.Bindable, (Type, Region)],
+      letNameRegions: Map[Identifier.Bindable, Region]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
@@ -319,27 +320,64 @@ object PackageError {
             val ctx =
               lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
 
-            val names =
-              (scope.map { case ((_, n), _) => n }.toList ::: lets.map(
-                _._1
-              )).distinct
-
-            val candidates: List[String] =
-              nearest(name, names.map((_, ())), 3)
-                .map { case (n, _) => n.asString }
-
-            val cmessage =
-              if (candidates.nonEmpty)
-                candidates.mkString("\nClosest: ", ", ", ".\n")
-              else ""
-
             val qname = "\"" + name.sourceCodeRepr + "\""
-            (
-              Doc.text("name ") + Doc.text(qname) + Doc.text(" unknown.") + Doc
-                .text(cmessage) + Doc.hardLine +
-                ctx,
-              Some(region)
-            )
+            val laterTopLevelDef =
+              name match {
+                case b: Identifier.Bindable =>
+                  letNameRegions.get(b).filter(_.start > region.start)
+                case _ =>
+                  None
+              }
+
+            laterTopLevelDef match {
+              case Some(defRegion) =>
+                val defPos = lm
+                  .toLineCol(defRegion.start)
+                  .map { case (line, col) => s"${line + 1}:${col + 1}" }
+                  .getOrElse(defRegion.toString)
+                val defCtx =
+                  lm.showRegion(defRegion, 2, errColor).getOrElse(Doc.str(
+                    defRegion
+                  ))
+
+                (
+                  Doc.text("name ") + Doc.text(qname) + Doc.text(
+                    " is used before it is defined."
+                  ) + Doc.hardLine +
+                    Doc.text(
+                      s"this use site uses ${name.sourceCodeRepr}, but ${name.sourceCodeRepr} is defined later in this file at $defPos."
+                    ) + Doc.hardLine +
+                    Doc.text(
+                      s"move ${name.sourceCodeRepr} before its first use site."
+                    ) + Doc.hardLine +
+                    Doc.text("Use site:") + Doc.hardLine + ctx + Doc.hardLine +
+                    Doc.text("Definition site:") + Doc.hardLine + defCtx,
+                  Some(region)
+                )
+              case None =>
+                val names =
+                  (scope.map { case ((_, n), _) => n }.toList ::: lets.map(
+                    _._1
+                  )).distinct
+
+                val candidates: List[String] =
+                  nearest(name, names.map((_, ())), 3)
+                    .map { case (n, _) => n.asString }
+
+                val cmessage =
+                  if (candidates.nonEmpty)
+                    candidates.mkString("\nClosest: ", ", ", ".\n")
+                  else ""
+
+                (
+                  Doc.text("name ") + Doc.text(qname) + Doc.text(
+                    " unknown."
+                  ) + Doc
+                    .text(cmessage) + Doc.hardLine +
+                    ctx,
+                  Some(region)
+                )
+            }
           case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
             val context0 =
               if (r0 === r1)
