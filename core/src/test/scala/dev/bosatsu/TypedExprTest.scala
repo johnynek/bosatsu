@@ -414,6 +414,14 @@ foo = _ -> 1
       ()
     )
 
+  val PredefSub: TypedExpr[Unit] =
+    TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("sub"),
+      Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), Type.IntType),
+      ()
+    )
+
   def let(
       n: String,
       ex1: TypedExpr[Unit],
@@ -627,6 +635,139 @@ foo = _ -> 1
       ()
     )
     assertEquals(TypedExprNormalization.normalize(zeroL), Some(int(0)))
+  }
+
+  test("we can normalize subtraction") {
+    val minusOne = TypedExpr.App(
+      PredefSub,
+      NonEmptyList.of(int(1), int(2)),
+      Type.IntType,
+      ()
+    )
+    assertEquals(TypedExprNormalization.normalize(minusOne), Some(int(-1)))
+
+    val minusTwo = TypedExpr.App(
+      PredefSub,
+      NonEmptyList.of(int(0), int(2)),
+      Type.IntType,
+      ()
+    )
+    assertEquals(TypedExprNormalization.normalize(minusTwo), Some(int(-2)))
+  }
+
+  test("normalization rewrites opaque arithmetic with identity elements") {
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("f", fnType), int(1), intTpe)
+    val expr = TypedExpr.App(PredefMul, NonEmptyList.of(opaque, int(1)), intTpe, ())
+
+    def countExpr(te: TypedExpr[Unit], target: TypedExpr[Unit]): Int =
+      te match {
+        case t if t.void === target.void => 1
+        case TypedExpr.Generic(_, in)   => countExpr(in, target)
+        case TypedExpr.Annotation(in, _) => countExpr(in, target)
+        case TypedExpr.AnnotatedLambda(_, in, _) => countExpr(in, target)
+        case TypedExpr.App(fn, args, _, _) =>
+          countExpr(fn, target) + args.toList.map(countExpr(_, target)).sum
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          countExpr(ex, target) + countExpr(in, target)
+        case TypedExpr.Loop(args, body, _) =>
+          args.toList.map { case (_, init) => countExpr(init, target) }.sum + countExpr(
+            body,
+            target
+          )
+        case TypedExpr.Recur(args, _, _) =>
+          args.toList.map(countExpr(_, target)).sum
+        case TypedExpr.Match(arg, branches, _) =>
+          countExpr(arg, target) + branches.toList.map { case (_, b) =>
+            countExpr(b, target)
+          }.sum
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
+          0
+      }
+
+    val normalized = TypedExprNormalization.normalize(expr)
+    assert(normalized.nonEmpty)
+    val norm = normalized.get
+    assertEquals(norm.void, opaque.void)
+    assert(countExpr(norm, opaque) <= 1, norm.reprString)
+  }
+
+  test("normalization evaluates constructor matches with named, annotation, and union patterns") {
+    type Pat = Pattern[(PackageName, Constructor), Type]
+
+    def cons(name: String): TypedExpr[Unit] =
+      TypedExpr.Global(
+        PackageName.PredefName,
+        Identifier.Constructor(name),
+        Type.Fun(NonEmptyList.one(intTpe), intTpe),
+        ()
+      )
+
+    def consPat(name: String, argPat: Pat): Pat =
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Identifier.Constructor(name)),
+        argPat :: Nil
+      )
+
+    val vName = Identifier.Name("v")
+    val wholeName = Identifier.Name("whole")
+    val cExpr = TypedExpr.App(cons("C"), NonEmptyList.one(int(1)), intTpe, ())
+    val cPat = consPat("C", Pattern.Var(vName))
+    val dPat = consPat("D", Pattern.Var(vName))
+    val unionPat = Pattern.union(cPat, dPat :: Nil)
+    val namedPat: Pat =
+      Pattern.Named(wholeName, Pattern.Annotation(unionPat, intTpe))
+
+    val matchExpr = TypedExpr.Match(
+      cExpr,
+      NonEmptyList.of(
+        (namedPat, TypedExpr.Local(vName, intTpe, ())),
+        (Pattern.WildCard, int(0))
+      ),
+      ()
+    )
+
+    assertEquals(TypedExprNormalization.normalize(matchExpr), Some(int(1)))
+  }
+
+  test("normalization prunes impossible constructor branches while keeping runtime matches") {
+    type Pat = Pattern[(PackageName, Constructor), Type]
+
+    def cons(name: String): TypedExpr[Unit] =
+      TypedExpr.Global(
+        PackageName.PredefName,
+        Identifier.Constructor(name),
+        Type.Fun(NonEmptyList.one(intTpe), intTpe),
+        ()
+      )
+
+    def consPat(name: String, argPat: Pat): Pat =
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Identifier.Constructor(name)),
+        argPat :: Nil
+      )
+
+    val cExpr = TypedExpr.App(cons("C"), NonEmptyList.one(int(1)), intTpe, ())
+    val noMatchPat = consPat("D", Pattern.WildCard)
+    val exactPat = consPat("C", Pattern.Literal(Lit.fromInt(1)))
+
+    val matchExpr = TypedExpr.Match(
+      cExpr,
+      NonEmptyList.of(
+        (noMatchPat, int(-1)),
+        (exactPat, int(1)),
+        (Pattern.WildCard, int(0))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(matchExpr) match {
+      case Some(TypedExpr.Match(_, branches, _)) =>
+        assertEquals(branches.length, 2)
+        assertEquals(branches.head._1, exactPat)
+      case other =>
+        fail(s"expected branch-pruned match, got: $other")
+    }
   }
 
   test("normalization can inline a tail-recursive function via Loop") {
@@ -1045,6 +1186,63 @@ x = Foo
     }
   }
 
+  test("coerceFn does not rewrite pattern-bound local types") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val yLocal = TypedExpr.Local(yName, intTpe, ())
+    val body = TypedExpr.Match(
+      yLocal,
+      NonEmptyList.one(
+        (
+          Pattern.Var(xName): Pattern[(PackageName, Constructor), Type],
+          TypedExpr.Local(xName, intTpe, ())
+        )
+      ),
+      ()
+    )
+    val lam = TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
+    val coerced =
+      TypedExpr.coerceFn(
+        NonEmptyList.one(Type.StrType),
+        Type.IntType,
+        TypedExpr.coerceRho(Type.IntType, _ => None),
+        _ => None
+      )(lam)
+
+    def localTypesOf(te: TypedExpr[Unit], target: Bindable): List[Type] =
+      te match {
+        case TypedExpr.Local(n, tpe, _) if n == target =>
+          tpe :: Nil
+        case TypedExpr.Generic(_, in) =>
+          localTypesOf(in, target)
+        case TypedExpr.Annotation(in, _) =>
+          localTypesOf(in, target)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          localTypesOf(in, target)
+        case TypedExpr.App(fn, args, _, _) =>
+          localTypesOf(fn, target) ::: args.toList.flatMap(localTypesOf(_, target))
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          localTypesOf(ex, target) ::: localTypesOf(in, target)
+        case TypedExpr.Loop(args, in, _) =>
+          args.toList.flatMap { case (_, init) => localTypesOf(init, target) } ::: localTypesOf(
+            in,
+            target
+          )
+        case TypedExpr.Recur(args, _, _) =>
+          args.toList.flatMap(localTypesOf(_, target))
+        case TypedExpr.Match(arg, branches, _) =>
+          localTypesOf(arg, target) ::: branches.toList.flatMap { case (_, in) =>
+            localTypesOf(in, target)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
+          Nil
+      }
+
+    val xTypes = localTypesOf(coerced, xName).toSet
+    assert(xTypes.nonEmpty)
+    assertEquals(xTypes, Set[Type](intTpe))
+  }
+
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
     Generators.genTypedExpr(g, 3, NTypeGen.genDepth03)
 
@@ -1120,6 +1318,54 @@ x = Foo
     forAll(genTypedExpr) { te =>
       assert(te.allTypes.contains(te.getType))
     }
+  }
+
+  test("TypedExpr.Quantification.fromLists and concat cover all constructors") {
+    val a = (Type.Var.Bound("a"), Kind.Type)
+    val b = (Type.Var.Bound("b"), Kind.Type)
+    val c = (Type.Var.Bound("c"), Kind.Type)
+
+    val fa = TypedExpr.Quantification.fromLists(List(a), Nil)
+    val ex = TypedExpr.Quantification.fromLists(Nil, List(b))
+    val du = TypedExpr.Quantification.fromLists(List(a), List(b))
+
+    assertEquals(
+      fa,
+      Some(TypedExpr.Quantification.ForAll(NonEmptyList.one(a)))
+    )
+    assertEquals(
+      ex,
+      Some(TypedExpr.Quantification.Exists(NonEmptyList.one(b)))
+    )
+    assertEquals(
+      du,
+      Some(
+        TypedExpr.Quantification.Dual(
+          NonEmptyList.one(a),
+          NonEmptyList.one(b)
+        )
+      )
+    )
+
+    val faq = TypedExpr.Quantification.ForAll(NonEmptyList.one(a))
+    val exq = TypedExpr.Quantification.Exists(NonEmptyList.one(b))
+    val duq = TypedExpr.Quantification.Dual(NonEmptyList.one(a), NonEmptyList.one(c))
+
+    assertEquals(
+      faq.concat(exq),
+      TypedExpr.Quantification.Dual(NonEmptyList.one(a), NonEmptyList.one(b))
+    )
+    assertEquals(
+      exq.concat(faq),
+      TypedExpr.Quantification.Dual(NonEmptyList.one(a), NonEmptyList.one(b))
+    )
+    assertEquals(
+      duq.concat(exq),
+      TypedExpr.Quantification.Dual(
+        NonEmptyList.one(a),
+        NonEmptyList.of(c, b)
+      )
+    )
   }
 
   def count[A](

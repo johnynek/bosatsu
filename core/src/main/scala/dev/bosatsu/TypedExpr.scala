@@ -2261,7 +2261,14 @@ object TypedExpr {
         Recur(args.map(recur), tpe, tag)
       case lit @ Literal(_, _, _)    => lit
       case Match(arg, branches, tag) =>
-        Match(recur(arg), branches.map { case (p, t) => (p, recur(t)) }, tag)
+        Match(
+          recur(arg),
+          branches.map { case (p, t) =>
+            if (p.names.contains(name)) (p, t)
+            else (p, recur(t))
+          },
+          tag
+        )
     }
   }
 
