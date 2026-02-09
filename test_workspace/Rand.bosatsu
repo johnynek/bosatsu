@@ -1,9 +1,9 @@
 package Bosatsu/Rand
 
-from Bosatsu/Nat import (Nat, Zero, Succ, exp as exp_Nat,
+from Bosatsu/Num/Nat import (Nat, Zero, Succ, exp as exp_Nat,
   to_Int as nat_to_Int, to_Nat as int_to_Nat)
 
-from Bosatsu/Nat/Binary import (BinNat, Zero as BZero, Odd, Even,
+from Bosatsu/Num/BinNat import (BinNat, Zero as BZero, Odd, Even,
   next as next_BinNat, prev as prev_BinNat, to_Int as binNat_to_Int)
 
 export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand,

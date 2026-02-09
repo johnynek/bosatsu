@@ -714,7 +714,7 @@ object PythonGen {
       private val arrayPackage: PackageName =
         PackageName.parts("Bosatsu", "Collection", "Array")
       private val float64Package: PackageName =
-        PackageName.parts("Bosatsu", "Float", "Float64")
+        PackageName.parts("Bosatsu", "Num", "Float64")
 
       private val cmpFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>

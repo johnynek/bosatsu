@@ -29,7 +29,7 @@ object Predef {
   private def arrayPackageName: PackageName =
     PackageName.parts("Bosatsu", "Collection", "Array")
   private def float64PackageName: PackageName =
-    PackageName.parts("Bosatsu", "Float", "Float64")
+    PackageName.parts("Bosatsu", "Num", "Float64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
   private def ioStdPackageName: PackageName =

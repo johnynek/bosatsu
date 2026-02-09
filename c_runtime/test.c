@@ -1,5 +1,5 @@
 #include "bosatsu_runtime.h"
-#include "bosatsu_ext_Bosatsu_l_Float_l_Float64.h"
+#include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -318,41 +318,41 @@ void test_float64() {
 
   for (size_t i = 0; i < sizeof(bits_cases) / sizeof(bits_cases[0]); i++) {
     BValue f = bsts_float64_from_bits(bits_cases[i]);
-    BValue as_int = ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__bits__to__Int(f);
-    BValue round = ___bsts_g_Bosatsu_l_Float_l_Float64_l_int__bits__to__Float64(as_int);
+    BValue as_int = ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__bits__to__Int(f);
+    BValue round = ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__bits__to__Float64(as_int);
     assert_u64_equals(bsts_float64_to_bits(round), bits_cases[i], "float64 <-> int bits roundtrip");
   }
 
   BValue minus_one = bsts_integer_from_int(-1);
-  BValue minus_one_float = ___bsts_g_Bosatsu_l_Float_l_Float64_l_int__bits__to__Float64(minus_one);
+  BValue minus_one_float = ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__bits__to__Float64(minus_one);
   assert_u64_equals(bsts_float64_to_bits(minus_one_float), UINT64_C(0xffffffffffffffff), "int_bits uses low 64 two's complement");
 
   {
     BValue inf_str = bsts_string_from_utf8_bytes_static(3, "\xE2\x88\x9E");
-    BValue parsed = ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(inf_str);
+    BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(inf_str);
     assert_option_float_bits(parsed, UINT64_C(0x7ff0000000000000), "parse +infinity");
   }
   {
     BValue ninf_str = bsts_string_from_utf8_bytes_static(4, "-\xE2\x88\x9E");
-    BValue parsed = ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(ninf_str);
+    BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(ninf_str);
     assert_option_float_bits(parsed, UINT64_C(0xfff0000000000000), "parse -infinity");
   }
   {
     uint64_t nan_bits = UINT64_C(0x7ff80000000000ab);
     BValue nanv = bsts_float64_from_bits(nan_bits);
-    BValue nan_str = ___bsts_g_Bosatsu_l_Float_l_Float64_l_float64__to__String(nanv);
-    BValue parsed = ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(nan_str);
+    BValue nan_str = ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__String(nanv);
+    BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(nan_str);
     assert_option_float_bits(parsed, nan_bits, "parse NaN payload");
   }
   {
     BValue nan_lit = bsts_string_from_utf8_bytes_static(4, ".NaN");
-    BValue parsed = ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(nan_lit);
+    BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(nan_lit);
     assert(get_variant(parsed) == 1, "parse .NaN returns Some");
     assert(isnan(bsts_float64_to_double(get_enum_index(parsed, 0))), "parse .NaN produces NaN");
   }
   {
     BValue bad = bsts_string_from_utf8_bytes_static(6, "nope42");
-    BValue parsed = ___bsts_g_Bosatsu_l_Float_l_Float64_l_string__to__Float64(bad);
+    BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(bad);
     assert(get_variant(parsed) == 0, "invalid float string returns None");
   }
 }

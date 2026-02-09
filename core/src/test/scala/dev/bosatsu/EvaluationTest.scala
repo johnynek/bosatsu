@@ -493,7 +493,7 @@ test = TestSuite("float", [
     runBosatsuTest(
       List(
         """
-package Bosatsu/Float/Float64
+package Bosatsu/Num/Float64
 
 from Bosatsu/Predef import Float64
 
@@ -517,7 +517,7 @@ neg_inf: Float64 = -∞
         """
 package Foo
 
-from Bosatsu/Float/Float64 import (
+from Bosatsu/Num/Float64 import (
   float64_bits_to_Int,
   float64_to_String,
   inf,
@@ -1851,6 +1851,29 @@ main = a""")) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
       assert(msg.contains("package B\nname \"a\" unknown"))
+      ()
+    }
+
+    val useBeforeDefCode = """
+package P
+
+main = foo
+
+foo = 1
+"""
+    val useBeforeDefMap =
+      Map((PackageName.parts("P"), (LocationMap(useBeforeDefCode), "P.bosatsu")))
+
+    evalFail(List(useBeforeDefCode)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(useBeforeDefMap, Colorize.None)
+      assert(msg.contains("""name "foo" is used before it is defined."""))
+      assert(
+        msg.contains("this use site uses foo, but foo is defined later in this file")
+      )
+      assert(msg.contains("Use site:"))
+      assert(msg.contains("main = foo"))
+      assert(msg.contains("Definition site:"))
+      assert(msg.contains("foo = 1"))
       ()
     }
 
@@ -4136,7 +4159,7 @@ enum FreeF[a]:
     evalFail(List(testCode)) {
       case kie @ PackageError.KindInferenceError(_, _, _) =>
         assertMessage(kie.message(Map.empty, Colorize.None))
-      case kie @ PackageError.TypeErrorIn(_, _, _, _)    =>
+      case kie @ PackageError.TypeErrorIn(_, _, _, _, _) =>
         assertMessage(kie.message(Map.empty, Colorize.None))
     }
   }

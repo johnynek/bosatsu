@@ -1,6 +1,6 @@
 package PredefTests
 
-from Bosatsu/Float/Float64 import (
+from Bosatsu/Num/Float64 import (
   float64_bits_to_Int,
   float64_to_Int,
   float64_to_String,

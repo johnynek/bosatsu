@@ -419,6 +419,18 @@ object Package {
                 (b, (t, extDefRegions(b)))
             }.toMap
 
+          val letNameRegions: Map[Identifier.Bindable, Region] =
+            stmts.iterator
+              .collect { case vs: Statement.ValueStatement =>
+                val stmtStart = vs.region.start
+                vs.names.iterator.map { n =>
+                  // top-level value statements begin with the bound name
+                  (n, Region(stmtStart, stmtStart + n.asString.length))
+                }
+              }
+              .flatten
+              .toMap
+
           val inferenceEither = Infer
             .typeCheckLets(p, lets, theseExternals)
             .runFully(
@@ -430,7 +442,15 @@ object Package {
               (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
             }
             .left
-            .map(PackageError.TypeErrorIn(_, p, lets, theseExternals))
+            .map(
+              PackageError.TypeErrorIn(
+                _,
+                p,
+                lets,
+                theseExternals,
+                letNameRegions
+              )
+            )
 
           val checkUnusedLets =
             lets

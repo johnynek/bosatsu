@@ -1,4 +1,4 @@
-package Bosatsu/Nat
+package Bosatsu/Num/Nat
 
 from Bosatsu/Predef import add as operator +, mul as operator *
 export Nat(), mul2, add, sub_Nat, mult, exp, to_Int, to_Nat, is_even, div2, cmp_Nat, divmod
