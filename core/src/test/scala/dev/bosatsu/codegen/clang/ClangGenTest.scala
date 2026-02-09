@@ -82,27 +82,29 @@ int main(int argc, char** argv) {
 #include <stdlib.h>
 #include "gc.h"
 
-BValue __bsts_t_closure__loop0(BValue* __bstsi_slot, BValue __bsts_b_list0) {
+BValue __bsts_t_lambda__loop0(BValue __bsts_b_a0,
+    BValue __bsts_b_b0,
+    BValue __bsts_b_list0) {
     if (get_variant(__bsts_b_list0) == 0) {
-        return __bstsi_slot[0];
+        return __bsts_b_a0;
     }
     else {
         BValue __bsts_b_h0 = get_enum_index(__bsts_b_list0, 0);
         BValue __bsts_b_t0 = get_enum_index(__bsts_b_list0, 1);
-        return call_fn2(__bstsi_slot[1],
+        return call_fn2(__bsts_b_b0,
             __bsts_b_h0,
-            __bsts_t_closure__loop0(__bstsi_slot, __bsts_b_t0));
+            __bsts_t_lambda__loop0(__bsts_b_a0, __bsts_b_b0, __bsts_b_t0));
     }
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_b_fn0,
     BValue __bsts_b_acc0) {
-    BValue __bsts_l_captures1[2] = { __bsts_b_acc0, __bsts_b_fn0 };
-    BValue __bsts_b_loop0 = alloc_closure1(2,
-        __bsts_l_captures1,
-        __bsts_t_closure__loop0);
-    return call_fn1(__bsts_b_loop0, __bsts_b_list0);
+    BValue __bsts_b_loop0 = alloc_boxed_pure_fn3(__bsts_t_lambda__loop0);
+    return call_fn3(__bsts_b_loop0,
+        __bsts_b_acc0,
+        __bsts_b_fn0,
+        __bsts_b_list0);
 }
 
 int main(int argc, char** argv) {
