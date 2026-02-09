@@ -231,7 +231,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident]
       def bind[A](
           bn: Bindable,
-          directFn: Option[(Code.Ident, Boolean, Int)] = None
+          directFn: Option[(Code.Ident, Boolean, Int)]
       )(in: T[A]): T[A]
       def getBinding(bn: Bindable): T[Code.Ident]
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
@@ -268,7 +268,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       val slotsArgName: Code.Ident = Code.Ident("__bstsi_slot")
 
       def bindAll[A](nel: NonEmptyList[Bindable])(in: T[A]): T[A] =
-        bind(nel.head) {
+        bind(nel.head, directFn = None) {
           NonEmptyList.fromList(nel.tail) match {
             case None       => in
             case Some(rest) => bindAll(rest)(in)
@@ -344,7 +344,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               case _ =>
                 // arg isn't in scope for argV
                 innerToValue(argV).flatMap { v =>
-                  bind(arg) {
+                  bind(arg, directFn = None) {
                     for {
                       name <- getBinding(arg)
                       result <- in
