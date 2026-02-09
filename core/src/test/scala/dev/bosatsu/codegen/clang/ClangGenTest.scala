@@ -100,11 +100,7 @@ BValue __bsts_t_lambda__loop0(BValue __bsts_b_a0,
 BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_b_fn0,
     BValue __bsts_b_acc0) {
-    BValue __bsts_b_loop0 = alloc_boxed_pure_fn3(__bsts_t_lambda__loop0);
-    return call_fn3(__bsts_b_loop0,
-        __bsts_b_acc0,
-        __bsts_b_fn0,
-        __bsts_b_list0);
+    return __bsts_t_lambda__loop0(__bsts_b_acc0, __bsts_b_fn0, __bsts_b_list0);
 }
 
 int main(int argc, char** argv) {
@@ -114,6 +110,42 @@ int main(int argc, char** argv) {
     BValue main_value = ___bsts_g_Bosatsu_l_Predef_l_foldr__List();
     return run_main(main_value, argc, argv);
 }""")
+  }
+
+  test("direct call for local non-closure recursive lambda") {
+    TestUtils.checkPackageMap("""
+enum MyList:
+  Empty
+  More(tail: MyList)
+
+def foldr_local(list, fn, acc):
+  def loop(acc1, fn1, list1):
+    recur list1:
+      case Empty: acc1
+      case More(t): fn1(loop(acc1, fn1, t))
+  loop(acc, fn, list)
+
+main = foldr_local
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("foldr_local"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "return __bsts_t_lambda__loop\\d*\\(".r.findFirstIn(rendered).nonEmpty
+          )
+          assert(!rendered.contains("return call_fn3(__bsts_b_loop"))
+          assert(!rendered.contains("alloc_boxed_pure_fn3(__bsts_t_lambda__loop"))
+      }
+    }
   }
 
   test("check foldl_List and reverse_concat") {
