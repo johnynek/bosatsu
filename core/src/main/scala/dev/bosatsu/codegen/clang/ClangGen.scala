@@ -154,6 +154,52 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       }
   }
 
+  // Some top-level defs are normalized into Let/If trees that return lambdas.
+  // Recover a lambda wrapper so codegen can emit a direct C function symbol.
+  private def topLevelFunctionArity(expr: Expr[K]): Option[Int] = {
+    import Matchless.{Always, If, Lambda, Let, LetMut}
+
+    def sameArity(left: Option[Int], right: Option[Int]): Option[Int] =
+      (left, right) match {
+        case (Some(l), Some(r)) if l == r => Some(l)
+        case _                            => None
+      }
+
+    expr match {
+      case fn: Lambda[K]        => Some(fn.arity)
+      case Let(_, _, in)        => topLevelFunctionArity(in)
+      case LetMut(_, in)        => topLevelFunctionArity(in)
+      case Always(_, thenExpr)  => topLevelFunctionArity(thenExpr)
+      case If(_, thenExpr, els) =>
+        sameArity(topLevelFunctionArity(thenExpr), topLevelFunctionArity(els))
+      case _                    => None
+    }
+  }
+
+  private def recoverTopLevelLambda(expr: Expr[K]): Expr[K] =
+    expr match {
+      case _: Matchless.Lambda[K] => expr
+      case other                  =>
+        topLevelFunctionArity(other) match {
+          case None => other
+          case Some(arity) =>
+            val args: NonEmptyList[Bindable] =
+              NonEmptyList.fromListUnsafe(
+                List.tabulate(arity)(idx =>
+                  Identifier.Name(s"__bsts_top${arity}_$idx"): Bindable
+                )
+              )
+            val appArgs: NonEmptyList[Expr[K]] =
+              args.map[Expr[K]](arg => Matchless.Local(arg))
+            Matchless.Lambda(
+              captures = Nil,
+              recursiveName = None,
+              args = args,
+              body = Matchless.App(other, appArgs)
+            )
+        }
+    }
+
   val sortedEnv
       : Vector[NonEmptyList[(K, PackageName, List[(Bindable, Expr[K])])]] =
     Functor[Vector]
@@ -162,8 +208,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         val exprs = for {
           pms <- ns.compiled.get(k).toList
           exprs <- pms.get(p).toList
-          expr <- exprs
-        } yield expr
+          (b, expr) <- exprs
+        } yield (b, recoverTopLevelLambda(expr))
 
         (k, p, exprs)
       }
