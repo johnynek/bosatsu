@@ -72,6 +72,71 @@ object Matchless {
       }
   }
 
+  /** Apply args to an expression while pushing through branch structure.
+    *
+    * For now this intentionally does not push through `Let`/`LetMut` because
+    * doing so safely requires unshadowing/substitution.
+    */
+  def applyArgs[A](fn: Expr[A], args: NonEmptyList[Expr[A]]): Expr[A] =
+    fn match {
+      case If(cond, thenExpr, elseExpr) =>
+        If(cond, applyArgs(thenExpr, args), applyArgs(elseExpr, args))
+      case Always(cond, thenExpr) =>
+        Always(cond, applyArgs(thenExpr, args))
+      case App(innerFn, innerArgs) =>
+        App(
+          innerFn,
+          NonEmptyList.fromListUnsafe(innerArgs.toList ::: args.toList)
+        )
+      case other =>
+        App(other, args)
+    }
+
+  private def topLevelFunctionArity[A](expr: Expr[A]): Option[Int] = {
+    def sameArity(left: Option[Int], right: Option[Int]): Option[Int] =
+      (left, right) match {
+        case (Some(l), Some(r)) if l == r => Some(l)
+        case _                            => None
+      }
+
+    expr match {
+      case fn: Lambda[A]        => Some(fn.arity)
+      case Let(_, _, in)        => topLevelFunctionArity(in)
+      case LetMut(_, in)        => topLevelFunctionArity(in)
+      case Always(_, thenExpr)  => topLevelFunctionArity(thenExpr)
+      case If(_, thenExpr, els) =>
+        sameArity(topLevelFunctionArity(thenExpr), topLevelFunctionArity(els))
+      case _                    => None
+    }
+  }
+
+  /** Recover a top-level lambda when normalization pushes lambda creation into
+    * control-flow branches.
+    */
+  def recoverTopLevelLambda[A](expr: Expr[A]): Expr[A] =
+    expr match {
+      case _: Lambda[A] => expr
+      case other        =>
+        topLevelFunctionArity(other) match {
+          case None => other
+          case Some(arity) =>
+            val args: NonEmptyList[Bindable] =
+              NonEmptyList.fromListUnsafe(
+                List.tabulate(arity)(idx =>
+                  Identifier.Name(s"__bsts_top${arity}_$idx"): Bindable
+                )
+              )
+            val appArgs: NonEmptyList[Expr[A]] =
+              args.map[Expr[A]](arg => Local(arg))
+            Lambda(
+              captures = Nil,
+              recursiveName = None,
+              args = args,
+              body = applyArgs(other, appArgs)
+            )
+        }
+    }
+
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
