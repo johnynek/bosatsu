@@ -1338,15 +1338,20 @@ object TypedExprNormalization {
         ): Boolean =
           if (containsRecursiveControl(body)) false
           else {
+            // We only grant the call-site inlining bonus when all of the
+            // following are true for at least one (parameter, argument) pair:
+            // 1) the argument is closed (no free locals): avoids capture/scope surprises
+            // 2) the argument is simple: avoids duplicating expensive work
+            // 3) the argument resolves to a lambda: this bonus is for beta-reduction wins
+            // 4) the parameter is used exactly once: avoids duplication blowups in body
+            // 5) that use is direct-call-only (non-escaping): keeps semantics/codegen stable
             lamArgs.iterator.zip(callArgs.iterator).exists {
-              case ((argName, _), argExpr)
-                  if argExpr.freeVarsDup.isEmpty &&
-                    Impl.isSimple(argExpr, lambdaSimple = true) &&
-                    ResolveToLambda.unapply(argExpr).nonEmpty =>
-                (body.freeVarsDup.count(_ == argName) == 1) &&
+              case ((argName, _), argExpr) =>
+                argExpr.freeVarsDup.isEmpty &&
+                  Impl.isSimple(argExpr, lambdaSimple = true) &&
+                  ResolveToLambda.unapply(argExpr).nonEmpty &&
+                  (body.freeVarsDup.count(_ == argName) == 1) &&
                   !hasEscapingFnRef(body, argName, fnVisible = true)
-              case _ =>
-                false
             }
           }
 
