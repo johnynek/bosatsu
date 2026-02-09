@@ -205,11 +205,12 @@ x = 1
     assertEquals(res, expected)
   }
 
-  test("Matchless.applyArgs appends to existing App and stops at Let") {
+  test("Matchless.applyArgs does not curry App and only pushes through safe Let") {
     val fn = Matchless.Local(Identifier.Name("f"))
     val x = Matchless.Local(Identifier.Name("x"))
     val y = Matchless.Local(Identifier.Name("y"))
     val z = Identifier.Name("z")
+    val k = Identifier.Name("k")
 
     val applied =
       Matchless.applyArgs(
@@ -219,15 +220,29 @@ x = 1
 
     assertEquals(
       applied,
-      Matchless.App(fn, NonEmptyList(x, y :: Nil))
+      Matchless.App(Matchless.App(fn, NonEmptyList.one(x)), NonEmptyList.one(y))
     )
 
-    val letExpr: Matchless.Expr[Unit] =
-      Matchless.Let(z, Matchless.Literal(Lit(1)), Matchless.Local(z))
+    val letLeftExpr: Matchless.Expr[Unit] =
+      Matchless.Let(Left(Matchless.LocalAnon(0)), Matchless.Literal(Lit(1)), Matchless.Local(k))
 
     assertEquals(
-      Matchless.applyArgs(letExpr, NonEmptyList.one(y)),
-      Matchless.App(letExpr, NonEmptyList.one(y))
+      Matchless.applyArgs(letLeftExpr, NonEmptyList.one(y)),
+      Matchless.Let(Left(Matchless.LocalAnon(0)), Matchless.Literal(Lit(1)), Matchless.App(Matchless.Local(k), NonEmptyList.one(y)))
+    )
+
+    val letRightSafeExpr: Matchless.Expr[Unit] =
+      Matchless.Let(z, Matchless.Literal(Lit(1)), Matchless.Local(k))
+
+    assertEquals(
+      Matchless.applyArgs(letRightSafeExpr, NonEmptyList.one(y)),
+      Matchless.Let(z, Matchless.Literal(Lit(1)), Matchless.App(Matchless.Local(k), NonEmptyList.one(y)))
+    )
+
+    val zArg = Matchless.Local(z)
+    assertEquals(
+      Matchless.applyArgs(letRightSafeExpr, NonEmptyList.one(zArg)),
+      Matchless.App(letRightSafeExpr, NonEmptyList.one(zArg))
     )
   }
 
@@ -252,6 +267,26 @@ x = 1
             Matchless.App(branchFn2, callArgs)
           )
         assertEquals(body, expectedBody)
+      case other =>
+        fail(s"expected recovered lambda, found: $other")
+    }
+  }
+
+  test("Matchless.recoverTopLevelLambda avoids existing names") {
+    val used = Identifier.synthetic("bsts_top1_0")
+    val a = Identifier.Name("a")
+    val branchFn1: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(used), Matchless.Local(used))
+    val branchFn2: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(a), Matchless.Local(a))
+
+    val expr: Matchless.Expr[Unit] =
+      Matchless.If(Matchless.TrueConst, branchFn1, branchFn2)
+
+    Matchless.recoverTopLevelLambda(expr) match {
+      case Matchless.Lambda(Nil, None, args, _) =>
+        assertEquals(Matchless.allNames(expr)(used), true)
+        assertNotEquals(args.head, used)
       case other =>
         fail(s"expected recovered lambda, found: $other")
     }

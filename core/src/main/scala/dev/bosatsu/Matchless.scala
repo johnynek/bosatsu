@@ -83,14 +83,93 @@ object Matchless {
         If(cond, applyArgs(thenExpr, args), applyArgs(elseExpr, args))
       case Always(cond, thenExpr) =>
         Always(cond, applyArgs(thenExpr, args))
-      case App(innerFn, innerArgs) =>
-        App(
-          innerFn,
-          NonEmptyList.fromListUnsafe(innerArgs.toList ::: args.toList)
-        )
+      case let @ Let(arg, expr, in) =>
+        val canPushPastLet = arg match {
+          case Left(_) =>
+            true
+          case Right(name) =>
+            !args.exists(a => allNames(a)(name))
+        }
+        if (canPushPastLet) Let(arg, expr, applyArgs(in, args))
+        else App(let, args)
       case other =>
         App(other, args)
     }
+
+  def allNames[A](expr: Expr[A]): Set[Bindable] = {
+    def loopExpr(ex: Expr[A], acc: Set[Bindable]): Set[Bindable] =
+      ex match {
+        case Lambda(captures, recName, args, body) =>
+          val acc1 = recName.fold(acc)(acc + _)
+          val acc2 = args.toList.foldLeft(acc1)(_ + _)
+          val acc3 = captures.foldLeft(acc2) { case (accN, exN) =>
+            loopExpr(exN, accN)
+          }
+          loopExpr(body, acc3)
+        case WhileExpr(cond, effectExpr, _) =>
+          loopExpr(effectExpr, loopBool(cond, acc))
+        case App(fn, appArgs) =>
+          appArgs.toList.foldLeft(loopExpr(fn, acc)) { case (accN, exN) =>
+            loopExpr(exN, accN)
+          }
+        case Let(arg, value, in) =>
+          val acc1 = arg match {
+            case Right(name) => acc + name
+            case _           => acc
+          }
+          loopExpr(in, loopExpr(value, acc1))
+        case LetMut(_, span) =>
+          loopExpr(span, acc)
+        case If(cond, thenExpr, elseExpr) =>
+          loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, acc)))
+        case Always(cond, thenExpr) =>
+          loopExpr(thenExpr, loopBool(cond, acc))
+        case PrevNat(of) =>
+          loopExpr(of, acc)
+        case Local(name) =>
+          acc + name
+        case Global(_, _, name) =>
+          acc + name
+        case ge: GetEnumElement[?] =>
+          loopCheap(ge.arg, acc)
+        case gs: GetStructElement[?] =>
+          loopCheap(gs.arg, acc)
+        case ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) | Literal(_) |
+            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+          acc
+      }
+
+    def loopCheap(ex: CheapExpr[A], acc: Set[Bindable]): Set[Bindable] =
+      loopExpr(ex, acc)
+
+    def loopBool(ex: BoolExpr[A], acc: Set[Bindable]): Set[Bindable] =
+      ex match {
+        case EqualsLit(expr, _) =>
+          loopCheap(expr, acc)
+        case EqualsNat(expr, _) =>
+          loopCheap(expr, acc)
+        case And(left, right) =>
+          loopBool(right, loopBool(left, acc))
+        case CheckVariant(expr, _, _, _) =>
+          loopCheap(expr, acc)
+        case MatchString(arg, _, _, _) =>
+          loopCheap(arg, acc)
+        case SetMut(_, value) =>
+          loopExpr(value, acc)
+        case TrueConst =>
+          acc
+        case LetBool(arg, value, in) =>
+          val acc1 = arg match {
+            case Right(name) => acc + name
+            case _           => acc
+          }
+          loopBool(in, loopExpr(value, acc1))
+        case LetMutBool(_, in) =>
+          loopBool(in, acc)
+      }
+
+    loopExpr(expr, Set.empty)
+  }
 
   private def topLevelFunctionArity[A](expr: Expr[A]): Option[Int] = {
     def sameArity(left: Option[Int], right: Option[Int]): Option[Int] =
@@ -120,11 +199,15 @@ object Matchless {
         topLevelFunctionArity(other) match {
           case None => other
           case Some(arity) =>
+            val usedNames = allNames(other)
             val args: NonEmptyList[Bindable] =
               NonEmptyList.fromListUnsafe(
-                List.tabulate(arity)(idx =>
-                  Identifier.Name(s"__bsts_top${arity}_$idx"): Bindable
-                )
+                Iterator
+                  .from(0)
+                  .map(i => Identifier.synthetic(s"bsts_top${arity}_$i"))
+                  .filterNot(usedNames)
+                  .take(arity)
+                  .toList
               )
             val appArgs: NonEmptyList[Expr[A]] =
               args.map[Expr[A]](arg => Local(arg))
