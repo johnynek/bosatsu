@@ -148,6 +148,31 @@ main = foldr_local
     }
   }
 
+  test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
+    val pm = Par.noParallelism {
+      TestUtils.compileFile("test_workspace/euler6.bosatsu")
+    }
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parts("Euler", "P6"),
+        Identifier.Name("diff"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(80)
+        // Regression shape from issue #1602:
+        //   return ...sum(alloc_boxed_pure_fn1(...), n)
+        val boxedLambdaArgCall =
+          "(?s)_l_sum\\s*\\(\\s*alloc_boxed_pure_fn1\\(".r
+        assertEquals(boxedLambdaArgCall.findFirstIn(rendered), None)
+    }
+  }
+
   test("check foldl_List and reverse_concat") {
     assertPredefFns("foldl_List", "reverse_concat")(
       """#include "bosatsu_runtime.h"

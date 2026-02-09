@@ -916,6 +916,16 @@ object TypedExprNormalization {
               scope,
               typeEnv
             )
+          case Global(pack, n: Bindable, _, _) =>
+            ws.ResolveToLambda.resolveGlobalCallWithBonus(pack, n, args) match {
+              case Some((args1, body, ftag)) =>
+                val lam = AnnotatedLambda(args1, body, ftag)
+                val l = appLambda[A](lam, args, tpe, tag)
+                normalize1(namerec, l, scope, typeEnv)
+              case None =>
+                if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+                else Some(App(f1, a1, tpe, tag))
+            }
           case _ =>
             if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
             else Some(App(f1, a1, tpe, tag))
@@ -1231,6 +1241,9 @@ object TypedExprNormalization {
       object ResolveToLambda {
         // this is a parameter that we can tune to change inlining Global Lambdas
         val MaxSize = 10
+        // Allow a larger inlining budget for global calls that expose
+        // an immediate lambda beta-reduction opportunity.
+        val LambdaArgInlineBonus = 24
 
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
@@ -1316,6 +1329,83 @@ object TypedExprNormalization {
                 case _ => None
               }
             case _ => None
+          }
+
+        private def hasDirectLambdaArgBonus(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Boolean =
+          if (containsRecursiveControl(body)) false
+          else {
+            lamArgs.iterator.zip(callArgs.iterator).exists {
+              case ((argName, _), argExpr)
+                  if argExpr.freeVarsDup.isEmpty &&
+                    Impl.isSimple(argExpr, lambdaSimple = true) &&
+                    ResolveToLambda.unapply(argExpr).nonEmpty =>
+                (body.freeVarsDup.count(_ == argName) == 1) &&
+                  !hasEscapingFnRef(body, argName, fnVisible = true)
+              case _ =>
+                false
+            }
+          }
+
+        private def containsRecursiveControl(te: TypedExpr[A]): Boolean =
+          te match {
+            case Generic(_, in) =>
+              containsRecursiveControl(in)
+            case Annotation(in, _) =>
+              containsRecursiveControl(in)
+            case AnnotatedLambda(_, in, _) =>
+              containsRecursiveControl(in)
+            case App(fn, args, _, _) =>
+              containsRecursiveControl(fn) || args.exists(containsRecursiveControl)
+            case Let(_, expr, in, rec, _) =>
+              rec.isRecursive || containsRecursiveControl(expr) || containsRecursiveControl(in)
+            case Loop(_, _, _) | Recur(_, _, _) =>
+              true
+            case Match(arg, branches, _) =>
+              containsRecursiveControl(arg) || branches.exists {
+                case (_, branchExpr) =>
+                  containsRecursiveControl(branchExpr)
+              }
+            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+              false
+          }
+
+        def resolveGlobalCallWithBonus(
+            pack: PackageName,
+            name: Bindable,
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
+          scope.getGlobal(pack, name).flatMap {
+            case (RecursionKind.NonRecursive, te, scope1) =>
+              val s1 = WithScope(scope1, typeEnv)
+              te match {
+                case s1.ResolveToLambda(Nil, args, body, ltag) =>
+                  val bonus =
+                    if (hasDirectLambdaArgBonus(args, body, callArgs))
+                      LambdaArgInlineBonus
+                    else 0
+
+                  if ((bonus > 0) && (args.length == callArgs.length)) {
+                    val maxSize = MaxSize + bonus
+                    val scopeSafe =
+                      scopeMatches(
+                        body.freeVarsDup.toSet -- args.iterator.map(_._1),
+                        scope,
+                        scope1
+                      )
+
+                    if ((te.size >= MaxSize) && (te.size < maxSize) && scopeSafe) {
+                      Some((args, body, ltag))
+                    } else None
+                  } else None
+                case _ =>
+                  None
+              }
+            case _ =>
+              None
           }
       }
     }
