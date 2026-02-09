@@ -162,8 +162,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         val exprs = for {
           pms <- ns.compiled.get(k).toList
           exprs <- pms.get(p).toList
-          expr <- exprs
-        } yield expr
+          (b, expr) <- exprs
+        } yield (b, Matchless.recoverTopLevelLambda(expr))
 
         (k, p, exprs)
       }
@@ -1145,7 +1145,12 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               // it creates an infinite loop.
               // Also, this we should cache creation of Lambda/Closure values
               innerToValue(
-                Lambda(Nil, None, named, App(makeEnum, named.map(Local(_))))
+                Lambda(
+                  Nil,
+                  None,
+                  named,
+                  applyArgs(makeEnum, named.map(Local(_)))
+                )
               )
             }
           case MakeStruct(arity) =>
@@ -1168,7 +1173,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 Nil,
                 None,
                 NonEmptyList.one(arg),
-                App(SuccNat, NonEmptyList.one(Local(arg)))
+                applyArgs(SuccNat, NonEmptyList.one(Local(arg)))
               )
             )
           case PrevNat(of) =>

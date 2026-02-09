@@ -164,6 +164,55 @@ main = foldr_local
     }
   }
 
+  test("top-level unit-arg function compiles to direct C function") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+def source(n):
+  recur n:
+    case Z: 0
+    case S(prev): source(prev)
+
+def set_in_range_ok(_):
+  match source(S(Z)):
+    case 0: 0
+    case _: 1
+
+main = set_in_range_ok
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("set_in_range_ok"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "BValue ___bsts_g_.*set__in__range__ok\\(BValue ".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "___bsts_s_.*set__in__range__ok".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "read_or_build\\(&___bsts_s_.*set__in__range__ok".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
   test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
     val src =
       """package Euler/P6
