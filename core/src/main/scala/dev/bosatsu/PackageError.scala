@@ -322,7 +322,12 @@ object PackageError {
 
             val qname = "\"" + name.sourceCodeRepr + "\""
             val laterTopLevelDef =
-              letNameRegions.get(name).filter(_.start > region.start)
+              name match {
+                case b: Identifier.Bindable =>
+                  letNameRegions.get(b).filter(_.start > region.start)
+                case _ =>
+                  None
+              }
 
             laterTopLevelDef match {
               case Some(defRegion) =>
