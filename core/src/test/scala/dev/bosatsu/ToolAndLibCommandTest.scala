@@ -46,6 +46,24 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected string file at ${path.mkString_("/")}, found: $other")
     }
 
+  private def readLibraryFile(
+      state: MemoryMain.State,
+      path: Chain[String]
+  ): Hashed[Algo.Blake3, proto.Library] =
+    state.get(path) match {
+      case Some(Right(MemoryMain.FileContent.Lib(lib))) => lib
+      case other =>
+        fail(s"expected library file at ${path.mkString_("/")}, found: $other")
+    }
+
+  private def casPathFor(
+      repoRoot: Chain[String],
+      lib: Hashed[Algo.Blake3, proto.Library]
+  ): Chain[String] = {
+    val hex = lib.hash.hex
+    repoRoot ++ Chain(".bosatsuc", "cas", "blake3", hex.take(2), hex.drop(2))
+  }
+
   private def baseLibFiles(mainSrc: String): List[(Chain[String], String)] = {
     val libs = Libraries(SortedMap(Name("mylib") -> "src"))
     val conf =
@@ -1241,6 +1259,130 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("no main defined"), msg)
+    }
+  }
+
+  test("lib build succeeds when importing package from private dependency in CAS") {
+    val depSrc =
+      """package Dep/Foo
+|
+|export dep,
+|
+|dep = 1
+|""".stripMargin
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Main()
+|
+|struct Main(x: Int)
+|""".stripMargin
+    val appSrc =
+      """package MyLib/Main
+|
+|from Dep/Foo import dep
+|from Bosatsu/Prog import Main
+|
+|main = Main(dep)
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("dep", "Dep", "Foo.bosatsu") -> depSrc,
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
+      Chain("repo", "src", "MyLib", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Foo.bosatsu",
+          "--output",
+          "out/Dep.Foo.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Foo.bosatsu_package",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
+      s3 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      state4 <- state3.withFile(casPathFor(Chain("repo"), depLib), MemoryMain.FileContent.Lib(depLib)) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception("failed to inject dependency library into repo CAS")
+          )
+      }
+      s4 <- runWithState(List("lib", "check", "--repo_root", "repo"), state4)
+      (state5, _) = s4
+      s5 <- runWithState(
+        List(
+          "lib",
+          "build",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out",
+          "-m",
+          "MyLib/Main"
+        ),
+        state5
+      )
+    } yield s5
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out)) =>
+        out match {
+          case Output.Basic(_, _) => ()
+          case other              => fail(s"unexpected output: $other")
+        }
     }
   }
 
