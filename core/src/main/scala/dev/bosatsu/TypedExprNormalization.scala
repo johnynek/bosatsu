@@ -1401,20 +1401,17 @@ object TypedExprNormalization {
             case (RecursionKind.NonRecursive, te, scope1) =>
               val s1 = WithScope(scope1, typeEnv)
               te match {
-                case s1.ResolveToLambda(Nil, args, body, ltag) =>
+                case s1.ResolveToLambda(Nil, args, body, ltag) 
                   // Properties that must hold for all arguments / whole-call shape.
-                  val fullySaturated = args.length == callArgs.length
-                  val scopeSafe = isScopeSafeGlobalInline(args, body, scope1)
-                  val hasBonusSignal =
-                    hasDirectLambdaArgBonus(args, body, callArgs)
-                  val teSize = te.size
-
-                  if (fullySaturated && scopeSafe && hasBonusSignal) {
-                    val maxSize = MaxSize + LambdaArgInlineBonus
-                    if (teSize < maxSize)
+                  //fullySaturated
+                  if args.length == callArgs.length &&
+                    // scopeSafe
+                    isScopeSafeGlobalInline(args, body, scope1) &&
+                    // hasBonusSignal =
+                    hasDirectLambdaArgBonus(args, body, callArgs) &&
+                    // size is small enough
+                    (te.size < MaxSize + LambdaArgInlineBonus) =>
                       Some((args, body, ltag))
-                    else None
-                  } else None
                 case _ =>
                   None
               }
