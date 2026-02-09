@@ -1292,13 +1292,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (
-                        scopeMatches(
-                          expr.freeVarsDup.toSet -- args.iterator.map(_._1),
-                          scope,
-                          scope1
-                        )
-                      ) {
+                      if (isScopeSafeGlobalInline(args, expr, scope1)) {
                         Some((frees, args, expr, ltag))
                       } else None
                     case _ => None
@@ -1315,13 +1309,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (
-                        scopeMatches(
-                          expr.freeVarsDup.toSet -- args.iterator.map(_._1),
-                          scope,
-                          scope1
-                        )
-                      ) {
+                      if (isScopeSafeGlobalInline(args, expr, scope1)) {
                         Some((frees, args, expr, ltag))
                       } else None
                     case _ => None
