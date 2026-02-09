@@ -1407,10 +1407,11 @@ object TypedExprNormalization {
                   val scopeSafe = isScopeSafeGlobalInline(args, body, scope1)
                   val hasBonusSignal =
                     hasDirectLambdaArgBonus(args, body, callArgs)
+                  val teSize = te.size
 
                   if (fullySaturated && scopeSafe && hasBonusSignal) {
                     val maxSize = MaxSize + LambdaArgInlineBonus
-                    if ((te.size >= MaxSize) && (te.size < maxSize))
+                    if (teSize < maxSize)
                       Some((args, body, ltag))
                     else None
                   } else None
