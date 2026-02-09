@@ -19,6 +19,8 @@ import ClangGen.Error
 
 class ClangGen[K](ns: CompilationNamespace[K]) {
   given Show[K] = ns.keyShow
+  // (function ident, isClosure, arity)
+  type DirectFnRef = (Code.Ident, Boolean, Int)
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -231,7 +233,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def globalIdent(k: K, pn: PackageName, bn: Bindable): T[Code.Ident]
       def bind[A](
           bn: Bindable,
-          directFn: Option[(Code.Ident, Boolean, Int)]
+          directFn: Option[DirectFnRef]
       )(in: T[A]): T[A]
       def getBinding(bn: Bindable): T[Code.Ident]
       def bindAnon[A](idx: Long)(in: T[A]): T[A]
@@ -251,7 +253,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           p: PackageName,
           b: Bindable
       ): T[Option[(Code.Ident, Int)]]
-      def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]]
+      def directFn(b: Bindable): T[Option[DirectFnRef]]
       def inTop[A](k: K, p: PackageName, bn: Bindable)(ta: T[A]): T[A]
       def inFnStatement[A](in: T[A]): T[A]
       def currentTop: T[Option[(K, PackageName, Bindable)]]
@@ -1331,7 +1333,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             case class Normal(
                 bn: Bindable,
                 idx: Int,
-                localFn: Option[(Code.Ident, Boolean, Int)]
+                localFn: Option[DirectFnRef]
             ) extends BindingKind {
               val ident = Code.Ident(
                 Idents.escape("__bsts_b_", bn.asString + idx.toString)
@@ -1351,7 +1353,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
             def nextBind(
                 bn: Bindable,
-                directFn: Option[(Code.Ident, Boolean, Int)] = None
+                directFn: Option[DirectFnRef] = None
             ): BindState =
               copy(
                 count = count + 1,
@@ -1502,7 +1504,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           def bind[A](
               bn: Bindable,
-              directFn: Option[(Code.Ident, Boolean, Int)]
+              directFn: Option[DirectFnRef]
           )(in: T[A]): T[A] = {
             val init: T[Unit] = update { s =>
               val bs0 = s.binds.get(bn) match {
@@ -1613,7 +1615,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
             }
 
-          def directFn(b: Bindable): T[Option[(Code.Ident, Boolean, Int)]] =
+          def directFn(b: Bindable): T[Option[DirectFnRef]] =
             read { s =>
               s.binds.get(b) match {
                 case Some(
