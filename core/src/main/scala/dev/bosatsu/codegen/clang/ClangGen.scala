@@ -1625,10 +1625,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 case Some(
                       BindState(
                         _,
-                        BindingKind.Normal(_, _, Some((n, c, a))) :: _
+                        BindingKind.Normal(_, _, some @ Some(_)) :: _
                       )
                     ) =>
-                  Some((n, c, a))
+                  some
                 case _ =>
                   None
               }
