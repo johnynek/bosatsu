@@ -502,7 +502,14 @@ object Command {
           hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
             _.toByteArray
           )
-          decLib <- DecodedLibrary.decode(hashedLib)
+          decLib = DecodedLibrary(
+            conf.name,
+            conf.nextVersion,
+            hashedLib.hash,
+            protoLib,
+            Nil,
+            allPacks
+          )
           allDeps =
             (cs.pubDecodes.iterator ++ cs.privDecodes.iterator).map { dec =>
               (dec.name.name, dec.version) -> dec.toHashed
