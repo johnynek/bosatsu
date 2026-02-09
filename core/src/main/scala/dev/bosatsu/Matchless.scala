@@ -178,11 +178,10 @@ object Matchless {
         val captureCount = captures.length
         val argCount = args.length
         val usedNames =
-          allNames(body) ++
-            allNamesMany(captures) ++
-            allNamesMany(args.toList) ++
-            lamArgs.toList ++
-            recName.toSet
+          allNames(body) |
+            allNamesMany(captures.iterator ++ args.iterator) |
+            recName.toSet ++
+            lamArgs.iterator
 
         val tmpNames =
           freshSyntheticNames(
@@ -208,7 +207,7 @@ object Matchless {
             case Some(name) =>
               val recLam =
                 Lambda(
-                  captures = captureTmpLocals.map[Expr[A]](x => x),
+                  captures = captureTmpLocals,
                   recursiveName = recName,
                   args = lamArgs,
                   body = body
