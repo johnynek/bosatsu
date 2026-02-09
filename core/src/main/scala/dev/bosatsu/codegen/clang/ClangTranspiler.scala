@@ -140,7 +140,9 @@ case object ClangTranspiler extends Transpiler {
   case class Output[F[_], P](
       cOut: P,
       cOutRelativeToOutDir: Boolean,
-      exeOut: Option[(P, F[CcConf])]
+      exeOut: Option[(P, F[CcConf])],
+      ccFlags: List[String],
+      ccLibs: List[String]
   )
   object Output {
     def ccConfOpt[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[CcConf]] = {
@@ -219,9 +221,34 @@ case object ClangTranspiler extends Transpiler {
           ),
           ccConfOpt[F, P](platformIO)
         ).tupled
+      val ccFlagsOpt =
+        Opts
+          .options[String](
+            "cc_flag",
+            help =
+              "additional compiler/linker flags passed before source files (repeatable)"
+          )
+          .orEmpty
+          .map(_.toList)
+      val ccLibsOpt =
+        Opts
+          .options[String](
+            "cc_lib",
+            help =
+              "additional linker arguments passed after source files (repeatable)"
+          )
+          .orEmpty
+          .map(_.toList)
 
-      (cOpt, exeOpt.orNone).mapN { (cOut, exeOut) =>
-        Output(cOut, cOutRelativeToOutDir = true, exeOut = exeOut)
+      (cOpt, exeOpt.orNone, ccFlagsOpt, ccLibsOpt).mapN {
+        (cOut, exeOut, ccFlags, ccLibs) =>
+          Output(
+            cOut,
+            cOutRelativeToOutDir = true,
+            exeOut = exeOut,
+            ccFlags = ccFlags,
+            ccLibs = ccLibs
+          )
       }
     }
   }
@@ -418,7 +445,7 @@ case object ClangTranspiler extends Transpiler {
                  val r = clangGen.renderTests(values = tvs.toList.sorted)
 
                  val exeIO = args.output match {
-                   case Output(_, _, Some((exeName, _))) if execute =>
+                   case Output(_, _, Some((exeName, _)), _, _) if execute =>
                      val exePath = args.platformIO.resolve(args.outDir, exeName)
                      args.platformIO
                        .system(args.platformIO.showPath.show(exePath), Nil)
@@ -468,9 +495,12 @@ case object ClangTranspiler extends Transpiler {
                   ccConf <- fcc
                   // we have to write the c code before we can compile
                   _ <- args.platformIO.writeDoc(outputName, doc)
-                  _ <- ccConf.compile(outputName, resolve(args.outDir, exe))(
-                    args.platformIO
-                  )
+                  _ <- ccConf.compile(
+                    outputName,
+                    resolve(args.outDir, exe),
+                    extraFlags = args.output.ccFlags,
+                    extraLibs = args.output.ccLibs
+                  )(args.platformIO)
                   _ <-
                     effect // now that we have compiled, we can run the effect
                 } yield externalHeaders
