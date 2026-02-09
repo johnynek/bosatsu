@@ -9,17 +9,24 @@ case class CcConf(
     libs: List[String],
     os: String
 ) {
-  def compile[F[_], Path](src: Path, to: Path)(
+  def compile[F[_], Path](
+      src: Path,
+      to: Path,
+      extraFlags: List[String] = Nil,
+      extraLibs: List[String] = Nil
+  )(
       platformIO: PlatformIO[F, Path]
   ): F[Unit] = {
     val args = List.newBuilder[String]
 
     args ++= flags
+    args ++= extraFlags
     args ++= iFlags
     args += "-o"
     args += platformIO.pathToString(to)
     args += platformIO.pathToString(src)
     args ++= libs
+    args ++= extraLibs
 
     platformIO.system(ccPath, args.result())
   }

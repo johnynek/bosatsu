@@ -85,6 +85,15 @@ object Command {
         )
         .orNone
 
+    val profileOpt: Opts[String] =
+      Opts
+        .option[String](
+          "profile",
+          help = "c runtime build profile: release or debug"
+        )
+        .orNone
+        .map(_.getOrElse("release"))
+
     def parseBuildHash: F[Option[Algo.WithAlgo[HashValue]]] =
       if (BuildInfo.cRuntimeArchiveHash.isEmpty)
         moduleIOMonad.pure(None)
@@ -187,15 +196,16 @@ object Command {
       Opts
         .subcommand(
           "install",
-          "install the bosatsu c runtime (Makefile honors CFLAGS; default is -O2 unless overridden)"
+          "install the bosatsu c runtime (Makefile honors CC/CFLAGS/CPPFLAGS/LDFLAGS/LIBS and generates cc_conf.json from them)"
         ) {
           (
             repoRootOpt,
             gitShaOpt,
             archiveOpt,
             urlOpt,
-            hashOpt
-          ).mapN { (rootF, shaF, archiveOpt0, urlOpt0, hashOpt0) =>
+            hashOpt,
+            profileOpt
+          ).mapN { (rootF, shaF, archiveOpt0, urlOpt0, hashOpt0, profile) =>
             for {
               root <- rootF
               gitSha <- shaF
@@ -248,7 +258,8 @@ object Command {
                   platformIO.pathToString(runtimeRoot),
                   "install",
                   s"ROOTDIR=${platformIO.pathToString(root)}",
-                  s"VERSION=$gitSha"
+                  s"VERSION=$gitSha",
+                  s"PROFILE=$profile"
                 )
               )
               installDir =

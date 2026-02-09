@@ -93,6 +93,25 @@ This will download into `.bosatsuc/cli/<version>/` based on the value in
 ./bosatsu c-runtime install
 ```
 
+The runtime install picks up your compiler toolchain and flags from standard
+variables:
+
+- `CC`
+- `CFLAGS`
+- `CPPFLAGS`
+- `LDFLAGS`
+- `LIBS`
+
+On Linux/macOS, Boehm GC flags are discovered with `pkg-config bdw-gc` when
+available, with common-path fallbacks.
+
+Use `--profile debug` for debug-friendly runtime builds (`release` is the
+default profile):
+
+```sh
+./bosatsu c-runtime install --profile debug
+```
+
 ## 9) Initialize a library config
 
 Pick a source root for your Bosatsu packages (e.g. `src`) and initialize the
@@ -143,4 +162,11 @@ From the repo root:
 
 ```sh
 ./bosatsu lib test
+```
+
+To override compile/link flags for a single invocation, use repeatable flags:
+
+```sh
+./bosatsu lib test --cc_flag=-O0 --cc_lib=-lm
+./bosatsu lib build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
 ```
