@@ -916,6 +916,16 @@ object TypedExprNormalization {
               scope,
               typeEnv
             )
+          case Global(pack, n: Bindable, _, _) =>
+            ws.ResolveToLambda.resolveGlobalCallWithBonus(pack, n, args) match {
+              case Some((args1, body, ftag)) =>
+                val lam = AnnotatedLambda(args1, body, ftag)
+                val l = appLambda[A](lam, args, tpe, tag)
+                normalize1(namerec, l, scope, typeEnv)
+              case None =>
+                if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+                else Some(App(f1, a1, tpe, tag))
+            }
           case _ =>
             if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
             else Some(App(f1, a1, tpe, tag))
@@ -1231,6 +1241,9 @@ object TypedExprNormalization {
       object ResolveToLambda {
         // this is a parameter that we can tune to change inlining Global Lambdas
         val MaxSize = 10
+        // Allow a larger inlining budget for global calls that expose
+        // an immediate lambda beta-reduction opportunity.
+        val LambdaArgInlineBonus = 24
 
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
@@ -1279,13 +1292,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (
-                        scopeMatches(
-                          expr.freeVarsDup.toSet -- args.iterator.map(_._1),
-                          scope,
-                          scope1
-                        )
-                      ) {
+                      if (isScopeSafeGlobalInline(args, expr, scope1)) {
                         Some((frees, args, expr, ltag))
                       } else None
                     case _ => None
@@ -1302,13 +1309,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (
-                        scopeMatches(
-                          expr.freeVarsDup.toSet -- args.iterator.map(_._1),
-                          scope,
-                          scope1
-                        )
-                      ) {
+                      if (isScopeSafeGlobalInline(args, expr, scope1)) {
                         Some((frees, args, expr, ltag))
                       } else None
                     case _ => None
@@ -1316,6 +1317,109 @@ object TypedExprNormalization {
                 case _ => None
               }
             case _ => None
+          }
+
+        private def isScopeSafeGlobalInline(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            scope1: Scope[A]
+        ): Boolean =
+          scopeMatches(
+            body.freeVarsDup.toSet -- lamArgs.iterator.map(_._1),
+            scope,
+            scope1
+          )
+
+        private def hasAnyDirectLambdaBetaCandidate(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Boolean =
+          // This is a profitability signal, not a whole-call safety check.
+          // We only need one argument to likely unlock an immediate beta-reduction
+          // win after inlining.
+          lamArgs.iterator.zip(callArgs.iterator).exists {
+            case ((argName, _), argExpr) =>
+              // Candidate argument checks:
+              // 1) closed argument (prefer closure-free lambda values)
+              // 2) simple argument
+              // 3) argument resolves to a lambda
+              // 4) corresponding parameter used exactly once
+              // 5) that use is direct-call-only (non-escaping)
+              argExpr.freeVarsDup.isEmpty &&
+                Impl.isSimple(argExpr, lambdaSimple = true) &&
+                ResolveToLambda.unapply(argExpr).nonEmpty &&
+                (body.freeVarsDup.count(_ == argName) == 1) &&
+                !hasEscapingFnRef(body, argName, fnVisible = true)
+          }
+
+        private def hasDirectLambdaArgBonus(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Boolean =
+          // Whole-call safety is handled separately:
+          // - full saturation (all parameters have call arguments)
+          // - global scope-compatibility for free vars in the callee body
+          //
+          // Argument duplication/capture concerns are also handled by appLambda:
+          // it rewrites calls into let-bound arguments after unshadowing.
+          // Therefore this bonus check only looks for at least one profitable
+          // beta-reduction candidate argument.
+          !containsRecursiveControl(body) &&
+            hasAnyDirectLambdaBetaCandidate(lamArgs, body, callArgs)
+
+        private def containsRecursiveControl(te: TypedExpr[A]): Boolean =
+          te match {
+            case Generic(_, in) =>
+              containsRecursiveControl(in)
+            case Annotation(in, _) =>
+              containsRecursiveControl(in)
+            case AnnotatedLambda(_, in, _) =>
+              containsRecursiveControl(in)
+            case App(fn, args, _, _) =>
+              containsRecursiveControl(fn) || args.exists(containsRecursiveControl)
+            case Let(_, expr, in, rec, _) =>
+              rec.isRecursive || containsRecursiveControl(expr) || containsRecursiveControl(in)
+            case Loop(_, _, _) | Recur(_, _, _) =>
+              true
+            case Match(arg, branches, _) =>
+              containsRecursiveControl(arg) || branches.exists {
+                case (_, branchExpr) =>
+                  containsRecursiveControl(branchExpr)
+              }
+            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+              false
+          }
+
+        def resolveGlobalCallWithBonus(
+            pack: PackageName,
+            name: Bindable,
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
+          scope.getGlobal(pack, name).flatMap {
+            case (RecursionKind.NonRecursive, te, scope1) =>
+              val s1 = WithScope(scope1, typeEnv)
+              te match {
+                case s1.ResolveToLambda(Nil, args, body, ltag) =>
+                  // Properties that must hold for all arguments / whole-call shape.
+                  val fullySaturated = args.length == callArgs.length
+                  val scopeSafe = isScopeSafeGlobalInline(args, body, scope1)
+                  val hasBonusSignal =
+                    hasDirectLambdaArgBonus(args, body, callArgs)
+                  val teSize = te.size
+
+                  if (fullySaturated && scopeSafe && hasBonusSignal) {
+                    val maxSize = MaxSize + LambdaArgInlineBonus
+                    if (teSize < maxSize)
+                      Some((args, body, ltag))
+                    else None
+                  } else None
+                case _ =>
+                  None
+              }
+            case _ =>
+              None
           }
       }
     }

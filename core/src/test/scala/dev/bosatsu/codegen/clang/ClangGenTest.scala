@@ -1,16 +1,21 @@
 package dev.bosatsu.codegen.clang
 
+import cats.data.NonEmptyList
 import dev.bosatsu.Generators.genValidUtf
+import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.{
   Generators,
-  StringUtil,
-  PredefImpl,
-  PackageName,
+  Identifier,
+  LocationMap,
+  Package,
   PackageMap,
   Par,
+  Parser,
+  PredefImpl,
+  PackageName,
   TestUtils,
-  Identifier,
-  Require
+  Require,
+  StringUtil
 }
 import org.scalacheck.{Prop, Gen}
 
@@ -19,6 +24,17 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(1000000)
       .withMaxDiscardRatio(10)
+
+  private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser(None), src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>")
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
 
   def assertPredefFns(
       fns: String*
@@ -194,6 +210,87 @@ main = set_in_range_ok
               .isEmpty
           )
       }
+    }
+  }
+
+  test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
+    val src =
+      """package Euler/P6
+        |
+        |operator + = add
+        |operator - = sub
+        |operator * = mul
+        |
+        |def sum(fn, n):
+        |  int_loop(n, 0, (i, r) ->
+        |    i = i - 1
+        |    (i, r + fn(i)))
+        |
+        |diff = n -> sum((x ->
+        |  x1 = x + 1
+        |  x2 = x1 * x1
+        |  x * x2), n)
+        |""".stripMargin
+    val pm = typeCheckPackage(src)
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parts("Euler", "P6"),
+        Identifier.Name("diff"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(80)
+        val lines = rendered.linesIterator.toVector
+        val needle = "Euler_l_P6_l_diff"
+        val center = lines.indexWhere(_.contains(needle))
+        assert(center >= 0, s"expected to find $needle in rendered output")
+
+        val start = (center - 20).max(0)
+        val endExclusive = (center + 21).min(lines.length)
+        val window = lines.slice(start, endExclusive).mkString("\n")
+
+        val expectedWindow = """
+        alloc_enum0(0),
+        alloc_boxed_pure_fn2(__bsts_t_lambda0));
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_clear__Dict(BValue __bsts_b_dict0) {
+    BValue __bsts_b_ord0 = get_struct_index(__bsts_b_dict0, 0);
+    return alloc_struct2(__bsts_b_ord0, alloc_enum0(0));
+}
+
+BValue __bsts_t_lambda21(BValue __bsts_b_i0, BValue __bsts_b_r0) {
+    BValue __bsts_b_i1 = ___bsts_g_Bosatsu_l_Predef_l_add(bsts_integer_from_int(-1),
+        __bsts_b_i0);
+    BValue __bsts_b_x10 = ___bsts_g_Bosatsu_l_Predef_l_add(bsts_integer_from_int(1),
+        __bsts_b_i1);
+    return alloc_struct2(__bsts_b_i1,
+        ___bsts_g_Bosatsu_l_Predef_l_add(__bsts_b_r0,
+            ___bsts_g_Bosatsu_l_Predef_l_mul(__bsts_b_i1,
+                ___bsts_g_Bosatsu_l_Predef_l_mul(__bsts_b_x10, __bsts_b_x10))));
+}
+
+BValue ___bsts_g_Euler_l_P6_l_diff(BValue __bsts_b_n0) {
+    return ___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,
+        bsts_integer_from_int(0),
+        alloc_boxed_pure_fn2(__bsts_t_lambda21));
+}
+
+int main(int argc, char** argv) {
+    GC_init();
+    init_statics();
+    atexit(free_statics);
+    BValue main_value = ___bsts_g_Euler_l_P6_l_diff();
+    return run_main(main_value, argc, argv);
+}
+""".stripPrefix("\n").stripSuffix("\n")
+
+        assertEquals(window, expectedWindow)
     }
   }
 
