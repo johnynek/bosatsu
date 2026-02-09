@@ -1,16 +1,21 @@
 package dev.bosatsu.codegen.clang
 
+import cats.data.NonEmptyList
 import dev.bosatsu.Generators.genValidUtf
+import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.{
   Generators,
-  StringUtil,
-  PredefImpl,
-  PackageName,
+  Identifier,
+  LocationMap,
+  Package,
   PackageMap,
   Par,
+  Parser,
+  PredefImpl,
+  PackageName,
   TestUtils,
-  Identifier,
-  Require
+  Require,
+  StringUtil
 }
 import org.scalacheck.{Prop, Gen}
 
@@ -19,6 +24,17 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(1000000)
       .withMaxDiscardRatio(10)
+
+  private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser(None), src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>")
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
 
   def assertPredefFns(
       fns: String*
@@ -149,9 +165,24 @@ main = foldr_local
   }
 
   test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
-    val pm = Par.noParallelism {
-      TestUtils.compileFile("test_workspace/euler6.bosatsu")
-    }
+    val src =
+      """package Euler/P6
+        |
+        |operator + = add
+        |operator - = sub
+        |operator * = mul
+        |
+        |def sum(fn, n):
+        |  int_loop(n, 0, (i, r) ->
+        |    i = i - 1
+        |    (i, r + fn(i)))
+        |
+        |diff = n -> sum((x ->
+        |  x1 = x + 1
+        |  x2 = x1 * x1
+        |  x * x2), n)
+        |""".stripMargin
+    val pm = typeCheckPackage(src)
     val renderedE = Par.withEC {
       ClangGen(pm).renderMain(
         PackageName.parts("Euler", "P6"),
