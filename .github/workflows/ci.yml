@@ -177,29 +177,108 @@ jobs:
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "install boehm"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev"
+        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
       - name: "test runtime code"
         run: |
           cd c_runtime
           rm -f test_exe
-          make && git diff --quiet || { git diff; false; }
-          make boehm_example
-          make install
+          make PROFILE=debug && git diff --quiet || { git diff; false; }
+          make boehm_example PROFILE=release
+          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
           ./test_exe && ./boehm_example
-          make bench_exe
+          make bench_exe PROFILE=release
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
+          export SHA=$(./bosatsuj version -g)
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          sha = os.environ["SHA"]
+          conf_path = pathlib.Path(".bosatsuc") / sha / "cc_conf.json"
+          conf = json.loads(conf_path.read_text())
+          assert "-O1" in conf["flags"], conf
+          assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
+          print(f"validated {conf_path}")
+          PY
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "run lib test"
         run: |
           ./bosatsuj lib fetch
           mkdir c_out_lib
-          ./bosatsuj lib test --outdir c_out_lib
+          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj lib test
+          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run lib build"
+        run: |
+          mkdir c_out_build
+          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./c_out_build/fib_bench 10
+    timeout-minutes: 30
+  testCMacOS:
+    needs: test
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        java:
+          - '17'
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "build assembly"
+        run: 'sbt "cli/assembly"'
+      - name: "install boehm"
+        run: "brew install bdw-gc pkg-config"
+      - name: "test runtime code"
+        run: |
+          cd c_runtime
+          rm -f test_exe
+          make PROFILE=debug && git diff --quiet || { git diff; false; }
+          make boehm_example PROFILE=release
+          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
+          ./test_exe && ./boehm_example
+          make bench_exe PROFILE=release
+          ./bench_exe 1000000 | tee bench_ci.txt
+          cd ..
+          export SHA=$(./bosatsuj version -g)
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          sha = os.environ["SHA"]
+          conf_path = pathlib.Path(".bosatsuc") / sha / "cc_conf.json"
+          conf = json.loads(conf_path.read_text())
+          assert "-O1" in conf["flags"], conf
+          assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
+          print(f"validated {conf_path}")
+          PY
+      - name: "generate and compile c code"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+      - name: "run generated c code"
+        run: ./c_out/test_exe
+      - name: "run lib test"
+        run: |
+          ./bosatsuj lib fetch
+          mkdir c_out_lib
+          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          echo "now test without a given outdir"
+          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run lib build"
+        run: |
+          mkdir c_out_build
+          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./c_out_build/fib_bench 10
     timeout-minutes: 30
   libPublishDryRun:
     needs: testC

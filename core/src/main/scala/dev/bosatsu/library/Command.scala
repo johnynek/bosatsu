@@ -1475,6 +1475,24 @@ object Command {
             case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
             case (outDir, None)          => Ior.left(outDir)
           }.orElse(outFileOpt.map(Ior.right(_)))
+        val ccFlagsOpt =
+          Opts
+            .options[String](
+              "cc_flag",
+              help =
+                "additional compiler/linker flags passed before source files (repeatable)"
+            )
+            .orEmpty
+            .map(_.toList)
+        val ccLibsOpt =
+          Opts
+            .options[String](
+              "cc_lib",
+              help =
+                "additional linker arguments passed after source files (repeatable)"
+            )
+            .orEmpty
+            .map(_.toList)
 
         val outputSpecOpt: Opts[(Option[P], ClangTranspiler.Output[F, P])] =
           (
@@ -1487,8 +1505,10 @@ object Command {
                 short = "e"
               ),
               ClangTranspiler.Output.ccConfOpt(platformIO)
-            ).tupled.orNone
-          ).mapN { (outDirOrFile, defaultOut, exeOut) =>
+            ).tupled.orNone,
+            ccFlagsOpt,
+            ccLibsOpt
+          ).mapN { (outDirOrFile, defaultOut, exeOut, ccFlags, ccLibs) =>
             outDirOrFile match {
               case Ior.Left(outDir)      =>
                 (
@@ -1496,7 +1516,9 @@ object Command {
                   ClangTranspiler.Output(
                     defaultOut,
                     cOutRelativeToOutDir = true,
-                    exeOut = exeOut
+                    exeOut = exeOut,
+                    ccFlags = ccFlags,
+                    ccLibs = ccLibs
                   )
                 )
               case Ior.Both(outDir, out) =>
@@ -1505,7 +1527,9 @@ object Command {
                   ClangTranspiler.Output(
                     out,
                     cOutRelativeToOutDir = false,
-                    exeOut = exeOut
+                    exeOut = exeOut,
+                    ccFlags = ccFlags,
+                    ccLibs = ccLibs
                   )
                 )
               case Ior.Right(out)        =>
@@ -1514,7 +1538,9 @@ object Command {
                   ClangTranspiler.Output(
                     out,
                     cOutRelativeToOutDir = false,
-                    exeOut = exeOut
+                    exeOut = exeOut,
+                    ccFlags = ccFlags,
+                    ccLibs = ccLibs
                   )
                 )
             }
@@ -1583,13 +1609,40 @@ object Command {
         "test",
         "test packages in a library"
       ) {
+        val ccFlagsOpt =
+          Opts
+            .options[String](
+              "cc_flag",
+              help =
+                "additional compiler/linker flags passed before source files (repeatable)"
+            )
+            .orEmpty
+            .map(_.toList)
+        val ccLibsOpt =
+          Opts
+            .options[String](
+              "cc_lib",
+              help =
+                "additional linker arguments passed after source files (repeatable)"
+            )
+            .orEmpty
+            .map(_.toList)
+
         val clangOut: Opts[ClangTranspiler.Output[F, P]] =
           (
             Opts("test.c").mapValidated(platformIO.path(_)),
             Opts("test").mapValidated(platformIO.path(_)),
-            ClangTranspiler.Output.ccConfOpt(platformIO)
-          ).mapN { (o, e, conf) =>
-            ClangTranspiler.Output(o, cOutRelativeToOutDir = true, Some((e, conf)))
+            ClangTranspiler.Output.ccConfOpt(platformIO),
+            ccFlagsOpt,
+            ccLibsOpt
+          ).mapN { (o, e, conf, ccFlags, ccLibs) =>
+            ClangTranspiler.Output(
+              o,
+              cOutRelativeToOutDir = true,
+              Some((e, conf)),
+              ccFlags = ccFlags,
+              ccLibs = ccLibs
+            )
           }
 
         val testArgs =

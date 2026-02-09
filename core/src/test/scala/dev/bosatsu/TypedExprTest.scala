@@ -1387,6 +1387,46 @@ x = Foo
   def countLet[A](te: TypedExpr[A]) = count(te) {
     case TypedExpr.Let(_, _, _, _, _) => true
   }
+  def countLambdaCapturing[A](te: TypedExpr[A], name: Bindable): Int =
+    count(te) {
+      case lam @ TypedExpr.AnnotatedLambda(_, _, _) =>
+        TypedExpr.freeVars(lam :: Nil).contains(name)
+    }
+
+  def inferUnoptimizedAndNormalizedExpr(
+      statement: String,
+      letName: String
+  ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val (fullTypeEnv, unoptProgram) =
+      Package.inferBodyUnopt(TestUtils.testPackage, Nil, stmts) match {
+        case cats.data.Ior.Right(res) =>
+          res
+        case cats.data.Ior.Both(errs, _) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+        case cats.data.Ior.Left(errs) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+      }
+
+    val targetName = Identifier.Name(letName)
+    val unoptimizedExpr = unoptProgram.lets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None =>
+        fail(s"missing let: $letName in ${unoptProgram.lets.map(_._1)}")
+    }
+    val normalizedLets =
+      TypedExprNormalization.normalizeAll(
+        TestUtils.testPackage,
+        unoptProgram.lets,
+        fullTypeEnv
+      )
+    val normalizedExpr = normalizedLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing normalized let: $letName in ${normalizedLets.map(_._1)}")
+    }
+    (unoptimizedExpr, normalizedExpr)
+  }
 
   test("test match removed from some examples") {
     checkLast("""
@@ -1463,6 +1503,238 @@ x = (
         )
       }
     }
+  }
+
+  test("normalization rewrites non-escaping recursive local loop closures") {
+    val fnName = Identifier.Name("fn")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z, fn):
+    def loop(lst):
+      recur lst:
+        case E: y
+        case NE(_, t): fn(loop(t))
+    loop(z)
+
+  go(1, NE(2, E), x -> x)
+)
+""",
+      "x"
+    )
+
+    assert(countLambdaCapturing(unoptimizedExpr, fnName) > 0, unoptimizedExpr.reprString)
+    assertEquals(
+      countLambdaCapturing(normalizedExpr, fnName),
+      0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("normalization keeps closures when recursive local loops escape") {
+    val fnName = Identifier.Name("fn")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+def makeLoop(fn):
+  def loop(lst):
+    recur lst:
+      case E: 1
+      case NE(_, t): fn(loop(t))
+  loop
+""",
+      "makeLoop"
+    )
+
+    assert(countLambdaCapturing(unoptimizedExpr, fnName) > 0, unoptimizedExpr.reprString)
+    assert(countLambdaCapturing(normalizedExpr, fnName) > 0, normalizedExpr.reprString)
+  }
+
+  test("closure rewrite traverses lets loops and recur nodes in recursive bindings") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val aName = Identifier.Name("a")
+    val iName = Identifier.Name("i")
+    val yName = Identifier.Name("y")
+    val zName = Identifier.Name("z")
+    val wName = Identifier.Name("w")
+    val keepName = Identifier.Name("keep")
+    val recName = Identifier.Name("r")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val fVar = TypedExpr.Local(fName, fnTpe, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val aVar = TypedExpr.Local(aName, intTpe, ())
+    val iVar = TypedExpr.Local(iName, intTpe, ())
+
+    val callFOnA = TypedExpr.App(fVar, NonEmptyList.one(aVar), intTpe, ())
+    val callFOnI = TypedExpr.App(fVar, NonEmptyList.one(iVar), intTpe, ())
+    val callFOnOne = TypedExpr.App(fVar, NonEmptyList.one(int(1)), intTpe, ())
+
+    val defLoop = TypedExpr.Loop(
+      NonEmptyList.one((iName, xVar)),
+      TypedExpr.Recur(NonEmptyList.one(callFOnI), intTpe, ()),
+      ()
+    )
+
+    val defBody = TypedExpr.Let(
+      keepName,
+      xVar,
+      TypedExpr.Let(
+        recName,
+        TypedExpr.Local(recName, intTpe, ()),
+        defLoop,
+        RecursionKind.Recursive,
+        ()
+      ),
+      RecursionKind.NonRecursive,
+      ()
+    )
+
+    val defExpr = TypedExpr.Annotation(
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((aName, intTpe)), defBody, ()),
+      fnTpe
+    )
+
+    val shadowNoChange =
+      TypedExpr.Let(fName, int(5), int(6), RecursionKind.NonRecursive, ())
+    val shadowChanged =
+      TypedExpr.Let(fName, callFOnA, int(7), RecursionKind.NonRecursive, ())
+    val shadowRecursive =
+      TypedExpr.Let(fName, int(8), int(9), RecursionKind.Recursive, ())
+
+    val annotationNoChange = TypedExpr.Annotation(int(10), intTpe)
+    val genericNoChange = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(
+        NonEmptyList.one((Type.Var.Bound("qa"), Kind.Type))
+      ),
+      int(11)
+    )
+    val lambdaNoChange =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((Identifier.Name("u"), intTpe)), int(12), ())
+    val matchNoChange =
+      TypedExpr.Match(int(0), NonEmptyList.one((Pattern.WildCard, int(0))), ())
+
+    val inLoop = TypedExpr.Loop(
+      NonEmptyList.one((iName, callFOnOne)),
+      TypedExpr.Recur(NonEmptyList.one(callFOnI), intTpe, ()),
+      ()
+    )
+
+    val inExpr = TypedExpr.Let(
+      yName,
+      shadowNoChange,
+      TypedExpr.Let(
+        zName,
+        shadowChanged,
+        TypedExpr.Let(
+          wName,
+          shadowRecursive,
+          TypedExpr.Let(
+            Identifier.Name("ann"),
+            annotationNoChange,
+            TypedExpr.Let(
+              Identifier.Name("gen"),
+              genericNoChange,
+              TypedExpr.Let(
+                Identifier.Name("lam"),
+                lambdaNoChange,
+                TypedExpr.Let(
+                  Identifier.Name("mat"),
+                  matchNoChange,
+                  inLoop,
+                  RecursionKind.NonRecursive,
+                  ()
+                ),
+                RecursionKind.NonRecursive,
+                ()
+              ),
+              RecursionKind.NonRecursive,
+              ()
+            ),
+            RecursionKind.NonRecursive,
+            ()
+          ),
+          RecursionKind.NonRecursive,
+          ()
+        ),
+        RecursionKind.NonRecursive,
+        ()
+      ),
+      RecursionKind.NonRecursive,
+      ()
+    )
+
+    val root = TypedExpr.Let(fName, defExpr, inExpr, RecursionKind.Recursive, ())
+    val normalized = TypedExprNormalization.normalize(root)
+    assert(normalized.nonEmpty)
+    assertEquals(countLambdaCapturing(normalized.get, xName), 0, normalized.get.reprString)
+  }
+
+  test("closure rewrite detects escaping references in loop initializers") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val aName = Identifier.Name("a")
+    val iName = Identifier.Name("i")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val fVar = TypedExpr.Local(fName, fnTpe, ())
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.one((iName, fVar)),
+      TypedExpr.Recur(NonEmptyList.one(TypedExpr.Local(iName, fnTpe, ())), fnTpe, ()),
+      ()
+    )
+    val recExpr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((aName, intTpe)),
+      TypedExpr.Local(xName, intTpe, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, recExpr, loopExpr, RecursionKind.Recursive, ())
+    val normalized = TypedExprNormalization.normalize(root)
+    assert(normalized.nonEmpty)
+    assert(countLambdaCapturing(normalized.get, xName) > 0, normalized.get.reprString)
+  }
+
+  test("closure rewrite detects escaping references in recur arguments") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val aName = Identifier.Name("a")
+    val iName = Identifier.Name("i")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val fVar = TypedExpr.Local(fName, fnTpe, ())
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.one((iName, int(0))),
+      TypedExpr.Recur(NonEmptyList.one(fVar), fnTpe, ()),
+      ()
+    )
+    val recExpr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((aName, intTpe)),
+      TypedExpr.Local(xName, intTpe, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, recExpr, loopExpr, RecursionKind.Recursive, ())
+    val normalized = TypedExprNormalization.normalize(root)
+    assert(normalized.nonEmpty)
+    assert(countLambdaCapturing(normalized.get, xName) > 0, normalized.get.reprString)
+  }
+
+  test("closure rewrite falls back when recursive binding is not a lambda") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnTpe, ())
+    val root = TypedExpr.Let(
+      fName,
+      TypedExpr.Local(xName, fnTpe, ()),
+      TypedExpr.App(fVar, NonEmptyList.one(int(1)), intTpe, ()),
+      RecursionKind.Recursive,
+      ()
+    )
+    assert(TypedExprNormalization.normalize(root).nonEmpty)
   }
 
   test("toArgsBody always terminates") {
