@@ -585,8 +585,11 @@ object TypedExprNormalization {
           else Let(arg, expr1, in1, rec, tag)
         }
       case lp @ Loop(args, body, tag) =>
-        val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
-          (n, prependArgsToFnCalls(initExpr, fnName, extraArgs, fnVisible))
+        val args1 = ListUtil.mapConserveNel(args) { pair =>
+          val (n, initExpr) = pair
+          val initExpr1 = prependArgsToFnCalls(initExpr, fnName, extraArgs, fnVisible)
+          if (initExpr1 eq initExpr) pair
+          else (n, initExpr1)
         }
         val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
         val body1 = prependArgsToFnCalls(body, fnName, extraArgs, fnVisibleBody)
@@ -600,9 +603,13 @@ object TypedExprNormalization {
         else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
         val arg1 = prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
-        val branches1 = ListUtil.mapConserveNel(branches) { case (p, branchExpr) =>
+        val branches1 = ListUtil.mapConserveNel(branches) { pair =>
+          val (p, branchExpr) = pair
           val fnVisibleBranch = fnVisible && !p.names.contains(fnName)
-          (p, prependArgsToFnCalls(branchExpr, fnName, extraArgs, fnVisibleBranch))
+          val branchExpr1 =
+            prependArgsToFnCalls(branchExpr, fnName, extraArgs, fnVisibleBranch)
+          if (branchExpr1 eq branchExpr) pair
+          else (p, branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(arg1, branches1, tag)
@@ -612,21 +619,21 @@ object TypedExprNormalization {
 
   private def prependLambdaArgs[A](
       te: TypedExpr[A],
-      extraArgs: List[(Bindable, Type)]
+      extraArgs: NonEmptyList[(Bindable, Type)]
   ): Option[TypedExpr[A]] =
-    if (extraArgs.isEmpty) Some(te)
-    else
-      te match {
-        case Generic(q, in) =>
-          prependLambdaArgs(in, extraArgs).map(Generic(q, _))
-        case Annotation(in, tpe) =>
-          prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe))
-        case AnnotatedLambda(args, body, tag) =>
-          val allArgs = NonEmptyList.fromListUnsafe(extraArgs ::: args.toList)
-          Some(AnnotatedLambda(allArgs, body, tag))
-        case _ =>
-          None
-      }
+    te match {
+      case Generic(q, in) =>
+        prependLambdaArgs(in, extraArgs).map(Generic(q, _))
+      case Annotation(in, tpe) =>
+        prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe))
+      case AnnotatedLambda(args, body, tag) =>
+        val allArgs = NonEmptyList.fromListUnsafe(extraArgs.toList ::: args.toList)
+        Some(AnnotatedLambda(allArgs, body, tag))
+      case _ =>
+        // Recursive lets are introduced from def/recur forms, so this is
+        // only a defensive fallback for malformed TypedExpr values.
+        None
+    }
 
   private case class CapturedClosureVar(
       name: Bindable,
@@ -670,25 +677,25 @@ object TypedExprNormalization {
               }.toMap
 
             val expr1 = TypedExpr.substituteAll(renameMap, expr, enterLambda = true).get
-            val extraParams = captures.map(c => (c.capture, c.tpe))
+            // closureNames is non-empty above, and traverse preserves cardinality.
+            val extraParams =
+              NonEmptyList.fromListUnsafe(captures.map(c => (c.capture, c.tpe)))
             prependLambdaArgs(expr1, extraParams).map { expr2 =>
               val callExtraArgs: List[TypedExpr[A]] =
-                captures.map(c => Local(c.capture, c.tpe, tag): TypedExpr[A])
+                extraParams.toList.map { case (cap, tpe) =>
+                  Local(cap, tpe, tag): TypedExpr[A]
+                }
               val expr3 =
                 prependArgsToFnCalls(expr2, arg, callExtraArgs, fnVisible = true)
               val in1 =
                 prependArgsToFnCalls(in, arg, callExtraArgs, fnVisible = true)
               val rewrittenLet = Let(arg, expr3, in1, rec, tag)
-              NonEmptyList.fromList(
+              val captureLets = NonEmptyList.fromListUnsafe(
                 captures.map { c =>
                   (c.capture, Local(c.name, c.tpe, tag): TypedExpr[A])
                 }
-              ) match {
-                case Some(captureLets) =>
-                  TypedExpr.letAllNonRec(captureLets, rewrittenLet, tag)
-                case None =>
-                  rewrittenLet
-              }
+              )
+              TypedExpr.letAllNonRec(captureLets, rewrittenLet, tag)
             }
           }
       }
