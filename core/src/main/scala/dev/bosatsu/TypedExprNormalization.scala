@@ -1331,29 +1331,55 @@ object TypedExprNormalization {
             case _ => None
           }
 
+        private def isScopeSafeGlobalInline(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            scope1: Scope[A]
+        ): Boolean =
+          scopeMatches(
+            body.freeVarsDup.toSet -- lamArgs.iterator.map(_._1),
+            scope,
+            scope1
+          )
+
+        private def hasAnyDirectLambdaBetaCandidate(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Boolean =
+          // This is a profitability signal, not a whole-call safety check.
+          // We only need one argument to likely unlock an immediate beta-reduction
+          // win after inlining.
+          lamArgs.iterator.zip(callArgs.iterator).exists {
+            case ((argName, _), argExpr) =>
+              // Candidate argument checks:
+              // 1) closed argument (prefer closure-free lambda values)
+              // 2) simple argument
+              // 3) argument resolves to a lambda
+              // 4) corresponding parameter used exactly once
+              // 5) that use is direct-call-only (non-escaping)
+              argExpr.freeVarsDup.isEmpty &&
+                Impl.isSimple(argExpr, lambdaSimple = true) &&
+                ResolveToLambda.unapply(argExpr).nonEmpty &&
+                (body.freeVarsDup.count(_ == argName) == 1) &&
+                !hasEscapingFnRef(body, argName, fnVisible = true)
+          }
+
         private def hasDirectLambdaArgBonus(
             lamArgs: NonEmptyList[(Bindable, Type)],
             body: TypedExpr[A],
             callArgs: NonEmptyList[TypedExpr[A]]
         ): Boolean =
-          if (containsRecursiveControl(body)) false
-          else {
-            // We only grant the call-site inlining bonus when all of the
-            // following are true for at least one (parameter, argument) pair:
-            // 1) the argument is closed (no free locals): avoids capture/scope surprises
-            // 2) the argument is simple: avoids duplicating expensive work
-            // 3) the argument resolves to a lambda: this bonus is for beta-reduction wins
-            // 4) the parameter is used exactly once: avoids duplication blowups in body
-            // 5) that use is direct-call-only (non-escaping): keeps semantics/codegen stable
-            lamArgs.iterator.zip(callArgs.iterator).exists {
-              case ((argName, _), argExpr) =>
-                argExpr.freeVarsDup.isEmpty &&
-                  Impl.isSimple(argExpr, lambdaSimple = true) &&
-                  ResolveToLambda.unapply(argExpr).nonEmpty &&
-                  (body.freeVarsDup.count(_ == argName) == 1) &&
-                  !hasEscapingFnRef(body, argName, fnVisible = true)
-            }
-          }
+          // Whole-call safety is handled separately:
+          // - full saturation (all parameters have call arguments)
+          // - global scope-compatibility for free vars in the callee body
+          //
+          // Argument duplication/capture concerns are also handled by appLambda:
+          // it rewrites calls into let-bound arguments after unshadowing.
+          // Therefore this bonus check only looks for at least one profitable
+          // beta-reduction candidate argument.
+          !containsRecursiveControl(body) &&
+            hasAnyDirectLambdaBetaCandidate(lamArgs, body, callArgs)
 
         private def containsRecursiveControl(te: TypedExpr[A]): Boolean =
           te match {
@@ -1388,23 +1414,17 @@ object TypedExprNormalization {
               val s1 = WithScope(scope1, typeEnv)
               te match {
                 case s1.ResolveToLambda(Nil, args, body, ltag) =>
-                  val bonus =
-                    if (hasDirectLambdaArgBonus(args, body, callArgs))
-                      LambdaArgInlineBonus
-                    else 0
+                  // Properties that must hold for all arguments / whole-call shape.
+                  val fullySaturated = args.length == callArgs.length
+                  val scopeSafe = isScopeSafeGlobalInline(args, body, scope1)
+                  val hasBonusSignal =
+                    hasDirectLambdaArgBonus(args, body, callArgs)
 
-                  if ((bonus > 0) && (args.length == callArgs.length)) {
-                    val maxSize = MaxSize + bonus
-                    val scopeSafe =
-                      scopeMatches(
-                        body.freeVarsDup.toSet -- args.iterator.map(_._1),
-                        scope,
-                        scope1
-                      )
-
-                    if ((te.size >= MaxSize) && (te.size < maxSize) && scopeSafe) {
+                  if (fullySaturated && scopeSafe && hasBonusSignal) {
+                    val maxSize = MaxSize + LambdaArgInlineBonus
+                    if ((te.size >= MaxSize) && (te.size < maxSize))
                       Some((args, body, ltag))
-                    } else None
+                    else None
                   } else None
                 case _ =>
                   None
