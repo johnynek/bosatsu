@@ -371,6 +371,418 @@ object Matchless {
         }
     }
 
+  private def letAnons[A](binds: List[(LocalAnon, Expr[A])], in: Expr[A]): Expr[A] =
+    binds.foldRight(in) { case ((b, e), r) =>
+      Let(Left(b), e, r)
+    }
+
+  // Constructors are pure. Reuse repeated constructor creation in a scope by
+  // introducing local aliases. We stay conservative and only memoize constructor
+  // applications whose arguments are immutable CheapExpr values.
+  private[bosatsu] def reuseConstructors[A](expr: Expr[A]): Expr[A] = {
+    case class CseState(nextAnon: Long)
+
+    def maxAnonExpr(ex: Expr[A]): Long = {
+      def loopExpr(e: Expr[A], curr: Long): Long =
+        e match {
+          case Lambda(captures, _, _, body) =>
+            val c1 = captures.foldLeft(curr) { case (acc, c) => loopExpr(c, acc) }
+            loopExpr(body, c1)
+          case WhileExpr(cond, effectExpr, result) =>
+            val c1 = curr.max(result.ident)
+            loopExpr(effectExpr, loopBool(cond, c1))
+          case App(fn, args) =>
+            args.toList.foldLeft(loopExpr(fn, curr)) { case (acc, a) =>
+              loopExpr(a, acc)
+            }
+          case Let(arg, value, in) =>
+            val c1 = arg match {
+              case Left(LocalAnon(id)) => curr.max(id)
+              case Right(_)            => curr
+            }
+            loopExpr(in, loopExpr(value, c1))
+          case LetMut(name, span) =>
+            loopExpr(span, curr.max(name.ident))
+          case If(cond, thenExpr, elseExpr) =>
+            loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, curr)))
+          case Always(cond, thenExpr) =>
+            loopExpr(thenExpr, loopBool(cond, curr))
+          case PrevNat(of) =>
+            loopExpr(of, curr)
+          case LocalAnon(id) =>
+            curr.max(id)
+          case LocalAnonMut(id) =>
+            curr.max(id)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg, curr)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg, curr)
+          case Local(_) | ClosureSlot(_) | Global(_, _, _) | Literal(_) |
+              MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+            curr
+        }
+
+      def loopBool(b: BoolExpr[A], curr: Long): Long =
+        b match {
+          case EqualsLit(expr, _) =>
+            loopExpr(expr, curr)
+          case EqualsNat(expr, _) =>
+            loopExpr(expr, curr)
+          case And(left, right) =>
+            loopBool(right, loopBool(left, curr))
+          case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr, curr)
+          case MatchString(arg, _, binds, _) =>
+            binds.foldLeft(loopExpr(arg, curr)) { case (acc, bnd) =>
+              acc.max(bnd.ident)
+            }
+          case SetMut(target, value) =>
+            loopExpr(value, curr.max(target.ident))
+          case TrueConst =>
+            curr
+          case LetBool(arg, value, in) =>
+            val c1 = arg match {
+              case Left(LocalAnon(id)) => curr.max(id)
+              case Right(_)            => curr
+            }
+            loopBool(in, loopExpr(value, c1))
+          case LetMutBool(name, in) =>
+            loopBool(in, curr.max(name.ident))
+        }
+
+      loopExpr(ex, 0L)
+    }
+
+    def isImmutableCheap(ex: Expr[A]): Boolean =
+      ex match {
+        case LocalAnonMut(_) => false
+        case _: CheapExpr[?] => true
+        case _               => false
+      }
+
+    def isShareableCtor(ex: Expr[A]): Boolean =
+      ex match {
+        case App(_: ConsExpr, args) =>
+          args.forall(isImmutableCheap)
+        case cons: ConsExpr =>
+          cons.arity == 0
+        case _ =>
+          false
+      }
+
+    // "Linear scope" traversal:
+    // - traverse application / PrevNat trees
+    // - stop at control-flow and binding boundaries (If/Let/Lambda/etc.)
+    def collectLinearInOrder(ex: Expr[A]): List[Expr[A]] = {
+      val b = List.newBuilder[Expr[A]]
+
+      def loop(e: Expr[A]): Unit = {
+        if (isShareableCtor(e)) b += e
+        e match {
+          case App(fn, args) =>
+            loop(fn)
+            args.toList.foreach(loop)
+          case PrevNat(of) =>
+            loop(of)
+          case _ =>
+            ()
+        }
+      }
+
+      loop(ex)
+      b.result()
+    }
+
+    def replaceLinear(ex: Expr[A], replace: Map[Expr[A], LocalAnon]): Expr[A] =
+      replace.get(ex) match {
+        case Some(loc) =>
+          loc
+        case None =>
+          ex match {
+            case App(fn, args) =>
+              App(replaceLinear(fn, replace), args.map(replaceLinear(_, replace)))
+            case PrevNat(of) =>
+              PrevNat(replaceLinear(of, replace))
+            case _ =>
+              ex
+          }
+      }
+
+    def allocateBinds(
+        keys: List[Expr[A]],
+        st: CseState
+    ): (List[(LocalAnon, Expr[A])], CseState) =
+      keys.foldLeft((List.empty[(LocalAnon, Expr[A])], st)) {
+        case ((acc, state), key) =>
+          val anon = LocalAnon(state.nextAnon)
+          (((anon, key) :: acc), CseState(state.nextAnon + 1L))
+      } match {
+        case (rev, st1) => (rev.reverse, st1)
+      }
+
+    def linearScopeCse(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
+      val occs = collectLinearInOrder(ex)
+      val counts = occs.groupMapReduce(identity)(_ => 1)(_ + _)
+      val dupes = occs.distinct.filter(k => counts.getOrElse(k, 0) > 1)
+
+      if (dupes.isEmpty) (ex, st)
+      else {
+        val (binds, st1) = allocateBinds(dupes, st)
+        val replace = binds.iterator.map { case (l, e) => (e, l) }.toMap
+        (letAnons(binds, replaceLinear(ex, replace)), st1)
+      }
+    }
+
+    def ifBranchCse(
+        cond: BoolExpr[A],
+        thenExpr: Expr[A],
+        elseExpr: Expr[A],
+        st: CseState
+    ): (Expr[A], CseState) = {
+      def readsBlocked(
+          ex: Expr[A],
+          blockedBindables: Set[Bindable],
+          blockedAnonIds: Set[Long]
+      ): Boolean =
+        ex match {
+          case Local(name) =>
+            blockedBindables(name)
+          case LocalAnon(id) =>
+            blockedAnonIds(id)
+          case App(fn, args) =>
+            readsBlocked(fn, blockedBindables, blockedAnonIds) ||
+              args.exists(readsBlocked(_, blockedBindables, blockedAnonIds))
+          case PrevNat(of) =>
+            readsBlocked(of, blockedBindables, blockedAnonIds)
+          case ge: GetEnumElement[?] =>
+            readsBlocked(ge.arg, blockedBindables, blockedAnonIds)
+          case gs: GetStructElement[?] =>
+            readsBlocked(gs.arg, blockedBindables, blockedAnonIds)
+          case _ =>
+            false
+        }
+
+      def collectBranchInOrder(
+          ex: Expr[A],
+          blockedBindables: Set[Bindable],
+          blockedAnonIds: Set[Long]
+      ): List[Expr[A]] = {
+        val b = List.newBuilder[Expr[A]]
+
+        def loop(
+            e: Expr[A],
+            blockedBindables: Set[Bindable],
+            blockedAnonIds: Set[Long]
+        ): Unit = {
+          if (isShareableCtor(e) && !readsBlocked(e, blockedBindables, blockedAnonIds))
+            b += e
+          e match {
+            case App(fn, args) =>
+              loop(fn, blockedBindables, blockedAnonIds)
+              args.toList.foreach(loop(_, blockedBindables, blockedAnonIds))
+            case PrevNat(of) =>
+              loop(of, blockedBindables, blockedAnonIds)
+            case Let(arg, _, in) =>
+              arg match {
+                case Right(name) =>
+                  loop(in, blockedBindables + name, blockedAnonIds)
+                case Left(LocalAnon(id)) =>
+                  loop(in, blockedBindables, blockedAnonIds + id)
+              }
+            case _ =>
+              ()
+          }
+        }
+
+        loop(ex, blockedBindables, blockedAnonIds)
+        b.result()
+      }
+
+      def replaceBranch(
+          ex: Expr[A],
+          replace: Map[Expr[A], LocalAnon],
+          blockedBindables: Set[Bindable],
+          blockedAnonIds: Set[Long]
+      ): Expr[A] =
+        replace.get(ex) match {
+          case Some(loc)
+              if !readsBlocked(ex, blockedBindables, blockedAnonIds) =>
+            loc
+          case _ =>
+            ex match {
+              case App(fn, args) =>
+                App(
+                  replaceBranch(fn, replace, blockedBindables, blockedAnonIds),
+                  args.map(replaceBranch(_, replace, blockedBindables, blockedAnonIds))
+                )
+              case PrevNat(of) =>
+                PrevNat(replaceBranch(of, replace, blockedBindables, blockedAnonIds))
+              case Let(arg, value, in) =>
+                arg match {
+                  case Right(name) =>
+                    Let(
+                      arg,
+                      value,
+                      replaceBranch(
+                        in,
+                        replace,
+                        blockedBindables + name,
+                        blockedAnonIds
+                      )
+                    )
+                  case Left(LocalAnon(id)) =>
+                    Let(
+                      arg,
+                      value,
+                      replaceBranch(
+                        in,
+                        replace,
+                        blockedBindables,
+                        blockedAnonIds + id
+                      )
+                    )
+                }
+              case _ =>
+                ex
+            }
+        }
+
+      val thenOccs = collectBranchInOrder(thenExpr, Set.empty, Set.empty)
+      val elseOccs = collectBranchInOrder(elseExpr, Set.empty, Set.empty)
+      val elseSet = elseOccs.toSet
+      val common = thenOccs.distinct.filter(elseSet)
+
+      if (common.isEmpty) (If(cond, thenExpr, elseExpr), st)
+      else {
+        val (binds, st1) = allocateBinds(common, st)
+        val replace = binds.iterator.map { case (l, e) => (e, l) }.toMap
+        val then1 = replaceBranch(thenExpr, replace, Set.empty, Set.empty)
+        val else1 = replaceBranch(elseExpr, replace, Set.empty, Set.empty)
+        (letAnons(binds, If(cond, then1, else1)), st1)
+      }
+    }
+
+    def mapExprs(
+        exprs: List[Expr[A]],
+        st: CseState
+    ): (List[Expr[A]], CseState) =
+      exprs.foldLeft((List.empty[Expr[A]], st)) { case ((acc, curr), ex) =>
+        val (ex1, curr1) = recurExpr(ex, curr)
+        (ex1 :: acc, curr1)
+      } match {
+        case (rev, st1) => (rev.reverse, st1)
+      }
+
+    def recurBool(b: BoolExpr[A], st: CseState): (BoolExpr[A], CseState) =
+      b match {
+        case EqualsLit(expr, lit) =>
+          recurExpr(expr, st) match {
+            case (expr1: CheapExpr[A], st1) => (EqualsLit(expr1, lit), st1)
+            case (other, _) =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected cheap expression in EqualsLit, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+        case EqualsNat(expr, nat) =>
+          recurExpr(expr, st) match {
+            case (expr1: CheapExpr[A], st1) => (EqualsNat(expr1, nat), st1)
+            case (other, _) =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected cheap expression in EqualsNat, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+        case And(left, right) =>
+          val (l1, st1) = recurBool(left, st)
+          val (r1, st2) = recurBool(right, st1)
+          (And(l1, r1), st2)
+        case CheckVariant(expr, expect, size, famArities) =>
+          recurExpr(expr, st) match {
+            case (expr1: CheapExpr[A], st1) =>
+              (CheckVariant(expr1, expect, size, famArities), st1)
+            case (other, _) =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected cheap expression in CheckVariant, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+        case MatchString(arg, parts, binds, mustMatch) =>
+          recurExpr(arg, st) match {
+            case (arg1: CheapExpr[A], st1) =>
+              (MatchString(arg1, parts, binds, mustMatch), st1)
+            case (other, _) =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected cheap expression in MatchString, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+        case SetMut(target, expr) =>
+          val (expr1, st1) = recurExpr(expr, st)
+          (SetMut(target, expr1), st1)
+        case LetBool(arg, expr, in) =>
+          val (expr1, st1) = recurExpr(expr, st)
+          val (in1, st2) = recurBool(in, st1)
+          (LetBool(arg, expr1, in1), st2)
+        case LetMutBool(name, in) =>
+          val (in1, st1) = recurBool(in, st)
+          (LetMutBool(name, in1), st1)
+        case TrueConst =>
+          (TrueConst, st)
+      }
+
+    def recurExpr(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
+      val (rewritten, st1) =
+        ex match {
+          case Lambda(captures, recursiveName, args, body) =>
+            val (captures1, stCaptures) = mapExprs(captures, st)
+            val (body1, stBody) = recurExpr(body, stCaptures)
+            (Lambda(captures1, recursiveName, args, body1), stBody)
+          case WhileExpr(cond, effectExpr, result) =>
+            val (cond1, stCond) = recurBool(cond, st)
+            val (effectExpr1, stEffect) = recurExpr(effectExpr, stCond)
+            (WhileExpr(cond1, effectExpr1, result), stEffect)
+          case App(fn, args) =>
+            val (fn1, stFn) = recurExpr(fn, st)
+            val (args1, stArgs) = mapExprs(args.toList, stFn)
+            (App(fn1, NonEmptyList.fromListUnsafe(args1)), stArgs)
+          case Let(arg, expr, in) =>
+            val (expr1, stExpr) = recurExpr(expr, st)
+            val (in1, stIn) = recurExpr(in, stExpr)
+            (Let(arg, expr1, in1), stIn)
+          case LetMut(name, span) =>
+            val (span1, st1) = recurExpr(span, st)
+            (LetMut(name, span1), st1)
+          case If(cond, thenExpr, elseExpr) =>
+            val (cond1, stCond) = recurBool(cond, st)
+            val (then1, stThen) = recurExpr(thenExpr, stCond)
+            val (else1, stElse) = recurExpr(elseExpr, stThen)
+            ifBranchCse(cond1, then1, else1, stElse)
+          case Always(cond, thenExpr) =>
+            val (cond1, stCond) = recurBool(cond, st)
+            val (then1, stThen) = recurExpr(thenExpr, stCond)
+            (Always(cond1, then1), stThen)
+          case PrevNat(of) =>
+            val (of1, st1) = recurExpr(of, st)
+            (PrevNat(of1), st1)
+          case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+              Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+              SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+              GetStructElement(_, _, _) =>
+            (ex, st)
+        }
+
+      linearScopeCse(rewritten, st1)
+    }
+
+    val init = CseState(maxAnonExpr(expr) + 1L)
+    recurExpr(expr, init)._1
+  }
+
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
@@ -2204,7 +2616,7 @@ object Matchless {
       argFn(arg)
     }
 
-    loopLetVal(name, te, rec, LambdaState(None, Map.empty))
+    loopLetVal(name, te, rec, LambdaState(None, Map.empty)).map(reuseConstructors(_))
   }
 
   // toy matcher to see the structure

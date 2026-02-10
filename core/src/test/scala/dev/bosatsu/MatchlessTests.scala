@@ -471,6 +471,87 @@ x = 1
     }
   }
 
+  test("Matchless.reuseConstructors shares repeated constructor apps in a linear scope") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(shared, shared :: Nil)
+      )
+
+    Matchless.reuseConstructors(input) match {
+      case Matchless.Let(
+            Left(tmp),
+            `shared`,
+            Matchless.App(Matchless.MakeStruct(2), args)
+          ) =>
+        assertEquals(args.head, Matchless.LocalAnon(tmp.ident))
+        assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+      case other =>
+        fail(s"expected constructor reuse in linear scope, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors shares constructor apps across if branches") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+
+    val input: Matchless.Expr[Unit] =
+      Matchless.If(
+        Matchless.TrueConst,
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Literal(Lit(0)), shared :: Nil)
+        ),
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Literal(Lit(1)), shared :: Nil)
+        )
+      )
+
+    Matchless.reuseConstructors(input) match {
+      case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, thenExpr, elseExpr)) =>
+        def checkBranch(e: Matchless.Expr[Unit], lit: Int): Unit =
+          e match {
+            case Matchless.App(Matchless.MakeStruct(2), args) =>
+              assertEquals(args.head, Matchless.Literal(Lit(lit)))
+              assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+            case other =>
+              fail(s"expected branch struct constructor, found: $other")
+          }
+
+        checkBranch(thenExpr, 0)
+        checkBranch(elseExpr, 1)
+      case other =>
+        fail(s"expected constructor reuse across branches, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors does not share constructor apps with mutable refs") {
+    val sharedMut: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.SuccNat,
+        NonEmptyList.one(Matchless.LocalAnonMut(9))
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.If(Matchless.TrueConst, sharedMut, sharedMut)
+
+    val optimized = Matchless.reuseConstructors(input)
+
+    assertEquals(optimized, input)
+  }
+
   test("matrix match materializes list projections to avoid nested projection trees") {
     def hasNestedProjectionCheap(e: Matchless.CheapExpr[Unit]): Boolean =
       e match {
