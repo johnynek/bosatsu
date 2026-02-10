@@ -65,7 +65,7 @@ object DecodedLibraryWithDeps {
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
       F: MonadError[F, Throwable]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
-    DecodedLibrary.decode(protoLib).flatMap(decodeAll(_)(load))
+    DecodedLibrary.decodeWithDeps(protoLib)(load).flatMap(decodeAll(_)(load))
 
   def decodeAll[F[_]](
       dec: DecodedLibrary[Algo.Blake3]
@@ -119,7 +119,7 @@ object DecodedLibraryWithDeps {
           case Some(d) => StateT.pure[F, S, Value](d)
           case None    =>
             StateT
-              .liftF(load(dep).flatMap(DecodedLibrary.decode(_)))
+              .liftF(load(dep).flatMap(DecodedLibrary.decodeWithDeps(_)(load)))
               .flatMap(decodeAndStore(_))
         }
       } yield res

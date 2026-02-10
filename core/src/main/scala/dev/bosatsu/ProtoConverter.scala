@@ -1734,7 +1734,8 @@ object ProtoConverter {
 
   def packagesFromProto(
       ifaces: Iterable[proto.Interface],
-      packs: Iterable[proto.Package]
+      packs: Iterable[proto.Package],
+      dependencyIfaces: Iterable[Package.Interface] = Nil
   ): Try[(List[Package.Interface], List[Package.Typed[Unit]])] = {
 
     type Node = Either[proto.Interface, proto.Package]
@@ -1783,12 +1784,26 @@ object ProtoConverter {
         (name, node)
       }.toMap
     val nodes: List[Node] = nodeMap.values.toList
+    val depIfaceMap: Map[String, List[Package.Interface]] =
+      dependencyIfaces.toList.groupBy(_.name.asString)
+    val depIfaceDupNames: List[String] =
+      depIfaceMap.iterator
+        .collect { case (name, _ :: _ :: _) => name }
+        .toList
+        .sorted
+    val depIfaceByName: Map[String, Package.Interface] =
+      depIfaceMap.iterator.map { case (name, ifaces) =>
+        (name, ifaces.head)
+      }.toMap
 
     def getNodes(n: String, parent: Node): List[Node] =
       nodeMap.get(n) match {
         case Some(node)                                   => node :: Nil
         case None if n == PackageName.PredefName.asString =>
           // we can load the predef below
+          Nil
+        case None if depIfaceByName.contains(n) =>
+          // dependencies can point to external packages not included in this proto blob
           Nil
         case None =>
           sys.error(s"could not find node named: $n a dependency of $parent")
@@ -1806,6 +1821,13 @@ object ProtoConverter {
       Failure(
         CliException.Basic(
           "duplicate package names: " + dupNames.mkString(", ")
+        )
+      )
+    } else if (depIfaceDupNames.nonEmpty) {
+      Failure(
+        CliException.Basic(
+          "duplicate dependency interface package names: " +
+            depIfaceDupNames.mkString(", ")
         )
       )
     } else {
@@ -1950,15 +1972,36 @@ object ProtoConverter {
                 case Some((None, Some(p))) =>
                   packFromProtoUncached(p, rec)
                     .map(Right(_))
+                case Some((None, None)) =>
+                  Failure(
+                    new Exception(
+                      s"missing interface or compiled: $pack"
+                    )
+                  )
                 case None if pack == PackageName.PredefName.asString =>
                   // if we haven't replaced explicitly, use the built in predef
                   Success(Left(predefIface))
-                case found =>
-                  Failure(
-                    new Exception(
-                      s"missing interface or compiled: $pack, found: $found"
-                    )
-                  )
+                case None =>
+                  depIfaceByName.get(pack) match {
+                    case Some(iface) =>
+                      Success(
+                        Left(
+                          (
+                            iface,
+                            ExportedName.typeEnvFromExports(
+                              iface.name,
+                              iface.exports
+                            )
+                          )
+                        )
+                      )
+                    case None        =>
+                      Failure(
+                        new Exception(
+                          s"missing interface or compiled: $pack"
+                        )
+                      )
+                  }
               }
             }
 
