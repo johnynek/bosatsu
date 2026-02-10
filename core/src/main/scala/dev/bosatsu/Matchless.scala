@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Monad, Monoid}
+import cats.{Monad, Monoid, Order}
 import cats.data.{Chain, NonEmptyList, WriterT}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
@@ -11,6 +11,183 @@ import cats.implicits._
 
 object Matchless {
   sealed abstract class Expr[+A] derives CanEqual
+  object Expr {
+    private def exprTag[A](expr: Expr[A]): Int =
+      expr match {
+        case _: Lambda[?]               => 0
+        case _: WhileExpr[?]            => 1
+        case _: Global[?]               => 2
+        case Local(_)                   => 3
+        case ClosureSlot(_)             => 4
+        case LocalAnon(_)               => 5
+        case LocalAnonMut(_)            => 6
+        case _: App[?]                  => 7
+        case _: Let[?]                  => 8
+        case _: LetMut[?]               => 9
+        case _: If[?]                   => 10
+        case _: Always[?]               => 11
+        case _: GetEnumElement[?]       => 12
+        case _: GetStructElement[?]     => 13
+        case Literal(_)                 => 14
+        case _: MakeEnum                => 15
+        case _: MakeStruct              => 16
+        case ZeroNat                    => 17
+        case SuccNat                    => 18
+        case _: PrevNat[?]              => 19
+      }
+
+    private given Order[LocalAnon] = Order.by(_.ident)
+    private given Order[LocalAnonMut] = Order.by(_.ident)
+    private given Order[Bindable] = Identifier.Bindable.bindableOrder
+    private given Order[Either[LocalAnon, Bindable]] =
+      Order[Either[LocalAnon, Bindable]]
+    private given Order[Lit] = Order.fromOrdering(using Lit.litOrdering)
+
+    given exprOrder[A: Order]: Order[Expr[A]] with {
+      private def compareExpr(left: Expr[A], right: Expr[A]): Int =
+        (left, right) match {
+          case (
+                Lambda(capturesL, recNameL, argsL, bodyL),
+                Lambda(capturesR, recNameR, argsR, bodyR)
+              ) =>
+            val c1 = Order[List[Expr[A]]].compare(capturesL, capturesR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[Option[Bindable]].compare(recNameL, recNameR)
+              if (c2 != 0) c2
+              else {
+                val c3 = Order[NonEmptyList[Bindable]].compare(argsL, argsR)
+                if (c3 != 0) c3
+                else compareExpr(bodyL, bodyR)
+              }
+            }
+
+          case (
+                WhileExpr(condL, effectExprL, resultL),
+                WhileExpr(condR, effectExprR, resultR)
+              ) =>
+            val c1 = Order[BoolExpr[A]].compare(condL, condR)
+            if (c1 != 0) c1
+            else {
+              val c2 = compareExpr(effectExprL, effectExprR)
+              if (c2 != 0) c2
+              else Order[LocalAnonMut].compare(resultL, resultR)
+            }
+
+          case (
+                Global(fromL, packL, nameL),
+                Global(fromR, packR, nameR)
+              ) =>
+            val c1 = Order[A].compare(fromL, fromR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[PackageName].compare(packL, packR)
+              if (c2 != 0) c2
+              else Order[Bindable].compare(nameL, nameR)
+            }
+
+          case (Local(left), Local(right)) =>
+            Order[Bindable].compare(left, right)
+
+          case (ClosureSlot(left), ClosureSlot(right)) =>
+            java.lang.Integer.compare(left, right)
+
+          case (LocalAnon(left), LocalAnon(right)) =>
+            java.lang.Long.compare(left, right)
+
+          case (LocalAnonMut(left), LocalAnonMut(right)) =>
+            java.lang.Long.compare(left, right)
+
+          case (App(fnL, argsL), App(fnR, argsR)) =>
+            val c1 = compareExpr(fnL, fnR)
+            if (c1 != 0) c1
+            else Order[NonEmptyList[Expr[A]]].compare(argsL, argsR)
+
+          case (Let(argL, valueL, inL), Let(argR, valueR, inR)) =>
+            val c1 = Order[Either[LocalAnon, Bindable]].compare(argL, argR)
+            if (c1 != 0) c1
+            else {
+              val c2 = compareExpr(valueL, valueR)
+              if (c2 != 0) c2
+              else compareExpr(inL, inR)
+            }
+
+          case (LetMut(nameL, spanL), LetMut(nameR, spanR)) =>
+            val c1 = Order[LocalAnonMut].compare(nameL, nameR)
+            if (c1 != 0) c1
+            else compareExpr(spanL, spanR)
+
+          case (If(condL, thenL, elseL), If(condR, thenR, elseR)) =>
+            val c1 = Order[BoolExpr[A]].compare(condL, condR)
+            if (c1 != 0) c1
+            else {
+              val c2 = compareExpr(thenL, thenR)
+              if (c2 != 0) c2
+              else compareExpr(elseL, elseR)
+            }
+
+          case (Always(condL, thenL), Always(condR, thenR)) =>
+            val c1 = Order[BoolExpr[A]].compare(condL, condR)
+            if (c1 != 0) c1
+            else compareExpr(thenL, thenR)
+
+          case (
+                GetEnumElement(argL, variantL, indexL, sizeL),
+                GetEnumElement(argR, variantR, indexR, sizeR)
+              ) =>
+            val c1 = compareExpr(argL, argR)
+            if (c1 != 0) c1
+            else {
+              val c2 = java.lang.Integer.compare(variantL, variantR)
+              if (c2 != 0) c2
+              else {
+                val c3 = java.lang.Integer.compare(indexL, indexR)
+                if (c3 != 0) c3
+                else java.lang.Integer.compare(sizeL, sizeR)
+              }
+            }
+
+          case (GetStructElement(argL, indexL, sizeL), GetStructElement(argR, indexR, sizeR)) =>
+            val c1 = compareExpr(argL, argR)
+            if (c1 != 0) c1
+            else {
+              val c2 = java.lang.Integer.compare(indexL, indexR)
+              if (c2 != 0) c2
+              else java.lang.Integer.compare(sizeL, sizeR)
+            }
+
+          case (Literal(left), Literal(right)) =>
+            Order[Lit].compare(left, right)
+
+          case (MakeEnum(variantL, arityL, famAritiesL), MakeEnum(variantR, arityR, famAritiesR)) =>
+            val c1 = java.lang.Integer.compare(variantL, variantR)
+            if (c1 != 0) c1
+            else {
+              val c2 = java.lang.Integer.compare(arityL, arityR)
+              if (c2 != 0) c2
+              else Order[List[Int]].compare(famAritiesL, famAritiesR)
+            }
+
+          case (MakeStruct(arityL), MakeStruct(arityR)) =>
+            java.lang.Integer.compare(arityL, arityR)
+
+          case (ZeroNat, ZeroNat) =>
+            0
+
+          case (SuccNat, SuccNat) =>
+            0
+
+          case (PrevNat(ofL), PrevNat(ofR)) =>
+            compareExpr(ofL, ofR)
+
+          case _ =>
+            java.lang.Integer.compare(exprTag(left), exprTag(right))
+        }
+
+      def compare(left: Expr[A], right: Expr[A]): Int =
+        compareExpr(left, right)
+    }
+  }
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr[+A] extends Expr[A]
@@ -379,102 +556,15 @@ object Matchless {
   // Constructors are pure. Reuse repeated constructor creation in a scope by
   // introducing local aliases. We stay conservative and only memoize constructor
   // applications whose arguments are immutable CheapExpr values.
-  private[bosatsu] def reuseConstructors[A](expr: Expr[A]): Expr[A] = {
-    import cats.kernel.Order
+  private[bosatsu] def reuseConstructors[A: Order](expr: Expr[A]): Expr[A] = {
     import scala.collection.immutable.{SortedMap, SortedSet}
+
+    given Ordering[Expr[A]] = Expr.exprOrder[A].toOrdering
 
     case class CseState(nextAnon: Long) {
       def nextState: (LocalAnon, CseState) = {
         val anon = LocalAnon(nextAnon)
         (anon, copy(nextAnon = nextAnon + 1L))
-      }
-    }
-
-    enum ConsKey derives CanEqual {
-      case EnumCons(variant: Int, arity: Int, famArities: List[Int])
-      case StructCons(arity: Int)
-      case ZeroCons
-      case SuccCons
-    }
-
-    enum CheapKey derives CanEqual {
-      case LocalKey(name: Bindable)
-      case ClosureSlotKey(idx: Int)
-      case LocalAnonKey(id: Long)
-      case GlobalKey(pack: PackageName, name: Bindable)
-      case LiteralKey(lit: Lit)
-      case EnumElemKey(arg: CheapKey, variant: Int, index: Int, size: Int)
-      case StructElemKey(arg: CheapKey, index: Int, size: Int)
-    }
-
-    enum CtorKey derives CanEqual {
-      case Const(cons: ConsKey)
-      case App(cons: ConsKey, args: List[CheapKey])
-    }
-
-    def seg(str: String): String =
-      s"${str.length}:$str"
-
-    def consKeyRepr(key: ConsKey): String =
-      key match {
-        case ConsKey.EnumCons(variant, arity, famArities) =>
-          seg("enum") + seg(variant.toString) + seg(arity.toString) +
-            seg(famArities.mkString(","))
-        case ConsKey.StructCons(arity) =>
-          seg("struct") + seg(arity.toString)
-        case ConsKey.ZeroCons =>
-          seg("zero")
-        case ConsKey.SuccCons =>
-          seg("succ")
-      }
-
-    def litKeyRepr(lit: Lit): String =
-      lit match {
-        case Lit.Integer(bi) =>
-          seg("int") + seg(bi.toString)
-        case Lit.Float64(rawBits) =>
-          seg("float") + seg(rawBits.toString)
-        case Lit.Chr(chr) =>
-          seg("chr") + seg(chr)
-        case Lit.Str(str) =>
-          seg("str") + seg(str)
-      }
-
-    def cheapKeyRepr(key: CheapKey): String =
-      key match {
-        case CheapKey.LocalKey(name) =>
-          seg("local") + seg(name.asString)
-        case CheapKey.ClosureSlotKey(idx) =>
-          seg("slot") + seg(idx.toString)
-        case CheapKey.LocalAnonKey(id) =>
-          seg("anon") + seg(id.toString)
-        case CheapKey.GlobalKey(pack, name) =>
-          seg("global") + seg(pack.asString) + seg(name.asString)
-        case CheapKey.LiteralKey(lit) =>
-          seg("lit") + litKeyRepr(lit)
-        case CheapKey.EnumElemKey(arg, variant, index, size) =>
-          seg("enum_elem") + cheapKeyRepr(arg) +
-            seg(variant.toString) + seg(index.toString) + seg(size.toString)
-        case CheapKey.StructElemKey(arg, index, size) =>
-          seg("struct_elem") + cheapKeyRepr(arg) +
-            seg(index.toString) + seg(size.toString)
-      }
-
-    def ctorKeyRepr(key: CtorKey): String =
-      key match {
-        case CtorKey.Const(cons) =>
-          seg("const") + consKeyRepr(cons)
-        case CtorKey.App(cons, args) =>
-          seg("app") + consKeyRepr(cons) + seg(args.map(cheapKeyRepr).mkString)
-      }
-
-    given Order[CtorKey] = Order.by(ctorKeyRepr)
-    given Ordering[CtorKey] = Order.catsKernelOrderingForOrder
-
-    def countByKey[K: Order](keys: List[K]): SortedMap[K, Int] = {
-      given Ordering[K] = Order.catsKernelOrderingForOrder
-      keys.foldLeft(SortedMap.empty[K, Int]) { case (acc, key) =>
-        acc.updated(key, acc.getOrElse(key, 0) + 1)
       }
     }
 
@@ -554,64 +644,56 @@ object Matchless {
         CseState(maxAnonExpr(ex) + 1L)
     }
 
-    def consKeyOf(cons: ConsExpr): ConsKey =
-      cons match {
-        case MakeEnum(variant, arity, famArities) =>
-          ConsKey.EnumCons(variant, arity, famArities)
-        case MakeStruct(arity) =>
-          ConsKey.StructCons(arity)
-        case ZeroNat =>
-          ConsKey.ZeroCons
-        case SuccNat =>
-          ConsKey.SuccCons
-      }
-
-    def cheapKeyOf(ex: CheapExpr[?]): Option[CheapKey] =
+    def isImmutableCheap(ex: Expr[A]): Boolean =
       ex match {
-        case Local(name) =>
-          Some(CheapKey.LocalKey(name))
-        case ClosureSlot(idx) =>
-          Some(CheapKey.ClosureSlotKey(idx))
-        case LocalAnon(id) =>
-          Some(CheapKey.LocalAnonKey(id))
-        case LocalAnonMut(_) =>
-          None
-        case Global(_, pack, name) =>
-          Some(CheapKey.GlobalKey(pack, name))
-        case Literal(lit) =>
-          Some(CheapKey.LiteralKey(lit))
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | Global(_, _, _) |
+            Literal(_) =>
+          true
         case ge: GetEnumElement[?] =>
-          cheapKeyOf(ge.arg).map(CheapKey.EnumElemKey(_, ge.variant, ge.index, ge.size))
+          isImmutableCheap(ge.arg)
         case gs: GetStructElement[?] =>
-          cheapKeyOf(gs.arg).map(CheapKey.StructElemKey(_, gs.index, gs.size))
+          isImmutableCheap(gs.arg)
+        case LocalAnonMut(_) =>
+          false
+        case _ =>
+          false
       }
 
-    // We only memoize constructor applications keyed by CheapExpr arguments.
-    // Non-cheap args can require evaluation/work this pass does not schedule.
-    // Matchless lowering already inserts lets where non-cheap work is required.
-    def ctorKeyOf(ex: Expr[A]): Option[CtorKey] =
+    // Only share constructor creation with immutable cheap args.
+    // Non-cheap args may need scheduling/evaluation this pass does not do.
+    def isShareableCtor(ex: Expr[A]): Boolean =
       ex match {
-        case App(cons: ConsExpr, args) =>
-          args.toList
-            .traverse {
-              case cheap: CheapExpr[?] => cheapKeyOf(cheap)
-              case _                   => None
-            }
-            .map(CtorKey.App(consKeyOf(cons), _))
-        case cons: ConsExpr if cons.arity == 0 =>
-          Some(CtorKey.Const(consKeyOf(cons)))
+        case App(_: ConsExpr, args) =>
+          args.forall(isImmutableCheap)
+        case cons: ConsExpr =>
+          cons.arity == 0
         case _ =>
-          None
+          false
       }
+
+    def countExprs(exprs: List[Expr[A]]): SortedMap[Expr[A], Int] =
+      exprs.foldLeft(SortedMap.empty[Expr[A], Int]) { case (acc, ex) =>
+        acc.updated(ex, acc.getOrElse(ex, 0) + 1)
+      }
+
+    def distinctInOrder(exprs: List[Expr[A]]): List[Expr[A]] = {
+      val (rev, _) =
+        exprs.foldLeft((List.empty[Expr[A]], SortedSet.empty[Expr[A]])) {
+          case ((acc, seen), ex) =>
+            if (seen(ex)) (acc, seen)
+            else (ex :: acc, seen + ex)
+        }
+      rev.reverse
+    }
 
     // "Linear scope" traversal:
     // - traverse application / PrevNat trees
     // - stop at control-flow and binding boundaries (If/Let/Lambda/etc.)
-    def collectLinearInOrder(ex: Expr[A]): List[(CtorKey, Expr[A])] = {
-      val b = List.newBuilder[(CtorKey, Expr[A])]
+    def collectLinearInOrder(ex: Expr[A]): List[Expr[A]] = {
+      val b = List.newBuilder[Expr[A]]
 
       def loop(e: Expr[A]): Unit = {
-        ctorKeyOf(e).foreach(k => b += ((k, e)))
+        if (isShareableCtor(e)) b += e
         e match {
           case App(fn, args) =>
             loop(fn)
@@ -627,11 +709,8 @@ object Matchless {
       b.result()
     }
 
-    def replaceLinear(
-        ex: Expr[A],
-        replace: SortedMap[CtorKey, LocalAnon]
-    ): Expr[A] =
-      ctorKeyOf(ex).flatMap(replace.get) match {
+    def replaceLinear(ex: Expr[A], replace: SortedMap[Expr[A], LocalAnon]): Expr[A] =
+      replace.get(ex) match {
         case Some(loc) =>
           loc
         case None =>
@@ -646,42 +725,27 @@ object Matchless {
       }
 
     def allocateBinds(
-        keys: List[(CtorKey, Expr[A])],
+        keys: List[Expr[A]],
         st: CseState
-    ): (List[(LocalAnon, Expr[A])], List[(LocalAnon, CtorKey)], CseState) = {
-      val (exprRev, keyRev, _, st1) =
-        keys.foldLeft(
-          (
-            List.empty[(LocalAnon, Expr[A])],
-            List.empty[(LocalAnon, CtorKey)],
-            SortedSet.empty[CtorKey],
-            st
-          )
-        ) { case ((exprAcc, keyAcc, seen, state), (key, ex)) =>
-          if (seen(key)) (exprAcc, keyAcc, seen, state)
-          else {
-            val (anon, state1) = state.nextState
-            (
-              (anon, ex) :: exprAcc,
-              (anon, key) :: keyAcc,
-              seen + key,
-              state1
-            )
-          }
-        }
-
-      (exprRev.reverse, keyRev.reverse, st1)
-    }
+    ): (List[(LocalAnon, Expr[A])], CseState) =
+      keys.foldLeft((List.empty[(LocalAnon, Expr[A])], st)) {
+        case ((acc, state), key) =>
+          val (anon, state1) = state.nextState
+          (((anon, key) :: acc), state1)
+      } match {
+        case (rev, st1) => (rev.reverse, st1)
+      }
 
     def linearScopeCse(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
       val occs = collectLinearInOrder(ex)
-      val counts = countByKey(occs.map(_._1))
-      val dupes = occs.filter { case (key, _) => counts.getOrElse(key, 0) > 1 }
+      val counts = countExprs(occs)
+      val dupes =
+        distinctInOrder(occs.filter(k => counts.getOrElse(k, 0) > 1))
 
       if (dupes.isEmpty) (ex, st)
       else {
-        val (binds, keyBinds, st1) = allocateBinds(dupes, st)
-        val replace = SortedMap.from(keyBinds.map(_.swap))
+        val (binds, st1) = allocateBinds(dupes, st)
+        val replace = SortedMap.from(binds.map(_.swap))
         (letAnons(binds, replaceLinear(ex, replace)), st1)
       }
     }
@@ -719,17 +783,16 @@ object Matchless {
           ex: Expr[A],
           blockedBindables: Set[Bindable],
           blockedAnonIds: Set[Long]
-      ): List[(CtorKey, Expr[A])] = {
-        val b = List.newBuilder[(CtorKey, Expr[A])]
+      ): List[Expr[A]] = {
+        val b = List.newBuilder[Expr[A]]
 
         def loop(
             e: Expr[A],
             blockedBindables: Set[Bindable],
             blockedAnonIds: Set[Long]
         ): Unit = {
-          ctorKeyOf(e).foreach { key =>
-            if (!readsBlocked(e, blockedBindables, blockedAnonIds)) b += ((key, e))
-          }
+          if (isShareableCtor(e) && !readsBlocked(e, blockedBindables, blockedAnonIds))
+            b += e
           e match {
             case App(fn, args) =>
               loop(fn, blockedBindables, blockedAnonIds)
@@ -755,11 +818,11 @@ object Matchless {
 
       def replaceBranch(
           ex: Expr[A],
-          replace: SortedMap[CtorKey, LocalAnon],
+          replace: SortedMap[Expr[A], LocalAnon],
           blockedBindables: Set[Bindable],
           blockedAnonIds: Set[Long]
       ): Expr[A] =
-        ctorKeyOf(ex).flatMap(replace.get) match {
+        replace.get(ex) match {
           case Some(loc)
               if !readsBlocked(ex, blockedBindables, blockedAnonIds) =>
             loc
@@ -806,13 +869,13 @@ object Matchless {
 
       val thenOccs = collectBranchInOrder(thenExpr, Set.empty, Set.empty)
       val elseOccs = collectBranchInOrder(elseExpr, Set.empty, Set.empty)
-      val elseSet = SortedSet.from(elseOccs.iterator.map(_._1))
-      val common = thenOccs.filter { case (key, _) => elseSet(key) }
+      val elseSet = SortedSet.from(elseOccs)
+      val common = distinctInOrder(thenOccs.filter(elseSet))
 
       if (common.isEmpty) (If(cond, thenExpr, elseExpr), st)
       else {
-        val (binds, keyBinds, st1) = allocateBinds(common, st)
-        val replace = SortedMap.from(keyBinds.map(_.swap))
+        val (binds, st1) = allocateBinds(common, st)
+        val replace = SortedMap.from(binds.map(_.swap))
         val then1 = replaceBranch(thenExpr, replace, Set.empty, Set.empty)
         val else1 = replaceBranch(elseExpr, replace, Set.empty, Set.empty)
         (letAnons(binds, If(cond, then1, else1)), st1)
@@ -954,6 +1017,108 @@ object Matchless {
         case (l, TrueConst) => l
         case _              => And(this, that)
       }
+  }
+  object BoolExpr {
+    private def boolTag[A](boolExpr: BoolExpr[A]): Int =
+      boolExpr match {
+        case _: EqualsLit[?]    => 0
+        case _: EqualsNat[?]    => 1
+        case _: And[?]          => 2
+        case _: CheckVariant[?] => 3
+        case _: MatchString[?]  => 4
+        case _: SetMut[?]       => 5
+        case TrueConst          => 6
+        case _: LetBool[?]      => 7
+        case _: LetMutBool[?]   => 8
+      }
+
+    private given Order[LocalAnon] = Order.by(_.ident)
+    private given Order[LocalAnonMut] = Order.by(_.ident)
+    private given Order[Bindable] = Identifier.Bindable.bindableOrder
+    private given Order[Either[LocalAnon, Bindable]] =
+      Order[Either[LocalAnon, Bindable]]
+    private given Order[Lit] = Order.fromOrdering(using Lit.litOrdering)
+    private given Order[DataRepr.Nat] = Order.by {
+      case DataRepr.ZeroNat => 0
+      case DataRepr.SuccNat => 1
+    }
+
+    given [A: Order]: Order[BoolExpr[A]] with {
+      def compare(left: BoolExpr[A], right: BoolExpr[A]): Int =
+        (left, right) match {
+          case (EqualsLit(exprL, litL), EqualsLit(exprR, litR)) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else Order[Lit].compare(litL, litR)
+
+          case (EqualsNat(exprL, natL), EqualsNat(exprR, natR)) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else Order[DataRepr.Nat].compare(natL, natR)
+
+          case (And(leftL, rightL), And(leftR, rightR)) =>
+            val c1 = compare(leftL, leftR)
+            if (c1 != 0) c1
+            else compare(rightL, rightR)
+
+          case (
+                CheckVariant(exprL, expectL, sizeL, famAritiesL),
+                CheckVariant(exprR, expectR, sizeR, famAritiesR)
+              ) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else {
+              val c2 = java.lang.Integer.compare(expectL, expectR)
+              if (c2 != 0) c2
+              else {
+                val c3 = java.lang.Integer.compare(sizeL, sizeR)
+                if (c3 != 0) c3
+                else Order[List[Int]].compare(famAritiesL, famAritiesR)
+              }
+            }
+
+          case (
+                MatchString(argL, partsL, bindsL, mustMatchL),
+                MatchString(argR, partsR, bindsR, mustMatchR)
+              ) =>
+            val c1 = Order[Expr[A]].compare(argL, argR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[List[StrPart]].compare(partsL, partsR)
+              if (c2 != 0) c2
+              else {
+                val c3 = Order[List[LocalAnonMut]].compare(bindsL, bindsR)
+                if (c3 != 0) c3
+                else java.lang.Boolean.compare(mustMatchL, mustMatchR)
+              }
+            }
+
+          case (SetMut(targetL, exprL), SetMut(targetR, exprR)) =>
+            val c1 = Order[LocalAnonMut].compare(targetL, targetR)
+            if (c1 != 0) c1
+            else Order[Expr[A]].compare(exprL, exprR)
+
+          case (TrueConst, TrueConst) =>
+            0
+
+          case (LetBool(argL, exprL, inL), LetBool(argR, exprR, inR)) =>
+            val c1 = Order[Either[LocalAnon, Bindable]].compare(argL, argR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[Expr[A]].compare(exprL, exprR)
+              if (c2 != 0) c2
+              else compare(inL, inR)
+            }
+
+          case (LetMutBool(nameL, spanL), LetMutBool(nameR, spanR)) =>
+            val c1 = Order[LocalAnonMut].compare(nameL, nameR)
+            if (c1 != 0) c1
+            else compare(spanL, spanR)
+
+          case _ =>
+            java.lang.Integer.compare(boolTag(left), boolTag(right))
+        }
+    }
   }
   // returns 1 if it does, else 0
   case class EqualsLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
@@ -1152,7 +1317,7 @@ object Matchless {
     }
 
   // same as fromLet below, but uses RefSpace
-  def fromLet[A, B](
+  def fromLet[A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,
@@ -1166,7 +1331,7 @@ object Matchless {
     } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
-  def fromLet[F[_]: Monad, A, B](
+  def fromLet[F[_]: Monad, A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,

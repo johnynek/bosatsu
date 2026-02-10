@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.Order
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
 
@@ -50,6 +51,7 @@ class MatchlessInterfaceTest extends munit.FunSuite {
     val fibPm = typeCheck(fibSrc, natIface :: Nil)
 
     Par.withEC {
+      given Order[Unit] = Order.fromOrdering
       val compiled = MatchlessFromTypedExpr.compile((), fibPm)
       assert(compiled.contains(PackageName.parts("My", "Fib")))
     }

@@ -1,13 +1,14 @@
 package dev.bosatsu
 
 import Identifier.{Bindable, Constructor}
+import cats.Order
 
 import cats.implicits._
 
 object MatchlessFromTypedExpr {
   type Compiled[+A] = Map[PackageName, List[(Bindable, Matchless.Expr[A])]]
   // compile a set of packages given a set of external remappings
-  def compile[K, A](
+  def compile[K: Order, A](
       from: K,
       pm: PackageMap.Typed[A]
   )(implicit ec: Par.EC): Compiled[K] = {

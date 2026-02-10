@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.Order
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
@@ -10,6 +11,8 @@ import rankn.DataRepr
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
+  given Order[Unit] = Order.fromOrdering
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 5000 else 20

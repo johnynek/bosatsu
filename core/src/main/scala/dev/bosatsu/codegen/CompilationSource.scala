@@ -1,6 +1,6 @@
 package dev.bosatsu.codegen
 
-import cats.Show
+import cats.{Order, Show}
 import cats.data.NonEmptyList
 import dev.bosatsu.{
   Identifier,
@@ -41,6 +41,7 @@ object CompilationSource {
           implicit val keyOrder: Ordering[ScopeKey] = new Ordering[Unit] {
             def compare(x: Unit, y: Unit): Int = 0
           }
+          given Order[ScopeKey] = Order.fromOrdering(using keyOrder)
           val keyShow: Show[ScopeKey] = Show.show(_ => "root")
 
           def identOf(k: Unit, pn: PackageName): NonEmptyList[String] = pn.parts
