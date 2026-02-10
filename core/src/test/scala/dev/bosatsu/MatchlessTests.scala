@@ -471,6 +471,91 @@ x = 1
     }
   }
 
+  test("matrix match materializes list projections to avoid nested projection trees") {
+    def hasNestedProjectionCheap(e: Matchless.CheapExpr[Unit]): Boolean =
+      e match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          arg match {
+            case _: Matchless.GetEnumElement[?] | _: Matchless.GetStructElement[?] =>
+              true
+            case _ =>
+              hasNestedProjectionCheap(arg)
+          }
+        case Matchless.GetStructElement(arg, _, _) =>
+          arg match {
+            case _: Matchless.GetEnumElement[?] | _: Matchless.GetStructElement[?] =>
+              true
+            case _ =>
+              hasNestedProjectionCheap(arg)
+          }
+        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+          false
+      }
+
+    def hasNestedProjectionBool(b: Matchless.BoolExpr[Unit]): Boolean =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          hasNestedProjectionCheap(e)
+        case Matchless.EqualsNat(e, _) =>
+          hasNestedProjectionCheap(e)
+        case Matchless.And(l, r) =>
+          hasNestedProjectionBool(l) || hasNestedProjectionBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          hasNestedProjectionCheap(e)
+        case Matchless.MatchString(arg, _, _, _) =>
+          hasNestedProjectionCheap(arg)
+        case Matchless.SetMut(_, e) =>
+          hasNestedProjectionExpr(e)
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          hasNestedProjectionExpr(value) || hasNestedProjectionBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          hasNestedProjectionBool(in)
+      }
+
+    def hasNestedProjectionExpr(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(hasNestedProjectionExpr) || hasNestedProjectionExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          hasNestedProjectionBool(cond) || hasNestedProjectionExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          hasNestedProjectionExpr(fn) || args.exists(hasNestedProjectionExpr)
+        case Matchless.Let(_, value, in) =>
+          hasNestedProjectionExpr(value) || hasNestedProjectionExpr(in)
+        case Matchless.LetMut(_, in) =>
+          hasNestedProjectionExpr(in)
+        case Matchless.If(cond, t, f) =>
+          hasNestedProjectionBool(cond) || hasNestedProjectionExpr(t) || hasNestedProjectionExpr(f)
+        case Matchless.Always(cond, thenExpr) =>
+          hasNestedProjectionBool(cond) || hasNestedProjectionExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          hasNestedProjectionExpr(of)
+        case c: Matchless.CheapExpr[Unit] =>
+          hasNestedProjectionCheap(c)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          false
+      }
+
+    TestUtils.checkMatchless("""
+enum L:
+  E
+  M(head, tail)
+
+def matches_five(xs):
+  match xs:
+    case M(0, M(1, M(2, M(3, M(4, E))))): 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("matches_five"))
+      assertEquals(hasNestedProjectionExpr(expr), false)
+    }
+  }
+
   test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
