@@ -552,6 +552,76 @@ x = 1
     assertEquals(optimized, input)
   }
 
+  test("Matchless.reuseConstructors replaces constructor reuse inside let values") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val z = Identifier.Name("z")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+    val thenExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        z,
+        shared,
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Local(z), shared :: Nil)
+        )
+      )
+    val elseExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(Matchless.Literal(Lit(1)), shared :: Nil)
+      )
+
+    Matchless.reuseConstructors(Matchless.If(Matchless.TrueConst, thenExpr, elseExpr)) match {
+      case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, then1, else1)) =>
+        then1 match {
+          case Matchless.Let(
+                Right(`z`),
+                Matchless.LocalAnon(tmpInValue),
+                Matchless.App(Matchless.MakeStruct(2), args)
+              ) =>
+            assertEquals(tmpInValue, tmp.ident)
+            assertEquals(args.head, Matchless.Local(z))
+            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+          case other =>
+            fail(s"expected let value to reuse constructor binding, found: $other")
+        }
+
+        else1 match {
+          case Matchless.App(Matchless.MakeStruct(2), args) =>
+            assertEquals(args.head, Matchless.Literal(Lit(1)))
+            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+          case other =>
+            fail(s"expected else branch constructor reuse, found: $other")
+        }
+      case other =>
+        fail(s"expected top-level constructor reuse, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors does not share constructors when mutables appear inside cheap args") {
+    val sharedWithInnerMut: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(1),
+        NonEmptyList.one(
+          Matchless.GetEnumElement(Matchless.LocalAnonMut(12), 1, 0, 2)
+        )
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(sharedWithInnerMut, sharedWithInnerMut :: Nil)
+      )
+
+    val optimized = Matchless.reuseConstructors(input)
+
+    assertEquals(optimized, input)
+  }
+
   test("matrix match materializes list projections to avoid nested projection trees") {
     def hasNestedProjectionCheap(e: Matchless.CheapExpr[Unit]): Boolean =
       e match {

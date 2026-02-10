@@ -380,7 +380,103 @@ object Matchless {
   // introducing local aliases. We stay conservative and only memoize constructor
   // applications whose arguments are immutable CheapExpr values.
   private[bosatsu] def reuseConstructors[A](expr: Expr[A]): Expr[A] = {
-    case class CseState(nextAnon: Long)
+    import cats.kernel.Order
+    import scala.collection.immutable.{SortedMap, SortedSet}
+
+    case class CseState(nextAnon: Long) {
+      def nextState: (LocalAnon, CseState) = {
+        val anon = LocalAnon(nextAnon)
+        (anon, copy(nextAnon = nextAnon + 1L))
+      }
+    }
+
+    enum ConsKey derives CanEqual {
+      case EnumCons(variant: Int, arity: Int, famArities: List[Int])
+      case StructCons(arity: Int)
+      case ZeroCons
+      case SuccCons
+    }
+
+    enum CheapKey derives CanEqual {
+      case LocalKey(name: Bindable)
+      case ClosureSlotKey(idx: Int)
+      case LocalAnonKey(id: Long)
+      case GlobalKey(pack: PackageName, name: Bindable)
+      case LiteralKey(lit: Lit)
+      case EnumElemKey(arg: CheapKey, variant: Int, index: Int, size: Int)
+      case StructElemKey(arg: CheapKey, index: Int, size: Int)
+    }
+
+    enum CtorKey derives CanEqual {
+      case Const(cons: ConsKey)
+      case App(cons: ConsKey, args: List[CheapKey])
+    }
+
+    def seg(str: String): String =
+      s"${str.length}:$str"
+
+    def consKeyRepr(key: ConsKey): String =
+      key match {
+        case ConsKey.EnumCons(variant, arity, famArities) =>
+          seg("enum") + seg(variant.toString) + seg(arity.toString) +
+            seg(famArities.mkString(","))
+        case ConsKey.StructCons(arity) =>
+          seg("struct") + seg(arity.toString)
+        case ConsKey.ZeroCons =>
+          seg("zero")
+        case ConsKey.SuccCons =>
+          seg("succ")
+      }
+
+    def litKeyRepr(lit: Lit): String =
+      lit match {
+        case Lit.Integer(bi) =>
+          seg("int") + seg(bi.toString)
+        case Lit.Float64(rawBits) =>
+          seg("float") + seg(rawBits.toString)
+        case Lit.Chr(chr) =>
+          seg("chr") + seg(chr)
+        case Lit.Str(str) =>
+          seg("str") + seg(str)
+      }
+
+    def cheapKeyRepr(key: CheapKey): String =
+      key match {
+        case CheapKey.LocalKey(name) =>
+          seg("local") + seg(name.asString)
+        case CheapKey.ClosureSlotKey(idx) =>
+          seg("slot") + seg(idx.toString)
+        case CheapKey.LocalAnonKey(id) =>
+          seg("anon") + seg(id.toString)
+        case CheapKey.GlobalKey(pack, name) =>
+          seg("global") + seg(pack.asString) + seg(name.asString)
+        case CheapKey.LiteralKey(lit) =>
+          seg("lit") + litKeyRepr(lit)
+        case CheapKey.EnumElemKey(arg, variant, index, size) =>
+          seg("enum_elem") + cheapKeyRepr(arg) +
+            seg(variant.toString) + seg(index.toString) + seg(size.toString)
+        case CheapKey.StructElemKey(arg, index, size) =>
+          seg("struct_elem") + cheapKeyRepr(arg) +
+            seg(index.toString) + seg(size.toString)
+      }
+
+    def ctorKeyRepr(key: CtorKey): String =
+      key match {
+        case CtorKey.Const(cons) =>
+          seg("const") + consKeyRepr(cons)
+        case CtorKey.App(cons, args) =>
+          seg("app") + consKeyRepr(cons) + seg(args.map(cheapKeyRepr).mkString)
+      }
+
+    given Order[CtorKey] = Order.by(ctorKeyRepr)
+    given Ordering[CtorKey] = Order.catsKernelOrderingForOrder
+
+    def countByKey[K: Order](keys: List[K]): SortedMap[K, Int] = {
+      given Ordering[K] = Order.catsKernelOrderingForOrder
+      keys.foldLeft(SortedMap.empty[K, Int]) { case (acc, key) =>
+        acc.updated(key, acc.getOrElse(key, 0) + 1)
+      }
+    }
 
     def maxAnonExpr(ex: Expr[A]): Long = {
       def loopExpr(e: Expr[A], curr: Long): Long =
@@ -453,31 +549,69 @@ object Matchless {
       loopExpr(ex, 0L)
     }
 
-    def isImmutableCheap(ex: Expr[A]): Boolean =
-      ex match {
-        case LocalAnonMut(_) => false
-        case _: CheapExpr[?] => true
-        case _               => false
+    object CseState {
+      def initFromExpr(ex: Expr[A]): CseState =
+        CseState(maxAnonExpr(ex) + 1L)
+    }
+
+    def consKeyOf(cons: ConsExpr): ConsKey =
+      cons match {
+        case MakeEnum(variant, arity, famArities) =>
+          ConsKey.EnumCons(variant, arity, famArities)
+        case MakeStruct(arity) =>
+          ConsKey.StructCons(arity)
+        case ZeroNat =>
+          ConsKey.ZeroCons
+        case SuccNat =>
+          ConsKey.SuccCons
       }
 
-    def isShareableCtor(ex: Expr[A]): Boolean =
+    def cheapKeyOf(ex: CheapExpr[?]): Option[CheapKey] =
       ex match {
-        case App(_: ConsExpr, args) =>
-          args.forall(isImmutableCheap)
-        case cons: ConsExpr =>
-          cons.arity == 0
+        case Local(name) =>
+          Some(CheapKey.LocalKey(name))
+        case ClosureSlot(idx) =>
+          Some(CheapKey.ClosureSlotKey(idx))
+        case LocalAnon(id) =>
+          Some(CheapKey.LocalAnonKey(id))
+        case LocalAnonMut(_) =>
+          None
+        case Global(_, pack, name) =>
+          Some(CheapKey.GlobalKey(pack, name))
+        case Literal(lit) =>
+          Some(CheapKey.LiteralKey(lit))
+        case ge: GetEnumElement[?] =>
+          cheapKeyOf(ge.arg).map(CheapKey.EnumElemKey(_, ge.variant, ge.index, ge.size))
+        case gs: GetStructElement[?] =>
+          cheapKeyOf(gs.arg).map(CheapKey.StructElemKey(_, gs.index, gs.size))
+      }
+
+    // We only memoize constructor applications keyed by CheapExpr arguments.
+    // Non-cheap args can require evaluation/work this pass does not schedule.
+    // Matchless lowering already inserts lets where non-cheap work is required.
+    def ctorKeyOf(ex: Expr[A]): Option[CtorKey] =
+      ex match {
+        case App(cons: ConsExpr, args) =>
+          args.toList
+            .traverse {
+              case cheap: CheapExpr[?] => cheapKeyOf(cheap)
+              case _                   => None
+            }
+            .map(CtorKey.App(consKeyOf(cons), _))
+        case cons: ConsExpr if cons.arity == 0 =>
+          Some(CtorKey.Const(consKeyOf(cons)))
         case _ =>
-          false
+          None
       }
 
     // "Linear scope" traversal:
     // - traverse application / PrevNat trees
     // - stop at control-flow and binding boundaries (If/Let/Lambda/etc.)
-    def collectLinearInOrder(ex: Expr[A]): List[Expr[A]] = {
-      val b = List.newBuilder[Expr[A]]
+    def collectLinearInOrder(ex: Expr[A]): List[(CtorKey, Expr[A])] = {
+      val b = List.newBuilder[(CtorKey, Expr[A])]
 
       def loop(e: Expr[A]): Unit = {
-        if (isShareableCtor(e)) b += e
+        ctorKeyOf(e).foreach(k => b += ((k, e)))
         e match {
           case App(fn, args) =>
             loop(fn)
@@ -493,8 +627,11 @@ object Matchless {
       b.result()
     }
 
-    def replaceLinear(ex: Expr[A], replace: Map[Expr[A], LocalAnon]): Expr[A] =
-      replace.get(ex) match {
+    def replaceLinear(
+        ex: Expr[A],
+        replace: SortedMap[CtorKey, LocalAnon]
+    ): Expr[A] =
+      ctorKeyOf(ex).flatMap(replace.get) match {
         case Some(loc) =>
           loc
         case None =>
@@ -509,26 +646,42 @@ object Matchless {
       }
 
     def allocateBinds(
-        keys: List[Expr[A]],
+        keys: List[(CtorKey, Expr[A])],
         st: CseState
-    ): (List[(LocalAnon, Expr[A])], CseState) =
-      keys.foldLeft((List.empty[(LocalAnon, Expr[A])], st)) {
-        case ((acc, state), key) =>
-          val anon = LocalAnon(state.nextAnon)
-          (((anon, key) :: acc), CseState(state.nextAnon + 1L))
-      } match {
-        case (rev, st1) => (rev.reverse, st1)
-      }
+    ): (List[(LocalAnon, Expr[A])], List[(LocalAnon, CtorKey)], CseState) = {
+      val (exprRev, keyRev, _, st1) =
+        keys.foldLeft(
+          (
+            List.empty[(LocalAnon, Expr[A])],
+            List.empty[(LocalAnon, CtorKey)],
+            SortedSet.empty[CtorKey],
+            st
+          )
+        ) { case ((exprAcc, keyAcc, seen, state), (key, ex)) =>
+          if (seen(key)) (exprAcc, keyAcc, seen, state)
+          else {
+            val (anon, state1) = state.nextState
+            (
+              (anon, ex) :: exprAcc,
+              (anon, key) :: keyAcc,
+              seen + key,
+              state1
+            )
+          }
+        }
+
+      (exprRev.reverse, keyRev.reverse, st1)
+    }
 
     def linearScopeCse(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
       val occs = collectLinearInOrder(ex)
-      val counts = occs.groupMapReduce(identity)(_ => 1)(_ + _)
-      val dupes = occs.distinct.filter(k => counts.getOrElse(k, 0) > 1)
+      val counts = countByKey(occs.map(_._1))
+      val dupes = occs.filter { case (key, _) => counts.getOrElse(key, 0) > 1 }
 
       if (dupes.isEmpty) (ex, st)
       else {
-        val (binds, st1) = allocateBinds(dupes, st)
-        val replace = binds.iterator.map { case (l, e) => (e, l) }.toMap
+        val (binds, keyBinds, st1) = allocateBinds(dupes, st)
+        val replace = SortedMap.from(keyBinds.map(_.swap))
         (letAnons(binds, replaceLinear(ex, replace)), st1)
       }
     }
@@ -566,23 +719,25 @@ object Matchless {
           ex: Expr[A],
           blockedBindables: Set[Bindable],
           blockedAnonIds: Set[Long]
-      ): List[Expr[A]] = {
-        val b = List.newBuilder[Expr[A]]
+      ): List[(CtorKey, Expr[A])] = {
+        val b = List.newBuilder[(CtorKey, Expr[A])]
 
         def loop(
             e: Expr[A],
             blockedBindables: Set[Bindable],
             blockedAnonIds: Set[Long]
         ): Unit = {
-          if (isShareableCtor(e) && !readsBlocked(e, blockedBindables, blockedAnonIds))
-            b += e
+          ctorKeyOf(e).foreach { key =>
+            if (!readsBlocked(e, blockedBindables, blockedAnonIds)) b += ((key, e))
+          }
           e match {
             case App(fn, args) =>
               loop(fn, blockedBindables, blockedAnonIds)
               args.toList.foreach(loop(_, blockedBindables, blockedAnonIds))
             case PrevNat(of) =>
               loop(of, blockedBindables, blockedAnonIds)
-            case Let(arg, _, in) =>
+            case Let(arg, value, in) =>
+              loop(value, blockedBindables, blockedAnonIds)
               arg match {
                 case Right(name) =>
                   loop(in, blockedBindables + name, blockedAnonIds)
@@ -600,11 +755,11 @@ object Matchless {
 
       def replaceBranch(
           ex: Expr[A],
-          replace: Map[Expr[A], LocalAnon],
+          replace: SortedMap[CtorKey, LocalAnon],
           blockedBindables: Set[Bindable],
           blockedAnonIds: Set[Long]
       ): Expr[A] =
-        replace.get(ex) match {
+        ctorKeyOf(ex).flatMap(replace.get) match {
           case Some(loc)
               if !readsBlocked(ex, blockedBindables, blockedAnonIds) =>
             loc
@@ -618,11 +773,13 @@ object Matchless {
               case PrevNat(of) =>
                 PrevNat(replaceBranch(of, replace, blockedBindables, blockedAnonIds))
               case Let(arg, value, in) =>
+                val value1 =
+                  replaceBranch(value, replace, blockedBindables, blockedAnonIds)
                 arg match {
                   case Right(name) =>
                     Let(
                       arg,
-                      value,
+                      value1,
                       replaceBranch(
                         in,
                         replace,
@@ -633,7 +790,7 @@ object Matchless {
                   case Left(LocalAnon(id)) =>
                     Let(
                       arg,
-                      value,
+                      value1,
                       replaceBranch(
                         in,
                         replace,
@@ -649,13 +806,13 @@ object Matchless {
 
       val thenOccs = collectBranchInOrder(thenExpr, Set.empty, Set.empty)
       val elseOccs = collectBranchInOrder(elseExpr, Set.empty, Set.empty)
-      val elseSet = elseOccs.toSet
-      val common = thenOccs.distinct.filter(elseSet)
+      val elseSet = SortedSet.from(elseOccs.iterator.map(_._1))
+      val common = thenOccs.filter { case (key, _) => elseSet(key) }
 
       if (common.isEmpty) (If(cond, thenExpr, elseExpr), st)
       else {
-        val (binds, st1) = allocateBinds(common, st)
-        val replace = binds.iterator.map { case (l, e) => (e, l) }.toMap
+        val (binds, keyBinds, st1) = allocateBinds(common, st)
+        val replace = SortedMap.from(keyBinds.map(_.swap))
         val then1 = replaceBranch(thenExpr, replace, Set.empty, Set.empty)
         val else1 = replaceBranch(elseExpr, replace, Set.empty, Set.empty)
         (letAnons(binds, If(cond, then1, else1)), st1)
@@ -673,53 +830,44 @@ object Matchless {
         case (rev, st1) => (rev.reverse, st1)
       }
 
+    def recurExprCheap(
+        expr: CheapExpr[A],
+        st: CseState
+    ): (CheapExpr[A], CseState) =
+      recurExpr(expr, st) match {
+        case (expr1: CheapExpr[A], st1) =>
+          (expr1, st1)
+        case (other, _) =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"expected cheap expression in bool rewriting, found: $other"
+          )
+        // $COVERAGE-ON$
+      }
+
     def recurBool(b: BoolExpr[A], st: CseState): (BoolExpr[A], CseState) =
       b match {
         case EqualsLit(expr, lit) =>
-          recurExpr(expr, st) match {
-            case (expr1: CheapExpr[A], st1) => (EqualsLit(expr1, lit), st1)
-            case (other, _) =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"expected cheap expression in EqualsLit, found: $other"
-              )
-            // $COVERAGE-ON$
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) => (EqualsLit(expr1, lit), st1)
           }
         case EqualsNat(expr, nat) =>
-          recurExpr(expr, st) match {
-            case (expr1: CheapExpr[A], st1) => (EqualsNat(expr1, nat), st1)
-            case (other, _) =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"expected cheap expression in EqualsNat, found: $other"
-              )
-            // $COVERAGE-ON$
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) => (EqualsNat(expr1, nat), st1)
           }
         case And(left, right) =>
           val (l1, st1) = recurBool(left, st)
           val (r1, st2) = recurBool(right, st1)
           (And(l1, r1), st2)
         case CheckVariant(expr, expect, size, famArities) =>
-          recurExpr(expr, st) match {
-            case (expr1: CheapExpr[A], st1) =>
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) =>
               (CheckVariant(expr1, expect, size, famArities), st1)
-            case (other, _) =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"expected cheap expression in CheckVariant, found: $other"
-              )
-            // $COVERAGE-ON$
           }
         case MatchString(arg, parts, binds, mustMatch) =>
-          recurExpr(arg, st) match {
-            case (arg1: CheapExpr[A], st1) =>
+          recurExprCheap(arg, st) match {
+            case (arg1, st1) =>
               (MatchString(arg1, parts, binds, mustMatch), st1)
-            case (other, _) =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"expected cheap expression in MatchString, found: $other"
-              )
-            // $COVERAGE-ON$
           }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
@@ -779,7 +927,7 @@ object Matchless {
       linearScopeCse(rewritten, st1)
     }
 
-    val init = CseState(maxAnonExpr(expr) + 1L)
+    val init = CseState.initFromExpr(expr)
     recurExpr(expr, init)._1
   }
 

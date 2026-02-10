@@ -602,6 +602,18 @@ else:
     )
   }
 
+  test("comparison operands with not are parenthesized") {
+    val leftNot =
+      Code.Op(Code.Not(Code.Ident("a")), Code.Const.Lt, Code.Ident("b"))
+    assertEquals(Code.toDoc(leftNot).renderTrim(80), "(not a) < b")
+    assertParse(Code.toDoc(leftNot).render(100))
+
+    val rightNot =
+      Code.Op(Code.Ident("a"), Code.Const.Lt, Code.Not(Code.Ident("b")))
+    assertEquals(Code.toDoc(rightNot).renderTrim(80), "a < (not b)")
+    assertParse(Code.toDoc(rightNot).render(100))
+  }
+
   test("simplify applies lambdas") {
     // (lambda x: f(x))(y) == f(y)
 
