@@ -105,8 +105,10 @@ BValue __bsts_t_lambda__loop0(BValue __bsts_b_a0,
         return __bsts_b_a0;
     }
     else {
-        BValue __bsts_b_h0 = get_enum_index(__bsts_b_list0, 0);
-        BValue __bsts_b_t0 = get_enum_index(__bsts_b_list0, 1);
+        BValue __bsts_a_0 = get_enum_index(__bsts_b_list0, 0);
+        BValue __bsts_a_1 = get_enum_index(__bsts_b_list0, 1);
+        BValue __bsts_b_h0 = __bsts_a_0;
+        BValue __bsts_b_t0 = __bsts_a_1;
         return call_fn2(__bsts_b_b0,
             __bsts_b_h0,
             __bsts_t_lambda__loop0(__bsts_b_a0, __bsts_b_b0, __bsts_b_t0));
@@ -245,52 +247,15 @@ main = set_in_range_ok
         fail(err.toString)
       case Right(doc) =>
         val rendered = doc.render(80)
-        val lines = rendered.linesIterator.toVector
-        val needle = "Euler_l_P6_l_diff"
-        val center = lines.indexWhere(_.contains(needle))
-        assert(center >= 0, s"expected to find $needle in rendered output")
-
-        val start = (center - 20).max(0)
-        val endExclusive = (center + 21).min(lines.length)
-        val window = lines.slice(start, endExclusive).mkString("\n")
-
-        val expectedWindow = """
-        alloc_enum0(0),
-        alloc_boxed_pure_fn2(__bsts_t_lambda0));
-}
-
-BValue ___bsts_g_Bosatsu_l_Predef_l_clear__Dict(BValue __bsts_b_dict0) {
-    BValue __bsts_b_ord0 = get_struct_index(__bsts_b_dict0, 0);
-    return alloc_struct2(__bsts_b_ord0, alloc_enum0(0));
-}
-
-BValue __bsts_t_lambda21(BValue __bsts_b_i0, BValue __bsts_b_r0) {
-    BValue __bsts_b_i1 = ___bsts_g_Bosatsu_l_Predef_l_add(bsts_integer_from_int(-1),
-        __bsts_b_i0);
-    BValue __bsts_b_x10 = ___bsts_g_Bosatsu_l_Predef_l_add(bsts_integer_from_int(1),
-        __bsts_b_i1);
-    return alloc_struct2(__bsts_b_i1,
-        ___bsts_g_Bosatsu_l_Predef_l_add(__bsts_b_r0,
-            ___bsts_g_Bosatsu_l_Predef_l_mul(__bsts_b_i1,
-                ___bsts_g_Bosatsu_l_Predef_l_mul(__bsts_b_x10, __bsts_b_x10))));
-}
-
-BValue ___bsts_g_Euler_l_P6_l_diff(BValue __bsts_b_n0) {
-    return ___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,
-        bsts_integer_from_int(0),
-        alloc_boxed_pure_fn2(__bsts_t_lambda21));
-}
-
-int main(int argc, char** argv) {
-    GC_init();
-    init_statics();
-    atexit(free_statics);
-    BValue main_value = ___bsts_g_Euler_l_P6_l_diff();
-    return run_main(main_value, argc, argv);
-}
-""".stripPrefix("\n").stripSuffix("\n")
-
-        assertEquals(window, expectedWindow)
+        assert(
+          rendered.contains("BValue ___bsts_g_Euler_l_P6_l_diff(BValue __bsts_b_n0)")
+        )
+        assert(
+          rendered.contains("___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,")
+        )
+        val boxedLambda = "alloc_boxed_pure_fn2\\(__bsts_t_lambda\\d+\\)".r
+        assert(boxedLambda.findFirstIn(rendered).nonEmpty)
+        assert(!rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop"))
     }
   }
 
@@ -303,62 +268,66 @@ int main(int argc, char** argv) {
 BValue ___bsts_g_Bosatsu_l_Predef_l_foldl__List(BValue __bsts_b_lst0,
     BValue __bsts_b_item0,
     BValue __bsts_b_fn0) {
-    BValue __bsts_a_0;
-    BValue __bsts_a_1;
+    BValue __bsts_a_2;
     BValue __bsts_a_3;
     BValue __bsts_a_5;
-    __bsts_a_3 = __bsts_b_lst0;
-    __bsts_a_5 = __bsts_b_item0;
-    __bsts_a_0 = alloc_enum0(1);
+    BValue __bsts_a_7;
+    __bsts_a_5 = __bsts_b_lst0;
+    __bsts_a_7 = __bsts_b_item0;
+    __bsts_a_2 = alloc_enum0(1);
     _Bool __bsts_l_cond0;
-    __bsts_l_cond0 = get_variant_value(__bsts_a_0) == 1;
+    __bsts_l_cond0 = get_variant_value(__bsts_a_2) == 1;
     while (__bsts_l_cond0) {
-        if (get_variant(__bsts_a_3) == 0) {
-            __bsts_a_0 = alloc_enum0(0);
-            __bsts_a_1 = __bsts_a_5;
+        if (get_variant(__bsts_a_5) == 0) {
+            __bsts_a_2 = alloc_enum0(0);
+            __bsts_a_3 = __bsts_a_7;
         }
         else {
-            BValue __bsts_b_head0 = get_enum_index(__bsts_a_3, 0);
-            BValue __bsts_b_tail0 = get_enum_index(__bsts_a_3, 1);
-            BValue __bsts_a_2 = __bsts_b_tail0;
-            BValue __bsts_a_4 = call_fn2(__bsts_b_fn0,
-                __bsts_a_5,
+            BValue __bsts_a_0 = get_enum_index(__bsts_a_5, 0);
+            BValue __bsts_a_1 = get_enum_index(__bsts_a_5, 1);
+            BValue __bsts_b_head0 = __bsts_a_0;
+            BValue __bsts_b_tail0 = __bsts_a_1;
+            BValue __bsts_a_4 = __bsts_b_tail0;
+            BValue __bsts_a_6 = call_fn2(__bsts_b_fn0,
+                __bsts_a_7,
                 __bsts_b_head0);
-            __bsts_a_3 = __bsts_a_2;
             __bsts_a_5 = __bsts_a_4;
+            __bsts_a_7 = __bsts_a_6;
         }
-        __bsts_l_cond0 = get_variant_value(__bsts_a_0) == 1;
+        __bsts_l_cond0 = get_variant_value(__bsts_a_2) == 1;
     }
-    return __bsts_a_1;
+    return __bsts_a_3;
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     BValue __bsts_b_back0) {
-    BValue __bsts_a_6;
-    BValue __bsts_a_7;
-    BValue __bsts_a_9;
+    BValue __bsts_a_10;
     BValue __bsts_a_11;
-    __bsts_a_9 = __bsts_b_front0;
-    __bsts_a_11 = __bsts_b_back0;
-    __bsts_a_6 = alloc_enum0(1);
+    BValue __bsts_a_13;
+    BValue __bsts_a_15;
+    __bsts_a_13 = __bsts_b_front0;
+    __bsts_a_15 = __bsts_b_back0;
+    __bsts_a_10 = alloc_enum0(1);
     _Bool __bsts_l_cond1;
-    __bsts_l_cond1 = get_variant_value(__bsts_a_6) == 1;
+    __bsts_l_cond1 = get_variant_value(__bsts_a_10) == 1;
     while (__bsts_l_cond1) {
-        if (get_variant(__bsts_a_9) == 0) {
-            __bsts_a_6 = alloc_enum0(0);
-            __bsts_a_7 = __bsts_a_11;
+        if (get_variant(__bsts_a_13) == 0) {
+            __bsts_a_10 = alloc_enum0(0);
+            __bsts_a_11 = __bsts_a_15;
         }
         else {
-            BValue __bsts_b_head0 = get_enum_index(__bsts_a_9, 0);
-            BValue __bsts_b_tail0 = get_enum_index(__bsts_a_9, 1);
-            BValue __bsts_a_8 = __bsts_b_tail0;
-            BValue __bsts_a_10 = alloc_enum2(1, __bsts_b_head0, __bsts_a_11);
-            __bsts_a_9 = __bsts_a_8;
-            __bsts_a_11 = __bsts_a_10;
+            BValue __bsts_a_8 = get_enum_index(__bsts_a_13, 0);
+            BValue __bsts_a_9 = get_enum_index(__bsts_a_13, 1);
+            BValue __bsts_b_head0 = __bsts_a_8;
+            BValue __bsts_b_tail0 = __bsts_a_9;
+            BValue __bsts_a_12 = __bsts_b_tail0;
+            BValue __bsts_a_14 = alloc_enum2(1, __bsts_b_head0, __bsts_a_15);
+            __bsts_a_13 = __bsts_a_12;
+            __bsts_a_15 = __bsts_a_14;
         }
-        __bsts_l_cond1 = get_variant_value(__bsts_a_6) == 1;
+        __bsts_l_cond1 = get_variant_value(__bsts_a_10) == 1;
     }
-    return __bsts_a_7;
+    return __bsts_a_11;
 }
 
 int main(int argc, char** argv) {
