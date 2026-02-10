@@ -49,6 +49,7 @@ export (
   addf,
   add_key,
   build_List,
+  char_List_to_String,
   char_to_String,
   cmp_Int,
   cmp_Float64,
@@ -66,6 +67,7 @@ export (
   get_key,
   int_loop,
   int_to_String,
+  length_String,
   string_to_Int,
   items,
   map_List,
@@ -248,9 +250,20 @@ external struct String
 external struct Char
 
 external def char_to_String(c: Char) -> String
+external def char_List_to_String(chars: List[Char]) -> String
 external def cmp_String(str0: String, str1: String) -> Comparison
 string_Order = Order(cmp_String)
 external def concat_String(items: List[String]) -> String
+
+def length_String(s: String) -> Int:
+  def loop(rest: String, acc: Int) -> Int:
+    recur rest:
+      case "":
+        acc
+      case "$.{_}${tail}":
+        loop(tail, acc.add(1))
+
+  loop(s, 0)
 
 # if this returns Some((a, b)) then arg == concat_String([a, sep, b])
 # a and b are always proper substrings, so partition_String(a, "") == None

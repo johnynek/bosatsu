@@ -113,6 +113,11 @@ object Predef {
       )
       .add(
         predefPackageName,
+        "char_List_to_String",
+        FfiCall.Fn1(PredefImpl.char_List_to_String(_))
+      )
+      .add(
+        predefPackageName,
         "partition_String",
         FfiCall.Fn2(PredefImpl.partitionString(_, _))
       )
@@ -181,6 +186,11 @@ object Predef {
         arrayPackageName,
         "slice_Array",
         FfiCall.Fn3(PredefImpl.slice_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "char_Array_to_String",
+        FfiCall.Fn1(PredefImpl.char_Array_to_String(_))
       )
       .add(float64PackageName, "abs", FfiCall.Fn1(PredefImpl.abs_Float64(_)))
       .add(float64PackageName, "acos", FfiCall.Fn1(PredefImpl.acos_Float64(_)))
@@ -1258,6 +1268,9 @@ object PredefImpl {
   // we represent chars as single code-point strings
   def char_to_String(item: Value): Value = item
 
+  def char_List_to_String(chars: Value): Value =
+    concat_String(chars)
+
   def concat_String(items: Value): Value =
     items match {
       case Value.VList(parts) =>
@@ -1307,7 +1320,24 @@ object PredefImpl {
           val left = argS.substring(0, idx)
           val right = argS.substring(idx + sepS.length)
           Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
-        }
+      }
     }
+  }
+
+  def char_Array_to_String(chars: Value): Value = {
+    val arr = asArray(chars)
+    val sb = new java.lang.StringBuilder
+    var idx = 0
+    while (idx < arr.len) {
+      arr.data(arr.offset + idx) match {
+        case Value.Str(s) => sb.append(s)
+        case other        =>
+          // $COVERAGE-OFF$
+          sys.error(s"type error: $other")
+        // $COVERAGE-ON$
+      }
+      idx = idx + 1
+    }
+    Value.Str(sb.toString)
   }
 }

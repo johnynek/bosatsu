@@ -106,6 +106,10 @@ test_string = TestSuite("String tests", [
   Assertion("foo".rpartition_String("o") matches Some(("fo", "")), "foo rpartition_String o"),
   Assertion("foo".rpartition_String("") matches None, "foo rpartition_String \"\""),
   Assertion("foo".rpartition_String("x") matches None, "foo rpartition_String x"),
+  Assertion(length_String("") matches 0, "length_String empty"),
+  Assertion(length_String("abc") matches 3, "length_String ascii"),
+  Assertion(char_List_to_String([.'h', .'i']) matches "hi", "char_List_to_String ascii"),
+  Assertion(char_List_to_String([.'👋']) matches "👋", "char_List_to_String unicode"),
 ])
 
 def eqf(a, b): cmp_Float64(a, b) matches EQ

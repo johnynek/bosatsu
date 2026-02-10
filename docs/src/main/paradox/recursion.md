@@ -221,15 +221,10 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
 Bosatsu string patterns can expose the next char plus tail, so parsing-like
 loops can recurse structurally on the tail string.
 
-From `Char.bosatsu`:
+`length_String` is already available in `Bosatsu/Predef`, so call it directly:
 
 ```bosatsu
-def length_String(s: String) -> Int:
-  def loop(s, acc):
-    recur s:
-      case "": acc
-      case "$.{_}${tail}": loop(tail, acc.add(1))
-  loop(s, 0)
+len = length_String(input)
 ```
 
 From `PatternExamples.bosatsu`:

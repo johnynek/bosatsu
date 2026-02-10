@@ -1378,6 +1378,15 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("length_String"),
+            (
+              { input =>
+                Env.onLast(input.head)(_.len())
+              },
+              1
+            )
+          ),
+          (
             Identifier.Name("int_to_String"),
             (
               { input =>
@@ -1423,6 +1432,31 @@ object PythonGen {
             Identifier.Name("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
+          ),
+          (
+            Identifier.Name("char_List_to_String"),
+            (
+              { input =>
+                Env.onLastM(input.head) { listOfChars =>
+                  // convert to python list, then call "".join(seq)
+                  Env.newAssignableVar
+                    .flatMap { pyList =>
+                      bosatsuListToPython(pyList, listOfChars)
+                        .map { loop =>
+                          Code
+                            .block(
+                              pyList := Code.MakeList(Nil),
+                              loop
+                            )
+                            .withValue {
+                              Code.PyString("").dot(Code.Ident("join"))(pyList)
+                            }
+                        }
+                    }
+                }
+              },
+              1
+            )
           ),
           (
             Identifier.Name("trace"),
@@ -1609,6 +1643,24 @@ object PythonGen {
             (
               { input =>
                 Env.onLast(input.head)(arrayLen)
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("char_Array_to_String"),
+            (
+              { input =>
+                Env.onLast(input.head) { ary =>
+                  val start = arrayOffset(ary)
+                  val end = start.evalPlus(arrayLen(ary))
+                  val chars = Code.SelectRange(
+                    arrayData(ary),
+                    Some(start),
+                    Some(end)
+                  )
+                  Code.PyString("").dot(Code.Ident("join"))(chars)
+                }
               },
               1
             )
