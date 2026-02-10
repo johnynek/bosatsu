@@ -1428,6 +1428,54 @@ x = Foo
     (unoptimizedExpr, normalizedExpr)
   }
 
+  test("if matches normalizes to same code as equivalent match") {
+    def normalizedFromPackage(packSrc: String): TypedExpr[Unit] =
+      Par.withEC {
+        var out: Option[TypedExpr[Unit]] = None
+        TestUtils.testInferred(
+          List(packSrc),
+          "Test",
+          { (pm, mainPack) =>
+            val pack = pm.toMap(mainPack)
+            val fExpr = pack.lets.find(_._1 == Identifier.Name("f")) match {
+              case Some((_, _, te)) => te
+              case None             => fail(s"missing let f in ${pack.lets.map(_._1)}")
+            }
+            val normalized = TypedExprNormalization.normalize(fExpr).getOrElse(fExpr).void
+            out = Some(normalized)
+          }
+        )
+        out.getOrElse(fail("failed to infer normalized expression for f"))
+      }
+
+    val ifNormalized = normalizedFromPackage(
+      """
+package Test
+
+enum E: Left(l), Right(r)
+
+def f(x):
+  if x matches Left(_): 1
+  else: -1
+"""
+    )
+
+    val matchNormalized = normalizedFromPackage(
+      """
+package Test
+
+enum E: Left(l), Right(r)
+
+def f(x):
+  match x:
+    case Left(_): 1
+    case _: -1
+"""
+    )
+
+    assertEquals(ifNormalized, matchNormalized)
+  }
+
   test("test match removed from some examples") {
     checkLast("""
 x = _ -> 1
