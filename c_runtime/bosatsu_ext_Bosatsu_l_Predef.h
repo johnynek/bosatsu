@@ -8,6 +8,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b);

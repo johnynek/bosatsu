@@ -350,3 +350,36 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(BValue array, BValu
   int slice_len = (int)bsts_integer_to_int32(slice_len_value);
   return bsts_array_wrap(arr->data, arr->offset + start_idx, slice_len);
 }
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_char__Array__to__String(BValue array) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+  if (arr->len <= 0) {
+    return bsts_string_from_utf8_bytes_static(0, NULL);
+  }
+
+  size_t total_len = 0;
+  for (int idx = 0; idx < arr->len; idx++) {
+    BValue ch = arr->data[arr->offset + idx];
+    int codepoint = bsts_char_code_point_from_value(ch);
+    char bytes[4];
+    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
+    if (char_len <= 0) {
+      // invalid code points should be impossible for Char values
+      return bsts_string_from_utf8_bytes_static(0, NULL);
+    }
+    total_len += (size_t)char_len;
+  }
+
+  BValue res = bsts_string_mut(total_len);
+  char* out = bsts_string_utf8_bytes(res);
+  for (int idx = 0; idx < arr->len; idx++) {
+    BValue ch = arr->data[arr->offset + idx];
+    int codepoint = bsts_char_code_point_from_value(ch);
+    char bytes[4];
+    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
+    memcpy(out, bytes, (size_t)char_len);
+    out += char_len;
+  }
+
+  return res;
+}

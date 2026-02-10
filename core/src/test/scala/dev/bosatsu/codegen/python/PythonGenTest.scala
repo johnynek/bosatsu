@@ -53,7 +53,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
          |  Zero
          |  Succ(pred: Nat)
          |
-         |def length_String(s):
+         |def count_chars(s):
          |  def loop(s, acc: Nat):
          |    recur s:
          |      case "": acc
@@ -70,7 +70,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
         val expected =
           "\n\n" +
-            """def length_String(___bs0):
+            """def count_chars(___bs0):
     ___a4 = ___bs0
     ___a6 = 0
     ___a1 = 1

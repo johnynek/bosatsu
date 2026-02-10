@@ -25,3 +25,5 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sort__Array(BValue array, BValue
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_concat__all__Array(BValue arrays);
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(BValue array, BValue start, BValue end);
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_char__Array__to__String(BValue array);
