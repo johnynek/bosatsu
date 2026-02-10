@@ -1,12 +1,12 @@
 {
   "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
-  "next_version": "1.0.2",
+  "next_version": "1.0.3",
   "previous": {
-      "version": "1.0.1",
-      "hashes": [ "blake3:179d1f151c2357f1f32111829537d5811f1c4a223e3e8916447be09fef692217" ],
+      "version": "1.0.2",
+      "hashes": [ "blake3:6bc4cffb49bf3b9eb892f380674026ad772782a59bbe526a1477bcab5406810b" ],
       "uris": [
-          "https://github.com/johnynek/bosatsu/releases/download/v0.0.29/core_alpha-v1.0.1.bosatsu_lib" ]
+          "https://github.com/johnynek/bosatsu/releases/download/v0.0.30/core_alpha-v1.0.2.bosatsu_lib" ]
     },
   "exported_packages": [ "Bosatsu/Bool", "Bosatsu/Char", "Bosatsu/Collection/Array",
       "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IO/Error",
