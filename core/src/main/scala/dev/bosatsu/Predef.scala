@@ -113,8 +113,18 @@ object Predef {
       )
       .add(
         predefPackageName,
+        "char_to_Int",
+        FfiCall.Fn1(PredefImpl.char_to_Int(_))
+      )
+      .add(
+        predefPackageName,
         "char_List_to_String",
         FfiCall.Fn1(PredefImpl.char_List_to_String(_))
+      )
+      .add(
+        predefPackageName,
+        "int_to_Char",
+        FfiCall.Fn1(PredefImpl.int_to_Char(_))
       )
       .add(
         predefPackageName,
@@ -1267,6 +1277,35 @@ object PredefImpl {
 
   // we represent chars as single code-point strings
   def char_to_String(item: Value): Value = item
+
+  private val maxUnicodeScalarValue = BigInteger.valueOf(0x10FFFFL)
+  private val highSurrogateStart = BigInteger.valueOf(0xD800L)
+  private val highSurrogateEnd = BigInteger.valueOf(0xDFFFL)
+
+  def char_to_Int(item: Value): Value =
+    item match {
+      case Value.Str(s) =>
+        Value.VInt(BigInteger.valueOf(s.codePointAt(0).toLong))
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def int_to_Char(item: Value): Value = {
+    val codePoint = i(item)
+    val isInRange =
+      codePoint.signum >= 0 && codePoint.compareTo(maxUnicodeScalarValue) <= 0
+    val isSurrogate =
+      codePoint.compareTo(highSurrogateStart) >= 0 &&
+        codePoint.compareTo(highSurrogateEnd) <= 0
+
+    if (!isInRange || isSurrogate) Value.VOption.none
+    else {
+      val cp = codePoint.intValue()
+      Value.VOption.some(Value.Str(new String(Character.toChars(cp))))
+    }
+  }
 
   def char_List_to_String(chars: Value): Value =
     concat_String(chars)

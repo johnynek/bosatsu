@@ -8,6 +8,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b);
@@ -25,6 +27,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Int(BValue a, BValue b);
 BValue ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue a, BValue b, BValue c);
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__Char(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__String(BValue a);
 

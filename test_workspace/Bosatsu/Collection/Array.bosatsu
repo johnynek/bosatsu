@@ -2,6 +2,12 @@ package Bosatsu/Collection/Array
 
 from Bosatsu/List import eq_List
 from Bosatsu/Option import eq_Option
+from Bosatsu/Char import (
+  char_to_Int,
+  string_to_Char_List,
+  int_List_to_Char_List,
+  int_List_to_String,
+)
 
 export (
   Array,
@@ -19,6 +25,11 @@ export (
   concat_all_Array,
   slice_Array,
   char_Array_to_String,
+  string_to_Char_Array,
+  char_Array_to_Int_Array,
+  string_to_Int_Array,
+  int_Array_to_Char_Array,
+  int_Array_to_String,
   index_in_range_Array,
   get_map_Array,
   set_Array,
@@ -45,6 +56,23 @@ external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
 external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
 external def char_Array_to_String(chars: Array[Char]) -> String
+
+def string_to_Char_Array(s: String) -> Array[Char]:
+  from_List_Array(string_to_Char_List(s))
+
+def char_Array_to_Int_Array(chars: Array[Char]) -> Array[Int]:
+  map_Array(chars, char_to_Int)
+
+def string_to_Int_Array(s: String) -> Array[Int]:
+  char_Array_to_Int_Array(string_to_Char_Array(s))
+
+def int_Array_to_Char_Array(code_points: Array[Int]) -> Option[Array[Char]]:
+  match int_List_to_Char_List(to_List_Array(code_points)):
+    case Some(chars): Some(from_List_Array(chars))
+    case None: None
+
+def int_Array_to_String(code_points: Array[Int]) -> Option[String]:
+  int_List_to_String(to_List_Array(code_points))
 
 def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
   get_map_Array(ary, idx, _ -> None, x -> Some(x))
@@ -104,6 +132,11 @@ def set_in_range_ok(_: Unit) -> Bool:
     case Some(arr): to_List_Array(arr) matches [0, 8, 2, 3, 4]
     case None: False
 
+def int_to_char_array_some(_: Unit) -> Bool:
+  match int_Array_to_Char_Array(from_List_Array([65, 128075])):
+    case Some(chars): to_List_Array(chars) matches [.'A', .'👋']
+    case None: False
+
 tests = TestSuite("Array tests", [
   Assertion(size_Array(a0) matches 0, "empty size"),
   Assertion(to_List_Array(a0) matches [], "empty to list"),
@@ -130,6 +163,22 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(slice_Array(a5, 1, -1)) matches [], "slice invalid end"),
   Assertion(char_Array_to_String(from_List_Array([.'h', .'i'])) matches "hi", "char_Array_to_String ascii"),
   Assertion(char_Array_to_String(from_List_Array([.'👋', .'a'])) matches "👋a", "char_Array_to_String unicode"),
+  Assertion(to_List_Array(string_to_Char_Array("hi👋")) matches [.'h', .'i', .'👋'], "string_to_Char_Array"),
+  Assertion(to_List_Array(char_Array_to_Int_Array(from_List_Array([.'A', .'👋']))) matches [65, 128075], "char_Array_to_Int_Array"),
+  Assertion(to_List_Array(string_to_Int_Array("A👋")) matches [65, 128075], "string_to_Int_Array"),
+  Assertion(int_to_char_array_some(()), "int_Array_to_Char_Array some"),
+  Assertion(
+    int_Array_to_Char_Array(from_List_Array([55296])) matches None,
+    "int_Array_to_Char_Array none"
+  ),
+  Assertion(
+    int_Array_to_String(from_List_Array([65, 128075])) matches Some("A👋"),
+    "int_Array_to_String some"
+  ),
+  Assertion(
+    int_Array_to_String(from_List_Array([55296])) matches None,
+    "int_Array_to_String none"
+  ),
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
   Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
