@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.Order
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
@@ -10,6 +11,8 @@ import rankn.DataRepr
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
+  given Order[Unit] = Order.fromOrdering
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 5000 else 20
@@ -66,6 +69,111 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Some(e) => Gen.const(e)
         case None    => genMatchlessExpr
       }
+
+  private def boolSubexpressions(
+      boolExpr: Matchless.BoolExpr[Unit]
+  ): List[Matchless.BoolExpr[Unit]] = {
+    val nested =
+      boolExpr match {
+        case Matchless.And(left, right) =>
+          boolSubexpressions(left) ++ boolSubexpressions(right)
+        case Matchless.SetMut(_, expr) =>
+          exprBoolSubexpressions(expr)
+        case Matchless.LetBool(_, value, in) =>
+          exprBoolSubexpressions(value) ++ boolSubexpressions(in)
+        case Matchless.LetMutBool(_, in) =>
+          boolSubexpressions(in)
+        case _ =>
+          Nil
+      }
+
+    boolExpr :: nested
+  }
+
+  private def exprBoolSubexpressions(
+      expr: Matchless.Expr[Unit]
+  ): List[Matchless.BoolExpr[Unit]] =
+    expr match {
+      case Matchless.Lambda(captures, _, _, body) =>
+        captures.toList.flatMap(exprBoolSubexpressions) ++ exprBoolSubexpressions(body)
+      case Matchless.WhileExpr(cond, effectExpr, _) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(effectExpr)
+      case Matchless.App(fn, args) =>
+        exprBoolSubexpressions(fn) ++ args.toList.flatMap(exprBoolSubexpressions)
+      case Matchless.Let(_, value, in) =>
+        exprBoolSubexpressions(value) ++ exprBoolSubexpressions(in)
+      case Matchless.LetMut(_, in) =>
+        exprBoolSubexpressions(in)
+      case Matchless.If(cond, thenExpr, elseExpr) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr) ++ exprBoolSubexpressions(elseExpr)
+      case Matchless.Always(cond, thenExpr) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr)
+      case Matchless.PrevNat(of) =>
+        exprBoolSubexpressions(of)
+      case _ =>
+        Nil
+    }
+
+  lazy val genMatchlessBoolExpr: Gen[Matchless.BoolExpr[Unit]] =
+    genMatchlessExpr.flatMap { expr =>
+      exprBoolSubexpressions(expr) match {
+        case Nil           => Gen.const(Matchless.TrueConst)
+        case bool :: Nil   => Gen.const(bool)
+        case bools         => Gen.oneOf(bools)
+      }
+    }
+
+  test("Matchless.Expr order is lawful") {
+    forAll(genMatchlessExpr, genMatchlessExpr, genMatchlessExpr) { (a, b, c) =>
+      OrderingLaws.forOrder(a, b, c)
+    }
+  }
+
+  test("Matchless.BoolExpr order is lawful") {
+    forAll(
+      genMatchlessBoolExpr,
+      genMatchlessBoolExpr,
+      genMatchlessBoolExpr
+    ) { (a, b, c) =>
+      OrderingLaws.forOrder(a, b, c)
+    }
+  }
+
+  test("Matchless.Expr[Int] order uses given Order[Int]") {
+    given Order[Int] with {
+      def compare(left: Int, right: Int): Int =
+        java.lang.Integer.compare(right, left)
+    }
+
+    val pack = PackageName.parts("OrderTest")
+    val name = Identifier.Name("x")
+    val left: Matchless.Expr[Int] = Matchless.Global(1, pack, name)
+    val right: Matchless.Expr[Int] = Matchless.Global(2, pack, name)
+
+    assert(
+      Order[Matchless.Expr[Int]].compare(left, right) > 0,
+      "expected reversed Int ordering to be used for Matchless.Expr[Int]"
+    )
+  }
+
+  test("Matchless.BoolExpr[Int] order uses given Order[Int]") {
+    given Order[Int] with {
+      def compare(left: Int, right: Int): Int =
+        java.lang.Integer.compare(right, left)
+    }
+
+    val pack = PackageName.parts("OrderTest")
+    val name = Identifier.Name("x")
+    val left: Matchless.BoolExpr[Int] =
+      Matchless.EqualsLit(Matchless.Global(1, pack, name), Lit(0))
+    val right: Matchless.BoolExpr[Int] =
+      Matchless.EqualsLit(Matchless.Global(2, pack, name), Lit(0))
+
+    assert(
+      Order[Matchless.BoolExpr[Int]].compare(left, right) > 0,
+      "expected reversed Int ordering to be used for Matchless.BoolExpr[Int]"
+    )
+  }
 
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {
@@ -469,6 +577,157 @@ x = 1
     forAll(genMatchlessExpr) { expr =>
       checkExpr(expr)
     }
+  }
+
+  test("Matchless.reuseConstructors shares repeated constructor apps in a linear scope") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(shared, shared :: Nil)
+      )
+
+    Matchless.reuseConstructors(input) match {
+      case Matchless.Let(
+            Left(tmp),
+            `shared`,
+            Matchless.App(Matchless.MakeStruct(2), args)
+          ) =>
+        assertEquals(args.head, Matchless.LocalAnon(tmp.ident))
+        assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+      case other =>
+        fail(s"expected constructor reuse in linear scope, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors shares constructor apps across if branches") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+
+    val input: Matchless.Expr[Unit] =
+      Matchless.If(
+        Matchless.TrueConst,
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Literal(Lit(0)), shared :: Nil)
+        ),
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Literal(Lit(1)), shared :: Nil)
+        )
+      )
+
+    Matchless.reuseConstructors(input) match {
+      case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, thenExpr, elseExpr)) =>
+        def checkBranch(e: Matchless.Expr[Unit], lit: Int): Unit =
+          e match {
+            case Matchless.App(Matchless.MakeStruct(2), args) =>
+              assertEquals(args.head, Matchless.Literal(Lit(lit)))
+              assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+            case other =>
+              fail(s"expected branch struct constructor, found: $other")
+          }
+
+        checkBranch(thenExpr, 0)
+        checkBranch(elseExpr, 1)
+      case other =>
+        fail(s"expected constructor reuse across branches, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors does not share constructor apps with mutable refs") {
+    val sharedMut: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.SuccNat,
+        NonEmptyList.one(Matchless.LocalAnonMut(9))
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.If(Matchless.TrueConst, sharedMut, sharedMut)
+
+    val optimized = Matchless.reuseConstructors(input)
+
+    assertEquals(optimized, input)
+  }
+
+  test("Matchless.reuseConstructors replaces constructor reuse inside let values") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val z = Identifier.Name("z")
+    val shared: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 2, 0 :: 2 :: Nil),
+        NonEmptyList(Matchless.Local(x), Matchless.Local(y) :: Nil)
+      )
+    val thenExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        z,
+        shared,
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList(Matchless.Local(z), shared :: Nil)
+        )
+      )
+    val elseExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(Matchless.Literal(Lit(1)), shared :: Nil)
+      )
+
+    Matchless.reuseConstructors(Matchless.If(Matchless.TrueConst, thenExpr, elseExpr)) match {
+      case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, then1, else1)) =>
+        then1 match {
+          case Matchless.Let(
+                Right(`z`),
+                Matchless.LocalAnon(tmpInValue),
+                Matchless.App(Matchless.MakeStruct(2), args)
+              ) =>
+            assertEquals(tmpInValue, tmp.ident)
+            assertEquals(args.head, Matchless.Local(z))
+            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+          case other =>
+            fail(s"expected let value to reuse constructor binding, found: $other")
+        }
+
+        else1 match {
+          case Matchless.App(Matchless.MakeStruct(2), args) =>
+            assertEquals(args.head, Matchless.Literal(Lit(1)))
+            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+          case other =>
+            fail(s"expected else branch constructor reuse, found: $other")
+        }
+      case other =>
+        fail(s"expected top-level constructor reuse, found: $other")
+    }
+  }
+
+  test("Matchless.reuseConstructors does not share constructors when mutables appear inside cheap args") {
+    val sharedWithInnerMut: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(1),
+        NonEmptyList.one(
+          Matchless.GetEnumElement(Matchless.LocalAnonMut(12), 1, 0, 2)
+        )
+      )
+    val input: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList(sharedWithInnerMut, sharedWithInnerMut :: Nil)
+      )
+
+    val optimized = Matchless.reuseConstructors(input)
+
+    assertEquals(optimized, input)
   }
 
   test("matrix match materializes list projections to avoid nested projection trees") {

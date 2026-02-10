@@ -140,7 +140,7 @@ object Code {
 
   private def maybePar(c: Expression): Doc =
     c match {
-      case Lambda(_, _) | Ternary(_, _, _) => par(toDoc(c))
+      case Lambda(_, _) | Ternary(_, _, _) | Not(_) => par(toDoc(c))
       case _                               => toDoc(c)
     }
 

@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.Order
 import cats.data.{Chain, Ior, Validated, NonEmptyList}
 import java.nio.file.{Files, Paths}
 import dev.bosatsu.rankn._
@@ -137,6 +138,7 @@ object TestUtils {
   ): A =
     checkPackageMap(statement) { pm =>
       Par.withEC {
+        given Order[Unit] = Order.fromOrdering
         val comp = MatchlessFromTypedExpr.compile((), pm)
         fn(comp)
       }

@@ -1,6 +1,6 @@
 package dev.bosatsu.pattern
 
-import cats.Monoid
+import cats.{Monoid, Order}
 import dev.bosatsu.{Pattern, Lit, Identifier}
 import dev.bosatsu.NonNullFold.*
 
@@ -13,6 +13,25 @@ object StrPart {
   case object WildChar extends CharPart(false)
   case object IndexChar extends CharPart(true)
   case class LitStr(asString: String) extends StrPart
+
+  implicit val strPartOrder: Order[StrPart] = new Order[StrPart] {
+    private def tag(sp: StrPart): Int =
+      sp match {
+        case WildStr     => 0
+        case IndexStr    => 1
+        case WildChar    => 2
+        case IndexChar   => 3
+        case LitStr(_)   => 4
+      }
+
+    def compare(left: StrPart, right: StrPart): Int =
+      (left, right) match {
+        case (LitStr(left), LitStr(right)) =>
+          left.compareTo(right)
+        case _ =>
+          java.lang.Integer.compare(tag(left), tag(right))
+      }
+  }
 
   sealed abstract class MatchSize(val isExact: Boolean) {
     def charCount: Int

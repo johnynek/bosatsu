@@ -2,6 +2,7 @@ package dev.bosatsu.library
 
 import cats.Eval
 import cats.Functor
+import cats.Order
 import cats.implicits._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{DefinedType, Type}
@@ -31,6 +32,8 @@ case class LibraryEvaluation[K] private (
     renderScope: K => String,
     externals: Externals
 )(implicit keyOrder: Ordering[K], ec: Par.EC) {
+  given Order[K] = Order.fromOrdering(using keyOrder)
+
   private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
     scopes.transform { case (scope, data) =>
       MatchlessFromTypedExpr.compile(scope, data.packages)
