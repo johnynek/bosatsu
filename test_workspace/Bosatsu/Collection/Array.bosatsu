@@ -18,6 +18,7 @@ export (
   sort_Array,
   concat_all_Array,
   slice_Array,
+  char_Array_to_String,
   index_in_range_Array,
   get_map_Array,
   set_Array,
@@ -43,6 +44,7 @@ external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
 external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+external def char_Array_to_String(chars: Array[Char]) -> String
 
 def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
   get_map_Array(ary, idx, _ -> None, x -> Some(x))
@@ -126,6 +128,8 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(slice_Array(a5, 3, 3)) matches [], "slice empty"),
   Assertion(to_List_Array(slice_Array(a5, 4, 1)) matches [], "slice invalid order"),
   Assertion(to_List_Array(slice_Array(a5, 1, -1)) matches [], "slice invalid end"),
+  Assertion(char_Array_to_String(from_List_Array([.'h', .'i'])) matches "hi", "char_Array_to_String ascii"),
+  Assertion(char_Array_to_String(from_List_Array([.'👋', .'a'])) matches "👋a", "char_Array_to_String unicode"),
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
   Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),

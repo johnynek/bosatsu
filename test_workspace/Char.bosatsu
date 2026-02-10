@@ -15,14 +15,6 @@ str_to_char_tests = TestSuite("string_to_Char",
   ]
 )
 
-def length_String(s: String) -> Int:
-  def loop(s, acc):
-    recur s:
-      case "": acc
-      case "$.{_}${tail}": loop(tail, acc.add(1))
-
-  loop(s, 0)
-
 len_test = TestSuite("len tests",
   [
     Assertion(length_String("") matches 0, "empty"),

@@ -70,6 +70,111 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case None    => genMatchlessExpr
       }
 
+  private def boolSubexpressions(
+      boolExpr: Matchless.BoolExpr[Unit]
+  ): List[Matchless.BoolExpr[Unit]] = {
+    val nested =
+      boolExpr match {
+        case Matchless.And(left, right) =>
+          boolSubexpressions(left) ++ boolSubexpressions(right)
+        case Matchless.SetMut(_, expr) =>
+          exprBoolSubexpressions(expr)
+        case Matchless.LetBool(_, value, in) =>
+          exprBoolSubexpressions(value) ++ boolSubexpressions(in)
+        case Matchless.LetMutBool(_, in) =>
+          boolSubexpressions(in)
+        case _ =>
+          Nil
+      }
+
+    boolExpr :: nested
+  }
+
+  private def exprBoolSubexpressions(
+      expr: Matchless.Expr[Unit]
+  ): List[Matchless.BoolExpr[Unit]] =
+    expr match {
+      case Matchless.Lambda(captures, _, _, body) =>
+        captures.toList.flatMap(exprBoolSubexpressions) ++ exprBoolSubexpressions(body)
+      case Matchless.WhileExpr(cond, effectExpr, _) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(effectExpr)
+      case Matchless.App(fn, args) =>
+        exprBoolSubexpressions(fn) ++ args.toList.flatMap(exprBoolSubexpressions)
+      case Matchless.Let(_, value, in) =>
+        exprBoolSubexpressions(value) ++ exprBoolSubexpressions(in)
+      case Matchless.LetMut(_, in) =>
+        exprBoolSubexpressions(in)
+      case Matchless.If(cond, thenExpr, elseExpr) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr) ++ exprBoolSubexpressions(elseExpr)
+      case Matchless.Always(cond, thenExpr) =>
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr)
+      case Matchless.PrevNat(of) =>
+        exprBoolSubexpressions(of)
+      case _ =>
+        Nil
+    }
+
+  lazy val genMatchlessBoolExpr: Gen[Matchless.BoolExpr[Unit]] =
+    genMatchlessExpr.flatMap { expr =>
+      exprBoolSubexpressions(expr) match {
+        case Nil           => Gen.const(Matchless.TrueConst)
+        case bool :: Nil   => Gen.const(bool)
+        case bools         => Gen.oneOf(bools)
+      }
+    }
+
+  test("Matchless.Expr order is lawful") {
+    forAll(genMatchlessExpr, genMatchlessExpr, genMatchlessExpr) { (a, b, c) =>
+      OrderingLaws.forOrder(a, b, c)
+    }
+  }
+
+  test("Matchless.BoolExpr order is lawful") {
+    forAll(
+      genMatchlessBoolExpr,
+      genMatchlessBoolExpr,
+      genMatchlessBoolExpr
+    ) { (a, b, c) =>
+      OrderingLaws.forOrder(a, b, c)
+    }
+  }
+
+  test("Matchless.Expr[Int] order uses given Order[Int]") {
+    given Order[Int] with {
+      def compare(left: Int, right: Int): Int =
+        java.lang.Integer.compare(right, left)
+    }
+
+    val pack = PackageName.parts("OrderTest")
+    val name = Identifier.Name("x")
+    val left: Matchless.Expr[Int] = Matchless.Global(1, pack, name)
+    val right: Matchless.Expr[Int] = Matchless.Global(2, pack, name)
+
+    assert(
+      Order[Matchless.Expr[Int]].compare(left, right) > 0,
+      "expected reversed Int ordering to be used for Matchless.Expr[Int]"
+    )
+  }
+
+  test("Matchless.BoolExpr[Int] order uses given Order[Int]") {
+    given Order[Int] with {
+      def compare(left: Int, right: Int): Int =
+        java.lang.Integer.compare(right, left)
+    }
+
+    val pack = PackageName.parts("OrderTest")
+    val name = Identifier.Name("x")
+    val left: Matchless.BoolExpr[Int] =
+      Matchless.EqualsLit(Matchless.Global(1, pack, name), Lit(0))
+    val right: Matchless.BoolExpr[Int] =
+      Matchless.EqualsLit(Matchless.Global(2, pack, name), Lit(0))
+
+    assert(
+      Order[Matchless.BoolExpr[Int]].compare(left, right) > 0,
+      "expected reversed Int ordering to be used for Matchless.BoolExpr[Int]"
+    )
+  }
+
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {
       h <- ga

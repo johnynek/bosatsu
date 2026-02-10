@@ -22,6 +22,48 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a) {
   return bsts_string_from_utf8_bytes_copy(len, bytes);
 }
 
+// a is a List[Char]
+BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
+  BValue amut = a;
+  ENUM_TAG v = get_variant(amut);
+  if (v == 0) {
+    return bsts_string_from_utf8_bytes_static(0, NULL);
+  }
+
+  size_t total_len = 0;
+  while (v != 0) {
+    BValue ch = get_enum_index(amut, 0);
+    int codepoint = bsts_char_code_point_from_value(ch);
+    char bytes[4];
+    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
+    if (char_len <= 0) {
+      // invalid code points should be impossible for Char values
+      return bsts_string_from_utf8_bytes_static(0, NULL);
+    }
+    total_len += (size_t)char_len;
+    amut = get_enum_index(amut, 1);
+    v = get_variant(amut);
+  }
+
+  BValue res = bsts_string_mut(total_len);
+  char* out = bsts_string_utf8_bytes(res);
+  amut = a;
+  v = get_variant(amut);
+
+  while (v != 0) {
+    BValue ch = get_enum_index(amut, 0);
+    int codepoint = bsts_char_code_point_from_value(ch);
+    char bytes[4];
+    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
+    memcpy(out, bytes, (size_t)char_len);
+    out += char_len;
+    amut = get_enum_index(amut, 1);
+    v = get_variant(amut);
+  }
+
+  return res;
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b) {
   int result = bsts_integer_cmp(a, b);
   // -1, 0, 1, but we map to 0, 1, 2 which are the adt tags for LT, EQ, GT
