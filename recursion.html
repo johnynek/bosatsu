@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d1ec7beb*
+0.0.0+1-e8ecbded*
 </div>
 </div>
 <div class="nav-toc">
@@ -74,7 +74,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d1ec7beb*
+0.0.0+1-e8ecbded*
 </div>
 </div>
 <div class="nav-toc">
@@ -219,13 +219,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <h2><a href="#pattern-7-recur-directly-on-string" name="pattern-7-recur-directly-on-string" class="anchor"><span class="anchor-link"></span></a>Pattern 7: Recur Directly On <code>String</code></h2>
 <p>Bosatsu string patterns can expose the next char plus tail, so parsing-like loops can recurse structurally on the tail string.</p>
-<p>From <code>Char.bosatsu</code>:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def length_String(s: String) -&gt; Int:
-  def loop(s, acc):
-    recur s:
-      case &quot;&quot;: acc
-      case &quot;$.{_}${tail}&quot;: loop(tail, acc.add(1))
-  loop(s, 0)
+<p><code>length_String</code> is already available in <code>Bosatsu/Predef</code>, so call it directly:</p>
+<pre class="prettyprint"><code class="language-bosatsu">len = length_String(input)
 </code></pre>
 <p>From <code>PatternExamples.bosatsu</code>:</p>
 <pre class="prettyprint"><code class="language-bosatsu">def get_foos(s) -&gt; List[String]:
@@ -376,7 +371,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d1ec7beb-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e8ecbded-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
