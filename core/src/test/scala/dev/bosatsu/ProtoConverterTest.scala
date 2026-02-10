@@ -250,4 +250,56 @@ bar = 1
     }
   }
 
+  test("packagesFromProto can decode package with external dependency interfaces") {
+    val tf = Package.typedFunctor
+    TestUtils.testInferred(
+      List(
+        """package Other/Dep
+
+export dep_value
+
+dep_value = 42
+""",
+        """package Main
+
+from Other/Dep import dep_value
+
+export main
+
+main = dep_value
+"""
+      ),
+      "Main",
+      (packs, _) => {
+        val typedPacks = packs.toMap.values.toList
+          .filterNot(_.name == PackageName.PredefName)
+          .map(pt => Package.setProgramFrom(tf.void(pt), ()))
+
+        val depPack = typedPacks.find(_.name.asString == "Other/Dep")
+        val mainPack = typedPacks.find(_.name.asString == "Main")
+        assert(depPack.nonEmpty, typedPacks.map(_.name.asString).toString)
+        assert(mainPack.nonEmpty, typedPacks.map(_.name.asString).toString)
+
+        val res = for {
+          protoMain <- ProtoConverter.packageToProto(mainPack.get)
+        } yield {
+          val failWithoutDeps =
+            ProtoConverter.packagesFromProto(Nil, protoMain :: Nil)
+          val successWithDeps = ProtoConverter.packagesFromProto(
+            Nil,
+            protoMain :: Nil,
+            Package.interfaceOf(depPack.get) :: Nil
+          )
+          (failWithoutDeps, successWithDeps)
+        }
+
+        assert(res.isSuccess, res.toString)
+        val (failWithoutDeps, successWithDeps) = res.get
+        assert(failWithoutDeps.isFailure, failWithoutDeps.toString)
+        assert(successWithDeps.isSuccess, successWithDeps.toString)
+        assert(successWithDeps.get._2.nonEmpty)
+      }
+    )
+  }
+
 }

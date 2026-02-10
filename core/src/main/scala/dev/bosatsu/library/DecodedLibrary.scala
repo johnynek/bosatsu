@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
-import cats.data.{NonEmptyChain, Validated, ValidatedNec}
+import cats.data.{NonEmptyChain, StateT, Validated, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.tool.CliException
@@ -194,14 +194,16 @@ object DecodedLibrary {
     }
 
   def decode[F[_], A: Algo](
-      protoLib: Hashed[A, proto.Library]
+      protoLib: Hashed[A, proto.Library],
+      dependencyIfaces: Iterable[Package.Interface] = Nil
   )(implicit F: MonadError[F, Throwable]): F[DecodedLibrary[A]] =
     for {
       ifsImpls <- F.fromTry(
         ProtoConverter
           .packagesFromProto(
             protoLib.arg.exportedIfaces,
-            protoLib.arg.internalPackages
+            protoLib.arg.internalPackages,
+            dependencyIfaces
           )
       )
       (ifs, impls) = ifsImpls
@@ -218,4 +220,93 @@ object DecodedLibrary {
         impls.iterator.map(pack => (pack.name, pack)).to(SortedMap)
       )
     )
+
+  def decodeWithDeps[F[_], A: Algo](
+      protoLib: Hashed[A, proto.Library]
+  )(getDep: proto.LibDependency => F[Hashed[A, proto.Library]])(implicit
+      F: MonadError[F, Throwable]
+  ): F[DecodedLibrary[A]] = {
+    type Key = (Name, Version)
+    type Cache = Map[Key, DecodedLibrary[A]]
+    type Cached[T] = StateT[F, Cache, T]
+
+    def allDeps(lib: proto.Library): List[proto.LibDependency] =
+      (
+        lib.publicDependencies.toList :::
+          lib.privateDependencies.toList :::
+          lib.unusedTransitivePublicDependencies.toList
+      ).distinct
+
+    def depKey(dep: proto.LibDependency): F[Key] =
+      Library.getVersion(dep) match {
+        case Some(version) =>
+          F.pure((Name(dep.name), version))
+        case None          =>
+          F.raiseError(
+            CliException(
+              "missing version",
+              Doc.text(
+                s"dependency ${dep.name} is missing a version in descriptor ${dep.desc}"
+              )
+            )
+          )
+      }
+
+    def keyOf(hashed: Hashed[A, proto.Library]): F[Key] =
+      F.fromEither(versionOf(hashed).map(v => (Name(hashed.arg.name), v)))
+
+    def getCached(key: Key): Cached[Option[DecodedLibrary[A]]] =
+      StateT.get[F, Cache].map(_.get(key))
+
+    def decodeOne(hashed: Hashed[A, proto.Library]): Cached[DecodedLibrary[A]] =
+      for {
+        key <- StateT.liftF[F, Cache, Key](keyOf(hashed))
+        cached <- getCached(key)
+        decoded <- cached match {
+          case Some(dec) => StateT.pure[F, Cache, DecodedLibrary[A]](dec)
+          case None      =>
+            for {
+              depLibs <- allDeps(hashed.arg).traverse(fetchDep)
+              depIfaces = depLibs.flatMap(_.interfaces)
+              dec <- StateT.liftF[F, Cache, DecodedLibrary[A]](
+                decode(hashed, depIfaces)
+              )
+              _ <- StateT.modify[F, Cache](_.updated(key, dec))
+            } yield dec
+        }
+      } yield decoded
+
+    def fetchDep(dep: proto.LibDependency): Cached[DecodedLibrary[A]] =
+      for {
+        requestedKey <- StateT.liftF[F, Cache, Key](depKey(dep))
+        cached <- getCached(requestedKey)
+        decoded <- cached match {
+          case Some(dec) => StateT.pure[F, Cache, DecodedLibrary[A]](dec)
+          case None      =>
+            StateT
+              .liftF(getDep(dep))
+              .flatMap(decodeOne)
+        }
+        _ <-
+          if (
+            Ordering[Key].equiv(requestedKey, (decoded.name, decoded.version))
+          ) {
+            StateT.pure[F, Cache, Unit](())
+          } else {
+            val (requestedName, requestedVersion) = requestedKey
+            StateT.liftF[F, Cache, Unit](
+              F.raiseError(
+                CliException(
+                  "dependency mismatch",
+                  Doc.text(
+                    show"requested ${requestedName.name} ${requestedVersion.render}, found ${decoded.name.name} ${decoded.version.render}"
+                  )
+                )
+              )
+            )
+          }
+      } yield decoded
+
+    decodeOne(protoLib).runA(Map.empty)
+  }
 }

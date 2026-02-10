@@ -355,6 +355,26 @@ object Command {
         }
 
     case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+      private def loadFromCas(
+          dep: proto.LibDependency
+      ): F[Hashed[Algo.Blake3, proto.Library]] =
+        cas.libFromCas(dep).flatMap {
+          case Some(lib) => moduleIOMonad.pure(lib)
+          case None      =>
+            moduleIOMonad.raiseError[Hashed[Algo.Blake3, proto.Library]](
+              CliException(
+                "missing dep from cas",
+                Doc.text(
+                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `lib fetch`."
+                )
+              )
+            )
+        }
+
+      private def decodeFromCas(
+          lib: Hashed[Algo.Blake3, proto.Library]
+      ): F[DecodedLibrary[Algo.Blake3]] =
+        DecodedLibrary.decodeWithDeps(lib)(loadFromCas)
 
       def pubPrivDeps: F[
         (List[DecodedLibrary[Algo.Blake3]], List[DecodedLibrary[Algo.Blake3]])
@@ -362,8 +382,8 @@ object Command {
         for {
           pubPriv <- cas.depsFromCas(conf.publicDeps, conf.privateDeps)
           (pubLibs, privLibs) = pubPriv
-          pubDecodes <- pubLibs.traverse(DecodedLibrary.decode(_))
-          privDecodes <- privLibs.traverse(DecodedLibrary.decode(_))
+          pubDecodes <- pubLibs.traverse(decodeFromCas(_))
+          privDecodes <- privLibs.traverse(decodeFromCas(_))
         } yield (pubDecodes, privDecodes)
 
       def previousThis: F[Option[DecodedLibrary[Algo.Blake3]]] =
@@ -371,7 +391,7 @@ object Command {
           cas
             .libFromCas(Library.dep(conf.name, desc))
             .flatMap {
-              case Some(a) => DecodedLibrary.decode(a)
+              case Some(a) => decodeFromCas(a)
               case None    =>
                 moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
                   CliException(
@@ -400,7 +420,7 @@ object Command {
               cas
                 .depsFromCas(prevDeps, Nil)
                 .map(_._1)
-                .flatMap(_.traverse(DecodedLibrary.decode(_)))
+                .flatMap(_.traverse(decodeFromCas(_)))
         }
 
       def publicDepClosure(
@@ -587,12 +607,12 @@ object Command {
       def loadFromCas(
           dep: proto.LibDependency,
           key: Key
-      ): F[DecodedLibrary[Algo.Blake3]] = {
+      ): F[Hashed[Algo.Blake3, proto.Library]] = {
         val (name, version) = key
         cas.libFromCas(dep).flatMap {
-          case Some(lib) => DecodedLibrary.decode(lib)
+          case Some(lib) => moduleIOMonad.pure(lib)
           case None      =>
-            moduleIOMonad.raiseError[DecodedLibrary[Algo.Blake3]](
+            moduleIOMonad.raiseError[Hashed[Algo.Blake3, proto.Library]](
               CliException(
                 "missing dep from cas",
                 Doc.text(
@@ -602,6 +622,16 @@ object Command {
             )
         }
       }
+
+      def decodeFromCas(
+          dep: proto.LibDependency,
+          key: Key
+      ): F[DecodedLibrary[Algo.Blake3]] =
+        loadFromCas(dep, key).flatMap { lib =>
+          DecodedLibrary.decodeWithDeps(lib) { dep =>
+            loadFromCas(dep, (Name(dep.name), Library.versionOrZero(dep)))
+          }
+        }
 
       def loop(
           todo: List[DecodedLibrary[Algo.Blake3]],
@@ -623,7 +653,7 @@ object Command {
                     val key = depRef.depKey
                     if (acc0.contains(key)) moduleIOMonad.pure((todo0, acc0))
                     else {
-                      loadFromCas(depRef.dep, key)
+                      decodeFromCas(depRef.dep, key)
                         .map(dec => (dec :: todo0, acc0.updated(key, dec)))
                     }
                   }
