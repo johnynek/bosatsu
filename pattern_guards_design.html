@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Pattern Guards Design · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsupattern_guards_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="js/page.js"></script>
+<script type="text/javascript" src="js/warnOldVersion.js"></script>
+<script type="text/javascript" src="js/groups.js"></script>
+<script type="text/javascript" src="js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d7923735*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d7923735*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="index.html">Bosatsu Documentation</a></li>
+  <li>Pattern Guards Design</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#pattern-guards-design" name="pattern-guards-design" class="anchor"><span class="anchor-link"></span></a>Pattern Guards Design</h1>
+<p>Status: proposed<br/>Date: 2026-02-10</p>
+<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
+<p>Add match branch guards to Bosatsu:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match value:
+  case Foo(x, y) if fn(x, y):
+    ...
+</code></pre>
+<p>while preserving Bosatsu&rsquo;s totality guarantees and keeping codegen predictable.</p>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>Proving arbitrary guard predicates for exhaustiveness.</li>
+  <li>Introducing effectful guard semantics.</li>
+  <li>Replacing the existing pattern set algebra.</li>
+</ol>
+<h2><a href="#literature-review" name="literature-review" class="anchor"><span class="anchor-link"></span></a>Literature Review</h2>
+<h3><a href="#semantics-and-syntax" name="semantics-and-syntax" class="anchor"><span class="anchor-link"></span></a>Semantics and syntax</h3>
+<ol>
+  <li>OCaml supports branch guards (<code>when</code>) evaluated after the pattern matches, with top-down branch order. Source: <a href="https://caml.inria.fr/pub/distrib/ocaml-5.3/ocaml-5.3-refman.html">OCaml Reference Manual 5.3 (patterns/matching)</a></li>
+  <li>Haskell supports guards and pattern guards; guards are checked after pattern matching in source order. Source: <a href="https://www.haskell.org/onlinereport/haskell2010/haskellch3.html">Haskell 2010 Report, Expressions</a></li>
+  <li>Scala 3 case clauses allow optional guards (<code>case Pattern [Guard] =&gt;</code>), with a first-match style operational reading. Source: <a href="https://scala-lang.org/files/archive/spec/3.4/08-pattern-matching.html">Scala 3 Language Specification, Pattern Matching</a></li>
+  <li>Rust supports <code>pattern if guard</code> and explicitly states guards run after the pattern matches. Source: <a href="https://doc.rust-lang.org/reference/expressions/match-expr.html">Rust Reference, match expressions</a></li>
+</ol>
+<h3><a href="#exhaustiveness-and-guard-complexity" name="exhaustiveness-and-guard-complexity" class="anchor"><span class="anchor-link"></span></a>Exhaustiveness and guard complexity</h3>
+<ol>
+  <li>Rust documents that match guards are not used for exhaustiveness checking. Source: <a href="https://doc.rust-lang.org/book/ch19-03-pattern-syntax.html">The Rust Book, Match Guards</a></li>
+  <li>GHC&rsquo;s pattern-match checker models guards and can be expensive; docs describe an exponential blow-up driver and a model cap (<code>-fmax-pmcheck-models</code>). Source: <a href="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-warnings.html#ghc-flag--fmax-pmcheck-models">GHC Users Guide, -fmax-pmcheck-models</a></li>
+  <li>OCaml tooling still carries explicit guard-related warning categories (for example <code>All_clauses_guarded</code> in compiler warnings API), which signals practical caution around guarded coverage. Source: <a href="https://ocaml.github.io/odoc/ocaml-base-compiler/compiler-libs.common/Warnings/index.html">OCaml compiler-libs Warnings</a></li>
+</ol>
+<h3><a href="#compilation-literature" name="compilation-literature" class="anchor"><span class="anchor-link"></span></a>Compilation literature</h3>
+<ol>
+  <li>Maranget-style pattern matrices remain the baseline for decision-tree compilation.</li>
+  <li>GHC&rsquo;s guard-tree work is specifically about integrating guards into coverage and diagnostics. Source: <a href="https://www.microsoft.com/en-us/research/publication/lower-your-guards-a-compositional-pattern-match-coverage-checker/">Lower Your Guards (ICFP 2020)</a></li>
+</ol>
+<h2><a href="#proposed-bosatsu-semantics" name="proposed-bosatsu-semantics" class="anchor"><span class="anchor-link"></span></a>Proposed Bosatsu Semantics</h2>
+<h2><a href="#syntax" name="syntax" class="anchor"><span class="anchor-link"></span></a>Syntax</h2>
+<p>Extend match branch syntax to:</p>
+<pre class="prettyprint"><code class="nocode">case &lt;pattern&gt; [if &lt;nonbinding-expr&gt;] : &lt;declaration&gt;
+</code></pre>
+<h2><a href="#dynamic-semantics" name="dynamic-semantics" class="anchor"><span class="anchor-link"></span></a>Dynamic semantics</h2>
+<p>For each branch, in order: 1. Try to match the pattern against the scrutinee. 2. If it fails, continue. 3. If it succeeds, evaluate the guard in the pattern-extended scope. 4. If guard is <code>True</code>, evaluate branch body. 5. If guard is <code>False</code>, continue to next branch.</p>
+<p>No change to evaluation order of the scrutinee or branch ordering.</p>
+<h2><a href="#typing-semantics" name="typing-semantics" class="anchor"><span class="anchor-link"></span></a>Typing semantics</h2>
+<ol>
+  <li>Guard expression is checked in the environment extended by pattern bindings.</li>
+  <li>Guard must typecheck as <code>Bool</code> (<code>Type.BoolType</code>).</li>
+  <li>Guard introduces no new bindings.</li>
+  <li>Branch result typing is unchanged.</li>
+</ol>
+<h2><a href="#core-design-decisions" name="core-design-decisions" class="anchor"><span class="anchor-link"></span></a>Core Design Decisions</h2>
+<h3><a href="#1-branch-model-becomes-explicit" name="1-branch-model-becomes-explicit" class="anchor"><span class="anchor-link"></span></a>1. Branch model becomes explicit</h3>
+<p>Current code uses <code>(Pattern, Expr)</code> pairs throughout parser, source IR, typed IR, normalization, proto, and codegen lowering. With guards, tuples become brittle.</p>
+<p>Introduce explicit branch records in all relevant AST layers: 1. Parsed declaration branch: <code>pattern</code>, optional <code>guard</code>, <code>body</code>. 2. Untyped Expr branch: <code>pattern</code>, optional <code>guard</code>, <code>body</code>. 3. TypedExpr branch: <code>pattern</code>, optional typed <code>guard</code>, typed <code>body</code>.</p>
+<p>This reduces accidental field-order bugs and makes normalization/lowering logic clearer.</p>
+<h3><a href="#2-conservative-totality-policy" name="2-conservative-totality-policy" class="anchor"><span class="anchor-link"></span></a>2. Conservative totality policy</h3>
+<p>To preserve Bosatsu totality without theorem proving: 1. Only unguarded branches contribute to exhaustiveness coverage. 2. Guarded branches are checked for pattern validity and body totality, but do not reduce <code>missingBranches</code>. 3. Reachability uses only prior unguarded coverage for shadowing.</p>
+<p>Consequence: a guarded catch-all (<code>case _ if cond</code>) does not make a match total; an unguarded fallback is still required.</p>
+<p>This is intentionally conservative and aligned with practical behavior in Rust/GHC ecosystems.</p>
+<h3><a href="#3-pattern-set-algebra-stays-unchanged" name="3-pattern-set-algebra-stays-unchanged" class="anchor"><span class="anchor-link"></span></a>3. Pattern set algebra stays unchanged</h3>
+<p>No changes to <code>TotalityCheck.patternSetOps</code> are required.<br/>Set algebra remains over <code>Pattern</code> only.</p>
+<p>Changes are localized to branch selection in totality analysis: 1. Project branches to coverage patterns via <code>branch.guard.isEmpty</code> (or future <code>guardIsTriviallyTrue</code>). 2. Run existing <code>missingBranches</code>, <code>unreachableBranches</code>, <code>difference</code>, <code>intersection</code> unchanged.</p>
+<h2><a href="#compiler-pipeline-impact" name="compiler-pipeline-impact" class="anchor"><span class="anchor-link"></span></a>Compiler Pipeline Impact</h2>
+<h3><a href="#parser-and-source-ast" name="parser-and-source-ast" class="anchor"><span class="anchor-link"></span></a>Parser and source AST</h3>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/Declaration.scala</code> 2. <code>core/src/main/scala/dev/bosatsu/SourceConverter.scala</code></p>
+<p>Changes: 1. Parse optional guard between pattern and <code>:</code>. 2. Pretty-printer emits <code>case &lt;pat&gt; if &lt;guard&gt;:</code> when present. 3. Source conversion converts guard under the same pattern-bound scope as branch body. 4. SourceConverter canonicalizes guards:  1. If guard resolves to Predef <code>True</code>, rewrite branch as unguarded.  2. If guard resolves to Predef <code>False</code>, keep it guarded (do not drop branch in SourceConverter).</p>
+<h3><a href="#type-inference-and-typed-ast" name="type-inference-and-typed-ast" class="anchor"><span class="anchor-link"></span></a>Type inference and typed AST</h3>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/Expr.scala</code> 2. <code>core/src/main/scala/dev/bosatsu/TypedExpr.scala</code> 3. <code>core/src/main/scala/dev/bosatsu/rankn/Infer.scala</code></p>
+<p>Changes: 1. <code>checkBranch</code>/<code>inferBranch</code> accept optional guard. 2. After <code>typeCheckPattern</code>, extend env with bindings, then typecheck guard as <code>Bool</code>. 3. Continue to branch body typing exactly as today.</p>
+<h3><a href="#totality-and-errors" name="totality-and-errors" class="anchor"><span class="anchor-link"></span></a>Totality and errors</h3>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/TotalityCheck.scala</code> 2. <code>core/src/main/scala/dev/bosatsu/PackageError.scala</code></p>
+<p>Changes: 1. Exhaustiveness input patterns become &ldquo;unguarded branch patterns&rdquo;. 2. Unreachable logic ignores prior guarded branches as covering evidence. 3. Error text adds explicit hint that guarded branches do not establish totality. 4. With SourceConverter canonicalization, <code>case p if True:</code> (where <code>True</code> resolves to Predef Bool constructor) participates as an unguarded branch.</p>
+<h3><a href="#recursion-and-lint-style-analyses" name="recursion-and-lint-style-analyses" class="anchor"><span class="anchor-link"></span></a>Recursion and lint-style analyses</h3>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/DefRecursionCheck.scala</code> 2. <code>core/src/main/scala/dev/bosatsu/UnusedLetCheck.scala</code></p>
+<p>Changes: 1. Guards must be traversed anywhere branch bodies are traversed today. 2. Pattern-bound names are in scope for guards. 3. In recursive contexts, a recursive call inside a guard is allowed iff that call would be allowed in that branch body. 4. <code>DefRecursionCheck</code> should validate guard expressions in the same branch state (<code>InRecurBranch</code>) used for the branch body, so recursive-call legality rules are identical.</p>
+<h3><a href="#typedexprnormalization-guard-aware-" name="typedexprnormalization-guard-aware-" class="anchor"><span class="anchor-link"></span></a>TypedExprNormalization (guard-aware)</h3>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala</code> 2. <code>core/src/main/scala/dev/bosatsu/Package.scala</code> (ordering note)</p>
+<p>Guard-specific requirements: 1. Any substitution/inlining rule that can affect branch expressions must also apply to guard expressions. 2. When moving lets/lambdas across match branches, free-variable and shadowing checks must consider both guard and body. 3. Pattern-bound names still shadow outer names in guards exactly as they do in branch bodies.</p>
+<p>Guard simplification rules: 1. Normalize/infer substitutions into the guard first. 2. If the normalized guard becomes <code>True</code>, remove the guard from that branch. 3. If the normalized guard becomes <code>False</code>, remove that branch as unreachable. 4. Run existing match simplifications after guard elimination (for example, simpler trailing wildcard rewrites).</p>
+<p>Pattern-independent guard hoisting (optimization): 1. If a guard does not reference any names bound by its pattern, it can be hoisted into the scrutinee shape:  1. <code>match x: case p if g: a; case p2: b</code>  2. <code>=&gt; let g0 = g in match (x, g0): case (p, True): a; case (p2, _): b</code> 2. This can unlock better matrix compilation by turning a guard check into ordinary pattern columns. 3. This rewrite should be heuristic-gated because it changes guard evaluation timing from conditional to eager. 4. Recommended gate:  1. always allow when <code>g</code> normalizes to a cheap/simple expression,  2. or when the same <code>g</code> is shared across multiple guarded branches (so hoisting avoids repeated evaluation). 5. Do not apply this rewrite when guard depends on pattern-bound names.</p>
+<p>Why this matters: 1. It avoids regressions where a rewrite updates the branch body but leaves the guard stale. 2. It enables practical optimization from existing inlining/constant-folding work. 3. It gives us a path to compile some guards with pure matrix specialization rather than late guard checks.</p>
+<p>Pipeline note: <code>TypedExprNormalization</code> currently runs after type inference (<code>Package.inferBody</code>) and after source-level totality checking (<code>Package.inferBodyUnopt</code>).<br/>So guard elimination in normalization improves generated code quality and downstream optimization, but does not change current source totality diagnostics.</p>
+<h3><a href="#serialization" name="serialization" class="anchor"><span class="anchor-link"></span></a>Serialization</h3>
+<p>Files: 1. <code>proto/src/main/protobuf/bosatsu/TypedAst.proto</code> 2. <code>core/src/main/scala/dev/bosatsu/ProtoConverter.scala</code></p>
+<p>Changes: 1. Extend <code>Branch</code> with optional <code>guardExpr</code>. 2. Decode absent guard as <code>None</code>. 3. Encode guard when present.</p>
+<p>Compatibility risk: Old decoders could ignore unknown guard fields, so rollout should include a format/version gate to avoid silently dropping guard semantics.</p>
+<h2><a href="#matchless-design" name="matchless-design" class="anchor"><span class="anchor-link"></span></a>Matchless Design</h2>
+<p>Files: 1. <code>core/src/main/scala/dev/bosatsu/Matchless.scala</code></p>
+<h3><a href="#data-model" name="data-model" class="anchor"><span class="anchor-link"></span></a>Data model</h3>
+<p>Extend matrix row: 1. <code>pats</code> 2. optional <code>guard</code> 3. <code>rhs</code> 4. <code>binds</code></p>
+<h3><a href="#matrix-compilation" name="matrix-compilation" class="anchor"><span class="anchor-link"></span></a>Matrix compilation</h3>
+<p>Keep constructor/literal specialization unchanged.<br/>Guard logic is added only when a row becomes selected (all remaining pats are wildcards).</p>
+<p>At row selection: 1. Build <code>rhsExpr = lets(binds, rhs)</code>. 2. If no guard: return <code>rhsExpr</code> (existing behavior). 3. If guarded:  1. Build guard in bound scope: <code>gExpr = lets(binds, guard)</code>.  2. Convert expression guard to <code>BoolExpr</code> via helper (<code>CheapExpr -&gt; isTrueExpr</code>, otherwise <code>LetBool(..., isTrueExpr(...))</code>).  3. On guard true: <code>rhsExpr</code>.  4. On guard false: continue with remaining rows in original order.</p>
+<p>This preserves left-to-right semantics and matrix sharing.</p>
+<h3><a href="#ordered-compiler-path" name="ordered-compiler-path" class="anchor"><span class="anchor-link"></span></a>Ordered compiler path</h3>
+<p><code>matchExprOrderedCheap</code> must also incorporate guards, because it is used for non-orthogonal list/string patterns and small matches.</p>
+<p>Effective branch test becomes: 1. pattern condition 2. then guard condition (short-circuited)</p>
+<h3><a href="#mustmatch-optimization-impact" name="mustmatch-optimization-impact" class="anchor"><span class="anchor-link"></span></a><code>mustMatch</code> optimization impact</h3>
+<p>Current optimization can skip some final pattern checks.<br/>With guards: 1. Pattern-shape checks may still be skipped where valid. 2. Guard checks are never skipped unless proven trivially true.</p>
+<h2><a href="#trade-offs" name="trade-offs" class="anchor"><span class="anchor-link"></span></a>Trade-offs</h2>
+<h2><a href="#performance" name="performance" class="anchor"><span class="anchor-link"></span></a>Performance</h2>
+<p>Pros: 1. Matrix shape-specialization logic stays mostly unchanged. 2. Set algebra complexity does not increase. 3. Guard simplification in <code>TypedExprNormalization</code> can remove runtime guard checks.</p>
+<p>Costs: 1. Additional guard evaluation and branching in compiled Matchless. 2. Potential duplication of bound projection work between guard and rhs. 3. More normalization work because guard expressions participate in substitution and simplification. 4. Guard-hoisting can evaluate some guards earlier; without heuristics this can be a runtime regression.</p>
+<h2><a href="#error-reporting" name="error-reporting" class="anchor"><span class="anchor-link"></span></a>Error reporting</h2>
+<p>Pros: 1. Sound totality is preserved without predicate proving. 2. Diagnostics remain deterministic and simple.</p>
+<p>Costs: 1. More conservative non-total errors (&ldquo;add unguarded fallback&rdquo;) even for logically exhaustive guarded partitions. 2. Reachability may be less precise for guards that are always true/false but not syntactically obvious. 3. Special-casing Predef <code>True</code> in SourceConverter is slightly non-uniform, but it avoids surprising non-total errors for explicit <code>if True</code>.</p>
+<h2><a href="#implementation-plan" name="implementation-plan" class="anchor"><span class="anchor-link"></span></a>Implementation Plan</h2>
+<ol>
+  <li>Add branch data structures and parser support.</li>
+  <li>Thread guards through <code>Declaration -&gt; Expr -&gt; TypedExpr</code>.</li>
+  <li>Typecheck guards as <code>Bool</code> in <code>Infer</code>.</li>
+  <li>Update totality projection and diagnostics.</li>
+  <li>Update Matchless matrix + ordered compilers.</li>
+  <li>Update recursion/lint traversals.</li>
+  <li>Add guard-aware <code>TypedExprNormalization</code> rules (substitution + <code>True</code>/<code>False</code> elimination + gated pattern-independent hoisting).</li>
+  <li>Update proto schema + converter.</li>
+  <li>Add targeted tests.</li>
+</ol>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
+<ol>
+  <li>Parser tests for <code>case p if g:</code>.</li>
+  <li>Scope tests: guard can use pattern names; later branches cannot.</li>
+  <li>Type tests: guard must be <code>Bool</code>.</li>
+  <li>SourceConverter canonicalization tests:</li>
+  <li>Guard resolving to Predef <code>True</code> is rewritten to unguarded.</li>
+  <li>Guard resolving to Predef <code>False</code> remains guarded.</li>
+  <li>Locally-shadowed <code>True</code> is not canonicalized as Predef <code>True</code>.</li>
+  <li>Recursion-check tests:</li>
+  <li>A recursive call legal in the branch body is also legal in that branch guard.</li>
+  <li>A recursive call illegal in the branch body is also illegal in that branch guard.</li>
+  <li>Totality tests:</li>
+  <li>Guard-only coverage is rejected.</li>
+  <li>Unguarded fallback restores totality.</li>
+  <li>Unreachable with prior unguarded patterns is still detected.</li>
+  <li>Matchless/evaluation tests:</li>
+  <li>Guard false falls through correctly.</li>
+  <li>Guard true selects branch.</li>
+  <li>Works in matrix and ordered paths.</li>
+  <li>TypedExprNormalization tests:</li>
+  <li>Let-substitution rewrites guard and body consistently.</li>
+  <li>Guard folding removes <code>if True</code>.</li>
+  <li>Guard folding removes <code>if False</code> branches.</li>
+  <li>Shadowing-sensitive rewrites preserve semantics when guard references pattern names.</li>
+  <li>Pattern-independent guard hoisting rewrites to tuple-scrutinee form when gate conditions hold.</li>
+  <li>Pattern-dependent guards are not hoisted.</li>
+  <li>Proto round-trip tests for guarded branches.</li>
+</ol>
+<h2><a href="#open-questions" name="open-questions" class="anchor"><span class="anchor-link"></span></a>Open Questions</h2>
+<ol>
+  <li>Should we add a dedicated error kind when all covering branches are guarded?</li>
+  <li>Do we want a later SMT-backed or rewrite-backed &ldquo;guard simplifier&rdquo; for better diagnostics?</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/pattern_guards_design.md">here</a>.
+</div>
+
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="pattern_guards_design.html#pattern-guards-design" class="header">Pattern Guards Design</a>
+  <ul>
+    <li><a href="pattern_guards_design.html#goal" class="header">Goal</a></li>
+    <li><a href="pattern_guards_design.html#non-goals" class="header">Non-goals</a></li>
+    <li><a href="pattern_guards_design.html#literature-review" class="header">Literature Review</a></li>
+    <li><a href="pattern_guards_design.html#proposed-bosatsu-semantics" class="header">Proposed Bosatsu Semantics</a></li>
+    <li><a href="pattern_guards_design.html#syntax" class="header">Syntax</a></li>
+    <li><a href="pattern_guards_design.html#dynamic-semantics" class="header">Dynamic semantics</a></li>
+    <li><a href="pattern_guards_design.html#typing-semantics" class="header">Typing semantics</a></li>
+    <li><a href="pattern_guards_design.html#core-design-decisions" class="header">Core Design Decisions</a></li>
+    <li><a href="pattern_guards_design.html#compiler-pipeline-impact" class="header">Compiler Pipeline Impact</a></li>
+    <li><a href="pattern_guards_design.html#matchless-design" class="header">Matchless Design</a></li>
+    <li><a href="pattern_guards_design.html#trade-offs" class="header">Trade-offs</a></li>
+    <li><a href="pattern_guards_design.html#performance" class="header">Performance</a></li>
+    <li><a href="pattern_guards_design.html#error-reporting" class="header">Error reporting</a></li>
+    <li><a href="pattern_guards_design.html#implementation-plan" class="header">Implementation Plan</a></li>
+    <li><a href="pattern_guards_design.html#test-plan" class="header">Test Plan</a></li>
+    <li><a href="pattern_guards_design.html#open-questions" class="header">Open Questions</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="js/magellan.js"></script>
+
+<style type="text/css">@import "lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d7923735-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
