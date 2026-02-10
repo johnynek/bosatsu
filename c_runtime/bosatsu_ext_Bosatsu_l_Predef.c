@@ -22,6 +22,11 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a) {
   return bsts_string_from_utf8_bytes_copy(len, bytes);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
+  int codepoint = bsts_char_code_point_from_value(a);
+  return bsts_integer_from_int(codepoint);
+}
+
 // a is a List[Char]
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   BValue amut = a;
@@ -181,6 +186,23 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue i, BValue a, BValue fn) {
   }
   // all the rest of the values are references
   return _a;
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__Char(BValue a) {
+  BValue zero = bsts_integer_from_int(0);
+  BValue max_cp = bsts_integer_from_int(0x10FFFF);
+  if ((bsts_integer_cmp(a, zero) < 0) || (bsts_integer_cmp(a, max_cp) > 0)) {
+    return alloc_enum0(0);
+  }
+
+  BValue surrogate_start = bsts_integer_from_int(0xD800);
+  BValue surrogate_end = bsts_integer_from_int(0xDFFF);
+  if ((bsts_integer_cmp(a, surrogate_start) >= 0) && (bsts_integer_cmp(a, surrogate_end) <= 0)) {
+    return alloc_enum0(0);
+  }
+
+  int32_t codepoint = bsts_integer_to_int32(a);
+  return alloc_enum1(1, bsts_char_from_code_point(codepoint));
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__String(BValue a) {

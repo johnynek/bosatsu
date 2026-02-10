@@ -1434,6 +1434,15 @@ object PythonGen {
             ({ input => Env.envMonad.pure(input.head) }, 1)
           ),
           (
+            Identifier.Name("char_to_Int"),
+            (
+              { input =>
+                Env.onLast(input.head)(c => Code.Ident("ord")(c))
+              },
+              1
+            )
+          ),
+          (
             Identifier.Name("char_List_to_String"),
             (
               { input =>
@@ -1453,6 +1462,32 @@ object PythonGen {
                             }
                         }
                     }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("int_to_Char"),
+            (
+              { input =>
+                Env.onLast(input.head) { cp =>
+                  val nonNegative = !(cp :< Code.Const.Zero)
+                  val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
+                  val inSurrogateRange =
+                    (!(cp :< Code.fromInt(0xD800)))
+                      .evalAnd(cp :< Code.fromInt(0xE000))
+                  val valid =
+                    nonNegative.evalAnd(belowUnicodeLimit).evalAnd(
+                      !inSurrogateRange
+                    )
+                  Code.Ternary(
+                    Code.MakeTuple(
+                      Code.Const.One :: Code.Ident("chr")(cp) :: Nil
+                    ),
+                    valid,
+                    Code.MakeTuple(Code.Const.Zero :: Nil)
+                  )
                 }
               },
               1

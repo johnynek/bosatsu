@@ -1,43 +1,395 @@
 package Bosatsu/Char
 
+from Bosatsu/Predef import (
+  char_to_Int as char_to_Int_predef,
+  int_to_Char as int_to_Char_predef,
+)
+
+export (
+  char_to_Int,
+  int_to_Char,
+  string_to_Char,
+  last_String,
+  is_scalar_value,
+  utf8_len,
+  to_digit,
+  from_digit,
+  is_digit,
+  is_hex,
+  is_ascii,
+  is_ascii_digit,
+  is_ascii_hex,
+  is_ascii_alpha,
+  is_ascii_alnum,
+  is_ascii_lower,
+  is_ascii_upper,
+  is_ascii_whitespace,
+  is_ascii_control,
+  is_ascii_punctuation,
+  to_ascii_lower_case,
+  to_ascii_upper_case,
+  eq_ignore_ascii_case,
+  string_to_Char_List,
+  char_List_to_Int_List,
+  int_List_to_Char_List,
+  string_to_Int_List,
+  int_List_to_String,
+)
+
+def char_to_Int(c: Char) -> Int:
+  char_to_Int_predef(c)
+
+def int_to_Char(code_point: Int) -> Option[Char]:
+  int_to_Char_predef(code_point)
+
+def andb(left: Bool, right: Bool) -> Bool:
+  if left:
+    right
+  else:
+    False
+
+def orb(left: Bool, right: Bool) -> Bool:
+  if left:
+    True
+  else:
+    right
+
+def lte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches (LT | EQ)
+
+def gte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches (GT | EQ)
+
+def in_range_Int(item: Int, low: Int, high: Int) -> Bool:
+  andb(gte_Int(item, low), lte_Int(item, high))
+
+max_scalar_value = 1114111
+surrogate_start = 55296
+surrogate_end = 57343
+
+# Unicode scalar value = [0, 0x10FFFF] excluding UTF-16 surrogate code points.
+def is_scalar_value(code_point: Int) -> Bool:
+  andb(
+    andb(gte_Int(code_point, 0), lte_Int(code_point, max_scalar_value)),
+    in_range_Int(code_point, surrogate_start, surrogate_end) matches False
+  )
+
+def utf8_len(c: Char) -> Int:
+  code_point = char_to_Int(c)
+  if lte_Int(code_point, 127):
+    1
+  elif lte_Int(code_point, 2047):
+    2
+  elif lte_Int(code_point, 65535):
+    3
+  else:
+    4
+
 def string_to_Char(s: String) -> Option[Char]:
   match s:
     case "$.{c}": Some(c)
     case _: None
-
-str_to_char_tests = TestSuite("string_to_Char",
-  [
-    Assertion(string_to_Char("s") matches Some(.'s'), "s"),
-    Assertion(string_to_Char("") matches None, "empty"),
-    Assertion(string_to_Char("foo") matches None, "foo"),
-    # test a 2 word character
-    Assertion(string_to_Char("👋") matches Some(.'👋'), "foo"),
-  ]
-)
-
-len_test = TestSuite("len tests",
-  [
-    Assertion(length_String("") matches 0, "empty"),
-    Assertion(length_String("x") matches 1, "x"),
-    Assertion(length_String("hello") matches 5, "hello"),
-    Assertion(length_String("👋") matches 1, "👋"),
-  ]
-)
 
 def last_String(s: String) -> Option[Char]:
   match s:
     case "": None
     case "${_}$.{l}": Some(l)
 
-last_tests = TestSuite(
-  "last_String",
-  [
-    Assertion(last_String("") matches None, "empty"),
-    Assertion(last_String("x") matches Some(.'x'), "x"),
-    Assertion(last_String("1234") matches Some(.'4'), "1234"),
-    Assertion(last_String("👋") matches Some(.'👋'), "👋"),
-  ]
-)
+# Supported radix range is 2..36 inclusive.
+radix_min = 2
+radix_max = 36
+code_point_0 = char_to_Int(.'0')
+code_point_9 = char_to_Int(.'9')
+code_point_a = char_to_Int(.'a')
+code_point_z = char_to_Int(.'z')
+code_point_A = char_to_Int(.'A')
+code_point_Z = char_to_Int(.'Z')
+
+def valid_radix(radix: Int) -> Bool:
+  in_range_Int(radix, radix_min, radix_max)
+
+# Supported radix range is 2..36 inclusive.
+def to_digit(c: Char, radix: Int) -> Option[Int]:
+  if valid_radix(radix):
+    cp = char_to_Int(c)
+    raw = if in_range_Int(cp, code_point_0, code_point_9):
+      Some(cp.sub(code_point_0))
+    elif in_range_Int(cp, code_point_a, code_point_z):
+      Some(cp.sub(code_point_a).add(10))
+    elif in_range_Int(cp, code_point_A, code_point_Z):
+      Some(cp.sub(code_point_A).add(10))
+    else:
+      None
+
+    match raw:
+      case Some(d):
+        if cmp_Int(d, radix) matches LT:
+          Some(d)
+        else:
+          None
+      case None:
+        None
+  else:
+    None
+
+# Supported radix range is 2..36 inclusive.
+def from_digit(digit: Int, radix: Int) -> Option[Char]:
+  if valid_radix(radix):
+    valid_digit = andb(gte_Int(digit, 0), cmp_Int(digit, radix) matches LT)
+    if valid_digit:
+      if cmp_Int(digit, 10) matches LT:
+        int_to_Char(digit.add(code_point_0))
+      else:
+        int_to_Char(digit.sub(10).add(code_point_a))
+    else:
+      None
+  else:
+    None
+
+def is_digit(c: Char) -> Bool:
+  to_digit(c, 10) matches Some(_)
+
+def is_hex(c: Char) -> Bool:
+  to_digit(c, 16) matches Some(_)
+
+ascii_max = 127
+ascii_lower_delta = 32
+
+
+def is_ascii(c: Char) -> Bool:
+  lte_Int(char_to_Int(c), ascii_max)
+
+def is_ascii_digit(c: Char) -> Bool:
+  in_range_Int(char_to_Int(c), code_point_0, code_point_9)
+
+def is_ascii_hex(c: Char) -> Bool:
+  is_hex(c)
+
+def is_ascii_lower(c: Char) -> Bool:
+  in_range_Int(char_to_Int(c), code_point_a, code_point_z)
+
+def is_ascii_upper(c: Char) -> Bool:
+  in_range_Int(char_to_Int(c), code_point_A, code_point_Z)
+
+def is_ascii_alpha(c: Char) -> Bool:
+  orb(is_ascii_lower(c), is_ascii_upper(c))
+
+def is_ascii_alnum(c: Char) -> Bool:
+  orb(is_ascii_alpha(c), is_ascii_digit(c))
+
+def is_ascii_whitespace(c: Char) -> Bool:
+  cp = char_to_Int(c)
+  orb(in_range_Int(cp, 9, 13), eq_Int(cp, 32))
+
+def is_ascii_control(c: Char) -> Bool:
+  cp = char_to_Int(c)
+  orb(lte_Int(cp, 31), eq_Int(cp, 127))
+
+def is_ascii_punctuation(c: Char) -> Bool:
+  cp = char_to_Int(c)
+  orb(in_range_Int(cp, 33, 47),
+    orb(in_range_Int(cp, 58, 64),
+      orb(in_range_Int(cp, 91, 96), in_range_Int(cp, 123, 126))))
+
+def shift_ascii(c: Char, delta: Int) -> Char:
+  match int_to_Char(char_to_Int(c).add(delta)):
+    case Some(c1): c1
+    case None: c
+
+def to_ascii_lower_case(c: Char) -> Char:
+  if is_ascii_upper(c):
+    shift_ascii(c, ascii_lower_delta)
+  else:
+    c
+
+def to_ascii_upper_case(c: Char) -> Char:
+  if is_ascii_lower(c):
+    shift_ascii(c, 0.sub(ascii_lower_delta))
+  else:
+    c
+
+def eq_ignore_ascii_case(left: Char, right: Char) -> Bool:
+  eq_Int(
+    char_to_Int(to_ascii_lower_case(left)),
+    char_to_Int(to_ascii_lower_case(right))
+  )
+
+def string_to_Char_List(s: String) -> List[Char]:
+  def loop(remaining: String, rev_chars: List[Char]) -> List[Char]:
+    recur remaining:
+      case "":
+        rev_chars.reverse()
+      case "$.{c}${tail}":
+        loop(tail, [c, *rev_chars])
+
+  loop(s, [])
+
+def char_List_to_Int_List(chars: List[Char]) -> List[Int]:
+  chars.map_List(char_to_Int)
+
+def int_List_to_Char_List(code_points: List[Int]) -> Option[List[Char]]:
+  def loop(rest: List[Int], rev_chars: List[Char]) -> Option[List[Char]]:
+    recur rest:
+      case []:
+        Some(rev_chars.reverse())
+      case [head, *tail]:
+        match int_to_Char(head):
+          case Some(c):
+            loop(tail, [c, *rev_chars])
+          case None:
+            None
+
+  loop(code_points, [])
+
+def string_to_Int_List(s: String) -> List[Int]:
+  char_List_to_Int_List(string_to_Char_List(s))
+
+def int_List_to_String(code_points: List[Int]) -> Option[String]:
+  match int_List_to_Char_List(code_points):
+    case Some(chars):
+      Some(char_List_to_String(chars))
+    case None:
+      None
+
+str_to_char_tests = TestSuite("string_to_Char", [
+  Assertion(string_to_Char("s") matches Some(.'s'), "s"),
+  Assertion(string_to_Char("") matches None, "empty"),
+  Assertion(string_to_Char("foo") matches None, "foo"),
+  Assertion(string_to_Char("👋") matches Some(.'👋'), "emoji"),
+])
+
+len_test = TestSuite("len tests", [
+  Assertion(length_String("") matches 0, "empty"),
+  Assertion(length_String("x") matches 1, "x"),
+  Assertion(length_String("hello") matches 5, "hello"),
+  Assertion(length_String("👋") matches 1, "emoji"),
+])
+
+last_tests = TestSuite("last_String", [
+  Assertion(last_String("") matches None, "empty"),
+  Assertion(last_String("x") matches Some(.'x'), "x"),
+  Assertion(last_String("1234") matches Some(.'4'), "1234"),
+  Assertion(last_String("👋") matches Some(.'👋'), "emoji"),
+])
+
+code_point_tests = TestSuite("codepoint tests", [
+  Assertion(char_to_Int(.'A') matches 65, "char_to_Int ascii"),
+  Assertion(char_to_Int(.'👋') matches 128075, "char_to_Int emoji"),
+  Assertion(int_to_Char(65) matches Some(.'A'), "int_to_Char ascii"),
+  Assertion(int_to_Char(128075) matches Some(.'👋'), "int_to_Char emoji"),
+  Assertion(int_to_Char(-1) matches None, "int_to_Char negative"),
+  Assertion(int_to_Char(55296) matches None, "int_to_Char surrogate start"),
+  Assertion(int_to_Char(57343) matches None, "int_to_Char surrogate end"),
+  Assertion(int_to_Char(1114112) matches None, "int_to_Char too large"),
+
+  Assertion(is_scalar_value(-1) matches False, "scalar negative"),
+  Assertion(is_scalar_value(0), "scalar zero"),
+  Assertion(is_scalar_value(55295), "scalar before surrogate"),
+  Assertion(is_scalar_value(55296) matches False, "scalar surrogate start"),
+  Assertion(is_scalar_value(57343) matches False, "scalar surrogate end"),
+  Assertion(is_scalar_value(57344), "scalar after surrogate"),
+  Assertion(is_scalar_value(1114111), "scalar max"),
+  Assertion(is_scalar_value(1114112) matches False, "scalar too large"),
+
+  Assertion(utf8_len(.'A') matches 1, "utf8 ascii"),
+  Assertion(utf8_len(.'¢') matches 2, "utf8 two-byte"),
+  Assertion(utf8_len(.'€') matches 3, "utf8 three-byte"),
+  Assertion(utf8_len(.'👋') matches 4, "utf8 four-byte"),
+])
+
+radix_tests = TestSuite("radix tests", [
+  Assertion(to_digit(.'0', 2) matches Some(0), "to_digit 0/2"),
+  Assertion(to_digit(.'1', 2) matches Some(1), "to_digit 1/2"),
+  Assertion(to_digit(.'2', 2) matches None, "to_digit 2/2"),
+  Assertion(to_digit(.'f', 16) matches Some(15), "to_digit f/16"),
+  Assertion(to_digit(.'F', 16) matches Some(15), "to_digit F/16"),
+  Assertion(to_digit(.'z', 36) matches Some(35), "to_digit z/36"),
+  Assertion(to_digit(.'Z', 35) matches None, "to_digit Z/35"),
+  Assertion(to_digit(.'x', 1) matches None, "to_digit invalid radix low"),
+  Assertion(to_digit(.'x', 37) matches None, "to_digit invalid radix high"),
+
+  Assertion(from_digit(0, 2) matches Some(.'0'), "from_digit 0/2"),
+  Assertion(from_digit(10, 16) matches Some(.'a'), "from_digit 10/16"),
+  Assertion(from_digit(35, 36) matches Some(.'z'), "from_digit 35/36"),
+  Assertion(from_digit(35, 35) matches None, "from_digit 35/35"),
+  Assertion(from_digit(-1, 16) matches None, "from_digit negative"),
+  Assertion(from_digit(1, 1) matches None, "from_digit invalid radix"),
+
+  Assertion(is_digit(.'9'), "is_digit 9"),
+  Assertion(is_digit(.'a') matches False, "is_digit a"),
+  Assertion(is_hex(.'F'), "is_hex F"),
+  Assertion(is_hex(.'G') matches False, "is_hex G"),
+])
+
+line_feed_char = match int_to_Char(10):
+  case Some(c): c
+  case None: .'?'
+
+unit_separator_char = match int_to_Char(31):
+  case Some(c): c
+  case None: .'?'
+
+delete_char = match int_to_Char(127):
+  case Some(c): c
+  case None: .'?'
+
+ascii_tests = TestSuite("ascii tests", [
+  Assertion(is_ascii(.'~'), "ascii tilde"),
+  Assertion(is_ascii(.'👋') matches False, "ascii emoji"),
+
+  Assertion(is_ascii_digit(.'5'), "ascii digit"),
+  Assertion(is_ascii_digit(.'a') matches False, "ascii digit false"),
+
+  Assertion(is_ascii_hex(.'F'), "ascii hex"),
+  Assertion(is_ascii_hex(.'g') matches False, "ascii hex false"),
+
+  Assertion(is_ascii_alpha(.'z'), "ascii alpha"),
+  Assertion(is_ascii_alpha(.'0') matches False, "ascii alpha false"),
+
+  Assertion(is_ascii_alnum(.'9'), "ascii alnum digit"),
+  Assertion(is_ascii_alnum(.'_') matches False, "ascii alnum underscore"),
+
+  Assertion(is_ascii_lower(.'a'), "ascii lower"),
+  Assertion(is_ascii_lower(.'A') matches False, "ascii lower false"),
+
+  Assertion(is_ascii_upper(.'Z'), "ascii upper"),
+  Assertion(is_ascii_upper(.'z') matches False, "ascii upper false"),
+
+  Assertion(is_ascii_whitespace(.' '), "ascii whitespace space"),
+  Assertion(is_ascii_whitespace(line_feed_char), "ascii whitespace LF"),
+  Assertion(is_ascii_whitespace(.'a') matches False, "ascii whitespace false"),
+
+  Assertion(is_ascii_control(unit_separator_char), "ascii control unit sep"),
+  Assertion(is_ascii_control(delete_char), "ascii control delete"),
+  Assertion(is_ascii_control(.' ') matches False, "ascii control false"),
+
+  Assertion(is_ascii_punctuation(.'!'), "ascii punctuation !"),
+  Assertion(is_ascii_punctuation(.'~'), "ascii punctuation ~"),
+  Assertion(is_ascii_punctuation(.'A') matches False, "ascii punctuation false"),
+
+  Assertion(to_ascii_lower_case(.'Q') matches .'q', "lower Q"),
+  Assertion(to_ascii_lower_case(.'q') matches .'q', "lower q"),
+  Assertion(to_ascii_upper_case(.'q') matches .'Q', "upper q"),
+  Assertion(to_ascii_upper_case(.'Q') matches .'Q', "upper Q"),
+
+  Assertion(eq_ignore_ascii_case(.'A', .'a'), "eq_ignore_ascii_case true"),
+  Assertion(eq_ignore_ascii_case(.'A', .'b') matches False, "eq_ignore_ascii_case false"),
+  Assertion(eq_ignore_ascii_case(.'👋', .'👋'), "eq_ignore_ascii_case unicode same"),
+])
+
+interop_tests = TestSuite("interop tests", [
+  Assertion(string_to_Char_List("") matches [], "string_to_Char_List empty"),
+  Assertion(string_to_Char_List("hi👋") matches [.'h', .'i', .'👋'], "string_to_Char_List unicode"),
+
+  Assertion(char_List_to_Int_List([.'h', .'i', .'👋']) matches [104, 105, 128075], "char_List_to_Int_List"),
+
+  Assertion(int_List_to_Char_List([104, 105, 128075]) matches Some([.'h', .'i', .'👋']), "int_List_to_Char_List"),
+  Assertion(int_List_to_Char_List([55296]) matches None, "int_List_to_Char_List invalid"),
+
+  Assertion(string_to_Int_List("A👋") matches [65, 128075], "string_to_Int_List"),
+  Assertion(int_List_to_String([65, 128075]) matches Some("A👋"), "int_List_to_String"),
+  Assertion(int_List_to_String([55296]) matches None, "int_List_to_String invalid"),
+])
 
 partition_tests = TestSuite("partition tests", [
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
@@ -48,43 +400,43 @@ partition_tests = TestSuite("partition tests", [
   Assertion("foo".rpartition_String("x") matches None, "foo rpartition_String x"),
 ])
 
-match_tests = TestSuite("match tests",
-  [
-    Assertion("👋👋👋" matches "👋$.{_}👋", "test matching 1"),
-    Assertion("abc👋👋👋" matches "${_}👋$.{_}👋", "test matching 2"),
-    Assertion("abc👋👋👋" matches "abc$.{_}👋${_}", "test matching 2.5"),
-    Assertion("abc👋👋👋" matches "abc👋${_}", "test matching 3"),
-    Assertion("abc👋👋👋" matches "${_}c👋${_}", "test matching 4"),
-    Assertion("abc👋👋👋" matches "${_}c👋${_}$.{_}", "test matching 5"),
-    Assertion("abc👋👋👋" matches "${_}👋", "test matching 6"),
-  ])
+match_tests = TestSuite("match tests", [
+  Assertion("👋👋👋" matches "👋$.{_}👋", "test matching 1"),
+  Assertion("abc👋👋👋" matches "${_}👋$.{_}👋", "test matching 2"),
+  Assertion("abc👋👋👋" matches "abc$.{_}👋${_}", "test matching 2.5"),
+  Assertion("abc👋👋👋" matches "abc👋${_}", "test matching 3"),
+  Assertion("abc👋👋👋" matches "${_}c👋${_}", "test matching 4"),
+  Assertion("abc👋👋👋" matches "${_}c👋${_}$.{_}", "test matching 5"),
+  Assertion("abc👋👋👋" matches "${_}👋", "test matching 6"),
+])
 
 def starts_with_foo(s): s matches "foo${_}"
 def ends_with_foo(s): s matches "${_}foo"
 def contains_foo(s): s matches "${_}foo${_}"
 def contains_foo_bar(s): s matches "${_}foo${_}bar${_}"
 
-glob_match_tests = TestSuite("glob_match_suites",
-  [
-    Assertion(starts_with_foo("foobar"), "starts_with_foo(foobar)"),
-    Assertion(starts_with_foo("barfoo") matches False, "starts_with_foo(foobar)"),
-    Assertion(ends_with_foo("foobar") matches False, "ends_with_foo(foobar)"),
-    Assertion(ends_with_foo("barfoo"), "ends_with_foo(foobar)"),
-    Assertion(contains_foo("barfoo"), "contains_foo(foobar)"),
-    Assertion(contains_foo("barbar") matches False, "contains_foo(barbar)"),
-    Assertion(contains_foo_bar("there is foo and bar"), "there is foo and bar"),
-    Assertion(contains_foo_bar("there is foobar"), "there is foobar"),
-    Assertion(contains_foo_bar("there is foo but not the other") matches False,
-      "there is foo but not the other"),
-  ])
+glob_match_tests = TestSuite("glob_match_suites", [
+  Assertion(starts_with_foo("foobar"), "starts_with_foo(foobar)"),
+  Assertion(starts_with_foo("barfoo") matches False, "starts_with_foo(foobar)"),
+  Assertion(ends_with_foo("foobar") matches False, "ends_with_foo(foobar)"),
+  Assertion(ends_with_foo("barfoo"), "ends_with_foo(foobar)"),
+  Assertion(contains_foo("barfoo"), "contains_foo(foobar)"),
+  Assertion(contains_foo("barbar") matches False, "contains_foo(barbar)"),
+  Assertion(contains_foo_bar("there is foo and bar"), "there is foo and bar"),
+  Assertion(contains_foo_bar("there is foobar"), "there is foobar"),
+  Assertion(contains_foo_bar("there is foo but not the other") matches False,
+    "there is foo but not the other"),
+])
 
-tests = TestSuite("Char tests",
-  [
-    str_to_char_tests,
-    len_test,
-    last_tests,
-    match_tests,
-    glob_match_tests,
-    partition_tests,
-  ]
-)
+tests = TestSuite("Char tests", [
+  str_to_char_tests,
+  len_test,
+  last_tests,
+  code_point_tests,
+  radix_tests,
+  ascii_tests,
+  interop_tests,
+  match_tests,
+  glob_match_tests,
+  partition_tests,
+])

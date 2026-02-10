@@ -49,6 +49,7 @@ export (
   addf,
   add_key,
   build_List,
+  char_to_Int,
   char_List_to_String,
   char_to_String,
   cmp_Int,
@@ -66,6 +67,7 @@ export (
   gcd_Int,
   get_key,
   int_loop,
+  int_to_Char,
   int_to_String,
   length_String,
   string_to_Int,
@@ -250,7 +252,9 @@ external struct String
 external struct Char
 
 external def char_to_String(c: Char) -> String
+external def char_to_Int(c: Char) -> Int
 external def char_List_to_String(chars: List[Char]) -> String
+external def int_to_Char(code_point: Int) -> Option[Char]
 external def cmp_String(str0: String, str1: String) -> Comparison
 string_Order = Order(cmp_String)
 external def concat_String(items: List[String]) -> String
