@@ -28,7 +28,7 @@ BValue alloc_struct{size}({arg_params}) {{
         abort();
     }}
     {assigns}
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }}"""
   arg_decls = "".join("BValue _{i};".format(i = i) for i in range(size))
   arg_params = ", ".join("BValue b{i}".format(i = i) for i in range(size))
@@ -47,7 +47,7 @@ BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
     }}
     rc->tag = tag;
     {assigns}
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }}"""
   arg_decls = "".join("BValue _{i};".format(i = i) for i in range(size))
   arg_params = ", ".join("BValue b{i}".format(i = i) for i in range(size))
@@ -72,8 +72,8 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of({cast_to_1}rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }}
 
 BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
@@ -81,32 +81,31 @@ BValue alloc_boxed_pure_fn{size}(BPureFn{size} fn) {{
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {{
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }}
-    BoxedPureFn{size}* rc = (BoxedPureFn{size}*)GC_malloc(sizeof(BoxedPureFn{size}));
+    BoxedPureFn{size}* rc = GC_malloc(sizeof(BoxedPureFn{size}));
     if (rc == NULL) {{
         perror("GC_malloc failure in alloc_boxed_pure_fn{size}");
         abort();
     }}
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }}
 
 BValue call_fn{size}(BValue fn, {arg_params}) {{
   if (IS_PURE_VALUE(fn)) {{
     // can pack into a pure value
-    BPureFn{size} pure = (BPureFn{size})PURE_VALUE(fn);
+    BPureFn{size} pure = (BPureFn{size})(uintptr_t)PURE_VALUE(fn);
     return pure({just_args});
   }}
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn{size}* purefn = (BoxedPureFn{size}*)ptr;
+  BoxedPureFn{size}* purefn = BSTS_PTR(BoxedPureFn{size}, fn);
   if (purefn->slot_len == 0) {{
     return purefn->fn({just_args});
   }}
   else {{
     // this must be a closure:
-    Closure{size}Data* rc = (Closure{size}Data*)ptr;
+    Closure{size}Data* rc = BSTS_PTR(Closure{size}Data, fn);
     BValue* data = closure_data_of({cast_to_1}rc);
     return rc->fn(data, {just_args});
   }}

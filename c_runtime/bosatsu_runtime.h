@@ -4,17 +4,35 @@
 #include <stdint.h>
 #include <stddef.h>
 
-typedef void* BValue;
+typedef uintptr_t BValue;
 typedef uint32_t ENUM_TAG;
 #include "bosatsu_decls_generated.h"
 
+#define BSTS_BVALUE_NULL ((BValue)0)
+
+static inline BValue bsts_bvalue_from_ptr(const void* ptr) {
+  return (BValue)(uintptr_t)ptr;
+}
+
+static inline void* bsts_bvalue_to_ptr(BValue value) {
+  return (void*)(uintptr_t)value;
+}
+
+static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
+  return (const void*)(uintptr_t)value;
+}
+
+#define BSTS_VALUE_FROM_PTR(ptr) bsts_bvalue_from_ptr((const void*)(ptr))
+#define BSTS_PTR(type, value) ((type*)bsts_bvalue_to_ptr((value)))
+#define BSTS_CONST_PTR(type, value) ((const type*)bsts_bvalue_to_const_ptr((value)))
+
 // Nat values are encoded in integers
 // TODO: move these to functions implemented in bosatsu_runtime.c
-#define BSTS_NAT_0 ((BValue)0x1)
-#define BSTS_NAT_SUCC(n) ((BValue)((uintptr_t)(n) + 4))
-#define BSTS_NAT_PREV(n) ((BValue)((uintptr_t)(n) - 4))
-#define BSTS_NAT_IS_0(n) (((uintptr_t)(n)) == 0x1)
-#define BSTS_NAT_GT_0(n) (((uintptr_t)(n)) != 0x1)
+#define BSTS_NAT_0 ((BValue)((uintptr_t)0x1))
+#define BSTS_NAT_SUCC(n) ((BValue)((n) + (BValue)((uintptr_t)4)))
+#define BSTS_NAT_PREV(n) ((BValue)((n) - (BValue)((uintptr_t)4)))
+#define BSTS_NAT_IS_0(n) ((n) == BSTS_NAT_0)
+#define BSTS_NAT_GT_0(n) ((n) != BSTS_NAT_0)
 
 // this is the free function to call on an external value
 typedef void (*FreeFn)(void*);
