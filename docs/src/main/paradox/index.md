@@ -7,6 +7,7 @@
 * [Recursion In Bosatsu](recursion.md)
 * [Bosatsu for JSON Generation](generating_json.md)
 * [Compiling to Python](transpile_python.md)
+* [Pattern Guards Design](pattern_guards_design.md)
 @@@
 
 Bosatsu (菩薩) is the transliteration in Japanese of the sanskrit bodhisattva.
