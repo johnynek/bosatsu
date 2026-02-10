@@ -1943,7 +1943,8 @@ object Matchless {
     // 1) Represent branches as a matrix of patterns (rows) over occurrences.
     // 2) Pick a column, branch on its head constructors/literals.
     // 3) Specialize the matrix per case, and recurse; default to wildcards.
-    // This yields a shared decision tree without adding new Matchless nodes.
+    // This yields a shared decision tree and may add local aliases to
+    // reuse projections.
     //
     // Efficiency notes: compared to the ordered chain, the matrix compiler
     // shares tests across branches and avoids re-checking the scrutinee, which
@@ -1967,6 +1968,48 @@ object Matchless {
       // remaining case can skip redundant checks.
       val topMustMatch = true
 
+      // Materialize projection occurrences once per matrix scope so recursive
+      // specializations reuse the projected value instead of rebuilding nested
+      // GetEnumElement/GetStructElement trees.
+      def materializeOccs(
+          occs: List[CheapExpr[B]]
+      ): F[(List[(LocalAnon, Expr[B])], List[CheapExpr[B]])] = {
+        case class State(
+            letsRev: List[(LocalAnon, Expr[B])],
+            seen: Map[CheapExpr[B], LocalAnon],
+            occsRev: List[CheapExpr[B]]
+        )
+
+        def shouldMaterialize(occ: CheapExpr[B]): Boolean =
+          occ match {
+            case _: GetEnumElement[?] | _: GetStructElement[?] => true
+            case _                                             => false
+          }
+
+        occs
+          .foldLeftM(State(Nil, Map.empty, Nil)) { (st, occ) =>
+            if (!shouldMaterialize(occ))
+              Monad[F].pure(st.copy(occsRev = occ :: st.occsRev))
+            else
+              st.seen.get(occ) match {
+                case Some(existing) =>
+                  Monad[F].pure(st.copy(occsRev = existing :: st.occsRev))
+                case None =>
+                  makeAnon.map { nm =>
+                    val local = LocalAnon(nm)
+                    State(
+                      (local, occ) :: st.letsRev,
+                      st.seen.updated(occ, local),
+                      local :: st.occsRev
+                    )
+                  }
+              }
+          }
+          .map { st =>
+            (st.letsRev.reverse, st.occsRev.reverse)
+          }
+      }
+
       // Compile a pattern matrix into Matchless Expr by building a decision tree.
       // rowsIn: matrix rows (each row has a pattern per column + rhs + binds)
       // occsIn: occurrences for each column (the scrutinee/projection expression)
@@ -1977,143 +2020,151 @@ object Matchless {
           rowsIn: List[MatchRow],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
-      ): F[Expr[B]] = {
-        val norm = rowsIn.map(normalizeRow(_, occsIn))
-        val expanded = expandRows(norm)
-        val (rows, occs) = dropWildColumns(expanded, occsIn)
+      ): F[Expr[B]] =
+        materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
+          val norm = rowsIn.map(normalizeRow(_, occsMemoed))
+          val expanded = expandRows(norm)
+          val (rows, occs) = dropWildColumns(expanded, occsMemoed)
 
-        rows match {
-          case MatchRow(p0, r0, b0) :: _ if p0.forall(_ == Pattern.WildCard) =>
-            Monad[F].pure(lets(b0, r0))
-          case Nil =>
-            // this should be impossible in well-typed code
-            Monad[F].pure(UnitExpr)
-          case _ =>
-            // Column selection: preserve left-to-right behavior by defaulting
-            // to the leftmost column. (Heuristics can be added later.)
-            val colIdx = 0
+          val compiled: F[Expr[B]] =
+            rows match {
+              case MatchRow(p0, r0, b0) :: _ if p0.forall(_ == Pattern.WildCard) =>
+                Monad[F].pure(lets(b0, r0))
+              case Nil =>
+                // this should be impossible in well-typed code
+                Monad[F].pure(UnitExpr)
+              case _ =>
+                // Column selection: preserve left-to-right behavior by defaulting
+                // to the leftmost column. (Heuristics can be added later.)
+                val colIdx = 0
 
-            val occ = occs(colIdx)
+                val occ = occs(colIdx)
 
-            val sigs = distinctInOrder(
-              rows.mapFilter(r => headSig(r.pats(colIdx)))
-            )
-
-            val defaultRows =
-              rows
-                .mapFilter(r =>
-                  if r.pats(colIdx) == Pattern.WildCard then
-                    Some(r.patchPats(colIdx, Nil))
-                  else None
+                val sigs = distinctInOrder(
+                  rows.mapFilter(r => headSig(r.pats(colIdx)))
                 )
 
-            val defaultOccs = occs.patch(colIdx, Nil, 1)
-
-            // Build the Matchless condition + specialized submatrix for one case.
-            def buildCase(
-                sig: HeadSig,
-                caseMustMatch: Boolean
-            ): F[
-              (
-                  BoolExpr[B],
-                  List[LocalAnonMut],
-                  List[MatchRow],
-                  List[CheapExpr[B]]
-              )
-            ] =
-              sig match {
-                case EnumSig(_, v, s, f) =>
-                  val newRows = specializeRows(sig, rows, colIdx, s)
-                  val fields =
-                    (0 until s).toList.map(i => GetEnumElement(occ, v, i, s))
-                  val newOccs = occs.patch(colIdx, fields, 1)
-                  val cond =
-                    if (caseMustMatch) TrueConst else CheckVariant(occ, v, s, f)
-                  Monad[F].pure(
-                    (
-                      cond,
-                      Nil,
-                      newRows,
-                      newOccs
+                val defaultRows =
+                  rows
+                    .mapFilter(r =>
+                      if r.pats(colIdx) == Pattern.WildCard then
+                        Some(r.patchPats(colIdx, Nil))
+                      else None
                     )
+
+                val defaultOccs = occs.patch(colIdx, Nil, 1)
+
+                // Build the Matchless condition + specialized submatrix for one case.
+                def buildCase(
+                    sig: HeadSig,
+                    caseMustMatch: Boolean
+                ): F[
+                  (
+                      BoolExpr[B],
+                      List[LocalAnonMut],
+                      List[MatchRow],
+                      List[CheapExpr[B]]
                   )
-                case StructSig(_, s) =>
-                  val newRows = specializeRows(sig, rows, colIdx, s)
-                  val fields =
-                    (0 until s).iterator
-                      .map(i => GetStructElement(occ, i, s))
-                      .toList
-                  val newOccs = occs.patch(colIdx, fields, 1)
-                  Monad[F].pure((TrueConst, Nil, newRows, newOccs))
-                case LitSig(lit) =>
-                  val newRows = specializeRows(sig, rows, colIdx, 0)
-                  val newOccs = occs.patch(colIdx, Nil, 1)
-                  val cond =
-                    if (caseMustMatch) TrueConst else EqualsLit(occ, lit)
-                  Monad[F].pure((cond, Nil, newRows, newOccs))
-                case ZeroSig =>
-                  val newRows = specializeRows(sig, rows, colIdx, 0)
-                  val newOccs = occs.patch(colIdx, Nil, 1)
-                  val cond =
-                    if (caseMustMatch) TrueConst
-                    else EqualsNat(occ, DataRepr.ZeroNat)
-                  Monad[F].pure(
-                    (cond, Nil, newRows, newOccs)
-                  )
-                case SuccSig =>
-                  makeAnon.map { nm =>
-                    val mut = LocalAnonMut(nm)
-                    val setPrev = SetMut(mut, PrevNat(occ))
-                    val cond =
-                      if (caseMustMatch) setPrev
-                      else EqualsNat(occ, DataRepr.SuccNat) && setPrev
-                    val newRows = specializeRows(sig, rows, colIdx, 1)
-                    val newOccs = occs.patch(colIdx, mut :: Nil, 1)
-                    (cond, mut :: Nil, newRows, newOccs)
-                  }
-              }
-
-            // Compile cases in order, with a default branch for wildcards.
-            def compileCases(sigs: List[HeadSig], mustMatch: Boolean): F[Expr[B]] =
-              sigs match {
-                case Nil =>
-                  if (defaultRows.nonEmpty)
-                    compileRows(defaultRows, defaultOccs, mustMatch)
-                  else Monad[F].pure(UnitExpr)
-                case sig :: rest =>
-                  val caseMustMatch =
-                    mustMatch && rest.isEmpty && defaultRows.isEmpty
-                  buildCase(sig, caseMustMatch).flatMap {
-                    case (cond, preLets, newRows, newOccs) =>
-                      if (newRows.isEmpty) compileCases(rest, mustMatch)
-                      else {
-                        compileRows(newRows, newOccs, mustMatch).flatMap {
-                          thenExpr =>
-                          cond match {
-                            case TrueConst =>
-                              Monad[F].pure(letMutAll(preLets, thenExpr))
-                            case _ =>
-                              val hasElse =
-                                rest.nonEmpty || defaultRows.nonEmpty
-
-                              val branchF: F[Expr[B]] =
-                                if (!hasElse) Monad[F].pure(always(cond, thenExpr))
-                                else
-                                  compileCases(rest, mustMatch).map {
-                                    elseExpr =>
-                                      If(cond, thenExpr, elseExpr)
-                                  }
-
-                              branchF.map(letMutAll(preLets, _))
-                          }
-                        }
+                ] =
+                  sig match {
+                    case EnumSig(_, v, s, f) =>
+                      val newRows = specializeRows(sig, rows, colIdx, s)
+                      val fields =
+                        (0 until s).toList.map(i => GetEnumElement(occ, v, i, s))
+                      val newOccs = occs.patch(colIdx, fields, 1)
+                      val cond =
+                        if (caseMustMatch) TrueConst else CheckVariant(occ, v, s, f)
+                      Monad[F].pure(
+                        (
+                          cond,
+                          Nil,
+                          newRows,
+                          newOccs
+                        )
+                      )
+                    case StructSig(_, s) =>
+                      val newRows = specializeRows(sig, rows, colIdx, s)
+                      val fields =
+                        (0 until s).iterator
+                          .map(i => GetStructElement(occ, i, s))
+                          .toList
+                      val newOccs = occs.patch(colIdx, fields, 1)
+                      Monad[F].pure((TrueConst, Nil, newRows, newOccs))
+                    case LitSig(lit) =>
+                      val newRows = specializeRows(sig, rows, colIdx, 0)
+                      val newOccs = occs.patch(colIdx, Nil, 1)
+                      val cond =
+                        if (caseMustMatch) TrueConst else EqualsLit(occ, lit)
+                      Monad[F].pure((cond, Nil, newRows, newOccs))
+                    case ZeroSig =>
+                      val newRows = specializeRows(sig, rows, colIdx, 0)
+                      val newOccs = occs.patch(colIdx, Nil, 1)
+                      val cond =
+                        if (caseMustMatch) TrueConst
+                        else EqualsNat(occ, DataRepr.ZeroNat)
+                      Monad[F].pure(
+                        (cond, Nil, newRows, newOccs)
+                      )
+                    case SuccSig =>
+                      makeAnon.map { nm =>
+                        val mut = LocalAnonMut(nm)
+                        val setPrev = SetMut(mut, PrevNat(occ))
+                        val cond =
+                          if (caseMustMatch) setPrev
+                          else EqualsNat(occ, DataRepr.SuccNat) && setPrev
+                        val newRows = specializeRows(sig, rows, colIdx, 1)
+                        val newOccs = occs.patch(colIdx, mut :: Nil, 1)
+                        (cond, mut :: Nil, newRows, newOccs)
                       }
                   }
-              }
 
-            compileCases(sigs, mustMatch)
+                // Compile cases in order, with a default branch for wildcards.
+                def compileCases(
+                    sigs: List[HeadSig],
+                    mustMatch: Boolean
+                ): F[Expr[B]] =
+                  sigs match {
+                    case Nil =>
+                      if (defaultRows.nonEmpty)
+                        compileRows(defaultRows, defaultOccs, mustMatch)
+                      else Monad[F].pure(UnitExpr)
+                    case sig :: rest =>
+                      val caseMustMatch =
+                        mustMatch && rest.isEmpty && defaultRows.isEmpty
+                      buildCase(sig, caseMustMatch).flatMap {
+                        case (cond, preLets, newRows, newOccs) =>
+                          if (newRows.isEmpty) compileCases(rest, mustMatch)
+                          else {
+                            compileRows(newRows, newOccs, mustMatch).flatMap {
+                              thenExpr =>
+                                cond match {
+                                  case TrueConst =>
+                                    Monad[F].pure(letMutAll(preLets, thenExpr))
+                                  case _ =>
+                                    val hasElse =
+                                      rest.nonEmpty || defaultRows.nonEmpty
+
+                                    val branchF: F[Expr[B]] =
+                                      if (!hasElse)
+                                        Monad[F].pure(always(cond, thenExpr))
+                                      else
+                                        compileCases(rest, mustMatch).map {
+                                          elseExpr =>
+                                            If(cond, thenExpr, elseExpr)
+                                        }
+
+                                    branchF.map(letMutAll(preLets, _))
+                                }
+                            }
+                          }
+                      }
+                  }
+
+                compileCases(sigs, mustMatch)
+            }
+
+          compiled.map(letAnons(occLets, _))
         }
-      }
 
       compileRows(rows0, arg :: Nil, topMustMatch)
     }
