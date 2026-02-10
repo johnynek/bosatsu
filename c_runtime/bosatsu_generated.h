@@ -9,7 +9,7 @@ BValue alloc_struct2(BValue b0, BValue b1) {
     }
     rc->_0 = b0;
     rc->_1 = b1;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct3,BValue _0;BValue _1;BValue _2;);
@@ -23,7 +23,7 @@ BValue alloc_struct3(BValue b0, BValue b1, BValue b2) {
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct4,BValue _0;BValue _1;BValue _2;BValue _3;);
@@ -38,7 +38,7 @@ BValue alloc_struct4(BValue b0, BValue b1, BValue b2, BValue b3) {
     rc->_1 = b1;
     rc->_2 = b2;
     rc->_3 = b3;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct5,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;);
@@ -54,7 +54,7 @@ BValue alloc_struct5(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4) {
     rc->_2 = b2;
     rc->_3 = b3;
     rc->_4 = b4;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct6,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;);
@@ -71,7 +71,7 @@ BValue alloc_struct6(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVal
     rc->_3 = b3;
     rc->_4 = b4;
     rc->_5 = b5;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct7,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;);
@@ -89,7 +89,7 @@ BValue alloc_struct7(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVal
     rc->_4 = b4;
     rc->_5 = b5;
     rc->_6 = b6;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct8,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;);
@@ -108,7 +108,7 @@ BValue alloc_struct8(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVal
     rc->_5 = b5;
     rc->_6 = b6;
     rc->_7 = b7;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct9,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;);
@@ -128,7 +128,7 @@ BValue alloc_struct9(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVal
     rc->_6 = b6;
     rc->_7 = b7;
     rc->_8 = b8;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct10,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;);
@@ -149,7 +149,7 @@ BValue alloc_struct10(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_7 = b7;
     rc->_8 = b8;
     rc->_9 = b9;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct11,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;);
@@ -171,7 +171,7 @@ BValue alloc_struct11(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_8 = b8;
     rc->_9 = b9;
     rc->_10 = b10;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct12,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;);
@@ -194,7 +194,7 @@ BValue alloc_struct12(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_9 = b9;
     rc->_10 = b10;
     rc->_11 = b11;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct13,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;);
@@ -218,7 +218,7 @@ BValue alloc_struct13(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_10 = b10;
     rc->_11 = b11;
     rc->_12 = b12;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct14,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;);
@@ -243,7 +243,7 @@ BValue alloc_struct14(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_11 = b11;
     rc->_12 = b12;
     rc->_13 = b13;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct15,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;);
@@ -269,7 +269,7 @@ BValue alloc_struct15(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_12 = b12;
     rc->_13 = b13;
     rc->_14 = b14;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct16,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;);
@@ -296,7 +296,7 @@ BValue alloc_struct16(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_13 = b13;
     rc->_14 = b14;
     rc->_15 = b15;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct17,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;);
@@ -324,7 +324,7 @@ BValue alloc_struct17(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_14 = b14;
     rc->_15 = b15;
     rc->_16 = b16;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct18,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;);
@@ -353,7 +353,7 @@ BValue alloc_struct18(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_15 = b15;
     rc->_16 = b16;
     rc->_17 = b17;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct19,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;);
@@ -383,7 +383,7 @@ BValue alloc_struct19(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_16 = b16;
     rc->_17 = b17;
     rc->_18 = b18;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct20,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;);
@@ -414,7 +414,7 @@ BValue alloc_struct20(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_17 = b17;
     rc->_18 = b18;
     rc->_19 = b19;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct21,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;);
@@ -446,7 +446,7 @@ BValue alloc_struct21(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_18 = b18;
     rc->_19 = b19;
     rc->_20 = b20;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct22,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;);
@@ -479,7 +479,7 @@ BValue alloc_struct22(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_19 = b19;
     rc->_20 = b20;
     rc->_21 = b21;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct23,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;);
@@ -513,7 +513,7 @@ BValue alloc_struct23(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_20 = b20;
     rc->_21 = b21;
     rc->_22 = b22;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct24,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;);
@@ -548,7 +548,7 @@ BValue alloc_struct24(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_21 = b21;
     rc->_22 = b22;
     rc->_23 = b23;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct25,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;);
@@ -584,7 +584,7 @@ BValue alloc_struct25(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_22 = b22;
     rc->_23 = b23;
     rc->_24 = b24;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct26,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;);
@@ -621,7 +621,7 @@ BValue alloc_struct26(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_23 = b23;
     rc->_24 = b24;
     rc->_25 = b25;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct27,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;);
@@ -659,7 +659,7 @@ BValue alloc_struct27(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_24 = b24;
     rc->_25 = b25;
     rc->_26 = b26;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct28,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;);
@@ -698,7 +698,7 @@ BValue alloc_struct28(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_25 = b25;
     rc->_26 = b26;
     rc->_27 = b27;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct29,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;);
@@ -738,7 +738,7 @@ BValue alloc_struct29(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_26 = b26;
     rc->_27 = b27;
     rc->_28 = b28;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct30,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;);
@@ -779,7 +779,7 @@ BValue alloc_struct30(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_27 = b27;
     rc->_28 = b28;
     rc->_29 = b29;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct31,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;BValue _30;);
@@ -821,7 +821,7 @@ BValue alloc_struct31(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_28 = b28;
     rc->_29 = b29;
     rc->_30 = b30;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_OBJ(Struct32,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;BValue _30;BValue _31;);
@@ -864,7 +864,7 @@ BValue alloc_struct32(BValue b0, BValue b1, BValue b2, BValue b3, BValue b4, BVa
     rc->_29 = b29;
     rc->_30 = b30;
     rc->_31 = b31;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 // ENUMS
@@ -878,7 +878,7 @@ BValue alloc_enum1(ENUM_TAG tag, BValue b0) {
     }
     rc->tag = tag;
     rc->_0 = b0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum2,BValue _0;BValue _1;);
@@ -892,7 +892,7 @@ BValue alloc_enum2(ENUM_TAG tag, BValue b0, BValue b1) {
     rc->tag = tag;
     rc->_0 = b0;
     rc->_1 = b1;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum3,BValue _0;BValue _1;BValue _2;);
@@ -907,7 +907,7 @@ BValue alloc_enum3(ENUM_TAG tag, BValue b0, BValue b1, BValue b2) {
     rc->_0 = b0;
     rc->_1 = b1;
     rc->_2 = b2;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum4,BValue _0;BValue _1;BValue _2;BValue _3;);
@@ -923,7 +923,7 @@ BValue alloc_enum4(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3) {
     rc->_1 = b1;
     rc->_2 = b2;
     rc->_3 = b3;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum5,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;);
@@ -940,7 +940,7 @@ BValue alloc_enum5(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BVa
     rc->_2 = b2;
     rc->_3 = b3;
     rc->_4 = b4;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum6,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;);
@@ -958,7 +958,7 @@ BValue alloc_enum6(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BVa
     rc->_3 = b3;
     rc->_4 = b4;
     rc->_5 = b5;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum7,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;);
@@ -977,7 +977,7 @@ BValue alloc_enum7(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BVa
     rc->_4 = b4;
     rc->_5 = b5;
     rc->_6 = b6;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum8,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;);
@@ -997,7 +997,7 @@ BValue alloc_enum8(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BVa
     rc->_5 = b5;
     rc->_6 = b6;
     rc->_7 = b7;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum9,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;);
@@ -1018,7 +1018,7 @@ BValue alloc_enum9(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BVa
     rc->_6 = b6;
     rc->_7 = b7;
     rc->_8 = b8;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum10,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;);
@@ -1040,7 +1040,7 @@ BValue alloc_enum10(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_7 = b7;
     rc->_8 = b8;
     rc->_9 = b9;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum11,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;);
@@ -1063,7 +1063,7 @@ BValue alloc_enum11(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_8 = b8;
     rc->_9 = b9;
     rc->_10 = b10;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum12,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;);
@@ -1087,7 +1087,7 @@ BValue alloc_enum12(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_9 = b9;
     rc->_10 = b10;
     rc->_11 = b11;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum13,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;);
@@ -1112,7 +1112,7 @@ BValue alloc_enum13(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_10 = b10;
     rc->_11 = b11;
     rc->_12 = b12;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum14,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;);
@@ -1138,7 +1138,7 @@ BValue alloc_enum14(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_11 = b11;
     rc->_12 = b12;
     rc->_13 = b13;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum15,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;);
@@ -1165,7 +1165,7 @@ BValue alloc_enum15(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_12 = b12;
     rc->_13 = b13;
     rc->_14 = b14;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum16,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;);
@@ -1193,7 +1193,7 @@ BValue alloc_enum16(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_13 = b13;
     rc->_14 = b14;
     rc->_15 = b15;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum17,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;);
@@ -1222,7 +1222,7 @@ BValue alloc_enum17(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_14 = b14;
     rc->_15 = b15;
     rc->_16 = b16;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum18,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;);
@@ -1252,7 +1252,7 @@ BValue alloc_enum18(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_15 = b15;
     rc->_16 = b16;
     rc->_17 = b17;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum19,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;);
@@ -1283,7 +1283,7 @@ BValue alloc_enum19(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_16 = b16;
     rc->_17 = b17;
     rc->_18 = b18;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum20,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;);
@@ -1315,7 +1315,7 @@ BValue alloc_enum20(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_17 = b17;
     rc->_18 = b18;
     rc->_19 = b19;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum21,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;);
@@ -1348,7 +1348,7 @@ BValue alloc_enum21(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_18 = b18;
     rc->_19 = b19;
     rc->_20 = b20;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum22,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;);
@@ -1382,7 +1382,7 @@ BValue alloc_enum22(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_19 = b19;
     rc->_20 = b20;
     rc->_21 = b21;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum23,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;);
@@ -1417,7 +1417,7 @@ BValue alloc_enum23(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_20 = b20;
     rc->_21 = b21;
     rc->_22 = b22;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum24,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;);
@@ -1453,7 +1453,7 @@ BValue alloc_enum24(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_21 = b21;
     rc->_22 = b22;
     rc->_23 = b23;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum25,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;);
@@ -1490,7 +1490,7 @@ BValue alloc_enum25(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_22 = b22;
     rc->_23 = b23;
     rc->_24 = b24;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum26,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;);
@@ -1528,7 +1528,7 @@ BValue alloc_enum26(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_23 = b23;
     rc->_24 = b24;
     rc->_25 = b25;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum27,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;);
@@ -1567,7 +1567,7 @@ BValue alloc_enum27(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_24 = b24;
     rc->_25 = b25;
     rc->_26 = b26;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum28,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;);
@@ -1607,7 +1607,7 @@ BValue alloc_enum28(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_25 = b25;
     rc->_26 = b26;
     rc->_27 = b27;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum29,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;);
@@ -1648,7 +1648,7 @@ BValue alloc_enum29(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_26 = b26;
     rc->_27 = b27;
     rc->_28 = b28;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum30,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;);
@@ -1690,7 +1690,7 @@ BValue alloc_enum30(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_27 = b27;
     rc->_28 = b28;
     rc->_29 = b29;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum31,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;BValue _30;);
@@ -1733,7 +1733,7 @@ BValue alloc_enum31(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_28 = b28;
     rc->_29 = b29;
     rc->_30 = b30;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 DEFINE_BSTS_ENUM(Enum32,BValue _0;BValue _1;BValue _2;BValue _3;BValue _4;BValue _5;BValue _6;BValue _7;BValue _8;BValue _9;BValue _10;BValue _11;BValue _12;BValue _13;BValue _14;BValue _15;BValue _16;BValue _17;BValue _18;BValue _19;BValue _20;BValue _21;BValue _22;BValue _23;BValue _24;BValue _25;BValue _26;BValue _27;BValue _28;BValue _29;BValue _30;BValue _31;);
@@ -1777,7 +1777,7 @@ BValue alloc_enum32(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
     rc->_29 = b29;
     rc->_30 = b30;
     rc->_31 = b31;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 // FUNCTIONS
@@ -1793,8 +1793,8 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of(rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
@@ -1802,32 +1802,31 @@ BValue alloc_boxed_pure_fn1(BPureFn1 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn1* rc = (BoxedPureFn1*)GC_malloc(sizeof(BoxedPureFn1));
+    BoxedPureFn1* rc = GC_malloc(sizeof(BoxedPureFn1));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn1");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn1(BValue fn, BValue arg0) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn1 pure = (BPureFn1)PURE_VALUE(fn);
+    BPureFn1 pure = (BPureFn1)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn1* purefn = (BoxedPureFn1*)ptr;
+  BoxedPureFn1* purefn = BSTS_PTR(BoxedPureFn1, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0);
   }
   else {
     // this must be a closure:
-    Closure1Data* rc = (Closure1Data*)ptr;
+    Closure1Data* rc = BSTS_PTR(Closure1Data, fn);
     BValue* data = closure_data_of(rc);
     return rc->fn(data, arg0);
   }
@@ -1846,8 +1845,8 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
@@ -1855,32 +1854,31 @@ BValue alloc_boxed_pure_fn2(BPureFn2 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn2* rc = (BoxedPureFn2*)GC_malloc(sizeof(BoxedPureFn2));
+    BoxedPureFn2* rc = GC_malloc(sizeof(BoxedPureFn2));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn2");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn2(BValue fn, BValue arg0, BValue arg1) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn2 pure = (BPureFn2)PURE_VALUE(fn);
+    BPureFn2 pure = (BPureFn2)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn2* purefn = (BoxedPureFn2*)ptr;
+  BoxedPureFn2* purefn = BSTS_PTR(BoxedPureFn2, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1);
   }
   else {
     // this must be a closure:
-    Closure2Data* rc = (Closure2Data*)ptr;
+    Closure2Data* rc = BSTS_PTR(Closure2Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1);
   }
@@ -1899,8 +1897,8 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
@@ -1908,32 +1906,31 @@ BValue alloc_boxed_pure_fn3(BPureFn3 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn3* rc = (BoxedPureFn3*)GC_malloc(sizeof(BoxedPureFn3));
+    BoxedPureFn3* rc = GC_malloc(sizeof(BoxedPureFn3));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn3");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn3(BValue fn, BValue arg0, BValue arg1, BValue arg2) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn3 pure = (BPureFn3)PURE_VALUE(fn);
+    BPureFn3 pure = (BPureFn3)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn3* purefn = (BoxedPureFn3*)ptr;
+  BoxedPureFn3* purefn = BSTS_PTR(BoxedPureFn3, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2);
   }
   else {
     // this must be a closure:
-    Closure3Data* rc = (Closure3Data*)ptr;
+    Closure3Data* rc = BSTS_PTR(Closure3Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2);
   }
@@ -1952,8 +1949,8 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
@@ -1961,32 +1958,31 @@ BValue alloc_boxed_pure_fn4(BPureFn4 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn4* rc = (BoxedPureFn4*)GC_malloc(sizeof(BoxedPureFn4));
+    BoxedPureFn4* rc = GC_malloc(sizeof(BoxedPureFn4));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn4");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn4(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn4 pure = (BPureFn4)PURE_VALUE(fn);
+    BPureFn4 pure = (BPureFn4)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn4* purefn = (BoxedPureFn4*)ptr;
+  BoxedPureFn4* purefn = BSTS_PTR(BoxedPureFn4, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3);
   }
   else {
     // this must be a closure:
-    Closure4Data* rc = (Closure4Data*)ptr;
+    Closure4Data* rc = BSTS_PTR(Closure4Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3);
   }
@@ -2005,8 +2001,8 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
@@ -2014,32 +2010,31 @@ BValue alloc_boxed_pure_fn5(BPureFn5 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn5* rc = (BoxedPureFn5*)GC_malloc(sizeof(BoxedPureFn5));
+    BoxedPureFn5* rc = GC_malloc(sizeof(BoxedPureFn5));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn5");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn5(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn5 pure = (BPureFn5)PURE_VALUE(fn);
+    BPureFn5 pure = (BPureFn5)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn5* purefn = (BoxedPureFn5*)ptr;
+  BoxedPureFn5* purefn = BSTS_PTR(BoxedPureFn5, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4);
   }
   else {
     // this must be a closure:
-    Closure5Data* rc = (Closure5Data*)ptr;
+    Closure5Data* rc = BSTS_PTR(Closure5Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4);
   }
@@ -2058,8 +2053,8 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
@@ -2067,32 +2062,31 @@ BValue alloc_boxed_pure_fn6(BPureFn6 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn6* rc = (BoxedPureFn6*)GC_malloc(sizeof(BoxedPureFn6));
+    BoxedPureFn6* rc = GC_malloc(sizeof(BoxedPureFn6));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn6");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn6(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn6 pure = (BPureFn6)PURE_VALUE(fn);
+    BPureFn6 pure = (BPureFn6)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn6* purefn = (BoxedPureFn6*)ptr;
+  BoxedPureFn6* purefn = BSTS_PTR(BoxedPureFn6, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5);
   }
   else {
     // this must be a closure:
-    Closure6Data* rc = (Closure6Data*)ptr;
+    Closure6Data* rc = BSTS_PTR(Closure6Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5);
   }
@@ -2111,8 +2105,8 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
@@ -2120,32 +2114,31 @@ BValue alloc_boxed_pure_fn7(BPureFn7 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn7* rc = (BoxedPureFn7*)GC_malloc(sizeof(BoxedPureFn7));
+    BoxedPureFn7* rc = GC_malloc(sizeof(BoxedPureFn7));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn7");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn7(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn7 pure = (BPureFn7)PURE_VALUE(fn);
+    BPureFn7 pure = (BPureFn7)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn7* purefn = (BoxedPureFn7*)ptr;
+  BoxedPureFn7* purefn = BSTS_PTR(BoxedPureFn7, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
   else {
     // this must be a closure:
-    Closure7Data* rc = (Closure7Data*)ptr;
+    Closure7Data* rc = BSTS_PTR(Closure7Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6);
   }
@@ -2164,8 +2157,8 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
@@ -2173,32 +2166,31 @@ BValue alloc_boxed_pure_fn8(BPureFn8 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn8* rc = (BoxedPureFn8*)GC_malloc(sizeof(BoxedPureFn8));
+    BoxedPureFn8* rc = GC_malloc(sizeof(BoxedPureFn8));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn8");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn8(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn8 pure = (BPureFn8)PURE_VALUE(fn);
+    BPureFn8 pure = (BPureFn8)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn8* purefn = (BoxedPureFn8*)ptr;
+  BoxedPureFn8* purefn = BSTS_PTR(BoxedPureFn8, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
   else {
     // this must be a closure:
-    Closure8Data* rc = (Closure8Data*)ptr;
+    Closure8Data* rc = BSTS_PTR(Closure8Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   }
@@ -2217,8 +2209,8 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
@@ -2226,32 +2218,31 @@ BValue alloc_boxed_pure_fn9(BPureFn9 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn9* rc = (BoxedPureFn9*)GC_malloc(sizeof(BoxedPureFn9));
+    BoxedPureFn9* rc = GC_malloc(sizeof(BoxedPureFn9));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn9");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn9(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn9 pure = (BPureFn9)PURE_VALUE(fn);
+    BPureFn9 pure = (BPureFn9)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn9* purefn = (BoxedPureFn9*)ptr;
+  BoxedPureFn9* purefn = BSTS_PTR(BoxedPureFn9, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
   else {
     // this must be a closure:
-    Closure9Data* rc = (Closure9Data*)ptr;
+    Closure9Data* rc = BSTS_PTR(Closure9Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
   }
@@ -2270,8 +2261,8 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
@@ -2279,32 +2270,31 @@ BValue alloc_boxed_pure_fn10(BPureFn10 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn10* rc = (BoxedPureFn10*)GC_malloc(sizeof(BoxedPureFn10));
+    BoxedPureFn10* rc = GC_malloc(sizeof(BoxedPureFn10));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn10");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn10(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn10 pure = (BPureFn10)PURE_VALUE(fn);
+    BPureFn10 pure = (BPureFn10)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn10* purefn = (BoxedPureFn10*)ptr;
+  BoxedPureFn10* purefn = BSTS_PTR(BoxedPureFn10, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
   else {
     // this must be a closure:
-    Closure10Data* rc = (Closure10Data*)ptr;
+    Closure10Data* rc = BSTS_PTR(Closure10Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
   }
@@ -2323,8 +2313,8 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
@@ -2332,32 +2322,31 @@ BValue alloc_boxed_pure_fn11(BPureFn11 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn11* rc = (BoxedPureFn11*)GC_malloc(sizeof(BoxedPureFn11));
+    BoxedPureFn11* rc = GC_malloc(sizeof(BoxedPureFn11));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn11");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn11(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn11 pure = (BPureFn11)PURE_VALUE(fn);
+    BPureFn11 pure = (BPureFn11)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn11* purefn = (BoxedPureFn11*)ptr;
+  BoxedPureFn11* purefn = BSTS_PTR(BoxedPureFn11, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
   else {
     // this must be a closure:
-    Closure11Data* rc = (Closure11Data*)ptr;
+    Closure11Data* rc = BSTS_PTR(Closure11Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
   }
@@ -2376,8 +2365,8 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
@@ -2385,32 +2374,31 @@ BValue alloc_boxed_pure_fn12(BPureFn12 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn12* rc = (BoxedPureFn12*)GC_malloc(sizeof(BoxedPureFn12));
+    BoxedPureFn12* rc = GC_malloc(sizeof(BoxedPureFn12));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn12");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn12(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn12 pure = (BPureFn12)PURE_VALUE(fn);
+    BPureFn12 pure = (BPureFn12)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn12* purefn = (BoxedPureFn12*)ptr;
+  BoxedPureFn12* purefn = BSTS_PTR(BoxedPureFn12, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
   else {
     // this must be a closure:
-    Closure12Data* rc = (Closure12Data*)ptr;
+    Closure12Data* rc = BSTS_PTR(Closure12Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
   }
@@ -2429,8 +2417,8 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
@@ -2438,32 +2426,31 @@ BValue alloc_boxed_pure_fn13(BPureFn13 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn13* rc = (BoxedPureFn13*)GC_malloc(sizeof(BoxedPureFn13));
+    BoxedPureFn13* rc = GC_malloc(sizeof(BoxedPureFn13));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn13");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn13(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn13 pure = (BPureFn13)PURE_VALUE(fn);
+    BPureFn13 pure = (BPureFn13)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn13* purefn = (BoxedPureFn13*)ptr;
+  BoxedPureFn13* purefn = BSTS_PTR(BoxedPureFn13, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
   else {
     // this must be a closure:
-    Closure13Data* rc = (Closure13Data*)ptr;
+    Closure13Data* rc = BSTS_PTR(Closure13Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
   }
@@ -2482,8 +2469,8 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
@@ -2491,32 +2478,31 @@ BValue alloc_boxed_pure_fn14(BPureFn14 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn14* rc = (BoxedPureFn14*)GC_malloc(sizeof(BoxedPureFn14));
+    BoxedPureFn14* rc = GC_malloc(sizeof(BoxedPureFn14));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn14");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn14(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn14 pure = (BPureFn14)PURE_VALUE(fn);
+    BPureFn14 pure = (BPureFn14)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn14* purefn = (BoxedPureFn14*)ptr;
+  BoxedPureFn14* purefn = BSTS_PTR(BoxedPureFn14, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
   else {
     // this must be a closure:
-    Closure14Data* rc = (Closure14Data*)ptr;
+    Closure14Data* rc = BSTS_PTR(Closure14Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
   }
@@ -2535,8 +2521,8 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
@@ -2544,32 +2530,31 @@ BValue alloc_boxed_pure_fn15(BPureFn15 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn15* rc = (BoxedPureFn15*)GC_malloc(sizeof(BoxedPureFn15));
+    BoxedPureFn15* rc = GC_malloc(sizeof(BoxedPureFn15));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn15");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn15(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn15 pure = (BPureFn15)PURE_VALUE(fn);
+    BPureFn15 pure = (BPureFn15)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn15* purefn = (BoxedPureFn15*)ptr;
+  BoxedPureFn15* purefn = BSTS_PTR(BoxedPureFn15, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
   else {
     // this must be a closure:
-    Closure15Data* rc = (Closure15Data*)ptr;
+    Closure15Data* rc = BSTS_PTR(Closure15Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14);
   }
@@ -2588,8 +2573,8 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
@@ -2597,32 +2582,31 @@ BValue alloc_boxed_pure_fn16(BPureFn16 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn16* rc = (BoxedPureFn16*)GC_malloc(sizeof(BoxedPureFn16));
+    BoxedPureFn16* rc = GC_malloc(sizeof(BoxedPureFn16));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn16");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn16(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn16 pure = (BPureFn16)PURE_VALUE(fn);
+    BPureFn16 pure = (BPureFn16)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn16* purefn = (BoxedPureFn16*)ptr;
+  BoxedPureFn16* purefn = BSTS_PTR(BoxedPureFn16, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
   else {
     // this must be a closure:
-    Closure16Data* rc = (Closure16Data*)ptr;
+    Closure16Data* rc = BSTS_PTR(Closure16Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
   }
@@ -2641,8 +2625,8 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
@@ -2650,32 +2634,31 @@ BValue alloc_boxed_pure_fn17(BPureFn17 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn17* rc = (BoxedPureFn17*)GC_malloc(sizeof(BoxedPureFn17));
+    BoxedPureFn17* rc = GC_malloc(sizeof(BoxedPureFn17));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn17");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn17(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn17 pure = (BPureFn17)PURE_VALUE(fn);
+    BPureFn17 pure = (BPureFn17)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn17* purefn = (BoxedPureFn17*)ptr;
+  BoxedPureFn17* purefn = BSTS_PTR(BoxedPureFn17, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
   else {
     // this must be a closure:
-    Closure17Data* rc = (Closure17Data*)ptr;
+    Closure17Data* rc = BSTS_PTR(Closure17Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16);
   }
@@ -2694,8 +2677,8 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
@@ -2703,32 +2686,31 @@ BValue alloc_boxed_pure_fn18(BPureFn18 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn18* rc = (BoxedPureFn18*)GC_malloc(sizeof(BoxedPureFn18));
+    BoxedPureFn18* rc = GC_malloc(sizeof(BoxedPureFn18));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn18");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn18(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn18 pure = (BPureFn18)PURE_VALUE(fn);
+    BPureFn18 pure = (BPureFn18)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn18* purefn = (BoxedPureFn18*)ptr;
+  BoxedPureFn18* purefn = BSTS_PTR(BoxedPureFn18, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
   else {
     // this must be a closure:
-    Closure18Data* rc = (Closure18Data*)ptr;
+    Closure18Data* rc = BSTS_PTR(Closure18Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17);
   }
@@ -2747,8 +2729,8 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
@@ -2756,32 +2738,31 @@ BValue alloc_boxed_pure_fn19(BPureFn19 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn19* rc = (BoxedPureFn19*)GC_malloc(sizeof(BoxedPureFn19));
+    BoxedPureFn19* rc = GC_malloc(sizeof(BoxedPureFn19));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn19");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn19(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn19 pure = (BPureFn19)PURE_VALUE(fn);
+    BPureFn19 pure = (BPureFn19)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn19* purefn = (BoxedPureFn19*)ptr;
+  BoxedPureFn19* purefn = BSTS_PTR(BoxedPureFn19, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
   else {
     // this must be a closure:
-    Closure19Data* rc = (Closure19Data*)ptr;
+    Closure19Data* rc = BSTS_PTR(Closure19Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18);
   }
@@ -2800,8 +2781,8 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
@@ -2809,32 +2790,31 @@ BValue alloc_boxed_pure_fn20(BPureFn20 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn20* rc = (BoxedPureFn20*)GC_malloc(sizeof(BoxedPureFn20));
+    BoxedPureFn20* rc = GC_malloc(sizeof(BoxedPureFn20));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn20");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn20(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn20 pure = (BPureFn20)PURE_VALUE(fn);
+    BPureFn20 pure = (BPureFn20)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn20* purefn = (BoxedPureFn20*)ptr;
+  BoxedPureFn20* purefn = BSTS_PTR(BoxedPureFn20, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
   else {
     // this must be a closure:
-    Closure20Data* rc = (Closure20Data*)ptr;
+    Closure20Data* rc = BSTS_PTR(Closure20Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19);
   }
@@ -2853,8 +2833,8 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
@@ -2862,32 +2842,31 @@ BValue alloc_boxed_pure_fn21(BPureFn21 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn21* rc = (BoxedPureFn21*)GC_malloc(sizeof(BoxedPureFn21));
+    BoxedPureFn21* rc = GC_malloc(sizeof(BoxedPureFn21));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn21");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn21(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn21 pure = (BPureFn21)PURE_VALUE(fn);
+    BPureFn21 pure = (BPureFn21)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn21* purefn = (BoxedPureFn21*)ptr;
+  BoxedPureFn21* purefn = BSTS_PTR(BoxedPureFn21, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
   else {
     // this must be a closure:
-    Closure21Data* rc = (Closure21Data*)ptr;
+    Closure21Data* rc = BSTS_PTR(Closure21Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20);
   }
@@ -2906,8 +2885,8 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
@@ -2915,32 +2894,31 @@ BValue alloc_boxed_pure_fn22(BPureFn22 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn22* rc = (BoxedPureFn22*)GC_malloc(sizeof(BoxedPureFn22));
+    BoxedPureFn22* rc = GC_malloc(sizeof(BoxedPureFn22));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn22");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn22(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn22 pure = (BPureFn22)PURE_VALUE(fn);
+    BPureFn22 pure = (BPureFn22)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn22* purefn = (BoxedPureFn22*)ptr;
+  BoxedPureFn22* purefn = BSTS_PTR(BoxedPureFn22, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
   else {
     // this must be a closure:
-    Closure22Data* rc = (Closure22Data*)ptr;
+    Closure22Data* rc = BSTS_PTR(Closure22Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21);
   }
@@ -2959,8 +2937,8 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
@@ -2968,32 +2946,31 @@ BValue alloc_boxed_pure_fn23(BPureFn23 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn23* rc = (BoxedPureFn23*)GC_malloc(sizeof(BoxedPureFn23));
+    BoxedPureFn23* rc = GC_malloc(sizeof(BoxedPureFn23));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn23");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn23(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn23 pure = (BPureFn23)PURE_VALUE(fn);
+    BPureFn23 pure = (BPureFn23)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn23* purefn = (BoxedPureFn23*)ptr;
+  BoxedPureFn23* purefn = BSTS_PTR(BoxedPureFn23, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
   else {
     // this must be a closure:
-    Closure23Data* rc = (Closure23Data*)ptr;
+    Closure23Data* rc = BSTS_PTR(Closure23Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22);
   }
@@ -3012,8 +2989,8 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
@@ -3021,32 +2998,31 @@ BValue alloc_boxed_pure_fn24(BPureFn24 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn24* rc = (BoxedPureFn24*)GC_malloc(sizeof(BoxedPureFn24));
+    BoxedPureFn24* rc = GC_malloc(sizeof(BoxedPureFn24));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn24");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn24(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn24 pure = (BPureFn24)PURE_VALUE(fn);
+    BPureFn24 pure = (BPureFn24)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn24* purefn = (BoxedPureFn24*)ptr;
+  BoxedPureFn24* purefn = BSTS_PTR(BoxedPureFn24, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
   else {
     // this must be a closure:
-    Closure24Data* rc = (Closure24Data*)ptr;
+    Closure24Data* rc = BSTS_PTR(Closure24Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23);
   }
@@ -3065,8 +3041,8 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
@@ -3074,32 +3050,31 @@ BValue alloc_boxed_pure_fn25(BPureFn25 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn25* rc = (BoxedPureFn25*)GC_malloc(sizeof(BoxedPureFn25));
+    BoxedPureFn25* rc = GC_malloc(sizeof(BoxedPureFn25));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn25");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn25(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn25 pure = (BPureFn25)PURE_VALUE(fn);
+    BPureFn25 pure = (BPureFn25)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn25* purefn = (BoxedPureFn25*)ptr;
+  BoxedPureFn25* purefn = BSTS_PTR(BoxedPureFn25, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
   else {
     // this must be a closure:
-    Closure25Data* rc = (Closure25Data*)ptr;
+    Closure25Data* rc = BSTS_PTR(Closure25Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24);
   }
@@ -3118,8 +3093,8 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
@@ -3127,32 +3102,31 @@ BValue alloc_boxed_pure_fn26(BPureFn26 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn26* rc = (BoxedPureFn26*)GC_malloc(sizeof(BoxedPureFn26));
+    BoxedPureFn26* rc = GC_malloc(sizeof(BoxedPureFn26));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn26");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn26(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn26 pure = (BPureFn26)PURE_VALUE(fn);
+    BPureFn26 pure = (BPureFn26)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn26* purefn = (BoxedPureFn26*)ptr;
+  BoxedPureFn26* purefn = BSTS_PTR(BoxedPureFn26, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
   else {
     // this must be a closure:
-    Closure26Data* rc = (Closure26Data*)ptr;
+    Closure26Data* rc = BSTS_PTR(Closure26Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
   }
@@ -3171,8 +3145,8 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
@@ -3180,32 +3154,31 @@ BValue alloc_boxed_pure_fn27(BPureFn27 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn27* rc = (BoxedPureFn27*)GC_malloc(sizeof(BoxedPureFn27));
+    BoxedPureFn27* rc = GC_malloc(sizeof(BoxedPureFn27));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn27");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn27(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn27 pure = (BPureFn27)PURE_VALUE(fn);
+    BPureFn27 pure = (BPureFn27)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn27* purefn = (BoxedPureFn27*)ptr;
+  BoxedPureFn27* purefn = BSTS_PTR(BoxedPureFn27, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
   else {
     // this must be a closure:
-    Closure27Data* rc = (Closure27Data*)ptr;
+    Closure27Data* rc = BSTS_PTR(Closure27Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
   }
@@ -3224,8 +3197,8 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
@@ -3233,32 +3206,31 @@ BValue alloc_boxed_pure_fn28(BPureFn28 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn28* rc = (BoxedPureFn28*)GC_malloc(sizeof(BoxedPureFn28));
+    BoxedPureFn28* rc = GC_malloc(sizeof(BoxedPureFn28));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn28");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn28(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn28 pure = (BPureFn28)PURE_VALUE(fn);
+    BPureFn28 pure = (BPureFn28)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn28* purefn = (BoxedPureFn28*)ptr;
+  BoxedPureFn28* purefn = BSTS_PTR(BoxedPureFn28, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
   else {
     // this must be a closure:
-    Closure28Data* rc = (Closure28Data*)ptr;
+    Closure28Data* rc = BSTS_PTR(Closure28Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27);
   }
@@ -3277,8 +3249,8 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
@@ -3286,32 +3258,31 @@ BValue alloc_boxed_pure_fn29(BPureFn29 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn29* rc = (BoxedPureFn29*)GC_malloc(sizeof(BoxedPureFn29));
+    BoxedPureFn29* rc = GC_malloc(sizeof(BoxedPureFn29));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn29");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn29(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn29 pure = (BPureFn29)PURE_VALUE(fn);
+    BPureFn29 pure = (BPureFn29)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn29* purefn = (BoxedPureFn29*)ptr;
+  BoxedPureFn29* purefn = BSTS_PTR(BoxedPureFn29, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
   else {
     // this must be a closure:
-    Closure29Data* rc = (Closure29Data*)ptr;
+    Closure29Data* rc = BSTS_PTR(Closure29Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28);
   }
@@ -3330,8 +3301,8 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
@@ -3339,32 +3310,31 @@ BValue alloc_boxed_pure_fn30(BPureFn30 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn30* rc = (BoxedPureFn30*)GC_malloc(sizeof(BoxedPureFn30));
+    BoxedPureFn30* rc = GC_malloc(sizeof(BoxedPureFn30));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn30");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn30(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn30 pure = (BPureFn30)PURE_VALUE(fn);
+    BPureFn30 pure = (BPureFn30)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn30* purefn = (BoxedPureFn30*)ptr;
+  BoxedPureFn30* purefn = BSTS_PTR(BoxedPureFn30, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
   else {
     // this must be a closure:
-    Closure30Data* rc = (Closure30Data*)ptr;
+    Closure30Data* rc = BSTS_PTR(Closure30Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29);
   }
@@ -3383,8 +3353,8 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
@@ -3392,32 +3362,31 @@ BValue alloc_boxed_pure_fn31(BPureFn31 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn31* rc = (BoxedPureFn31*)GC_malloc(sizeof(BoxedPureFn31));
+    BoxedPureFn31* rc = GC_malloc(sizeof(BoxedPureFn31));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn31");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn31(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn31 pure = (BPureFn31)PURE_VALUE(fn);
+    BPureFn31 pure = (BPureFn31)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn31* purefn = (BoxedPureFn31*)ptr;
+  BoxedPureFn31* purefn = BSTS_PTR(BoxedPureFn31, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
   else {
     // this must be a closure:
-    Closure31Data* rc = (Closure31Data*)ptr;
+    Closure31Data* rc = BSTS_PTR(Closure31Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30);
   }
@@ -3436,8 +3405,8 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    memcpy(closure_data, data, sizeof(BValue*) * size);
-    return (BValue)rc;
+    memcpy(closure_data, data, sizeof(BValue) * size);
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
@@ -3445,32 +3414,31 @@ BValue alloc_boxed_pure_fn32(BPureFn32 fn) {
     uintptr_t small_mask = UINTPTR_MAX >> 2;
     if (fn_int <= small_mask) {
       // can pack into a pure value
-      return (BValue)(TO_PURE_VALUE(fn));
+      return TO_PURE_VALUE(fn_int);
     }
-    BoxedPureFn32* rc = (BoxedPureFn32*)GC_malloc(sizeof(BoxedPureFn32));
+    BoxedPureFn32* rc = GC_malloc(sizeof(BoxedPureFn32));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_boxed_pure_fn32");
         abort();
     }
     rc->fn = fn;
     rc->slot_len = 0;
-    return (BValue)rc;
+    return BSTS_VALUE_FROM_PTR(rc);
 }
 
 BValue call_fn32(BValue fn, BValue arg0, BValue arg1, BValue arg2, BValue arg3, BValue arg4, BValue arg5, BValue arg6, BValue arg7, BValue arg8, BValue arg9, BValue arg10, BValue arg11, BValue arg12, BValue arg13, BValue arg14, BValue arg15, BValue arg16, BValue arg17, BValue arg18, BValue arg19, BValue arg20, BValue arg21, BValue arg22, BValue arg23, BValue arg24, BValue arg25, BValue arg26, BValue arg27, BValue arg28, BValue arg29, BValue arg30, BValue arg31) {
   if (IS_PURE_VALUE(fn)) {
     // can pack into a pure value
-    BPureFn32 pure = (BPureFn32)PURE_VALUE(fn);
+    BPureFn32 pure = (BPureFn32)(uintptr_t)PURE_VALUE(fn);
     return pure(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }
-  BValue ptr = (BValue)(fn);
-  BoxedPureFn32* purefn = (BoxedPureFn32*)ptr;
+  BoxedPureFn32* purefn = BSTS_PTR(BoxedPureFn32, fn);
   if (purefn->slot_len == 0) {
     return purefn->fn(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }
   else {
     // this must be a closure:
-    Closure32Data* rc = (Closure32Data*)ptr;
+    Closure32Data* rc = BSTS_PTR(Closure32Data, fn);
     BValue* data = closure_data_of((Closure1Data*)rc);
     return rc->fn(data, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31);
   }

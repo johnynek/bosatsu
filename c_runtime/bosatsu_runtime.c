@@ -41,15 +41,27 @@ short strings by packing them literally into 63 bits with a length.
 Integer values are either pure values (signed values packed into 63 bits),
 or gced big integers
 */
-#define TAG_MASK 0x3
-#define PURE_VALUE_TAG 0x1
-#define POINTER_TAG 0x0
+#define TAG_MASK ((uintptr_t)0x3)
+#define PURE_VALUE_TAG ((uintptr_t)0x1)
+#define POINTER_TAG ((uintptr_t)0x0)
 
-// Utility macros to check the tag of a value
-#define IS_PURE_VALUE(ptr) (((uintptr_t)(ptr) & TAG_MASK) == PURE_VALUE_TAG)
-#define TO_PURE_VALUE(v) ((BValue)((((uintptr_t)v) << 2) | PURE_VALUE_TAG))
-#define PURE_VALUE(ptr) ((uintptr_t)(ptr) >> 2)
-#define IS_POINTER(ptr) (((uintptr_t)(ptr) & TAG_MASK) == POINTER_TAG)
+static inline _Bool bsts_is_pure_value(BValue value) {
+  return (value & TAG_MASK) == PURE_VALUE_TAG;
+}
+
+static inline BValue bsts_to_pure_value(uintptr_t value) {
+  return (BValue)((value << 2) | PURE_VALUE_TAG);
+}
+
+static inline uintptr_t bsts_pure_value(BValue value) {
+  return value >> 2;
+}
+
+// Compatibility aliases used by generated helpers.
+#define IS_PURE_VALUE(value) bsts_is_pure_value((value))
+#define TO_PURE_VALUE(value) bsts_to_pure_value((uintptr_t)(value))
+#define PURE_VALUE(value) bsts_pure_value((value))
+#define IS_POINTER(value) ((((value) & TAG_MASK)) == POINTER_TAG)
 
 #define DEFINE_BSTS_OBJ(name, fields) \
     struct name { \
@@ -66,7 +78,7 @@ BValue bsts_unit_value() {
 }
 
 BValue bsts_char_from_code_point(int codepoint) {
-  return (BValue)TO_PURE_VALUE(codepoint);
+  return TO_PURE_VALUE((uintptr_t)codepoint);
 }
 
 int bsts_char_code_point_from_value(BValue ch) {
@@ -74,11 +86,11 @@ int bsts_char_code_point_from_value(BValue ch) {
 }
 
 BValue bsts_float64_from_bits(uint64_t bits) {
-  return (BValue)(uintptr_t)bits;
+  return (BValue)bits;
 }
 
 uint64_t bsts_float64_to_bits(BValue v) {
-  return (uint64_t)(uintptr_t)v;
+  return (uint64_t)v;
 }
 
 BValue bsts_float64_from_double(double d) {
@@ -132,7 +144,7 @@ size_t closure_data_size(size_t slot_len) {
   return sizeof(Closure1Data) + slot_len * sizeof(BValue);
 }
 BValue* closure_data_of(Closure1Data* s) {
-  return (BValue*)((uintptr_t)s + sizeof(Closure1Data));
+  return (BValue*)(s + 1);
 }
 
 // Given the slots variable return the closure fn value
@@ -161,7 +173,7 @@ typedef struct {
 // Helper macros and functions
 #define IS_SMALL(v) IS_PURE_VALUE(v)
 #define GET_SMALL_INT(v) (int32_t)(PURE_VALUE(v))
-#define GET_BIG_INT(v) ((BSTS_Integer*)(v))
+#define GET_BIG_INT(v) BSTS_PTR(BSTS_Integer, (v))
 
 void bsts_load_op_from_small(int32_t value, uint32_t* words, BSTS_Int_Operand* op) {
     op->sign = value < 0;
@@ -222,8 +234,8 @@ static void push(BSTS_OBJ* static_value) {
 }
 
 void free_on_close(BValue v) {
-  if (v != NULL && GC_base(v) != NULL) {
-    push(v);
+  if (v != BSTS_BVALUE_NULL && GC_base(bsts_bvalue_to_ptr(v)) != NULL) {
+    push(BSTS_PTR(BSTS_OBJ, v));
   }
 }
 
@@ -250,7 +262,7 @@ void init_statics() {
 }
 
 BValue get_struct_index(BValue v, int idx) {
-  uintptr_t rc = (uintptr_t)(v);
+  uintptr_t rc = v;
   BValue* ptr = (BValue*)(rc + sizeof(BSTS_OBJ) + idx * sizeof(BValue));
   return *ptr;
 }
@@ -260,7 +272,7 @@ ENUM_TAG get_variant(BValue v) {
     return (ENUM_TAG)PURE_VALUE(v);
   }
   else {
-    Enum0* real_v = (Enum0*)(v);
+    Enum0* real_v = BSTS_PTR(Enum0, v);
     return real_v->tag;
   }
 }
@@ -270,7 +282,7 @@ ENUM_TAG get_variant_value(BValue v) {
 }
 
 BValue get_enum_index(BValue v, int idx) {
-  uintptr_t rc = (uintptr_t)(v);
+  uintptr_t rc = v;
   BValue* ptr = (BValue*)(rc + sizeof(Enum0) + idx * sizeof(BValue));
   return *ptr;
 }
@@ -289,12 +301,12 @@ BValue alloc_external(void* data, FreeFn free) {
     External* ext = GC_malloc(sizeof(External));
     ext->external = data;
     GC_register_finalizer(ext, free_external, free, NULL, NULL);
-    return (BValue)ext;
+    return BSTS_VALUE_FROM_PTR(ext);
 }
 
 void* get_external(BValue v) {
   // Externals can be static also, top level external values
-  External* ext = (External*)(v);
+  External* ext = BSTS_PTR(External, v);
   return ext->external;
 }
 
@@ -315,7 +327,7 @@ BValue bsts_string_mut(size_t len) {
   str->offset = 0;
   if (len == 0) {
     str->bytes = bsts_empty_string_bytes;
-    return (BValue)str;
+    return BSTS_VALUE_FROM_PTR(str);
   }
   char* bytes = GC_malloc_atomic(sizeof(char) * len);
   if (bytes == NULL) {
@@ -323,16 +335,16 @@ BValue bsts_string_mut(size_t len) {
       abort();
   }
   str->bytes = bytes;
-  return (BValue)str;
+  return BSTS_VALUE_FROM_PTR(str);
 }
 
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
-  BSTS_String* str = (BSTS_String*)bsts_string_mut(len);
+  BSTS_String* str = BSTS_PTR(BSTS_String, bsts_string_mut(len));
   if (len > 0) {
     memcpy(str->bytes, bytes, len);
   }
-  return (BValue)str;
+  return BSTS_VALUE_FROM_PTR(str);
 }
 
 
@@ -346,7 +358,7 @@ BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
   else {
     str->bytes = bytes;
   }
-  return (BValue)str;
+  return BSTS_VALUE_FROM_PTR(str);
 }
 
 BValue bsts_string_from_utf8_bytes_static_null_term(char* bytes) {
@@ -389,7 +401,7 @@ int bsts_string_code_point_to_utf8(int code_point, char* output) {
     return -1;
 }
 
-#define GET_STRING(v) (BSTS_String*)(v)
+#define GET_STRING(v) BSTS_PTR(BSTS_String, (v))
 
 _Bool bsts_string_equals(BValue left, BValue right) {
   if (left == right) {
@@ -588,7 +600,7 @@ BValue bsts_string_substring(BValue value, int start, int end) {
     res->len = new_len;
     res->offset = str->offset + (size_t)start;
     res->bytes = str->bytes;
-    return (BValue)res;
+    return BSTS_VALUE_FROM_PTR(res);
   }
 }
 
@@ -742,7 +754,7 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     BSTS_Integer* integer = bsts_integer_alloc(size);
     integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
-    return (BValue)integer; // Low bit is 0 since it's a pointer
+    return BSTS_VALUE_FROM_PTR(integer);
 }
 
 BValue bsts_integer_from_int64(int64_t result) {
@@ -759,14 +771,14 @@ BValue bsts_integer_from_int64(int64_t result) {
         BSTS_Integer* result = bsts_integer_alloc(1);
         result->sign = !is_positive;
         result->words[0] = low;
-        return (BValue)result;
+        return BSTS_VALUE_FROM_PTR(result);
       }
       else {
         BSTS_Integer* result = bsts_integer_alloc(2);
         result->sign = !is_positive;
         result->words[0] = low;
         result->words[1] = high;
-        return (BValue)result;
+        return BSTS_VALUE_FROM_PTR(result);
       }
   }
 }
@@ -783,14 +795,14 @@ BValue bsts_integer_from_uint64(uint64_t result) {
         BSTS_Integer* result = bsts_integer_alloc(1);
         result->sign = 0;
         result->words[0] = low;
-        return (BValue)result;
+        return BSTS_VALUE_FROM_PTR(result);
       }
       else {
         BSTS_Integer* result = bsts_integer_alloc(2);
         result->sign = 0;
         result->words[0] = low;
         result->words[1] = high;
-        return (BValue)result;
+        return BSTS_VALUE_FROM_PTR(result);
       }
   }
 }
@@ -807,7 +819,7 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
       }
     }
     else {
-      return NULL;
+      return BSTS_BVALUE_NULL;
     }
   }
   else if (small_result <= INT32_MAX) {
@@ -816,7 +828,7 @@ BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
   }
   else {
     // positive number > INT32_MAX
-    return NULL;
+    return BSTS_BVALUE_NULL;
   }
 }
 
@@ -947,7 +959,7 @@ static BValue bsts_integer_add_big_small(BValue bigv, int32_t small) {
         }
         result->len = out_len;
         result->sign = big_sign;
-        return (BValue)result;
+        return BSTS_VALUE_FROM_PTR(result);
     }
     else {
         // different signs: subtract magnitudes
@@ -985,7 +997,7 @@ static BValue bsts_integer_add_big_small(BValue bigv, int32_t small) {
             }
             result->len = out_len;
             result->sign = big_sign;
-            return (BValue)result;
+            return BSTS_VALUE_FROM_PTR(result);
         } else {
             uint32_t bw = big->words[0];
             if (bw == abs_small) {
@@ -999,7 +1011,7 @@ static BValue bsts_integer_add_big_small(BValue bigv, int32_t small) {
                 result->words[0] = diff;
                 result->len = 1;
                 result->sign = big_sign;
-                return (BValue)result;
+                return BSTS_VALUE_FROM_PTR(result);
             } else {
                 uint32_t diff = (uint32_t)(abs_small - bw);
                 _Bool result_sign = small_sign;
@@ -1009,7 +1021,7 @@ static BValue bsts_integer_add_big_small(BValue bigv, int32_t small) {
                 result->words[0] = diff;
                 result->len = 1;
                 result->sign = result_sign;
-                return (BValue)result;
+                return BSTS_VALUE_FROM_PTR(result);
             }
         }
     }
@@ -1045,7 +1057,7 @@ static BValue bsts_integer_mul_big_small(BValue bigv, int32_t small) {
     }
     result->len = out_len;
     result->sign = result_sign;
-    return (BValue)result;
+    return BSTS_VALUE_FROM_PTR(result);
 }
 
 BValue bsts_integer_add(BValue l, BValue r) {
@@ -1061,7 +1073,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
         return bsts_integer_add_big_small(r, GET_SMALL_INT(l));
     } else if (!l_is_small && r_is_small) {
         return bsts_integer_add_big_small(l, GET_SMALL_INT(r));
-    } else if (((uintptr_t)l) == PURE_VALUE_TAG) {
+    } else if (l == (BValue)PURE_VALUE_TAG) {
         // sub(x, y) is encoded as add(x, negate(y)), and in Bosatsu code
         // -y is encoded as 0 - y. We should have a negate in Predef, but don't currently.
         return r;
@@ -1078,7 +1090,7 @@ BValue bsts_integer_add(BValue l, BValue r) {
         // Prepare right operand
         bsts_integer_load_op(r, right_temp, &right_operand);
 
-        BValue result = NULL;
+        BValue result = BSTS_BVALUE_NULL;
         if (left_operand.sign == right_operand.sign) {
             // Addition
             _Bool result_sign = left_operand.sign;
@@ -1344,7 +1356,7 @@ BValue bsts_integer_to_string(BValue v) {
         }
 
         // Now, reverse the digits to get the correct order
-        BSTS_String* res = (BSTS_String*)bsts_string_mut(digit_count);
+        BSTS_String* res = BSTS_PTR(BSTS_String, bsts_string_mut(digit_count));
         char* out = bsts_string_data_ptr(res);
 
         // reverse the data
@@ -1356,7 +1368,7 @@ BValue bsts_integer_to_string(BValue v) {
         free(digits);
         free(words_copy);
 
-        return res;
+        return BSTS_VALUE_FROM_PTR(res);
     }
 }
 
@@ -1503,7 +1515,7 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     }
     result->len = result_len;
     result->sign = result_sign;
-    return result;
+    return BSTS_VALUE_FROM_PTR(result);
 }
 
 // Function to perform bitwise AND on two BValues
@@ -2143,7 +2155,7 @@ _Bool bsts_integer_is_zero(BValue v) {
   _Bool is_zero;
   if (IS_SMALL(v)) {
       // zero is encoded as just the pure value tag
-      is_zero = (((uintptr_t)v) == PURE_VALUE_TAG);
+      is_zero = (v == (BValue)PURE_VALUE_TAG);
   } else {
       BSTS_Integer* m_big = GET_BIG_INT(v);
       is_zero = 1;
@@ -2272,16 +2284,16 @@ void free_statics() {
  */
 BValue read_or_build(_Atomic BValue* target, BConstruct cons) {
     BValue result = atomic_load(target);
-    if (result == NULL) {
+    if (result == BSTS_BVALUE_NULL) {
         result = cons();
-        BValue expected = NULL;
+        BValue expected = BSTS_BVALUE_NULL;
         do {
             if (atomic_compare_exchange_weak(target, &expected, result)) {
                 free_on_close(result);
                 break;
             } else {
                 expected = atomic_load(target);
-                if (expected != NULL) {
+                if (expected != BSTS_BVALUE_NULL) {
                     result = expected;
                     break;
                 }
