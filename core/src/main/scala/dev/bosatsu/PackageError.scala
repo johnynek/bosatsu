@@ -748,12 +748,18 @@ object PackageError {
 
           given Document[Type] = Document.instance(showT)
           val doc = Pattern.compiledDocument[Type]
+          val guardHint =
+            if (err.matchExpr.branches.exists(_.guard.nonEmpty)) {
+              Doc.hardLine + Doc.text(
+                "guarded branches do not count toward totality; add an unguarded fallback case"
+              )
+            } else Doc.empty
 
           Doc.text("non-total match, missing: ") +
             (Doc.intercalate(
               Doc.char(',') + Doc.lineOrSpace,
               missing.toList.map(doc.document(_))
-            ))
+            )) + guardHint
         case TotalityCheck.UnreachableBranches(_, unreachableBranches) =>
           val allTypes = unreachableBranches
             .traverse(_.traverseType(t => Writer(Chain.one(t), ())))

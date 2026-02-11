@@ -58,7 +58,7 @@ x = match B(100):
       TypedExpr.Match(
         TypedExpr.Local(x, intT, tag),
         NonEmptyList(
-          (pat, TypedExpr.Local(y, intT, tag)),
+          TypedExpr.Branch(pat, None, TypedExpr.Local(y, intT, tag)),
           Nil
         ),
         tag
@@ -388,12 +388,21 @@ foo = _ -> 1
   }
 
   val intTpe = Type.IntType
+  val boolTpe = Type.BoolType
 
   def lit(l: Lit): TypedExpr[Unit] =
     TypedExpr.Literal(l, Type.getTypeOf(l), ())
 
   def int(i: Int): TypedExpr[Unit] =
     lit(Lit.fromInt(i))
+
+  def bool(b: Boolean): TypedExpr[Unit] =
+    TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Constructor(if (b) "True" else "False"),
+      boolTpe,
+      ()
+    )
 
   def varTE(n: String, tpe: Type): TypedExpr[Unit] =
     TypedExpr.Local(Identifier.Name(n), tpe, ())
@@ -419,6 +428,14 @@ foo = _ -> 1
       PackageName.PredefName,
       Identifier.Name("sub"),
       Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), Type.IntType),
+      ()
+    )
+
+  val PredefEqInt: TypedExpr[Unit] =
+    TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(Type.IntType, Type.IntType), boolTpe),
       ()
     )
 
@@ -450,6 +467,12 @@ foo = _ -> 1
       ()
     )
 
+  def branch(
+      p: Pattern[(PackageName, Constructor), Type],
+      e: TypedExpr[Unit]
+  ): TypedExpr.Branch[Unit] =
+    TypedExpr.Branch(p, None, e)
+
   def hasLoop(te: TypedExpr[Unit]): Boolean =
     te match {
       case TypedExpr.Loop(_, _, _) =>
@@ -467,7 +490,9 @@ foo = _ -> 1
       case TypedExpr.Recur(args, _, _) =>
         args.exists(hasLoop)
       case TypedExpr.Match(arg, branches, _) =>
-        hasLoop(arg) || branches.exists { case (_, b) => hasLoop(b) }
+        hasLoop(arg) || branches.exists { case TypedExpr.Branch(_, guard, b) =>
+          guard.exists(hasLoop) || hasLoop(b)
+        }
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
         false
@@ -490,8 +515,9 @@ foo = _ -> 1
       case TypedExpr.Recur(args, _, _) =>
         args.exists(hasRecursiveLet)
       case TypedExpr.Match(arg, branches, _) =>
-        hasRecursiveLet(arg) || branches.exists { case (_, b) =>
-          hasRecursiveLet(b)
+        hasRecursiveLet(arg) || branches.exists {
+          case TypedExpr.Branch(_, guard, b) =>
+            guard.exists(hasRecursiveLet) || hasRecursiveLet(b)
         }
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
@@ -678,8 +704,9 @@ foo = _ -> 1
         case TypedExpr.Recur(args, _, _) =>
           args.toList.map(countExpr(_, target)).sum
         case TypedExpr.Match(arg, branches, _) =>
-          countExpr(arg, target) + branches.toList.map { case (_, b) =>
-            countExpr(b, target)
+          countExpr(arg, target) + branches.toList.map {
+            case TypedExpr.Branch(_, guard, b) =>
+              guard.fold(0)(countExpr(_, target)) + countExpr(b, target)
           }.sum
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
           0
@@ -721,8 +748,8 @@ foo = _ -> 1
     val matchExpr = TypedExpr.Match(
       cExpr,
       NonEmptyList.of(
-        (namedPat, TypedExpr.Local(vName, intTpe, ())),
-        (Pattern.WildCard, int(0))
+        branch(namedPat, TypedExpr.Local(vName, intTpe, ())),
+        branch(Pattern.WildCard, int(0))
       ),
       ()
     )
@@ -754,9 +781,9 @@ foo = _ -> 1
     val matchExpr = TypedExpr.Match(
       cExpr,
       NonEmptyList.of(
-        (noMatchPat, int(-1)),
-        (exactPat, int(1)),
-        (Pattern.WildCard, int(0))
+        branch(noMatchPat, int(-1)),
+        branch(exactPat, int(1)),
+        branch(Pattern.WildCard, int(0))
       ),
       ()
     )
@@ -764,9 +791,186 @@ foo = _ -> 1
     TypedExprNormalization.normalize(matchExpr) match {
       case Some(TypedExpr.Match(_, branches, _)) =>
         assertEquals(branches.length, 2)
-        assertEquals(branches.head._1, exactPat)
+        assertEquals(branches.head.pattern, exactPat)
       case other =>
         fail(s"expected branch-pruned match, got: $other")
+    }
+  }
+
+  test("normalization folds guard True and drops guard False branches") {
+    val x = varTE("x", intTpe)
+
+    val guardTrue = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(1)), Some(bool(true)), int(1)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardTrue) match {
+      case Some(TypedExpr.Match(_, branches, _)) =>
+        assertEquals(branches.head.guard, None)
+      case other =>
+        fail(s"expected normalized match, got: $other")
+    }
+
+    val guardFalse = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(1)), Some(bool(false)), int(1)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+
+    assertEquals(TypedExprNormalization.normalize(guardFalse), Some(int(0)))
+  }
+
+  test("normalization rewrites let substitutions in guard and branch body consistently") {
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val yExpr = varTE("y", intTpe)
+    val guardExpr = TypedExpr.App(
+      PredefEqInt,
+      NonEmptyList.of(xExpr, int(1)),
+      boolTpe,
+      ()
+    )
+    val matchExpr = TypedExpr.Match(
+      yExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), xExpr),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+    val root = let("x", int(1), matchExpr)
+
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+    assertEquals(TypedExpr.freeVarsSet(normalized :: Nil).contains(xName), false)
+    normalized match {
+      case TypedExpr.Match(_, branches, _) =>
+        assert(branches.head.guard.nonEmpty)
+        assert(branches.head.guard.forall(_.notFree(xName)))
+        assertEquals(branches.head.expr, int(1))
+      case other =>
+        fail(s"expected normalized match expression, got: $other")
+    }
+  }
+
+  test("normalization hoists pattern-independent guards into tuple-scrutinee matches") {
+    val x = Identifier.Name("x")
+    val g = Identifier.Name("g")
+    val xExpr = TypedExpr.Local(x, intTpe, ())
+    val guardExpr = TypedExpr.Local(g, boolTpe, ())
+
+    val matchExpr = TypedExpr.Match(
+      xExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.Literal(Lit.fromInt(1)),
+          Some(guardExpr),
+          int(7)
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+
+    def hasHoistedGuardMatch(te: TypedExpr[Unit]): Boolean =
+      te match {
+        case TypedExpr.Match(
+              TypedExpr.App(
+                TypedExpr.Global(
+                  PackageName.PredefName,
+                  Identifier.Constructor("Tuple2"),
+                  _,
+                  _
+                ),
+                _,
+                _,
+                _
+              ),
+              branches,
+              _
+            ) =>
+          branches.head.pattern match {
+            case Pattern.PositionalStruct(
+                  (PackageName.PredefName, Identifier.Constructor("Tuple2")),
+                  _ :: Pattern.PositionalStruct(
+                    (PackageName.PredefName, Identifier.Constructor("True")),
+                    Nil
+                  ) :: Nil
+                ) =>
+              branches.forall(_.guard.isEmpty)
+            case _ =>
+              false
+          }
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          hasHoistedGuardMatch(ex) || hasHoistedGuardMatch(in)
+        case TypedExpr.Generic(_, in) =>
+          hasHoistedGuardMatch(in)
+        case TypedExpr.Annotation(in, _) =>
+          hasHoistedGuardMatch(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          hasHoistedGuardMatch(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          hasHoistedGuardMatch(fn) || args.exists(hasHoistedGuardMatch)
+        case TypedExpr.Loop(args, body, _) =>
+          args.exists { case (_, init) => hasHoistedGuardMatch(init) } ||
+            hasHoistedGuardMatch(body)
+        case TypedExpr.Recur(args, _, _) =>
+          args.exists(hasHoistedGuardMatch)
+        case TypedExpr.Match(arg, branches, _) =>
+          hasHoistedGuardMatch(arg) || branches.exists { b =>
+            b.guard.exists(hasHoistedGuardMatch) || hasHoistedGuardMatch(b.expr)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
+          false
+      }
+
+    val normalized = TypedExprNormalization.normalize(matchExpr)
+    assert(normalized.nonEmpty)
+    assert(hasHoistedGuardMatch(normalized.get), normalized.get.reprString)
+  }
+
+  test("normalization does not hoist guards that reference pattern-bound names") {
+    val x = varTE("x", intTpe)
+    val n = Identifier.Name("n")
+    val nExpr = TypedExpr.Local(n, intTpe, ())
+    val dependentGuard = TypedExpr.App(
+      PredefEqInt,
+      NonEmptyList.of(nExpr, int(0)),
+      boolTpe,
+      ()
+    )
+
+    val matchExpr = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.Var(n), Some(dependentGuard), int(1)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(matchExpr).getOrElse(matchExpr)
+    normalized match {
+      case TypedExpr.Match(_, branches, _) =>
+        assert(branches.head.guard.nonEmpty)
+        branches.head.pattern match {
+          case Pattern.PositionalStruct(
+                (PackageName.PredefName, Identifier.Constructor("Tuple2")),
+                _
+              ) =>
+            fail(s"dependent guard was unexpectedly hoisted: $normalized")
+          case _ =>
+            ()
+        }
+      case other =>
+        fail(s"expected match with non-hoisted dependent guard, got: $other")
     }
   }
 
@@ -780,8 +984,8 @@ foo = _ -> 1
     val fBody = TypedExpr.Match(
       xVar,
       NonEmptyList.of(
-        (Pattern.Literal(Lit.fromInt(0)), int(0)),
-        (Pattern.WildCard, app(fVar, int(0), intTpe))
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, app(fVar, int(0), intTpe))
       ),
       ()
     )
@@ -826,8 +1030,11 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     val loopBody = TypedExpr.Match(
       int(0),
       NonEmptyList.of(
-        (Pattern.Literal(Lit.fromInt(0)), xVar),
-        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xVar), intTpe, ()))
+        branch(Pattern.Literal(Lit.fromInt(0)), xVar),
+        branch(
+          Pattern.WildCard,
+          TypedExpr.Recur(NonEmptyList.one(xVar), intTpe, ())
+        )
       ),
       ()
     )
@@ -849,8 +1056,11 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     val loopBody = TypedExpr.Match(
       yVar,
       NonEmptyList.of(
-        (Pattern.Literal(Lit.fromInt(0)), xVar),
-        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yPlusOne), intTpe, ()))
+        branch(Pattern.Literal(Lit.fromInt(0)), xVar),
+        branch(
+          Pattern.WildCard,
+          TypedExpr.Recur(NonEmptyList.of(xVar, yPlusOne), intTpe, ())
+        )
       ),
       ()
     )
@@ -884,7 +1094,7 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         normBody match {
           case TypedExpr.Match(_, branches, _) =>
             val recurArgs = branches.toList.collect {
-              case (_, TypedExpr.Recur(args, _, _)) => args
+              case TypedExpr.Branch(_, _, TypedExpr.Recur(args, _, _)) => args
             }
             assertEquals(recurArgs.map(_.length), List(1))
             assert(!recurArgs.exists(_.exists(_.freeVarsDup.contains(xName))))
@@ -904,8 +1114,11 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     val loopBody = TypedExpr.Match(
       yVar,
       NonEmptyList.of(
-        (Pattern.Literal(Lit.fromInt(0)), xVar),
-        (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.of(xVar, yVar), intTpe, ()))
+        branch(Pattern.Literal(Lit.fromInt(0)), xVar),
+        branch(
+          Pattern.WildCard,
+          TypedExpr.Recur(NonEmptyList.of(xVar, yVar), intTpe, ())
+        )
       ),
       ()
     )
@@ -940,7 +1153,8 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         normBody match {
           case TypedExpr.Match(_, branches, _) =>
             val recurArities = branches.toList.collect {
-              case (_, TypedExpr.Recur(args, _, _)) => args.length
+              case TypedExpr.Branch(_, _, TypedExpr.Recur(args, _, _)) =>
+                args.length
             }
             assertEquals(recurArities, List(1))
           case other =>
@@ -1193,7 +1407,7 @@ x = Foo
     val body = TypedExpr.Match(
       yLocal,
       NonEmptyList.one(
-        (
+        branch(
           Pattern.Var(xName): Pattern[(PackageName, Constructor), Type],
           TypedExpr.Local(xName, intTpe, ())
         )
@@ -1231,8 +1445,12 @@ x = Foo
         case TypedExpr.Recur(args, _, _) =>
           args.toList.flatMap(localTypesOf(_, target))
         case TypedExpr.Match(arg, branches, _) =>
-          localTypesOf(arg, target) ::: branches.toList.flatMap { case (_, in) =>
-            localTypesOf(in, target)
+          localTypesOf(arg, target) ::: branches.toList.flatMap {
+            case TypedExpr.Branch(_, guard, in) =>
+              guard.fold(List.empty[Type])(localTypesOf(_, target)) ::: localTypesOf(
+                in,
+                target
+              )
           }
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
           Nil
@@ -1664,7 +1882,7 @@ def makeLoop(fn):
     val lambdaNoChange =
       TypedExpr.AnnotatedLambda(NonEmptyList.one((Identifier.Name("u"), intTpe)), int(12), ())
     val matchNoChange =
-      TypedExpr.Match(int(0), NonEmptyList.one((Pattern.WildCard, int(0))), ())
+      TypedExpr.Match(int(0), NonEmptyList.one(branch(Pattern.WildCard, int(0))), ())
 
     val inLoop = TypedExpr.Loop(
       NonEmptyList.one((iName, callFOnOne)),

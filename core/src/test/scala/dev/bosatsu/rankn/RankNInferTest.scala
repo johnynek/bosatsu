@@ -173,7 +173,7 @@ class RankNInferTest extends munit.FunSuite {
       arg,
       branches.map { case (p, e) =>
         val p1 = p.mapName(n => (testPackage, Constructor(n)))
-        (p1, e)
+        Expr.Branch(p1, None, e)
       },
       ()
     )
@@ -395,6 +395,52 @@ class RankNInferTest extends munit.FunSuite {
       ),
       Type.IntType
     )
+  }
+
+  test("match guards typecheck in pattern scope and do not leak to later branches") {
+    val vname = Identifier.Name("v")
+    val guarded = Expr.Match(
+      lit(true),
+      NonEmptyList.of(
+        Expr.Branch(Pattern.Var(vname), Some(v("v")), lit(0)),
+        Expr.Branch(Pattern.WildCard, None, lit(1))
+      ),
+      ()
+    )
+
+    testType(guarded, Type.IntType)
+
+    val leaked = Expr.Match(
+      lit(true),
+      NonEmptyList.of(
+        Expr.Branch(Pattern.Var(vname), Some(lit(true)), lit(0)),
+        Expr.Branch(Pattern.WildCard, None, v("v"))
+      ),
+      ()
+    )
+
+    Infer.typeCheck(leaked).runFully(withBools, boolTypes, Type.builtInKinds) match {
+      case Left(_)    => ()
+      case Right(tpe) =>
+        fail(s"expected branch-local binding to be unavailable, inferred: $tpe")
+    }
+  }
+
+  test("match guards must be Bool") {
+    val badGuard = Expr.Match(
+      lit(true),
+      NonEmptyList.of(
+        Expr.Branch(Pattern.WildCard, Some(lit(0)), lit(0)),
+        Expr.Branch(Pattern.WildCard, None, lit(1))
+      ),
+      ()
+    )
+
+    Infer.typeCheck(badGuard).runFully(withBools, boolTypes, Type.builtInKinds) match {
+      case Left(_)    => ()
+      case Right(tpe) =>
+        fail(s"expected non-Bool guard to fail typechecking, inferred: $tpe")
+    }
   }
 
   object OptionTypes {

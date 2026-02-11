@@ -24,7 +24,8 @@ def is_prime(x):
     nexti = i + 1
     candidate = i + 2
     match cmp_Int(candidate, x):
-      case LT: (x, True) if div else (nexti, candidate.divides(x))
+      case LT if div: (x, True)
+      case LT: (nexti, candidate.divides(x))
       case _: (x, False)).not()
 
 def none_divide(primes, x):

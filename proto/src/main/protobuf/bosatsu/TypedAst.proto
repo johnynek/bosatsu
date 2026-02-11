@@ -296,6 +296,7 @@ message LiteralExpr {
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
+  int32 guardExpr = 3;
 }
 
 message MatchExpr {

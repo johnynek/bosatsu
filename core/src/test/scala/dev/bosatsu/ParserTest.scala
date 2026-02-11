@@ -1428,6 +1428,15 @@ else:
     roundTrip(
       Declaration.parser(""),
       """match x:
+  case Bar(v) if v matches 0:
+    1
+  case _:
+    2"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """match x:
   case []: 0
   case [x]: 1
   case _: 2"""
@@ -1467,6 +1476,39 @@ x"""
 
     roundTrip(
       Declaration.parser(""),
+      """match opt:
+  case Some(v) if v matches 0:
+    0
+  case Some(v):
+    v
+  case None:
+    1"""
+    )
+
+    val noSpaceBeforeIf =
+      """match x:
+  case Foo(a)if a matches 0:
+    a
+  case _:
+    0"""
+    assert(
+      Declaration.parser("").parseAll(noSpaceBeforeIf).isLeft,
+      "pattern guards require at least one space before `if`"
+    )
+
+    val badGuardAfterIf =
+      """match x:
+  case y if:
+    y
+  case _:
+    0"""
+    assert(
+      Declaration.parser("").parseAll(badGuardAfterIf).isLeft,
+      "after parsing `if` we should be committed to parsing a guard expression"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
       """Foo(x) | Bar(x) = bar
 x"""
     )
@@ -1481,6 +1523,32 @@ x"""
       """x: Int = bar
 x"""
     )
+  }
+
+  test("match branch guards require space before if and commit after if") {
+    val noSpaceBeforeIf =
+      """match x:
+  case Bar(v)if v matches 0:
+    1
+  case _:
+    2"""
+
+    assert(Declaration.parser("").parse(noSpaceBeforeIf).isLeft)
+
+    val missingGuardExpr =
+      """match x:
+  case Bar(v) if:
+    1
+  case _:
+    2"""
+
+    Declaration.parser("").parse(missingGuardExpr) match {
+      case Left(err) =>
+        val guardColon = missingGuardExpr.indexOf("if:") + 2
+        assertEquals(err.failedAtOffset, guardColon)
+      case Right((rest, parsed)) =>
+        fail(s"expected parse failure, got rest=$rest parsed=$parsed")
+    }
   }
 
   test("we allow extra indentation on elif and else for better alignment") {

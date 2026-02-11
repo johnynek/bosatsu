@@ -383,6 +383,19 @@ result4 = match [False, True, True]:
   case _: "all items are false, or the list is empty"
 ```
 
+Match branches can also have guards:
+```
+result5 = match Some(1):
+  case Some(v) if v.eq_Int(0): "zero"
+  case Some(v): "non-zero ${int_to_String(v)}"
+  case None: "none"
+```
+Guards run after the pattern matches, in the same scope as the pattern bindings.
+The guard expression must have type `Bool`. If the guard is `False`, matching
+continues with the next branch. For totality checking, only unguarded branches
+count as covering cases, so guarded matches still need an unguarded fallback.
+Syntax note: write at least one space between the pattern and `if`.
+
 A common shorthand for checking if something matches is:
 ```
 long = match ["foo", "bar"]:

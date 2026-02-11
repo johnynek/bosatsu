@@ -317,7 +317,9 @@ final class SourceConverter(
               // TODO: we need the region on the pattern... (https://github.com/johnynek/bosatsu/issues/132)
               (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
                 (newPattern, e, rhs) =>
-                  val expBranches = NonEmptyList.of((newPattern, e))
+                  val expBranches = NonEmptyList.of(
+                    Expr.Branch(newPattern, None, e)
+                  )
                   Expr.Match(rhs, expBranches, decl)
               }
           }
@@ -371,8 +373,8 @@ final class SourceConverter(
             a,
             OptIndent.same(
               NonEmptyList(
-                (p, res),
-                (Pattern.WildCard, restDecl) :: Nil
+                MatchBranch(p, None, res),
+                MatchBranch(Pattern.WildCard, None, restDecl) :: Nil
               )
             )
           )(using decl.region)
@@ -420,10 +422,36 @@ final class SourceConverter(
          * The recursion kind is only there for DefRecursionCheck, once
          * that passes, the expr only cares if lets are recursive or not
          */
-        val expBranches = branches.get.traverse { case (pat, oidecl) =>
-          val decl = oidecl.get
+        def stripGuardWrappers(
+            expr: Expr[Declaration]
+        ): Expr[Declaration] =
+          expr match {
+            case Expr.Annotation(in, _, _) => stripGuardWrappers(in)
+            case Expr.Generic(_, in)       => stripGuardWrappers(in)
+            case other                     => other
+          }
+        def isPredefBoolConst(
+            expr: Expr[Declaration],
+            cons: Constructor
+        ): Boolean =
+          stripGuardWrappers(expr) match {
+            case Expr.Global(PackageName.PredefName, c: Constructor, _)
+                if c == cons =>
+              true
+            case _ => false
+          }
+
+        val expBranches = branches.get.traverse { branch =>
+          val pat = branch.pattern
+          val decl = branch.body.get
           val newPattern = convertPattern(pat, decl.region)
-          newPattern.product(withBound(decl, pat.names))
+          val guardExpr = branch.guard.traverse(withBound(_, pat.names))
+          val bodyExpr = withBound(decl, pat.names)
+          (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
+            val guard1 =
+              guard.filterNot(isPredefBoolConst(_, Constructor("True")))
+            Expr.Branch(pat, guard1, body)
+          }
         }
         (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
       case m @ Matches(a, p) =>
@@ -439,8 +467,10 @@ final class SourceConverter(
           m
         )
         (loop(a), convertPattern(p, m.region)).mapN { (a, p) =>
-          val branches =
-            NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
+          val branches = NonEmptyList(
+            Expr.Branch(p, None, True),
+            Expr.Branch(Pattern.WildCard, None, False) :: Nil
+          )
           Expr.Match(a, branches, m)
         }
       case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
@@ -1553,7 +1583,7 @@ final class SourceConverter(
           Match(
             RecursionKind.NonRecursive,
             rhsNB,
-            OptIndent.same(NonEmptyList.one((pat, resOI)))
+            OptIndent.same(NonEmptyList.one(MatchBranch(pat, None, resOI)))
           )(using decl.region)
         }
 

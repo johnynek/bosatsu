@@ -76,7 +76,8 @@ object UnusedLetCheck {
           NonEmptyList.fromListUnsafe(
             branches.toList
               .scanLeft((HasRegion.region(arg), Option.empty[Region])) {
-                case ((prev, _), (_, caseExpr)) =>
+                case ((prev, _), branch) =>
+                  val caseExpr = branch.expr
                   // between the previous expression and the case is the pattern
                   (
                     HasRegion.region(caseExpr),
@@ -87,9 +88,12 @@ object UnusedLetCheck {
           )
         val bcheck = branchRegions
           .zip(branches)
-          .traverse { case (region, (pat, expr)) =>
-            loop(expr).flatMap { frees =>
-              val thisPatNames = pat.names
+          .traverse { case (region, branch) =>
+            (
+              branch.guard.traverse(loop).map(_.getOrElse(Set.empty[Bindable])),
+              loop(branch.expr)
+            ).mapN(_ ++ _).flatMap { frees =>
+              val thisPatNames = branch.pattern.names
               val unused = thisPatNames.filterNot(frees)
               val nextFrees = frees -- thisPatNames
 

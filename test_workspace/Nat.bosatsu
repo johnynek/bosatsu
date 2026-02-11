@@ -103,7 +103,8 @@ one = Succ(Zero)
 
 def exp(base: Nat, power: Nat) -> Nat:
     match base:
-        case Zero: one if power matches Zero else Zero
+        case Zero if power matches Zero: one
+        case Zero: Zero
         case Succ(Zero): one
         case two_or_more:
           def loop(power, acc):

@@ -114,6 +114,24 @@ def len(lst):
 """)
   }
 
+  test("recursive calls in guards follow the same legality rules as branch bodies") {
+    allowed("""#
+def len(lst):
+  recur lst:
+    case []: 0
+    case [_, *tail] if len(tail) matches 0: 1
+    case [_, *_]: 2
+""")
+
+    disallowed("""#
+def len(lst):
+  recur lst:
+    case []: 0
+    case [_, *tail] if len(lst) matches 0: 1
+    case [_, *_]: 2
+""")
+  }
+
   test("shadowing def isn't okay") {
     disallowed("""#
 def len(lst):
