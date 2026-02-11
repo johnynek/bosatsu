@@ -3,7 +3,7 @@ package dev.bosatsu
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
-import cats.data.{Ior, NonEmptyList}
+import cats.data.NonEmptyList
 import Identifier.Bindable
 
 import cats.implicits._
@@ -20,14 +20,8 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     (rankn.TypeEnv[Kind.Arg], rankn.ParsedTypeEnv[Option[Kind.Arg]]),
     Expr[Declaration],
     List[Statement]
-  ] = {
-    val stmts = TestUtils.statementsOf(code)
-    SourceConverter.toProgram(TestUtils.testPackage, Nil, stmts) match {
-      case Ior.Right(prog)   => prog
-      case Ior.Both(_, prog) => prog
-      case Ior.Left(errs)    => fail(s"conversion failed: $errs")
-    }
-  }
+  ] =
+    TestUtils.sourceConvertedProgramOf(TestUtils.testPackage, code)
 
   private def stripWrapperExpr(
       expr: Expr[Declaration]
@@ -39,14 +33,25 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     }
 
   private def mainBranches(code: String): NonEmptyList[Expr.Branch[Declaration]] = {
-    val prog = convertProgram(code)
-    val (_, mainExpr) = prog
-      .getLet(Identifier.Name("main"))
-      .getOrElse(fail("expected a `main` binding"))
-    stripWrapperExpr(mainExpr) match {
+    stripWrapperExpr(mainExpr(code)) match {
       case Expr.Match(_, branches, _) => branches
       case other                      => fail(s"expected match expression, got: $other")
     }
+  }
+
+  private def mainExpr(code: String): Expr[Declaration] =
+    convertProgram(code)
+      .getLet(Identifier.Name("main"))
+      .getOrElse(fail("expected a `main` binding"))
+      ._2
+
+  private def assertMainDesugarsAs(
+      actualCode: String,
+      expectedCode: String
+  ): Unit = {
+    val actual = mainExpr(actualCode).eraseTags
+    val expected = mainExpr(expectedCode).eraseTags
+    assertEquals(actual, expected)
   }
 
   test("makeLetsUnique preserves let count") {
@@ -214,6 +219,58 @@ main = match True:
         ()
       case other =>
         fail(s"expected local True guard to remain guarded, got: $other")
+    }
+  }
+
+  test("left-apply desugars by appending continuation to the outermost apply") {
+    val examples = List(
+      (
+        """main = foo(a, b)""",
+        """main = foo(a, b)"""
+      ),
+      (
+        """main = x.await()""",
+        """main = x.await()"""
+      ),
+      (
+        """main = (
+  p <- foo(a, b)
+  p
+)""",
+        """main = foo(a, b, p -> p)"""
+      ),
+      (
+        """main = (
+  p <- foo(a)(b)
+  p
+)""",
+        """main = foo(a)(b, p -> p)"""
+      ),
+      (
+        """main = (
+  p <- x.await()
+  p
+)""",
+        """main = await(x, p -> p)"""
+      ),
+      (
+        """main = (
+  p <- x.await().map(f)
+  p
+)""",
+        """main = map(await(x), f, p -> p)"""
+      ),
+      (
+        """main = (
+  p <- (foo(a))
+  p
+)""",
+        """main = foo(a, p -> p)"""
+      )
+    )
+
+    examples.foreach { case (actual, expected) =>
+      assertMainDesugarsAs(actual, expected)
     }
   }
 }

@@ -26,7 +26,7 @@ external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err
 def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
   remap_env(p, _ -> env)
 
-def await(p): fn -> p.flat_map(fn)
+def await(p, fn): p.flat_map(fn)
 
 def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a -> Prog[env, err, b]):
   a -> apply_fix(a, fn)

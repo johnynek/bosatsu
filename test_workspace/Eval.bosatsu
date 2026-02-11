@@ -14,7 +14,7 @@ def done(a: a) -> Eval[a]: Pure(a)
 def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]:
     FlatMap(cb -> cb(e, fn))
 
-def bind(e)(fn): flat_map(e, fn)
+def bind(e, fn): flat_map(e, fn)
 
 def map[a, b](e: Eval[a], fn: a -> b) -> Eval[b]:
     x <- e.bind()

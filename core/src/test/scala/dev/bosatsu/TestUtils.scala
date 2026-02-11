@@ -12,18 +12,33 @@ import cats.syntax.all._
 
 object TestUtils {
 
+  type SourceConvertedProgram = Program[
+    (TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]),
+    Expr[Declaration],
+    List[Statement]
+  ]
+
+  def sourceConvertedProgramOf(
+      pack: PackageName,
+      str: String
+  ): SourceConvertedProgram = {
+    val stmt = statementsOf(str)
+    SourceConverter.toProgram(pack, Nil, stmt) match {
+      case Ior.Right(prog)   => prog
+      case Ior.Both(_, prog) => prog
+      case Ior.Left(err)     => fail(s"source conversion failed: $err")
+    }
+  }
+
+  def sourceConvertedProgramOf(str: String): SourceConvertedProgram =
+    sourceConvertedProgramOf(testPackage, str)
+
   def parsedTypeEnvOf(
       pack: PackageName,
       str: String
   ): ParsedTypeEnv[Option[Kind.Arg]] = {
 
-    val stmt = statementsOf(str)
-    val prog = SourceConverter.toProgram(pack, Nil, stmt) match {
-      case Ior.Right(prog)   => prog
-      case Ior.Both(_, prog) => prog
-      case Ior.Left(err)     => sys.error(err.toString)
-    }
-    prog.types._2
+    sourceConvertedProgramOf(pack, str).types._2
   }
 
   val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
