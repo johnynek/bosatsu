@@ -524,6 +524,32 @@ foo = _ -> 1
         false
     }
 
+  def countExpr[A](te: TypedExpr[A], target: TypedExpr[?]): Int =
+    te match {
+      case t if t.void === target.void => 1
+      case TypedExpr.Generic(_, in)   => countExpr(in, target)
+      case TypedExpr.Annotation(in, _) => countExpr(in, target)
+      case TypedExpr.AnnotatedLambda(_, in, _) => countExpr(in, target)
+      case TypedExpr.App(fn, args, _, _) =>
+        countExpr(fn, target) + args.toList.map(countExpr(_, target)).sum
+      case TypedExpr.Let(_, ex, in, _, _) =>
+        countExpr(ex, target) + countExpr(in, target)
+      case TypedExpr.Loop(args, body, _) =>
+        args.toList.map { case (_, init) => countExpr(init, target) }.sum + countExpr(
+          body,
+          target
+        )
+      case TypedExpr.Recur(args, _, _) =>
+        args.toList.map(countExpr(_, target)).sum
+      case TypedExpr.Match(arg, branches, _) =>
+        countExpr(arg, target) + branches.toList.map {
+          case TypedExpr.Branch(_, guard, b) =>
+            guard.fold(0)(countExpr(_, target)) + countExpr(b, target)
+        }.sum
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
+        0
+    }
+
   test("test let substitution") {
     {
       // substitution in let
@@ -686,37 +712,121 @@ foo = _ -> 1
     val opaque = app(varTE("f", fnType), int(1), intTpe)
     val expr = TypedExpr.App(PredefMul, NonEmptyList.of(opaque, int(1)), intTpe, ())
 
-    def countExpr(te: TypedExpr[Unit], target: TypedExpr[Unit]): Int =
-      te match {
-        case t if t.void === target.void => 1
-        case TypedExpr.Generic(_, in)   => countExpr(in, target)
-        case TypedExpr.Annotation(in, _) => countExpr(in, target)
-        case TypedExpr.AnnotatedLambda(_, in, _) => countExpr(in, target)
-        case TypedExpr.App(fn, args, _, _) =>
-          countExpr(fn, target) + args.toList.map(countExpr(_, target)).sum
-        case TypedExpr.Let(_, ex, in, _, _) =>
-          countExpr(ex, target) + countExpr(in, target)
-        case TypedExpr.Loop(args, body, _) =>
-          args.toList.map { case (_, init) => countExpr(init, target) }.sum + countExpr(
-            body,
-            target
-          )
-        case TypedExpr.Recur(args, _, _) =>
-          args.toList.map(countExpr(_, target)).sum
-        case TypedExpr.Match(arg, branches, _) =>
-          countExpr(arg, target) + branches.toList.map {
-            case TypedExpr.Branch(_, guard, b) =>
-              guard.fold(0)(countExpr(_, target)) + countExpr(b, target)
-          }.sum
-        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
-          0
-      }
-
     val normalized = TypedExprNormalization.normalize(expr)
     assert(normalized.nonEmpty)
     val norm = normalized.get
     assertEquals(norm.void, opaque.void)
     assert(countExpr(norm, opaque) <= 1, norm.reprString)
+  }
+
+  test("normalization shares repeated immutable values in scope") {
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("f", fnType), int(1), intTpe)
+    val expr = TypedExpr.App(PredefAdd, NonEmptyList.of(opaque, opaque), intTpe, ())
+
+    val normalized = TypedExprNormalization.normalize(expr)
+    assert(normalized.nonEmpty)
+    val norm = normalized.get
+    assert(countExpr(norm, opaque) <= 1, norm.reprString)
+    norm match {
+      case TypedExpr.Let(_, bound, _, RecursionKind.NonRecursive, _) =>
+        assertEquals(bound.void, opaque.void)
+      case other =>
+        fail(s"expected shared let binding, got: ${other.reprString}")
+    }
+  }
+
+  test("normalization shares branch-independent immutable values across match branches") {
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("f", fnType), int(1), intTpe)
+    val expr = TypedExpr.Match(
+      varTE("x", intTpe),
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), opaque),
+        branch(Pattern.WildCard, opaque)
+      ),
+      ()
+    )
+
+    val normalized = TypedExprNormalization.normalize(expr)
+    assert(normalized.nonEmpty)
+    val norm = normalized.get
+    assert(countExpr(norm, opaque) <= 1, norm.reprString)
+    norm match {
+      case TypedExpr.Let(_, bound, TypedExpr.Match(_, _, _), RecursionKind.NonRecursive, _) =>
+        assertEquals(bound.void, opaque.void)
+      case other =>
+        fail(s"expected let hoisted around match, got: ${other.reprString}")
+    }
+  }
+
+  test("normalization does not introduce sharing lets for simple repeated values") {
+    val x = varTE("x", intTpe)
+    val expr = TypedExpr.App(PredefAdd, NonEmptyList.of(x, x), intTpe, ())
+    assertEquals(TypedExprNormalization.normalize(expr), None)
+  }
+
+  test("normalization does not hoist shared values above generic type binders") {
+    val a = Type.Var.Bound("a")
+    val aTy = Type.TyVar(a)
+    val x = Identifier.Name("x")
+    val polyId = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((x, aTy)),
+      TypedExpr.Local(x, aTy, ()),
+      ()
+    )
+    val polyFnTy = Type.Fun(
+      NonEmptyList.of(
+        Type.Fun(NonEmptyList.one(aTy), aTy),
+        Type.Fun(NonEmptyList.one(aTy), aTy)
+      ),
+      boolTpe
+    )
+    val opaquePolyFn = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("opaque_poly_fn"),
+      polyFnTy,
+      ()
+    )
+    val genericExpr = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      TypedExpr.App(opaquePolyFn, NonEmptyList.of(polyId, polyId), boolTpe, ())
+    )
+
+    val norm = TypedExprNormalization.normalize(genericExpr).getOrElse(genericExpr)
+    norm match {
+      case TypedExpr.Let(_, _, TypedExpr.Generic(_, _), _, _) =>
+        fail(s"unexpected sharing let hoisted above Generic: ${norm.reprString}")
+      case _ =>
+        assert(true)
+    }
+  }
+
+  test("normalization can hoist shared values above generic when type-independent") {
+    val a = Type.Var.Bound("a")
+    val monoFnTy = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaqueMonoFn = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("opaque_mono_fn"),
+      monoFnTy,
+      ()
+    )
+    val mono = app(opaqueMonoFn, int(1), intTpe)
+    val genericExpr = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(mono, mono), boolTpe, ())
+    )
+
+    val normalized = TypedExprNormalization.normalize(genericExpr)
+    assert(normalized.nonEmpty)
+    val norm = normalized.get
+    assert(countExpr(norm, mono) <= 1, norm.reprString)
+    norm match {
+      case TypedExpr.Let(_, bound, _, RecursionKind.NonRecursive, _) =>
+        assertEquals(bound.void, mono.void)
+      case other =>
+        fail(s"expected shared let for generic-independent value, got: ${other.reprString}")
+    }
   }
 
   test("normalization evaluates constructor matches with named, annotation, and union patterns") {
