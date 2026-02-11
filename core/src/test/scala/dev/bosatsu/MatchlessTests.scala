@@ -824,8 +824,12 @@ def matches_five(xs):
       TypedExpr.Match(
         xExpr,
         NonEmptyList.of(
-          (Pattern.Literal(Lit.fromInt(0)), xExpr),
-          (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ()))
+          TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, xExpr),
+          TypedExpr.Branch(
+            Pattern.WildCard,
+            None,
+            TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ())
+          )
         ),
         ()
       ),

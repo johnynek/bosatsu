@@ -124,8 +124,12 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       TypedExpr.Match(
         xExpr,
         NonEmptyList.of(
-          (Pattern.Literal(Lit.fromInt(0)), xExpr),
-          (Pattern.WildCard, TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ()))
+          TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, xExpr),
+          TypedExpr.Branch(
+            Pattern.WildCard,
+            None,
+            TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ())
+          )
         ),
         ()
       ),
@@ -148,6 +152,53 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     }
 
     testFn(loopExpr)
+  }
+
+  test("we can roundtrip guarded match branches through proto") {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, ())
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      rankn.Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      ()
+    )
+    val guardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(xExpr, TypedExpr.Literal(Lit.fromInt(1), intType, ())),
+      boolType,
+      ()
+    )
+    val guardedMatch = TypedExpr.Match(
+      xExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(guardExpr),
+          TypedExpr.Literal(Lit.fromInt(7), intType, ())
+        )
+      ),
+      ()
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          expr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- expr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(guardedMatch)
   }
 
   test("we can roundtrip interface through proto") {

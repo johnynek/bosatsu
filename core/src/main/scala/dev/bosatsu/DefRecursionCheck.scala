@@ -530,9 +530,11 @@ object DefRecursionCheck {
         case Match(RecursionKind.NonRecursive, arg, cases) =>
           // the arg can't use state, but cases introduce new bindings:
           val argRes = checkDecl(arg)
-          val optRes = cases.get.parTraverse_ { case (pat, next) =>
+          val optRes = cases.get.parTraverse_ { case MatchBranch(pat, guard, next) =>
             checkForIllegalBindsSt(pat.names, decl) *>
-              filterNames(pat.names)(checkDecl(next.get))
+              filterNames(pat.names) {
+                guard.parTraverse_(checkDecl) *> checkDecl(next.get)
+              }
           }
           argRes *> optRes
         case recur @ Match(RecursionKind.Recursive, _, cases) =>
@@ -567,10 +569,11 @@ object DefRecursionCheck {
                     // $COVERAGE-ON$
                   }
 
-                cases.get.parTraverse_ { case (pat, next) =>
+                cases.get.parTraverse_ { case MatchBranch(pat, guard, next) =>
                   for {
                     _ <- checkForIllegalBindsSt(pat.names, decl)
                     _ <- beginBranch(pat)
+                    _ <- guard.parTraverse_(checkDecl)
                     _ <- checkDecl(next.get)
                     _ <- endBranch
                   } yield ()

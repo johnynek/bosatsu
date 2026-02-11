@@ -726,9 +726,13 @@ object Generators {
       case ann @ Annotation(_, _) => Parens(ann)(using emptyRegion)
       case notAnn                 => notAnn
     }
+    val guardGen: Gen[Option[Declaration.NonBinding]] =
+      Gen.frequency((4, Gen.const(None)), (1, argGen.map(Some(_))))
 
-    val genCase: Gen[(Pattern.Parsed, OptIndent[Declaration])] =
-      Gen.zip(genPattern(3), padBody)
+    val genCase: Gen[Declaration.MatchBranch] =
+      Gen.zip(genPattern(3), guardGen, padBody).map { case (pat, guard, body) =>
+        MatchBranch(pat, guard, body)
+      }
 
     for {
       cnt <- Gen.choose(1, 2)
@@ -973,8 +977,10 @@ object Generators {
           // todo, we should really interleave shrinking r and b
           r #:: b.padded #:: LazyList.empty
         case Match(_, _, args) =>
-          args.get.toList.to(LazyList).flatMap { case (_, decl) =>
-            decl.get #:: LazyList.from(shrinkDecl.shrink(decl.get))
+          args.get.toList.to(LazyList).flatMap {
+            case MatchBranch(_, guard, decl) =>
+              val body = decl.get
+              guard.to(LazyList) #::: (body #:: LazyList.from(shrinkDecl.shrink(body)))
           }
         case Matches(a, _) =>
           a #:: LazyList.from(shrinkDecl.shrink(a))
@@ -1508,7 +1514,16 @@ object Generators {
             Gen
               .choose(1, 4)
               .flatMap(
-                nonEmptyN(Gen.zip(genCompiledPattern(depth), recurse), _)
+                nonEmptyN(
+                  Gen.zip(
+                    genCompiledPattern(depth),
+                    Gen.frequency((4, Gen.const(None)), (1, recurse.map(Some(_)))),
+                    recurse
+                  ).map {
+                    case (pat, guard, expr) => TypedExpr.Branch(pat, guard, expr)
+                  },
+                  _
+                )
               ),
             genTag
           )
@@ -1887,7 +1902,16 @@ object Generators {
             Gen
               .zip(
                 recur,
-                smallNonEmptyList(Gen.zip(genCompiledPattern(4), recur), 3),
+                smallNonEmptyList(
+                  Gen.zip(
+                    genCompiledPattern(4),
+                    Gen.frequency((4, Gen.const(None)), (1, recur.map(Some(_)))),
+                    recur
+                  ).map { case (pat, guard, expr) =>
+                    Expr.Branch(pat, guard, expr)
+                  },
+                  3
+                ),
                 genA
               )
               .map { case (a, bs, t) => Match(a, bs, t) }

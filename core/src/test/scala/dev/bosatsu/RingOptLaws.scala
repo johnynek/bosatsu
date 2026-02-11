@@ -705,10 +705,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
   property("addition by 0 is always simplified") {
     def law(a: Expr[BigInt], w: Weights) = {
+      val naBase = normalize(a, w)
       val na = normalize(a + Zero, w)
-      assert(w.cost(na) <= w.cost(a), s"na = $na")
+      assert(w.cost(na) <= w.cost(naBase), s"na = $na, base = $naBase")
       val na1 = normalize(a + Integer(0), w)
-      assert(w.cost(na1) <= w.cost(a))
+      assert(w.cost(na1) <= w.cost(naBase))
     }
 
     law(Neg(Add(Symbol(0), Symbol(1))), Weights(2, 1, 1))

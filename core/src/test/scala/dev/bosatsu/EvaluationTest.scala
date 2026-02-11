@@ -949,6 +949,99 @@ main = one
 """)) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
+  test("guarded branches do not establish totality and unguarded fallback restores it") {
+    evalFail(List("""
+package Total
+
+main = match True:
+  case x if x matches True: 1
+""")) { case te @ PackageError.TotalityCheckError(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("guarded branches do not count toward totality"))
+      ()
+    }
+
+    evalTest(
+      List("""
+package Total
+
+main = match True:
+  case x if x matches True: 1
+  case _: 0
+"""),
+      "Total",
+      VInt(1)
+    )
+
+    evalFail(List("""
+package Total
+
+main = match True:
+  case _: 1
+  case True if (True matches True): 2
+""")) { case PackageError.TotalityCheckError(_, _) => () }
+  }
+
+  test("guard canonicalization handles True, False, and locally shadowed True") {
+    evalTest(
+      List("""
+package GuardCanonTrue
+
+main = match True:
+  case _ if True: 1
+"""),
+      "GuardCanonTrue",
+      VInt(1)
+    )
+
+    evalFail(List("""
+package GuardCanonFalse
+
+main = match True:
+  case _ if False: 1
+""")) { case PackageError.TotalityCheckError(_, _) => () }
+
+    evalFail(List("""
+package GuardCanonShadow
+
+from Bosatsu/Predef import False as True
+
+main = match True:
+  case _ if True: 1
+""")) { case PackageError.TotalityCheckError(_, _) => () }
+  }
+
+  test("pattern guards evaluate correctly in matrix and ordered match compilation") {
+    // matrix path (orthogonal constructor patterns)
+    evalTest(
+      List("""
+package GuardMatrix
+
+main = match Some(1):
+  case Some(v) if v.eq_Int(0): 0
+  case Some(v) if v.eq_Int(1): 7
+  case Some(v): v
+  case None: -1
+"""),
+      "GuardMatrix",
+      VInt(7)
+    )
+
+    // ordered path (non-orthogonal list glob patterns)
+    evalTest(
+      List("""
+package GuardOrdered
+
+main = match [1, 2, 3]:
+  case [*_, 2, *_] if False: 0
+  case [*_, 2, *_]: 1
+  case _: 2
+"""),
+      "GuardOrdered",
+      VInt(1)
+    )
+  }
+
   test("Leibniz type equality example") {
     evalTest(
       List("""

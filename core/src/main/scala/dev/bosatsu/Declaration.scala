@@ -135,22 +135,24 @@ sealed abstract class Declaration derives CanEqual {
 
         val caseDoc = Doc.text("case ")
 
-        implicit val patDoc
-            : Document[(Pattern.Parsed, OptIndent[Declaration])] =
-          Document.instance[(Pattern.Parsed, OptIndent[Declaration])] {
-            case (pat, decl) =>
-              caseDoc + Document[Pattern.Parsed].document(pat) + Doc.text(
-                ":"
-              ) + decl.sepDoc + pid.document(decl)
+        implicit val branchDoc
+            : Document[MatchBranch] =
+          Document.instance[MatchBranch] { branch =>
+            val guardDoc = branch.guard.fold(Doc.empty)(g =>
+              Doc.text(" if ") + g.toDoc
+            )
+            caseDoc + Document[Pattern.Parsed].document(
+              branch.pattern
+            ) + guardDoc + Doc.text(":") + branch.body.sepDoc + pid.document(
+              branch.body
+            )
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts =>
             Doc.intercalate(Doc.line, ts.toList.map(Document[T].document))
           }
 
-        val piPat = Document[OptIndent[
-          NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]
-        ]]
+        val piPat = Document[OptIndent[NonEmptyList[MatchBranch]]]
         val kindDoc = kind match {
           case RecursionKind.NonRecursive => Doc.text("match ")
           case RecursionKind.Recursive    => Doc.text("recur ")
@@ -268,9 +270,10 @@ sealed abstract class Declaration derives CanEqual {
         case Literal(_)               => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
-          args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
+          args.get.foldLeft(acc1) { case (acc0, MatchBranch(pat, guard, res)) =>
             val bound1 = bound ++ pat.names
-            loop(res.get, bound1, acc0)
+            val acc1 = guard.fold(acc0)(loop(_, bound1, acc0))
+            loop(res.get, bound1, acc1)
           }
         case Matches(a, _) =>
           loop(a, bound, acc)
@@ -380,8 +383,11 @@ sealed abstract class Declaration derives CanEqual {
         case Literal(_)               => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
-          args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
-            loop(res.get, acc0 ++ pat.names)
+          args.get.foldLeft(acc1) {
+            case (acc0, MatchBranch(pat, guard, res)) =>
+              val acc1 = acc0 ++ pat.names
+              val acc2 = guard.fold(acc1)(loop(_, acc1))
+              loop(res.get, acc2)
           }
         case Matches(a, p) =>
           loop(a, acc ++ p.names)
@@ -568,12 +574,18 @@ object Declaration {
           val caseRes =
             cases
               .traverse { nel =>
-                nel.traverse { case (pat, res) =>
+                nel.traverse { branch =>
+                  val pat = branch.pattern
                   // like lambda:
                   val pnames = pat.names
                   if (pnames.exists(masks)) None
-                  else if (pnames.exists(shadows)) Some((pat, res))
-                  else res.traverse(loopDec).map((pat, _))
+                  else if (pnames.exists(shadows)) Some(branch)
+                  else {
+                    (branch.guard.traverse(loop), branch.body.traverse(loopDec))
+                      .mapN { (guard, body) =>
+                        branch.copy(guard = guard, body = body)
+                      }
+                  }
                 }
               }
 
@@ -745,8 +757,11 @@ object Declaration {
           Match(
             rec,
             arg.replaceRegionsNB(r),
-            branches.map(_.map { case (p, x) =>
-              (p, x.map(_.replaceRegions(r)))
+            branches.map(_.map { branch =>
+              branch.copy(
+                guard = branch.guard.map(_.replaceRegionsNB(r)),
+                body = branch.body.map(_.replaceRegions(r))
+              )
             })
           )(using r)
         case Matches(a, p) =>
@@ -888,10 +903,15 @@ object Declaration {
       implicit val region: Region
   ) extends NonBinding
   case class Literal(lit: Lit)(using val region: Region) extends NonBinding
+  case class MatchBranch(
+      pattern: Pattern.Parsed,
+      guard: Option[NonBinding],
+      body: OptIndent[Declaration]
+  ) derives CanEqual
   case class Match(
       kind: RecursionKind,
       arg: NonBinding,
-      cases: OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]]
+      cases: OptIndent[NonEmptyList[MatchBranch]]
   )(using val region: Region)
       extends NonBinding
   case class Matches(arg: NonBinding, pattern: Pattern.Parsed)(implicit
@@ -1156,8 +1176,19 @@ object Declaration {
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
-    val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
-    val branch = OptIndent.block(Indy.lift(bp), withTrailingExpr)
+    val bp = Indy { indent =>
+      val casePat: P[Pattern.Parsed] =
+        (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+      val guard: P0[Option[NonBinding]] =
+        (((Parser.spaces *> Parser.keySpace("if")).backtrack *> arg(indent))).?
+
+      casePat ~ guard
+    }
+    val branch = OptIndent
+      .block(bp, withTrailingExpr)
+      .map { case ((pat, guard), body) =>
+        MatchBranch(pat, guard, body)
+      }
 
     val left =
       Indy.lift(matchKindParser <* spaces).cutThen(arg).cutLeftP(maybeSpace)

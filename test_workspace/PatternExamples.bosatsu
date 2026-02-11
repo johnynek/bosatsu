@@ -13,8 +13,8 @@ def operator &&(a, b):
     else: False
 
 fb = match combine:
-    case "foo: ${f} bar: ${b}":
-        (f == foo) && (b == bar)
+    case "foo: ${f} bar: ${b}" if (f == foo) && (b == bar):
+        True
     case _: False
 
 test0 = Assertion(fb, "foo-bar match")

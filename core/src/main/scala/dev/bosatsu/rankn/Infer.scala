@@ -1993,10 +1993,12 @@ object Infer {
               // has a different type
               Match(
                 arg,
-                branches.map { case (p, r) =>
+                branches.map { branch =>
                   // we have to put the tag to be r.tag
                   // because that's where the regions come from
-                  (p, Annotation(r, tpe, r.tag))
+                  branch.copy(expr =
+                    Annotation(branch.expr, tpe, branch.expr.tag)
+                  )
                 },
                 mtag
               )
@@ -2095,18 +2097,18 @@ object Infer {
                       tbranches <-
                         if (unknownExs.isEmpty) {
                           // in the common case there are no existentials save effort
-                          branches.parTraverse { case (p, r) =>
+                          branches.parTraverse { branch =>
                             // note, resT is in weak-prenex form, so this call is permitted
-                            checkBranch(p, check, r, resT)
+                            checkBranch(branch, check, resT)
                           }
                         } else {
                           for {
-                            tbranches <- branches.parTraverse { case (p, r) =>
+                            tbranches <- branches.parTraverse { branch =>
                               // note, resT is in weak-prenex form, so this call is permitted
-                              checkBranch(p, check, r, resT)
+                              checkBranch(branch, check, resT)
                                 .product(
                                   solvedExistentitals(unknownExs).map(
-                                    (_, region(r))
+                                    (_, region(branch.expr))
                                   )
                                 )
                             }
@@ -2120,8 +2122,8 @@ object Infer {
                       unskol(TypedExpr.Rho.Match(tsigma, tbranches, tag))
                   case infer @ Expected.Inf(_) =>
                     for {
-                      tbranches <- branches.parTraverse { case (p, r) =>
-                        inferBranch(p, check, r)
+                      tbranches <- branches.parTraverse { branch =>
+                        inferBranch(branch, check)
                       }
                       (rho, regRho, resBranches) <- widenBranches(tbranches)
                       _ <- infer.set((rho, regRho))
@@ -2134,8 +2136,8 @@ object Infer {
     }
 
     def widenBranches[A: HasRegion](
-        branches: NonEmptyList[(Pattern, (TypedExpr.Rho[A], Type.Rho))]
-    ): Infer[(Type.Rho, Region, NonEmptyList[(Pattern, TypedExpr.Rho[A])])] = {
+        branches: NonEmptyList[(TypedExpr.Branch[A], Type.Rho)]
+    ): Infer[(Type.Rho, Region, NonEmptyList[TypedExpr.Branch[A]])] = {
 
       def maxBy[M[_]: Monad, B](head: B, tail: List[B])(
           gteq: (B, B) => M[Boolean]
@@ -2178,8 +2180,8 @@ object Infer {
           }
       }
 
-      val withIdx = branches.zipWithIndex.map { case ((p, (te, tpe)), idx) =>
-        (te, (p, tpe, idx))
+      val withIdx = branches.zipWithIndex.map { case ((branch, tpe), idx) =>
+        (branch.expr, (branch, tpe, idx))
       }
 
       for {
@@ -2188,14 +2190,14 @@ object Infer {
           withIdx.tail
         )((a, b) => gtEq(a, b))
         resRegion = region(maxRes)
-        resBranches <- withIdx.parTraverse { case (te, (p, tpe, idx)) =>
+        resBranches <- withIdx.parTraverse { case (te, (branch, tpe, idx)) =>
           if (idx != maxIdx) {
             // unfortunately we have to check each branch again to get the correct coerce
             subsCheckRho2(tpe, resTRho, region(te), resRegion)
               .map { coerce =>
-                (p, coerce(te))
+                branch.copy(expr = coerce(te))
               }
-          } else pure((p, te))
+          } else pure(branch)
         }
       } yield (resTRho, resRegion, resBranches)
     }
@@ -2204,27 +2206,35 @@ object Infer {
      * we require resT in weak prenex form because we call checkRho with it
      */
     def checkBranch[A: HasRegion](
-        p: Pattern,
+        branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)],
-        res: Expr[A],
         resT: Type.Rho
-    ): Infer[(Pattern, TypedExpr.Rho[A])] =
+    ): Infer[TypedExpr.Branch[A]] =
       for {
-        (pattern, bindings) <- typeCheckPattern(p, sigma, region(res))
-        tres <- extendEnvList(bindings)(checkRho(res, resT))
-      } yield (pattern, tres)
+        (pattern, bindings) <- typeCheckPattern(
+          branch.pattern,
+          sigma,
+          region(branch.expr)
+        )
+        tguard <- branch.guard.traverse(g =>
+          extendEnvList(bindings)(checkRho(g, Type.BoolType))
+        )
+        tres <- extendEnvList(bindings)(checkRho(branch.expr, resT))
+      } yield TypedExpr.Branch(pattern, tguard, tres)
 
     def inferBranch[A: HasRegion](
-        p: Pattern,
+        branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)],
-        res: Expr[A]
-    ): Infer[(Pattern, (TypedExpr.Rho[A], Type.Rho))] =
+    ): Infer[(TypedExpr.Branch[A], Type.Rho)] =
       for {
-        patBind <- typeCheckPattern(p, sigma, region(res))
+        patBind <- typeCheckPattern(branch.pattern, sigma, region(branch.expr))
         (pattern, bindings) = patBind
+        tguard <- branch.guard.traverse(g =>
+          extendEnvList(bindings)(checkRho(g, Type.BoolType))
+        )
         // inferRho returns a TypedExpr.Rho (which is only an alias)
-        res <- extendEnvList(bindings)(inferRho(res))
-      } yield (pattern, res)
+        res <- extendEnvList(bindings)(inferRho(branch.expr))
+      } yield (TypedExpr.Branch(pattern, tguard, res._1), res._2)
 
     /** patterns can be a sigma type, not neccesarily a rho/tau return a list of
       * bound names and their (sigma) types

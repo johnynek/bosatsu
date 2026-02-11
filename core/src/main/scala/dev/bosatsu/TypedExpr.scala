@@ -45,7 +45,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         tpe
       case Match(_, branches, _) =>
         // all branches have the same type:
-        branches.head._2.getType
+        branches.head.expr.getType
     }
 
   lazy val size: Int =
@@ -62,7 +62,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Recur(args, _, _) =>
         args.foldMap(_.size)
       case Match(a, branches, _) =>
-        a.size + branches.foldMap(_._2.size)
+        a.size + branches.foldMap { branch =>
+          branch.guard.fold(0)(_.size) + branch.expr.size
+        }
     }
 
   // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
@@ -168,9 +170,12 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           def pat(p: Pattern[(PackageName, Constructor), Type]): Doc =
             cpat.document(p)
 
-          val bstr = branches.toList.map { case (p, t) =>
+          val bstr = branches.toList.map { branch =>
+            val guardDoc = branch.guard.fold(Doc.empty)(g =>
+              Doc.comma + Doc.line + loop(g)
+            )
             block(
-              Doc.char('[') + pat(p) + Doc.comma + Doc.line + loop(t) + Doc
+              Doc.char('[') + pat(branch.pattern) + guardDoc + Doc.comma + Doc.line + loop(branch.expr) + Doc
                 .char(']')
             )
           }
@@ -225,10 +230,11 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Match(arg, branches, _) =>
         val argFree = arg.freeVarsDup
 
-        val branchFrees = branches.toList.map { case (p, b) =>
+        val branchFrees = branches.toList.map { branch =>
           // these are not free variables in this branch
-          val newBinds = p.names.toSet
-          val bfree = b.freeVarsDup
+          val newBinds = branch.pattern.names.toSet
+          val bfree =
+            branch.guard.fold(Nil: List[Bindable])(_.freeVarsDup) ::: branch.expr.freeVarsDup
           if (newBinds.isEmpty) bfree
           else ListUtil.filterNot(bfree)(newBinds)
         }
@@ -279,8 +285,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         Nil
       case Match(arg, branches, _) =>
         val argVars = arg.allVarsDup
-        val branchVars = branches.toList.flatMap { case (p, b) =>
-          p.names ::: b.allVarsDup
+        val branchVars = branches.toList.flatMap { branch =>
+          val gvars = branch.guard.fold(Nil: List[Bindable])(_.allVarsDup)
+          branch.pattern.names ::: (gvars ::: branch.expr.allVarsDup)
         }
         argVars ::: branchVars
     }
@@ -355,15 +362,16 @@ object TypedExpr {
         }
 
       private def eqBranches(
-          left: NonEmptyList[
-            (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
-          ],
-          right: NonEmptyList[
-            (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
-          ]
+          left: NonEmptyList[Branch[A]],
+          right: NonEmptyList[Branch[A]]
       ): Boolean =
-        eqNel(left, right) { case ((lp, le), (rp, re)) =>
-          eqPattern(lp, rp) && loop(le, re)
+        eqNel(left, right) { case (lb, rb) =>
+          val guardsEq = (lb.guard, rb.guard) match {
+            case (None, None)             => true
+            case (Some(lg), Some(rg))     => loop(lg, rg)
+            case (None, Some(_)) | (Some(_), None) => false
+          }
+          eqPattern(lb.pattern, rb.pattern) && guardsEq && loop(lb.expr, rb.expr)
         }
 
       private def loop(left: TypedExpr[A], right: TypedExpr[A]): Boolean =
@@ -776,11 +784,14 @@ object TypedExpr {
   ) extends TypedExpr[T]
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
+  case class Branch[+T](
+      pattern: Pattern[(PackageName, Constructor), Type],
+      guard: Option[TypedExpr[T]],
+      expr: TypedExpr[T]
+  )
   case class Match[T](
       arg: TypedExpr[T],
-      branches: NonEmptyList[
-        (Pattern[(PackageName, Constructor), Type], TypedExpr[T])
-      ],
+      branches: NonEmptyList[Branch[T]],
       tag: T
   ) extends TypedExpr[T]
 
@@ -884,9 +895,7 @@ object TypedExpr {
 
     def Match[A](
         arg: TypedExpr[A],
-        branches: NonEmptyList[
-          (Pattern[(PackageName, Constructor), Type], Rho[A])
-        ],
+        branches: NonEmptyList[Branch[A]],
         tag: A
     ): Rho[A] =
       // if all branches are Rho this is Rho
@@ -960,16 +969,16 @@ object TypedExpr {
           }
         }
       case Match(arg, branches, tag) =>
-        val argSetO = branches.traverse { case (p, b) =>
-          toArgsBody(arity, b).flatMap { case (n, b1) =>
+        val argSetO = branches.traverse { branch =>
+          toArgsBody(arity, branch.expr).flatMap { case (n, b1) =>
             val nset: Bindable => Boolean = n.iterator.map(_._1).toSet
-            if (p.names.exists(nset)) {
+            if (branch.pattern.names.exists(nset)) {
               // this we shadow, so we
               // can't lift, we could alpha-rename to
               // deal with this case
               None
             } else {
-              Some((n, (p, b1)))
+              Some((n, branch.copy(expr = b1)))
             }
           }
         }
@@ -1031,8 +1040,9 @@ object TypedExpr {
             Type.freeTyVars(tpe :: Nil).toSet
           case Match(expr, branches, _) =>
             // all branches have the same type:
-            branches.foldLeft(loop(expr)) { case (acc, (p, t)) =>
-              (acc | loop(t)) ++ allPatternTypes(p).iterator.collect {
+            branches.foldLeft(loop(expr)) { case (acc, branch) =>
+              val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(Set.empty[Type.Var])(loop)
+              acc1 ++ allPatternTypes(branch.pattern).iterator.collect {
                 case Type.TyVar(v) => v
               }
             }
@@ -1094,8 +1104,12 @@ object TypedExpr {
           fn(tpe).map(Literal(lit, _, tag))
         case Match(expr, branches, tag) =>
           // all branches have the same type:
-          val tbranch = branches.traverse { case (p, t) =>
-            p.traverseType(fn).product(t.traverseType(fn))
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.pattern.traverseType(fn),
+              branch.guard.traverse(_.traverseType(fn)),
+              branch.expr.traverseType(fn)
+            ).mapN(Branch(_, _, _))
           }
           (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
       }
@@ -1141,8 +1155,13 @@ object TypedExpr {
         case Recur(args, tpe, tag) =>
           args.traverse(loop(_)).map(Recur(_, tpe, tag)).flatMap(fn)
         case Match(expr, branches, tag) =>
-          val tbranch = branches.traverse { case (p, t) =>
-            loop(t).map((p, _))
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.guard.traverse(loop(_)),
+              loop(branch.expr)
+            ).mapN { (guard, expr) =>
+              branch.copy(guard = guard, expr = expr)
+            }
           }
           (loop(expr), tbranch)
             .mapN(Match(_, _, tag))
@@ -1348,19 +1367,24 @@ object TypedExpr {
            *
            * which has a type forall a. Int which is the same
            * as Int
-           */
+          */
           val allMatchMetas: F[SortedSet[Type.Meta]] =
-            getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) =>
-              allPatternTypes(p)
+            getMetaTyVars(arg.getType :: branches.foldMap { branch =>
+              allPatternTypes(branch.pattern) ++ branch.guard.fold(Set.empty[Type])(_.allTypes)
             }.toList)
 
           val env1 = env + te.getType
           def handleBranch(br: Branch[A]): F[Branch[A]] = {
-            val (p, expr) = br
+            val p = br.pattern
             val branchEnv = env1 ++ Pattern
               .envOf(p, Map.empty)(ident => (None, ident))
               .values
-            deepQuantify(branchEnv, expr).map((p, _))
+            (
+              br.guard.traverse(deepQuantify(branchEnv, _)),
+              deepQuantify(branchEnv, br.expr)
+            ).mapN { (guard, expr) =>
+              br.copy(guard = guard, expr = expr)
+            }
           }
 
           val noArg = for {
@@ -1440,8 +1464,13 @@ object TypedExpr {
             fn(tag).map(Literal(lit, tpe, _))
           case Match(expr, branches, tag) =>
             // all branches have the same type:
-            val tbranch = branches.traverse { case (p, t) =>
-              t.traverse(fn).map((p, _))
+            val tbranch = branches.traverse { branch =>
+              (
+                branch.guard.traverse(_.traverse(fn)),
+                branch.expr.traverse(fn)
+              ).mapN { (guard, expr) =>
+                branch.copy(guard = guard, expr = expr)
+              }
             }
             (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
         }
@@ -1477,8 +1506,9 @@ object TypedExpr {
             f(b, tag)
           case Match(arg, branches, tag) =>
             val b1 = foldLeft(arg, b)(f)
-            val b2 = branches.foldLeft(b1) { case (bn, (_, t)) =>
-              foldLeft(t, bn)(f)
+            val b2 = branches.foldLeft(b1) { case (bn, branch) =>
+              val bn1 = branch.guard.fold(bn)(foldLeft(_, bn)(f))
+              foldLeft(branch.expr, bn1)(f)
             }
             f(b2, tag)
         }
@@ -1515,8 +1545,9 @@ object TypedExpr {
           f(tag, lb)
         case Match(arg, branches, tag) =>
           val b1 = f(tag, lb)
-          val b2 = branches.foldRight(b1) { case ((_, t), bn) =>
-            foldRight(t, bn)(f)
+          val b2 = branches.foldRight(b1) { case (branch, bn) =>
+            val bn1 = foldRight(branch.expr, bn)(f)
+            branch.guard.fold(bn1)(foldRight(_, bn1)(f))
           }
           foldRight(arg, b2)(f)
       }
@@ -1544,7 +1575,12 @@ object TypedExpr {
           case Match(arg, branches, tag) =>
             Match(
               map(arg)(fn),
-              branches.map { case (p, t) => (p, map(t)(fn)) },
+              branches.map { branch =>
+                branch.copy(
+                  guard = branch.guard.map(map(_)(fn)),
+                  expr = map(branch.expr)(fn)
+                )
+              },
               fn(tag)
             )
         }
@@ -1771,18 +1807,23 @@ object TypedExpr {
         }
       // we can do the same thing on Match
       case Match(arg, branches, tag) =>
-        val preTypes = branches.foldLeft(arg.allTypes) { case (ts, (p, _)) =>
-          ts | allPatternTypes(p)
+        val preTypes = branches.foldLeft(arg.allTypes) { case (ts, branch) =>
+          ts | allPatternTypes(branch.pattern) | branch.guard
+            .fold(SortedSet.empty[Type])(_.allTypes)
         }
         val argFree = Type.freeBoundTyVars(preTypes.toList).toSet
         if (Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }) {
           None
         } else {
           // the only the branches have generics
-          val b1 = branches.map { case (p, b) =>
-            val gb = Generic(g.quant, b)
+          val b1 = branches.map { branch =>
+            val g1 = branch.guard.map { guard =>
+              val gg = Generic(g.quant, guard)
+              pushGeneric(gg).getOrElse(gg)
+            }
+            val gb = Generic(g.quant, branch.expr)
             val gb1 = pushGeneric(gb).getOrElse(gb)
-            (p, gb1)
+            branch.copy(guard = g1, expr = gb1)
           }
           Some(Match(arg, b1, tag))
         }
@@ -1873,7 +1914,7 @@ object TypedExpr {
                 // error if metas escape typechecking
                 Match(
                   arg,
-                  branches.map { case (p, expr) => (p, self(expr)) },
+                  branches.map(branch => branch.copy(expr = self(branch.expr))),
                   tag
                 )
             }
@@ -2045,11 +2086,12 @@ object TypedExpr {
         case Match(arg, branches, tag) =>
           // Maintain the order we encounter things:
           val arg1 = loop(table, arg)
-          val b1 = branches.traverse { case in @ (p, b) =>
+          val b1 = branches.traverse { in =>
+            val p = in.pattern
             // these are not free variables in this branch
             val ns = p.names
 
-            val (table1, (p1, b1)) =
+            val (table1, branch1) =
               if (ns.isEmpty) (table, in)
               else {
                 // the args here can shadow, so we have to remove any
@@ -2066,7 +2108,7 @@ object TypedExpr {
                     // TODO this isn't great but we just need to get the free vars from the function
                     // this assumes the replacement free variables is constant over the type
                     // which it should be otherwise we can make ill-typed TypedExpr
-                    val dummyTpe = b.getType
+                    val dummyTpe = in.expr.getType
                     freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
                   }
                   .foldLeft(nonShadowed.keySet)(_ | _)
@@ -2076,7 +2118,12 @@ object TypedExpr {
             // now we know that none of args1 shadow anything in subFrees
             // so we can just directly substitute nonShadowed on res1
             // put another way: unshadow make substitute "commute" with lambda.
-            loop(table1, b1).map((p1, _))
+            (
+              branch1.guard.traverse(loop(table1, _)),
+              loop(table1, branch1.expr)
+            ).mapN { (guard, expr) =>
+              branch1.copy(guard = guard, expr = expr)
+            }
           }
           (arg1, b1).mapN(Match(_, _, tag))
       }
@@ -2089,7 +2136,8 @@ object TypedExpr {
       branch: Branch[A]
   ): Branch[A] = {
     // we only get in here when p has some names
-    val (p, b) = branch
+    val p = branch.pattern
+    val b = branch.expr
     val args = NonEmptyList.fromList(p.names) match {
       case None          => return branch
       case Some(argsNel) => argsNel
@@ -2130,7 +2178,7 @@ object TypedExpr {
         }
       }
 
-      val avoids = freeSet | freeVarsSet(b :: Nil)
+      val avoids = freeSet | freeVarsSet(branch.guard.toList ::: (b :: Nil))
       val newArgs = alloc(args.head, args.tail, avoids)
       val resSub = args.iterator
         .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
@@ -2140,9 +2188,10 @@ object TypedExpr {
 
       // calling .get is safe when enterLambda = true
       val b1 = substituteAll(resSub, b, enterLambda = true).get
+      val g1 = branch.guard.map(substituteAll(resSub, _, enterLambda = true).get)
       val p1 = p.substitute(args.iterator.zip(newArgs.iterator).toMap)
 
-      (p1, b1)
+      branch.copy(pattern = p1, guard = g1, expr = b1)
     }
   }
 
@@ -2205,10 +2254,11 @@ object TypedExpr {
         case Literal(lit, tpe, tag) =>
           Literal(lit, Type.substituteVar(tpe, env), tag)
         case Match(expr, branches, tag) =>
-          val branches1 = branches.map { case (p, t) =>
-            val p1 = p.mapType(Type.substituteVar(_, env))
-            val t1 = substituteTypeVar(t, env)
-            (p1, t1)
+          val branches1 = branches.map { branch =>
+            val p1 = branch.pattern.mapType(Type.substituteVar(_, env))
+            val g1 = branch.guard.map(substituteTypeVar(_, env))
+            val t1 = substituteTypeVar(branch.expr, env)
+            branch.copy(pattern = p1, guard = g1, expr = t1)
           }
           val expr1 = substituteTypeVar(expr, env)
           Match(expr1, branches1, tag)
@@ -2263,9 +2313,12 @@ object TypedExpr {
       case Match(arg, branches, tag) =>
         Match(
           recur(arg),
-          branches.map { case (p, t) =>
-            if (p.names.contains(name)) (p, t)
-            else (p, recur(t))
+          branches.map { branch =>
+            if (branch.pattern.names.contains(name)) branch
+            else {
+              val g1 = branch.guard.map(recur)
+              branch.copy(guard = g1, expr = recur(branch.expr))
+            }
           },
           tag
         )
@@ -2338,7 +2391,7 @@ object TypedExpr {
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
             // error if metas escape typechecking
-            Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
+            Match(arg, branches.map(branch => branch.copy(expr = self(branch.expr))), tag)
           case App(AnnotatedLambda(lamArgs, body, _), aArgs, _, tag) =>
             // (\x - res)(y) == let x = y in res
             val arg1 = lamArgs.zip(aArgs).map {
@@ -2460,9 +2513,6 @@ object TypedExpr {
         }
     }
 
-  type Branch[A] =
-    (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
-
   def quantVars[A](
       forallList: List[(Type.Var.Bound, Kind)],
       existList: List[(Type.Var.Bound, Kind)],
@@ -2556,8 +2606,8 @@ object TypedExpr {
         State(s => (s + ((p, n)), g))
       case m @ Match(_, branches, _) =>
         branches
-          .traverse_ { case (pat, _) =>
-            pat
+          .traverse_ { branch =>
+            branch.pattern
               .traverseStruct[
                 VState,
                 (PackageName, Identifier.Constructor)

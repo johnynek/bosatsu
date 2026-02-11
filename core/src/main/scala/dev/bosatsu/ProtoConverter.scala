@@ -614,12 +614,14 @@ object ProtoConverter {
             }
           case Value.MatchExpr(proto.MatchExpr(argId, branches, _)) =>
             def buildBranch(b: proto.Branch): Try[
-              (Pattern[(PackageName, Constructor), Type], TypedExpr[Unit])
+              TypedExpr.Branch[Unit]
             ] =
               (
                 ds.tryPattern(b.pattern - 1, s"invalid pattern in $ex"),
+                if (b.guardExpr > 0) exprOf(b.guardExpr).map(Some(_))
+                else Success(None),
                 exprOf(b.resultExpr)
-              ).tupled
+              ).mapN(TypedExpr.Branch(_, _, _))
 
             NonEmptyList.fromList(branches.toList) match {
               case Some(nel) =>
@@ -1042,10 +1044,16 @@ object ProtoConverter {
                 }
             case m @ Match(argE, branches, _) =>
               def encodeBranch(
-                  p: (Pattern[(PackageName, Constructor), Type], TypedExpr[Any])
+                  p: TypedExpr.Branch[Any]
               ): Tab[proto.Branch] =
-                (patternToProto(p._1), typedExprToProto(p._2))
-                  .mapN((pat, expr) => proto.Branch(pat, expr))
+                (patternToProto(p.pattern), p.guard.traverse(typedExprToProto), typedExprToProto(p.expr))
+                  .mapN { (pat, guardExpr, expr) =>
+                    proto.Branch(
+                      pattern = pat,
+                      resultExpr = expr,
+                      guardExpr = guardExpr.getOrElse(0)
+                    )
+                  }
 
               typedExprToProto(argE)
                 .product(branches.toList.traverse(encodeBranch))

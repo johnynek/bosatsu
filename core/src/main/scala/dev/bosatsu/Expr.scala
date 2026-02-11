@@ -48,10 +48,10 @@ sealed abstract class Expr[T] derives CanEqual {
       case Match(arg, branches, _) =>
         val argFree = arg.freeVarsDup
 
-        val branchFrees = branches.toList.map { case (p, b) =>
+        val branchFrees = branches.toList.map { branch =>
           // these are not free variables in this branch
-          val newBinds = p.names.toSet
-          val bfree = b.freeVarsDup
+          val newBinds = branch.pattern.names.toSet
+          val bfree = branch.guard.fold(Nil: List[Bindable])(_.freeVarsDup) ::: branch.expr.freeVarsDup
           if (newBinds.isEmpty) bfree
           else ListUtil.filterNot(bfree)(newBinds)
         }
@@ -90,7 +90,9 @@ sealed abstract class Expr[T] derives CanEqual {
         argE.globals | in.globals
       case Literal(_, _)           => Set.empty
       case Match(arg, branches, _) =>
-        arg.globals | branches.reduceMap { case (_, b) => b.globals }
+        arg.globals | branches.foldMap { branch =>
+          branch.guard.fold(Set.empty[Expr.Global[T]])(_.globals) | branch.expr.globals
+        }
     }
   }
 
@@ -155,11 +157,14 @@ object Expr {
     }
   }
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
+  case class Branch[T](
+      pattern: Pattern[(PackageName, Constructor), Type],
+      guard: Option[Expr[T]],
+      expr: Expr[T]
+  )
   case class Match[T](
       arg: Expr[T],
-      branches: NonEmptyList[
-        (Pattern[(PackageName, Constructor), Type], Expr[T])
-      ],
+      branches: NonEmptyList[Branch[T]],
       tag: T
   ) extends Expr[T]
 
@@ -189,7 +194,7 @@ object Expr {
         case Let(_, _, Annotated(t), _, _) => Some(t)
         case Match(_, branches, _)         =>
           branches
-            .traverse { case (_, expr) => unapply(expr) }
+            .traverse(branch => unapply(branch.expr))
             .flatMap { allAnnotated =>
               if (allAnnotated.tail.forall(_ == allAnnotated.head))
                 Some(allAnnotated.head)
@@ -234,8 +239,9 @@ object Expr {
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _)            => SortedSet.empty
       case Match(exp, branches, _)  =>
-        allNames(exp) | branches.foldMap { case (pat, res) =>
-          allNames(res) ++ pat.names
+        allNames(exp) | branches.foldMap { branch =>
+          val b = allNames(branch.expr) ++ branch.pattern.names
+          branch.guard.fold(b)(g => b | allNames(g))
         }
     }
 
@@ -262,7 +268,14 @@ object Expr {
       ifFalse: Expr[T],
       tag: T
   ): Expr[T] =
-    Match(cond, NonEmptyList.of((TruePat, ifTrue), (FalsePat, ifFalse)), tag)
+    Match(
+      cond,
+      NonEmptyList.of(
+        Branch(TruePat, None, ifTrue),
+        Branch(FalsePat, None, ifFalse)
+      ),
+      tag
+    )
 
   /** Build an apply expression by appling these args left to right
     */
@@ -305,14 +318,13 @@ object Expr {
       case l @ Literal(_, _)         => F.pure(l)
       case Match(arg, branches, tag) =>
         val argB = traverseType[T, F](arg, bound)(fn)
-        type B = (Pattern[(PackageName, Constructor), Type], Expr[T])
+        type B = Branch[T]
         def branchFn(b: B): F[B] =
-          b match {
-            case (pat, expr) =>
-              pat
-                .traverseType(fn(_, bound))
-                .product(traverseType[T, F](expr, bound)(fn))
-          }
+          (
+            b.pattern.traverseType(fn(_, bound)),
+            b.guard.traverse(traverseType[T, F](_, bound)(fn)),
+            traverseType[T, F](b.expr, bound)(fn)
+          ).mapN(Branch(_, _, _))
         val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Match(_, _, tag))
     }
@@ -415,7 +427,11 @@ object Expr {
     val lambdaResult = bindArgsWithP.toList.foldRight(body) {
       case (((_, _), None), body)              => body
       case (((name, _), Some(matchPat)), body) =>
-        Match(Local(name, outer), NonEmptyList.of((matchPat, body)), outer)
+        Match(
+          Local(name, outer),
+          NonEmptyList.one(Branch(matchPat, None, body)),
+          outer
+        )
     }
     Lambda(justArgs, lambdaResult, outer)
   }

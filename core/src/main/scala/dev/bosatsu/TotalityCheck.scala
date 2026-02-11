@@ -150,8 +150,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case App(fn, args, _)     => checkExpr(fn) *> args.traverse_(checkExpr)
       case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
       case m @ Match(arg, branches, _) =>
-        val patterns = branches.toList.map(_._1)
-        patterns
+        val allPatterns = branches.toList.map(_.pattern)
+        val unguardedPatterns = branches.toList.collect {
+          case branch if branch.guard.isEmpty => branch.pattern
+        }
+        allPatterns
           .parTraverse_(validatePattern)
           .leftMap { nel =>
             nel.map(InvalidPattern(m, _))
@@ -159,11 +162,13 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           .toValidated
           .andThen { _ =>
             // if the patterns are good, then we check them for totality
-            val argAndBranchExprs = arg :: branches.toList.map(_._2)
+            val argAndBranchExprs = arg :: branches.toList.flatMap { branch =>
+              branch.guard.toList ::: (branch.expr :: Nil)
+            }
             val recursion = argAndBranchExprs.traverse_(checkExpr)
 
             val missing: ValidatedNel[ExprError[A], Unit] = {
-              val mis = patternSetOps.missingBranches(topList, patterns)
+              val mis = patternSetOps.missingBranches(topList, unguardedPatterns)
               NonEmptyList.fromList(mis) match {
                 case Some(nel) =>
                   Validated.invalidNel(NonTotalMatch(m, nel): ExprError[A])
@@ -172,7 +177,33 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             }
 
             val unreachable: ValidatedNel[ExprError[A], Unit] = {
-              val unr = patternSetOps.unreachableBranches(patterns)
+              val unr = {
+                @annotation.tailrec
+                def loop(
+                    rem: List[Expr.Branch[A]],
+                    covered: List[Pattern[Cons, Type]],
+                    acc: List[Pattern[Cons, Type]]
+                ): List[Pattern[Cons, Type]] =
+                  rem match {
+                    case Nil => acc.reverse
+                    case branch :: tail =>
+                      val isUnreachable = fromList(covered) match {
+                        case None => false
+                        case Some(cov) =>
+                          patternSetOps
+                            .difference(branch.pattern, cov)
+                            .isEmpty
+                      }
+                      val covered1 =
+                        if (branch.guard.isEmpty) branch.pattern :: covered
+                        else covered
+                      val acc1 =
+                        if (isUnreachable) branch.pattern :: acc
+                        else acc
+                      loop(tail, covered1, acc1)
+                  }
+                loop(branches.toList, Nil, Nil)
+              }
               NonEmptyList.fromList(unr) match {
                 case Some(nel) =>
                   Validated.invalidNel(

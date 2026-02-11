@@ -111,8 +111,15 @@ object SelfCallKind {
           .ifNoCallThen {
             // then we check all the branches
             branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) {
-              case (acc, (_, b)) =>
-                acc.merge(apply(n, b))
+              case (acc, branch) =>
+                val branchCalls =
+                  if (branch.pattern.names.contains(n)) SelfCallKind.NoCall
+                  else {
+                    val guardCalls = branch.guard
+                      .fold(SelfCallKind.NoCall: SelfCallKind)(apply(n, _).callNotTail)
+                    guardCalls.merge(apply(n, branch.expr))
+                  }
+                acc.merge(branchCalls)
             }
           }
     }

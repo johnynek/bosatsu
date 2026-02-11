@@ -1707,8 +1707,18 @@ object Matchless {
         case TypedExpr.Match(arg, branches, tag) =>
           TypedExpr.Match(
             recurToSelfCall(loopName, loopType, arg, inNestedLoop),
-            branches.map { case (p, e) =>
-              (p, recurToSelfCall(loopName, loopType, e, inNestedLoop))
+            branches.map { branch =>
+              branch.copy(
+                guard =
+                  branch.guard
+                    .map(recurToSelfCall(loopName, loopType, _, inNestedLoop)),
+                expr = recurToSelfCall(
+                  loopName,
+                  loopType,
+                  branch.expr,
+                  inNestedLoop
+                )
+              )
             },
             tag
           )
@@ -1774,8 +1784,13 @@ object Matchless {
         case TypedExpr.Match(arg, branches, _) =>
           (
             loop(arg, slots.unname),
-            branches.traverse { case (p, te) =>
-              loop(te, slots.unname).map((p, _))
+            branches.traverse { branch =>
+              (
+                branch.guard.traverse(loop(_, slots.unname)),
+                loop(branch.expr, slots.unname)
+              ).mapN { (guard, te) =>
+                MatchBranch(branch.pattern, guard, te)
+              }
             }
           ).tupled
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
@@ -2265,12 +2280,19 @@ object Matchless {
         Always(SetMut(l, e), r)
       }
 
+    case class MatchBranch(
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guard: Option[Expr[B]],
+        rhs: Expr[B]
+    )
+
     // A row in the pattern matrix: patterns for each occurrence,
     // a right-hand side, and the bindings accumulated so far.
     // pats may be empty after all columns are specialized away; in that
     // case the row is a total match for the remaining occurrences.
     case class MatchRow(
         pats: List[Pattern[(PackageName, Constructor), Type]],
+        guard: Option[Expr[B]],
         rhs: Expr[B],
         binds: List[(Bindable, Expr[B])]
     ) {
@@ -2605,24 +2627,31 @@ object Matchless {
       }
     }
 
+    def guardToBoolExpr(guardExpr: Expr[B]): F[BoolExpr[B]] =
+      guardExpr match {
+        case cheap: CheapExpr[B] =>
+          Monad[F].pure(isTrueExpr(cheap))
+        case notCheap =>
+          makeAnon.map { tmp =>
+            val guardLocal = LocalAnon(tmp)
+            LetBool(Left(guardLocal), notCheap, isTrueExpr(guardLocal))
+          }
+      }
+
     // Legacy ordered compiler: compile each pattern into a BoolExpr and chain
     // Ifs. This preserves the semantics of non-orthogonal patterns.
     def matchExprOrderedCheap(
         arg: CheapExpr[B],
-        branches: NonEmptyList[
-          (Pattern[(PackageName, Constructor), Type], Expr[B])
-        ]
+        branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
       def recur(
           arg: CheapExpr[B],
-          branches: NonEmptyList[
-            (Pattern[(PackageName, Constructor), Type], Expr[B])
-          ]
+          branches: NonEmptyList[MatchBranch]
       ): F[Expr[B]] = {
-        val (p1Raw, r1) = branches.head
+        val head = branches.head
         // Normalize to simplify list/string patterns while preserving
         // ordered semantics for non-orthogonal matches.
-        val p1 = normalizePattern(p1Raw)
+        val head1 = head.copy(pattern = normalizePattern(head.pattern))
 
         def loop(
             cbs: NonEmptyList[
@@ -2630,35 +2659,50 @@ object Matchless {
             ]
         ): F[Expr[B]] =
           cbs match {
-            case NonEmptyList((b0, TrueConst, binds), _) =>
-              // this is a total match, no fall through
-              val right = lets(binds, r1)
-              Monad[F].pure(letMutAll(b0, right))
             case NonEmptyList((b0, cond, binds), others) =>
-              val thisBranch = lets(binds, r1)
-              val res = others match {
-                case oh :: ot =>
-                  loop(NonEmptyList(oh, ot)).map { te =>
-                    If(cond, thisBranch, te)
-                  }
-                case Nil =>
-                  branches.tail match {
-                    case Nil =>
-                      // this must be total, but we still need
-                      // to evaluate cond since it can have side
-                      // effects
-                      Monad[F].pure(always(cond, thisBranch))
-                    case bh :: bt =>
-                      recur(arg, NonEmptyList(bh, bt)).map { te =>
-                        If(cond, thisBranch, te)
-                      }
-                  }
-              }
+              val thisBranch = lets(binds, head1.rhs)
+              val condF =
+                head1.guard match {
+                  case None =>
+                    Monad[F].pure(cond)
+                  case Some(guard) =>
+                    guardToBoolExpr(lets(binds, guard)).map(cond && _)
+                }
 
-              res.map(letMutAll(b0, _))
+              val hasFallback = others.nonEmpty || branches.tail.nonEmpty
+              val resF =
+                if (hasFallback) {
+                  lazy val fallbackF: F[Expr[B]] =
+                    others match {
+                      case oh :: ot =>
+                        loop(NonEmptyList(oh, ot))
+                      case Nil =>
+                        recur(arg, NonEmptyList.fromListUnsafe(branches.tail))
+                    }
+                  (condF, fallbackF).mapN { (cond1, fallback) =>
+                    cond1 match {
+                      case TrueConst => thisBranch
+                      case _         => If(cond1, thisBranch, fallback)
+                    }
+                  }
+                } else {
+                  head1.guard match {
+                    case None =>
+                      // this must be total, but we still need
+                      // to evaluate cond since it can have side effects.
+                      Monad[F].pure(always(cond, thisBranch))
+                    case Some(_) =>
+                      // totality checking rejects a terminal guarded branch
+                      // with no fallback; keep defensive runtime behavior.
+                      condF.map(cond1 => If(cond1, thisBranch, UnitExpr))
+                  }
+                }
+
+              resF.map(letMutAll(b0, _))
           }
 
-        doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
+        val mustMatchPattern = branches.tail.isEmpty && head1.guard.isEmpty
+        doesMatch(arg, head1.pattern, mustMatchPattern).flatMap(loop)
       }
 
       recur(arg, branches)
@@ -2680,12 +2724,10 @@ object Matchless {
     // See: https://compiler.club/compiling-pattern-matching/
     def matchExprMatrixCheap(
         arg: CheapExpr[B],
-        branches: NonEmptyList[
-          (Pattern[(PackageName, Constructor), Type], Expr[B])
-        ]
+        branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
-      val rows0 = branches.toList.map { case (p, e) =>
-        MatchRow(p :: Nil, e, Nil)
+      val rows0 = branches.toList.map { branch =>
+        MatchRow(branch.pattern :: Nil, branch.guard, branch.rhs, Nil)
       }
 
       // Matches have already passed totality checking, so the initial matrix
@@ -2753,8 +2795,26 @@ object Matchless {
 
           val compiled: F[Expr[B]] =
             rows match {
-              case MatchRow(p0, r0, b0) :: _ if p0.forall(_ == Pattern.WildCard) =>
-                Monad[F].pure(lets(b0, r0))
+              case MatchRow(p0, g0, r0, b0) :: tail
+                  if p0.forall(_ == Pattern.WildCard) =>
+                val rhsExpr = lets(b0, r0)
+                g0 match {
+                  case None =>
+                    Monad[F].pure(rhsExpr)
+                  case Some(guard) =>
+                    val guardExpr = lets(b0, guard)
+                    guardToBoolExpr(guardExpr).flatMap { guardCond =>
+                      if (tail.nonEmpty) {
+                        compileRows(tail, occs, mustMatch = false).map { fallback =>
+                          If(guardCond, rhsExpr, fallback)
+                        }
+                      } else {
+                        // totality checking rejects this shape; keep defensive
+                        // fallback behavior in case malformed TypedExpr reaches here.
+                        Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
+                      }
+                    }
+                }
               case Nil =>
                 // this should be impossible in well-typed code
                 Monad[F].pure(UnitExpr)
@@ -2855,12 +2915,17 @@ object Matchless {
                       else Monad[F].pure(UnitExpr)
                     case sig :: rest =>
                       val caseMustMatch =
-                        mustMatch && rest.isEmpty && defaultRows.isEmpty
+                        mustMatch &&
+                          rest.isEmpty &&
+                          defaultRows.isEmpty &&
+                          rows.forall(_.guard.isEmpty)
                       buildCase(sig, caseMustMatch).flatMap {
                         case (cond, preLets, newRows, newOccs) =>
                           if (newRows.isEmpty) compileCases(rest, mustMatch)
                           else {
-                            compileRows(newRows, newOccs, mustMatch).flatMap {
+                            val subMustMatch =
+                              mustMatch && newRows.forall(_.guard.isEmpty)
+                            compileRows(newRows, newOccs, subMustMatch).flatMap {
                               thenExpr =>
                                 cond match {
                                   case TrueConst =>
@@ -2871,7 +2936,12 @@ object Matchless {
 
                                     val branchF: F[Expr[B]] =
                                       if (!hasElse)
-                                        Monad[F].pure(always(cond, thenExpr))
+                                        if (mustMatch)
+                                          Monad[F].pure(always(cond, thenExpr))
+                                        else
+                                          Monad[F].pure(
+                                            If(cond, thenExpr, UnitExpr)
+                                          )
                                       else
                                         compileCases(rest, mustMatch).map {
                                           elseExpr =>
@@ -2900,12 +2970,10 @@ object Matchless {
     def matchExpr(
         arg: Expr[B],
         tmp: F[Long],
-        branches: NonEmptyList[
-          (Pattern[(PackageName, Constructor), Type], Expr[B])
-        ]
+        branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
       val (orthoPrefix, nonOrthoSuffix) =
-        branches.toList.span { case (p, _) => !isNonOrthogonal(p) }
+        branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
       // Heuristic: only pay the matrix setup cost if we can prune a few
       // orthogonal cases before falling back.
       val orthoThreshold = 4
@@ -2917,7 +2985,8 @@ object Matchless {
           case _ if orthoPrefix.length >= orthoThreshold =>
             val suffixNel = NonEmptyList.fromListUnsafe(nonOrthoSuffix)
             matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
-              val combined = orthoPrefix :+ (Pattern.WildCard, fallbackExpr)
+              val combined =
+                orthoPrefix :+ MatchBranch(Pattern.WildCard, None, fallbackExpr)
               val combinedNel = NonEmptyList.fromListUnsafe(combined)
               matchExprMatrixCheap(arg, combinedNel)
             }

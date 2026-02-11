@@ -43,7 +43,11 @@ class ExprTest extends munit.ScalaCheckSuite {
           )
           assert(
             Expr
-              .Match(bind, NonEmptyList.one((Pattern.Named(n, pat), expr)), 0)
+              .Match(
+                bind,
+                NonEmptyList.one(Expr.Branch(Pattern.Named(n, pat), None, expr)),
+                0
+              )
               .notFree(n)
           )
         }
