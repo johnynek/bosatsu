@@ -128,12 +128,11 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
             case Empty: Empty
             case Branch { size, key, left, right, ... }:
                 match fn(item, key):
+                    case EQ if right matches Empty:
+                        left
                     case EQ:
-                        match right:
-                            case Empty: left
-                            case _:
-                                right = loop(right)
-                                branch(size.sub(1), key, left, right).balance()
+                        right = loop(right)
+                        branch(size.sub(1), key, left, right).balance()
                     case LT:
                         left = loop(left)
                         branch(size.sub(1), key, left, right).balance()
