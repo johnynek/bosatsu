@@ -2305,6 +2305,10 @@ object Matchless {
       ): MatchRow =
         copy(pats = pats.patch(colIdx, pats1, 1))
     }
+    object MatchRow {
+      def fromBranch(branch: MatchBranch): MatchRow =
+        MatchRow(branch.pattern :: Nil, branch.guard, branch.rhs, Nil)
+    }
 
     // Head signatures represent refutable "shapes" we can branch on.
     // These correspond to Maranget's constructor/literal head cases.
@@ -2661,17 +2665,17 @@ object Matchless {
           cbs match {
             case NonEmptyList((b0, cond, binds), others) =>
               val thisBranch = lets(binds, head1.rhs)
-              val condF =
-                head1.guard match {
-                  case None =>
-                    Monad[F].pure(cond)
-                  case Some(guard) =>
-                    guardToBoolExpr(lets(binds, guard)).map(cond && _)
-                }
 
               val hasFallback = others.nonEmpty || branches.tail.nonEmpty
               val resF =
                 if (hasFallback) {
+                  val condF =
+                    head1.guard match {
+                      case None =>
+                        Monad[F].pure(cond)
+                      case Some(guard) =>
+                        guardToBoolExpr(lets(binds, guard)).map(cond && _)
+                    }
                   lazy val fallbackF: F[Expr[B]] =
                     others match {
                       case oh :: ot =>
@@ -2691,10 +2695,12 @@ object Matchless {
                       // this must be total, but we still need
                       // to evaluate cond since it can have side effects.
                       Monad[F].pure(always(cond, thisBranch))
+                    // $COVERAGE-OFF$
                     case Some(_) =>
                       // totality checking rejects a terminal guarded branch
-                      // with no fallback; keep defensive runtime behavior.
-                      condF.map(cond1 => If(cond1, thisBranch, UnitExpr))
+                      // with no fallback.
+                      Monad[F].pure(always(cond, thisBranch))
+                    // $COVERAGE-ON$
                   }
                 }
 
@@ -2726,9 +2732,7 @@ object Matchless {
         arg: CheapExpr[B],
         branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
-      val rows0 = branches.toList.map { branch =>
-        MatchRow(branch.pattern :: Nil, branch.guard, branch.rhs, Nil)
-      }
+      val rows0 = branches.toList.map(MatchRow.fromBranch)
 
       // Matches have already passed totality checking, so the initial matrix
       // must match. We thread this through recursive submatrices so the last

@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Eq, Foldable}
+import cats.Eq
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.pattern.StrPart
@@ -168,96 +168,6 @@ object TypedExprNormalization {
       case _ =>
         None
     }
-
-  private def maybeHoistPatternIndependentGuard[A](
-      m: Match[A]
-  ): Option[TypedExpr[A]] = {
-    type Pat = Pattern[(PackageName, Constructor), Type]
-
-    def independent(branch: Branch[A], guard: TypedExpr[A]): Boolean =
-      branch.pattern.names.forall(guard.notFree)
-
-    val independentGuards = m.branches.toList.flatMap { branch =>
-      branch.guard.collect {
-        case guard if independent(branch, guard) => guard
-      }
-    }
-
-    if (independentGuards.isEmpty) None
-    else {
-      val sharedCounts = independentGuards
-        .groupBy(_.void)
-        .view
-        .mapValues(_.size)
-        .toMap
-
-      val candidate = m.branches.toList.collectFirst(Function.unlift { branch =>
-        branch.guard.flatMap { guard =>
-          val isIndependent = independent(branch, guard)
-          val isShared = sharedCounts.getOrElse(guard.void, 0) > 1
-          if (isIndependent && (Impl.isSimple(guard, lambdaSimple = true) || isShared))
-            Some(guard)
-          else None
-        }
-      })
-
-      candidate.map { guardTemplate =>
-        val tupleConsType = Type.Tuple.Arity(2).tpe.toDefined
-        val tupleConsRef =
-          (tupleConsType.packageName, tupleConsType.name.ident)
-        val truePat: Pat =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("True")),
-            Nil
-          )
-        val tupleType = Type.Tuple(m.arg.getType :: Type.BoolType :: Nil)
-        val tupleConsExpr = TypedExpr.Global(
-          tupleConsRef._1,
-          tupleConsRef._2,
-          Type.Fun(NonEmptyList.of(m.arg.getType, Type.BoolType), tupleType),
-          m.tag
-        )
-        val avoid = TypedExpr.allVarsSet((m: TypedExpr[A]) :: Nil)
-        val fresh = Expr.nameIterator().filterNot(avoid)
-        val guardName = fresh.next()
-        val guardLocal = TypedExpr.Local(guardName, Type.BoolType, m.tag)
-        val tupleArg = TypedExpr.App(
-          tupleConsExpr,
-          NonEmptyList.of(m.arg, guardLocal),
-          tupleType,
-          m.tag
-        )
-
-        def hoistedIn(branch: Branch[A]): Boolean =
-          branch.guard.exists { guard =>
-            independent(branch, guard) &&
-            TypedExpr.eqTypedExpr[Unit].eqv(guard.void, guardTemplate.void)
-          }
-
-        val branches1 = m.branches.map { branch =>
-          val guardPat: Pat =
-            if (hoistedIn(branch)) truePat else Pattern.WildCard
-          val tuplePat: Pat =
-            Pattern.PositionalStruct(
-              tupleConsRef,
-              branch.pattern :: guardPat :: Nil
-            )
-          val guard1 =
-            if (hoistedIn(branch)) None
-            else branch.guard
-          branch.copy(pattern = tuplePat, guard = guard1)
-        }
-
-        TypedExpr.Let(
-          guardName,
-          guardTemplate,
-          TypedExpr.Match(tupleArg, branches1, m.tag),
-          RecursionKind.NonRecursive,
-          m.tag
-        )
-      }
-    }
-  }
 
   private def rewriteTailCalls[A](
       name: Bindable,
@@ -1396,24 +1306,19 @@ object TypedExprNormalization {
         val a1 = normalize1(None, arg, scope, typeEnv).get
         if (changed1 == 0) {
           val m1 = Match(a1, branches, tag)
-          maybeHoistPatternIndependentGuard(m1) match {
-            case Some(m2) =>
-              normalize1(namerec, m2, scope, typeEnv)
+          Impl.maybeEvalMatch(m1, scope) match {
             case None =>
-              Impl.maybeEvalMatch(m1, scope) match {
-                case None =>
-                  // if only the arg changes, there
-                  // is no need to rerun the normalization
-                  // because normalization of branches
-                  // does not depend on the arg
-                  if (a1 eq arg) None
-                  else Some(m1)
-                case Some(m2) =>
-                  // TODO: we may not have a proof that m2 is smaller
-                  // than m1. requiring m2.size < m1.size fails some tests
-                  // we can possibly simplify this now:
-                  normalize1(namerec, m2, scope, typeEnv)
-              }
+              // if only the arg changes, there
+              // is no need to rerun the normalization
+              // because normalization of branches
+              // does not depend on the arg
+              if (a1 eq arg) None
+              else Some(m1)
+            case Some(m2) =>
+              // TODO: we may not have a proof that m2 is smaller
+              // than m1. requiring m2.size < m1.size fails some tests
+              // we can possibly simplify this now:
+              normalize1(namerec, m2, scope, typeEnv)
           }
         } else {
           // there has been some change, so
@@ -1685,7 +1590,7 @@ object TypedExprNormalization {
         }
     }
 
-    def evaluate[A](te: TypedExpr[A], scope: Scope[A]): Option[EvalResult[A]] =
+    def evaluate[A: Eq](te: TypedExpr[A], scope: Scope[A]): Option[EvalResult[A]] =
       te match {
         case Literal(lit, _, _) => Some(EvalResult.Constant(lit))
         case Local(b, _, _)     =>
@@ -1729,6 +1634,8 @@ object TypedExprNormalization {
           evaluate(in, scope)
         case Annotation(te, _) =>
           evaluate(te, scope)
+        case m @ Match(_, _, _) =>
+          maybeEvalMatch(m, scope).flatMap(evaluate(_, scope))
         case _ =>
           None
       }
@@ -1740,9 +1647,36 @@ object TypedExprNormalization {
         m: Match[? <: A],
         scope: Scope[A]
     ): Option[TypedExpr[A]] = {
-      if (m.branches.exists(_.guard.nonEmpty)) None
-      else {
-        evaluate(m.arg, scope).flatMap {
+      def evalBool(te: TypedExpr[A]): Option[Boolean] = {
+        val te1: TypedExpr[A] =
+          te match {
+            case m1 @ Match(_, _, _) =>
+              maybeEvalMatch(m1, scope).getOrElse(te)
+            case _ =>
+              te
+          }
+
+        boolConst(te1).orElse {
+          evaluate(te1, scope).flatMap {
+            case EvalResult.Cons(
+                  PackageName.PredefName,
+                  Constructor("True"),
+                  Nil
+                ) =>
+              Some(true)
+            case EvalResult.Cons(
+                  PackageName.PredefName,
+                  Constructor("False"),
+                  Nil
+                ) =>
+              Some(false)
+            case _ =>
+              None
+          }
+        }
+      }
+
+      evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length
 
@@ -1804,68 +1738,110 @@ object TypedExprNormalization {
               }
           }
 
+          def bindConsPattern(
+              pat: Pat,
+              in: TypedExpr[A]
+          ): Option[TypedExpr[A]] =
+            pat match {
+              case MaybeNamedStruct(binds, pats) =>
+                def matchAll(
+                    argPat: List[
+                      (
+                          TypedExpr[A],
+                          Pattern[(PackageName, Constructor), Type]
+                      )
+                    ],
+                    res: TypedExpr[A]
+                ): TypedExpr[A] =
+                  argPat match {
+                    case Nil            => res
+                    case (a, p) :: tail =>
+                      val tr = matchAll(tail, res)
+                      p match {
+                        case Pattern.WildCard =>
+                          // we don't care about this value
+                          tr
+                        case Pattern.Var(b) =>
+                          Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
+                        case _ =>
+                          // This will get simplified later
+                          Match(a, NonEmptyList.one(Branch(p, None, tr)), m.tag)
+                      }
+                  }
+
+                val res = matchAll(args.zip(pats), in)
+                Some(
+                  binds.foldRight(res)(
+                    Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                  )
+                )
+              case _ =>
+                None
+            }
+
           m.branches
             .traverse { branch =>
-              filterPat(branch.pattern).map((_, branch.expr))
+              filterPat(branch.pattern).map((_, branch))
             }
             // if we can check all the branches for a match, maybe we can evaluate
             .flatMap { branches =>
-              val candidates: List[(Pat, TypedExpr[A])] =
-                branches.collect { case (Some(p), r) => (p, r) }
+              if (m.branches.exists(_.guard.nonEmpty)) {
+                @annotation.tailrec
+                def chooseBranch(
+                    rem: List[(Option[Pat], Branch[A])]
+                ): Option[TypedExpr[A]] =
+                  rem match {
+                    case Nil =>
+                      None
+                    case (None, _) :: tail =>
+                      chooseBranch(tail)
+                    case (Some(pat), br) :: tail =>
+                      val bodyExpr = bindConsPattern(pat, br.expr)
+                      br.guard match {
+                        case None =>
+                          bodyExpr
+                        case Some(guard) =>
+                          bindConsPattern(pat, guard).flatMap(evalBool) match {
+                            case Some(true) =>
+                              bodyExpr
+                            case Some(false) =>
+                              chooseBranch(tail)
+                            case None =>
+                              None
+                          }
+                      }
+                  }
 
-              candidates match {
-                // $COVERAGE-OFF$
-                case Nil =>
-                  // TODO hitting this looks like a bug
-                  sys.error(
-                    s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})"
-                  )
-                // $COVERAGE-ON$
-                case (MaybeNamedStruct(b, pats), r) :: rest
-                    if rest.isEmpty || pats.forall(isTotal) =>
-                  // If there are no more items, or all inner patterns are total, we are done
-                  // exactly one matches, this can be a sequential match
-                  def matchAll(
-                      argPat: List[
-                        (
-                            TypedExpr[A],
-                            Pattern[(PackageName, Constructor), Type]
-                        )
-                      ]
-                  ): TypedExpr[A] =
-                    argPat match {
-                      case Nil            => r
-                      case (a, p) :: tail =>
-                        val tr = matchAll(tail)
-                        p match {
-                          case Pattern.WildCard =>
-                            // we don't care about this value
-                            tr
-                          case Pattern.Var(b) =>
-                            Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
-                          case _ =>
-                            // This will get simplified later
-                            Match(a, NonEmptyList.one(Branch(p, None, tr)), m.tag)
-                        }
-                    }
+                chooseBranch(branches.toList)
+              } else {
+                val candidates: List[(Pat, TypedExpr[A])] =
+                  branches.collect { case (Some(p), br) => (p, br.expr) }
 
-                  val res = matchAll(args.zip(pats))
-                  Some(
-                    b.foldRight(res)(
-                      Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                candidates match {
+                  // $COVERAGE-OFF$
+                  case Nil =>
+                    // TODO hitting this looks like a bug
+                    sys.error(
+                      s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})"
                     )
-                  )
-                case h :: t =>
-                  // more than one branch might match, wait till runtime
-                  val m1 = Match(
-                    m.arg,
-                    NonEmptyList(h, t).map { case (pat, rhs) =>
-                      Branch(pat, None, rhs)
-                    },
-                    m.tag
-                  )
-                  if ((m1: TypedExpr[A]) === m) None
-                  else Some(m1)
+                  // $COVERAGE-ON$
+                  case (pat @ MaybeNamedStruct(_, pats), r) :: rest
+                      if rest.isEmpty || pats.forall(isTotal) =>
+                    // If there are no more items, or all inner patterns are total, we are done
+                    // exactly one matches, this can be a sequential match
+                    bindConsPattern(pat, r)
+                  case h :: t =>
+                    // more than one branch might match, wait till runtime
+                    val m1 = Match(
+                      m.arg,
+                      NonEmptyList(h, t).map { case (pat, rhs) =>
+                        Branch(pat, None, rhs)
+                      },
+                      m.tag
+                    )
+                    if ((m1: TypedExpr[A]) === m) None
+                    else Some(m1)
+                }
               }
             }
 
@@ -1900,20 +1876,45 @@ object TypedExprNormalization {
               // $COVERAGE-ON$
             }
 
-          Foldable[NonEmptyList]
-            .collectFirstSome[Branch[A], TypedExpr[A]](m.branches) {
-              case Branch(p, None, r) =>
-                makeLet(p).map { binds =>
-                  binds.foldRight(r) { case ((n, li), r) =>
-                    val te = Literal[A](li, Type.getTypeOf(li), m.arg.tag)
-                    Let(n, te, r, RecursionKind.NonRecursive, m.tag)
-                  }
-                }
-              case Branch(_, Some(_), _) =>
-                None
+          def bindLiteralPattern(
+              pat: Pat,
+              in: TypedExpr[A]
+          ): Option[TypedExpr[A]] =
+            makeLet(pat).map { binds =>
+              binds.foldRight(in) { case ((n, lit), r) =>
+                val te = Literal[A](lit, Type.getTypeOf(lit), m.arg.tag)
+                Let(n, te, r, RecursionKind.NonRecursive, m.tag)
+              }
             }
+
+          @annotation.tailrec
+          def chooseBranch(rem: List[Branch[A]]): Option[TypedExpr[A]] =
+            rem match {
+              case Nil =>
+                None
+              case Branch(pat, guard, rhs) :: tail =>
+                bindLiteralPattern(pat, rhs) match {
+                  case None =>
+                    chooseBranch(tail)
+                  case Some(body) =>
+                    guard match {
+                      case None =>
+                        Some(body)
+                      case Some(g) =>
+                        bindLiteralPattern(pat, g).flatMap(evalBool) match {
+                          case Some(true) =>
+                            Some(body)
+                          case Some(false) =>
+                            chooseBranch(tail)
+                          case None =>
+                            None
+                        }
+                    }
+                }
+            }
+
+          chooseBranch(m.branches.toList)
       }
-    }
     }
 
     sealed abstract class IntAlgebraic[A] {
