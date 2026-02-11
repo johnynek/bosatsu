@@ -52,8 +52,11 @@ ENUM_TAG get_variant_value(BValue v);
 // (&BValue, int) -> &BValue
 BValue get_enum_index(BValue v, int idx);
 
-// This one is not auto generated because it can always be fit into the BValue directly
-BValue alloc_enum0(ENUM_TAG tag);
+// This one is not auto generated because it can always be fit into the BValue directly.
+// Keep it header-only so call sites can fold to TO_PURE_VALUE(tag).
+static inline BValue alloc_enum0(ENUM_TAG tag) {
+  return (BValue)((((uintptr_t)tag) << 2) | ((uintptr_t)0x1));
+}
 
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 // This is dangerous, it should not be mutated after returned 
