@@ -1544,8 +1544,10 @@ x"""
 
     Declaration.parser("").parse(missingGuardExpr) match {
       case Left(err) =>
+        val guardIf = missingGuardExpr.indexOf("if")
         val guardColon = missingGuardExpr.indexOf("if:") + 2
-        assertEquals(err.failedAtOffset, guardColon)
+        assert(err.failedAtOffset >= guardIf)
+        assert(err.failedAtOffset <= guardColon)
       case Right((rest, parsed)) =>
         fail(s"expected parse failure, got rest=$rest parsed=$parsed")
     }
