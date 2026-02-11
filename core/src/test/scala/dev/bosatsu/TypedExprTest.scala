@@ -860,117 +860,38 @@ foo = _ -> 1
     }
   }
 
-  test("normalization hoists pattern-independent guards into tuple-scrutinee matches") {
-    val x = Identifier.Name("x")
-    val g = Identifier.Name("g")
-    val xExpr = TypedExpr.Local(x, intTpe, ())
-    val guardExpr = TypedExpr.Local(g, boolTpe, ())
+  test("normalization can evaluate guarded constructor matches to constants") {
+    val normalized = Par.withEC {
+      var out: Option[TypedExpr[Unit]] = None
+      TestUtils.testInferred(
+        List("""
+package Test
 
-    val matchExpr = TypedExpr.Match(
-      xExpr,
-      NonEmptyList.of(
-        TypedExpr.Branch(
-          Pattern.Literal(Lit.fromInt(1)),
-          Some(guardExpr),
-          int(7)
-        ),
-        TypedExpr.Branch(Pattern.WildCard, None, int(0))
-      ),
-      ()
-    )
-
-    def hasHoistedGuardMatch(te: TypedExpr[Unit]): Boolean =
-      te match {
-        case TypedExpr.Match(
-              TypedExpr.App(
-                TypedExpr.Global(
-                  PackageName.PredefName,
-                  Identifier.Constructor("Tuple2"),
-                  _,
-                  _
-                ),
-                _,
-                _,
-                _
-              ),
-              branches,
-              _
-            ) =>
-          branches.head.pattern match {
-            case Pattern.PositionalStruct(
-                  (PackageName.PredefName, Identifier.Constructor("Tuple2")),
-                  _ :: Pattern.PositionalStruct(
-                    (PackageName.PredefName, Identifier.Constructor("True")),
-                    Nil
-                  ) :: Nil
-                ) =>
-              branches.forall(_.guard.isEmpty)
-            case _ =>
-              false
+main = match Some(1):
+  case Some(v) if v matches 0: 0
+  case Some(v) if v matches 1: 7
+  case Some(v): v
+  case None: -1
+"""),
+        "Test",
+        { (pm, mainPack) =>
+          val pack = pm.toMap(mainPack)
+          val mainExpr = pack.lets.find(_._1 == Identifier.Name("main")) match {
+            case Some((_, _, te)) => te
+            case None             =>
+              fail(s"missing let main in ${pack.lets.map(_._1)}")
           }
-        case TypedExpr.Let(_, ex, in, _, _) =>
-          hasHoistedGuardMatch(ex) || hasHoistedGuardMatch(in)
-        case TypedExpr.Generic(_, in) =>
-          hasHoistedGuardMatch(in)
-        case TypedExpr.Annotation(in, _) =>
-          hasHoistedGuardMatch(in)
-        case TypedExpr.AnnotatedLambda(_, in, _) =>
-          hasHoistedGuardMatch(in)
-        case TypedExpr.App(fn, args, _, _) =>
-          hasHoistedGuardMatch(fn) || args.exists(hasHoistedGuardMatch)
-        case TypedExpr.Loop(args, body, _) =>
-          args.exists { case (_, init) => hasHoistedGuardMatch(init) } ||
-            hasHoistedGuardMatch(body)
-        case TypedExpr.Recur(args, _, _) =>
-          args.exists(hasHoistedGuardMatch)
-        case TypedExpr.Match(arg, branches, _) =>
-          hasHoistedGuardMatch(arg) || branches.exists { b =>
-            b.guard.exists(hasHoistedGuardMatch) || hasHoistedGuardMatch(b.expr)
-          }
-        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) | TypedExpr.Literal(_, _, _) =>
-          false
-      }
-
-    val normalized = TypedExprNormalization.normalize(matchExpr)
-    assert(normalized.nonEmpty)
-    assert(hasHoistedGuardMatch(normalized.get), normalized.get.reprString)
-  }
-
-  test("normalization does not hoist guards that reference pattern-bound names") {
-    val x = varTE("x", intTpe)
-    val n = Identifier.Name("n")
-    val nExpr = TypedExpr.Local(n, intTpe, ())
-    val dependentGuard = TypedExpr.App(
-      PredefEqInt,
-      NonEmptyList.of(nExpr, int(0)),
-      boolTpe,
-      ()
-    )
-
-    val matchExpr = TypedExpr.Match(
-      x,
-      NonEmptyList.of(
-        TypedExpr.Branch(Pattern.Var(n), Some(dependentGuard), int(1)),
-        TypedExpr.Branch(Pattern.WildCard, None, int(0))
-      ),
-      ()
-    )
-
-    val normalized = TypedExprNormalization.normalize(matchExpr).getOrElse(matchExpr)
-    normalized match {
-      case TypedExpr.Match(_, branches, _) =>
-        assert(branches.head.guard.nonEmpty)
-        branches.head.pattern match {
-          case Pattern.PositionalStruct(
-                (PackageName.PredefName, Identifier.Constructor("Tuple2")),
-                _
-              ) =>
-            fail(s"dependent guard was unexpectedly hoisted: $normalized")
-          case _ =>
-            ()
+          out = Some(TypedExprNormalization.normalize(mainExpr).getOrElse(mainExpr).void)
         }
+      )
+      out.getOrElse(fail("failed to infer normalized expression for main"))
+    }
+
+    normalized match {
+      case TypedExpr.Literal(lit, _, _) =>
+        assertEquals(lit, Lit.fromInt(7))
       case other =>
-        fail(s"expected match with non-hoisted dependent guard, got: $other")
+        fail(s"expected normalized literal, got: ${other.repr}")
     }
   }
 

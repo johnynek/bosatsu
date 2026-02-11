@@ -371,7 +371,7 @@ object TypedExpr {
             case (Some(lg), Some(rg))     => loop(lg, rg)
             case (None, Some(_)) | (Some(_), None) => false
           }
-          eqPattern(lb.pattern, rb.pattern) && guardsEq && loop(lb.expr, rb.expr)
+          guardsEq && eqPattern(lb.pattern, rb.pattern) && loop(lb.expr, rb.expr)
         }
 
       private def loop(left: TypedExpr[A], right: TypedExpr[A]): Boolean =
@@ -2178,7 +2178,7 @@ object TypedExpr {
         }
       }
 
-      val avoids = freeSet | freeVarsSet(branch.guard.toList ::: (b :: Nil))
+      val avoids = freeSet | freeVarsSet(b :: branch.guard.toList)
       val newArgs = alloc(args.head, args.tail, avoids)
       val resSub = args.iterator
         .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
