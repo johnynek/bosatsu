@@ -64,7 +64,7 @@ test = Assertion(eq_String("hello", foo), "checking equality")
       List("""
 package Foo
 
-def let(arg): in -> in(arg)
+def let(arg, in): in(arg)
 
 foo = (
   x <- let(3)

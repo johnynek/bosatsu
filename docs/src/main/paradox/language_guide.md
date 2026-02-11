@@ -195,28 +195,51 @@ result = (
 )
 ```
 
-A related shorthand is left-apply (`<-`). It rewrites a line of the form
-`pat <- expr` into a function application `expr(pat -> ...)`, so `expr` must
-accept a function (continuation) as its argument:
-```
-def let(arg): in -> in(arg)
+### Left-Apply Syntax
+Left-apply (`<-`) is syntax for continuation-style bindings inside blocks.
 
-result = (
-  x <- let(3)
-  x.add(1)
-)
-# same as: let(3)(x -> x.add(1))
+A line `pat <- expr` appends the continuation lambda (`pat -> ...`) to the
+outermost function application in `expr`:
+
 ```
-Because it is pure syntax, this can be used to model async/await style code or
-monadic do/for syntax (the semantics come from the function you apply to). For
-example, if `await` is defined in terms of `flat_map`, you can write:
+p <- foo(a, b)              # foo(a, b, p -> ...)
+p <- foo(a)(b)              # foo(a)(b, p -> ...)
+p <- x.await()              # await(x, p -> ...)
+p <- x.await().map(f)       # map(await(x), f, p -> ...)
 ```
-def await(p): fn -> p.flat_map(fn)
+
+This is the Bosatsu form of await-style code, monadic-do notation, and Scala
+for-comprehensions.
+
+Await-style example:
+```
+def await(p, fn): p.flat_map(fn)
 
 main = (
   args <- read_env.await()
   _ <- println("args = ${args}").await()
   pure(0)
+)
+```
+
+List `flat_map` example:
+```
+pair_sums = (
+  x <- [1, 2, 3].flat_map()
+  y <- [x, x.add(10)].flat_map()
+  [add(x, y)]
+)
+```
+
+`Option` helper example:
+```
+def if_Some(opt: Option[a], fn: a -> Option[b]) -> Option[b]:
+  flat_map(opt, fn)
+
+sum_if_both_some = (oa: Option[Int], ob: Option[Int]) -> (
+  a <- oa.if_Some()
+  b <- ob.if_Some()
+  Some(add(a, b))
 )
 ```
 

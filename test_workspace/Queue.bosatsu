@@ -85,7 +85,7 @@ eq_li = eq_List(eq_Int)
 
 q12 = empty.push(1).push(2)
 
-def samp(r)(fn): flat_map_Rand(r, fn)
+def samp(r, fn): flat_map_Rand(r, fn)
 
 rand_int = int_range_Rand(128)
 
