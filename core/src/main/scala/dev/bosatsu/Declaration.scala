@@ -856,7 +856,7 @@ object Declaration {
           case Parens(nb: NonBinding) =>
             appendToOutermostApply(nb)
           case Apply(fn, args, kind) =>
-            val newArgs = NonEmptyList.fromListUnsafe(args.toList :+ lam)
+            val newArgs = args :+ lam
             Apply(fn, newArgs, kind)(using argFn.region + lam.region)
           case other =>
             Apply(other, NonEmptyList.one(lam), ApplyKind.Parens)(using

@@ -45,40 +45,12 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       .getOrElse(fail("expected a `main` binding"))
       ._2
 
-  private def eraseTags(expr: Expr[Declaration]): Expr[Unit] =
-    expr match {
-      case Expr.Annotation(in, tpe, _) =>
-        Expr.Annotation(eraseTags(in), tpe, ())
-      case Expr.Local(name, _) =>
-        Expr.Local(name, ())
-      case Expr.Generic(tvs, in) =>
-        Expr.Generic(tvs, eraseTags(in))
-      case Expr.Global(pack, name, _) =>
-        Expr.Global(pack, name, ())
-      case Expr.App(fn, args, _) =>
-        Expr.App(eraseTags(fn), args.map(eraseTags), ())
-      case Expr.Lambda(args, in, _) =>
-        Expr.Lambda(args, eraseTags(in), ())
-      case Expr.Let(arg, exp, in, rec, _) =>
-        Expr.Let(arg, eraseTags(exp), eraseTags(in), rec, ())
-      case Expr.Literal(lit, _) =>
-        Expr.Literal(lit, ())
-      case Expr.Match(arg, branches, _) =>
-        Expr.Match(
-          eraseTags(arg),
-          branches.map { b =>
-            Expr.Branch(b.pattern, b.guard.map(eraseTags), eraseTags(b.expr))
-          },
-          ()
-        )
-    }
-
   private def assertMainDesugarsAs(
       actualCode: String,
       expectedCode: String
   ): Unit = {
-    val actual = eraseTags(mainExpr(actualCode))
-    val expected = eraseTags(mainExpr(expectedCode))
+    val actual = mainExpr(actualCode).eraseTags
+    val expected = mainExpr(expectedCode).eraseTags
     assertEquals(actual, expected)
   }
 
