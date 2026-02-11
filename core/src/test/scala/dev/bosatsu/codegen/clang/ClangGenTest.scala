@@ -215,6 +215,79 @@ main = set_in_range_ok
     }
   }
 
+  test("top-level unit-arg function remains direct when nested matches share False branches") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum Dig:
+  D0
+  D1
+  D2
+  D3
+  D4
+  D8
+
+enum L:
+  E
+  N(h: Dig, t: L)
+
+enum MaybeL:
+  Some(arr: L)
+  None
+
+def mk(n):
+  recur n:
+    case Z: Some(N(D0, N(D1, N(D2, N(D3, N(D4, E))))))
+    case S(prev): mk(prev)
+
+def set_in_range_ok(_: ()):
+  match mk(S(Z)):
+    case Some(arr):
+      match arr:
+        case N(D0, N(D8, N(D2, N(D3, N(D4, E))))): 1
+        case _: 0
+    case None: 0
+
+main = set_in_range_ok
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("set_in_range_ok"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "BValue ___bsts_g_.*set__in__range__ok\\(BValue ".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "___bsts_s_.*set__in__range__ok".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "read_or_build\\(&___bsts_s_.*set__in__range__ok".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "call_fn1\\(___bsts_g_.*set__in__range__ok\\(\\)".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
   test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
     val src =
       """package Euler/P6

@@ -506,15 +506,50 @@ object Matchless {
         case _                            => None
       }
 
-    expr match {
-      case fn: Lambda[A]        => Some(fn.arity)
-      case Let(_, _, in)        => topLevelFunctionArity(in)
-      case LetMut(_, in)        => topLevelFunctionArity(in)
-      case Always(_, thenExpr)  => topLevelFunctionArity(thenExpr)
-      case If(_, thenExpr, els) =>
-        sameArity(topLevelFunctionArity(thenExpr), topLevelFunctionArity(els))
-      case _                    => None
-    }
+    def loop(
+        ex: Expr[A],
+        bindableArities: Map[Bindable, Int],
+        anonArities: Map[Long, Int]
+    ): Option[Int] =
+      ex match {
+        case fn: Lambda[A] =>
+          Some(fn.arity)
+        case Local(name) =>
+          bindableArities.get(name)
+        case LocalAnon(id) =>
+          anonArities.get(id)
+        case Let(arg, value, in) =>
+          val valueArity = loop(value, bindableArities, anonArities)
+          arg match {
+            case Right(name) =>
+              val bindableArities1 =
+                valueArity match {
+                  case Some(ar) => bindableArities.updated(name, ar)
+                  case None     => bindableArities - name
+                }
+              loop(in, bindableArities1, anonArities)
+            case Left(anon) =>
+              val anonArities1 =
+                valueArity match {
+                  case Some(ar) => anonArities.updated(anon.ident, ar)
+                  case None     => anonArities - anon.ident
+                }
+              loop(in, bindableArities, anonArities1)
+          }
+        case LetMut(_, in) =>
+          loop(in, bindableArities, anonArities)
+        case Always(_, thenExpr) =>
+          loop(thenExpr, bindableArities, anonArities)
+        case If(_, thenExpr, els) =>
+          sameArity(
+            loop(thenExpr, bindableArities, anonArities),
+            loop(els, bindableArities, anonArities)
+          )
+        case _ =>
+          None
+      }
+
+    loop(expr, Map.empty, Map.empty)
   }
 
   /** Recover a top-level lambda when normalization pushes lambda creation into
