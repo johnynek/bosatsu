@@ -383,7 +383,7 @@ result4 = match [False, True, True]:
   case _: "all items are false, or the list is empty"
 ```
 
-Match branches can also have guards:
+Match and `recur` branches can also have guards:
 ```
 result5 = match Some(1):
   case Some(v) if v.eq_Int(0): "zero"
@@ -392,8 +392,9 @@ result5 = match Some(1):
 ```
 Guards run after the pattern matches, in the same scope as the pattern bindings.
 The guard expression must have type `Bool`. If the guard is `False`, matching
-continues with the next branch. For totality checking, only unguarded branches
-count as covering cases, so guarded matches still need an unguarded fallback.
+continues with the next branch. This works the same way in `recur` blocks.
+For totality checking, only unguarded branches count as covering cases, so
+guarded branches still need an unguarded fallback.
 Syntax note: write at least one space between the pattern and `if`.
 
 A common shorthand for checking if something matches is:

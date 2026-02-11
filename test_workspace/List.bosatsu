@@ -10,9 +10,10 @@ def any(as: List[Bool]) -> Bool:
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
   recur xs:
     case []: True
-    case [head, *tail]:
-      if fn(head): for_all(tail, fn)
-      else: False
+    case [head, *tail] if fn(head):
+      for_all(tail, fn)
+    case [_, *_]:
+      False
 
 def sum(as: List[Int]) -> Int:
   as.foldl_List(0, add)
@@ -20,9 +21,10 @@ def sum(as: List[Int]) -> Int:
 def exists(xs: List[a], fn: a -> Bool) -> Bool:
     recur xs:
         case []: False
-        case [head, *tail]:
-            if fn(head): True
-            else: exists(tail, fn)
+        case [head, *_] if fn(head):
+            True
+        case [_, *tail]:
+            exists(tail, fn)
 
 def uncons(xs: List[a]) -> Option[(a, List[a])]:
     match xs:
@@ -40,8 +42,10 @@ def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
     case [ah, *at]:
       match b:
         case []: False
-        case [bh, *bt]:
-          eq_List(fn)(at, bt) if fn(ah, bh) else False
+        case [bh, *bt] if fn(ah, bh):
+          eq_List(fn)(at, bt)
+        case [_, *_]:
+          False
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     recur left:
