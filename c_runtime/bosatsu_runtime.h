@@ -26,6 +26,154 @@ static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
 #define BSTS_PTR(type, value) ((type*)bsts_bvalue_to_ptr((value)))
 #define BSTS_CONST_PTR(type, value) ((const type*)bsts_bvalue_to_const_ptr((value)))
 
+/*
+ * Stack allocation helpers for non-escaping values. These are intended for
+ * constructor values that provably do not outlive the current function scope.
+ *
+ * IMPORTANT:
+ * - These values MUST NOT be returned or stored in closures/statics.
+ * - Struct payloads are contiguous BValue fields at offset 0.
+ * - Enum payloads are prefixed by (ENUM_TAG tag, int32_t pad).
+ */
+#define BSTS_STACK_ALLOC_STRUCT_N(arity, ...) \
+  bsts_bvalue_from_ptr((const void*)(&(struct { \
+    BValue fields[(arity)]; \
+  }){ .fields = { __VA_ARGS__ } }))
+
+#define BSTS_STACK_ALLOC_ENUM_N(arity, tag_value, ...) \
+  bsts_bvalue_from_ptr((const void*)(&(struct { \
+    ENUM_TAG _tag; \
+    int32_t _pad; \
+    BValue fields[(arity)]; \
+  }){ ._tag = (tag_value), ._pad = 0, .fields = { __VA_ARGS__ } }))
+
+#define BSTS_STACK_ALLOC_STRUCT2(a0, a1) \
+  BSTS_STACK_ALLOC_STRUCT_N(2, a0, a1)
+#define BSTS_STACK_ALLOC_STRUCT3(a0, a1, a2) \
+  BSTS_STACK_ALLOC_STRUCT_N(3, a0, a1, a2)
+#define BSTS_STACK_ALLOC_STRUCT4(a0, a1, a2, a3) \
+  BSTS_STACK_ALLOC_STRUCT_N(4, a0, a1, a2, a3)
+#define BSTS_STACK_ALLOC_STRUCT5(a0, a1, a2, a3, a4) \
+  BSTS_STACK_ALLOC_STRUCT_N(5, a0, a1, a2, a3, a4)
+#define BSTS_STACK_ALLOC_STRUCT6(a0, a1, a2, a3, a4, a5) \
+  BSTS_STACK_ALLOC_STRUCT_N(6, a0, a1, a2, a3, a4, a5)
+#define BSTS_STACK_ALLOC_STRUCT7(a0, a1, a2, a3, a4, a5, a6) \
+  BSTS_STACK_ALLOC_STRUCT_N(7, a0, a1, a2, a3, a4, a5, a6)
+#define BSTS_STACK_ALLOC_STRUCT8(a0, a1, a2, a3, a4, a5, a6, a7) \
+  BSTS_STACK_ALLOC_STRUCT_N(8, a0, a1, a2, a3, a4, a5, a6, a7)
+#define BSTS_STACK_ALLOC_STRUCT9(a0, a1, a2, a3, a4, a5, a6, a7, a8) \
+  BSTS_STACK_ALLOC_STRUCT_N(9, a0, a1, a2, a3, a4, a5, a6, a7, a8)
+#define BSTS_STACK_ALLOC_STRUCT10(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9) \
+  BSTS_STACK_ALLOC_STRUCT_N(10, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+#define BSTS_STACK_ALLOC_STRUCT11(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10) \
+  BSTS_STACK_ALLOC_STRUCT_N(11, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+#define BSTS_STACK_ALLOC_STRUCT12(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11) \
+  BSTS_STACK_ALLOC_STRUCT_N(12, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+#define BSTS_STACK_ALLOC_STRUCT13(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12) \
+  BSTS_STACK_ALLOC_STRUCT_N(13, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)
+#define BSTS_STACK_ALLOC_STRUCT14(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13) \
+  BSTS_STACK_ALLOC_STRUCT_N(14, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13)
+#define BSTS_STACK_ALLOC_STRUCT15(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) \
+  BSTS_STACK_ALLOC_STRUCT_N(15, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)
+#define BSTS_STACK_ALLOC_STRUCT16(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15) \
+  BSTS_STACK_ALLOC_STRUCT_N(16, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15)
+#define BSTS_STACK_ALLOC_STRUCT17(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16) \
+  BSTS_STACK_ALLOC_STRUCT_N(17, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16)
+#define BSTS_STACK_ALLOC_STRUCT18(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17) \
+  BSTS_STACK_ALLOC_STRUCT_N(18, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17)
+#define BSTS_STACK_ALLOC_STRUCT19(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18) \
+  BSTS_STACK_ALLOC_STRUCT_N(19, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18)
+#define BSTS_STACK_ALLOC_STRUCT20(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19) \
+  BSTS_STACK_ALLOC_STRUCT_N(20, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19)
+#define BSTS_STACK_ALLOC_STRUCT21(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20) \
+  BSTS_STACK_ALLOC_STRUCT_N(21, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20)
+#define BSTS_STACK_ALLOC_STRUCT22(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21) \
+  BSTS_STACK_ALLOC_STRUCT_N(22, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21)
+#define BSTS_STACK_ALLOC_STRUCT23(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22) \
+  BSTS_STACK_ALLOC_STRUCT_N(23, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22)
+#define BSTS_STACK_ALLOC_STRUCT24(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23) \
+  BSTS_STACK_ALLOC_STRUCT_N(24, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23)
+#define BSTS_STACK_ALLOC_STRUCT25(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24) \
+  BSTS_STACK_ALLOC_STRUCT_N(25, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24)
+#define BSTS_STACK_ALLOC_STRUCT26(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25) \
+  BSTS_STACK_ALLOC_STRUCT_N(26, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25)
+#define BSTS_STACK_ALLOC_STRUCT27(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26) \
+  BSTS_STACK_ALLOC_STRUCT_N(27, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26)
+#define BSTS_STACK_ALLOC_STRUCT28(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27) \
+  BSTS_STACK_ALLOC_STRUCT_N(28, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27)
+#define BSTS_STACK_ALLOC_STRUCT29(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28) \
+  BSTS_STACK_ALLOC_STRUCT_N(29, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28)
+#define BSTS_STACK_ALLOC_STRUCT30(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29) \
+  BSTS_STACK_ALLOC_STRUCT_N(30, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29)
+#define BSTS_STACK_ALLOC_STRUCT31(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30) \
+  BSTS_STACK_ALLOC_STRUCT_N(31, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30)
+#define BSTS_STACK_ALLOC_STRUCT32(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31) \
+  BSTS_STACK_ALLOC_STRUCT_N(32, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31)
+
+#define BSTS_STACK_ALLOC_ENUM1(tag_value, a0) \
+  BSTS_STACK_ALLOC_ENUM_N(1, tag_value, a0)
+#define BSTS_STACK_ALLOC_ENUM2(tag_value, a0, a1) \
+  BSTS_STACK_ALLOC_ENUM_N(2, tag_value, a0, a1)
+#define BSTS_STACK_ALLOC_ENUM3(tag_value, a0, a1, a2) \
+  BSTS_STACK_ALLOC_ENUM_N(3, tag_value, a0, a1, a2)
+#define BSTS_STACK_ALLOC_ENUM4(tag_value, a0, a1, a2, a3) \
+  BSTS_STACK_ALLOC_ENUM_N(4, tag_value, a0, a1, a2, a3)
+#define BSTS_STACK_ALLOC_ENUM5(tag_value, a0, a1, a2, a3, a4) \
+  BSTS_STACK_ALLOC_ENUM_N(5, tag_value, a0, a1, a2, a3, a4)
+#define BSTS_STACK_ALLOC_ENUM6(tag_value, a0, a1, a2, a3, a4, a5) \
+  BSTS_STACK_ALLOC_ENUM_N(6, tag_value, a0, a1, a2, a3, a4, a5)
+#define BSTS_STACK_ALLOC_ENUM7(tag_value, a0, a1, a2, a3, a4, a5, a6) \
+  BSTS_STACK_ALLOC_ENUM_N(7, tag_value, a0, a1, a2, a3, a4, a5, a6)
+#define BSTS_STACK_ALLOC_ENUM8(tag_value, a0, a1, a2, a3, a4, a5, a6, a7) \
+  BSTS_STACK_ALLOC_ENUM_N(8, tag_value, a0, a1, a2, a3, a4, a5, a6, a7)
+#define BSTS_STACK_ALLOC_ENUM9(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8) \
+  BSTS_STACK_ALLOC_ENUM_N(9, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8)
+#define BSTS_STACK_ALLOC_ENUM10(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9) \
+  BSTS_STACK_ALLOC_ENUM_N(10, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+#define BSTS_STACK_ALLOC_ENUM11(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10) \
+  BSTS_STACK_ALLOC_ENUM_N(11, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+#define BSTS_STACK_ALLOC_ENUM12(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11) \
+  BSTS_STACK_ALLOC_ENUM_N(12, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+#define BSTS_STACK_ALLOC_ENUM13(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12) \
+  BSTS_STACK_ALLOC_ENUM_N(13, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)
+#define BSTS_STACK_ALLOC_ENUM14(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13) \
+  BSTS_STACK_ALLOC_ENUM_N(14, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13)
+#define BSTS_STACK_ALLOC_ENUM15(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) \
+  BSTS_STACK_ALLOC_ENUM_N(15, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)
+#define BSTS_STACK_ALLOC_ENUM16(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15) \
+  BSTS_STACK_ALLOC_ENUM_N(16, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15)
+#define BSTS_STACK_ALLOC_ENUM17(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16) \
+  BSTS_STACK_ALLOC_ENUM_N(17, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16)
+#define BSTS_STACK_ALLOC_ENUM18(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17) \
+  BSTS_STACK_ALLOC_ENUM_N(18, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17)
+#define BSTS_STACK_ALLOC_ENUM19(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18) \
+  BSTS_STACK_ALLOC_ENUM_N(19, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18)
+#define BSTS_STACK_ALLOC_ENUM20(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19) \
+  BSTS_STACK_ALLOC_ENUM_N(20, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19)
+#define BSTS_STACK_ALLOC_ENUM21(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20) \
+  BSTS_STACK_ALLOC_ENUM_N(21, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20)
+#define BSTS_STACK_ALLOC_ENUM22(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21) \
+  BSTS_STACK_ALLOC_ENUM_N(22, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21)
+#define BSTS_STACK_ALLOC_ENUM23(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22) \
+  BSTS_STACK_ALLOC_ENUM_N(23, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22)
+#define BSTS_STACK_ALLOC_ENUM24(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23) \
+  BSTS_STACK_ALLOC_ENUM_N(24, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23)
+#define BSTS_STACK_ALLOC_ENUM25(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24) \
+  BSTS_STACK_ALLOC_ENUM_N(25, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24)
+#define BSTS_STACK_ALLOC_ENUM26(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25) \
+  BSTS_STACK_ALLOC_ENUM_N(26, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25)
+#define BSTS_STACK_ALLOC_ENUM27(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26) \
+  BSTS_STACK_ALLOC_ENUM_N(27, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26)
+#define BSTS_STACK_ALLOC_ENUM28(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27) \
+  BSTS_STACK_ALLOC_ENUM_N(28, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27)
+#define BSTS_STACK_ALLOC_ENUM29(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28) \
+  BSTS_STACK_ALLOC_ENUM_N(29, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28)
+#define BSTS_STACK_ALLOC_ENUM30(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29) \
+  BSTS_STACK_ALLOC_ENUM_N(30, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29)
+#define BSTS_STACK_ALLOC_ENUM31(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30) \
+  BSTS_STACK_ALLOC_ENUM_N(31, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30)
+#define BSTS_STACK_ALLOC_ENUM32(tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31) \
+  BSTS_STACK_ALLOC_ENUM_N(32, tag_value, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31)
 // Nat values are encoded in integers
 // TODO: move these to functions implemented in bosatsu_runtime.c
 #define BSTS_NAT_0 ((BValue)((uintptr_t)0x1))

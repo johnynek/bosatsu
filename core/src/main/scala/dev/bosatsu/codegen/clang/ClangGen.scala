@@ -11,7 +11,9 @@ import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
+import scala.collection.mutable
 import scala.collection.immutable.{SortedMap, SortedSet}
+import scala.annotation.nowarn
 
 import cats.syntax.all._
 
@@ -1448,7 +1450,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               .map(_._1.finalFile)
 
           def appendStatement(stmt: Code.Statement): T[Unit] =
-            StateT.modify(s => s.copy(stmts = s.stmts :+ stmt))
+            StateT.modify(s =>
+              s.copy(stmts = s.stmts :+ ClangGen.StackAllocPass.optimize(stmt))
+            )
 
           def errorRes[A](e: => Error): EitherT[Eval, Error, A] =
             EitherT[Eval, Error, A](Eval.later(Left(e)))
@@ -1842,6 +1846,655 @@ object ClangGen {
         bn: Bindable,
         inside: Option[(Any, PackageName, Bindable)]
     ) extends Error
+  }
+
+  private object StackAllocPass {
+    private final case class Ref[A <: AnyRef](get: A) {
+      override def equals(that: Any): Boolean =
+        that match {
+          case ref: Ref[?] => get eq ref.get
+          case _           => false
+        }
+      override def hashCode(): Int =
+        System.identityHashCode(get)
+    }
+
+    private enum AllocKind {
+      case Enum
+      case Struct
+    }
+    private given CanEqual[AllocKind, AllocKind] = CanEqual.derived
+    private case class AllocMeta(kind: AllocKind, arity: Int) {
+      def heapLike: Boolean =
+        kind match {
+          case AllocKind.Enum   => arity > 0
+          case AllocKind.Struct => arity > 1
+        }
+
+      def apply(args: List[Code.Expression]): Code.Expression =
+        kind match {
+          case AllocKind.Enum   => stackAllocEnum(arity, args)
+          case AllocKind.Struct => stackAllocStruct(arity, args)
+        }
+    }
+
+    private enum ParentRef {
+      case ParentExpr(parent: Code.Expression, role: ExprRole)
+      case ParentStmt(parent: Code.Statement, role: StmtRole)
+    }
+    private enum ExprRole {
+      case ApplyFn
+      case ApplyArg(index: Int)
+      case Wrapped
+    }
+    private given CanEqual[ExprRole, ExprRole] = CanEqual.derived
+    private enum StmtRole {
+      case AssignTarget
+      case AssignValue
+      case DeclareInit
+      case DeclareArrayValue
+      case ReturnValue
+      case Other
+    }
+    private given CanEqual[StmtRole, StmtRole] = CanEqual.derived
+    private enum GraphNode {
+      case AllocNode(id: Int)
+      case VarNode(id: Code.Ident)
+      case EscapeNode
+    }
+
+    private enum Consumer {
+      case ToVar(id: Code.Ident)
+      case ToAlloc(id: Int)
+      case Escape
+      case Local
+      case Ignore
+    }
+    @nowarn("msg=unused private member")
+    private given CanEqual[Consumer, Consumer] = CanEqual.derived
+
+    private val getterFns: Set[String] =
+      Set("get_variant", "get_variant_value", "get_enum_index", "get_struct_index")
+
+    private def isEscapeBoundaryCall(name: String): Boolean =
+      name == "read_or_build" ||
+        name.startsWith("call_fn") ||
+        name.startsWith("alloc_closure") ||
+        name.startsWith("alloc_boxed_pure_fn")
+
+    private def isBValueType(tpe: Code.TypeIdent): Boolean =
+      tpe match {
+        case Code.TypeIdent.Named("BValue") => true
+        case _                              => false
+      }
+
+    private def calleeName(app: Code.Apply): Option[String] =
+      app.fn match {
+        case Code.Ident(name) => Some(name)
+        case _                => None
+      }
+
+    private def allocInfoOf(app: Code.Apply): Option[AllocMeta] =
+      calleeName(app).flatMap { name =>
+        if (name.startsWith("alloc_enum")) {
+          name.stripPrefix("alloc_enum").toIntOption.map { arity =>
+            AllocMeta(AllocKind.Enum, arity)
+          }
+        } else if (name.startsWith("alloc_struct")) {
+          name.stripPrefix("alloc_struct").toIntOption.map { arity =>
+            AllocMeta(AllocKind.Struct, arity)
+          }
+        } else None
+      }
+
+    private case class Analysis(
+        parentOf: Map[Ref[Code.Expression], ParentRef],
+        allocIds: Map[Ref[Code.Expression], Int],
+        allocExprById: Map[Int, Code.Expression],
+        allocById: Map[Int, AllocMeta],
+        bValueVars: Set[Code.Ident],
+        mutableVars: Set[Code.Ident],
+        identExprs: List[(Code.Expression, Code.Ident)]
+    )
+
+    private def allocIdOf(
+        allocIds: Map[Ref[Code.Expression], Int],
+        expr: Code.Expression
+    ): Option[Int] =
+      allocIds.get(Ref(expr))
+
+    private def analyze(fn: Code.DeclareFn): Option[(Analysis, Set[Int])] =
+      fn.value match {
+        case None => None
+        case Some(body) =>
+          val parentOf = mutable.Map.empty[Ref[Code.Expression], ParentRef]
+          val allocIds = mutable.Map.empty[Ref[Code.Expression], Int]
+          val allocExprById = mutable.Map.empty[Int, Code.Expression]
+          val allocById = mutable.Map.empty[Int, AllocMeta]
+          val bValueVars = mutable.Set.empty[Code.Ident]
+          val assignmentTargets = mutable.Set.empty[Code.Ident]
+          val identExprs = mutable.ListBuffer.empty[(Code.Expression, Code.Ident)]
+          var nextAllocId = 0
+
+          fn.args.iterator.foreach {
+            case Code.Param(tpe, name) if isBValueType(tpe) =>
+              bValueVars += name
+            case _ => ()
+          }
+
+          def setParent(
+              child: Code.Expression,
+              parent: ParentRef
+          ): Unit =
+            parentOf.update(Ref(child), parent)
+
+          def visitExpr(expr: Code.Expression): Unit = {
+            expr match {
+              case id @ Code.Ident(name) =>
+                identExprs += ((id, Code.Ident(name)))
+
+              case app @ Code.Apply(fnExpr, args) =>
+                allocInfoOf(app).foreach { info =>
+                  val allocId = nextAllocId
+                  nextAllocId += 1
+                  allocIds.update(Ref(app), allocId)
+                  allocExprById.update(allocId, app)
+                  allocById.update(allocId, info)
+                }
+                setParent(fnExpr, ParentRef.ParentExpr(app, ExprRole.ApplyFn))
+                visitExpr(fnExpr)
+                args.zipWithIndex.foreach { case (argExpr, idx) =>
+                  setParent(
+                    argExpr,
+                    ParentRef.ParentExpr(app, ExprRole.ApplyArg(idx))
+                  )
+                  visitExpr(argExpr)
+                }
+
+              case cast @ Code.Cast(_, in) =>
+                setParent(in, ParentRef.ParentExpr(cast, ExprRole.Wrapped))
+                visitExpr(in)
+
+              case sel @ Code.Select(target, _) =>
+                setParent(target, ParentRef.ParentExpr(sel, ExprRole.Wrapped))
+                visitExpr(target)
+
+              case bin @ Code.BinExpr(left, _, right) =>
+                setParent(left, ParentRef.ParentExpr(bin, ExprRole.Wrapped))
+                setParent(right, ParentRef.ParentExpr(bin, ExprRole.Wrapped))
+                visitExpr(left)
+                visitExpr(right)
+
+              case pre @ Code.PrefixExpr(_, target) =>
+                setParent(target, ParentRef.ParentExpr(pre, ExprRole.Wrapped))
+                visitExpr(target)
+
+              case post @ Code.PostfixExpr(target, _) =>
+                setParent(target, ParentRef.ParentExpr(post, ExprRole.Wrapped))
+                visitExpr(target)
+
+              case bracket @ Code.Bracket(target, item) =>
+                setParent(
+                  target,
+                  ParentRef.ParentExpr(bracket, ExprRole.Wrapped)
+                )
+                setParent(item, ParentRef.ParentExpr(bracket, ExprRole.Wrapped))
+                visitExpr(target)
+                visitExpr(item)
+
+              case tern @ Code.Ternary(cond, whenTrue, whenFalse) =>
+                setParent(cond, ParentRef.ParentExpr(tern, ExprRole.Wrapped))
+                setParent(
+                  whenTrue,
+                  ParentRef.ParentExpr(tern, ExprRole.Wrapped)
+                )
+                setParent(
+                  whenFalse,
+                  ParentRef.ParentExpr(tern, ExprRole.Wrapped)
+                )
+                visitExpr(cond)
+                visitExpr(whenTrue)
+                visitExpr(whenFalse)
+
+              case Code.IntLiteral(_) | Code.StrLiteral(_) =>
+                ()
+            }
+          }
+
+          def visitStatement(stmt: Code.Statement): Unit =
+            stmt match {
+              case assign @ Code.Assignment(target, value) =>
+                setParent(
+                  target,
+                  ParentRef.ParentStmt(assign, StmtRole.AssignTarget)
+                )
+                setParent(
+                  value,
+                  ParentRef.ParentStmt(assign, StmtRole.AssignValue)
+                )
+                visitExpr(target)
+                visitExpr(value)
+                target match {
+                  case id: Code.Ident => assignmentTargets += id
+                  case _              => ()
+                }
+
+              case decl @ Code.DeclareVar(_, tpe, ident, valueOpt) =>
+                if (isBValueType(tpe)) {
+                  bValueVars += ident
+                }
+                valueOpt.foreach { value =>
+                  setParent(
+                    value,
+                    ParentRef.ParentStmt(decl, StmtRole.DeclareInit)
+                  )
+                  visitExpr(value)
+                }
+
+              case Code.DeclareArray(_, _, values) =>
+                values match {
+                  case Left(_)    => ()
+                  case Right(vs) =>
+                    vs.foreach { value =>
+                      setParent(
+                        value,
+                        ParentRef.ParentStmt(stmt, StmtRole.DeclareArrayValue)
+                      )
+                      visitExpr(value)
+                    }
+                }
+
+              case Code.Return(valueOpt) =>
+                valueOpt.foreach { value =>
+                  setParent(
+                    value,
+                    ParentRef.ParentStmt(stmt, StmtRole.ReturnValue)
+                  )
+                  visitExpr(value)
+                }
+
+              case Code.Effect(expr) =>
+                setParent(expr, ParentRef.ParentStmt(stmt, StmtRole.Other))
+                visitExpr(expr)
+
+              case Code.While(cond, body) =>
+                setParent(cond, ParentRef.ParentStmt(stmt, StmtRole.Other))
+                visitExpr(cond)
+                visitStatement(body)
+
+              case Code.DoWhile(body, cond) =>
+                visitStatement(body)
+                setParent(cond, ParentRef.ParentStmt(stmt, StmtRole.Other))
+                visitExpr(cond)
+
+              case Code.IfElse(ifs, elseCond) =>
+                ifs.iterator.foreach { case (cond, blk) =>
+                  setParent(cond, ParentRef.ParentStmt(stmt, StmtRole.Other))
+                  visitExpr(cond)
+                  visitStatement(blk)
+                }
+                elseCond.foreach(visitStatement)
+
+              case Code.Block(items) =>
+                items.iterator.foreach(visitStatement)
+
+              case Code.Statements(items) =>
+                items.iterator.foreach(visitStatement)
+
+              case _: Code.DeclareFn | _: Code.Include | _: Code.Typedef |
+                  _: Code.DefineComplex =>
+                ()
+            }
+
+          visitStatement(body)
+
+          if (allocById.isEmpty) None
+          else {
+            val mutableVars = assignmentTargets.toSet.intersect(bValueVars.toSet)
+            val analysis = Analysis(
+              parentOf = parentOf.toMap,
+              allocIds = allocIds.toMap,
+              allocExprById = allocExprById.toMap,
+              allocById = allocById.toMap,
+              bValueVars = bValueVars.toSet,
+              mutableVars = mutableVars,
+              identExprs = identExprs.toList
+            )
+            val stackAllocIds = findStackAllocIds(analysis)
+            Some((analysis, stackAllocIds))
+          }
+      }
+
+    private def findStackAllocIds(analysis: Analysis): Set[Int] = {
+      import Consumer._
+      import GraphNode._
+      import ParentRef._
+
+      val reverseEdges =
+        mutable.Map.empty[GraphNode, mutable.Set[GraphNode]]
+
+      def addEdge(src: GraphNode, dst: GraphNode): Unit = {
+        val predSet = reverseEdges.getOrElseUpdate(dst, mutable.Set.empty)
+        predSet += src
+      }
+
+      def asVarTarget(id: Code.Ident): Consumer =
+        if (analysis.mutableVars(id)) Escape
+        else ToVar(id)
+
+      def consumerOf(expr: Code.Expression): Consumer = {
+        var current: Code.Expression = expr
+        var done = false
+        var result: Consumer = Local
+
+        while (!done) {
+          analysis.parentOf.get(Ref(current)) match {
+            case None =>
+              done = true
+              result = Local
+
+            case Some(ParentExpr(parent, role)) =>
+              parent match {
+                case app @ Code.Apply(_, _) =>
+                  role match {
+                    case ExprRole.ApplyFn =>
+                      current = parent
+                    case ExprRole.ApplyArg(_) =>
+                      allocInfoOf(app) match {
+                        case Some(_) =>
+                          allocIdOf(analysis.allocIds, app) match {
+                            case Some(id) =>
+                              done = true
+                              result = ToAlloc(id)
+                            case None =>
+                              done = true
+                              result = Local
+                          }
+                        case None =>
+                          calleeName(app) match {
+                            case Some(name) if getterFns(name) =>
+                              done = true
+                              result = Local
+                            case Some(name) if isEscapeBoundaryCall(name) =>
+                              done = true
+                              result = Escape
+                            case _ =>
+                              done = true
+                              // Without interprocedural escape facts, any non-constructor
+                              // call argument is treated as potentially escaping.
+                              result = Escape
+                          }
+                      }
+                    case ExprRole.Wrapped =>
+                      current = parent
+                  }
+                case _ =>
+                  current = parent
+              }
+
+            case Some(ParentStmt(parent, role)) =>
+              parent match {
+                case Code.Assignment(target, _) =>
+                  role match {
+                    case StmtRole.AssignTarget =>
+                      done = true
+                      result = Ignore
+                    case StmtRole.AssignValue  =>
+                      target match {
+                        case id: Code.Ident if analysis.bValueVars(id) =>
+                          done = true
+                          result = asVarTarget(id)
+                        case _ =>
+                          done = true
+                          result = Escape
+                      }
+                    case _ =>
+                      done = true
+                      result = Local
+                  }
+
+                case Code.DeclareVar(_, tpe, ident, _) =>
+                  role match {
+                    case StmtRole.DeclareInit if isBValueType(tpe) =>
+                      done = true
+                      result = asVarTarget(ident)
+                    case StmtRole.DeclareInit =>
+                      done = true
+                      result = Escape
+                    case StmtRole.DeclareArrayValue =>
+                      done = true
+                      result = Escape
+                    case _ =>
+                      done = true
+                      result = Local
+                  }
+
+                case _: Code.DeclareArray =>
+                  role match {
+                    case StmtRole.DeclareArrayValue =>
+                      done = true
+                      result = Escape
+                    case _ =>
+                      done = true
+                      result = Local
+                  }
+
+                case Code.Return(_) =>
+                  role match {
+                    case StmtRole.ReturnValue =>
+                      done = true
+                      result = Escape
+                    case _ =>
+                      done = true
+                      result = Local
+                  }
+
+                case _ =>
+                  done = true
+                  result = Local
+              }
+          }
+        }
+
+        result
+      }
+
+      analysis.allocById.iterator.foreach { case (id, _) =>
+        analysis.allocExprById.get(id).foreach { allocExpr =>
+          consumerOf(allocExpr) match {
+            case ToVar(varId)   => addEdge(AllocNode(id), VarNode(varId))
+            case ToAlloc(dstId) => addEdge(AllocNode(id), AllocNode(dstId))
+            case Escape         => addEdge(AllocNode(id), EscapeNode)
+            case Local | Ignore => ()
+          }
+        }
+      }
+
+      analysis.identExprs.foreach { case (expr, ident) =>
+        if (analysis.bValueVars(ident)) {
+          consumerOf(expr) match {
+            case ToVar(dstVar)  => addEdge(VarNode(ident), VarNode(dstVar))
+            case ToAlloc(dstId) => addEdge(VarNode(ident), AllocNode(dstId))
+            case Escape         => addEdge(VarNode(ident), EscapeNode)
+            case Local | Ignore => ()
+          }
+        }
+      }
+
+      val escaping = mutable.Set.empty[GraphNode]
+      val seen = mutable.Set.empty[GraphNode]
+      val stack = mutable.Stack[GraphNode](EscapeNode)
+      while (stack.nonEmpty) {
+        val node = stack.pop()
+        if (!seen(node)) {
+          seen += node
+          reverseEdges.get(node).foreach { preds =>
+            preds.foreach { pred =>
+              escaping += pred
+              stack.push(pred)
+            }
+          }
+        }
+      }
+
+      analysis.allocById.iterator.collect {
+        case (id, meta) if meta.heapLike && !escaping(AllocNode(id)) => id
+      }.toSet
+    }
+
+    private def stackAllocEnum(
+        arity: Int,
+        args: List[Code.Expression]
+    ): Code.Expression =
+      Code.Apply(Code.Ident(s"BSTS_STACK_ALLOC_ENUM$arity"), args)
+
+    private def stackAllocStruct(
+        arity: Int,
+        args: List[Code.Expression]
+    ): Code.Expression =
+      Code.Apply(Code.Ident(s"BSTS_STACK_ALLOC_STRUCT$arity"), args)
+
+    private def rewriteExpr(
+        expr: Code.Expression,
+        analysis: Analysis,
+        stackAllocIds: Set[Int]
+    ): Code.Expression = {
+      val rewrittenChildren: Code.Expression =
+        expr match {
+          case app @ Code.Apply(fnExpr, args) =>
+            val fn1 = rewriteExpr(fnExpr, analysis, stackAllocIds)
+            val args1 = args.map(rewriteExpr(_, analysis, stackAllocIds))
+            app.copy(fn = fn1, args = args1)
+          case cast @ Code.Cast(_, in) =>
+            cast.copy(expr = rewriteExpr(in, analysis, stackAllocIds))
+          case sel @ Code.Select(target, _) =>
+            sel.copy(target = rewriteExpr(target, analysis, stackAllocIds))
+          case Code.BinExpr(left, op, right) =>
+            Code.BinExpr(
+              rewriteExpr(left, analysis, stackAllocIds),
+              op,
+              rewriteExpr(right, analysis, stackAllocIds)
+            )
+          case Code.PrefixExpr(op, target) =>
+            Code.PrefixExpr(op, rewriteExpr(target, analysis, stackAllocIds))
+          case Code.PostfixExpr(target, op) =>
+            Code.PostfixExpr(rewriteExpr(target, analysis, stackAllocIds), op)
+          case Code.Bracket(target, item) =>
+            Code.Bracket(
+              rewriteExpr(target, analysis, stackAllocIds),
+              rewriteExpr(item, analysis, stackAllocIds)
+            )
+          case Code.Ternary(cond, whenTrue, whenFalse) =>
+            Code.Ternary(
+              rewriteExpr(cond, analysis, stackAllocIds),
+              rewriteExpr(whenTrue, analysis, stackAllocIds),
+              rewriteExpr(whenFalse, analysis, stackAllocIds)
+            )
+          case id @ Code.Ident(_)      => id
+          case i @ Code.IntLiteral(_)  => i
+          case s @ Code.StrLiteral(_)  => s
+        }
+
+      allocIdOf(analysis.allocIds, expr) match {
+        case Some(id) if stackAllocIds(id) =>
+          analysis.allocById.get(id) match {
+            case Some(allocMeta) =>
+              rewrittenChildren match {
+                case Code.Apply(_, args) =>
+                  allocMeta(args)
+                case _ =>
+                  rewrittenChildren
+              }
+            case None =>
+              rewrittenChildren
+          }
+        case _ =>
+          rewrittenChildren
+      }
+    }
+
+    private def rewriteBlock(
+        block: Code.Block,
+        analysis: Analysis,
+        stackAllocIds: Set[Int]
+    ): Code.Block =
+      block.copy(items = block.items.map(rewriteStatement(_, analysis, stackAllocIds)))
+
+    private def rewriteStatement(
+        stmt: Code.Statement,
+        analysis: Analysis,
+        stackAllocIds: Set[Int]
+    ): Code.Statement =
+      stmt match {
+        case Code.Assignment(target, value) =>
+          Code.Assignment(
+            rewriteExpr(target, analysis, stackAllocIds),
+            rewriteExpr(value, analysis, stackAllocIds)
+          )
+        case arr @ Code.DeclareArray(tpe, ident, values) =>
+          val values1 = values match {
+            case Left(size)  => Left(size)
+            case Right(exprs) =>
+              Right(exprs.map(rewriteExpr(_, analysis, stackAllocIds)))
+          }
+          arr.copy(values = values1)
+        case decl @ Code.DeclareVar(attrs, tpe, ident, value) =>
+          decl.copy(
+            attrs = attrs,
+            tpe = tpe,
+            ident = ident,
+            value = value.map(rewriteExpr(_, analysis, stackAllocIds))
+          )
+        case ret @ Code.Return(expr) =>
+          ret.copy(expr = expr.map(rewriteExpr(_, analysis, stackAllocIds)))
+        case block @ Code.Block(items) =>
+          rewriteBlock(block, analysis, stackAllocIds)
+        case stmts @ Code.Statements(items) =>
+          stmts.copy(
+            items = items.map(rewriteStatement(_, analysis, stackAllocIds))
+          )
+        case ifElse @ Code.IfElse(ifs, elseCond) =>
+          val ifs1 = ifs.map { case (cond, body) =>
+            (
+              rewriteExpr(cond, analysis, stackAllocIds),
+              rewriteBlock(body, analysis, stackAllocIds)
+            )
+          }
+          val else1 = elseCond.map(rewriteBlock(_, analysis, stackAllocIds))
+          ifElse.copy(ifs = ifs1, elseCond = else1)
+        case dw @ Code.DoWhile(block, cond) =>
+          dw.copy(
+            block = rewriteBlock(block, analysis, stackAllocIds),
+            whileCond = rewriteExpr(cond, analysis, stackAllocIds)
+          )
+        case wh @ Code.While(cond, body) =>
+          wh.copy(
+            cond = rewriteExpr(cond, analysis, stackAllocIds),
+            body = rewriteBlock(body, analysis, stackAllocIds)
+          )
+        case eff @ Code.Effect(expr) =>
+          eff.copy(expr = rewriteExpr(expr, analysis, stackAllocIds))
+        case stmt0 @ (_: Code.DeclareFn | _: Code.Include | _: Code.Typedef |
+            _: Code.DefineComplex) =>
+          stmt0
+      }
+
+    def optimize(stmt: Code.Statement): Code.Statement =
+      stmt match {
+        case fn @ Code.DeclareFn(_, _, _, _, Some(_)) =>
+          analyze(fn) match {
+            case Some((analysis, stackAllocIds)) if stackAllocIds.nonEmpty =>
+              fn.copy(
+                value = fn.value.map(block =>
+                  rewriteBlock(block, analysis, stackAllocIds)
+                )
+              )
+            case _ =>
+              fn
+          }
+        case _ =>
+          stmt
+      }
   }
 
   def apply[S](src: S)(implicit
