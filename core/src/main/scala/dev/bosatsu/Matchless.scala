@@ -1358,9 +1358,10 @@ object Matchless {
 
   case class PrevNat[A](of: Expr[A]) extends Expr[A]
 
-  private def maybeMemo[F[_]: Monad, A](
+  private inline def maybeMemo[F[_]: Monad, A](
+      arg: Expr[A],
       tmp: F[Long]
-  )(fn: CheapExpr[A] => F[Expr[A]]): Expr[A] => F[Expr[A]] = { (arg: Expr[A]) =>
+  )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
     arg match {
       case c: CheapExpr[A] => fn(c)
       case _               =>
@@ -1370,7 +1371,6 @@ object Matchless {
           res <- fn(bound)
         } yield Let(bound, arg, res)
     }
-  }
 
   private val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
@@ -3270,31 +3270,36 @@ object Matchless {
     ): F[Expr[B]] = {
       val (orthoPrefix, nonOrthoSuffix) =
         branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
+      val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
       // Heuristic: only pay the matrix setup cost if we can prune a few
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
-      val argFn = maybeMemo(tmp) { (arg: CheapExpr[B]) =>
-        nonOrthoSuffix match {
-          case Nil =>
-            if (shouldPreferOrderedTerminalFallback(branches))
-              matchExprOrderedCheap(arg, branches)
-            else
-              matchExprMatrixCheap(arg, branches)
-          case _ if orthoPrefix.length >= orthoThreshold =>
-            val suffixNel = NonEmptyList.fromListUnsafe(nonOrthoSuffix)
+      def maybeMatrix(
+          arg: CheapExpr[B],
+          branches: NonEmptyList[MatchBranch]
+      ): F[Expr[B]] =
+        if (shouldPreferOrderedTerminalFallback(branches))
+          matchExprOrderedCheap(arg, branches)
+        else
+          matchExprMatrixCheap(arg, branches)
+
+      maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+        maybeNonOrthoSuffix match {
+          case None =>
+            maybeMatrix(arg, branches)
+          case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
             matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
-              val combined =
-                orthoPrefix :+ MatchBranch(Pattern.WildCard, None, fallbackExpr)
-              val combinedNel = NonEmptyList.fromListUnsafe(combined)
-              matchExprMatrixCheap(arg, combinedNel)
+              val combinedNel = NonEmptyList.ofInitLast(
+                orthoPrefix,
+                MatchBranch(Pattern.WildCard, None, fallbackExpr)
+              )
+              matchExpr(arg, tmp, combinedNel)
             }
           case _ =>
             matchExprOrderedCheap(arg, branches)
         }
       }
-
-      argFn(arg)
     }
 
     loopLetVal(name, te, rec, LambdaState(None, Map.empty)).map(reuseConstructors(_))
