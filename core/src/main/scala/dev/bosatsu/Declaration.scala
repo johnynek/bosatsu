@@ -849,7 +849,22 @@ object Declaration {
       val lam = Lambda(NonEmptyList.one(arg), result.padded)(using
         argRegion + result.padded.region
       )
-      Apply(fn, NonEmptyList.one(lam), ApplyKind.Parens)(using region)
+      def appendToOutermostApply(argFn: NonBinding): NonBinding =
+        argFn match {
+          // Parentheses around plain expressions are syntactic wrappers.
+          // Peel them so `p <- foo(a)` and `p <- (foo(a))` desugar the same.
+          case Parens(nb: NonBinding) =>
+            appendToOutermostApply(nb)
+          case Apply(fn, args, kind) =>
+            val newArgs = args :+ lam
+            Apply(fn, newArgs, kind)(using argFn.region + lam.region)
+          case other =>
+            Apply(other, NonEmptyList.one(lam), ApplyKind.Parens)(using
+              other.region + lam.region
+            )
+        }
+
+      appendToOutermostApply(fn)
     }
   }
 

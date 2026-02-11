@@ -67,6 +67,228 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
+  // Share repeated immutable values within a lexical scope by introducing
+  // non-recursive lets. This is conservative:
+  // - only immutable expression forms (no Let/Loop/Recur/Match)
+  // - only non-simple expressions (avoid noise for literals/locals)
+  // - only occurrences whose free term/type vars are available at the hoist point
+  private def shareImmutableValues[A](te: TypedExpr[A]): TypedExpr[A] = {
+    type Key = TypedExpr[Unit]
+    type TyBound = Type.Var.Bound
+
+    def readsBlockedTerms(expr: TypedExpr[A], blocked: Set[Bindable]): Boolean =
+      expr.freeVarsDup.exists(blocked)
+
+    def readsBlockedTypes(
+        expr: TypedExpr[A],
+        blockedTy: Set[TyBound]
+    ): Boolean =
+      expr.freeTyVars.exists {
+        case b: Type.Var.Bound => blockedTy(b)
+        case _                 => false
+      }
+
+    def readsBlocked(
+        expr: TypedExpr[A],
+        blocked: Set[Bindable],
+        blockedTy: Set[TyBound]
+    ): Boolean =
+      readsBlockedTerms(expr, blocked) || readsBlockedTypes(expr, blockedTy)
+
+    def isImmutableValueExpr(expr: TypedExpr[A]): Boolean =
+      expr match {
+        case Generic(_, in) =>
+          isImmutableValueExpr(in)
+        case Annotation(in, _) =>
+          isImmutableValueExpr(in)
+        case AnnotatedLambda(_, body, _) =>
+          isImmutableValueExpr(body)
+        case App(fn, args, _, _) =>
+          isImmutableValueExpr(fn) && args.forall(isImmutableValueExpr)
+        case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+          true
+        case Let(_, _, _, _, _) | Loop(_, _, _) | Recur(_, _, _) |
+            Match(_, _, _) =>
+          false
+      }
+
+    def isShareable(expr: TypedExpr[A]): Boolean =
+      isImmutableValueExpr(expr) && !Impl.isSimple(expr, lambdaSimple = false)
+
+    case class Candidate(rep: TypedExpr[A], count: Int)
+
+    val seen = scala.collection.mutable.LinkedHashMap.empty[Key, Candidate]
+
+    def addCandidate(expr: TypedExpr[A]): Unit = {
+      val key = expr.void
+      seen.get(key) match {
+        case Some(Candidate(rep, cnt)) =>
+          seen.update(key, Candidate(rep, cnt + 1))
+        case None =>
+          seen.update(key, Candidate(expr, 1))
+      }
+    }
+
+    def collect(
+        expr: TypedExpr[A],
+        blocked: Set[Bindable],
+        blockedTy: Set[TyBound]
+    ): Unit = {
+      if (isShareable(expr) && !readsBlocked(expr, blocked, blockedTy))
+        addCandidate(expr)
+
+      expr match {
+        case Generic(quant, in) =>
+          val blockedTy1 = blockedTy ++ quant.vars.iterator.map(_._1)
+          collect(in, blocked, blockedTy1)
+        case Annotation(in, _) =>
+          collect(in, blocked, blockedTy)
+        case AnnotatedLambda(args, body, _) =>
+          collect(body, blocked ++ args.iterator.map(_._1), blockedTy)
+        case App(fn, args, _, _) =>
+          collect(fn, blocked, blockedTy)
+          args.iterator.foreach(collect(_, blocked, blockedTy))
+        case Let(arg, expr1, in, rec, _) =>
+          val blockedExpr =
+            if (rec.isRecursive) blocked + arg
+            else blocked
+          collect(expr1, blockedExpr, blockedTy)
+          collect(in, blocked + arg, blockedTy)
+        case Loop(args, body, _) =>
+          val blockedLoop = blocked ++ args.iterator.map(_._1)
+          args.iterator.foreach { case (_, initExpr) =>
+            collect(initExpr, blockedLoop, blockedTy)
+          }
+          collect(body, blockedLoop, blockedTy)
+        case Recur(args, _, _) =>
+          args.iterator.foreach(collect(_, blocked, blockedTy))
+        case Match(arg, branches, _) =>
+          collect(arg, blocked, blockedTy)
+          branches.iterator.foreach { case Branch(pat, guard, branchExpr) =>
+            val blockedBranch = blocked ++ pat.names
+            guard.iterator.foreach(collect(_, blockedBranch, blockedTy))
+            collect(branchExpr, blockedBranch, blockedTy)
+          }
+        case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+          ()
+      }
+    }
+
+    collect(te, Set.empty, Set.empty)
+
+    val dupes: List[(Key, TypedExpr[A])] =
+      seen.iterator.collect {
+        case (key, Candidate(rep, cnt)) if cnt > 1 => (key, rep)
+      }.toList
+
+    if (dupes.isEmpty) te
+    else {
+      val used =
+        scala.collection.mutable.HashSet.empty[Bindable] ++ TypedExpr.allVarsSet(
+          te :: Nil
+        )
+      val names = Expr.nameIterator()
+
+      def freshName(): Bindable = {
+        var n = names.next()
+        while (used(n)) n = names.next()
+        used.add(n)
+        n
+      }
+
+      val bindingsByKey: List[(Key, Bindable, TypedExpr[A])] =
+        dupes.map { case (key, rep) =>
+          (key, freshName(), rep)
+        }
+
+      val replaceMap: Map[Key, Bindable] =
+        bindingsByKey.iterator.map { case (key, nm, _) => (key, nm) }.toMap
+
+      def replace(
+          expr: TypedExpr[A],
+          blocked: Set[Bindable],
+          blockedTy: Set[TyBound]
+      ): TypedExpr[A] = {
+        val byKey =
+          if (!readsBlocked(expr, blocked, blockedTy)) replaceMap.get(expr.void)
+          else None
+
+        byKey match {
+          case Some(nm) =>
+            Local(nm, expr.getType, expr.tag)
+          case None     =>
+            expr match {
+              case g @ Generic(q, in) =>
+                val blockedTy1 = blockedTy ++ q.vars.iterator.map(_._1)
+                val in1 = replace(in, blocked, blockedTy1)
+                if (in1 eq in) g else Generic(q, in1)
+              case ann @ Annotation(in, tpe) =>
+                val in1 = replace(in, blocked, blockedTy)
+                if (in1 eq in) ann else Annotation(in1, tpe)
+              case lam @ AnnotatedLambda(args, body, tag) =>
+                val body1 =
+                  replace(body, blocked ++ args.iterator.map(_._1), blockedTy)
+                if (body1 eq body) lam
+                else AnnotatedLambda(args, body1, tag)
+              case app0 @ App(fn, args, tpe, tag) =>
+                val fn1 = replace(fn, blocked, blockedTy)
+                val args1 =
+                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                if ((fn1 eq fn) && (args1 eq args)) app0
+                else App(fn1, args1, tpe, tag)
+              case let0 @ Let(arg, expr1, in, rec, tag) =>
+                val blockedExpr =
+                  if (rec.isRecursive) blocked + arg
+                  else blocked
+                val expr2 = replace(expr1, blockedExpr, blockedTy)
+                val in1 = replace(in, blocked + arg, blockedTy)
+                if ((expr2 eq expr1) && (in1 eq in)) let0
+                else Let(arg, expr2, in1, rec, tag)
+              case loop0 @ Loop(args, body, tag) =>
+                val blockedLoop = blocked ++ args.iterator.map(_._1)
+                val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
+                  val init1 = replace(initExpr, blockedLoop, blockedTy)
+                  if (init1 eq initExpr) (n, initExpr)
+                  else (n, init1)
+                }
+                val body1 = replace(body, blockedLoop, blockedTy)
+                if ((args1 eq args) && (body1 eq body)) loop0
+                else Loop(args1, body1, tag)
+              case recur0 @ Recur(args, tpe, tag) =>
+                val args1 =
+                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                if (args1 eq args) recur0
+                else Recur(args1, tpe, tag)
+              case m @ Match(arg, branches, tag) =>
+                val arg1 = replace(arg, blocked, blockedTy)
+                val branches1 = ListUtil.mapConserveNel(branches) { branch =>
+                  val blockedBranch = blocked ++ branch.pattern.names
+                  val guard1 =
+                    branch.guard.map(replace(_, blockedBranch, blockedTy))
+                  val expr1 = replace(branch.expr, blockedBranch, blockedTy)
+                  if (guard1.eq(branch.guard) && (expr1 eq branch.expr)) branch
+                  else branch.copy(guard = guard1, expr = expr1)
+                }
+                if ((arg1 eq arg) && (branches1 eq branches)) m
+                else Match(arg1, branches1, tag)
+              case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
+                n
+            }
+        }
+      }
+
+      val replaced = replace(te, Set.empty, Set.empty)
+      val bindings = bindingsByKey.map { case (_, nm, rep) => (nm, rep) }
+
+      NonEmptyList.fromList(bindings) match {
+        case Some(nel) =>
+          TypedExpr.letAllNonRec(nel, replaced, te.tag)
+        case None      =>
+          te
+      }
+    }
+  }
+
   def normalizeAll[A: Eq, V](
       pack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[A])],
@@ -85,7 +307,8 @@ object TypedExprNormalization {
         case (b, r, t) :: tail =>
           // if we have a recursive value it shadows the scope
           val (optName, s0) = nameScope(b, r, scope)
-          val normTE = normalize1(optName, t, s0, typeEnv).get
+          val normTE0 = normalize1(optName, t, s0, typeEnv).get
+          val normTE = shareImmutableValues(normTE0)
           val rec1 =
             if (r.isRecursive && (SelfCallKind(b, normTE) == SelfCallKind.NoCall))
               RecursionKind.NonRecursive
@@ -1328,8 +1551,12 @@ object TypedExprNormalization {
     }
   }
 
-  def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] =
-    normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
+  def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] = {
+    val norm0 = normalize1(None, te, emptyScope, TypeEnv.empty).get
+    val norm1 = shareImmutableValues(norm0)
+    if ((norm1: TypedExpr[A]) === te) None
+    else Some(norm1)
+  }
 
   private object Impl {
 

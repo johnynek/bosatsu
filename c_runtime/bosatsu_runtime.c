@@ -287,10 +287,6 @@ BValue get_enum_index(BValue v, int idx) {
   return *ptr;
 }
 
-BValue alloc_enum0(ENUM_TAG tag) {
-  return TO_PURE_VALUE(tag);
-}
-
 // Externals:
 void free_external(void* ex, void* data) {
   FreeFn ex_free = (FreeFn)data;

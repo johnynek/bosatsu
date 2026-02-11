@@ -111,6 +111,36 @@ sealed abstract class Expr[T] derives CanEqual {
     }
   }
 
+  def eraseTags: Expr[Unit] = {
+    import Expr._
+    this match {
+      case Annotation(e, tpe, _) =>
+        Annotation(e.eraseTags, tpe, ())
+      case Local(ident, _) =>
+        Local(ident, ())
+      case Global(pack, name, _) =>
+        Global(pack, name, ())
+      case Generic(typeVars, in) =>
+        Generic(typeVars, in.eraseTags)
+      case Lambda(args, expr, _) =>
+        Lambda(args, expr.eraseTags, ())
+      case App(fn, args, _) =>
+        App(fn.eraseTags, args.map(_.eraseTags), ())
+      case Let(arg, expr, in, recursive, _) =>
+        Let(arg, expr.eraseTags, in.eraseTags, recursive, ())
+      case Literal(lit, _) =>
+        Literal(lit, ())
+      case Match(arg, branches, _) =>
+        Match(
+          arg.eraseTags,
+          branches.map { b =>
+            Branch(b.pattern, b.guard.map(_.eraseTags), b.expr.eraseTags)
+          },
+          ()
+        )
+    }
+  }
+
   def notFree(b: Bindable): Boolean =
     !freeVarsDup.contains(b)
 }

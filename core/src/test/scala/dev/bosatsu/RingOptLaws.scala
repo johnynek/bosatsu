@@ -714,6 +714,56 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     law(Neg(Add(Symbol(0), Symbol(1))), Weights(2, 1, 1))
     law(Symbol(BigInt(0)), Weights(4, 2, 1))
+    // issue #1589
+    law(
+      Neg(
+        Add(
+          Symbol(BigInt("2147483648")),
+          Add(
+            Mult(
+              Symbol(
+                BigInt("-123593876035527231221720838753456864561865872211442256816")
+              ),
+              Symbol(BigInt("1615848243864774095"))
+            ),
+            Add(Symbol(BigInt("2147483648")), One)
+          )
+        )
+      ),
+      Weights(8, 4, 3)
+    )
+    // issue #1589
+    law(
+      Neg(
+        Mult(
+          Neg(Neg(One)),
+          Neg(
+            Add(
+              Neg(
+                Add(
+                  Symbol(BigInt("9223372036854775808")),
+                  Symbol(BigInt("-9223372036854775809"))
+                )
+              ),
+              Neg(
+                Mult(
+                  Add(One, One),
+                  Add(
+                    Zero,
+                    Symbol(
+                      BigInt(
+                        "24614105630533305221543030638953511488693039740333095040"
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      Weights(9, 4, 1)
+    )
     forAll((a: Expr[BigInt], w: Weights) => law(a, w))
   }
   property("multiplication by 1 is always simplified") {
@@ -1030,51 +1080,91 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       )
     }
 
-    val regressions: List[(Expr[Int], Int, Weights)] =
+    val regressions: List[(Expr[BigInt], Int, Weights)] =
       (
         Add(
-          Mult(Symbol(0), Integer(-14)),
-          Add(Symbol(-1), Add(Symbol(-1), Symbol(1)))
+          Mult(Symbol(BigInt(0)), Integer(-14)),
+          Add(
+            Symbol(BigInt(-1)),
+            Add(Symbol(BigInt(-1)), Symbol(BigInt(1)))
+          )
         ),
         2,
         Weights(16, 8, 1)
       ) ::
         (
-          Add(Symbol(-1), Add(Symbol(0), Symbol(0))),
+          Add(
+            Symbol(BigInt(-1)),
+            Add(Symbol(BigInt(0)), Symbol(BigInt(0)))
+          ),
           2,
           Weights(12, 9, 5)
         ) ::
         (
           Mult(
-            Add(One, Mult(Symbol(0), Integer(-2))),
-            Add(Symbol(0), Integer(-1))
+            Add(One, Mult(Symbol(BigInt(0)), Integer(-2))),
+            Add(Symbol(BigInt(0)), Integer(-1))
           ),
           3,
           Weights(11, 7, 2)
         ) ::
         (
-          Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Symbol(0)),
+          Mult(
+            Add(Mult(Symbol(BigInt(0)), Integer(-2)), Integer(-1)),
+            Symbol(BigInt(0))
+          ),
           2,
           Weights(8, 7, 5)
         ) ::
         (
-          Mult(Add(Mult(Symbol(0), Integer(-2)), Integer(-1)), Integer(3)),
+          Mult(
+            Add(Mult(Symbol(BigInt(0)), Integer(-2)), Integer(-1)),
+            Integer(3)
+          ),
           3,
           Weights(3, 1, 1)
         ) ::
         (
-          Add(Mult(Add(Symbol(-1), Symbol(0)), Integer(2)), Integer(-3)),
+          Add(
+            Mult(Add(Symbol(BigInt(-1)), Symbol(BigInt(0))), Integer(2)),
+            Integer(-3)
+          ),
           3,
           Weights(2, 1, 1)
         ) ::
         (
-          Mult(Integer(2), Symbol(0)),
+          Mult(Integer(2), Symbol(BigInt(0))),
           2,
           Weights(8, 4, 1)
         ) :: (
-          Neg(Add(One, Symbol(0))),
+          Neg(Add(One, Symbol(BigInt(0)))),
           8,
           Weights(4, 2, 1)
+        ) ::
+        (
+          // issue #1589
+          Add(
+            Mult(
+              Integer(
+                BigInt(
+                  "-119088922527214455169877378003275124204831957359945318400"
+                )
+              ),
+              Add(
+                Symbol(BigInt("-1")),
+                Symbol(BigInt("8589497787817019633"))
+              )
+            ),
+            Mult(
+              Integer(BigInt("-58135180282744295314869849927820822272")),
+              Add(
+                Symbol(BigInt("-2872798615067075361")),
+                Symbol(BigInt("-1"))
+              )
+            )
+          ),
+          2,
+          Weights(3, 1, 1)
         ) ::
         Nil
 
