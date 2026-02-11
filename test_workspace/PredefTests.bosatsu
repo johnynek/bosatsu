@@ -159,10 +159,8 @@ def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
     f = int_bits_to_Float64(seed1)
     parsed = string_to_Float64(float64_to_String(f))
     ok1 = match parsed:
-      case Some(f1):
-        match is_nan(f):
-          case True: is_nan(f1)
-          case False: eqf(f, f1)
+      case Some(f1) if is_nan(f): is_nan(f1)
+      case Some(f1): eqf(f, f1)
       case None: False
     (n.sub(1), (seed1, andb(ok, ok1)))
   ))

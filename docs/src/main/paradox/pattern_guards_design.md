@@ -1,7 +1,7 @@
 # Pattern Guards Design
 
-Status: proposed  
-Date: 2026-02-10
+Status: implemented  
+Date: 2026-02-11
 
 ## Goal
 Add match branch guards to Bosatsu:
