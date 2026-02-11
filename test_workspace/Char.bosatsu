@@ -124,9 +124,7 @@ def to_digit(c: Char, radix: Int) -> Option[Int]:
     match raw:
       case Some(d) if cmp_Int(d, radix) matches LT:
         Some(d)
-      case Some(_):
-        None
-      case None:
+      case _:
         None
   else:
     None
