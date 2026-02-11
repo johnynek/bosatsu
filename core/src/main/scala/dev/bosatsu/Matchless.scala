@@ -350,8 +350,9 @@ object Matchless {
     * reducing immediate lambda application into lets.
     */
   def applyArgs[A](fn: Expr[A], args: NonEmptyList[Expr[A]]): Expr[A] =
-    fn match {
-      case Lambda(captures, recName, lamArgs, body) if lamArgs.length == args.length =>
+    {
+      def betaReduce(lam: Lambda[A]): Expr[A] = {
+        val Lambda(captures, recName, lamArgs, body) = lam
         val captureCount = captures.length
         val argCount = args.length
         val usedNames =
@@ -404,24 +405,60 @@ object Matchless {
           case ((captureTmp, captureExpr), in) =>
             Let(captureTmp, captureExpr, in)
         }
-      case If(cond, thenExpr, elseExpr) =>
-        If(cond, applyArgs(thenExpr, args), applyArgs(elseExpr, args))
-      case Always(cond, thenExpr) =>
-        Always(cond, applyArgs(thenExpr, args))
-      case let @ Let(arg, expr, in) =>
-        val canPushPastLet = arg match {
-          case Left(_) =>
-            true
-          case Right(name) =>
-            !args.exists(a => allNames(a)(name))
+      }
+
+      def resolveAlias(
+          expr: Expr[A],
+          aliases: Map[Bindable, Lambda[A]],
+          seen: Set[Bindable]
+      ): Expr[A] =
+        expr match {
+          case Local(name) if !seen(name) =>
+            aliases.get(name) match {
+              case Some(lam) => resolveAlias(lam, aliases, seen + name)
+              case None      => expr
+            }
+          case _ =>
+            expr
         }
-        if (canPushPastLet) Let(arg, expr, applyArgs(in, args))
-        // We stop when the let-bound name appears in any argument. Pushing would
-        // risk changing which binder those argument references resolve to.
-        else App(let, args)
-      case other =>
-        // No additional structure to push through; keep this as a regular call.
-        App(other, args)
+
+      def loop(ex: Expr[A], aliases: Map[Bindable, Lambda[A]]): Expr[A] =
+        resolveAlias(ex, aliases, Set.empty) match {
+          case lam: Lambda[A] if lam.arity == args.length =>
+            betaReduce(lam)
+          case If(cond, thenExpr, elseExpr) =>
+            If(cond, loop(thenExpr, aliases), loop(elseExpr, aliases))
+          case Always(cond, thenExpr) =>
+            Always(cond, loop(thenExpr, aliases))
+          case let @ Let(arg, expr, in) =>
+            val canPushPastLet = arg match {
+              case Left(_) =>
+                true
+              case Right(name) =>
+                !args.exists(a => allNames(a)(name))
+            }
+            if (canPushPastLet) {
+              val aliases1 =
+                arg match {
+                  case Right(name) =>
+                    resolveAlias(expr, aliases, Set.empty) match {
+                      case lam: Lambda[A] => aliases.updated(name, lam)
+                      case _              => aliases - name
+                    }
+                  case Left(_) =>
+                    aliases
+                }
+              Let(arg, expr, loop(in, aliases1))
+            }
+            // We stop when the let-bound name appears in any argument. Pushing would
+            // risk changing which binder those argument references resolve to.
+            else App(let, args)
+          case other =>
+            // No additional structure to push through; keep this as a regular call.
+            App(other, args)
+        }
+
+      loop(fn, Map.empty)
     }
 
   def allNames[A](expr: Expr[A]): Set[Bindable] = {
@@ -506,15 +543,50 @@ object Matchless {
         case _                            => None
       }
 
-    expr match {
-      case fn: Lambda[A]        => Some(fn.arity)
-      case Let(_, _, in)        => topLevelFunctionArity(in)
-      case LetMut(_, in)        => topLevelFunctionArity(in)
-      case Always(_, thenExpr)  => topLevelFunctionArity(thenExpr)
-      case If(_, thenExpr, els) =>
-        sameArity(topLevelFunctionArity(thenExpr), topLevelFunctionArity(els))
-      case _                    => None
-    }
+    def loop(
+        ex: Expr[A],
+        bindableArities: Map[Bindable, Int],
+        anonArities: Map[Long, Int]
+    ): Option[Int] =
+      ex match {
+        case fn: Lambda[A] =>
+          Some(fn.arity)
+        case Local(name) =>
+          bindableArities.get(name)
+        case LocalAnon(id) =>
+          anonArities.get(id)
+        case Let(arg, value, in) =>
+          val valueArity = loop(value, bindableArities, anonArities)
+          arg match {
+            case Right(name) =>
+              val bindableArities1 =
+                valueArity match {
+                  case Some(ar) => bindableArities.updated(name, ar)
+                  case None     => bindableArities - name
+                }
+              loop(in, bindableArities1, anonArities)
+            case Left(anon) =>
+              val anonArities1 =
+                valueArity match {
+                  case Some(ar) => anonArities.updated(anon.ident, ar)
+                  case None     => anonArities - anon.ident
+                }
+              loop(in, bindableArities, anonArities1)
+          }
+        case LetMut(_, in) =>
+          loop(in, bindableArities, anonArities)
+        case Always(_, thenExpr) =>
+          loop(thenExpr, bindableArities, anonArities)
+        case If(_, thenExpr, els) =>
+          sameArity(
+            loop(thenExpr, bindableArities, anonArities),
+            loop(els, bindableArities, anonArities)
+          )
+        case _ =>
+          None
+      }
+
+    loop(expr, Map.empty, Map.empty)
   }
 
   /** Recover a top-level lambda when normalization pushes lambda creation into
