@@ -1662,8 +1662,13 @@ object RingOpt {
     // but doesn't seem to frustrate undistribute much for the a*b + a*c
     // cases we want to work (although, probably some nesting of those doesn't)
     // work well, I would imagine
-    // val e = e0.basicNorm
-    val e = e0
+    // strip obvious top-level additive no-ops without flattening the full tree,
+    // since flattening can hide useful factorization structure.
+    val e =
+      e0 match {
+        case Add(x, y) => Expr.checkAdd[A](x, y)
+        case other     => other
+      }
     loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 
@@ -2231,8 +2236,19 @@ object RingOpt {
       case Add(left, right) =>
         val leftA: Expr[A] = left
         val rightA: Expr[A] = right
-        val sumProd = SumProd[A](leftA :: rightA :: Nil)
-        sumProd.normalize(W)
+        val sumProd = SumProd[A](leftA :: rightA :: Nil).normalize(W)
+
+        // Preserve repeated-add structure when it is cheaper than term-wise
+        // decomposition. This avoids losing opportunities like 2 * (x + y).
+        if (Hash[Expr[A]].eqv(leftA, rightA)) {
+          val doubled = Expr.checkMult(Integer(2), leftA)
+          val costDouble = W.cost(doubled)
+          val costSumProd = W.cost(sumProd)
+          if (costDouble < costSumProd) doubled
+          else if (costDouble == costSumProd && Order[Expr[A]].lt(doubled, sumProd))
+            doubled
+          else sumProd
+        } else sumProd
 
       case Mult(a, b) =>
         val aA: Expr[A] = a
