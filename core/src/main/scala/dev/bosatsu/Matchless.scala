@@ -2971,6 +2971,226 @@ object Matchless {
     // Use the matrix compiler for an orthogonal prefix and fall back to the
     // ordered compiler for a non-orthogonal suffix (string/list search
     // semantics). A small threshold avoids overhead on tiny matches.
+    def exprWeight(expr: Expr[B]): Int = {
+      def loopExpr(e: Expr[B]): Int =
+        e match {
+          case Lambda(captures, _, _, body) =>
+            1 + captures.iterator.map(loopExpr).sum + loopExpr(body)
+          case WhileExpr(cond, effectExpr, _) =>
+            1 + loopBool(cond) + loopExpr(effectExpr)
+          case App(fn, args) =>
+            1 + loopExpr(fn) + args.iterator.map(loopExpr).sum
+          case Let(_, value, in) =>
+            1 + loopExpr(value) + loopExpr(in)
+          case LetMut(_, in) =>
+            1 + loopExpr(in)
+          case If(cond, thenExpr, elseExpr) =>
+            1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case Always(cond, thenExpr) =>
+            1 + loopBool(cond) + loopExpr(thenExpr)
+          case PrevNat(of) =>
+            1 + loopExpr(of)
+          case _: CheapExpr[?] | MakeEnum(_, _, _) | MakeStruct(_) | ZeroNat | SuccNat =>
+            1
+        }
+
+      def loopBool(b: BoolExpr[B]): Int =
+        b match {
+          case EqualsLit(expr, _) =>
+            1 + loopExpr(expr)
+          case EqualsNat(expr, _) =>
+            1 + loopExpr(expr)
+          case And(left, right) =>
+            1 + loopBool(left) + loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            1 + loopExpr(expr)
+          case MatchString(arg, _, _, _) =>
+            1 + loopExpr(arg)
+          case SetMut(_, expr) =>
+            1 + loopExpr(expr)
+          case LetBool(_, value, in) =>
+            1 + loopExpr(value) + loopBool(in)
+          case LetMutBool(_, in) =>
+            1 + loopBool(in)
+          case TrueConst =>
+            1
+        }
+
+      loopExpr(expr)
+    }
+
+    def isTotalFallbackPattern(
+        p: Pattern[(PackageName, Constructor), Type]
+    ): Boolean =
+      maybeSimple(normalizePattern(p)).nonEmpty
+
+    def matrixFallbackMultiplicity(
+        branches: NonEmptyList[MatchBranch]
+    ): Int = {
+      case class TaggedRow(row: MatchRow, isFallback: Boolean)
+
+      def expandTaggedRows(rows: List[TaggedRow]): List[TaggedRow] = {
+        def expandPats(
+            pats: List[Pattern[(PackageName, Constructor), Type]]
+        ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
+          pats match {
+            case Nil       => NonEmptyList(Nil, Nil)
+            case p :: tail =>
+              for {
+                p1 <- Pattern.flatten(p)
+                rest <- expandPats(tail)
+              } yield p1 :: rest
+          }
+
+        rows.flatMap { tr =>
+          expandPats(tr.row.pats).toList.map(ps => tr.copy(row = tr.row.copy(pats = ps)))
+        }
+      }
+
+      def dropWildColumnsTagged(
+          rows: List[TaggedRow],
+          occs: List[CheapExpr[B]]
+      ): (List[TaggedRow], List[CheapExpr[B]]) = {
+        val keepIdxs = occs.indices.filter { idx =>
+          rows.exists(tr => tr.row.pats(idx) != Pattern.WildCard)
+        }.toList
+
+        if (keepIdxs.length == occs.length) (rows, occs)
+        else {
+          val newRows = rows.map { tr =>
+            val ps = keepIdxs.map(tr.row.pats(_))
+            tr.copy(row = tr.row.copy(pats = ps))
+          }
+          val newOccs = keepIdxs.map(occs(_))
+          (newRows, newOccs)
+        }
+      }
+
+      def specializeTaggedRows(
+          sig: HeadSig,
+          rows: List[TaggedRow],
+          colIdx: Int,
+          arity: Int
+      ): List[TaggedRow] =
+        rows.flatMap { tr =>
+          specializeRows(sig, tr.row :: Nil, colIdx, arity)
+            .map(r => TaggedRow(r, tr.isFallback))
+        }
+
+      def arityOfSig(sig: HeadSig): Int =
+        sig match {
+          case EnumSig(_, _, s, _) => s
+          case StructSig(_, s)     => s
+          case LitSig(_)           => 0
+          case ZeroSig             => 0
+          case SuccSig             => 1
+        }
+
+      val dummyMut: LocalAnonMut = LocalAnonMut(Long.MinValue)
+
+      def newOccsForSig(
+          sig: HeadSig,
+          occ: CheapExpr[B],
+          occs: List[CheapExpr[B]],
+          colIdx: Int
+      ): List[CheapExpr[B]] =
+        sig match {
+          case EnumSig(_, v, s, _) =>
+            val fields =
+              (0 until s).toList.map(i => GetEnumElement(occ, v, i, s))
+            occs.patch(colIdx, fields, 1)
+          case StructSig(_, s)     =>
+            val fields =
+              (0 until s).toList.map(i => GetStructElement(occ, i, s))
+            occs.patch(colIdx, fields, 1)
+          case LitSig(_) | ZeroSig =>
+            occs.patch(colIdx, Nil, 1)
+          case SuccSig             =>
+            occs.patch(colIdx, dummyMut :: Nil, 1)
+        }
+
+      def compileRowsCount(
+          rowsIn: List[TaggedRow],
+          occsIn: List[CheapExpr[B]],
+          mustMatch: Boolean
+      ): Int = {
+        val norm = rowsIn.map(tr => tr.copy(row = normalizeRow(tr.row, occsIn)))
+        val expanded = expandTaggedRows(norm)
+        val (rows, occs) = dropWildColumnsTagged(expanded, occsIn)
+
+        rows match {
+          case TaggedRow(MatchRow(p0, g0, _, _), isFallback) :: tail
+              if p0.forall(_ == Pattern.WildCard) =>
+            val thisLeaf = if (isFallback) 1 else 0
+            g0 match {
+              case None =>
+                thisLeaf
+              case Some(_) =>
+                if (tail.nonEmpty) thisLeaf + compileRowsCount(tail, occs, mustMatch = false)
+                else thisLeaf
+            }
+          case Nil =>
+            0
+          case _ =>
+            val colIdx = 0
+            val occ = occs(colIdx)
+            val sigs =
+              distinctInOrder(rows.mapFilter(tr => headSig(tr.row.pats(colIdx))))
+            val defaultRows =
+              rows.mapFilter { tr =>
+                if (tr.row.pats(colIdx) == Pattern.WildCard)
+                  Some(tr.copy(row = tr.row.patchPats(colIdx, Nil)))
+                else None
+              }
+            val defaultOccs = occs.patch(colIdx, Nil, 1)
+
+            def compileCasesCount(
+                sigs: List[HeadSig],
+                mustMatch: Boolean
+            ): Int =
+              sigs match {
+                case Nil =>
+                  if (defaultRows.nonEmpty)
+                    compileRowsCount(defaultRows, defaultOccs, mustMatch)
+                  else 0
+                case sig :: rest =>
+                  val arity = arityOfSig(sig)
+                  val newRows = specializeTaggedRows(sig, rows, colIdx, arity)
+                  if (newRows.isEmpty) compileCasesCount(rest, mustMatch)
+                  else {
+                    val newOccs = newOccsForSig(sig, occ, occs, colIdx)
+                    val subMustMatch = mustMatch && newRows.forall(_.row.guard.isEmpty)
+                    val thenCount = compileRowsCount(newRows, newOccs, subMustMatch)
+                    val hasElse = rest.nonEmpty || defaultRows.nonEmpty
+                    if (hasElse) thenCount + compileCasesCount(rest, mustMatch)
+                    else thenCount
+                  }
+              }
+
+            compileCasesCount(sigs, mustMatch)
+        }
+      }
+
+      val rows0 = branches.toList.zipWithIndex.map { case (branch, idx) =>
+        TaggedRow(MatchRow.fromBranch(branch), idx == branches.length - 1)
+      }
+      compileRowsCount(rows0, Local(Identifier.Name("bsts_fallback_probe")) :: Nil, mustMatch = true)
+    }
+
+    def shouldPreferOrderedTerminalFallback(
+        branches: NonEmptyList[MatchBranch]
+    ): Boolean = {
+      val MinRhsWeight = 20
+      val hasTerminalFallback =
+        branches.tail.nonEmpty &&
+          branches.last.guard.isEmpty &&
+          isTotalFallbackPattern(branches.last.pattern)
+
+      hasTerminalFallback &&
+      exprWeight(branches.last.rhs) >= MinRhsWeight &&
+      matrixFallbackMultiplicity(branches) > 1
+    }
+
     def matchExpr(
         arg: Expr[B],
         tmp: F[Long],
@@ -2985,7 +3205,10 @@ object Matchless {
       val argFn = maybeMemo(tmp) { (arg: CheapExpr[B]) =>
         nonOrthoSuffix match {
           case Nil =>
-            matchExprMatrixCheap(arg, branches)
+            if (shouldPreferOrderedTerminalFallback(branches))
+              matchExprOrderedCheap(arg, branches)
+            else
+              matchExprMatrixCheap(arg, branches)
           case _ if orthoPrefix.length >= orthoThreshold =>
             val suffixNel = NonEmptyList.fromListUnsafe(nonOrthoSuffix)
             matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
