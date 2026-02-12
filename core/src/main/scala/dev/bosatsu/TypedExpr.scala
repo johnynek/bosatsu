@@ -27,7 +27,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     */
   lazy val getType: Type =
     this match {
-      case g @ Generic(_, _)  => g.quantType
+      case g @ Generic(_, _)  => Type.normalize(g.quantType)
       case Annotation(_, tpe) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
@@ -2523,7 +2523,7 @@ object TypedExpr {
       forallList = forallList,
       existList = existList
     ) match {
-      case Some(q) => Generic(q, expr)
+      case Some(q) => normalizeQuantVars(q, expr)
       case None    => expr
     }
 
