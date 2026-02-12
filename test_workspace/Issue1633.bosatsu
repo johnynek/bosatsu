@@ -1,0 +1,36 @@
+package Issue1633
+
+export ParseStep, main
+
+def drop_ws(s: String) -> String:
+  recur s:
+    case " ${tail}":
+      drop_ws(tail)
+    case "\n${tail}":
+      drop_ws(tail)
+    case "\t${tail}":
+      drop_ws(tail)
+    case "\r${tail}":
+      drop_ws(tail)
+    case _:
+      s
+
+enum ParseStep:
+  ParseDone(result: Option[String])
+
+def parse_value(input: String) -> ParseStep:
+  rest = drop_ws(input)
+  match rest:
+    case "null${_}":
+      ParseDone(Some("ok"))
+    case "\"${_}":
+      ParseDone(None)
+    case _:
+      ParseDone(None)
+
+tests = TestSuite("Issue1633 tests", [
+  Assertion(parse_value("null") matches ParseDone(Some("ok")), "no ws"),
+  Assertion(parse_value(" null") matches ParseDone(Some("ok")), "leading ws"),
+])
+
+main = parse_value(" null")

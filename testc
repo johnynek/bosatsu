@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+tmp_dir=$(mktemp -d -t bosatsuc-XXXXXXXXXX)
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+./bosatsuj tool transpile \
+  --input test_workspace/Issue1633.bosatsu \
+  --package_root test_workspace/ \
+  c --test --filter Issue1633 --outdir "$tmp_dir"
+
+cp c_runtime/*.h "$tmp_dir"/
+cp c_runtime/bosatsu_runtime.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_Predef.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_Prog.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Std.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_Collection_l_Array.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.c "$tmp_dir"/
+
+GC_CFLAGS="$(pkg-config --cflags bdw-gc 2>/dev/null || true)"
+GC_LIBS="$(pkg-config --libs bdw-gc 2>/dev/null || true)"
+
+if [ -z "$GC_CFLAGS$GC_LIBS" ]; then
+  if [ -f /opt/homebrew/opt/bdw-gc/include/gc.h ]; then
+    GC_CFLAGS="-I/opt/homebrew/opt/bdw-gc/include"
+    GC_LIBS="-L/opt/homebrew/opt/bdw-gc/lib -lgc"
+  elif [ -f /usr/local/opt/bdw-gc/include/gc.h ]; then
+    GC_CFLAGS="-I/usr/local/opt/bdw-gc/include"
+    GC_LIBS="-L/usr/local/opt/bdw-gc/lib -lgc"
+  else
+    GC_LIBS="-lgc"
+  fi
+fi
+
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_runtime.c" -o "$tmp_dir/bosatsu_runtime.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/output.c" -o "$tmp_dir/output.o"
+cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/test_exe" \
+  "$tmp_dir/output.o" \
+  "$tmp_dir/bosatsu_runtime.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
+  $GC_LIBS -lm
+
+"$tmp_dir/test_exe"
