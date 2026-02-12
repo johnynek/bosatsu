@@ -84,10 +84,11 @@ abstract class GenericStringUtil {
       def newAppender(first: Option[Int]): Appender[Option[Int], String] =
         new Appender[Option[Int], String] {
           val strbuilder = new java.lang.StringBuilder
-          first.foreach(strbuilder.appendCodePoint(_))
+          if (first.isDefined) strbuilder.appendCodePoint(first.get)
 
           def append(item: Option[Int]) = {
-            item.foreach(strbuilder.appendCodePoint(_))
+            // Performance: this avoids Option.foreach closure allocation/indirection.
+            if (item.isDefined) strbuilder.appendCodePoint(item.get)
             this
           }
           def finish(): String = strbuilder.toString
@@ -98,7 +99,7 @@ abstract class GenericStringUtil {
     */
   def undelimitedString1(endP: P[Unit]): P[String] = {
     val continuation =
-      (P.char('\\') *> P.char('\n')).backtrack.as(None)
+      (P.char('\\').soft ~ P.char('\n')).as(None)
     val escapedOrLiteral =
       escapedToken.map(Some(_))
         .orElse((!endP).with1 *> utf16Codepoint.map(Some(_)))
