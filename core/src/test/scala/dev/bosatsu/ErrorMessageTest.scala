@@ -46,14 +46,44 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
         |""".stripMargin
 
     val message = unusedLetMessage(source)
-    assert(message.contains("unused let binding: x"), message)
+    assert(message.contains("unused value 'x'"), message)
     assert(message.contains("x = 1"), message)
+    assert(message.contains("How to resolve:"), message)
+    assert(message.contains("add 'x' to exports"), message)
+    assert(message.contains("rebind it as `_ = <expr>`"), message)
+    assert(message.contains("use it from `tests`"), message)
+    assert(message.contains("final `tests` value"), message)
+    assert(message.contains("use it from `main`"), message)
+    assert(message.contains("final non-test value"), message)
 
     val pointerLines = message.linesIterator.filter(_.contains("^")).toList
     assertEquals(pointerLines.length, 1, message)
 
     val pointerWidth = pointerLines.head.count(_ == '^')
     assert(pointerWidth >= 3, message)
+  }
+
+  test("multiple unused top-level values show a shared count and hint block") {
+    val source =
+      """package A
+        |export main
+        |
+        |x = 1
+        |y = 2
+        |main = 3
+        |""".stripMargin
+
+    val message = unusedLetMessage(source)
+    assert(message.contains("unused value 'x'"), message)
+    assert(message.contains("unused value 'y'"), message)
+    assert(message.contains("found 2 unused values."), message)
+    assert(message.contains("How to resolve:"), message)
+    assert(message.contains("add needed values to exports"), message)
+    assertEquals(
+      message.split("How to resolve:").length - 1,
+      1,
+      message
+    )
   }
 
   test("test matching unions") {
@@ -251,7 +281,11 @@ main = plus(1, 2)
 """)) { case le @ PackageError.UnusedLetError(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused let binding: z\n  Region(68,73)"))
+      assert(msg.contains("unused value 'z'\n  Region(68,73)"))
+      assert(
+        msg.contains("if intentional, ignore it with `_`"),
+        msg
+      )
       ()
     }
 
@@ -268,7 +302,8 @@ main = plus(1, 2)
     """)) { case le @ PackageError.UnusedLets(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused let binding: z\n  Region("))
+      assert(msg.contains("unused value 'z'\n  Region("))
+      assert(msg.contains("add 'z' to exports"))
       ()
     }
   }

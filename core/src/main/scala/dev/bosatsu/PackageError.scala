@@ -806,6 +806,47 @@ object PackageError {
     }
   }
 
+  private def unusedValueMessage(
+      pack: PackageName,
+      errs: NonEmptyList[(Identifier.Bindable, Region)],
+      sourceMap: Map[PackageName, (LocationMap, String)],
+      errColor: Colorize,
+      hints: List[String]
+  ): String = {
+    val (lm, _) = sourceMap.getMapSrc(pack)
+    val sorted = errs.sortBy(_._2)
+    val unusedDocs = sorted.map { case (bn, region) =>
+      val rdoc = lm
+        .showRegion(region, 2, errColor)
+        .getOrElse(Doc.str(region)) // we should highlight the whole region
+      val message = Doc.text(s"unused value '${bn.sourceCodeRepr}'")
+      message + Doc.hardLine + rdoc
+    }
+
+    val maybeCount =
+      if (sorted.tail.isEmpty) None
+      else Some(Doc.text(s"found ${sorted.length} unused values."))
+
+    val maybeHints =
+      if (hints.isEmpty) None
+      else {
+        Some(
+          Doc.text("How to resolve:") + Doc.hardLine +
+            Doc.intercalate(
+              Doc.hardLine,
+              hints.map { hint =>
+                Doc.text(s"- $hint")
+              }
+            )
+        )
+      }
+
+    val bodyBlocks = unusedDocs.toList ::: List(maybeCount, maybeHints).flatten
+    val line2 = Doc.hardLine + Doc.hardLine
+    val packDoc = sourceMap.headLine(pack, Some(sorted.head._2))
+    (packDoc + (line2 + Doc.intercalate(line2, bodyBlocks)).nested(2)).render(80)
+  }
+
   case class UnusedLetError(
       pack: PackageName,
       errs: NonEmptyList[(Identifier.Bindable, Region)]
@@ -813,23 +854,17 @@ object PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
-    ) = {
-      val (lm, _) = sourceMap.getMapSrc(pack)
-      val docs = errs
-        .sortBy(_._2)
-        .map { case (bn, region) =>
-          val rdoc = lm
-            .showRegion(region, 2, errColor)
-            .getOrElse(Doc.str(region)) // we should highlight the whole region
-          val message = Doc.text("unused let binding: " + bn.sourceCodeRepr)
-          message + Doc.hardLine + rdoc
-        }
-
-      val packDoc = sourceMap.headLine(pack, Some(errs.head._2))
-      val line2 = Doc.hardLine + Doc.hardLine
-      (packDoc + (line2 + Doc.intercalate(line2, docs.toList)).nested(2))
-        .render(80)
-    }
+    ) =
+      unusedValueMessage(
+        pack,
+        errs,
+        sourceMap,
+        errColor,
+        List(
+          "use the value in an expression that contributes to the result",
+          "if intentional, ignore it with `_` (for example: `_ = <expr>`)"
+        )
+      )
   }
 
   case class RecursionError(
@@ -1000,9 +1035,27 @@ object PackageError {
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) =
-      UnusedLetError(
+      unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) }
-      ).message(sourceMap, errColor)
+        unusedLets.map { case (b, _, _, r) => (b, r) },
+        sourceMap,
+        errColor,
+        if (unusedLets.tail.isEmpty) {
+          val name = unusedLets.head._1.sourceCodeRepr
+          List(
+            s"add '$name' to exports",
+            "rebind it as `_ = <expr>`",
+            "use it from `tests` (reachable from the final `tests` value)",
+            "use it from `main` (reachable from the final non-test value)"
+          )
+        } else {
+          List(
+            "add needed values to exports",
+            "rebind intentionally unused values as `_ = <expr>`",
+            "use them from `tests` (reachable from the final `tests` value)",
+            "use them from `main` (reachable from the final non-test value)"
+          )
+        }
+      )
   }
 }
