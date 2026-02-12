@@ -602,12 +602,11 @@ object Matchless {
             val usedNames = allNames(other)
             val args: NonEmptyList[Bindable] =
               NonEmptyList.fromListUnsafe(
-                Iterator
-                  .from(0)
-                  .map(i => Identifier.synthetic(s"bsts_top${arity}_$i"))
-                  .filterNot(usedNames)
-                  .take(arity)
-                  .toList
+                freshSyntheticNames(
+                  prefix = s"bsts_top$arity",
+                  count = arity,
+                  usedNames = usedNames
+                )
               )
             val appArgs: NonEmptyList[Expr[A]] =
               args.map[Expr[A]](arg => Local(arg))
