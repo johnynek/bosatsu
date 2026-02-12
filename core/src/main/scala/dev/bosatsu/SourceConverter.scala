@@ -1660,12 +1660,6 @@ final class SourceConverter(
             }
       }
 
-    val noBinds: Result[Unit] = stmts.parTraverse_ {
-      case Bind(BindingStatement(b, d, _)) if b.names.isEmpty =>
-        SourceConverter.partial(SourceConverter.NonBindingPattern(b, d), ())
-      case _ => SourceConverter.successUnit
-    }
-
     val flatIn: List[(Bindable, RecursionKind, Flattened)] =
       SourceConverter.makeLetsUnique(flatList) { (bind, _) =>
         // rename all but the last item
@@ -1726,64 +1720,62 @@ final class SourceConverter(
           case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
 
-    noBinds
-      .parProductR(parFold(Set.empty[Bindable], withEx) {
-        case (topBound, stmt) =>
-          stmt match {
-            case Right(Right((nm, decl))) =>
-              val r = fromDecl(decl, Set.empty, topBound).map(
-                (nm, RecursionKind.NonRecursive, _) :: Nil
+    parFold(Set.empty[Bindable], withEx) {
+      case (topBound, stmt) =>
+        stmt match {
+          case Right(Right((nm, decl))) =>
+            val r = fromDecl(decl, Set.empty, topBound).map(
+              (nm, RecursionKind.NonRecursive, _) :: Nil
+            )
+            // make sure all the free types are Generic
+            // we have to do this at the top level because in Declaration => Expr
+            // we allow closing over type variables defined at a higher level
+            val r1 = r.map { exs =>
+              exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
+            }
+            (topBound + nm, r1)
+
+          case Right(
+                Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
+              ) =>
+            // using body for the outer here is a bummer, but not really a good outer otherwise
+
+            val boundName = defstmt.name
+            // defs are in scope for their body
+            val topBound1 = topBound + boundName
+
+            val lam: Result[Expr[Declaration]] =
+              toLambdaExpr[OptIndent[Declaration]](
+                defstmt,
+                d.region,
+                success(defstmt.result.get)
+              )((res: OptIndent[Declaration]) =>
+                fromDecl(
+                  res.get,
+                  argGroups.flatten.iterator
+                    .flatMap(_.names)
+                    .toSet + boundName,
+                  topBound1
+                )
               )
+
+            val r = lam.map { (l: Expr[Declaration]) =>
+              // We rely on DefRecursionCheck to rule out bad recursions
+              val rec =
+                if (UnusedLetCheck.freeBound(l).contains(boundName))
+                  RecursionKind.Recursive
+                else RecursionKind.NonRecursive
               // make sure all the free types are Generic
               // we have to do this at the top level because in Declaration => Expr
               // we allow closing over type variables defined at a higher level
-              val r1 = r.map { exs =>
-                exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
-              }
-              (topBound + nm, r1)
-
-            case Right(
-                  Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
-                ) =>
-              // using body for the outer here is a bummer, but not really a good outer otherwise
-
-              val boundName = defstmt.name
-              // defs are in scope for their body
-              val topBound1 = topBound + boundName
-
-              val lam: Result[Expr[Declaration]] =
-                toLambdaExpr[OptIndent[Declaration]](
-                  defstmt,
-                  d.region,
-                  success(defstmt.result.get)
-                )((res: OptIndent[Declaration]) =>
-                  fromDecl(
-                    res.get,
-                    argGroups.flatten.iterator
-                      .flatMap(_.names)
-                      .toSet + boundName,
-                    topBound1
-                  )
-                )
-
-              val r = lam.map { (l: Expr[Declaration]) =>
-                // We rely on DefRecursionCheck to rule out bad recursions
-                val rec =
-                  if (UnusedLetCheck.freeBound(l).contains(boundName))
-                    RecursionKind.Recursive
-                  else RecursionKind.NonRecursive
-                // make sure all the free types are Generic
-                // we have to do this at the top level because in Declaration => Expr
-                // we allow closing over type variables defined at a higher level
-                val l1 = Expr.quantifyFrees(l)
-                (boundName, rec, l1) :: Nil
-              }
-              (topBound1, r)
-            case Left(ExternalDef(n, _, _, _)) =>
-              (topBound + n, success(Nil))
-          }
-      }(using SourceConverter.parallelIor))
-      .map(_.flatten)
+              val l1 = Expr.quantifyFrees(l)
+              (boundName, rec, l1) :: Nil
+            }
+            (topBound1, r)
+          case Left(ExternalDef(n, _, _, _)) =>
+            (topBound + n, success(Nil))
+        }
+    }(using SourceConverter.parallelIor).map(_.flatten)
   }
 
   def toProgram(
@@ -2331,14 +2323,4 @@ object SourceConverter {
       }
   }
 
-  final case class NonBindingPattern(
-      pattern: Pattern.Parsed,
-      bound: Declaration
-  ) extends Error {
-    def message =
-      (Document[Pattern.Parsed].document(pattern) + Doc.text(
-        " does not bind any names."
-      )).render(80)
-    def region = bound.region
-  }
 }
