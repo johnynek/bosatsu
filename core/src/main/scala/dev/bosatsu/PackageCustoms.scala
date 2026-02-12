@@ -305,6 +305,19 @@ object PackageCustoms {
       !canReach.contains(Right(bn))
     }
 
+    val statementRegions: Map[Bindable, Region] =
+      pack.program._1.from match {
+        case stmts: List[?] =>
+          stmts.iterator
+            .collect { case vs: Statement.ValueStatement =>
+              vs.names.iterator.map(_ -> vs.region)
+            }
+            .flatten
+            .toMap
+        case _ =>
+          Map.empty
+      }
+
     NonEmptyList.fromList(unused) match {
       case None        => Validated.unit
       case Some(value) =>
@@ -312,7 +325,8 @@ object PackageCustoms {
           PackageError.UnusedLets(
             pack.name,
             value.map { case (b, r, te) =>
-              (b, r, te, HasRegion.region(te))
+              val region = statementRegions.getOrElse(b, HasRegion.region(te))
+              (b, r, te, region)
             }
           )
         )
