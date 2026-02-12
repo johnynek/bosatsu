@@ -1839,7 +1839,7 @@ object Matchless {
           val avoid: Set[Bindable] =
             TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
               slots.names
-          val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
+          val loopName = freshSyntheticNames("loop", 1, avoid).head
           val loopArgs = args.map { case (n, arg) =>
             (n, arg.getType)
           }
