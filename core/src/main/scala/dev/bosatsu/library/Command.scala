@@ -430,6 +430,8 @@ object Command {
 
       private val inputRes =
         PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
+      private val inputResSearch =
+        PackageResolver.search(NonEmptyList.one(confDir), platformIO)
 
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
@@ -439,12 +441,26 @@ object Command {
           prevPublicDepDecodes: List[DecodedLibrary[Algo.Blake3]]
       ) {
 
-        def packageMap(colorize: Colorize): F[PackageMap.Inferred] =
+        def packageMap(
+            colorize: Colorize,
+            sourcePackageFilter: Option[PackageName => Boolean] = None
+        ): F[PackageMap.Inferred] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
             .flatMap { inputSrcs =>
-              NonEmptyList.fromList(inputSrcs) match {
+              val selectedInputs = sourcePackageFilter match {
+                case None       => inputSrcs
+                case Some(keep) =>
+                  inputSrcs.filter { p =>
+                    inputRes.packageNameFor(p)(platformIO).exists(keep)
+                  }
+              }
+
+              val packageResolver =
+                if (sourcePackageFilter.isDefined) inputResSearch else inputRes
+
+              NonEmptyList.fromList(selectedInputs) match {
                 case Some(inputNel) =>
                   platformIO
                     .withEC {
@@ -456,7 +472,7 @@ object Command {
                             _.interfaces
                           ),
                         colorize,
-                        inputRes
+                        packageResolver
                       )
                     }
                     .map(_._1)
@@ -483,18 +499,27 @@ object Command {
           prevPublicDepDecodes = prevPublicDepDecodes
         )
 
-      def check(colorize: Colorize): F[LibConfig.ValidationResult] =
+      def check(
+          colorize: Colorize,
+          sourcePackageFilter: Option[PackageName => Boolean] = None
+      ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize)
-          validated = conf.validate(
-            cs.prevThis,
-            allPacks.toMap.values.toList,
-            cs.pubDecodes ::: cs.privDecodes,
-            cs.publicDepClosureDecodes,
-            cs.prevPublicDepDecodes
-          )
-          res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+          allPacks <- cs.packageMap(colorize, sourcePackageFilter)
+          res <- sourcePackageFilter match {
+            case None =>
+              val validated = conf.validate(
+                cs.prevThis,
+                allPacks.toMap.values.toList,
+                cs.pubDecodes ::: cs.privDecodes,
+                cs.publicDepClosureDecodes,
+                cs.prevPublicDepDecodes
+              )
+              moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+            case Some(_) =>
+              // Filtered checks are for fast local iteration and only typecheck matched source roots.
+              moduleIOMonad.pure(LibConfig.ValidationResult(SortedMap.empty))
+          }
         } yield res
 
       def decodedWithDeps(
@@ -511,12 +536,25 @@ object Command {
             cs.prevPublicDepDecodes
           )
           vr <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+          decWithLibs <- decodedWithDepsFromPackages(
+            cs,
+            allPacks,
+            vr.unusedTransitiveDeps.iterator.map(_._2).toList
+          )
+        } yield decWithLibs
+
+      private def decodedWithDepsFromPackages(
+          cs: CheckState,
+          allPacks: PackageMap.Inferred,
+          unusedTransitiveDeps: List[proto.LibDependency]
+      ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+        for {
           protoLib <- moduleIOMonad.fromEither(
             conf.unvalidatedAssemble(
               cs.prevThis,
               "",
               allPacks.toMap.values.toList,
-              vr.unusedTransitiveDeps.iterator.map(_._2).toList
+              unusedTransitiveDeps
             )
           )
           hashedLib = Hashed.viaBytes[Algo.Blake3, proto.Library](protoLib)(
@@ -554,19 +592,33 @@ object Command {
                             "run `lib fetch` to insert these libraries into the cas."
                           )
                         )
-                      )
+                  )
                 }
             }
           }
           decWithLibs <- DecodedLibraryWithDeps.decodeAll(decLib)(loadFn)
         } yield decWithLibs
 
+      def decodedWithDepsFilteredForTest(
+          colorize: Colorize,
+          sourcePackageFilter: PackageName => Boolean
+      ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+        for {
+          cs <- checkState
+          allPacks <- cs.packageMap(colorize, Some(sourcePackageFilter))
+          decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
+        } yield decWithLibs
+
       def build(
           colorize: Colorize,
-          trans: Transpiler.Optioned[F, P]
+          trans: Transpiler.Optioned[F, P],
+          sourcePackageFilter: Option[PackageName => Boolean] = None
       ): F[Doc] =
         for {
-          decWithLibs <- decodedWithDeps(colorize)
+          decWithLibs <- sourcePackageFilter match {
+            case None         => decodedWithDeps(colorize)
+            case Some(filter) => decodedWithDepsFilteredForTest(colorize, filter)
+          }
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
           }
@@ -1150,10 +1202,14 @@ object Command {
         "check",
         "check all the code, but do not build the final output library (faster than build)."
       ) {
-        (ConfigConf.opts, Colorize.optsConsoleDefault).mapN { (fcc, colorize) =>
+        val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
+          ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
+
+        (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
+          (fcc, sourceFilter, colorize) =>
           for {
             cc <- fcc
-            _ <- cc.check(colorize)
+            _ <- cc.check(colorize, sourceFilter)
             msg = Doc.text("")
           } yield (Output.Basic(msg, None): Output[P])
         }
@@ -1702,7 +1758,7 @@ object Command {
               for {
                 cc <- fcc
                 // build is the same as test, Transpiler controls the difference
-                msg <- cc.build(colorize, trans)
+                msg <- cc.build(colorize, trans, test.filter)
               } yield (Output.Basic(msg, None): Output[P])
             }
 
