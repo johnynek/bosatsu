@@ -206,6 +206,18 @@ jobs:
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
+      - name: "check single assertion test output"
+        run: |
+          rm -rf issue1642_repro
+          mkdir issue1642_repro
+          cat > issue1642_repro/Foo.bosatsu <<'EOF'
+          package Foo
+          test = Assertion(True, "foo")
+          EOF
+          ./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm
+          issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
+          grep -Eq '^Foo:$' issue1642_repro/output.txt
+          grep -Eq '^    passed: .*1' issue1642_repro/output.txt
       - name: "run lib test"
         run: |
           ./bosatsuj lib fetch

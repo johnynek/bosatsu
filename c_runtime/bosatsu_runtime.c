@@ -2323,6 +2323,16 @@ void print_indent(int indent) {
   }
 }
 
+static void bsts_print_test_summary(int indent, int passes, int fails) {
+  print_indent(indent);
+  if (fails == 0) {
+    printf("passed: \033[32m%i\033[0m\n", passes);
+  }
+  else {
+    printf("passed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", passes, fails);
+  }
+}
+
 BSTS_PassFail bsts_check_test(BValue v, int indent) {
   int passes = 0;
   int fails = 0;
@@ -2359,13 +2369,7 @@ BSTS_PassFail bsts_check_test(BValue v, int indent) {
       this_passes += tests.passes;
       this_fails += tests.fails;
     }
-    print_indent(next_indent);
-    if (this_fails == 0) {
-      printf("passed: \033[32m%i\033[0m\n", this_passes);
-    }
-    else {
-      printf("passed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", this_passes, this_fails);
-    }
+    bsts_print_test_summary(next_indent, this_passes, this_fails);
     passes += this_passes;
     fails += this_fails;
   }
@@ -2378,6 +2382,9 @@ BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value) {
   BValue res = test_value();
   printf("%s:\n", package_name);
   BSTS_PassFail this_test = bsts_check_test(res, 4);
+  if (get_variant(res) == 0) {
+    bsts_print_test_summary(4, this_test.passes, this_test.fails);
+  }
   BSTS_Test_Result test_res = { package_name, this_test.passes, this_test.fails };
   return test_res;
 }
