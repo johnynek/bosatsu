@@ -602,12 +602,11 @@ object Matchless {
             val usedNames = allNames(other)
             val args: NonEmptyList[Bindable] =
               NonEmptyList.fromListUnsafe(
-                Iterator
-                  .from(0)
-                  .map(i => Identifier.synthetic(s"bsts_top${arity}_$i"))
-                  .filterNot(usedNames)
-                  .take(arity)
-                  .toList
+                freshSyntheticNames(
+                  prefix = s"bsts_top$arity",
+                  count = arity,
+                  usedNames = usedNames
+                )
               )
             val appArgs: NonEmptyList[Expr[A]] =
               args.map[Expr[A]](arg => Local(arg))
@@ -1444,6 +1443,9 @@ object Matchless {
         name: Option[Bindable],
         slots: Map[Bindable, Expr[B]]
     ) {
+      def names: Set[Bindable] =
+        slots.keySet ++ name.iterator
+
       def unname: LambdaState = LambdaState(None, slots)
 
       def apply(b: Bindable): Expr[B] =
@@ -1834,8 +1836,10 @@ object Matchless {
           (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
             .mapN(applyArgs(_, _))
         case TypedExpr.Loop(args, body, _) =>
-          val avoid = TypedExpr.allVarsSet(body :: args.toList.map(_._2))
-          val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
+          val avoid: Set[Bindable] =
+            TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
+              slots.names
+          val loopName = freshSyntheticNames("loop", 1, avoid).head
           val loopArgs = args.map { case (n, arg) =>
             (n, arg.getType)
           }

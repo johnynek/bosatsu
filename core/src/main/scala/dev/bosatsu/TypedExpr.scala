@@ -2401,15 +2401,16 @@ object TypedExpr {
             letAllNonRec(arg1, self(body), tag)
           case App(_, _, _, _) =>
             /*
-             * We have to be careful not to collide with the free vars in expr
+             * We avoid all vars (free and bound) in expr to reduce the risk of
+             * accidental shadowing issues when generating local lambda args.
              * TODO: it is unclear why we are doing this... it may have just been
              * a cute trick in the original rankn types paper, but I'm not
              * sure what is buying us.
              */
-            val free = freeVarsSet(expr :: Nil)
+            val avoid = allVarsSet(expr :: Nil)
             val nameGen = Type.allBinders.iterator
               .map(v => Identifier.Name(v.name))
-              .filterNot(free)
+              .filterNot(avoid)
             val lamArgs = arg.map(t => (nameGen.next(), t))
             val aArgs = lamArgs.map { case (n, t) => Local(n, t, expr.tag) }
             // name -> (expr((name: arg)): result)
