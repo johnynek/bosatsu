@@ -3372,6 +3372,19 @@ main = 10
       "A",
       VInt(10)
     )
+
+    evalFail(List("""
+package A
+
+(_, _) = add(1, "x")
+main = 10
+""")) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("package A"), msg)
+      assert(msg.contains("type error: expected type"), msg)
+      assert(msg.contains("Region(28,31)"), msg)
+      ()
+    }
   }
 
   test("recursion check with _ pattern: issue 573") {

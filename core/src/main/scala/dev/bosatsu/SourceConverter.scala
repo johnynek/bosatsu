@@ -2323,14 +2323,4 @@ object SourceConverter {
       }
   }
 
-  final case class NonBindingPattern(
-      pattern: Pattern.Parsed,
-      bound: Declaration
-  ) extends Error {
-    def message =
-      (Document[Pattern.Parsed].document(pattern) + Doc.text(
-        " does not bind any names."
-      )).render(80)
-    def region = bound.region
-  }
 }
