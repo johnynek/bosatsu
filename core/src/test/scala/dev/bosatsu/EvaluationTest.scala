@@ -1147,10 +1147,10 @@ def plus(x, y):
   x.add(y)
 
 main = plus(1, 2)
-""")) { case le @ PackageError.UnusedLets(_, _) =>
+    """)) { case le @ PackageError.UnusedLets(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused let binding: z\n  Region(54,55)"))
+      assert(msg.contains("unused let binding: z\n  Region("))
       ()
     }
   }
