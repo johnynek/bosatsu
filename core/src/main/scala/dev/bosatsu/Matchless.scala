@@ -1062,13 +1062,9 @@ object Matchless {
     }
 
     val init = CseState.initFromExpr(expr)
-    try recurExpr(expr, init)._1
-    catch {
-      case _: StackOverflowError =>
-        // This pass is a pure optimization. If recursion gets too deep on a
-        // pathological tree, keep semantics by returning the original expression.
-        expr
-    }
+    // This pass is a pure optimization. If recursion gets too deep, keep
+    // semantics by returning the original expression.
+    StackSafe.onStackOverflow(recurExpr(expr, init)._1)(expr)
   }
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
