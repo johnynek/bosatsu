@@ -1062,7 +1062,13 @@ object Matchless {
     }
 
     val init = CseState.initFromExpr(expr)
-    recurExpr(expr, init)._1
+    try recurExpr(expr, init)._1
+    catch {
+      case _: StackOverflowError =>
+        // This pass is a pure optimization. If recursion gets too deep on a
+        // pathological tree, keep semantics by returning the original expression.
+        expr
+    }
   }
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
