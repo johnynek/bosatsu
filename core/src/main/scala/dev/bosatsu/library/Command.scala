@@ -499,18 +499,27 @@ object Command {
           prevPublicDepDecodes = prevPublicDepDecodes
         )
 
-      def check(colorize: Colorize): F[LibConfig.ValidationResult] =
+      def check(
+          colorize: Colorize,
+          sourcePackageFilter: Option[PackageName => Boolean] = None
+      ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize)
-          validated = conf.validate(
-            cs.prevThis,
-            allPacks.toMap.values.toList,
-            cs.pubDecodes ::: cs.privDecodes,
-            cs.publicDepClosureDecodes,
-            cs.prevPublicDepDecodes
-          )
-          res <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+          allPacks <- cs.packageMap(colorize, sourcePackageFilter)
+          res <- sourcePackageFilter match {
+            case None =>
+              val validated = conf.validate(
+                cs.prevThis,
+                allPacks.toMap.values.toList,
+                cs.pubDecodes ::: cs.privDecodes,
+                cs.publicDepClosureDecodes,
+                cs.prevPublicDepDecodes
+              )
+              moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+            case Some(_) =>
+              // Filtered checks are for fast local iteration and only typecheck matched source roots.
+              moduleIOMonad.pure(LibConfig.ValidationResult(SortedMap.empty))
+          }
         } yield res
 
       def decodedWithDeps(
@@ -1193,10 +1202,14 @@ object Command {
         "check",
         "check all the code, but do not build the final output library (faster than build)."
       ) {
-        (ConfigConf.opts, Colorize.optsConsoleDefault).mapN { (fcc, colorize) =>
+        val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
+          ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
+
+        (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
+          (fcc, sourceFilter, colorize) =>
           for {
             cc <- fcc
-            _ <- cc.check(colorize)
+            _ <- cc.check(colorize, sourceFilter)
             msg = Doc.text("")
           } yield (Output.Basic(msg, None): Output[P])
         }

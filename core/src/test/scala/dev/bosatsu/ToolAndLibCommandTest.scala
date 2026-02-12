@@ -1435,6 +1435,49 @@ main = depBox
     }
   }
 
+  test("lib check --filter scopes local typechecking to matching package roots") {
+    val targetSrc =
+      """one = 1
+"""
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+"""
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Euler", "One.bosatsu") -> targetSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc
+    )
+
+    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+      case Right(out) =>
+        fail(s"expected unfiltered check failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("does_not_exist"), msg)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "check",
+        "--repo_root",
+        "repo",
+        "--filter",
+        "MyLib/Euler/.*"
+      )
+    ) match {
+      case Right(Output.Basic(_, _)) => ()
+      case Right(other)              => fail(s"unexpected output: $other")
+      case Left(err)                 =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
+    }
+  }
+
   test("Output.Many stops at first non-success exit code") {
     val first = Output.TestOutput(
       List(
