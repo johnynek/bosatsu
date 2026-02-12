@@ -1045,14 +1045,14 @@ object PackageError {
           List(
             s"add '$name' to exports",
             "rebind it as `_ = <expr>`",
-            "use it from `tests` (reachable from the final `tests` value)",
+            "use it from `tests` (reachable from the final value of type Bosatsu::Test)",
             "use it from `main` (reachable from the final non-test value)"
           )
         } else {
           List(
             "add needed values to exports",
             "rebind intentionally unused values as `_ = <expr>`",
-            "use them from `tests` (reachable from the final `tests` value)",
+            "use them from `tests` (reachable from the final value of type Bosatsu::Test)",
             "use them from `main` (reachable from the final non-test value)"
           )
         }

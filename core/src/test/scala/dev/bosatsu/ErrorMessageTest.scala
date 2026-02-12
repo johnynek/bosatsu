@@ -52,7 +52,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     assert(message.contains("add 'x' to exports"), message)
     assert(message.contains("rebind it as `_ = <expr>`"), message)
     assert(message.contains("use it from `tests`"), message)
-    assert(message.contains("final `tests` value"), message)
+    assert(message.contains("final value of type Bosatsu::Test"), message)
     assert(message.contains("use it from `main`"), message)
     assert(message.contains("final non-test value"), message)
 
