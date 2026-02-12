@@ -2523,7 +2523,7 @@ object TypedExpr {
       forallList = forallList,
       existList = existList
     ) match {
-      case Some(q) => normalizeQuantVars(q, expr)
+      case Some(q) => Generic(q, expr)
       case None    => expr
     }
 
