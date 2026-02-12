@@ -268,6 +268,39 @@ main = go(())
     )
   }
 
+  test("unused locals can be consumed with unnamed patterns in blocks and defs") {
+    evalTest(
+      List("""
+package A
+
+x = (
+  foo = 2
+  _ = foo
+  3
+)
+
+main = x
+"""),
+      "A",
+      VInt(3)
+    )
+
+    evalTest(
+      List("""
+package A
+
+def x(z):
+  foo = 2
+  _ = foo
+  z
+
+main = x(7)
+"""),
+      "A",
+      VInt(7)
+    )
+  }
+
   test("do a fold") {
     evalTest(
       List("""
