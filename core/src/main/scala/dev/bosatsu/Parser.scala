@@ -30,6 +30,18 @@ object Parser {
         toEOL1 *> P.string0(indent)
       }
 
+    /** Parse EOL + indent and skip any immediately following comment-only lines
+      * at the same base indentation.
+      */
+    val toEOLIndentWithComments: Indy[Unit] =
+      apply { indent =>
+        val commentLine =
+          ((Parser.maybeSpace.with1.soft *> Parser.lineComment)
+            .orElse(Parser.lineComment) <* toEOL1 <* P
+            .string0(indent)).rep0.void
+        (toEOL1 *> P.string0(indent)) *> commentLine
+      }
+
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
       def region: Indy[(Region, A)] =
         toKleisli.mapF(_.region)
@@ -189,6 +201,12 @@ object Parser {
   val spaces: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
   val maybeSpace: P0[Unit] = spaces.?.void
 
+  private val lineTermination: P0[Unit] =
+    P.char('\n').void.orElse(P.end)
+
+  val lineComment: P[Unit] =
+    (P.char('#') *> P.until0(lineTermination)).void
+
   /** prefer to parse Right, then Left
     */
   def either[A, B](pb: P0[B], pa: P0[A]): P0[Either[B, A]] =
@@ -202,6 +220,17 @@ object Parser {
 
   val maybeSpacesAndLines: P0[Unit] =
     spacesAndLines.?.void
+
+  /** Like [[spacesAndLines]], but also treats full-line # comments as trivia.
+    * This is intended for separator contexts (lists, args, tuples, etc.).
+    */
+  val spacesAndCommentLines: P[Unit] = {
+    val comment = (lineComment <* lineTermination).void
+    (spacesAndLines | comment).rep.void
+  }
+
+  val maybeSpacesAndCommentLines: P0[Unit] =
+    spacesAndCommentLines.?.void
 
   val lowerIdent: P[String] =
     (P.charIn('a' to 'z') ~ identifierCharsP).string
@@ -378,13 +407,13 @@ object Parser {
       left.with1 *> item <* right
 
     def nonEmptyListSyntax: P[NonEmptyList[T]] = {
-      val ws = maybeSpacesAndLines
+      val ws = maybeSpacesAndCommentLines
       val ts = nonEmptyListOfWs(ws)
       (P.char('[') ~ ws) *> ts <* (ws ~ P.char(']'))
     }
 
     def listSyntax: P[List[T]] = {
-      val ws = maybeSpacesAndLines
+      val ws = maybeSpacesAndCommentLines
       val lst = nonEmptyListToList(nonEmptyListOfWs(ws))
 
       (P.char('[') ~ ws) *> lst <* (ws ~ P.char(']'))
@@ -398,10 +427,16 @@ object Parser {
       parens(item)
 
     def parensLines1Cut: P[NonEmptyList[T]] =
-      item.nonEmptyListOfWs(maybeSpacesAndLines).parensCut
+      parens(
+        item.nonEmptyListOfWs(maybeSpacesAndCommentLines),
+        maybeSpacesAndCommentLines
+      )
 
     def parensLines0Cut: P[List[T]] =
-      parens(nonEmptyListToList(item.nonEmptyListOfWs(maybeSpacesAndLines)))
+      parens(
+        nonEmptyListToList(item.nonEmptyListOfWs(maybeSpacesAndCommentLines)),
+        maybeSpacesAndCommentLines
+      )
 
     /** either: a, b, c, .. or (a, b, c, ) where we allow newlines: return true
       * if we do have parens
@@ -424,7 +459,7 @@ object Parser {
       }
 
     def tupleOrParens0: P[Either[T, NonEmptyList[T]]] = {
-      val ws = maybeSpacesAndLines
+      val ws = maybeSpacesAndCommentLines
       val sep = (ws.soft ~ P.char(',') ~ ws).void
       val twoAndMore = P.repSep0(item, min = 0, sep = sep)
       val trailing = sep.?.map(_.isDefined)
@@ -449,7 +484,7 @@ object Parser {
     (P.char('(') ~ ws) *> pa <* (ws ~ P.char(')'))
 
   val newline: P[Unit] = P.char('\n')
-  val termination: P0[Unit] = newline.orElse(P.end)
+  val termination: P0[Unit] = lineTermination
   val toEOL: P0[Unit] = maybeSpace *> termination
   val toEOL1: P[Unit] = maybeSpace.with1 *> newline
 
