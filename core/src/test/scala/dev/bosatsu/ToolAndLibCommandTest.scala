@@ -1386,6 +1386,55 @@ main = depBox
     }
   }
 
+  test("lib test --filter scopes local typechecking to matching package roots") {
+    val targetSrc =
+      """test_one = Assertion(True, "ok")
+"""
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+"""
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Euler", "One.bosatsu") -> targetSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc,
+      Chain("repo", "cc_conf.json") -> ccConfJson
+    )
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--filter",
+        "MyLib/Euler/.*",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected failure in memory mode, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("system not supported in memory mode"), msg)
+        assert(!msg.contains("ReproMin8"), msg)
+    }
+  }
+
   test("Output.Many stops at first non-success exit code") {
     val first = Output.TestOutput(
       List(
