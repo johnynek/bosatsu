@@ -172,6 +172,12 @@ object Identifier {
   def unsafeParse[A](pa: P0[A], str: String): A =
     Parser.unsafeParse(pa, str)
 
+  def isSynthetic(b: Bindable): Boolean =
+    b match {
+      case Name(n) => n.nonEmpty && (n.head == '_')
+      case _       => false
+    }
+
   implicit def order[A <: Identifier]: Order[A] =
     Order.by[A, String](_.asString)
 

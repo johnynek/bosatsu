@@ -270,13 +270,28 @@ object PackageCustoms {
       }
 
     val exports: Node = Left(pack.exports)
+    val nonBindingUses: List[Node] =
+      pack.program._1.from match {
+        case stmts: List[?] =>
+          stmts.iterator
+            .collect {
+              case Statement.Bind(BindingStatement(bound, decl, _))
+                  if bound.names.isEmpty =>
+                decl.freeVars.iterator.map(Right(_))
+            }
+            .flatten
+            .toList
+        case _ => Nil
+      }
+
     val roots: List[Node] =
       (exports ::
         Package.testValue(pack).map { case (b, _, _) => Right(b) }.toList :::
         Package
           .mainValue(pack)
           .map { case (b, _, _) => Right(b) }
-          .toList).distinct
+          .toList :::
+        nonBindingUses).distinct
 
     val bindMap: Map[Bindable, TypedExpr[A]] =
       pack.program._1.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
@@ -302,7 +317,7 @@ object PackageCustoms {
     val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf)
 
     val unused = pack.lets.filter { case (bn, _, _) =>
-      !canReach.contains(Right(bn))
+      !Identifier.isSynthetic(bn) && !canReach.contains(Right(bn))
     }
 
     NonEmptyList.fromList(unused) match {

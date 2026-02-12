@@ -3322,57 +3322,56 @@ main = Foo(1)
     }
   }
 
-  test("non binding top levels don't work") {
-    evalFail(List("""
+  test("non binding top levels are allowed: issue 1639") {
+    evalTest(
+      List("""
 package A
 
 # this is basically a typecheck only
 _ = add(1, 2)
+main = 10
+"""),
+      "A",
+      VInt(10)
+    )
 
-""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\n_ does not bind any names.\nRegion(53,62)"
-      )
-      ()
-    }
-
-    evalFail(List("""
+    evalTest(
+      List("""
 package A
 
 # this is basically a typecheck only
 (_, _) = (1, "1")
-""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\n(_, _) does not bind any names.\nRegion(58,66)"
-      )
-      ()
-    }
+main = 10
+"""),
+      "A",
+      VInt(10)
+    )
 
-    evalFail(List("""
+    evalTest(
+      List("""
 package A
 
 struct Foo(x, y)
 # this is basically a typecheck only
 Foo(_, _) = Foo(1, "1")
+main = 10
+"""),
+      "A",
+      VInt(10)
+    )
 
-""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        sce.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nFoo(_, _) does not bind any names.\nRegion(78,89)"
-      )
-      ()
-    }
+    evalTest(
+      List("""
+package A
+
+x = 1
+_ = x
+(_, _) = (x, 1)
+main = 10
+"""),
+      "A",
+      VInt(10)
+    )
   }
 
   test("recursion check with _ pattern: issue 573") {
