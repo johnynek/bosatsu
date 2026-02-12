@@ -1444,6 +1444,9 @@ object Matchless {
         name: Option[Bindable],
         slots: Map[Bindable, Expr[B]]
     ) {
+      def names: Set[Bindable] =
+        slots.keySet ++ name.iterator
+
       def unname: LambdaState = LambdaState(None, slots)
 
       def apply(b: Bindable): Expr[B] =
@@ -1834,7 +1837,9 @@ object Matchless {
           (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
             .mapN(applyArgs(_, _))
         case TypedExpr.Loop(args, body, _) =>
-          val avoid = TypedExpr.allVarsSet(body :: args.toList.map(_._2))
+          val avoid: Set[Bindable] =
+            TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
+              slots.names
           val loopName = dev.bosatsu.Expr.nameIterator().filterNot(avoid).next()
           val loopArgs = args.map { case (n, arg) =>
             (n, arg.getType)

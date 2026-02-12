@@ -172,7 +172,7 @@ main = parse_value(" null")
     loopExpr(expr)
   }
 
-  test("issue 1633: loop+string-match lowering applies a captured non-function") {
+  test("issue 1633: loop+string-match lowering avoids captured non-function apply") {
     withRepro { (pm, _) =>
       val pack = pm.toMap.getOrElse(
         reproPackage,
@@ -209,14 +209,15 @@ main = parse_value(" null")
           fail(s"unexpected parse_value lowering shape: $other")
       }
 
-      assert(
+      assertEquals(
         hasClosureSlotApply(parseValueMatchless),
+        false,
         parseValueMatchless.toString
       )
     }
   }
 
-  test("issue 1633: eval main should produce ParseDone(Some(\"ok\"))") {
+  test("issue 1633: eval main should produce successful parse payload") {
     withRepro { (pm, mainPack) =>
       val pack = pm.toMap.getOrElse(
         reproPackage,
@@ -228,7 +229,7 @@ main = parse_value(" null")
       val (mainEval, _) =
         ev.evaluateMainValue(mainPack).fold(err => fail(err.toString), identity)
 
-      val expected = Value.ProductValue.single(Value.VOption.some(Value.Str("ok")))
+      val expected = Value.VOption.some(Value.Str("ok"))
       assertEquals(mainEval.value, expected)
     }
   }
