@@ -111,7 +111,8 @@ object UnusedLetCheck {
       e: Expr[A]
   ): ValidatedNec[(Bindable, Region), Unit] = {
     val (chain, _) = loop(e).run
-    NonEmptyChain.fromChain(chain) match {
+    val filtered = chain.filterNot { case (b, _) => Identifier.isSynthetic(b) }
+    NonEmptyChain.fromChain(filtered) match {
       case None      => Validated.valid(())
       case Some(nec) => Validated.invalid(nec.distinct)
     }

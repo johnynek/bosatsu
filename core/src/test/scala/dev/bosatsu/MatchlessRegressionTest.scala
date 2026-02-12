@@ -1,6 +1,35 @@
 package dev.bosatsu
 
 class MatchlessRegressionTest extends munit.FunSuite {
+  private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
+    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
+      case (acc, idx) => Matchless.LetMut(Matchless.LocalAnonMut(idx.toLong), acc)
+    }
+
+  private def nestedLet(depth: Int): Matchless.Expr[Unit] =
+    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
+      case (acc, idx) =>
+        Matchless.Let(
+          Identifier.synthetic(s"issue1652_$idx"),
+          Matchless.MakeStruct(0),
+          acc
+        )
+    }
+
+  private def nestedLetMutBool(depth: Int): Matchless.BoolExpr[Unit] =
+    (0 until depth).foldLeft[Matchless.BoolExpr[Unit]](Matchless.TrueConst) {
+      case (acc, idx) => Matchless.LetMutBool(Matchless.LocalAnonMut(idx.toLong), acc)
+    }
+
+  private def assertReuseConstructorsNoStackOverflow(expr: Matchless.Expr[Unit]): Unit =
+    try {
+      Matchless.reuseConstructors(expr)
+      ()
+    } catch {
+      case _: StackOverflowError =>
+        fail("reuseConstructors should not overflow on deeply nested expressions")
+    }
+
   private def countWhileExprs(e: Matchless.Expr[Unit]): Int =
     e match {
       case Matchless.WhileExpr(cond, effectExpr, _) =>
@@ -72,5 +101,23 @@ def branch_blowup(args: L) -> Nat:
       val whileCount = countWhileExprs(expr)
       assertEquals(whileCount, 1, expr.toString)
     }
+  }
+
+  test("issue 1652: deep LetMut chain with MakeStruct(0) does not overflow reuseConstructors") {
+    assertReuseConstructorsNoStackOverflow(nestedLetMut(20000))
+  }
+
+  test("issue 1652: deep Let chain with MakeStruct(0) does not overflow reuseConstructors") {
+    assertReuseConstructorsNoStackOverflow(nestedLet(20000))
+  }
+
+  test("issue 1652: deeply nested LetMutBool condition does not overflow reuseConstructors") {
+    val expr =
+      Matchless.If(
+        nestedLetMutBool(20000),
+        Matchless.MakeStruct(0),
+        Matchless.MakeStruct(0)
+      )
+    assertReuseConstructorsNoStackOverflow(expr)
   }
 }

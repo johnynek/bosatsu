@@ -2,10 +2,13 @@ package Bosatsu/List
 
 from Bosatsu/Bool import not
 from Bosatsu/Num/Nat import Nat, Zero, Succ
-export any, eq_List, exists, head, for_all, size, sum, sort, uncons, zip
+export any, eq_List, exists, get_List, head, for_all, set_List, size, sum, sort, uncons, zip
 
 def any(as: List[Bool]) -> Bool:
-    as matches [*_, True, *_]
+    recur as:
+        case []: False
+        case [True, *_]: True
+        case [_, *tail]: any(tail)
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
   recur xs:
@@ -36,6 +39,40 @@ def head(xs: List[a]) -> Option[a]:
         case []: None
         case [h, *_]: Some(h)
 
+def get_List[a](xs: List[a], idx: Int) -> Option[a]:
+    if cmp_Int(idx, 0) matches LT:
+        None
+    else:
+        def loop(ys, i):
+            recur ys:
+                case []: None
+                case [h, *t]:
+                    if i.eq_Int(0):
+                        Some(h)
+                    else:
+                        loop(t, i.sub(1))
+        loop(xs, idx)
+
+def set_List[a](xs: List[a], idx: Int, value: a) -> Option[List[a]]:
+    if cmp_Int(idx, 0) matches LT:
+        None
+    else:
+        def prepend_reversed(rev_prefix, suffix):
+            recur rev_prefix:
+                case []: suffix
+                case [h, *t]:
+                    prepend_reversed(t, [h, *suffix])
+
+        def loop(ys, i, rev_prefix):
+            recur ys:
+                case []: None
+                case [h, *t]:
+                    if i.eq_Int(0):
+                        Some(prepend_reversed(rev_prefix, [value, *t]))
+                    else:
+                        loop(t, i.sub(1), [h, *rev_prefix])
+        loop(xs, idx, [])
+
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
   recur a:
     case []: b matches []
@@ -48,12 +85,21 @@ def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
           False
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
-    recur left:
-        case []: []
-        case [ah, *at]:
-            match right:
-                case []: []
-                case [bh, *bt]: [(ah, bh), *zip(at, bt)]
+    def prepend_reversed_pairs(rev_prefix, suffix):
+        recur rev_prefix:
+            case []: suffix
+            case [h, *t]:
+                prepend_reversed_pairs(t, [h, *suffix])
+
+    def loop(ls, rs, rev_prefix):
+        recur ls:
+            case []: prepend_reversed_pairs(rev_prefix, [])
+            case [lh, *lt]:
+                match rs:
+                    case []: prepend_reversed_pairs(rev_prefix, [])
+                    case [rh, *rt]:
+                        loop(lt, rt, [(lh, rh), *rev_prefix])
+    loop(left, right, [])
 
 # tail recursive size implementation
 def size1(list, acc):
@@ -88,6 +134,7 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
 ##########################
 
 operator =*= = eq_List(eq_Int)
+eq_int_list = eq_List(eq_Int)
 
 head_test = (
     res = head([1, 2, 3]) matches Some(1)
@@ -98,6 +145,17 @@ uncons_test = (
     res = uncons([1, 2, 3]) matches Some((1, [2, 3]))
     Assertion(res, "uncons test")
 )
+
+get_set_test = TestSuite("get/set tests", [
+  Assertion(get_List([10, 11, 12], 0) matches Some(10), "get_List first"),
+  Assertion(get_List([10, 11, 12], 2) matches Some(12), "get_List last"),
+  Assertion(get_List([10, 11, 12], 3) matches None, "get_List out of range"),
+  Assertion(get_List([10, 11, 12], -1) matches None, "get_List negative"),
+  Assertion(set_List([10, 11, 12], 0, 99) matches Some([99, 11, 12]), "set_List first"),
+  Assertion(set_List([10, 11, 12], 2, 99) matches Some([10, 11, 99]), "set_List last"),
+  Assertion(set_List([10, 11, 12], 3, 99) matches None, "set_List out of range"),
+  Assertion(set_List([10, 11, 12], -1, 99) matches None, "set_List negative"),
+])
 
 zip_test = (
     test1 = zip([1, 2], ["1", "2"]) matches [(1, "1"), (2, "2")]
@@ -139,22 +197,32 @@ il = int_loop(5, 0, (i, a) -> (i.sub(1), i.add(a)))
 tests = TestSuite("List tests", [
   Assertion(2.sub(3) matches -1, "2 - 3 = ${int_to_String(2.sub(3))}"),
   Assertion(il matches 15, "int_loop test ${int_to_String(il)}"),
+  Assertion(eq_int_list([1, 2, 3], [1, 2, 3]), "eq_List direct equal"),
+  Assertion(not(eq_int_list([1, 2, 3], [1, 2])), "eq_List direct not equal"),
   Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),
   Assertion(not([1, 2, 3] =*= [1, 2]), "list [1, 2, 3] != [1, 2]"),
   Assertion(range(0) matches [], "range(0) matches []"),
   Assertion(range(1) matches [0], "range(1) matches [0]"),
   Assertion(range(2) matches [0, 1], "range(2) matches [0, 1]"),
   Assertion(range(6) =*= [0, 1, 2, 3, 4, 5], "range(6) == ${concat_String(range(6).map_List(i -> "${int_to_String(i)}, "))}"),
+  Assertion(size([]) matches Zero, "size([])"),
+  Assertion(size([1, 2, 3]) matches Succ(Succ(Succ(Zero))), "size([1,2,3])"),
   Assertion(sum([]) matches 0, "sum([])"),
   Assertion(sum([5]) matches 5, "sum([5])"),
   Assertion(sum([5, 11]) matches 16, "sum([5, 11])"),
   Assertion(sum([0, 1, 2, 3, 4, 5]) matches 15, "sum([0, 1, 2, 3, 4, 5])"),
+  Assertion(for_all([], i -> i.eq_Int(0)), "for_all([])"),
+  Assertion(for_all([2, 4, 6], i -> mod_Int(i, 2).eq_Int(0)), "for_all all even"),
+  Assertion(not(for_all([2, 3, 6], i -> mod_Int(i, 2).eq_Int(0))), "for_all mixed"),
+  Assertion(exists([2, 3, 6], i -> mod_Int(i, 2).eq_Int(1)), "exists odd"),
+  Assertion(not(exists([2, 4, 6], i -> mod_Int(i, 2).eq_Int(1))), "exists no odd"),
   #Assertion(range(6).sum().eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
   Assertion(range(6).exists(v -> v.eq_Int(5)), "range(6) does have 5"),
   Assertion(not(range(6).exists(v -> v.eq_Int(6))), "range(6) does not have 6"),
   string_tests,
   head_test,
   uncons_test,
+  get_set_test,
   zip_test,
   sort_test,
   Assertion(any([]) matches False, "any([])"),
