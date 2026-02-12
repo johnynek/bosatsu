@@ -1112,14 +1112,14 @@ object Declaration {
 
     val elifs1 =
       ifelif("elif").nonEmptyList(sepIndy =
-        Indy.toEOLIndent
-      ) <* Indy.toEOLIndent
+        Indy.toEOLIndentWithComments
+      ) <* Indy.toEOLIndentWithComments
 
     val notIfs = Indy { indent =>
       elifs1(indent).?.with1 ~ elseTerm(indent)
     }.maybeMore
 
-    (ifelif("if") <* Indy.toEOLIndent)
+    (ifelif("if") <* Indy.toEOLIndentWithComments)
       .cutThen(notIfs)
       .region
       .map { case (region, (ifcase, (optElses, elseBody))) =>
@@ -1205,10 +1205,18 @@ object Declaration {
         MatchBranch(pat, guard, body)
       }
 
+    val branchList: Indy[NonEmptyList[MatchBranch]] = Indy { indent =>
+      val leadingComments: P0[Unit] =
+        ((Parser.maybeSpace.with1.soft *> Parser.lineComment)
+          .orElse(Parser.lineComment) <* toEOL1 <* P.string0(indent)).rep0.void
+      val branches = branch.nonEmptyList(Indy.toEOLIndentWithComments)(indent)
+      (leadingComments.with1.soft *> branches).orElse(branches)
+    }
+
     val left =
       Indy.lift(matchKindParser <* spaces).cutThen(arg).cutLeftP(maybeSpace)
     OptIndent
-      .block(left, branch.nonEmptyList(Indy.toEOLIndent))
+      .block(left, branchList)
       .region
       .map { case (r, ((kind, arg), branches)) =>
         Match(kind, arg, branches)(using r)

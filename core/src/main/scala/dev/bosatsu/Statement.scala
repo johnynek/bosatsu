@@ -303,7 +303,7 @@ object Statement {
 
       val sep = (Indy
         .lift(P.char(',') <* maybeSpace))
-        .combineK(Indy.toEOLIndent)
+        .combineK(Indy.toEOLIndentWithComments)
         .void
 
       val variants = Indy.lift(constructorP <* maybeSpace).nonEmptyList(sep)

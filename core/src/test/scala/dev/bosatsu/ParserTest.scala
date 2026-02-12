@@ -2119,6 +2119,148 @@ x = z ->
     )
   }
 
+  test("commenting out line patterns (issue 1635)") {
+    def parses(src: String): Boolean =
+      Package.parser(None).parseAll(src).isRight
+
+    val cases = List(
+      (
+        "commented first list item",
+        """package Probe
+          |
+          |x = [
+          |  #1,
+          |  2
+          |]
+          |""".stripMargin
+      ),
+      (
+        "commented middle list item",
+        """package Probe
+          |
+          |x = [
+          |  1,
+          |  #2,
+          |  3
+          |]
+          |""".stripMargin
+      ),
+      (
+        "commented binding in paren block",
+        """package Probe
+          |
+          |x = (
+          |  a = 1
+          |  #b = 2
+          |  a
+          |)
+          |""".stripMargin
+      ),
+      (
+        "commented line in if branch",
+        """package Probe
+          |
+          |x = if True:
+          |  #1
+          |  2
+          |else:
+          |  3
+          |""".stripMargin
+      ),
+      (
+        "issue 1635 shape: last list item commented out",
+        """package Probe
+          |
+          |tests = TestSuite("Repro tests", [
+          |  Assertion(True, "always"),
+          |  #Assertion(False, "commented out"),
+          |])
+          |""".stripMargin
+      ),
+      (
+        "only list item commented out",
+        """package Probe
+          |
+          |x = [
+          |  #1
+          |]
+          |""".stripMargin
+      ),
+      (
+        "last tuple item commented out",
+        """package Probe
+          |
+          |x = (
+          |  1,
+          |  #2,
+          |)
+          |""".stripMargin
+      ),
+      (
+        "last call arg commented out",
+        """package Probe
+          |
+          |def f(a): a
+          |
+          |x = f(
+          |  1,
+          |  #2,
+          |)
+          |""".stripMargin
+      ),
+      (
+        "last dict pair commented out",
+        """package Probe
+          |
+          |x = {
+          |  "a": 1,
+          |  #"b": 2,
+          |}
+          |""".stripMargin
+      ),
+      (
+        "match case line commented out",
+        """package Probe
+          |
+          |def f(x):
+          |  match x:
+          |    #case 1:
+          |    #  1
+          |    case _:
+          |      2
+          |
+          |x = f(1)
+          |""".stripMargin
+      ),
+      (
+        "commented enum variant line",
+        """package Probe
+          |
+          |enum X:
+          |  A
+          |  #B
+          |  C
+          |""".stripMargin
+      ),
+      (
+        "commented elif line",
+        """package Probe
+          |
+          |x = if False:
+          |  1
+          |#elif True:
+          |#  2
+          |else:
+          |  3
+          |""".stripMargin
+      )
+    )
+
+    cases.foreach { case (name, src) =>
+      assert(parses(src), s"expected to parse: $name")
+    }
+  }
+
   test("Parser.integerWithBase works") {
     case class Args(bi: BigInteger, asString: String, base: Int)
     def intersperse(str: String): Gen[String] =
