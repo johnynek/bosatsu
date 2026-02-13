@@ -13,6 +13,24 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
   val PythonName = "[_A-Za-z][_A-Za-z0-9]*".r.pattern
 
+  private def normalizeGeneratedTemps(code: String): String = {
+    val tempName = "___[A-Za-z]\\d+".r
+    val mapping = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    var next = 0
+    tempName.replaceAllIn(
+      code,
+      m =>
+        mapping.getOrElseUpdate(
+          m.matched.nn,
+          {
+            val nm = s"___v$next"
+            next = next + 1
+            nm
+          }
+        )
+    )
+  }
+
   test("all escapes are valid python identifiers") {
     forAll(bindIdentGen) { b =>
       val str = PythonGen.escape(b).name
@@ -84,7 +102,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
             ___a6 = ___a6 + 1
         ___t1 = ___a1 == 1
     return ___a2"""
-        assertEquals(code, expected)
+        assertEquals(
+          normalizeGeneratedTemps(code),
+          normalizeGeneratedTemps(expected)
+        )
       }
     }
   }

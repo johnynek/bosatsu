@@ -1353,11 +1353,13 @@ object Matchless {
     private val charToStringName = Identifier.Name("char_to_String")
     private val partitionStringName = Identifier.Name("partition_String")
     private val unconsStringName = Identifier.Name("uncons_String")
+    private val tailOrEmptyStringName = Identifier.Name("tail_or_empty_String")
     private val someCons = Constructor("Some")
     private val tuple2Cons = Constructor("Tuple2")
 
     private final case class Ctx[F[_], A](
         from: A,
+        mustMatch: Boolean,
         optionSomeData: (Int, Int, List[Int]),
         tuple2Arity: Int,
         newMut: F[LocalAnonMut],
@@ -1690,12 +1692,18 @@ object Matchless {
             }
           }
         case (charPart: StrPart.CharPart) :: tail =>
-          withSomeTuple2(call1(ctx.from, unconsStringName, arg), ctx) { (head, rest) =>
-            val nextBindIdx =
-              if (charPart.capture) nextBind + 1 else nextBind
-            matchStringParts(rest, tail, bindTargets, nextBindIdx, ctx).map { next =>
-              if (charPart.capture) SetMut(bindAt(bindTargets, nextBind), head) && next
-              else next
+          val nextBindIdx =
+            if (charPart.capture) nextBind + 1 else nextBind
+          if (!charPart.capture && ctx.mustMatch) {
+            withCheap(call1(ctx.from, tailOrEmptyStringName, arg), ctx.newConst) { rest =>
+              matchStringParts(rest, tail, bindTargets, nextBindIdx, ctx)
+            }
+          } else {
+            withSomeTuple2(call1(ctx.from, unconsStringName, arg), ctx) { (head, rest) =>
+              matchStringParts(rest, tail, bindTargets, nextBindIdx, ctx).map { next =>
+                if (charPart.capture) SetMut(bindAt(bindTargets, nextBind), head) && next
+                else next
+              }
             }
           }
         case (glob: StrPart.Glob) :: tail =>
@@ -1737,6 +1745,7 @@ object Matchless {
         parts: List[StrPart],
         bindTargets: IndexedSeq[LocalAnonMut],
         nextBind: Int,
+        mustMatch: Boolean,
         makeAnon: F[Long],
         from: A,
         variantOf: (PackageName, Constructor) => Option[DataRepr]
@@ -1758,6 +1767,7 @@ object Matchless {
 
       val ctx = Ctx(
         from = from,
+        mustMatch = mustMatch,
         optionSomeData = optionSomeData(variantOf),
         tuple2Arity = tuple2Arity(variantOf),
         newMut = makeAnon.map(LocalAnonMut(_)),
@@ -2455,6 +2465,7 @@ object Matchless {
                     pat,
                     ms.toIndexedSeq,
                     0,
+                    mustMatch,
                     makeAnon,
                     from,
                     variantOf

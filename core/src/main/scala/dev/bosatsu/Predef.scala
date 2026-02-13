@@ -141,6 +141,11 @@ object Predef {
         "uncons_String",
         FfiCall.Fn1(PredefImpl.uncons_String(_))
       )
+      .add(
+        predefPackageName,
+        "tail_or_empty_String",
+        FfiCall.Fn1(PredefImpl.tail_or_empty_String(_))
+      )
       .add(arrayPackageName, "empty_Array", FfiCall.Const(PredefImpl.emptyArray))
       .add(
         arrayPackageName,
@@ -1379,6 +1384,15 @@ object PredefImpl {
       Value.VOption.some(
         Value.Tuple(Value.ExternalValue(head), Value.ExternalValue(tail))
       )
+    }
+  }
+
+  def tail_or_empty_String(arg: Value): Value = {
+    val argS = arg.asExternal.toAny.asInstanceOf[String]
+    if (argS.isEmpty) Value.Str("")
+    else {
+      val nextOff = argS.offsetByCodePoints(0, 1)
+      Value.Str(argS.substring(nextOff))
     }
   }
 

@@ -1588,6 +1588,17 @@ object PythonGen {
               1
             )
           ),
+          (
+            Identifier.Name("tail_or_empty_String"),
+            (
+              { input =>
+                Env.onLast(input.head) { str =>
+                  Code.SelectRange(str, Some(Code.Const.One), None)
+                }
+              },
+              1
+            )
+          ),
           (Identifier.Name("cmp_String"), (cmpFn, 2))
         )
 

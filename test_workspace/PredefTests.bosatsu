@@ -123,6 +123,9 @@ test_string = TestSuite("String tests", [
   Assertion(uncons_String("") matches None, "uncons empty"),
   Assertion(uncons_String("abc") matches Some((.'a', "bc")), "uncons ascii"),
   Assertion(uncons_String("éa") matches Some((.'é', "a")), "uncons unicode"),
+  Assertion(tail_or_empty_String("") matches "", "tail_or_empty empty"),
+  Assertion(tail_or_empty_String("abc") matches "bc", "tail_or_empty ascii"),
+  Assertion(tail_or_empty_String("éa") matches "a", "tail_or_empty unicode"),
 
   Assertion(notb("bbb" matches "ab${_}"), "literal prefix not found"),
   Assertion(notb("zabq" matches "ab${_}"), "literal found later is not a prefix"),
