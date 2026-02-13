@@ -799,6 +799,72 @@ match on the types.
 
 Sometimes such opacity is useful to enforce modularity.
 
+## Value usage requirements
+Bosatsu requires top-level values to be used. A top-level value must be
+transitively reachable from at least one of these roots:
+1. an exported value
+1. the package main value (the last top-level value in the package)
+1. the package test value (the last top-level value with type `Bosatsu/Predef::Test`)
+
+If a top-level value is not reachable from any of those roots, compilation
+fails with an unused-value error.
+
+This rule is intentional. Unused names are often caused by typos, mistaken
+refactors, or dead code that is no longer needed. Requiring explicit reachability
+adds a small amount of friction that catches these issues early.
+
+When you intentionally want to evaluate/check something and then discard it,
+bind it to `_`:
+```
+_ = some_expression
+```
+
+That makes the intent explicit to readers and to the compiler.
+
+## Testing
+Bosatsu tests are regular values of type `Bosatsu/Predef::Test`.
+`Bosatsu/Predef` defines:
+1. `Assertion(value: Bool, message: String)`
+1. `TestSuite(name: String, tests: List[Test])`
+
+Common patterns in `test_workspace/*.bosatsu`:
+1. A single assertion:
+```
+test = Assertion(eq_Int(add(1, 1), 2), "1 + 1 == 2")
+```
+1. A suite of assertions:
+```
+tests = TestSuite("math tests", [
+  Assertion(eq_Int(add(1, 2), 3), "1 + 2"),
+  Assertion(eq_Int(mul(3, 4), 12), "3 * 4"),
+])
+```
+1. Nested/composed suites, including generated tests:
+```
+tests = TestSuite("all tests", [
+  unit_tests,
+  TestSuite("generated", [mk_test(i) for i in range(10)]),
+])
+```
+
+Test discovery rule: `bosatsu lib test` runs the final top-level value in each
+package whose type is `Bosatsu/Predef::Test` (the last such value in source
+order). In practice, keep one final `test`/`tests` value per package and make
+it include all child tests you want run.
+
+From the repo root, run tests with:
+```sh
+./bosatsu lib test
+```
+
+When iterating, you can run only matching package tests with a regular
+expression filter:
+```sh
+./bosatsu lib test --filter "MyLib/.*"
+```
+
+`--filter` matches package names and can be provided more than once.
+
 ## Purity, Effects, and `Prog`
 Bosatsu expressions are pure: evaluating Bosatsu code does not directly read
 stdin, write stdout, mutate state, or throw exceptions.
