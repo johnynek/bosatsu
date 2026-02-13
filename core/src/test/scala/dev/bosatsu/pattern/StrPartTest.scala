@@ -2,6 +2,7 @@ package dev.bosatsu.pattern
 
 import dev.bosatsu.Generators.{genStrPat, genValidUtf}
 import dev.bosatsu.StringUtil
+import dev.bosatsu.Pattern
 import org.scalacheck.Prop.forAll
 import org.scalacheck.Gen
 
@@ -23,6 +24,28 @@ class StrPartTest extends munit.ScalaCheckSuite {
       Gen.identifier,
       genValidUtf
     )
+
+  private val genCompactPart: Gen[StrPart] =
+    Gen.frequency(
+      6 -> Gen.oneOf(Gen.const(""), genStr).map(StrPart.LitStr(_)),
+      2 -> Gen.const(StrPart.WildStr),
+      2 -> Gen.const(StrPart.IndexStr),
+      2 -> Gen.const(StrPart.WildChar),
+      2 -> Gen.const(StrPart.IndexChar)
+    )
+
+  private val genCompactParts: Gen[List[StrPart]] =
+    Gen.listOf(genCompactPart)
+
+  private def hasAdjacentLitStr(parts: List[StrPart]): Boolean =
+    parts match {
+      case StrPart.LitStr(_) :: StrPart.LitStr(_) :: _ =>
+        true
+      case _ :: tail =>
+        hasAdjacentLitStr(tail)
+      case Nil =>
+        false
+    }
 
   property("StringUtil codePoints work (used internally by matching)") {
     forAll(genStr) { str =>
@@ -104,6 +127,45 @@ class StrPartTest extends munit.ScalaCheckSuite {
         case None =>
           assert(!matcher.matches())
       }
+    }
+  }
+
+  property("compact never leaves adjacent LitStr") {
+    forAll(genCompactParts) { parts =>
+      val compacted = StrPart.compact(parts)
+      assert(
+        !hasAdjacentLitStr(compacted),
+        s"input=$parts compacted=$compacted"
+      )
+    }
+  }
+
+  property("compact is idempotent") {
+    forAll(genCompactParts) { parts =>
+      val once = StrPart.compact(parts)
+      val twice = StrPart.compact(once)
+      assertEquals(twice, once, s"input=$parts")
+    }
+  }
+
+  property("matchString agrees before and after compact") {
+    forAll(genStr, genStrPat) { (str, pat) =>
+      val parts = pat.parts.toList.map {
+        case Pattern.StrPart.NamedStr(_)  => StrPart.IndexStr
+        case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
+        case Pattern.StrPart.WildStr      => StrPart.WildStr
+        case Pattern.StrPart.WildChar     => StrPart.WildChar
+        case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
+      }
+      val binds = pat.names.size
+
+      val before =
+        Option(StrPart.matchString(str, parts, binds)).map(_.toList)
+      val after =
+        Option(StrPart.matchString(str, StrPart.compact(parts), binds))
+          .map(_.toList)
+
+      assertEquals(after, before, s"str=$str, parts=$parts")
     }
   }
 }

@@ -14,14 +14,22 @@ object StrPart {
   case object IndexChar extends CharPart(true)
   case class LitStr(asString: String) extends StrPart
 
+  // Compact adjacent literal runs across the whole list.
   def compact(parts: List[StrPart]): List[StrPart] =
-    parts.foldRight(List.empty[StrPart]) {
-      case (LitStr(""), tail) =>
-        tail
-      case (LitStr(s0), LitStr(s1) :: tail) =>
-        LitStr(s0 + s1) :: tail
-      case (head, tail) =>
-        head :: tail
+    parts match {
+      case Nil =>
+        Nil
+      case LitStr("") :: tail =>
+        compact(tail)
+      case LitStr(s0) :: tail =>
+        compact(tail) match {
+          case LitStr(s1) :: rest =>
+            LitStr(s0 + s1) :: rest
+          case compactedTail =>
+            LitStr(s0) :: compactedTail
+        }
+      case head :: tail =>
+        head :: compact(tail)
     }
 
   implicit val strPartOrder: Order[StrPart] = new Order[StrPart] {
