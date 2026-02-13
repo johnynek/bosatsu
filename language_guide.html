@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-00ab5987*
+0.0.0+1-df2d00d7*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-00ab5987*
+0.0.0+1-df2d00d7*
 </div>
 </div>
 <div class="nav-toc">
@@ -609,6 +609,43 @@ def foldO(oo, if_none, if_some):
 </code></pre>
 <p>Here ClearOption exports all its constructors so they can be pattern matched upon. In the OpaqueOption example, we export functions to create the opaque option, and a fold function to tear it down, but we can&rsquo;t explicitly pattern match on the types.</p>
 <p>Sometimes such opacity is useful to enforce modularity.</p>
+<h2><a href="#value-usage-requirements" name="value-usage-requirements" class="anchor"><span class="anchor-link"></span></a>Value usage requirements</h2>
+<p>Bosatsu requires top-level values to be used. A top-level value must be transitively reachable from at least one of these roots: 1. an exported value 1. the package main value (the last top-level value in the package) 1. the package test value (the last top-level value with type <code>Bosatsu/Predef::Test</code>)</p>
+<p>If a top-level value is not reachable from any of those roots, compilation fails with an unused-value error.</p>
+<p>This rule is intentional. Unused names are often caused by typos, mistaken refactors, or dead code that is no longer needed. Requiring explicit reachability adds a small amount of friction that catches these issues early.</p>
+<p>When you intentionally want to evaluate/check something and then discard it, bind it to <code>_</code>:</p>
+<pre><code>_ = some_expression
+</code></pre>
+<p>That makes the intent explicit to readers and to the compiler.</p>
+<h2><a href="#testing" name="testing" class="anchor"><span class="anchor-link"></span></a>Testing</h2>
+<p>Bosatsu tests are regular values of type <code>Bosatsu/Predef::Test</code>. <code>Bosatsu/Predef</code> defines: 1. <code>Assertion(value: Bool, message: String)</code> 1. <code>TestSuite(name: String, tests: List[Test])</code></p>
+<p>Common patterns in <code>test_workspace/*.bosatsu</code>: 1. A single assertion:</p>
+<pre><code>test = Assertion(eq_Int(add(1, 1), 2), &quot;1 + 1 == 2&quot;)
+</code></pre>
+<ol>
+  <li>
+  <p>A suite of assertions:</p>
+  <pre><code>tests = TestSuite(&quot;math tests&quot;, [
+  Assertion(eq_Int(add(1, 2), 3), &quot;1 + 2&quot;),
+  Assertion(eq_Int(mul(3, 4), 12), &quot;3 * 4&quot;),
+])
+</code></pre></li>
+  <li>
+  <p>Nested/composed suites, including generated tests:</p>
+  <pre><code>tests = TestSuite(&quot;all tests&quot;, [
+  unit_tests,
+  TestSuite(&quot;generated&quot;, [mk_test(i) for i in range(10)]),
+])
+</code></pre></li>
+</ol>
+<p>Test discovery rule: <code>bosatsu lib test</code> runs the final top-level value in each package whose type is <code>Bosatsu/Predef::Test</code> (the last such value in source order). In practice, keep one final <code>test</code>/<code>tests</code> value per package and make it include all child tests you want run.</p>
+<p>From the repo root, run tests with:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+</code></pre>
+<p>When iterating, you can run only matching package tests with a regular expression filter:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test --filter &quot;MyLib/.*&quot;
+</code></pre>
+<p><code>--filter</code> matches package names and can be provided more than once.</p>
 <h2><a href="#purity-effects-and-prog" name="purity-effects-and-prog" class="anchor"><span class="anchor-link"></span></a>Purity, Effects, and <code>Prog</code></h2>
 <p>Bosatsu expressions are pure: evaluating Bosatsu code does not directly read stdin, write stdout, mutate state, or throw exceptions.</p>
 <p>Instead, effectful behavior is represented as data using <code>Prog[env, err, a]</code>. When you write I/O-heavy code, you are building a program description inside Bosatsu. That description can be transformed and composed (for example with <code>map</code>, <code>flat_map</code>, or <code>await</code>-style syntax), but it is not executed by Bosatsu itself.</p>
@@ -674,6 +711,8 @@ The source code for this page can be found <a href="https://github.com/johnynek/
     <li><a href="language_guide.html#types" class="header">Types</a></li>
     <li><a href="language_guide.html#the-bosatsu-predef" class="header">The Bosatsu Predef</a></li>
     <li><a href="language_guide.html#packages" class="header">Packages</a></li>
+    <li><a href="language_guide.html#value-usage-requirements" class="header">Value usage requirements</a></li>
+    <li><a href="language_guide.html#testing" class="header">Testing</a></li>
     <li><a href="language_guide.html#purity-effects-and-prog" class="header">Purity, Effects, and <code>Prog</code></a></li>
     <li><a href="language_guide.html#external-functions-and-values" class="header">External functions and values</a></li>
     <li><a href="language_guide.html#note-on-totality" class="header">Note on Totality</a></li>
@@ -744,7 +783,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-00ab5987-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-df2d00d7-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
