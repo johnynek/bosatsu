@@ -270,9 +270,19 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_uncons__String(BValue a) {
   }
 
   int head_bytes = bsts_string_code_point_bytes(a, 0);
-  BValue head = bsts_string_substring(a, 0, head_bytes);
+  BValue head = bsts_string_char_at(a, 0);
   BValue tail = bsts_string_substring_tail(a, head_bytes);
   return alloc_enum1(1, alloc_struct2(head, tail));
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_tail__or__empty__String(BValue a) {
+  size_t alen = bsts_string_utf8_len(a);
+  if (alen == 0) {
+    return bsts_string_from_utf8_bytes_static(0, NULL);
+  }
+
+  int head_bytes = bsts_string_code_point_bytes(a, 0);
+  return bsts_string_substring_tail(a, head_bytes);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_shift__left__Int(BValue a, BValue b) {

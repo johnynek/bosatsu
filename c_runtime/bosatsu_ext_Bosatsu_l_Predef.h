@@ -44,6 +44,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_rpartition__String(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_uncons__String(BValue a);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_tail__or__empty__String(BValue a);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_shift__left__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_shift__right__Int(BValue a, BValue b);
