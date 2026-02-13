@@ -895,6 +895,71 @@ main = match [1, 2, 3]:
     )
   }
 
+  test("string glob capture before char rest matches with accumulated prefix") {
+    evalTest(
+      List("""
+package StringGlobCapture
+
+def check(s):
+  match s:
+    case "${prefix}$.{ch}z":
+      if prefix matches "ab":
+        ch matches .'c'
+      else:
+        False
+    case _:
+      False
+
+input = concat_String([char_to_String(.'a'), char_to_String(.'b'), char_to_String(.'c'), "z"])
+main = check(input)
+"""),
+      "StringGlobCapture",
+      True
+    )
+
+    evalTest(
+      List("""
+package StringGlobCaptureUnicode
+
+def check(s):
+  match s:
+    case "${prefix}$.{ch}z":
+      if prefix matches "é":
+        ch matches .'β'
+      else:
+        False
+    case _:
+      False
+
+input = concat_String([char_to_String(.'é'), char_to_String(.'β'), "z"])
+main = check(input)
+"""),
+      "StringGlobCaptureUnicode",
+      True
+    )
+
+    evalTest(
+      List("""
+package StringGlobCaptureNoMatch
+
+def check(s):
+  match s:
+    case "${prefix}$.{ch}z":
+      if prefix matches "ab":
+        ch matches .'c'
+      else:
+        False
+    case _:
+      True
+
+input = concat_String([char_to_String(.'a'), char_to_String(.'b'), char_to_String(.'c')])
+main = check(input)
+"""),
+      "StringGlobCaptureNoMatch",
+      True
+    )
+  }
+
   test("Leibniz type equality example") {
     evalTest(
       List("""

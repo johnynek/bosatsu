@@ -1365,6 +1365,10 @@ object Matchless {
         newMut: F[LocalAnonMut],
         newConst: F[LocalAnon]
     ) {
+      def newMutOpt(some: Boolean)(implicit F: Monad[F]): F[Option[LocalAnonMut]] =
+        if (some) newMut.map(Some(_))
+        else F.pure(None)
+
       def optionIsSome(opt: CheapExpr[A]): BoolExpr[A] = {
         val (variant, size, famArities) = optionSomeData
         CheckVariant(opt, variant, size, famArities)
@@ -1530,9 +1534,7 @@ object Matchless {
         runMut <- ctx.newMut
         resMut <- ctx.newMut
         currentMut <- ctx.newMut
-        prefixMutOpt <- if (capture)
-          ctx.newMut.map(Some(_))
-        else Monad[F].pure(None)
+        prefixMutOpt <- ctx.newMutOpt(capture)
         loopRes <- ctx.newConst
         check <- matchStringParts(currentMut, rest, bindTargets, restBind, ctx)
         advance <- advanceCurrentByOneChar(currentMut, prefixMutOpt, ctx)
@@ -1595,9 +1597,7 @@ object Matchless {
         runMut <- ctx.newMut
         resMut <- ctx.newMut
         currentMut <- ctx.newMut
-        consumedMutOpt <- if (capture)
-          ctx.newMut.map(Some(_))
-        else Monad[F].pure(None)
+        consumedMutOpt <- ctx.newMutOpt(capture)
         loopRes <- ctx.newConst
         partTmp <- ctx.newConst
         tupleTmp <- ctx.newConst
