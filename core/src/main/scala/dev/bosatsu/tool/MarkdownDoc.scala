@@ -251,6 +251,14 @@ object MarkdownDoc {
       Doc.text(name) + Doc.text(": ") + Kind.argDoc(kindArg)
     }
 
+  private def quantifiedTypeParamDocs(
+      params: List[(Type.Var.Bound, Kind)]
+  ): List[Doc] =
+    params.map { case (tv, kind) =>
+      if (kind == Kind.Type) Doc.text(tv.name)
+      else Doc.text(tv.name) + Doc.text(": ") + Kind.toDoc(kind)
+    }
+
   private def typeSignatureDoc(dt: DefinedType[Kind.Arg], ctx: RenderCtx): Doc = {
     val head = Doc.text("type ") + Doc.text(typeNamePrefix(dt, ctx) + dt.name.asString)
     val params = orderedTypeParamDocs(dt)
@@ -286,16 +294,15 @@ object MarkdownDoc {
     else
       rho match {
         case Type.Fun(args, out) =>
-          val fparams =
-            if (foralls.isEmpty) ""
-            else foralls.map(_._1.name).mkString("[", ", ", "]")
+          val fparams = groupedTypeParamList(quantifiedTypeParamDocs(foralls))
           val params =
             args.toList.zipWithIndex
               .map { case (argT, idx) =>
                 Doc.text(show"arg${idx + 1}: ${renderType(argT, ctx)}")
               }
           Some(
-            Doc.text(show"def ${name.sourceCodeRepr}$fparams") +
+            Doc.text(show"def ${name.sourceCodeRepr}") +
+              fparams +
               groupedParamList(params) +
               Doc.text(show" -> ${renderType(out, ctx)}")
           )
