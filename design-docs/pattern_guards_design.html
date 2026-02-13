@@ -6,18 +6,18 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsupattern_guards_design.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/pattern_guards_design.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
-<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
-<script type="text/javascript" src="js/page.js"></script>
-<script type="text/javascript" src="js/warnOldVersion.js"></script>
-<script type="text/javascript" src="js/groups.js"></script>
-<script type="text/javascript" src="js/snippets.js"></script>
-<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
-<link rel="stylesheet" type="text/css" href="css/page.css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
 
 <!--
-<link rel="shortcut icon" href="images/favicon.ico" />
+<link rel="shortcut icon" href="../images/favicon.ico" />
 -->
 </head>
 
@@ -28,22 +28,26 @@
 <div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
 <nav class="off-canvas-nav">
 <div class="nav-home">
-<a href="index.html" >
+<a href="../index.html" >
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-c6a8397a*
+0.0.0+1-00ab5987*
 </div>
 </div>
 <div class="nav-toc">
 <ul>
-  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
-  <li><a href="language_guide.html" class="page">Language Guide</a></li>
-  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
-  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
-  <li><a href="pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -58,7 +62,7 @@
 H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
 C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
 </a>
-<div class="title"><a href="index.html">Bosatsu Documentation</a></div>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
 
 <!--
 <a href="https://www.example.com" class="logo show-for-medium">logo</a>
@@ -71,22 +75,26 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="medium-3 large-2 show-for-medium column">
 <nav class="site-nav">
 <div class="nav-home">
-<a href="index.html" >
+<a href="../index.html" >
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-c6a8397a*
+0.0.0+1-00ab5987*
 </div>
 </div>
 <div class="nav-toc">
 <ul>
-  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
-  <li><a href="language_guide.html" class="page">Language Guide</a></li>
-  <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
-  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
-  <li><a href="pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="active page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -102,7 +110,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="medium-12 show-for-medium column">
 <div class="nav-breadcrumbs">
 <ul>
-  <li><a href="index.html">Bosatsu Documentation</a></li>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
   <li>Pattern Guards Design</li>
 </ul>
 </div>
@@ -263,9 +272,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>Do we want a later SMT-backed or rewrite-backed &ldquo;guard simplifier&rdquo; for better diagnostics?</li>
 </ol>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/pattern_guards_design.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/pattern_guards_design.md">here</a>.
 </div>
 
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../design-docs/issue_1628_pattern_value_reuse_design.html">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></p>
+</div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
 <nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
@@ -273,24 +285,24 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="pattern_guards_design.html#pattern-guards-design" class="header">Pattern Guards Design</a>
+  <li><a href="../design-docs/pattern_guards_design.html#pattern-guards-design" class="header">Pattern Guards Design</a>
   <ul>
-    <li><a href="pattern_guards_design.html#goal" class="header">Goal</a></li>
-    <li><a href="pattern_guards_design.html#non-goals" class="header">Non-goals</a></li>
-    <li><a href="pattern_guards_design.html#literature-review" class="header">Literature Review</a></li>
-    <li><a href="pattern_guards_design.html#proposed-bosatsu-semantics" class="header">Proposed Bosatsu Semantics</a></li>
-    <li><a href="pattern_guards_design.html#syntax" class="header">Syntax</a></li>
-    <li><a href="pattern_guards_design.html#dynamic-semantics" class="header">Dynamic semantics</a></li>
-    <li><a href="pattern_guards_design.html#typing-semantics" class="header">Typing semantics</a></li>
-    <li><a href="pattern_guards_design.html#core-design-decisions" class="header">Core Design Decisions</a></li>
-    <li><a href="pattern_guards_design.html#compiler-pipeline-impact" class="header">Compiler Pipeline Impact</a></li>
-    <li><a href="pattern_guards_design.html#matchless-design" class="header">Matchless Design</a></li>
-    <li><a href="pattern_guards_design.html#trade-offs" class="header">Trade-offs</a></li>
-    <li><a href="pattern_guards_design.html#performance" class="header">Performance</a></li>
-    <li><a href="pattern_guards_design.html#error-reporting" class="header">Error reporting</a></li>
-    <li><a href="pattern_guards_design.html#implementation-plan" class="header">Implementation Plan</a></li>
-    <li><a href="pattern_guards_design.html#test-plan" class="header">Test Plan</a></li>
-    <li><a href="pattern_guards_design.html#open-questions" class="header">Open Questions</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#goal" class="header">Goal</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#non-goals" class="header">Non-goals</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#literature-review" class="header">Literature Review</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#proposed-bosatsu-semantics" class="header">Proposed Bosatsu Semantics</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#syntax" class="header">Syntax</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#dynamic-semantics" class="header">Dynamic semantics</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#typing-semantics" class="header">Typing semantics</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#core-design-decisions" class="header">Core Design Decisions</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#compiler-pipeline-impact" class="header">Compiler Pipeline Impact</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#matchless-design" class="header">Matchless Design</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#trade-offs" class="header">Trade-offs</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#performance" class="header">Performance</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#error-reporting" class="header">Error reporting</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#implementation-plan" class="header">Implementation Plan</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#test-plan" class="header">Test Plan</a></li>
+    <li><a href="../design-docs/pattern_guards_design.html#open-questions" class="header">Open Questions</a></li>
   </ul></li>
 </ul>
 </div>
@@ -350,15 +362,15 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 </div>
 </body>
 
-<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
 <script type="text/javascript">jQuery(document).foundation();</script>
-<script type="text/javascript" src="js/magellan.js"></script>
+<script type="text/javascript" src="../js/magellan.js"></script>
 
-<style type="text/css">@import "lib/prettify/prettify.css";</style>
-<script type="text/javascript" src="lib/prettify/prettify.js"></script>
-<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-c6a8397a-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-00ab5987-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

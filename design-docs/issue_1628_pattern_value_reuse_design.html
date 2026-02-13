@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Issue 1628: Pattern Value Reuse in TypedExprNormalization · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_1628_pattern_value_reuse_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-00ab5987*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="active page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-00ab5987*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="active page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#issue-1628-pattern-value-reuse-in-typedexprnormalization" name="issue-1628-pattern-value-reuse-in-typedexprnormalization" class="anchor"><span class="anchor-link"></span></a>Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></h1>
+<p>Status: proposed<br/>Date: 2026-02-13<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/1628">https://github.com/johnynek/bosatsu/issues/1628</a></p>
+<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
+<p>Avoid redundant allocations in <code>match</code> branches when the branch result reconstructs a value that is already available from the matched pattern.</p>
+<p>Example source shape:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def if_one_two_none_zero(o: Option[Int]):
+  match o:
+    case Some(i) if i matches 1: Some(2)
+    case Some(i): Some(i)
+    case None: Some(0)
+</code></pre>
+<p>Desired optimized shape:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def if_one_two_none_zero(o: Option[Int]):
+  match o:
+    case Some(i) if i matches 1: Some(2)
+    case Some(_) as some: some
+    case None: Some(0)
+</code></pre>
+<h2><a href="#current-state-in-typedexprnormalization" name="current-state-in-typedexprnormalization" class="anchor"><span class="anchor-link"></span></a>Current state in <code>TypedExprNormalization</code></h2>
+<p><code>normalizeLetOpt</code> already normalizes <code>Match</code> branches by: 1. Normalizing guards and branch bodies in pattern scope. 2. Folding guards that normalize to <code>True</code>/<code>False</code>. 3. Dropping <code>False</code> branches. 4. Filtering unused pattern binders via <code>pattern.filterVars</code>. 5. Running <code>maybeEvalMatch</code> for partial constant evaluation.</p>
+<p>There is no rewrite that recognizes &ldquo;branch rebuilds matched value, so return that matched value directly.&rdquo;</p>
+<p><code>shareImmutableValues</code> is not sufficient here because the allocation may only occur once in a branch body.</p>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>Adding new source syntax.</li>
+  <li>Proving arbitrary expression equivalence.</li>
+  <li>Changing match branch ordering or guard semantics.</li>
+  <li>Handling every pattern form in v1.</li>
+</ol>
+<h2><a href="#proposed-rule-phase-1-whole-branch-value-reuse" name="proposed-rule-phase-1-whole-branch-value-reuse" class="anchor"><span class="anchor-link"></span></a>Proposed rule (phase 1): whole-branch value reuse</h2>
+<p>For each normalized branch <code>(pattern, guard, expr)</code> of <code>Match(arg, ...)</code>, attempt:</p>
+<ol>
+  <li>Detect that <code>expr</code> structurally rebuilds the full value matched by <code>pattern</code>.</li>
+  <li>If true, rewrite branch body to a <code>Local</code> bound to the matched value:</li>
+  <li>Reuse an existing top-level pattern binder if present.</li>
+  <li>Otherwise wrap the pattern in <code>Pattern.Named(fresh, pattern)</code> and use <code>Local(fresh, expr.getType, expr.tag)</code>.</li>
+  <li>Continue with existing binder filtering (<code>pattern.filterVars</code>), which will drop no-longer-needed inner binders.</li>
+</ol>
+<p>This directly models the source rewrite <code>case p: rebuild(p)  =&gt; case p as whole: whole</code>.</p>
+<h2><a href="#structural-matching-predicate" name="structural-matching-predicate" class="anchor"><span class="anchor-link"></span></a>Structural matching predicate</h2>
+<p>Define helper <code>rebuilds(pattern, expr): Boolean</code> (ignoring <code>Generic</code>/<code>Annotation</code> wrappers):</p>
+<ol>
+  <li><code>Pattern.Var(x)</code> matches <code>Local(x, _, _)</code>.</li>
+  <li><code>Pattern.Named(_, p)</code> matches if <code>rebuilds(p, expr)</code> (and optionally also if <code>expr</code> is the named binder local).</li>
+  <li><code>Pattern.Annotation(p, _)</code> delegates to <code>p</code>.</li>
+  <li><code>Pattern.PositionalStruct((pack, cons), pats)</code> matches:</li>
+  <li><code>App(Global(pack, cons, _, _), args, _, _)</code></li>
+  <li>same arity</li>
+  <li>all children pairwise satisfy <code>rebuilds</code>.</li>
+  <li><code>Pattern.Literal(lit)</code> matches <code>Literal(lit, _, _)</code>.</li>
+  <li>Return <code>false</code> for <code>Union</code>, <code>ListPat</code>, <code>StrPat</code>, and <code>WildCard</code> in v1.</li>
+</ol>
+<p>This is conservative and still captures the issue-1628 example.</p>
+<h2><a href="#fresh-name-and-capture-safety" name="fresh-name-and-capture-safety" class="anchor"><span class="anchor-link"></span></a>Fresh-name and capture safety</h2>
+<p>When introducing <code>Pattern.Named(fresh, pattern)</code>, choose <code>fresh</code> not present in: 1. <code>pattern.names</code> 2. free vars of guard and branch expr 3. all vars in match arg/branch expressions already in scope for this rewrite</p>
+<p>Using <code>Expr.nameIterator</code> plus an immutable used-name set threaded through rewrites is sufficient.</p>
+<p>This prevents accidental shadowing of outer locals referenced by guards or branch bodies.</p>
+<h2><a href="#integration-point" name="integration-point" class="anchor"><span class="anchor-link"></span></a>Integration point</h2>
+<p>Implement helper:</p>
+<pre class="prettyprint"><code class="language-scala">private def reuseMatchedPatternValue[A](
+  matchArg: TypedExpr[A],
+  branch: TypedExpr.Branch[A],
+  used: Set[Identifier.Bindable]
+): (TypedExpr.Branch[A], Int, Set[Identifier.Bindable])
+</code></pre>
+<p>Use it inside <code>case Match(arg, branches, tag)</code> in <code>normalizeLetOpt</code>, after guard/body normalization and before <code>freeT1</code>/<code>filterVars</code>.</p>
+<p>Return <code>(updatedBranch, changedFlag, used1)</code> so branch rewrites can be folded left in source order while threading the updated immutable used-name set.</p>
+<h2><a href="#why-semantics-are-preserved" name="why-semantics-are-preserved" class="anchor"><span class="anchor-link"></span></a>Why semantics are preserved</h2>
+<ol>
+  <li>Constructor/literal rebuilding is pure in Bosatsu; replacing rebuild with alias does not change effects.</li>
+  <li>Pattern match success/failure and guard checks are unchanged.</li>
+  <li>Type is preserved because rewritten <code>Local</code> uses the matched value type (<code>expr.getType</code> for the branch result).</li>
+  <li>Existing branch pruning/eval passes still run as before.</li>
+</ol>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test plan</h2>
+<p>Add tests in <code>core/src/test/scala/dev/bosatsu/TypedExprTest.scala</code>:</p>
+<ol>
+  <li>Issue-1628 branch shape:</li>
+  <li><code>Some(i) if i matches 1 -&gt; Some(2)</code></li>
+  <li><code>Some(i) -&gt; Some(i)</code></li>
+  <li>verify second branch normalizes to local reuse (pattern gains <code>Named</code> if needed).</li>
+  <li>Guarded sibling does not block rewrite.</li>
+  <li>Negative cases:</li>
+  <li><code>Some(i + 1)</code> does not rewrite.</li>
+  <li>constructor/arity mismatch does not rewrite.</li>
+  <li>Capture safety:</li>
+  <li>outer scope already has candidate name; introduced binder remains fresh.</li>
+  <li>Idempotence:</li>
+  <li>second normalization pass does not change output.</li>
+</ol>
+<h2><a href="#phase-2-design-nested-subpattern-reuse" name="phase-2-design-nested-subpattern-reuse" class="anchor"><span class="anchor-link"></span></a>Phase 2 design: nested subpattern reuse</h2>
+<p>Phase 1 only rewrites when the branch expression rebuilds the entire matched pattern. Phase 2 extends this to reuse nested matched values.</p>
+<p>Example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match value:
+  case Foo(_, Bar(x)):
+    Bar(x)
+</code></pre>
+<p>can become (conceptually):</p>
+<pre class="prettyprint"><code class="language-bosatsu">match value:
+  case Foo(_, (Bar(x) as bx)):
+    bx
+</code></pre>
+<h3><a href="#core-idea-nested-subpattern-reuse-" name="core-idea-nested-subpattern-reuse-" class="anchor"><span class="anchor-link"></span></a>Core idea (nested subpattern reuse)</h3>
+<p>Given <code>(pattern, guard, expr)</code>, find a subpattern <code>p_sub</code> inside <code>pattern</code> such that <code>expr</code> structurally rebuilds <code>p_sub</code>.</p>
+<p>Then: 1. If <code>p_sub</code> already binds a full-value name (<code>Var</code> or <code>Named</code> top binder), reuse that name. 2. Otherwise insert <code>Pattern.Named(fresh, p_sub)</code> at that subpattern location. 3. Rewrite branch body to <code>Local(chosenName, expr.getType, expr.tag)</code>.</p>
+<p>This preserves semantics and removes reconstruction allocation.</p>
+<h3><a href="#candidate-discovery" name="candidate-discovery" class="anchor"><span class="anchor-link"></span></a>Candidate discovery</h3>
+<p>Define:</p>
+<pre class="prettyprint"><code class="language-scala">private case class SubpatternCandidate(
+  path: List[Int], // constructor-field path through PositionalStruct
+  existingTopName: Option[Bindable],
+  score: Int // larger = better reuse candidate
+)
+</code></pre>
+<p>Algorithm: 1. Traverse pattern and enumerate eligible subpatterns with deterministic order (left-to-right DFS). 2. For each candidate subpattern, test <code>rebuilds(candidatePattern, expr)</code>. 3. Keep matches and choose best by:  1. highest <code>score</code> (prefer larger reused structure),  2. then deepest path,  3. then first in traversal order.</p>
+<p><code>score</code> can be pattern node count, so reusing <code>Some(Bar(x))</code> wins over reusing only <code>x</code>.</p>
+<h3><a href="#structural-matcher-for-phase-2" name="structural-matcher-for-phase-2" class="anchor"><span class="anchor-link"></span></a>Structural matcher for phase 2</h3>
+<p>Reuse phase-1 <code>rebuilds</code> rules, but apply them to any subpattern: 1. <code>Var(x)</code> &lt;-&gt; <code>Local(x, _, _)</code> 2. <code>Named(_, p)</code> &lt;-&gt; <code>rebuilds(p, expr)</code> (or direct name local) 3. <code>Annotation(p, _)</code> &lt;-&gt; <code>rebuilds(p, expr)</code> 4. <code>PositionalStruct((pack, cons), pats)</code> &lt;-&gt; constructor app with same <code>(pack, cons)</code> and arity, children pairwise matching 5. <code>Literal(l)</code> &lt;-&gt; <code>Literal(l, _, _)</code></p>
+<p>Still excluded in phase 2: 1. <code>Union</code> 2. <code>ListPat</code> 3. <code>StrPat</code> 4. <code>WildCard</code> as a reuse target</p>
+<h3><a href="#pattern-rewrite-mechanics" name="pattern-rewrite-mechanics" class="anchor"><span class="anchor-link"></span></a>Pattern rewrite mechanics</h3>
+<p>Implement:</p>
+<pre class="prettyprint"><code class="language-scala">private def bindAtPath(
+  p: Pattern[(PackageName, Constructor), Type],
+  path: List[Int],
+  name: Bindable
+): Pattern[(PackageName, Constructor), Type]
+</code></pre>
+<p>Rules: 1. <code>path == Nil</code>: wrap this node in <code>Pattern.Named(name, p)</code> unless already top-bound by <code>Var</code>/<code>Named</code>. 2. For <code>Annotation(inner, t)</code>: recurse into <code>inner</code> and rebuild annotation. 3. For <code>Named(n, inner)</code>: recurse into <code>inner</code> (preserve <code>n</code>). 4. For <code>PositionalStruct(name, params)</code>: recurse into indexed child from <code>path.head</code>, rebuild node. 5. Any mismatch is defensive fallback: no rewrite.</p>
+<h3><a href="#name-hygiene-and-shadowing" name="name-hygiene-and-shadowing" class="anchor"><span class="anchor-link"></span></a>Name hygiene and shadowing</h3>
+<p>Use one <code>used: Set[Bindable]</code> per match rewrite pass, seeded from: 1. all vars in <code>arg</code>, all branch guards, all branch bodies 2. all names bound by all branch patterns</p>
+<p>Fresh binder generation must avoid: 1. current branch pattern names, 2. free vars of branch guard and expr, 3. global <code>used</code> set for the whole match.</p>
+<p>This keeps rewrites capture-safe and stable across branches.</p>
+<p>Represent fresh-name allocation as a pure helper:</p>
+<pre class="prettyprint"><code class="language-scala">private def freshName(
+  used: Set[Bindable],
+  avoid: Set[Bindable]
+): (Bindable, Set[Bindable])
+</code></pre>
+<p><code>freshName</code> picks the first candidate from <code>Expr.nameIterator</code> not present in <code>used union avoid</code>, and returns both the chosen name and <code>used + name</code>.</p>
+<h3><a href="#integration-in-normalization-flow" name="integration-in-normalization-flow" class="anchor"><span class="anchor-link"></span></a>Integration in normalization flow</h3>
+<p>Inside <code>normalizeLetOpt</code> <code>case Match(arg, branches, tag)</code>: 1. Keep current guard/body normalization and <code>True</code>/<code>False</code> folding. 2. Before <code>freeT1</code> and <code>filterVars</code>, run:  1. phase-1 whole-pattern reuse attempt,  2. if no change, phase-2 nested-subpattern reuse attempt. 3. Continue existing <code>filterVars</code>, trailing wildcard rewrite, and <code>maybeEvalMatch</code>.</p>
+<p>Running before <code>filterVars</code> is important so newly introduced names are preserved when used by rewritten <code>expr</code>.</p>
+<h3><a href="#safety-and-semantics" name="safety-and-semantics" class="anchor"><span class="anchor-link"></span></a>Safety and semantics</h3>
+<ol>
+  <li>Matching behavior is unchanged: only binder introduction plus body alias.</li>
+  <li>Guard behavior is unchanged: guard still evaluated in the same branch/pattern scope.</li>
+  <li>Purity assumption holds: all constructor/literal rebuilds are immutable and side-effect free.</li>
+  <li>Type preservation holds by replacing with <code>Local(name, expr.getType, expr.tag)</code>.</li>
+</ol>
+<h3><a href="#phase-2-tests" name="phase-2-tests" class="anchor"><span class="anchor-link"></span></a>Phase-2 tests</h3>
+<p>Add focused tests in <code>TypedExprTest</code>: 1. Nested constructor reuse:  1. <code>case Foo(_, Bar(x)): Bar(x)</code> rewrites to alias of nested bound value. 2. Existing nested binder reused:  1. <code>case Foo(_, (Bar(x) as bx)): Bar(x)</code> rewrites to <code>bx</code> (no extra <code>Named</code>). 3. Deterministic choice:  1. when multiple subpatterns match, chosen target is stable by score/depth/order. 4. Guard interaction:  1. guard referencing inner names still typechecks and preserves behavior. 5. Negative coverage:  1. no rewrite for <code>Union</code>/<code>ListPat</code>/<code>StrPat</code>.  2. no rewrite for non-structural expressions (<code>Bar(x + 1)</code>).</p>
+<h3><a href="#optional-phase-2b" name="optional-phase-2b" class="anchor"><span class="anchor-link"></span></a>Optional phase-2b</h3>
+<p>If useful later: 1. add <code>Union</code> support when the matched branch has already selected a concrete side. 2. add <code>ListPat</code>/<code>StrPat</code> structural reuse by extending matcher with list/string constructors. 3. add profitability guard for very large pattern scans.</p>
+<h2><a href="#phase-3-design-branch-subexpression-constructor-collision-reuse" name="phase-3-design-branch-subexpression-constructor-collision-reuse" class="anchor"><span class="anchor-link"></span></a>Phase 3 design: branch subexpression constructor-collision reuse</h2>
+<p>Phase 1 and phase 2 only rewrite when the branch body itself is the matched value (or a nested matched value). This phase also rewrites matching constructor subexpressions inside larger branch expressions.</p>
+<p>Primary motivating example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match o:
+  case Some(x):
+    f(Some(x))
+</code></pre>
+<p>rewritten as:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match o:
+  case Some(_) as s:
+    f(s)
+</code></pre>
+<h3><a href="#core-idea-subexpression-constructor-collision-reuse-" name="core-idea-subexpression-constructor-collision-reuse-" class="anchor"><span class="anchor-link"></span></a>Core idea (subexpression constructor-collision reuse)</h3>
+<p>For each branch: 1. Collect constructor-shaped subpatterns from the branch pattern. 2. Convert each to a reusable candidate with:  1. constructor key <code>(package, constructor, arity)</code>,  2. structural matcher (same conservative <code>rebuilds</code> logic),  3. reusable binder (existing if available, else synthesize <code>Pattern.Named(fresh, ...)</code> at that path). 3. Traverse branch expression (and optionally guard) and replace matching subexpressions with candidate binders.</p>
+<p>This targets obvious allocation duplication without requiring full expression equivalence.</p>
+<h3><a href="#candidate-extraction" name="candidate-extraction" class="anchor"><span class="anchor-link"></span></a>Candidate extraction</h3>
+<p>Define:</p>
+<pre class="prettyprint"><code class="language-scala">private case class ReuseCandidate(
+  path: List[Int],
+  key: (PackageName, Constructor, Int),
+  binder: Bindable,
+  score: Int
+)
+</code></pre>
+<p>Extraction rules: 1. Include <code>PositionalStruct</code> subpatterns (possibly under <code>Named</code>/<code>Annotation</code>). 2. Skip <code>Union</code>, <code>ListPat</code>, <code>StrPat</code> for the first version. 3. Prefer candidates with larger <code>score</code> (node count) and deeper <code>path</code>.</p>
+<p>This is the &ldquo;find constructors in patterns&rdquo; part of the heuristic.</p>
+<h3><a href="#replacing-subexpressions" name="replacing-subexpressions" class="anchor"><span class="anchor-link"></span></a>Replacing subexpressions</h3>
+<p>Implement a scope-aware expression traversal: 1. Track blocked term names (<code>Set[Bindable]</code>) due to lambda args, let binders, loop binders, and branch pattern binders. 2. At each node, try candidates in stable priority order. 3. A candidate matches only when:  1. constructor key matches,  2. full structural matcher succeeds,  3. candidate binder is not blocked at this node. 4. On match, replace the node with <code>Local(candidate.binder, node.getType, node.tag)</code>. 5. Otherwise recurse.</p>
+<p>This prevents capture/shadowing bugs when inner scopes redefine names.</p>
+<h3><a href="#pattern-updates-required-for-replacement" name="pattern-updates-required-for-replacement" class="anchor"><span class="anchor-link"></span></a>Pattern updates required for replacement</h3>
+<p>If a selected candidate has no binder yet: 1. introduce one with <code>bindAtPath</code> (from phase 2), 2. thread immutable <code>used: Set[Bindable]</code> through the rewrite.</p>
+<p>If a candidate already has a binder (<code>as name</code> / <code>Var</code>), reuse it directly.</p>
+<h3><a href="#integration-order" name="integration-order" class="anchor"><span class="anchor-link"></span></a>Integration order</h3>
+<p>Inside <code>normalizeLetOpt</code> <code>Match</code> branch normalization: 1. existing guard/body normalization and guard folding, 2. phase-1 whole-pattern reuse, 3. phase-2 nested whole-branch reuse, 4. <strong>phase-3 subexpression reuse inside branch expr/guard</strong>, 5. existing <code>filterVars</code>, trailing wildcard canonicalization, <code>maybeEvalMatch</code>.</p>
+<p>Running phase 3 before <code>filterVars</code> ensures newly introduced binders are retained if used by rewritten subexpressions.</p>
+<h3><a href="#scope-and-profitability-guardrails" name="scope-and-profitability-guardrails" class="anchor"><span class="anchor-link"></span></a>Scope and profitability guardrails</h3>
+<ol>
+  <li>Only rewrite immutable constructor/literal expressions (no <code>Let</code>, <code>Loop</code>, <code>Recur</code>, <code>Match</code> as candidate roots).</li>
+  <li>Optionally cap rewrites per branch to avoid large compile-time growth.</li>
+  <li>Keep deterministic traversal and candidate ordering for stable output.</li>
+</ol>
+<h3><a href="#phase-3-tests" name="phase-3-tests" class="anchor"><span class="anchor-link"></span></a>Phase-3 tests</h3>
+<p>Add tests in <code>TypedExprTest</code>: 1. <code>case Some(x): f(Some(x))</code> rewrites to reuse branch value binder. 2. Multiple occurrences: <code>g(Some(x), Some(x))</code> rewrites both. 3. Shadowing safety:  1. do not rewrite inside <code>\x -&gt; Some(x)</code> using outer branch binder.  2. do not rewrite through inner <code>let x = ...</code>. 4. Existing binder preference:  1. <code>case Some(x) as s: f(Some(x))</code> should prefer <code>s</code> over creating a second binder. 5. Negative case:  1. <code>f(Some(x + 1))</code> does not rewrite.</p>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_1628_pattern_value_reuse_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../getting_started.html">Getting started (new repo)</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#issue-1628-pattern-value-reuse-in-typedexprnormalization" class="header">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a>
+  <ul>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#goal" class="header">Goal</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#current-state-in-typedexprnormalization" class="header">Current state in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#non-goals" class="header">Non-goals</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#proposed-rule-phase-1-whole-branch-value-reuse" class="header">Proposed rule (phase 1): whole-branch value reuse</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#structural-matching-predicate" class="header">Structural matching predicate</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#fresh-name-and-capture-safety" class="header">Fresh-name and capture safety</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#integration-point" class="header">Integration point</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#why-semantics-are-preserved" class="header">Why semantics are preserved</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#test-plan" class="header">Test plan</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#phase-2-design-nested-subpattern-reuse" class="header">Phase 2 design: nested subpattern reuse</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html#phase-3-design-branch-subexpression-constructor-collision-reuse" class="header">Phase 3 design: branch subexpression constructor-collision reuse</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-00ab5987-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
