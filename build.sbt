@@ -1,5 +1,11 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
+import scala.sys.process._
+
+lazy val generateCoreAlphaParadoxDocs =
+  taskKey[Unit](
+    "Generate core_alpha markdown docs (including predef) and copy them into paradox sources"
+  )
 
 lazy val versionString = "3.8.1"
 
@@ -73,6 +79,71 @@ lazy val docs = (project in file("docs"))
       "empty" -> "",
       "version" -> version.value
     ),
+    Compile / generateCoreAlphaParadoxDocs := {
+      val log = streams.value.log
+      val repoRoot = (LocalRootProject / baseDirectory).value
+      val paradoxGeneratedRoot =
+        (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
+      val generatedDocsRoot = repoRoot / "core_alpha_docs"
+
+      // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
+      val _ = (cli / assembly).value
+
+      val cmd = Seq(
+        "./bosatsuj",
+        "lib",
+        "doc",
+        "--outdir",
+        "core_alpha_docs",
+        "--include_predef"
+      )
+      log.info(cmd.mkString("running: ", " ", ""))
+      val exit = Process(cmd, repoRoot).!
+      if (exit != 0) {
+        sys.error(s"doc generation failed with exit code $exit: ${cmd.mkString(" ")}")
+      }
+
+      if (!generatedDocsRoot.exists()) {
+        sys.error(s"expected generated docs at $generatedDocsRoot, but directory was missing")
+      }
+
+      IO.delete(paradoxGeneratedRoot)
+      IO.createDirectory(paradoxGeneratedRoot)
+      IO.copyDirectory(generatedDocsRoot, paradoxGeneratedRoot)
+
+      val markdownFiles =
+        (paradoxGeneratedRoot ** "*.md").get
+          .filterNot(_.getName == "index.md")
+          .sortBy(f => IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath))
+
+      val linkLines = markdownFiles.map { file =>
+        val relPath = IO
+          .relativize(paradoxGeneratedRoot, file)
+          .getOrElse(file.getName)
+          .replace(java.io.File.separatorChar, '/')
+        val title = relPath.stripSuffix(".md")
+        s"* [$title]($relPath)"
+      }
+
+      val generatedIndex =
+        s"""# Core Alpha API
+           |
+           |This section is generated from `test_workspace` using:
+           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef`
+           |
+           |@@@ index
+           |${linkLines.mkString("\n")}
+           |@@@
+           |""".stripMargin
+
+      IO.write(paradoxGeneratedRoot / "index.md", generatedIndex)
+      log.info(
+        s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
+      )
+    },
+    Compile / paradox := (Compile / paradox)
+      .dependsOn(Compile / generateCoreAlphaParadoxDocs)
+      .value,
     publish / skip := true
   )
 
