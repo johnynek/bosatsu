@@ -160,7 +160,7 @@ object Package {
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
     tp.lets.filter { case (_, _, te) =>
-      te.getType == (Type.TestType: Type)
+      te.getType.sameAs(Type.TestType)
     }.lastOption
 
   def mainValue[A](

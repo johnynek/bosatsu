@@ -27,7 +27,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     */
   lazy val getType: Type =
     this match {
-      case g @ Generic(_, _)  => g.quantType
+      case g @ Generic(_, _)  => Type.normalize(g.quantType)
       case Annotation(_, tpe) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
