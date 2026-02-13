@@ -1986,6 +1986,7 @@ object Matchless {
     lazy val emptyStringLit: Lit = Lit.Str("")
     lazy val emptyStringExpr: Expr[B] = Literal(emptyStringLit)
     lazy val concatStringName = Identifier.Name("concat_String")
+    lazy val charToStringName = Identifier.Name("char_to_String")
     lazy val partitionStringName = Identifier.Name("partition_String")
     lazy val unconsStringName = Identifier.Name("uncons_String")
     lazy val someCons = Constructor("Some")
@@ -2106,9 +2107,11 @@ object Matchless {
           val hasSome = optionIsSome(splitTmp)
           val head = GetStructElement(tupleTmp, 0, tuple2Arity)
           val tail = GetStructElement(tupleTmp, 1, tuple2Arity)
+          // Matchless sits above backend value representations; normalize Char -> String explicitly.
+          val headStr = call1(charToStringName, head)
           val updates =
             (current, tail) :: prefixAcc.toList.map { p =>
-              (p, concatString(p :: head :: Nil))
+              (p, concatString(p :: headStr :: Nil))
             }
           val onSome =
             Let(
