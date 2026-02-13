@@ -1531,6 +1531,41 @@ x = Foo
     }
   }
 
+  test("TypedExpr.substituteTypeVar can be identity for shadowed generic binders") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    val te: TypedExpr[Unit] =
+      TypedExpr.Generic(
+        TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+        TypedExpr.Literal(Lit.fromInt(1), Type.IntType, ())
+      )
+
+    val tpes: Set[Type.Var] = te.allTypes.iterator.collect {
+      case Type.TyVar(v) => v
+    }.toSet
+
+    // This mirrors the old property logic: it can miss Generic binders because
+    // te.getType is normalized for vacuous quantifiers.
+    val boundsFromQuantifiedTypes: Set[Type.Var] = te
+      .traverseType { (t: Type) =>
+        Writer(SortedSet[Type.Var](Type.quantVars(t).map(_._1)*), t)
+      }
+      .run
+      ._1
+      .toSet[Type.Var]
+
+    val identMap: Map[Type.Var, Type] =
+      tpes
+        .filterNot(boundsFromQuantifiedTypes)
+        .iterator
+        .zip((b :: Nil).iterator)
+        .map { case (v, rep) => (v, Type.TyVar(rep)) }
+        .toMap
+
+    assertEquals(identMap, Map[Type.Var, Type](a -> Type.TyVar(b)))
+    assertEquals(TypedExpr.substituteTypeVar(te, identMap), te)
+  }
+
   test("TypedExpr.substituteTypeVar is not an identity function") {
     // if we replace all the current types with some bound types, things won't be the same
     forAll(genTypedExpr) { te =>
@@ -1538,14 +1573,9 @@ x = Foo
         case Type.TyVar(b) => b
       }.toSet
 
-      // All the vars that are used in bounds
-      val bounds: Set[Type.Var] = te
-        .traverseType { (t: Type) =>
-          Writer(SortedSet[Type.Var](Type.quantVars(t).map(_._1)*), t)
-        }
-        .run
-        ._1
-        .toSet[Type.Var]
+      // Type vars bound by Generic/type quantification should not be chosen as
+      // replacement candidates since substitution is shadowed under binders.
+      val bounds: Set[Type.Var] = te.allBound.toSet[Type.Var]
 
       val replacements = Type.allBinders.iterator.filterNot(tpes)
       val identMap: Map[Type.Var, Type] =
