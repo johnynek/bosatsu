@@ -89,7 +89,16 @@ lazy val docs = (project in file("docs"))
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
 
-      val cmd = Seq(
+      val fetchCmd = Seq("./bosatsuj", "lib", "fetch")
+      log.info(fetchCmd.mkString("running: ", " ", ""))
+      val fetchExit = Process(fetchCmd, repoRoot).!
+      if (fetchExit != 0) {
+        sys.error(
+          s"lib fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
+        )
+      }
+
+      val docCmd = Seq(
         "./bosatsuj",
         "lib",
         "doc",
@@ -97,10 +106,12 @@ lazy val docs = (project in file("docs"))
         "core_alpha_docs",
         "--include_predef"
       )
-      log.info(cmd.mkString("running: ", " ", ""))
-      val exit = Process(cmd, repoRoot).!
-      if (exit != 0) {
-        sys.error(s"doc generation failed with exit code $exit: ${cmd.mkString(" ")}")
+      log.info(docCmd.mkString("running: ", " ", ""))
+      val docExit = Process(docCmd, repoRoot).!
+      if (docExit != 0) {
+        sys.error(
+          s"doc generation failed with exit code $docExit: ${docCmd.mkString(" ")}"
+        )
       }
 
       if (!generatedDocsRoot.exists()) {
