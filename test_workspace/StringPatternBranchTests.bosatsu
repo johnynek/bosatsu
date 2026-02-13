@@ -14,9 +14,6 @@ def notb(a: Bool) -> Bool:
   else:
     True
 
-def eqs(a: String, b: String) -> Bool:
-  cmp_String(a, b) matches EQ
-
 tests = TestSuite("String pattern branch tests", [
   Assertion(uncons_String("") matches None, "uncons empty"),
   Assertion(uncons_String("abc") matches Some((.'a', "bc")), "uncons ascii"),
@@ -28,7 +25,7 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "abq":
       case "ab${tail}":
-        eqs(tail, "q")
+        tail matches "q"
       case _:
         False,
     "literal prefix with captured tail"),
@@ -37,7 +34,7 @@ tests = TestSuite("String pattern branch tests", [
     match "xy":
       case "$.{h}${t}":
         if h matches .'x':
-          eqs(t, "y")
+          t matches "y"
         else:
           False
       case _:
@@ -51,7 +48,7 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "abcz":
       case "${left}$.{mid}z":
-        andb(eqs(left, "ab"), mid matches .'c')
+        andb(left matches "ab", mid matches .'c')
       case _:
         False,
     "glob-char search with captures"),
@@ -61,7 +58,7 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "aaZ":
       case "${left}aZ":
-        eqs(left, "a")
+        left matches "a"
       case _:
         False,
     "glob-literal single-char candidate miss then hit"),
@@ -71,7 +68,7 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "👋👋x":
       case "${left}👋x":
-        eqs(left, "👋")
+        left matches "👋"
       case _:
         False,
     "unicode literal candidate miss then hit"),
@@ -79,28 +76,28 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "AAfooXbarBB":
       case "${left}foo$.{mid}bar${right}":
-        andb(andb(eqs(left, "AA"), mid matches .'X'), eqs(right, "BB"))
+        andb(andb(left matches "AA", mid matches .'X'), right matches "BB")
       case _:
         False,
     "two globs with literal and char capture between"),
   Assertion(
     match "fooXbar":
       case "${left}foo$.{mid}bar${right}":
-        andb(andb(eqs(left, ""), mid matches .'X'), eqs(right, ""))
+        andb(andb(left matches "", mid matches .'X'), right matches "")
       case _:
         False,
     "two globs allow empty edges"),
   Assertion(
     match "AAfooXbarBB":
       case "${_}foo$.{_}bar${right}":
-        eqs(right, "BB")
+        right matches "BB"
       case _:
         False,
     "two globs position 1 wildcard, position 2 capture"),
   Assertion(
     match "AAfooXbarBB":
       case "${left}foo$.{_}bar${_}":
-        eqs(left, "AA")
+        left matches "AA"
       case _:
         False,
     "two globs position 1 capture, position 2 wildcard"),
@@ -114,7 +111,7 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "LfooMIDQbarR":
       case "${a}foo${b}$.{c}bar${d}":
-        andb(andb(eqs(a, "L"), eqs(b, "MID")), andb(c matches .'Q', eqs(d, "R")))
+        andb(andb(a matches "L", b matches "MID"), andb(c matches .'Q', d matches "R"))
       case _:
         False,
     "three globs with string and char capture separators"),
@@ -124,28 +121,28 @@ tests = TestSuite("String pattern branch tests", [
   Assertion(
     match "fooQbar":
       case "${a}foo${b}$.{c}bar${d}":
-        andb(andb(eqs(a, ""), eqs(b, "")), andb(c matches .'Q', eqs(d, "")))
+        andb(andb(a matches "", b matches ""), andb(c matches .'Q', d matches ""))
       case _:
         False,
     "three globs allow empty captures around separator"),
   Assertion(
     match "LfooMIDQbarR":
       case "${_}foo${b}$.{c}bar${d}":
-        andb(eqs(b, "MID"), andb(c matches .'Q', eqs(d, "R")))
+        andb(b matches "MID", andb(c matches .'Q', d matches "R"))
       case _:
         False,
     "three globs position 1 wildcard"),
   Assertion(
     match "LfooMIDQbarR":
       case "${a}foo${_}$.{c}bar${d}":
-        andb(eqs(a, "L"), andb(c matches .'Q', eqs(d, "R")))
+        andb(a matches "L", andb(c matches .'Q', d matches "R"))
       case _:
         False,
     "three globs position 2 wildcard"),
   Assertion(
     match "LfooMIDQbarR":
       case "${a}foo${b}$.{c}bar${_}":
-        andb(eqs(a, "L"), andb(eqs(b, "MID"), c matches .'Q'))
+        andb(a matches "L", andb(b matches "MID", c matches .'Q'))
       case _:
         False,
     "three globs position 3 wildcard"),
@@ -157,8 +154,8 @@ tests = TestSuite("String pattern branch tests", [
     match "PfooM1XbarM2bazS":
       case "${a}foo${b}$.{c}bar${d}baz${e}":
         andb(
-          andb(eqs(a, "P"), eqs(b, "M1")),
-          andb(c matches .'X', andb(eqs(d, "M2"), eqs(e, "S"))))
+          andb(a matches "P", b matches "M1"),
+          andb(c matches .'X', andb(d matches "M2", e matches "S")))
       case _:
         False,
     "four globs with mixed separators"),
@@ -169,8 +166,8 @@ tests = TestSuite("String pattern branch tests", [
     match "fooXbarbaz":
       case "${a}foo${b}$.{c}bar${d}baz${e}":
         andb(
-          andb(eqs(a, ""), eqs(b, "")),
-          andb(c matches .'X', andb(eqs(d, ""), eqs(e, ""))))
+          andb(a matches "", b matches ""),
+          andb(c matches .'X', andb(d matches "", e matches "")))
       case _:
         False,
     "four globs allow empty captures across all regions"),

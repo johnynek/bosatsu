@@ -14,6 +14,16 @@ object StrPart {
   case object IndexChar extends CharPart(true)
   case class LitStr(asString: String) extends StrPart
 
+  def compact(parts: List[StrPart]): List[StrPart] =
+    parts.foldRight(List.empty[StrPart]) {
+      case (LitStr(""), tail) =>
+        tail
+      case (LitStr(s0), LitStr(s1) :: tail) =>
+        LitStr(s0 + s1) :: tail
+      case (head, tail) =>
+        head :: tail
+    }
+
   implicit val strPartOrder: Order[StrPart] = new Order[StrPart] {
     private def tag(sp: StrPart): Int =
       sp match {

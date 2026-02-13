@@ -21,7 +21,6 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
-def eqs(a, b): cmp_String(a, b) matches EQ
 def notb(a):
   match a:
     case True: False
@@ -130,7 +129,7 @@ test_string = TestSuite("String tests", [
   Assertion("abq" matches "ab${_}", "literal prefix with wildcard tail"),
   Assertion(
     match "abq":
-      case "ab${tail}": eqs(tail, "q")
+      case "ab${tail}": tail matches "q"
       case _: False,
     "literal prefix with captured tail"),
 
@@ -138,7 +137,7 @@ test_string = TestSuite("String tests", [
     match "xy":
       case "$.{h}${t}":
         if h matches .'x':
-          eqs(t, "y")
+          t matches "y"
         else:
           False
       case _: False,
@@ -151,7 +150,7 @@ test_string = TestSuite("String tests", [
   Assertion(
     match "abcz":
       case "${left}$.{mid}z":
-        andb(eqs(left, "ab"), mid matches .'c')
+        andb(left matches "ab", mid matches .'c')
       case _: False,
     "glob-char search with captures"),
 
@@ -159,13 +158,13 @@ test_string = TestSuite("String tests", [
   Assertion(notb("" matches "${_}x"), "glob-literal search on empty input"),
   Assertion(
     match "aaZ":
-      case "${left}aZ": eqs(left, "a")
+      case "${left}aZ": left matches "a"
       case _: False,
     "glob-literal single-char candidate miss then hit"),
   Assertion("ababZ" matches "${_}abZ", "glob-literal multi-char candidate miss then hit"),
   Assertion(
     match "👋👋x":
-      case "${left}👋x": eqs(left, "👋")
+      case "${left}👋x": left matches "👋"
       case _: False,
     "unicode literal candidate miss then hit"),
 ])

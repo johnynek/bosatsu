@@ -278,7 +278,7 @@ external def partition_String(arg: String, sep: String) -> Option[(String, Strin
 # a and b are always proper substrings, so rpartition_String(a, "") == None
 # this matches from the right, so partition_String(b, sep) == None
 external def rpartition_String(arg: String, sep: String) -> Option[(String, String)]
-# if this returns Some((h, t)) then arg == concat_String([h, t])
+# if this returns Some((h, t)) then arg == concat_String([char_to_String(h), t])
 # h is exactly one codepoint and t is the remaining suffix
 external def uncons_String(arg: String) -> Option[(Char, String)]
 
