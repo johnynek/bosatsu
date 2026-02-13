@@ -223,6 +223,9 @@ class ParserTest extends ParserTestBase {
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
     parseTestAll(Parser.escapedString('\''), "'foo\\tbar'", "foo\tbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
+    parseTestAll(Parser.escapedString('\''), "'foo\\\nbar'", "foobar")
+    parseTestAll(Parser.escapedString('"'), "\"foo\\\nbar\"", "foobar")
+    parseTestAll(Parser.escapedString('\''), "'foo\\\n  bar'", "foo  bar")
 
     val regressions = List(("'", '\''))
 
@@ -253,6 +256,7 @@ class ParserTest extends ParserTestBase {
     singleq("''", List())
     singleq("'foo\\\\qbar'", List(Right("foo\\qbar")))
     singleq("'foo\tbar'", List(Right("foo\tbar")))
+    singleq("'foo\\\nbar'", List(Right("foobar")))
     singleq(s"'foo\\$dollar{bar}'", List(Right(s"foo$dollar{bar}")))
     // foo$bar is okay, it is only foo${bar} that needs to be escaped
     singleq(s"'foo${dollar}bar'", List(Right(s"foo${dollar}bar")))

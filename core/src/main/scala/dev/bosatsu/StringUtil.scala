@@ -4,6 +4,7 @@ import cats.parse.{Parser0 => P0, Parser => P, Accumulator, Appender}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
+  protected def allowEscapedNewlineContinuation: Boolean = false
 
   private val encodeTable = decodeTable.iterator.map { case (v, k) =>
     (k, s"\\$v")
@@ -78,12 +79,35 @@ abstract class GenericStringUtil {
         }
     }
 
+  private val codePointOptionAccumulator: Accumulator[Option[Int], String] =
+    new Accumulator[Option[Int], String] {
+      def newAppender(first: Option[Int]): Appender[Option[Int], String] =
+        new Appender[Option[Int], String] {
+          val strbuilder = new java.lang.StringBuilder
+          if (first.isDefined) strbuilder.appendCodePoint(first.get)
+
+          def append(item: Option[Int]) = {
+            // Performance: this avoids Option.foreach closure allocation/indirection.
+            if (item.isDefined) strbuilder.appendCodePoint(item.get)
+            this
+          }
+          def finish(): String = strbuilder.toString
+        }
+    }
+
   /** String content without the delimiter
     */
-  def undelimitedString1(endP: P[Unit]): P[String] =
-    escapedToken
-      .orElse((!endP).with1 *> utf16Codepoint)
-      .repAs(using codePointAccumulator)
+  def undelimitedString1(endP: P[Unit]): P[String] = {
+    val continuation =
+      (P.char('\\').soft ~ P.char('\n')).as(None)
+    val escapedOrLiteral =
+      escapedToken.map(Some(_))
+        .orElse((!endP).with1 *> utf16Codepoint.map(Some(_)))
+
+    (if (allowEscapedNewlineContinuation) continuation.orElse(escapedOrLiteral)
+     else escapedOrLiteral)
+      .repAs(using codePointOptionAccumulator)
+  }
 
   def codepoint(startP: P[Any], endP: P[Any]): P[Int] =
     startP *>
@@ -195,6 +219,7 @@ abstract class GenericStringUtil {
 }
 
 object StringUtil extends GenericStringUtil {
+  override protected val allowEscapedNewlineContinuation: Boolean = true
   // Here are the rules for escaping in python/bosatsu
   lazy val decodeTable: Map[Char, Char] =
     Map(

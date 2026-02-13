@@ -92,8 +92,14 @@ object Parser {
   sealed trait Error {
     def showContext(errColor: LocationMap.Colorize): Doc =
       this match {
-        case Error.ParseFailure(_, locations, exps) =>
-          Error.showExpectations(locations, exps, errColor)
+        case pf @ Error.ParseFailure(_, locations, exps) =>
+          val base = Error.showExpectations(locations, exps, errColor)
+          ParserHints.hints(pf) match {
+            case Nil    => base
+            case h :: t =>
+              val hints = Doc.intercalate(Doc.hardLine, h :: t)
+              base + Doc.hardLine + hints
+          }
       }
   }
 
