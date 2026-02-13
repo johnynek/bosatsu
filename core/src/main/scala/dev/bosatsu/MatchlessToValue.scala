@@ -5,9 +5,7 @@ import cats.data.NonEmptyList
 import cats.evidence.Is
 import cats.syntax.eq._
 import java.math.BigInteger
-import dev.bosatsu.pattern.StrPart
 import scala.collection.immutable.LongMap
-import NonNullFold.*
 
 import Identifier.Bindable
 import Value._
@@ -290,37 +288,6 @@ object MatchlessToValue {
             Dynamic { (scope: Scope) =>
               val scope1 = scope.letMut(ident)
               inF(scope1)
-            }
-          case MatchString(str, pat, binds, _) =>
-            // do this before we evaluate the string
-            binds match {
-              case Nil =>
-                // we have nothing to bind
-                loop(str).map { strV =>
-                  val arg = strV.asExternal.toAny.asInstanceOf[String]
-                  StrPart.matchString(arg, pat, 0).notNull
-                }
-              case _ =>
-                val bary = binds.iterator.collect { case LocalAnonMut(id) =>
-                  id
-                }.toArray
-
-                // this may be static
-                val matchScope = loop(str).map { str =>
-                  val arg = str.asExternal.toAny.asInstanceOf[String]
-                  StrPart.matchString(arg, pat, bary.length)
-                }
-                // if we mutate scope, it has to be dynamic
-                Dynamic { scope =>
-                  matchScope(scope).foldNN(false) { res =>
-                    var idx = 0
-                    while (idx < bary.length) {
-                      scope.updateMut(bary(idx), ExternalValue(res(idx)))
-                      idx = idx + 1
-                    }
-                    true
-                  }
-                }
             }
         }
 

@@ -136,6 +136,11 @@ object Predef {
         "rpartition_String",
         FfiCall.Fn2(PredefImpl.rightPartitionString(_, _))
       )
+      .add(
+        predefPackageName,
+        "uncons_String",
+        FfiCall.Fn1(PredefImpl.uncons_String(_))
+      )
       .add(arrayPackageName, "empty_Array", FfiCall.Const(PredefImpl.emptyArray))
       .add(
         arrayPackageName,
@@ -1360,6 +1365,20 @@ object PredefImpl {
           val right = argS.substring(idx + sepS.length)
           Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
       }
+    }
+  }
+
+  // return an Option[(String, String)] with a single-codepoint head and the remaining tail
+  def uncons_String(arg: Value): Value = {
+    val argS = arg.asExternal.toAny.asInstanceOf[String]
+    if (argS.isEmpty) Value.VOption.none
+    else {
+      val nextOff = argS.offsetByCodePoints(0, 1)
+      val head = argS.substring(0, nextOff)
+      val tail = argS.substring(nextOff)
+      Value.VOption.some(
+        Value.Tuple(Value.ExternalValue(head), Value.ExternalValue(tail))
+      )
     }
   }
 

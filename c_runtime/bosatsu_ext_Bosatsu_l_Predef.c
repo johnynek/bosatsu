@@ -263,6 +263,18 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_rpartition__String(BValue a, BValue b) {
   return alloc_enum1(1, alloc_struct2(x, y));
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_uncons__String(BValue a) {
+  size_t alen = bsts_string_utf8_len(a);
+  if (alen == 0) {
+    return alloc_enum0(0);
+  }
+
+  int head_bytes = bsts_string_code_point_bytes(a, 0);
+  BValue head = bsts_string_substring(a, 0, head_bytes);
+  BValue tail = bsts_string_substring_tail(a, head_bytes);
+  return alloc_enum1(1, alloc_struct2(head, tail));
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_shift__left__Int(BValue a, BValue b) {
   return bsts_integer_shift_left(a, b);
 }
