@@ -2,12 +2,12 @@
 
 @@@ index
 * [Design Philosophy](design.md)
+* [Design Docs](design-docs/index.md)
 * [Getting Started](getting_started.md)
 * [Language Guide](language_guide.md)
 * [Recursion In Bosatsu](recursion.md)
 * [Bosatsu for JSON Generation](generating_json.md)
 * [Compiling to Python](transpile_python.md)
-* [Pattern Guards Design](pattern_guards_design.md)
 @@@
 
 Bosatsu (菩薩) is the transliteration in Japanese of the sanskrit bodhisattva.
