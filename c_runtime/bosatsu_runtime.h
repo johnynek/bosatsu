@@ -103,6 +103,7 @@ size_t bsts_string_utf8_len_ref(const BValue* str);
 // into the provided BValue storage and is valid while that storage is alive.
 BSTS_String_View bsts_string_view_ref(const BValue* str);
 const char* bsts_string_utf8_bytes_ref(const BValue* str);
+// Mutable bytes for owned, non-tiny, non-sliced strings; aborts otherwise.
 char* bsts_string_utf8_bytes_mut(BValue str);
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len);
 
