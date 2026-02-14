@@ -5,7 +5,13 @@ import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
 import dev.bosatsu.Predef
 import dev.bosatsu.library.LibraryEvaluation
-import dev.bosatsu.tool.{CommonOpts, MainIdentifier, Output, PackageResolver, PathGen}
+import dev.bosatsu.tool.{
+  CommonOpts,
+  MainIdentifier,
+  Output,
+  PackageResolver,
+  PathGen
+}
 import dev.bosatsu.{Par, PlatformIO}
 
 object EvalCommand {
@@ -48,8 +54,8 @@ object EvalCommand {
       toDocFn = ev.valueToDoc.toDoc(tpe)
       evalDoc = memoizedEval.map { v =>
         toDocFn(v) match {
-          case Right(d)  => d
-            // $COVERAGE-OFF$ unreachable due to being well typed
+          case Right(d) => d
+          // $COVERAGE-OFF$ unreachable due to being well typed
           case Left(err) =>
             sys.error(show"got illtyped error: $err")
           // $COVERAGE-ON$

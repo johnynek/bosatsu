@@ -35,13 +35,12 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
           Opts
             .flag(
               "git",
-              help =
-                s"use the git-sha ($gitVer) the compiler was built at.",
+              help = s"use the git-sha ($gitVer) the compiler was built at.",
               "g"
             )
             .orFalse
             .map(if (_) Some(gitVer) else None)
-        case None         =>
+        case None =>
           Opts(None)
       }
 

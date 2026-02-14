@@ -14,7 +14,7 @@ object NameSuggestion {
       scope: ScopePriority = ScopePriority.Imported
   )
 
-  private final case class Scored[+A](
+  final private case class Scored[+A](
       candidate: Candidate[A],
       distance: Int,
       longestPrefix: Int,

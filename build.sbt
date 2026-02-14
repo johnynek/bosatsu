@@ -43,7 +43,7 @@ lazy val commonSettings = Seq(
     "-Ycheck-all-patmat",
     "-explain",
     "-Wunused:all",
-    "-Werror",
+    "-Werror"
   ),
   Test / testOptions += Tests.Argument("-oDF")
 )
@@ -115,7 +115,9 @@ lazy val docs = (project in file("docs"))
       }
 
       if (!generatedDocsRoot.exists()) {
-        sys.error(s"expected generated docs at $generatedDocsRoot, but directory was missing")
+        sys.error(
+          s"expected generated docs at $generatedDocsRoot, but directory was missing"
+        )
       }
 
       IO.delete(paradoxGeneratedRoot)
@@ -125,7 +127,9 @@ lazy val docs = (project in file("docs"))
       val markdownFiles =
         (paradoxGeneratedRoot ** "*.md").get
           .filterNot(_.getName == "index.md")
-          .sortBy(f => IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath))
+          .sortBy(f =>
+            IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath)
+          )
 
       val linkLines = markdownFiles.map { file =>
         val relPath = IO

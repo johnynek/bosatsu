@@ -114,7 +114,9 @@ def len(lst):
 """)
   }
 
-  test("recursive calls in guards follow the same legality rules as branch bodies") {
+  test(
+    "recursive calls in guards follow the same legality rules as branch bodies"
+  ) {
     allowed("""#
 def len(lst):
   recur lst:

@@ -107,16 +107,19 @@ object NTypeGen {
     def shrink(t: Type): LazyList[Type] =
       t match {
         case ForAll(items, in) =>
-          Shrink.shrink((items.toList, in))
+          Shrink
+            .shrink((items.toList, in))
             .to(LazyList)
             .map { case (it, in) => Type.forAll(it, in) }
         case Exists(items, in) =>
-          Shrink.shrink((items.toList, in))
+          Shrink
+            .shrink((items.toList, in))
             .to(LazyList)
             .map { case (it, in) => Type.exists(it, in) }
         case _: Leaf          => LazyList.empty
         case TyApply(on, arg) =>
-          Shrink.shrink((on, arg))
+          Shrink
+            .shrink((on, arg))
             .to(LazyList)
             .collect { case (on: Type.Rho, arg) => TyApply(on, arg) }
       }
@@ -203,7 +206,7 @@ object NTypeGen {
         .zip(recurse, genDepth(d - 1, genC))
         .map {
           case (a: (Type.Leaf | Type.TyApply), b) => Type.TyApply(a, b)
-          case (exists, _) => exists
+          case (exists, _)                        => exists
         }
 
       Gen.frequency((3, root), (1, genApply))
@@ -230,12 +233,12 @@ object NTypeGen {
           in <- recurse
         } yield Type.exists(as, in)
 
-      val genQ = Gen.zip(genQuantArgs, genQuantArgs, recurse).map {
-        case (fa, ex0, t) =>
+      val genQ =
+        Gen.zip(genQuantArgs, genQuantArgs, recurse).map { case (fa, ex0, t) =>
           val faSet = fa.map(_._1).toSet
           val ex = ex0.filterNot { case (b, _) => faSet(b) }
           Type.quantify(forallList = fa, existList = ex, t)
-      }
+        }
 
       val genApply = Gen.zip(genTypeRho(d - 1, genC), recurse).map {
         case (a, b) => Type.apply1(a, b)

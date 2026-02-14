@@ -432,8 +432,8 @@ object Package {
               .toMap
 
           val localTypeNames: Set[TypeName] =
-            fullTypeEnv.definedTypes.keysIterator.collect {
-              case (`p`, tn) => tn
+            fullTypeEnv.definedTypes.keysIterator.collect { case (`p`, tn) =>
+              tn
             }.toSet
 
           val inferenceEither = Infer

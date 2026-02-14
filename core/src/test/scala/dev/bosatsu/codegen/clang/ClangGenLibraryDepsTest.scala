@@ -4,7 +4,12 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.hashing.{Algo, HashValue}
-import dev.bosatsu.library.{DecodedLibrary, DecodedLibraryWithDeps, Name, Version}
+import dev.bosatsu.library.{
+  DecodedLibrary,
+  DecodedLibraryWithDeps,
+  Name,
+  Version
+}
 import dev.bosatsu.{LocationMap, Package, PackageMap, PackageName, Par, Parser}
 import scala.collection.immutable.SortedMap
 
@@ -62,7 +67,8 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       hashValue = HashValue[Algo.Blake3]("00"),
       protoLib = proto.Library(
         name = "dep",
-        descriptor = Some(proto.LibDescriptor(version = Some(depVersion.toProto)))
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(depVersion.toProto)))
       ),
       interfaces = depIface :: Nil,
       implementations = depPm
@@ -92,7 +98,7 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
     Par.withEC {
       val values = rootDl.lib.implementations.testValues.toList.sorted
       ClangGen(rootDl).renderTests(values) match {
-        case Right(_) => ()
+        case Right(_)  => ()
         case Left(err) =>
           fail(err.display.render(80))
       }

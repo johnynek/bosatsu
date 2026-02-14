@@ -21,8 +21,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       code,
       m =>
         mapping.getOrElseUpdate(
-          m.matched.nn,
-          {
+          m.matched.nn, {
             val nm = s"___v$next"
             next = next + 1
             nm

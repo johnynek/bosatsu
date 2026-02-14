@@ -36,10 +36,9 @@ object TestUtils {
   def parsedTypeEnvOf(
       pack: PackageName,
       str: String
-  ): ParsedTypeEnv[Option[Kind.Arg]] = {
+  ): ParsedTypeEnv[Option[Kind.Arg]] =
 
     sourceConvertedProgramOf(pack, str).types._2
-  }
 
   val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
     val p = Package.predefPackage
@@ -68,15 +67,15 @@ object TestUtils {
         case t @ Type.TyMeta(_)            =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
-            checkType(left, bound)
-            checkType(right, bound)
-            t
+          checkType(left, bound)
+          checkType(right, bound)
+          t
         case Type.ForAll(vars, in) =>
-            checkType(in, bound ++ vars.toList.map(_._1))
-            t
+          checkType(in, bound ++ vars.toList.map(_._1))
+          t
         case Type.Exists(vars, in) =>
-            checkType(in, bound ++ vars.toList.map(_._1))
-            t
+          checkType(in, bound ++ vars.toList.map(_._1))
+          t
         case Type.TyConst(_) => t
       }
     te.traverseType[cats.Id](checkType(_, Set.empty))

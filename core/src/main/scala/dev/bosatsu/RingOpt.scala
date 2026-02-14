@@ -2245,7 +2245,9 @@ object RingOpt {
           val costDouble = W.cost(doubled)
           val costSumProd = W.cost(sumProd)
           if (costDouble < costSumProd) doubled
-          else if (costDouble == costSumProd && Order[Expr[A]].lt(doubled, sumProd))
+          else if (
+            costDouble == costSumProd && Order[Expr[A]].lt(doubled, sumProd)
+          )
             doubled
           else sumProd
         } else sumProd

@@ -292,8 +292,7 @@ object Statement {
 
     val enumP = {
       val constructorP =
-        (Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?)
-          .region
+        (Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region
           .map {
             case (region, ((n, targs), None)) =>
               EnumBranch(n, targs, Nil, region)
@@ -371,12 +370,13 @@ object Statement {
       }
     val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
 
-    implicit val consDoc: Document[EnumBranch] = Document.instance[EnumBranch] { item =>
-      val taDoc = item.typeArgs match {
-        case None     => Doc.empty
-        case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
-      }
-      constructor(item.name, taDoc, item.args)
+    implicit val consDoc: Document[EnumBranch] = Document.instance[EnumBranch] {
+      item =>
+        val taDoc = item.typeArgs match {
+          case None     => Doc.empty
+          case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
+        }
+        constructor(item.name, taDoc, item.args)
     }
 
     Document.instance[Statement] {
@@ -407,7 +407,8 @@ object Statement {
             Doc.intercalate(itemSep, ne.toList.map(Document[T].document))
           }
 
-        val indentedCons = OptIndent.document[NonEmptyList[EnumBranch]].document(parts)
+        val indentedCons =
+          OptIndent.document[NonEmptyList[EnumBranch]].document(parts)
 
         val taDoc = typeArgs match {
           case None     => Doc.empty

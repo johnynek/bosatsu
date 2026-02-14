@@ -185,7 +185,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           parsed match {
             case Left(err) =>
               fail(s"failed to parse '$litStr' in Bosatsu: $err")
-            case Right(f)  =>
+            case Right(f) =>
               val pyBits = java.lang.Double.doubleToRawLongBits(
                 py.eval(s"float('$litStr')").asDouble()
               )

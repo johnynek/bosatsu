@@ -206,7 +206,7 @@ object MatchlessToValue {
             map2(sf, sa)(_(_))
         }
     }
-    
+
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
@@ -224,13 +224,15 @@ object MatchlessToValue {
                       val right = d.doubleValue
                       // Float literal matching follows numeric equality:
                       // -0.0 == 0.0 and NaN matches NaN.
-                      (left == right) || (java.lang.Double.isNaN(left) && java.lang.Double.isNaN(right))
-                    case _                    =>
+                      (left == right) || (java.lang.Double.isNaN(
+                        left
+                      ) && java.lang.Double.isNaN(right))
+                    case _ =>
                       // $COVERAGE-OFF$
                       false
                     // $COVERAGE-ON$
                   }
-                case _               =>
+                case _ =>
                   val litAny = lit.unboxToAny
                   // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
                   external === litAny

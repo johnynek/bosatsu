@@ -39,7 +39,8 @@ case class LibraryEvaluation[K] private (
       MatchlessFromTypedExpr.compile(scope, data.packages)
     }
 
-  private lazy val envCache: MMap[(K, PackageName), Map[Identifier, Eval[Value]]] =
+  private lazy val envCache
+      : MMap[(K, PackageName), Map[Identifier, Eval[Value]]] =
     MMap.empty
 
   private def packageInScope(
@@ -78,13 +79,13 @@ case class LibraryEvaluation[K] private (
       packName: PackageName,
       exprs: List[(Bindable, Matchless.Expr[K])]
   ): List[(Bindable, Eval[Value])] = {
-    val evalFn: (K, PackageName, Identifier) => Eval[Value] =
-      { (srcScope, p, i) =>
+    val evalFn: (K, PackageName, Identifier) => Eval[Value] = {
+      (srcScope, p, i) =>
         val targetScope = depFor(srcScope, p)
         if (keyOrder.equiv(targetScope, scope) && p == packName)
           Eval.defer(evaluate(targetScope, p)(i))
         else evaluate(targetScope, p)(i)
-      }
+    }
 
     type F[A] = List[(Bindable, A)]
     type BindablePair[A] = (Bindable, A)
@@ -105,7 +106,7 @@ case class LibraryEvaluation[K] private (
           sys.error(
             s"missing package $packName in scope ${renderScope(scope)}"
           )
-        // $COVERAGE-ON$
+          // $COVERAGE-ON$
         }
         val lets =
           compiled
@@ -116,12 +117,16 @@ case class LibraryEvaluation[K] private (
       }
     )
 
-  private lazy val packageCandidates: Map[PackageName, List[(K, Package.Typed[Any])]] =
-    scopes.iterator.flatMap { case (scope, data) =>
-      data.packages.toMap.iterator.map { case (pn, pack) =>
-        (pn, (scope, pack))
+  private lazy val packageCandidates
+      : Map[PackageName, List[(K, Package.Typed[Any])]] =
+    scopes.iterator
+      .flatMap { case (scope, data) =>
+        data.packages.toMap.iterator.map { case (pn, pack) =>
+          (pn, (scope, pack))
+        }
       }
-    }.toList.groupMap(_._1)(_._2)
+      .toList
+      .groupMap(_._1)(_._2)
 
   private def selectScopeFor(
       pn: PackageName
@@ -132,7 +137,9 @@ case class LibraryEvaluation[K] private (
       case Some((scope, _) :: Nil) =>
         Right(scope)
       case Some(scoped) =>
-        scoped.find { case (scope, _) => keyOrder.equiv(scope, rootScope) } match {
+        scoped.find { case (scope, _) =>
+          keyOrder.equiv(scope, rootScope)
+        } match {
           case Some((scope, _)) => Right(scope)
           case None             =>
             val scopeStrings = scoped.map(_._1).distinct.map(renderScope(_))
@@ -152,12 +159,16 @@ case class LibraryEvaluation[K] private (
       pack <- packageInScope(scope, pn).toRight(
         new Exception(s"package ${pn.asString} not found in scope")
       )
-      (name, _, te) <- Package.mainValue(pack).toRight(
-        new Exception(s"found no main expression in package ${pn.asString}")
-      )
-      value <- evaluate(scope, pn).get(name).toRight(
-        new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
-      )
+      (name, _, te) <- Package
+        .mainValue(pack)
+        .toRight(
+          new Exception(s"found no main expression in package ${pn.asString}")
+        )
+      value <- evaluate(scope, pn)
+        .get(name)
+        .toRight(
+          new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
+        )
     } yield (scope, value, te.getType)
 
   def evaluateMainValue(
@@ -176,12 +187,16 @@ case class LibraryEvaluation[K] private (
       pack <- packageInScope(scope, pn).toRight(
         new Exception(s"package ${pn.asString} not found in scope")
       )
-      (_, _, te) <- pack.lets.findLast(_._1 == name).toRight(
-        new Exception(s"value ${pn.asString}::${name.asString} not found")
-      )
-      value <- evaluate(scope, pn).get(name).toRight(
-        new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
-      )
+      (_, _, te) <- pack.lets
+        .findLast(_._1 == name)
+        .toRight(
+          new Exception(s"value ${pn.asString}::${name.asString} not found")
+        )
+      value <- evaluate(scope, pn)
+        .get(name)
+        .toRight(
+          new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
+        )
     } yield (scope, value, te.getType)
 
   def evaluateNameValue(
@@ -208,7 +223,8 @@ case class LibraryEvaluation[K] private (
     const match {
       case Type.Const.Defined(pn, t) =>
         val byScope = depFor(scope, pn)
-        val inScope = packageInScope(byScope, pn).flatMap(_.types.getType(pn, t))
+        val inScope =
+          packageInScope(byScope, pn).flatMap(_.types.getType(pn, t))
         inScope.orElse {
           packageCandidates
             .get(pn)
@@ -231,10 +247,11 @@ case class LibraryEvaluation[K] private (
 
   def packagesForShow(
       requested: List[PackageName]
-  ): Either[Throwable, List[Package.Typed[Any]]] = {
+  ): Either[Throwable, List[Package.Typed[Any]]] =
     scopes.get(rootScope).toRight(new Exception("missing root scope")).flatMap {
       rootData =>
-        if (requested.isEmpty) Right(rootData.packages.toMap.values.toList.sortBy(_.name))
+        if (requested.isEmpty)
+          Right(rootData.packages.toMap.values.toList.sortBy(_.name))
         else
           requested.traverse { pn =>
             for {
@@ -245,7 +262,6 @@ case class LibraryEvaluation[K] private (
             } yield pack
           }
     }
-  }
 }
 
 object LibraryEvaluation {
@@ -284,7 +300,7 @@ object LibraryEvaluation {
         acc: SortedMap[ScopeKey, ScopeData[ScopeKey]]
     ): SortedMap[ScopeKey, ScopeData[ScopeKey]] =
       todo match {
-        case Nil => acc
+        case Nil          => acc
         case head :: tail =>
           if (acc.contains(head.nameVersion)) loop(tail, acc)
           else {
@@ -292,7 +308,10 @@ object LibraryEvaluation {
               packages = head.lib.implementations,
               depForPackage = pn => head.depFor(pn).map(_.nameVersion)
             )
-            loop(head.deps.values.toList ::: tail, acc.updated(head.nameVersion, data))
+            loop(
+              head.deps.values.toList ::: tail,
+              acc.updated(head.nameVersion, data)
+            )
           }
       }
 

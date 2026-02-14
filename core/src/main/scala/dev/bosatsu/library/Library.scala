@@ -9,7 +9,8 @@ object Library {
   def dep(name: String, version: Option[Version]): proto.LibDependency =
     proto.LibDependency(
       name = name,
-      desc = version.map(ver => proto.LibDescriptor(version = Some(ver.toProto)))
+      desc =
+        version.map(ver => proto.LibDescriptor(version = Some(ver.toProto)))
     )
 
   def dep(name: String, version: Version): proto.LibDependency =

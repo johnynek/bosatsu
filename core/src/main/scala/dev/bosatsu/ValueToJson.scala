@@ -628,7 +628,10 @@ object JsonEncodingError {
   object DataError {
     private def pathToString(path: List[Type]): String =
       if (path.isEmpty) "root"
-      else path.map(Type.fullyResolvedDocument.document(_).render(80)).mkString(" -> ")
+      else
+        path
+          .map(Type.fullyResolvedDocument.document(_).render(80))
+          .mkString(" -> ")
 
     private def typeToString(tpe: Type): String =
       Type.fullyResolvedDocument.document(tpe).render(80)

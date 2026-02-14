@@ -51,7 +51,9 @@ sealed abstract class Expr[T] derives CanEqual {
         val branchFrees = branches.toList.map { branch =>
           // these are not free variables in this branch
           val newBinds = branch.pattern.names.toSet
-          val bfree = branch.guard.fold(Nil: List[Bindable])(_.freeVarsDup) ::: branch.expr.freeVarsDup
+          val bfree = branch.guard.fold(Nil: List[Bindable])(
+            _.freeVarsDup
+          ) ::: branch.expr.freeVarsDup
           if (newBinds.isEmpty) bfree
           else ListUtil.filterNot(bfree)(newBinds)
         }
@@ -91,7 +93,9 @@ sealed abstract class Expr[T] derives CanEqual {
       case Literal(_, _)           => Set.empty
       case Match(arg, branches, _) =>
         arg.globals | branches.foldMap { branch =>
-          branch.guard.fold(Set.empty[Expr.Global[T]])(_.globals) | branch.expr.globals
+          branch.guard.fold(Set.empty[Expr.Global[T]])(
+            _.globals
+          ) | branch.expr.globals
         }
     }
   }

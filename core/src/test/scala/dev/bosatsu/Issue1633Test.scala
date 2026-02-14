@@ -54,9 +54,7 @@ main = parse_value(" null")
     TestUtils.testInferred(
       List(reproSource),
       reproPackage.asString,
-      { (pm, pn) =>
-        out = Some(fn(pm, pn))
-      }
+      (pm, pn) => out = Some(fn(pm, pn))
     )
     out match {
       case Some(value) => value
@@ -170,7 +168,9 @@ main = parse_value(" null")
     loopExpr(expr)
   }
 
-  test("issue 1633: loop+string-match lowering avoids captured non-function apply") {
+  test(
+    "issue 1633: loop+string-match lowering avoids captured non-function apply"
+  ) {
     withRepro { (pm, _) =>
       val pack = pm.toMap.getOrElse(
         reproPackage,
@@ -178,7 +178,7 @@ main = parse_value(" null")
       )
       val parseValueTyped = pack.lets.find(_._1 == parseValueName) match {
         case Some((_, _, te)) => te
-        case None =>
+        case None             =>
           fail(s"missing ${parseValueName.sourceCodeRepr} in typed lets")
       }
       assert(typedHasLoop(parseValueTyped), parseValueTyped.repr.render(100))
@@ -221,7 +221,10 @@ main = parse_value(" null")
         reproPackage,
         fail(s"missing inferred package: ${reproPackage.asString}")
       )
-      assert(pack.lets.exists(_._1 == mainName), s"missing ${mainName.sourceCodeRepr}")
+      assert(
+        pack.lets.exists(_._1 == mainName),
+        s"missing ${mainName.sourceCodeRepr}"
+      )
 
       val ev = library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
       val (mainEval, _) =

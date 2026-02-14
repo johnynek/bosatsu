@@ -636,7 +636,7 @@ object Command {
                             "run `lib fetch` to insert these libraries into the cas."
                           )
                         )
-                  )
+                      )
                 }
             }
           }
@@ -661,7 +661,8 @@ object Command {
         for {
           decWithLibs <- sourcePackageFilter match {
             case None         => decodedWithDeps(colorize)
-            case Some(filter) => decodedWithDepsFilteredForTest(colorize, filter)
+            case Some(filter) =>
+              decodedWithDepsFilteredForTest(colorize, filter)
           }
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
@@ -734,7 +735,7 @@ object Command {
           acc: Map[Key, DecodedLibrary[Algo.Blake3]]
       ): F[Map[Key, DecodedLibrary[Algo.Blake3]]] =
         todo match {
-          case Nil => moduleIOMonad.pure(acc)
+          case Nil         => moduleIOMonad.pure(acc)
           case lib :: rest =>
             moduleIOMonad
               .fromEither(
@@ -759,9 +760,8 @@ object Command {
               }
         }
 
-      val initial = pubDecodes.iterator.map(dec =>
-        (dec.name, dec.version) -> dec
-      ).toMap
+      val initial =
+        pubDecodes.iterator.map(dec => (dec.name, dec.version) -> dec).toMap
 
       loop(pubDecodes, initial)
         .flatMap { depMap =>
@@ -975,10 +975,11 @@ object Command {
                         Doc.text(info.name) + (Doc.line + details).nested(2)
                       }
                       Some(
-                        Doc.text(show"$label deps:") + (Doc.line + Doc.intercalate(
-                          Doc.hardLine,
-                          docs
-                        )).nested(2)
+                        Doc.text(show"$label deps:") + (Doc.line + Doc
+                          .intercalate(
+                            Doc.hardLine,
+                            docs
+                          )).nested(2)
                       )
                     }
 
@@ -1103,9 +1104,12 @@ object Command {
 
                       val initial = prevDeps
                         .traverse { dep =>
-                          depMap.get((dep.name, Library.versionOrZero(dep))) match {
-                            case Some(existing) => moduleIOMonad.pure(Some(existing))
-                            case None      => fromCas(dep)
+                          depMap.get(
+                            (dep.name, Library.versionOrZero(dep))
+                          ) match {
+                            case Some(existing) =>
+                              moduleIOMonad.pure(Some(existing))
+                            case None => fromCas(dep)
                           }
                         }
 
@@ -1251,11 +1255,11 @@ object Command {
 
         (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
           (fcc, sourceFilter, colorize) =>
-          for {
-            cc <- fcc
-            _ <- cc.check(colorize, sourceFilter)
-            msg = Doc.text("")
-          } yield (Output.Basic(msg, None): Output[P])
+            for {
+              cc <- fcc
+              _ <- cc.check(colorize, sourceFilter)
+              msg = Doc.text("")
+            } yield (Output.Basic(msg, None): Output[P])
         }
       }
 
@@ -1320,7 +1324,8 @@ object Command {
           Opts
             .options[PackageName](
               "package",
-              help = "package names to show (defaults to local library packages)"
+              help =
+                "package names to show (defaults to local library packages)"
             )
             .orEmpty,
           Opts.option[P]("output", help = "output path").orNone,
@@ -1354,12 +1359,11 @@ object Command {
             )
             .orFalse,
           Colorize.optsConsoleDefault
-        ).mapN {
-          (fcc, outdir, includePredef, colorize) =>
-            for {
-              cc <- fcc
-              docs <- cc.docPackages(colorize, outdir, includePredef)
-            } yield (Output.TranspileOut(docs): Output[P])
+        ).mapN { (fcc, outdir, includePredef, colorize) =>
+          for {
+            cc <- fcc
+            docs <- cc.docPackages(colorize, outdir, includePredef)
+          } yield (Output.TranspileOut(docs): Output[P])
         }
       }
 
@@ -1487,7 +1491,9 @@ object Command {
                         fn(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(show"unexpected value error: $valueError")
+                              new Exception(
+                                show"unexpected value error: $valueError"
+                              )
                             )
                           case Right(j) =>
                             moduleIOMonad.pure(
@@ -1503,12 +1509,15 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(show"unexpected value error: $valueError")
+                              new Exception(
+                                show"unexpected value error: $valueError"
+                              )
                             )
                           case Right(fn) =>
                             ioJson(in.read)
                               .flatMap {
-                                case ary @ Json.JArray(items) if items.length == arity =>
+                                case ary @ Json.JArray(items)
+                                    if items.length == arity =>
                                   fn(ary) match {
                                     case Left(dataError) =>
                                       moduleIOMonad.raiseError[Json](
@@ -1537,7 +1546,9 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(show"unexpected value error: $valueError")
+                              new Exception(
+                                show"unexpected value error: $valueError"
+                              )
                             )
                           case Right(fn) =>
                             ioJson(in.read)
@@ -1625,10 +1636,12 @@ object Command {
           )
 
         val outDirOrFileOpt: Opts[Ior[P, P]] =
-          (Transpiler.outDir[P], outFileOpt.orNone).mapN {
-            case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
-            case (outDir, None)          => Ior.left(outDir)
-          }.orElse(outFileOpt.map(Ior.right(_)))
+          (Transpiler.outDir[P], outFileOpt.orNone)
+            .mapN {
+              case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
+              case (outDir, None)          => Ior.left(outDir)
+            }
+            .orElse(outFileOpt.map(Ior.right(_)))
         val ccFlagsOpt =
           Opts
             .options[String](
@@ -1664,7 +1677,7 @@ object Command {
             ccLibsOpt
           ).mapN { (outDirOrFile, defaultOut, exeOut, ccFlags, ccLibs) =>
             outDirOrFile match {
-              case Ior.Left(outDir)      =>
+              case Ior.Left(outDir) =>
                 (
                   Some(outDir),
                   ClangTranspiler.Output(
@@ -1686,7 +1699,7 @@ object Command {
                     ccLibs = ccLibs
                   )
                 )
-              case Ior.Right(out)        =>
+              case Ior.Right(out) =>
                 (
                   None,
                   ClangTranspiler.Output(
@@ -1714,14 +1727,16 @@ object Command {
             def mode(cc: ConfigConf): F[ClangTranspiler.Mode[F]] =
               mainPackOpt match {
                 case Some(m) =>
-                  moduleIOMonad.pure(ClangTranspiler.Mode.Main(moduleIOMonad.pure(m)))
-                case None    =>
+                  moduleIOMonad.pure(
+                    ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
+                  )
+                case None =>
                   cc.conf.defaultMain match {
                     case Some(m) =>
                       moduleIOMonad.pure(
                         ClangTranspiler.Mode.Main(moduleIOMonad.pure(m))
                       )
-                    case None    =>
+                    case None =>
                       moduleIOMonad.raiseError(
                         CliException(
                           "no main defined",

@@ -14,10 +14,13 @@ object ExtractIfaceCommand {
     val inputOpt =
       Opts.option[Path]("input", help = "input .bosatsu_lib file")
     val outputOpt =
-      Opts.option[Path](
-        "output",
-        help = "output .bosatsu_ifacelib file (default: <input>.bosatsu_ifacelib)"
-      ).orNone
+      Opts
+        .option[Path](
+          "output",
+          help =
+            "output .bosatsu_ifacelib file (default: <input>.bosatsu_ifacelib)"
+        )
+        .orNone
 
     Opts.subcommand(
       "extract-iface",

@@ -840,7 +840,7 @@ class SyntaxParseTest extends ParserTestBase {
       val clean = litStr.filter(_ != '_')
       val d =
         clean match {
-          case ".NaN"       => java.lang.Double.NaN
+          case ".NaN"     => java.lang.Double.NaN
           case "∞" | "+∞" => java.lang.Double.POSITIVE_INFINITY
           case "-∞"       => java.lang.Double.NEGATIVE_INFINITY
           case _          => java.lang.Double.parseDouble(clean)

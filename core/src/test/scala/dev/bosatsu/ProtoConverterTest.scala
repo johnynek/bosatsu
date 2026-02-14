@@ -301,7 +301,9 @@ bar = 1
     }
   }
 
-  test("packagesFromProto can decode package with external dependency interfaces") {
+  test(
+    "packagesFromProto can decode package with external dependency interfaces"
+  ) {
     val tf = Package.typedFunctor
     TestUtils.testInferred(
       List(

@@ -980,7 +980,9 @@ object Generators {
           args.get.toList.to(LazyList).flatMap {
             case MatchBranch(_, guard, decl) =>
               val body = decl.get
-              guard.to(LazyList) #::: (body #:: LazyList.from(shrinkDecl.shrink(body)))
+              guard.to(LazyList) #::: (body #:: LazyList.from(
+                shrinkDecl.shrink(body)
+              ))
           }
         case Matches(a, _) =>
           a #:: LazyList.from(shrinkDecl.shrink(a))
@@ -1079,7 +1081,10 @@ object Generators {
 
   private def semanticShrinkDouble(d: Double): LazyList[Double] =
     if (java.lang.Double.isNaN(d)) {
-      LazyList(java.lang.Double.POSITIVE_INFINITY, java.lang.Double.NEGATIVE_INFINITY)
+      LazyList(
+        java.lang.Double.POSITIVE_INFINITY,
+        java.lang.Double.NEGATIVE_INFINITY
+      )
     } else if (d == java.lang.Double.POSITIVE_INFINITY) {
       LazyList(java.lang.Double.MAX_VALUE, 1.0d, 0.0d)
     } else if (d == java.lang.Double.NEGATIVE_INFINITY) {
@@ -1515,13 +1520,18 @@ object Generators {
               .choose(1, 4)
               .flatMap(
                 nonEmptyN(
-                  Gen.zip(
-                    genCompiledPattern(depth),
-                    Gen.frequency((4, Gen.const(None)), (1, recurse.map(Some(_)))),
-                    recurse
-                  ).map {
-                    case (pat, guard, expr) => TypedExpr.Branch(pat, guard, expr)
-                  },
+                  Gen
+                    .zip(
+                      genCompiledPattern(depth),
+                      Gen.frequency(
+                        (4, Gen.const(None)),
+                        (1, recurse.map(Some(_)))
+                      ),
+                      recurse
+                    )
+                    .map { case (pat, guard, expr) =>
+                      TypedExpr.Branch(pat, guard, expr)
+                    },
                   _
                 )
               ),
@@ -1903,13 +1913,18 @@ object Generators {
               .zip(
                 recur,
                 smallNonEmptyList(
-                  Gen.zip(
-                    genCompiledPattern(4),
-                    Gen.frequency((4, Gen.const(None)), (1, recur.map(Some(_)))),
-                    recur
-                  ).map { case (pat, guard, expr) =>
-                    Expr.Branch(pat, guard, expr)
-                  },
+                  Gen
+                    .zip(
+                      genCompiledPattern(4),
+                      Gen.frequency(
+                        (4, Gen.const(None)),
+                        (1, recur.map(Some(_)))
+                      ),
+                      recur
+                    )
+                    .map { case (pat, guard, expr) =>
+                      Expr.Branch(pat, guard, expr)
+                    },
                   3
                 ),
                 genA

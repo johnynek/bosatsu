@@ -145,10 +145,18 @@ class TypeEnv[+A] private (
 
   lazy val typeConstructors: SortedMap[
     (PackageName, Constructor),
-    (List[(Type.Var.Bound, A)], List[(Type.Var.Bound, A)], List[Type], Type.Const.Defined)
+    (
+        List[(Type.Var.Bound, A)],
+        List[(Type.Var.Bound, A)],
+        List[Type],
+        Type.Const.Defined
+    )
   ] =
     constructors.map { case (pc, (dt, cf)) =>
-      (pc, (dt.annotatedTypeParams, cf.exists, cf.args.map(_._2), dt.toTypeConst))
+      (
+        pc,
+        (dt.annotatedTypeParams, cf.exists, cf.args.map(_._2), dt.toTypeConst)
+      )
     }
 
   def definedTypeFor(c: (PackageName, Constructor)): Option[DefinedType[A]] =

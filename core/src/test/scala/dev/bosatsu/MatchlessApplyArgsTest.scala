@@ -5,7 +5,9 @@ import cats.data.NonEmptyList
 import Identifier.Bindable
 
 class MatchlessApplyArgsTest extends munit.FunSuite {
-  test("Matchless.recoverTopLevelLambda beta-reduces let-bound lambda aliases") {
+  test(
+    "Matchless.recoverTopLevelLambda beta-reduces let-bound lambda aliases"
+  ) {
     val fnName1 = Identifier.Name("fn1")
     val fnName2 = Identifier.Name("fn2")
     val arg1 = Identifier.Name("arg1")
@@ -62,13 +64,18 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
                   Right(`fnName`),
                   `lamExpr`,
                   trailing
-                ) if trailing == Matchless.App(
+                )
+                if trailing == Matchless.App(
                   Matchless.Local(fnName),
                   NonEmptyList.one(topArg)
                 ) =>
-              fail(s"expected beta-reduced let-bound lambda alias, found trailing apply: $branch")
+              fail(
+                s"expected beta-reduced let-bound lambda alias, found trailing apply: $branch"
+              )
             case other =>
-              fail(s"expected let-bound alias call to beta-reduce, found: $other")
+              fail(
+                s"expected let-bound alias call to beta-reduce, found: $other"
+              )
           }
 
         body match {

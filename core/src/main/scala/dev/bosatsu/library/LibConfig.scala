@@ -402,7 +402,9 @@ case class LibConfig(
       }
 
     val prop1 =
-      packsNoPredef.filterNot(p => allPackages.exists(_.accepts(p.name))) match {
+      packsNoPredef.filterNot(p =>
+        allPackages.exists(_.accepts(p.name))
+      ) match {
         case Nil    => Validated.unit
         case h :: t => inv(Error.ExtraPackages(NonEmptyList(h, t)))
       }

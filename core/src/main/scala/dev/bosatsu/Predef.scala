@@ -146,7 +146,11 @@ object Predef {
         "tail_or_empty_String",
         FfiCall.Fn1(PredefImpl.tail_or_empty_String(_))
       )
-      .add(arrayPackageName, "empty_Array", FfiCall.Const(PredefImpl.emptyArray))
+      .add(
+        arrayPackageName,
+        "empty_Array",
+        FfiCall.Const(PredefImpl.emptyArray)
+      )
       .add(
         arrayPackageName,
         "tabulate_Array",
@@ -437,11 +441,11 @@ object PredefImpl {
     } else {
       val normalized =
         lowered match {
-          case ".nan" | "nan"                   => "NaN"
+          case ".nan" | "nan"                                         => "NaN"
           case "∞" | "+∞" | "infinity" | "+infinity" | "inf" | "+inf" =>
             "Infinity"
-          case "-∞" | "-infinity" | "-inf"      => "-Infinity"
-          case _                                 => cleaned
+          case "-∞" | "-infinity" | "-inf" => "-Infinity"
+          case _                           => cleaned
         }
       try Some(java.lang.Double.parseDouble(normalized))
       catch {
@@ -575,7 +579,8 @@ object PredefImpl {
     val value = java.lang.Double.longBitsToDouble(bits)
     if (java.lang.Double.isNaN(value))
       Value.Str(s"${NaNBitsPrefix}${toUnsignedHex64(bits)}")
-    else Value.Str(Lit.Float64.toLiteralString(Lit.Float64.fromRawLongBits(bits)))
+    else
+      Value.Str(Lit.Float64.toLiteralString(Lit.Float64.fromRawLongBits(bits)))
   }
   def string_to_Float64(a: Value): Value =
     a match {
@@ -584,12 +589,14 @@ object PredefImpl {
           case Some(v) => Value.VOption.some(vf(v))
           case None    => Value.VOption.none
         }
-      case other        => sys.error(s"type error: $other")
+      case other => sys.error(s"type error: $other")
     }
   def int_bits_to_Float64(a: Value): Value =
     vf(java.lang.Double.longBitsToDouble(i(a).longValue()))
   def float64_bits_to_Int(a: Value): Value =
-    Value.VInt(unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a))))
+    Value.VInt(
+      unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a)))
+    )
   def float64_to_Int(a: Value): Value = {
     val value = d(a)
     if (java.lang.Double.isFinite(value))
@@ -631,13 +638,13 @@ object PredefImpl {
   private val IOErrorTagInvalidArgument = 12
   private val IOErrorTagInvalidUtf8 = 13
 
-  private sealed trait ProgStack derives CanEqual
+  sealed private trait ProgStack derives CanEqual
   private case object ProgStackDone extends ProgStack
-  private final case class ProgStackFlatMap(fn: Value, tail: ProgStack)
+  final private case class ProgStackFlatMap(fn: Value, tail: ProgStack)
       extends ProgStack
-  private final case class ProgStackRecover(fn: Value, tail: ProgStack)
+  final private case class ProgStackRecover(fn: Value, tail: ProgStack)
       extends ProgStack
-  private final case class ProgStackRestore(env: Value, tail: ProgStack)
+  final private case class ProgStackRestore(env: Value, tail: ProgStack)
       extends ProgStack
 
   final case class ProgRuntimeState(
@@ -709,38 +716,51 @@ object PredefImpl {
     SumValue(ProgTagRemapEnv, ProductValue.fromList(prog :: fn :: Nil))
 
   def prog_print(str: Value): Value =
-    prog_effect(str, v => {
-      currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
-      prog_pure(UnitValue)
-    })
+    prog_effect(
+      str,
+      v => {
+        currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
+        prog_pure(UnitValue)
+      }
+    )
 
   def prog_println(str: Value): Value =
-    prog_effect(str, v => {
-      currentProgRuntime.value.foreach { runtime =>
-        runtime.stdout.append(asString(v))
-        runtime.stdout.append('\n')
+    prog_effect(
+      str,
+      v => {
+        currentProgRuntime.value.foreach { runtime =>
+          runtime.stdout.append(asString(v))
+          runtime.stdout.append('\n')
+        }
+        prog_pure(UnitValue)
       }
-      prog_pure(UnitValue)
-    })
+    )
 
   def prog_print_err(str: Value): Value =
-    prog_effect(str, v => {
-      currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
-      prog_pure(UnitValue)
-    })
+    prog_effect(
+      str,
+      v => {
+        currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
+        prog_pure(UnitValue)
+      }
+    )
 
   def prog_print_errln(str: Value): Value =
-    prog_effect(str, v => {
-      currentProgRuntime.value.foreach { runtime =>
-        runtime.stderr.append(asString(v))
-        runtime.stderr.append('\n')
+    prog_effect(
+      str,
+      v => {
+        currentProgRuntime.value.foreach { runtime =>
+          runtime.stderr.append(asString(v))
+          runtime.stderr.append('\n')
+        }
+        prog_pure(UnitValue)
       }
-      prog_pure(UnitValue)
-    })
+    )
 
   private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
     val decoder =
-      StandardCharsets.UTF_8.newDecoder()
+      StandardCharsets.UTF_8
+        .newDecoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
 
@@ -750,7 +770,10 @@ object PredefImpl {
     }
   }
 
-  private def runtimeRead(runtime: ProgRuntimeState, count: Int): Array[Byte] = {
+  private def runtimeRead(
+      runtime: ProgRuntimeState,
+      count: Int
+  ): Array[Byte] = {
     val remaining = runtime.stdin.length - runtime.stdinOffset
     if (count <= 0 || remaining <= 0) Array.emptyByteArray
     else {
@@ -778,7 +801,7 @@ object PredefImpl {
   private def read_utf8_chunk(
       runtime: ProgRuntimeState,
       requestedRaw: BigInteger
-  ): Either[Value, String] = {
+  ): Either[Value, String] =
     if (requestedRaw.signum < 0) {
       Left(
         ioerror_invalid_argument(
@@ -797,9 +820,10 @@ object PredefImpl {
         decodeUtf8(initial) match {
           case Some(s) => Right(s)
           case None    =>
-            if (initial.length < requested) Left(
-              ioerror_invalid_utf8("decoding bytes from stdin")
-            )
+            if (initial.length < requested)
+              Left(
+                ioerror_invalid_utf8("decoding bytes from stdin")
+              )
             else {
               val bytes = new java.io.ByteArrayOutputStream(initial.length + 4)
               bytes.write(initial)
@@ -809,7 +833,7 @@ object PredefImpl {
 
               while (!done && extras < 4) {
                 runtimeReadOne(runtime) match {
-                  case None      => done = true
+                  case None       => done = true
                   case Some(byte) =>
                     bytes.write(byte.toInt & 0xff)
                     extras = extras + 1
@@ -817,7 +841,7 @@ object PredefImpl {
                       case Some(valid) =>
                         result = Some(valid)
                         done = true
-                      case None        => ()
+                      case None => ()
                     }
                 }
               }
@@ -830,28 +854,30 @@ object PredefImpl {
             }
         }
     }
-  }
 
   def prog_read_stdin_utf8_bytes(size: Value): Value =
-    prog_effect(size, v => {
-      val requested = asInt(v)
-      val ioResult = currentProgRuntime.value match {
-        case Some(runtime) => read_utf8_chunk(runtime, requested)
-        case None          =>
-          if (requested.signum < 0)
-            Left(
-              ioerror_invalid_argument(
-                s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
+    prog_effect(
+      size,
+      v => {
+        val requested = asInt(v)
+        val ioResult = currentProgRuntime.value match {
+          case Some(runtime) => read_utf8_chunk(runtime, requested)
+          case None          =>
+            if (requested.signum < 0)
+              Left(
+                ioerror_invalid_argument(
+                  s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
+                )
               )
-            )
-          else Right("")
-      }
+            else Right("")
+        }
 
-      ioResult match {
-        case Right(str) => prog_pure(Str(str))
-        case Left(err)  => prog_raise_error(err)
+        ioResult match {
+          case Right(str) => prog_pure(Str(str))
+          case Left(err)  => prog_raise_error(err)
+        }
       }
-    })
+    )
 
   private def prog_step_fix(arg: Value, fixfn: Value): Value = {
     lazy val fixed: Value =
@@ -1055,11 +1081,11 @@ object PredefImpl {
     @annotation.tailrec
     def loop(rem: Value): Unit =
       rem match {
-        case VList.VNil            => ()
+        case VList.VNil           => ()
         case VList.Cons(head, t1) =>
           bldr += head
           loop(t1)
-        case other                =>
+        case other =>
           // $COVERAGE-OFF$
           sys.error(s"type error: expected list, found $other")
         // $COVERAGE-ON$
@@ -1098,9 +1124,8 @@ object PredefImpl {
     }
   }
 
-  def get_or_Array(array: Value, index: Value, default: Value): Value = {
+  def get_or_Array(array: Value, index: Value, default: Value): Value =
     get_map_Array(array, index, default, FnValue.identity)
-  }
 
   def foldl_Array(array: Value, init: Value, fn: Value): Value = {
     val arr = asArray(array)
@@ -1136,7 +1161,7 @@ object PredefImpl {
         val copied = copyView(arr)
         copied(idx) = value
         ExternalValue(ArrayValue(copied, 0, copied.length))
-      case None      =>
+      case None =>
         array
     }
   }
@@ -1152,7 +1177,10 @@ object PredefImpl {
         new java.util.Comparator[AnyRef] {
           def compare(left: AnyRef, right: AnyRef): Int = {
             val res = cmp(
-              NonEmptyList(left.asInstanceOf[Value], right.asInstanceOf[Value] :: Nil)
+              NonEmptyList(
+                left.asInstanceOf[Value],
+                right.asInstanceOf[Value] :: Nil
+              )
             ).asSum.variant
             if (res < 1) -1 else if (res > 1) 1 else 0
           }
@@ -1174,7 +1202,7 @@ object PredefImpl {
           as += arr
           total = total + arr.len.toLong
           current = tail
-        case other                  =>
+        case other =>
           // $COVERAGE-OFF$
           sys.error(s"type error: expected list, found $other")
         // $COVERAGE-ON$
@@ -1288,9 +1316,9 @@ object PredefImpl {
   // we represent chars as single code-point strings
   def char_to_String(item: Value): Value = item
 
-  private val maxUnicodeScalarValue = BigInteger.valueOf(0x10FFFFL)
-  private val highSurrogateStart = BigInteger.valueOf(0xD800L)
-  private val highSurrogateEnd = BigInteger.valueOf(0xDFFFL)
+  private val maxUnicodeScalarValue = BigInteger.valueOf(0x10ffffL)
+  private val highSurrogateStart = BigInteger.valueOf(0xd800L)
+  private val highSurrogateEnd = BigInteger.valueOf(0xdfffL)
 
   def char_to_Int(item: Value): Value =
     item match {
@@ -1369,7 +1397,7 @@ object PredefImpl {
           val left = argS.substring(0, idx)
           val right = argS.substring(idx + sepS.length)
           Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
-      }
+        }
     }
   }
 

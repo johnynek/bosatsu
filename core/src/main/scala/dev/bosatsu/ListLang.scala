@@ -1,11 +1,7 @@
 package dev.bosatsu
 
 import cats.{Apply, Functor}
-import Parser.{
-  maybeSpacesAndCommentLines,
-  spacesAndCommentLines,
-  Combinators
-}
+import Parser.{maybeSpacesAndCommentLines, spacesAndCommentLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
 import cats.parse.{Parser => P}
 
@@ -59,7 +55,9 @@ object ListLang {
     private val sep: Doc = Doc.text(": ")
 
     def parser[A](p: P[A]): P[KVPair[A]] =
-      ((p <* maybeSpacesAndCommentLines <* P.char(':') <* maybeSpacesAndCommentLines) ~ p)
+      ((p <* maybeSpacesAndCommentLines <* P.char(
+        ':'
+      ) <* maybeSpacesAndCommentLines) ~ p)
         .map { case (k, v) => KVPair(k, v) }
 
     implicit def document[A](implicit A: Document[A]): Document[KVPair[A]] =
@@ -98,21 +96,26 @@ object ListLang {
       right: P[Unit]
   ): P[ListLang[F, A, B]] = {
     // construct the tail of a list, so we will finally have at least one item
-    val consTail = fa.nonEmptyListOfWs(maybeSpacesAndCommentLines).?.map { tail =>
-      val listTail = tail match {
-        case None     => Nil
-        case Some(ne) => ne.toList
-      }
+    val consTail =
+      fa.nonEmptyListOfWs(maybeSpacesAndCommentLines).?.map { tail =>
+        val listTail = tail match {
+          case None     => Nil
+          case Some(ne) => ne.toList
+        }
 
-      { (a: F[A]) => Cons(a :: listTail) }
-    }
+        { (a: F[A]) => Cons(a :: listTail) }
+      }
 
     val filterExpr = P.string("if") *> spacesAndCommentLines *> pa
 
     val comp =
       (
-        P.string("for") *> spacesAndCommentLines *> pbind <* maybeSpacesAndCommentLines,
-        P.string("in") *> spacesAndCommentLines *> pa <* maybeSpacesAndCommentLines,
+        P.string(
+          "for"
+        ) *> spacesAndCommentLines *> pbind <* maybeSpacesAndCommentLines,
+        P.string(
+          "in"
+        ) *> spacesAndCommentLines *> pa <* maybeSpacesAndCommentLines,
         filterExpr.?
       )
         .mapN((b, i, f) => (e: F[A]) => Comprehension(e, b, i, f))

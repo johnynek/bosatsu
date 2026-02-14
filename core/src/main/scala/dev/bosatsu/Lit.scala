@@ -13,7 +13,7 @@ sealed abstract class Lit {
       case Lit.Integer(i) => i.toString
       case c @ Lit.Chr(_) =>
         ".'" + escape('\'', c.asStr) + "'"
-      case Lit.Str(s) => "\"" + escape('"', s) + "\""
+      case Lit.Str(s)     => "\"" + escape('"', s) + "\""
       case f: Lit.Float64 =>
         Lit.Float64.toLiteralString(f)
     }
@@ -101,16 +101,16 @@ object Lit {
     private val NegZeroBits: Long =
       java.lang.Double.doubleToRawLongBits(-0.0d)
 
-    private def finiteLiteralString(bits: Long, d: Double): String = {
+    private def finiteLiteralString(bits: Long, d: Double): String =
       if (bits == NegZeroBits) "-0.0"
       else {
         val raw = java.lang.Double.toString(d)
         if (
-          raw.indexOf('.') >= 0 || raw.indexOf('e') >= 0 || raw.indexOf('E') >= 0
+          raw.indexOf('.') >= 0 || raw
+            .indexOf('e') >= 0 || raw.indexOf('E') >= 0
         ) raw
         else raw + ".0"
       }
-    }
 
     def fromDouble(d: Double): Float64 =
       Float64(java.lang.Double.doubleToRawLongBits(d))
@@ -191,7 +191,7 @@ object Lit {
     val signed = (P.charIn("+-") ~ (infinity.orElse(body))).map {
       case ('-', "Infinity") => "-Infinity"
       case ('+', "Infinity") => "Infinity"
-      case (sign, value)      => sign.toString + value
+      case (sign, value)     => sign.toString + value
     }
 
     nanLiteral.orElse(signed).orElse(infinity).orElse(body)
@@ -247,16 +247,16 @@ object Lit {
 
       def compare(a: Lit, b: Lit): Int =
         (a, b) match {
-          case (Integer(a), Integer(b))                  => a.compareTo(b)
+          case (Integer(a), Integer(b))                   => a.compareTo(b)
           case (Integer(_), _: Float64 | Str(_) | Chr(_)) => -1
-          case (_: Float64, Integer(_))                 => 1
-          case (a: Float64, b: Float64)                 => compareFloat64(a, b)
-          case (_: Float64, Str(_) | Chr(_))            => -1
-          case (Chr(_), Integer(_) | (_: Float64))      => 1
-          case (Chr(a), Chr(b))                         => a.compareTo(b)
-          case (Chr(_), Str(_))                         => -1
+          case (_: Float64, Integer(_))                   => 1
+          case (a: Float64, b: Float64)            => compareFloat64(a, b)
+          case (_: Float64, Str(_) | Chr(_))       => -1
+          case (Chr(_), Integer(_) | (_: Float64)) => 1
+          case (Chr(a), Chr(b))                    => a.compareTo(b)
+          case (Chr(_), Str(_))                    => -1
           case (Str(_), Integer(_) | (_: Float64) | Chr(_)) => 1
-          case (Str(a), Str(b))                         => a.compareTo(b)
+          case (Str(a), Str(b))                             => a.compareTo(b)
         }
     }
 

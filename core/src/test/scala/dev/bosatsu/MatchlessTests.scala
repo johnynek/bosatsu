@@ -95,17 +95,23 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   ): List[Matchless.BoolExpr[Unit]] =
     expr match {
       case Matchless.Lambda(captures, _, _, body) =>
-        captures.toList.flatMap(exprBoolSubexpressions) ++ exprBoolSubexpressions(body)
+        captures.toList.flatMap(
+          exprBoolSubexpressions
+        ) ++ exprBoolSubexpressions(body)
       case Matchless.WhileExpr(cond, effectExpr, _) =>
         boolSubexpressions(cond) ++ exprBoolSubexpressions(effectExpr)
       case Matchless.App(fn, args) =>
-        exprBoolSubexpressions(fn) ++ args.toList.flatMap(exprBoolSubexpressions)
+        exprBoolSubexpressions(fn) ++ args.toList.flatMap(
+          exprBoolSubexpressions
+        )
       case Matchless.Let(_, value, in) =>
         exprBoolSubexpressions(value) ++ exprBoolSubexpressions(in)
       case Matchless.LetMut(_, in) =>
         exprBoolSubexpressions(in)
       case Matchless.If(cond, thenExpr, elseExpr) =>
-        boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr) ++ exprBoolSubexpressions(elseExpr)
+        boolSubexpressions(cond) ++ exprBoolSubexpressions(
+          thenExpr
+        ) ++ exprBoolSubexpressions(elseExpr)
       case Matchless.Always(cond, thenExpr) =>
         boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr)
       case Matchless.PrevNat(of) =>
@@ -117,9 +123,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   lazy val genMatchlessBoolExpr: Gen[Matchless.BoolExpr[Unit]] =
     genMatchlessExpr.flatMap { expr =>
       exprBoolSubexpressions(expr) match {
-        case Nil           => Gen.const(Matchless.TrueConst)
-        case bool :: Nil   => Gen.const(bool)
-        case bools         => Gen.oneOf(bools)
+        case Nil         => Gen.const(Matchless.TrueConst)
+        case bool :: Nil => Gen.const(bool)
+        case bools       => Gen.oneOf(bools)
       }
     }
 
@@ -313,7 +319,9 @@ x = 1
     assertEquals(res, expected)
   }
 
-  test("Matchless.applyArgs does not curry App and only pushes through safe Let") {
+  test(
+    "Matchless.applyArgs does not curry App and only pushes through safe Let"
+  ) {
     val fn = Matchless.Local(Identifier.Name("f"))
     val x = Matchless.Local(Identifier.Name("x"))
     val y = Matchless.Local(Identifier.Name("y"))
@@ -332,11 +340,19 @@ x = 1
     )
 
     val letLeftExpr: Matchless.Expr[Unit] =
-      Matchless.Let(Left(Matchless.LocalAnon(0)), Matchless.Literal(Lit(1)), Matchless.Local(k))
+      Matchless.Let(
+        Left(Matchless.LocalAnon(0)),
+        Matchless.Literal(Lit(1)),
+        Matchless.Local(k)
+      )
 
     assertEquals(
       Matchless.applyArgs(letLeftExpr, NonEmptyList.one(y)),
-      Matchless.Let(Left(Matchless.LocalAnon(0)), Matchless.Literal(Lit(1)), Matchless.App(Matchless.Local(k), NonEmptyList.one(y)))
+      Matchless.Let(
+        Left(Matchless.LocalAnon(0)),
+        Matchless.Literal(Lit(1)),
+        Matchless.App(Matchless.Local(k), NonEmptyList.one(y))
+      )
     )
 
     val letRightSafeExpr: Matchless.Expr[Unit] =
@@ -344,7 +360,11 @@ x = 1
 
     assertEquals(
       Matchless.applyArgs(letRightSafeExpr, NonEmptyList.one(y)),
-      Matchless.Let(z, Matchless.Literal(Lit(1)), Matchless.App(Matchless.Local(k), NonEmptyList.one(y)))
+      Matchless.Let(
+        z,
+        Matchless.Literal(Lit(1)),
+        Matchless.App(Matchless.Local(k), NonEmptyList.one(y))
+      )
     )
 
     val zArg = Matchless.Local(z)
@@ -386,7 +406,9 @@ x = 1
     }
   }
 
-  test("Matchless.recoverTopLevelLambda pushes apply into branches and beta-reduces") {
+  test(
+    "Matchless.recoverTopLevelLambda pushes apply into branches and beta-reduces"
+  ) {
     val a = Identifier.Name("a")
     val b = Identifier.Name("b")
     val left = Identifier.Name("left")
@@ -396,14 +418,20 @@ x = 1
         Nil,
         None,
         NonEmptyList.one(a),
-        Matchless.App(Matchless.Local(left), NonEmptyList.one(Matchless.Local(a)))
+        Matchless.App(
+          Matchless.Local(left),
+          NonEmptyList.one(Matchless.Local(a))
+        )
       )
     val branchFn2: Matchless.Expr[Unit] =
       Matchless.Lambda(
         Nil,
         None,
         NonEmptyList.one(b),
-        Matchless.App(Matchless.Local(right), NonEmptyList.one(Matchless.Local(b)))
+        Matchless.App(
+          Matchless.Local(right),
+          NonEmptyList.one(Matchless.Local(b))
+        )
       )
 
     val expr: Matchless.Expr[Unit] =
@@ -430,7 +458,10 @@ x = 1
                       )
                     ) =>
                   assertEquals(tmp, tmpRef)
-                  assertEquals(appArgs, NonEmptyList.one(Matchless.Local(fnArg)))
+                  assertEquals(
+                    appArgs,
+                    NonEmptyList.one(Matchless.Local(fnArg))
+                  )
                 case other =>
                   fail(s"expected beta-reduced branch, found: $other")
               }
@@ -491,7 +522,11 @@ x = 1
     assertEquals(Matchless.allNames(letRight), Set(x: Bindable, y))
 
     val letLeft: Matchless.Expr[Unit] =
-      Matchless.Let(Left(Matchless.LocalAnon(1)), Matchless.Local(y), Matchless.Local(y))
+      Matchless.Let(
+        Left(Matchless.LocalAnon(1)),
+        Matchless.Local(y),
+        Matchless.Local(y)
+      )
     assertEquals(Matchless.allNames(letLeft), Set(y: Bindable))
   }
 
@@ -525,8 +560,9 @@ x = 1
             ()
           case Matchless.LetBool(arg, value, in) =>
             arg match {
-              case Right(name) => assert(full(name), s"missing let-bound name $name in $expr")
-              case _           => ()
+              case Right(name) =>
+                assert(full(name), s"missing let-bound name $name in $expr")
+              case _ => ()
             }
             requireSubset(value)
             checkBool(in)
@@ -536,8 +572,12 @@ x = 1
 
       expr match {
         case Matchless.Lambda(captures, rec, args, body) =>
-          rec.foreach { n => assert(full(n), s"missing recursive name $n in $expr") }
-          args.toList.foreach { n => assert(full(n), s"missing lambda arg $n in $expr") }
+          rec.foreach { n =>
+            assert(full(n), s"missing recursive name $n in $expr")
+          }
+          args.toList.foreach { n =>
+            assert(full(n), s"missing lambda arg $n in $expr")
+          }
           captures.foreach(requireSubset)
           requireSubset(body)
         case Matchless.WhileExpr(cond, effectExpr, _) =>
@@ -548,8 +588,9 @@ x = 1
           args.toList.foreach(requireSubset)
         case Matchless.Let(arg, value, in) =>
           arg match {
-            case Right(name) => assert(full(name), s"missing let-bound name $name in $expr")
-            case _           => ()
+            case Right(name) =>
+              assert(full(name), s"missing let-bound name $name in $expr")
+            case _ => ()
           }
           requireSubset(value)
           requireSubset(in)
@@ -577,7 +618,9 @@ x = 1
     }
   }
 
-  test("Matchless.reuseConstructors shares repeated constructor apps in a linear scope") {
+  test(
+    "Matchless.reuseConstructors shares repeated constructor apps in a linear scope"
+  ) {
     val x = Identifier.Name("x")
     val y = Identifier.Name("y")
     val shared: Matchless.Expr[Unit] =
@@ -604,7 +647,9 @@ x = 1
     }
   }
 
-  test("Matchless.reuseConstructors shares constructor apps across if branches") {
+  test(
+    "Matchless.reuseConstructors shares constructor apps across if branches"
+  ) {
     val x = Identifier.Name("x")
     val y = Identifier.Name("y")
     val shared: Matchless.Expr[Unit] =
@@ -627,12 +672,19 @@ x = 1
       )
 
     Matchless.reuseConstructors(input) match {
-      case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, thenExpr, elseExpr)) =>
+      case Matchless.Let(
+            Left(tmp),
+            `shared`,
+            Matchless.If(_, thenExpr, elseExpr)
+          ) =>
         def checkBranch(e: Matchless.Expr[Unit], lit: Int): Unit =
           e match {
             case Matchless.App(Matchless.MakeStruct(2), args) =>
               assertEquals(args.head, Matchless.Literal(Lit(lit)))
-              assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+              assertEquals(
+                args.tail.headOption,
+                Some(Matchless.LocalAnon(tmp.ident))
+              )
             case other =>
               fail(s"expected branch struct constructor, found: $other")
           }
@@ -644,7 +696,9 @@ x = 1
     }
   }
 
-  test("Matchless.reuseConstructors does not share constructor apps with mutable refs") {
+  test(
+    "Matchless.reuseConstructors does not share constructor apps with mutable refs"
+  ) {
     val sharedMut: Matchless.Expr[Unit] =
       Matchless.App(
         Matchless.SuccNat,
@@ -658,7 +712,9 @@ x = 1
     assertEquals(optimized, input)
   }
 
-  test("Matchless.reuseConstructors replaces constructor reuse inside let values") {
+  test(
+    "Matchless.reuseConstructors replaces constructor reuse inside let values"
+  ) {
     val x = Identifier.Name("x")
     val y = Identifier.Name("y")
     val z = Identifier.Name("z")
@@ -682,7 +738,9 @@ x = 1
         NonEmptyList(Matchless.Literal(Lit(1)), shared :: Nil)
       )
 
-    Matchless.reuseConstructors(Matchless.If(Matchless.TrueConst, thenExpr, elseExpr)) match {
+    Matchless.reuseConstructors(
+      Matchless.If(Matchless.TrueConst, thenExpr, elseExpr)
+    ) match {
       case Matchless.Let(Left(tmp), `shared`, Matchless.If(_, then1, else1)) =>
         then1 match {
           case Matchless.Let(
@@ -692,15 +750,23 @@ x = 1
               ) =>
             assertEquals(tmpInValue, tmp.ident)
             assertEquals(args.head, Matchless.Local(z))
-            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+            assertEquals(
+              args.tail.headOption,
+              Some(Matchless.LocalAnon(tmp.ident))
+            )
           case other =>
-            fail(s"expected let value to reuse constructor binding, found: $other")
+            fail(
+              s"expected let value to reuse constructor binding, found: $other"
+            )
         }
 
         else1 match {
           case Matchless.App(Matchless.MakeStruct(2), args) =>
             assertEquals(args.head, Matchless.Literal(Lit(1)))
-            assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+            assertEquals(
+              args.tail.headOption,
+              Some(Matchless.LocalAnon(tmp.ident))
+            )
           case other =>
             fail(s"expected else branch constructor reuse, found: $other")
         }
@@ -709,7 +775,9 @@ x = 1
     }
   }
 
-  test("Matchless.reuseConstructors does not share constructors when mutables appear inside cheap args") {
+  test(
+    "Matchless.reuseConstructors does not share constructors when mutables appear inside cheap args"
+  ) {
     val sharedWithInnerMut: Matchless.Expr[Unit] =
       Matchless.App(
         Matchless.MakeStruct(1),
@@ -728,25 +796,30 @@ x = 1
     assertEquals(optimized, input)
   }
 
-  test("matrix match materializes list projections to avoid nested projection trees") {
+  test(
+    "matrix match materializes list projections to avoid nested projection trees"
+  ) {
     def hasNestedProjectionCheap(e: Matchless.CheapExpr[Unit]): Boolean =
       e match {
         case Matchless.GetEnumElement(arg, _, _, _) =>
           arg match {
-            case _: Matchless.GetEnumElement[?] | _: Matchless.GetStructElement[?] =>
+            case _: Matchless.GetEnumElement[?] |
+                _: Matchless.GetStructElement[?] =>
               true
             case _ =>
               hasNestedProjectionCheap(arg)
           }
         case Matchless.GetStructElement(arg, _, _) =>
           arg match {
-            case _: Matchless.GetEnumElement[?] | _: Matchless.GetStructElement[?] =>
+            case _: Matchless.GetEnumElement[?] |
+                _: Matchless.GetStructElement[?] =>
               true
             case _ =>
               hasNestedProjectionCheap(arg)
           }
-        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.LocalAnon(_) |
-            Matchless.LocalAnonMut(_) | Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
           false
       }
 
@@ -773,7 +846,9 @@ x = 1
     def hasNestedProjectionExpr(e: Matchless.Expr[Unit]): Boolean =
       e match {
         case Matchless.Lambda(captures, _, _, body) =>
-          captures.exists(hasNestedProjectionExpr) || hasNestedProjectionExpr(body)
+          captures.exists(hasNestedProjectionExpr) || hasNestedProjectionExpr(
+            body
+          )
         case Matchless.WhileExpr(cond, effectExpr, _) =>
           hasNestedProjectionBool(cond) || hasNestedProjectionExpr(effectExpr)
         case Matchless.App(fn, args) =>
@@ -783,7 +858,9 @@ x = 1
         case Matchless.LetMut(_, in) =>
           hasNestedProjectionExpr(in)
         case Matchless.If(cond, t, f) =>
-          hasNestedProjectionBool(cond) || hasNestedProjectionExpr(t) || hasNestedProjectionExpr(f)
+          hasNestedProjectionBool(cond) || hasNestedProjectionExpr(
+            t
+          ) || hasNestedProjectionExpr(f)
         case Matchless.Always(cond, thenExpr) =>
           hasNestedProjectionBool(cond) || hasNestedProjectionExpr(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -834,7 +911,7 @@ def matches_five(xs):
 
     def containsWhile(e: Matchless.Expr[Unit]): Boolean =
       e match {
-        case Matchless.WhileExpr(_, _, _) => true
+        case Matchless.WhileExpr(_, _, _)           => true
         case Matchless.Lambda(captures, _, _, body) =>
           captures.exists(containsWhile) || containsWhile(body)
         case Matchless.App(fn, args) =>

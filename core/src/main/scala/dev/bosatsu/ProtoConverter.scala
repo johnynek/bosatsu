@@ -691,7 +691,10 @@ object ProtoConverter {
         case None    =>
           p match {
             case Type.ForAll(vars, in) =>
-              (vars.toList.traverse { case (b, k) => varKindToProto(b, k) }, typeToProto(in))
+              (
+                vars.toList.traverse { case (b, k) => varKindToProto(b, k) },
+                typeToProto(in)
+              )
                 .flatMapN { (faids, idx) =>
                   getTypeId(
                     p,
@@ -699,7 +702,10 @@ object ProtoConverter {
                   )
                 }
             case Type.Exists(vars, in) =>
-              (vars.toList.traverse { case (b, k) => varKindToProto(b, k) }, typeToProto(in))
+              (
+                vars.toList.traverse { case (b, k) => varKindToProto(b, k) },
+                typeToProto(in)
+              )
                 .flatMapN { (exids, idx) =>
                   getTypeId(
                     p,
@@ -1046,7 +1052,11 @@ object ProtoConverter {
               def encodeBranch(
                   p: TypedExpr.Branch[Any]
               ): Tab[proto.Branch] =
-                (patternToProto(p.pattern), p.guard.traverse(typedExprToProto), typedExprToProto(p.expr))
+                (
+                  patternToProto(p.pattern),
+                  p.guard.traverse(typedExprToProto),
+                  typedExprToProto(p.expr)
+                )
                   .mapN { (pat, guardExpr, expr) =>
                     proto.Branch(
                       pattern = pat,
@@ -1191,7 +1201,9 @@ object ProtoConverter {
         tpe <- lookupType(p.typeOf, s"invalid type id: $p")
       } yield (bn, tpe)
 
-    def consFromProto(c: proto.ConstructorFn): DTab[rankn.ConstructorFn[Kind.Arg]] =
+    def consFromProto(
+        c: proto.ConstructorFn
+    ): DTab[rankn.ConstructorFn[Kind.Arg]] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
           ReaderT
@@ -2003,7 +2015,7 @@ object ProtoConverter {
                           )
                         )
                       )
-                    case None        =>
+                    case None =>
                       Failure(
                         new Exception(
                           s"missing interface or compiled: $pack"

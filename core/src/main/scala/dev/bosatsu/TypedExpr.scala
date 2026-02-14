@@ -55,8 +55,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case AnnotatedLambda(_, res, _) =>
         res.size
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
-      case App(fn, args, _, _)   => fn.size + args.foldMap(_.size)
-      case Let(_, e, in, _, _)   => e.size + in.size
+      case App(fn, args, _, _) => fn.size + args.foldMap(_.size)
+      case Let(_, e, in, _, _) => e.size + in.size
       case Loop(args, body, _) =>
         args.foldMap(_._2.size) + body.size
       case Recur(args, _, _) =>
@@ -171,11 +171,12 @@ sealed abstract class TypedExpr[+T] { self: Product =>
             cpat.document(p)
 
           val bstr = branches.toList.map { branch =>
-            val guardDoc = branch.guard.fold(Doc.empty)(g =>
-              Doc.comma + Doc.line + loop(g)
-            )
+            val guardDoc =
+              branch.guard.fold(Doc.empty)(g => Doc.comma + Doc.line + loop(g))
             block(
-              Doc.char('[') + pat(branch.pattern) + guardDoc + Doc.comma + Doc.line + loop(branch.expr) + Doc
+              Doc.char('[') + pat(
+                branch.pattern
+              ) + guardDoc + Doc.comma + Doc.line + loop(branch.expr) + Doc
                 .char(']')
             )
           }
@@ -234,7 +235,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           // these are not free variables in this branch
           val newBinds = branch.pattern.names.toSet
           val bfree =
-            branch.guard.fold(Nil: List[Bindable])(_.freeVarsDup) ::: branch.expr.freeVarsDup
+            branch.guard.fold(Nil: List[Bindable])(
+              _.freeVarsDup
+            ) ::: branch.expr.freeVarsDup
           if (newBinds.isEmpty) bfree
           else ListUtil.filterNot(bfree)(newBinds)
         }
@@ -278,7 +281,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Let(arg, argE, in, _, _) =>
         arg :: (argE.allVarsDup ::: in.allVarsDup)
       case Loop(args, body, _) =>
-        args.toList.map(_._1) ::: (args.foldMap(_._2.allVarsDup) ::: body.allVarsDup)
+        args.toList
+          .map(_._1) ::: (args.foldMap(_._2.allVarsDup) ::: body.allVarsDup)
       case Recur(args, _, _) =>
         args.reduceMap(_.allVarsDup)
       case Literal(_, _, _) =>
@@ -367,11 +371,14 @@ object TypedExpr {
       ): Boolean =
         eqNel(left, right) { case (lb, rb) =>
           val guardsEq = (lb.guard, rb.guard) match {
-            case (None, None)             => true
-            case (Some(lg), Some(rg))     => loop(lg, rg)
+            case (None, None)                      => true
+            case (Some(lg), Some(rg))              => loop(lg, rg)
             case (None, Some(_)) | (Some(_), None) => false
           }
-          guardsEq && eqPattern(lb.pattern, rb.pattern) && loop(lb.expr, rb.expr)
+          guardsEq && eqPattern(lb.pattern, rb.pattern) && loop(
+            lb.expr,
+            rb.expr
+          )
         }
 
       private def loop(left: TypedExpr[A], right: TypedExpr[A]): Boolean =
@@ -437,7 +444,7 @@ object TypedExpr {
     // Return this quantification, where the vars avoid otherVars
     def unshadow(
         otherVars: Set[Type.Var.Bound]
-    ): (Map[Type.Var, Type.TyVar], Quantification) = {
+    ): (Map[Type.Var, Type.TyVar], Quantification) =
 
       if (vars.exists { case (b, _) => otherVars(b) }) {
         this match {
@@ -453,7 +460,6 @@ object TypedExpr {
             (m, Quantification.Exists(ex))
         }
       } else (Map.empty, this)
-    }
 
     def filter(fn: Type.Var.Bound => Boolean): Option[Quantification] =
       Quantification.fromLists(
@@ -727,10 +733,11 @@ object TypedExpr {
     def unshadowBody(freeSet: Set[Bindable]): Loop[T] = {
       val clashIdent =
         if (freeSet.isEmpty) Set.empty[Bindable]
-        else args.iterator.flatMap {
-          case (n, _) if freeSet(n) => n :: Nil
-          case _                    => Nil
-        }.toSet
+        else
+          args.iterator.flatMap {
+            case (n, _) if freeSet(n) => n :: Nil
+            case _                    => Nil
+          }.toSet
 
       if (clashIdent.isEmpty) this
       else {
@@ -767,8 +774,8 @@ object TypedExpr {
         val newArgs = alloc(args.head, args.tail, avoids)
         val resSub = args.iterator
           .map(_._1)
-          .zip(newArgs.iterator.map { case (n1, _) =>
-            { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }
+          .zip(newArgs.iterator.map {
+            case (n1, _) => { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }
           })
           .toMap
 
@@ -850,9 +857,9 @@ object TypedExpr {
     }
   }
 
-  /**
-   * A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have getType.isInstance[Type.Rho]
-   */
+  /** A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have
+    * getType.isInstance[Type.Rho]
+    */
   opaque type Rho[+A] <: TypedExpr[A] =
     TypedExpr[A] // an expression with a Rho type (no top level forall)
 
@@ -867,7 +874,10 @@ object TypedExpr {
       expr.traverseType[cats.Id](fn)
     }
 
-    inline def exists[A](nel: NonEmptyList[(Type.Var.Bound, Kind)], rho: Rho[A]): Rho[A] =
+    inline def exists[A](
+        nel: NonEmptyList[(Type.Var.Bound, Kind)],
+        rho: Rho[A]
+    ): Rho[A] =
       // adding an existential wrapper on a Rho keeps it a rho
       TypedExpr.quantVars(
         forallList = Nil,
@@ -906,9 +916,10 @@ object TypedExpr {
     def assertRho[A](r: TypedExpr[A]): Rho[A] =
       r.getType match {
         case _: Type.Rho => r
-        case _ => throw new IllegalArgumentException(
-          s"type not Rho: ${r.reprString}"
-        )
+        case _           =>
+          throw new IllegalArgumentException(
+            s"type not Rho: ${r.reprString}"
+          )
       }
 
     def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
@@ -923,7 +934,6 @@ object TypedExpr {
         rho.getType.asInstanceOf[Type.Rho]
     }
   }
-
 
   def letAllNonRec[T](
       binds: NonEmptyList[(Bindable, TypedExpr[T])],
@@ -1041,7 +1051,9 @@ object TypedExpr {
           case Match(expr, branches, _) =>
             // all branches have the same type:
             branches.foldLeft(loop(expr)) { case (acc, branch) =>
-              val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(Set.empty[Type.Var])(loop)
+              val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(
+                Set.empty[Type.Var]
+              )(loop)
               acc1 ++ allPatternTypes(branch.pattern).iterator.collect {
                 case Type.TyVar(v) => v
               }
@@ -1091,9 +1103,12 @@ object TypedExpr {
             Let(v, _, _, rec, tag)
           }
         case Loop(args, body, tag) =>
-          (args.traverse { case (v, expr) =>
-            expr.traverseType(fn).map((v, _))
-          }, body.traverseType(fn)).mapN {
+          (
+            args.traverse { case (v, expr) =>
+              expr.traverseType(fn).map((v, _))
+            },
+            body.traverseType(fn)
+          ).mapN {
             Loop(_, _, tag)
           }
         case Recur(args, tpe, tag) =>
@@ -1147,9 +1162,12 @@ object TypedExpr {
             .mapN(Let(v, _, _, rec, tag))
             .flatMap(fn)
         case Loop(args, body, tag) =>
-          (args.traverse { case (v, expr) =>
-            loop(expr).map((v, _))
-          }, loop(body))
+          (
+            args.traverse { case (v, expr) =>
+              loop(expr).map((v, _))
+            },
+            loop(body)
+          )
             .mapN(Loop(_, _, tag))
             .flatMap(fn)
         case Recur(args, tpe, tag) =>
@@ -1367,10 +1385,12 @@ object TypedExpr {
            *
            * which has a type forall a. Int which is the same
            * as Int
-          */
+           */
           val allMatchMetas: F[SortedSet[Type.Meta]] =
             getMetaTyVars(arg.getType :: branches.foldMap { branch =>
-              allPatternTypes(branch.pattern) ++ branch.guard.fold(Set.empty[Type])(_.allTypes)
+              allPatternTypes(branch.pattern) ++ branch.guard.fold(
+                Set.empty[Type]
+              )(_.allTypes)
             }.toList)
 
           val env1 = env + te.getType
@@ -1732,7 +1752,7 @@ object TypedExpr {
           )
           q match {
             case _: (Type.Leaf | Type.TyApply) => subBody
-            case _ =>
+            case _                             =>
               Quantification
                 .fromLists(freeForall, freeExists)
                 .map { quant =>
@@ -1789,10 +1809,10 @@ object TypedExpr {
     g.in match {
       case AnnotatedLambda(args, body, a) =>
         val argFree = Type.freeBoundTyVars(args.toList.map(_._2)).toSet
-        val (outer, inner) = Type.quantVars(g.quantType).partition {
-          case (b, _) =>
-          argFree(b)
-        }
+        val (outer, inner) =
+          Type.quantVars(g.quantType).partition { case (b, _) =>
+            argFree(b)
+          }
         NonEmptyList.fromList(inner).map { inner =>
           // we know this has at least one item
           val inners = inner.map(_._1)
@@ -2076,10 +2096,13 @@ object TypedExpr {
               .foldLeft(nonShadowed.keySet)(_ | _)
 
             val Loop(args1, body1, tag1) = lp.unshadowBody(subFrees)
-            val subBody = substituteAll(nonShadowed, body1, enterLambda = true).get
-            args1.traverse { case (n, expr) =>
-              loop(table, expr).map((n, _))
-            }.map(Loop(_, subBody, tag1))
+            val subBody =
+              substituteAll(nonShadowed, body1, enterLambda = true).get
+            args1
+              .traverse { case (n, expr) =>
+                loop(table, expr).map((n, _))
+              }
+              .map(Loop(_, subBody, tag1))
           }
         case Recur(args, tpe, tag) =>
           args.traverse(loop(table, _)).map(Recur(_, tpe, tag))
@@ -2188,7 +2211,8 @@ object TypedExpr {
 
       // calling .get is safe when enterLambda = true
       val b1 = substituteAll(resSub, b, enterLambda = true).get
-      val g1 = branch.guard.map(substituteAll(resSub, _, enterLambda = true).get)
+      val g1 =
+        branch.guard.map(substituteAll(resSub, _, enterLambda = true).get)
       val p1 = p.substitute(args.iterator.zip(newArgs.iterator).toMap)
 
       branch.copy(pattern = p1, guard = g1, expr = b1)
@@ -2391,7 +2415,11 @@ object TypedExpr {
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
             // error if metas escape typechecking
-            Match(arg, branches.map(branch => branch.copy(expr = self(branch.expr))), tag)
+            Match(
+              arg,
+              branches.map(branch => branch.copy(expr = self(branch.expr))),
+              tag
+            )
           case App(AnnotatedLambda(lamArgs, body, _), aArgs, _, tag) =>
             // (\x - res)(y) == let x = y in res
             val arg1 = lamArgs.zip(aArgs).map {

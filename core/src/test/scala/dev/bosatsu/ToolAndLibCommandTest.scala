@@ -29,7 +29,7 @@ class ToolAndLibCommandTest extends FunSuite {
     module.run(cmd) match {
       case Left(help) =>
         Left(new Exception(s"got help: $help on command: $cmd"))
-      case Right(io)  =>
+      case Right(io) =>
         for {
           stateOut <- io.run(state)
           (nextState, _) <- module.reportOutput(stateOut._2).run(stateOut._1)
@@ -42,13 +42,13 @@ class ToolAndLibCommandTest extends FunSuite {
   ): String =
     state.get(path) match {
       case Some(Right(MemoryMain.FileContent.Str(s))) => s
-      case other =>
+      case other                                      =>
         fail(s"expected string file at ${path.mkString_("/")}, found: $other")
     }
 
   private def assertNoFile(state: MemoryMain.State, path: Chain[String]): Unit =
     state.get(path) match {
-      case None => ()
+      case None  => ()
       case other =>
         fail(s"expected no file at ${path.mkString_("/")}, found: $other")
     }
@@ -59,7 +59,7 @@ class ToolAndLibCommandTest extends FunSuite {
   ): Hashed[Algo.Blake3, proto.Library] =
     state.get(path) match {
       case Some(Right(MemoryMain.FileContent.Lib(lib))) => lib
-      case other =>
+      case other                                        =>
         fail(s"expected library file at ${path.mkString_("/")}, found: $other")
     }
 
@@ -106,9 +106,13 @@ class ToolAndLibCommandTest extends FunSuite {
             Some(Right(MemoryMain.FileContent.Lib(depLib)))
           ) =>
         val depRef =
-          proto.LibDependency(name = depLib.arg.name, desc = depLib.arg.descriptor)
+          proto.LibDependency(
+            name = depLib.arg.name,
+            desc = depLib.arg.descriptor
+          )
         val rewritten = previousLib.arg.copy(
-          publicDependencies = depRef :: previousLib.arg.publicDependencies.toList
+          publicDependencies =
+            depRef :: previousLib.arg.publicDependencies.toList
         )
         val rehashed = Hashed(Algo.hashBytes(rewritten.toByteArray), rewritten)
         state.withFile(outPath, MemoryMain.FileContent.Lib(rehashed)) match {
@@ -212,20 +216,20 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(List("lib", "eval", "--repo_root", "repo", "--main",
-      "MyLib/Foo")) match {
+    module.runWith(files)(
+      List("lib", "eval", "--repo_root", "repo", "--main", "MyLib/Foo")
+    ) match {
       case Right(Output.EvaluationResult(_, _, _)) => ()
-      case Right(other)                            => fail(s"unexpected output: $other")
-      case Left(err)                               => fail(err.getMessage)
+      case Right(other) => fail(s"unexpected output: $other")
+      case Left(err)    => fail(err.getMessage)
     }
 
     module.runWith(files)(
-      List("lib", "json", "write", "--repo_root", "repo", "--main",
-        "MyLib/Foo")
+      List("lib", "json", "write", "--repo_root", "repo", "--main", "MyLib/Foo")
     ) match {
       case Right(Output.JsonOutput(Json.JNumberStr("42"), _)) => ()
-      case Right(other)                                        => fail(s"unexpected output: $other")
-      case Left(err)                                           => fail(err.getMessage)
+      case Right(other) => fail(s"unexpected output: $other")
+      case Left(err)    => fail(err.getMessage)
     }
 
     module.runWith(files)(
@@ -233,12 +237,14 @@ class ToolAndLibCommandTest extends FunSuite {
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
-      case Right(other)                          => fail(s"unexpected output: $other")
-      case Left(err)                             => fail(err.getMessage)
+      case Right(other) => fail(s"unexpected output: $other")
+      case Left(err)    => fail(err.getMessage)
     }
   }
 
-  test("tool doc writes markdown for source packages and excludes include packages") {
+  test(
+    "tool doc writes markdown for source packages and excludes include packages"
+  ) {
     val depSrc =
       """export DepBox(), depBox
 
@@ -306,7 +312,10 @@ dep_main = depBox
       case Right((state, out)) =>
         out match {
           case Output.TranspileOut(outputs) =>
-            assertEquals(outputs.map(_._1), List(Chain("docs", "App", "Main.md")))
+            assertEquals(
+              outputs.map(_._1),
+              List(Chain("docs", "App", "Main.md"))
+            )
           case other =>
             fail(s"unexpected output: $other")
         }
@@ -316,7 +325,10 @@ dep_main = depBox
         assert(markdown.contains("public dependencies: `Dep/Util`"), markdown)
         assert(markdown.contains("## Values"), markdown)
         assert(markdown.contains("## Types"), markdown)
-        assert(markdown.indexOf("## Types") < markdown.indexOf("## Values"), markdown)
+        assert(
+          markdown.indexOf("## Types") < markdown.indexOf("## Values"),
+          markdown
+        )
         assert(markdown.contains("Box docs."), markdown)
         assert(markdown.contains("Run docs."), markdown)
         assert(markdown.contains("def run("), markdown)
@@ -352,7 +364,10 @@ mk = (x) -> Thing(x)
       )
     ) match {
       case Right(Output.TranspileOut(outputs)) =>
-        assertEquals(outputs.map(_._1), List(Chain("outdocs", "MyLib", "Foo.md")))
+        assertEquals(
+          outputs.map(_._1),
+          List(Chain("outdocs", "MyLib", "Foo.md"))
+        )
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>
@@ -380,12 +395,16 @@ mk = (x) -> Thing(x)
       case Left(err) =>
         fail(err.getMessage)
       case Right((state, _)) =>
-        val markdown = readStringFile(state, Chain("outdocs", "MyLib", "Foo.md"))
+        val markdown =
+          readStringFile(state, Chain("outdocs", "MyLib", "Foo.md"))
         assert(markdown.contains("# `MyLib/Foo`"), markdown)
         assert(markdown.contains("Thing docs."), markdown)
         assert(markdown.contains("Mk docs."), markdown)
         assert(!markdown.contains("public dependencies:"), markdown)
-        assert(markdown.indexOf("## Types") < markdown.indexOf("## Values"), markdown)
+        assert(
+          markdown.indexOf("## Types") < markdown.indexOf("## Values"),
+          markdown
+        )
         assert(markdown.contains("def mk("), markdown)
         assert(markdown.contains("`Thing(v: Int)`"), markdown)
         assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
@@ -426,7 +445,8 @@ mode = Auto
       case Left(err) =>
         fail(err.getMessage)
       case Right((state, _)) =>
-        val markdown = readStringFile(state, Chain("docs", "EnumDocs", "Main.md"))
+        val markdown =
+          readStringFile(state, Chain("docs", "EnumDocs", "Main.md"))
         assert(markdown.contains("Mode docs."), markdown)
         assert(markdown.contains("### `Mode`"), markdown)
     }
@@ -512,15 +532,22 @@ main = 1
             fail(s"unexpected output: $other")
         }
 
-        val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
+        val predefDoc =
+          readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
         assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
         assert(!predefDoc.contains("public dependencies:"), predefDoc)
         assert(predefDoc.contains("## Index"), predefDoc)
         val indexSection =
-          predefDoc.substring(predefDoc.indexOf("## Index"), predefDoc.indexOf("## Types"))
+          predefDoc.substring(
+            predefDoc.indexOf("## Index"),
+            predefDoc.indexOf("## Types")
+          )
         assert(predefDoc.contains("[`Bool`](#type-bool)"), predefDoc)
         assert(indexSection.contains("[`Fn2`](#type-fn2)"), predefDoc)
-        assert(!indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"), predefDoc)
+        assert(
+          !indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"),
+          predefDoc
+        )
         assert(predefDoc.contains("[`int_loop`](#value-int-loop)"), predefDoc)
         assert(predefDoc.contains("<a id=\"type-bool\"></a>"), predefDoc)
         assert(predefDoc.contains("<a id=\"value-int-loop\"></a>"), predefDoc)
@@ -531,16 +558,23 @@ main = 1
         assert(predefDoc.contains("Standard dictionaries"), predefDoc)
         assert(!predefDoc.contains("############"), predefDoc)
         assert(predefDoc.contains("- `EmptyList`"), predefDoc)
-        assert(predefDoc.contains("- `NonEmptyList(head: a, tail: List[a])`"), predefDoc)
+        assert(
+          predefDoc.contains("- `NonEmptyList(head: a, tail: List[a])`"),
+          predefDoc
+        )
         assert(!predefDoc.contains("EmptyList: forall"), predefDoc)
         assert(predefDoc.contains("### `Fn1[i0, z]`"), predefDoc)
         assert(predefDoc.contains("### `Fn2[i0, i1, z]`"), predefDoc)
         assert(
-          predefDoc.contains("### `Fn10[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, z]`"),
+          predefDoc.contains(
+            "### `Fn10[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, z]`"
+          ),
           predefDoc
         )
         assert(
-          predefDoc.indexOf("### `Fn1[i0, z]`") < predefDoc.indexOf("### `Fn2[i0, i1, z]`"),
+          predefDoc.indexOf("### `Fn1[i0, z]`") < predefDoc.indexOf(
+            "### `Fn2[i0, i1, z]`"
+          ),
           predefDoc
         )
         assert(
@@ -611,12 +645,15 @@ main = 1
             fail(s"unexpected output: $other")
         }
 
-        val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
+        val predefDoc =
+          readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
         assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
     }
   }
 
-  test("tool commands can evaluate and show packages from --pub_dep libraries") {
+  test(
+    "tool commands can evaluate and show packages from --pub_dep libraries"
+  ) {
     val depSrc =
       """main = 9
 """
@@ -680,12 +717,12 @@ main = 1
       case Right((jsonOut, showOut)) =>
         jsonOut match {
           case Output.JsonOutput(Json.JNumberStr("9"), _) => ()
-          case other                                      => fail(s"unexpected json output: $other")
+          case other => fail(s"unexpected json output: $other")
         }
         showOut match {
           case Output.ShowOutput(packs, _, _) =>
             assertEquals(packs.map(_.name.asString), List("Dep/Foo"))
-          case other                         =>
+          case other =>
             fail(s"unexpected show output: $other")
         }
     }
@@ -790,7 +827,7 @@ main = depValue
             fail(
               s"expected assemble failure when using .bosatsu_ifacelib private dependency, got: $out"
             )
-          case Left(err)       =>
+          case Left(err) =>
             val msg = Option(err.getMessage).getOrElse(err.toString)
             assert(
               msg.contains("invalid private dependency libraries"),
@@ -820,7 +857,7 @@ main = depValue
             fail(
               s"expected assemble failure when using .bosatsu_ifacelib public dependency, got: $out"
             )
-          case Left(err)       =>
+          case Left(err) =>
             val msg = Option(err.getMessage).getOrElse(err.toString)
             assert(
               msg.contains("invalid public dependency libraries"),
@@ -905,7 +942,9 @@ main = depValue
 
             val paths = itemList.map {
               case Json.JObject(fields) =>
-                fields.collectFirst { case ("path", Json.JString(p)) => p } match {
+                fields.collectFirst { case ("path", Json.JString(p)) =>
+                  p
+                } match {
                   case Some(p) => p
                   case None    => fail(s"missing path field in: ${fields}")
                 }
@@ -918,21 +957,21 @@ main = depValue
             )
 
             val alphaDependsOn: Option[List[String]] = itemList.collectFirst {
-              case Json.JObject(fields)
-                  if fields.exists {
+              case Json.JObject(fields) if fields.exists {
                     case ("package", Json.JString("Alpha/Main")) => true
-                    case _                                        => false
+                    case _                                       => false
                   } =>
-                fields.collectFirst {
-                  case ("dependsOn", Json.JArray(values)) =>
+                fields
+                  .collectFirst { case ("dependsOn", Json.JArray(values)) =>
                     values.toList.collect { case Json.JString(s) => s }
-                }.getOrElse(Nil)
+                  }
+                  .getOrElse(Nil)
             }
             assertEquals(alphaDependsOn, Some(List("Missing/Dep")))
 
           case Right(other) =>
             fail(s"expected json array output, found: $other")
-          case Left(err)    =>
+          case Left(err) =>
             fail(show"failed to parse deps json output: $err")
         }
 
@@ -944,7 +983,9 @@ main = depValue
     }
   }
 
-  test("tool assemble fails when previous public dependencies are not provided") {
+  test(
+    "tool assemble fails when previous public dependencies are not provided"
+  ) {
     val depSrc =
       """export depValue,
 depValue = 9
@@ -1070,7 +1111,7 @@ main = depValue
         fail(
           s"expected missing previous public dependency failure, got: $out"
         )
-      case Left(err)       =>
+      case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(
           msg.contains("missing previous public dependency"),
@@ -1079,7 +1120,9 @@ main = depValue
     }
   }
 
-  test("tool deps includes interface/package info from includes and dependency libraries") {
+  test(
+    "tool deps includes interface/package info from includes and dependency libraries"
+  ) {
     val depSrc =
       """export DepBox(), depBox,
 
@@ -1182,13 +1225,19 @@ main = depBox
         val jsonStr = readStringFile(state, Chain("out", "deps_mixed.json"))
         Json.parserFile.parseAll(jsonStr) match {
           case Right(Json.JArray(items)) =>
-            val rows = items.toList.collect { case Json.JObject(fields) => fields }
-            val kinds = rows.flatMap(_.collectFirst { case ("kind", Json.JString(k)) => k })
+            val rows = items.toList.collect { case Json.JObject(fields) =>
+              fields
+            }
+            val kinds = rows.flatMap(_.collectFirst {
+              case ("kind", Json.JString(k)) => k
+            })
             assert(kinds.contains("interface"), jsonStr)
             assert(kinds.contains("package"), jsonStr)
 
             val packages =
-              rows.flatMap(_.collectFirst { case ("package", Json.JString(p)) => p })
+              rows.flatMap(_.collectFirst { case ("package", Json.JString(p)) =>
+                p
+              })
             assert(packages.contains("Dep/Foo"), jsonStr)
             assert(packages.contains("App/Main"), jsonStr)
 
@@ -1196,10 +1245,11 @@ main = depBox
               case fields
                   if fields.contains(("package", Json.JString("App/Main"))) &&
                     fields.contains(("kind", Json.JString("package"))) =>
-                fields.collectFirst {
-                  case ("dependsOn", Json.JArray(values)) =>
+                fields
+                  .collectFirst { case ("dependsOn", Json.JArray(values)) =>
                     values.toList.collect { case Json.JString(s) => s }
-                }.getOrElse(Nil)
+                  }
+                  .getOrElse(Nil)
             }
             assertEquals(appPackDeps, Some(List("Dep/Foo")))
           case Right(other) =>
@@ -1236,8 +1286,8 @@ main = depBox
     )
     applyFromPath match {
       case Right(Output.JsonOutput(Json.JNumberStr("124"), _)) => ()
-      case Right(other)                                         => fail(s"unexpected output: $other")
-      case Left(err)                                            => fail(err.getMessage)
+      case Right(other) => fail(s"unexpected output: $other")
+      case Left(err)    => fail(err.getMessage)
     }
 
     val wrongAritySrc =
@@ -1266,8 +1316,11 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("required a json array of size 2"), msg)
-        assert(module.mainExceptionToString(err).nonEmpty, show"expected CliException: $msg")
-      }
+        assert(
+          module.mainExceptionToString(err).nonEmpty,
+          show"expected CliException: $msg"
+        )
+    }
   }
 
   test("tool json traverse rejects non-array inputs") {
@@ -1296,7 +1349,10 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("require an array or arrays for traverse"), msg)
-        assert(module.mainExceptionToString(err).nonEmpty, show"expected CliException: $msg")
+        assert(
+          module.mainExceptionToString(err).nonEmpty,
+          show"expected CliException: $msg"
+        )
     }
   }
 
@@ -1307,7 +1363,10 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("no inputs given to check"), msg)
-        assert(module.mainExceptionToString(err).nonEmpty, show"expected CliException: $msg")
+        assert(
+          module.mainExceptionToString(err).nonEmpty,
+          show"expected CliException: $msg"
+        )
     }
   }
 
@@ -1399,8 +1458,8 @@ main = depBox
       )
     ) match {
       case Right(Output.JsonOutput(Json.JNumberStr("42"), _)) => ()
-      case Right(other)                                        => fail(s"unexpected output: $other")
-      case Left(err)                                           => fail(err.getMessage)
+      case Right(other) => fail(s"unexpected output: $other")
+      case Left(err)    => fail(err.getMessage)
     }
 
     val applyWrongArity = module.runWith(files)(
@@ -1549,13 +1608,15 @@ main = depBox
     ) match {
       case Right(out) =>
         fail(s"expected unsupported-type error, got: $out")
-      case Left(err)  =>
+      case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("cannot convert type to Json"), msg)
     }
   }
 
-  test("lib check renders previous descriptor details when previous is missing") {
+  test(
+    "lib check renders previous descriptor details when previous is missing"
+  ) {
     val previousDesc = proto.LibDescriptor(
       version = Some(Version(0, 0, 0).toProto),
       hashes = validHash1 :: Nil,
@@ -1647,7 +1708,9 @@ main = depBox
     }
   }
 
-  test("lib build succeeds when importing package from private dependency in CAS") {
+  test(
+    "lib build succeeds when importing package from private dependency in CAS"
+  ) {
     val depSrc =
       """package Dep/Foo
 |
@@ -1736,7 +1799,10 @@ main = depBox
         state2
       )
       (state3, _) = s3
-      state4 <- state3.withFile(casPathFor(Chain("repo"), depLib), MemoryMain.FileContent.Lib(depLib)) match {
+      state4 <- state3.withFile(
+        casPathFor(Chain("repo"), depLib),
+        MemoryMain.FileContent.Lib(depLib)
+      ) match {
         case Some(next) => Right(next)
         case None       =>
           Left(
@@ -1771,7 +1837,9 @@ main = depBox
     }
   }
 
-  test("lib test --filter scopes local typechecking to matching package roots") {
+  test(
+    "lib test --filter scopes local typechecking to matching package roots"
+  ) {
     val targetSrc =
       """test_one = Assertion(True, "ok")
 """
@@ -1820,7 +1888,9 @@ main = depBox
     }
   }
 
-  test("lib check --filter scopes local typechecking to matching package roots") {
+  test(
+    "lib check --filter scopes local typechecking to matching package roots"
+  ) {
     val targetSrc =
       """one = 1
 """
@@ -1866,12 +1936,18 @@ main = depBox
   test("Output.Many stops at first non-success exit code") {
     val first = Output.TestOutput(
       List(
-        (PackageName.parts("Pkg"), Some(Eval.now(Test.Assertion(false, "boom"))))
+        (
+          PackageName.parts("Pkg"),
+          Some(Eval.now(Test.Assertion(false, "boom")))
+        )
       ),
       Colorize.None
     )
     val second =
-      Output.Basic(Doc.text("should not be written"), Some(Chain("out", "later.txt")))
+      Output.Basic(
+        Doc.text("should not be written"),
+        Some(Chain("out", "later.txt"))
+      )
     val out = Output.Many(Chain(first, second))
 
     val result = for {

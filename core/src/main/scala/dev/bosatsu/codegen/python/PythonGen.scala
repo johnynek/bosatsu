@@ -755,9 +755,12 @@ object PythonGen {
       private val unsigned64TopBitExpr = Code.PyInt(
         java.math.BigInteger.ONE.shiftLeft(63)
       )
-      private val unsigned64ModExpr = Code.PyInt(java.math.BigInteger.ONE.shiftLeft(64))
+      private val unsigned64ModExpr =
+        Code.PyInt(java.math.BigInteger.ONE.shiftLeft(64))
 
-      private def signedToUnsignedBits64(bits: Code.Expression): Code.Expression =
+      private def signedToUnsignedBits64(
+          bits: Code.Expression
+      ): Code.Expression =
         Code
           .Ternary(
             bits.evalPlus(unsigned64ModExpr),
@@ -781,7 +784,9 @@ object PythonGen {
         )
       }
 
-      private def unsignedToSignedBits64(bits: Code.Expression): Code.Expression = {
+      private def unsignedToSignedBits64(
+          bits: Code.Expression
+      ): Code.Expression = {
         val bits1 = bits.eval(Code.Const.Mod, unsigned64ModExpr)
         Code
           .Ternary(
@@ -878,10 +883,13 @@ object PythonGen {
                 val negInf = Code.PyString("-\u221E")
                 val isInf = math.dot(Code.Ident("isinf"))(arg)
                 val isNaN = math.dot(Code.Ident("isnan"))(arg)
-                val sign = math.dot(Code.Ident("copysign"))(Code.PyFloat(1.0), arg)
-                val infString = Code.Ternary(negInf, sign :< Code.PyFloat(0.0), posInf)
+                val sign =
+                  math.dot(Code.Ident("copysign"))(Code.PyFloat(1.0), arg)
+                val infString =
+                  Code.Ternary(negInf, sign :< Code.PyFloat(0.0), posInf)
                 val bits = floatToUnsignedBits64(struct, arg)
-                val nanString = Code.Op(Code.PyString("NaN:0x%016x"), Code.Const.Mod, bits)
+                val nanString =
+                  Code.Op(Code.PyString("NaN:0x%016x"), Code.Const.Mod, bits)
                 Code
                   .Ternary(
                     infString,
@@ -897,7 +905,7 @@ object PythonGen {
       private val floatBitsToIntFn: List[ValueLike] => Env[ValueLike] = {
         input =>
           structModule.flatMap { struct =>
-            Env.onLast(input.head) { arg => floatToUnsignedBits64(struct, arg) }
+            Env.onLast(input.head)(arg => floatToUnsignedBits64(struct, arg))
           }
       }
 
@@ -926,22 +934,28 @@ object PythonGen {
             val floorV = math.dot(Code.Ident("floor"))(arg)
             val frac = Code.Op(arg, Code.Const.Minus, floorV).simplify
             val floorInt = Code.Ident("int")(floorV)
-            val floorPlusOne = Code.Op(floorInt, Code.Const.Plus, Code.Const.One).simplify
-            val floorIsEven = Code.Op(
-              Code.Op(floorInt, Code.Const.Mod, Code.fromInt(2)).simplify,
-              Code.Const.Eq,
-              Code.Const.Zero
-            ).simplify
-            val tieRounded = Code.Ternary(floorInt, floorIsEven, floorPlusOne).simplify
+            val floorPlusOne =
+              Code.Op(floorInt, Code.Const.Plus, Code.Const.One).simplify
+            val floorIsEven = Code
+              .Op(
+                Code.Op(floorInt, Code.Const.Mod, Code.fromInt(2)).simplify,
+                Code.Const.Eq,
+                Code.Const.Zero
+              )
+              .simplify
+            val tieRounded =
+              Code.Ternary(floorInt, floorIsEven, floorPlusOne).simplify
             val roundedInt = Code
               .Ternary(
                 floorInt,
                 frac :< Code.PyFloat(0.5),
-                Code.Ternary(
-                  floorPlusOne,
-                  frac :> Code.PyFloat(0.5),
-                  tieRounded
-                ).simplify
+                Code
+                  .Ternary(
+                    floorPlusOne,
+                    frac :> Code.PyFloat(0.5),
+                    tieRounded
+                  )
+                  .simplify
               )
               .simplify
 
@@ -995,11 +1009,16 @@ object PythonGen {
                     val isNaN = Code.Op(
                       cleanedLower,
                       Code.Const.In,
-                      Code.MakeTuple(Code.PyString(".nan") :: Code.PyString("nan") :: Nil)
+                      Code.MakeTuple(
+                        Code.PyString(".nan") :: Code.PyString("nan") :: Nil
+                      )
                     )
                     val hasNanPrefix =
-                      cleanedLower.dot(Code.Ident("startswith"))(Code.PyString("nan:0x"))
-                    val hexPart = Code.SelectRange(cleaned, Some(Code.fromInt(6)), None)
+                      cleanedLower.dot(Code.Ident("startswith"))(
+                        Code.PyString("nan:0x")
+                      )
+                    val hexPart =
+                      Code.SelectRange(cleaned, Some(Code.fromInt(6)), None)
                     val fullHex = re
                       .dot(Code.Ident("match"))(
                         Code.PyString("^[0-9a-fA-F]{16}$"),
@@ -1032,13 +1051,22 @@ object PythonGen {
                           NonEmptyList.of(
                             (
                               posInf,
-                              someValue(Code.Ident("float")(Code.PyString("inf")))
+                              someValue(
+                                Code.Ident("float")(Code.PyString("inf"))
+                              )
                             ),
                             (
                               negInf,
-                              someValue(Code.Ident("float")(Code.PyString("-inf")))
+                              someValue(
+                                Code.Ident("float")(Code.PyString("-inf"))
+                              )
                             ),
-                            (isNaN, someValue(Code.Ident("float")(Code.PyString("nan")))),
+                            (
+                              isNaN,
+                              someValue(
+                                Code.Ident("float")(Code.PyString("nan"))
+                              )
+                            ),
                             (nanByBits, someValue(nanByBitsValue)),
                             (isNumeric, someValue(parsedNumeric))
                           ),
@@ -1474,12 +1502,14 @@ object PythonGen {
                   val nonNegative = !(cp :< Code.Const.Zero)
                   val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
                   val inSurrogateRange =
-                    (!(cp :< Code.fromInt(0xD800)))
-                      .evalAnd(cp :< Code.fromInt(0xE000))
+                    (!(cp :< Code.fromInt(0xd800)))
+                      .evalAnd(cp :< Code.fromInt(0xe000))
                   val valid =
-                    nonNegative.evalAnd(belowUnicodeLimit).evalAnd(
-                      !inSurrogateRange
-                    )
+                    nonNegative
+                      .evalAnd(belowUnicodeLimit)
+                      .evalAnd(
+                        !inSurrogateRange
+                      )
                   Code.Ternary(
                     Code.MakeTuple(
                       Code.Const.One :: Code.Ident("chr")(cp) :: Nil
@@ -1881,7 +1911,8 @@ object PythonGen {
                   Env.onLasts(input) {
                     case ary :: idx :: value :: Nil =>
                       val valid =
-                        (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
+                        (!(idx :< Code.Const.Zero))
+                          .evalAnd(idx :< arrayLen(ary))
                       val updated = Code
                         .block(
                           data := arrayData(ary),
@@ -1922,48 +1953,50 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar,
                   Env.newAssignableVar
-                ).tupled.flatMap { case (data, offset, size, items, i, j, curr) =>
-                  Env.onLasts(input) {
-                    case ary :: cmp :: Nil =>
-                      val itemAtJ = selectItem(items, j)
-                      val itemCmpCurr =
-                        cmp(itemAtJ, curr) =:= Code.fromInt(2)
-                      Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          items := Code.SelectRange(
-                            data,
-                            Some(offset),
-                            Some(offset.evalPlus(size))
-                          ),
-                          i := Code.Const.One,
-                          Code.While(
-                            i :< size,
-                            Code.block(
-                              curr := selectItem(items, i),
-                              j := i.evalMinus(Code.Const.One),
-                              Code.While(
-                                (!(j :< Code.Const.Zero)).evalAnd(itemCmpCurr),
-                                Code.block(
-                                  selectItem(items, j + 1) := itemAtJ,
-                                  j := j.evalMinus(Code.Const.One)
-                                )
-                              ),
-                              selectItem(items, j + 1) := curr,
-                              i := i + 1
+                ).tupled.flatMap {
+                  case (data, offset, size, items, i, j, curr) =>
+                    Env.onLasts(input) {
+                      case ary :: cmp :: Nil =>
+                        val itemAtJ = selectItem(items, j)
+                        val itemCmpCurr =
+                          cmp(itemAtJ, curr) =:= Code.fromInt(2)
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            items := Code.SelectRange(
+                              data,
+                              Some(offset),
+                              Some(offset.evalPlus(size))
+                            ),
+                            i := Code.Const.One,
+                            Code.While(
+                              i :< size,
+                              Code.block(
+                                curr := selectItem(items, i),
+                                j := i.evalMinus(Code.Const.One),
+                                Code.While(
+                                  (!(j :< Code.Const.Zero))
+                                    .evalAnd(itemCmpCurr),
+                                  Code.block(
+                                    selectItem(items, j + 1) := itemAtJ,
+                                    j := j.evalMinus(Code.Const.One)
+                                  )
+                                ),
+                                selectItem(items, j + 1) := curr,
+                                i := i + 1
+                              )
                             )
                           )
+                          .withValue(makeArray(items, Code.Const.Zero, size))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
                         )
-                        .withValue(makeArray(items, Code.Const.Zero, size))
-                    case other =>
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected arity 2 got: $other"
-                      )
-                    // $COVERAGE-ON$
-                  }
+                      // $COVERAGE-ON$
+                    }
                 }
               },
               2
@@ -2031,7 +2064,10 @@ object PythonGen {
                                 idx :< partLen,
                                 Code.block(
                                   selectItem(data, write.evalPlus(idx)) :=
-                                    selectItem(partData, partOffset.evalPlus(idx)),
+                                    selectItem(
+                                      partData,
+                                      partOffset.evalPlus(idx)
+                                    ),
                                   idx := idx + 1
                                 )
                               ),
@@ -2165,11 +2201,10 @@ object PythonGen {
           )
         )
 
-      val resultsByPackage
-          : Map[
-            PackageName,
-            Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)]
-          ] =
+      val resultsByPackage: Map[
+        PackageName,
+        Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)]
+      ] =
         Map(
           predefPackage -> results,
           arrayPackage -> arrayResults,
@@ -2205,7 +2240,7 @@ object PythonGen {
         expr match {
           case Global(_, p, name) =>
             resultsByPackage.get(p).flatMap(_.get(name))
-          case _                  => None
+          case _ => None
         }
 
       def makeLambda(
@@ -2298,13 +2333,15 @@ object PythonGen {
               Env.importLiteral(NonEmptyList.one(Code.Ident("math"))).flatMap {
                 math =>
                   loop(expr, slotName, inlineSlots)
-                    .flatMap(Env.onLast(_)(ex => math.dot(Code.Ident("isnan"))(ex)))
+                    .flatMap(
+                      Env.onLast(_)(ex => math.dot(Code.Ident("isnan"))(ex))
+                    )
               }
             } else {
               loop(expr, slotName, inlineSlots)
                 .flatMap(Env.onLast(_)(ex => ex =:= literal))
             }
-          case EqualsLit(expr, lit)           =>
+          case EqualsLit(expr, lit) =>
             val literal = Code.litToExpr(lit)
             loop(expr, slotName, inlineSlots)
               .flatMap(Env.onLast(_)(ex => ex =:= literal))

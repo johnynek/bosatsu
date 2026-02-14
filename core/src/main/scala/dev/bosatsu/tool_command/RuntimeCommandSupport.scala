@@ -3,7 +3,12 @@ package dev.bosatsu.tool_command
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{CommandSupport, MainIdentifier, PackageResolver, PathGen}
+import dev.bosatsu.tool.{
+  CommandSupport,
+  MainIdentifier,
+  PackageResolver,
+  PathGen
+}
 import dev.bosatsu.{Package, PackageMap, PackageName, Par, PlatformIO}
 import dev.bosatsu.tool.CompilerApi
 
@@ -34,18 +39,23 @@ object RuntimeCommandSupport {
       )
       depInterfaces = CommandSupport.dependencyInterfaces(depLibraries)
       depPackageList = CommandSupport.dependencyPackages(depLibraries)
-      inputsWithMain = MainIdentifier.addAnyAbsent(mainIdentifiers, inputs)(using
-        platformIO.pathOrdering
+      inputsWithMain = MainIdentifier.addAnyAbsent(mainIdentifiers, inputs)(
+        using platformIO.pathOrdering
       )
       sourceWithNames <-
-        if (includePackages.isEmpty && depPackageList.isEmpty && inputsWithMain.isEmpty)
+        if (
+          includePackages.isEmpty && depPackageList.isEmpty && inputsWithMain.isEmpty
+        )
           CommandSupport.noInputs(platformIO, commandName)
         else {
           NonEmptyList.fromList(inputsWithMain) match {
             case None =>
-              moduleIOMonad.pure((PackageMap.empty, List.empty[(Path, PackageName)]))
+              moduleIOMonad.pure(
+                (PackageMap.empty, List.empty[(Path, PackageName)])
+              )
             case Some(srcNel) =>
-              val baseIfaces = includePackages.map(Package.interfaceOf(_)) ::: depInterfaces
+              val baseIfaces =
+                includePackages.map(Package.interfaceOf(_)) ::: depInterfaces
               CompilerApi
                 .typeCheck(
                   platformIO,
@@ -60,7 +70,8 @@ object RuntimeCommandSupport {
           }
         }
       (srcPacks, names) = sourceWithNames
-      allPacks = includePackages ::: depPackageList ::: srcPacks.toMap.values.toList
+      allPacks =
+        includePackages ::: depPackageList ::: srcPacks.toMap.values.toList
       _ <- CommandSupport.ensureDistinctPackages(
         platformIO,
         allPacks,

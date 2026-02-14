@@ -45,7 +45,9 @@ class ExprTest extends munit.ScalaCheckSuite {
             Expr
               .Match(
                 bind,
-                NonEmptyList.one(Expr.Branch(Pattern.Named(n, pat), None, expr)),
+                NonEmptyList.one(
+                  Expr.Branch(Pattern.Named(n, pat), None, expr)
+                ),
                 0
               )
               .notFree(n)

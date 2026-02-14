@@ -166,8 +166,8 @@ object DefRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _)                             => id
-          case InDefRecurred(ir, _, _, _, _, _)                   => ir.inDef
+          case id @ InDef(_, _, _, _)                                => id
+          case InDefRecurred(ir, _, _, _, _, _)                      => ir.inDef
           case InRecurBranch(InDefRecurred(ir, _, _, _, _, _), _, _) =>
             ir.inDef
         }
@@ -562,11 +562,12 @@ object DefRecursionCheck {
         case Match(RecursionKind.NonRecursive, arg, cases) =>
           // the arg can't use state, but cases introduce new bindings:
           val argRes = checkDecl(arg)
-          val optRes = cases.get.parTraverse_ { case MatchBranch(pat, guard, next) =>
-            checkForIllegalBindsSt(pat.names, decl) *>
-              filterNames(pat.names) {
-                guard.parTraverse_(checkDecl) *> checkDecl(next.get)
-              }
+          val optRes = cases.get.parTraverse_ {
+            case MatchBranch(pat, guard, next) =>
+              checkForIllegalBindsSt(pat.names, decl) *>
+                filterNames(pat.names) {
+                  guard.parTraverse_(checkDecl) *> checkDecl(next.get)
+                }
           }
           argRes *> optRes
         case recur @ Match(RecursionKind.Recursive, _, cases) =>

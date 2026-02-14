@@ -26,7 +26,7 @@ object StackSafe {
     else {
       val msg = extractMessage(ex).toLowerCase
       msg.contains("maximum call stack size exceeded") ||
-        msg.contains("too much recursion")
+      msg.contains("too much recursion")
     }
   }
 

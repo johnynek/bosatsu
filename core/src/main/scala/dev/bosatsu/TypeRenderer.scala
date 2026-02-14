@@ -7,9 +7,9 @@ import org.typelevel.paiges.Doc
 /** Shared rendering rules for user-facing type names.
   *
   * Rules:
-  * - Drop the current package prefix.
-  * - Drop `Bosatsu/Predef::` when there is no local shadowing type.
-  * - Keep other package prefixes.
+  *   - Drop the current package prefix.
+  *   - Drop `Bosatsu/Predef::` when there is no local shadowing type.
+  *   - Keep other package prefixes.
   */
 object TypeRenderer {
   final case class Context(
@@ -57,15 +57,19 @@ object TypeRenderer {
       ))
 
   private def abbreviate(raw: String, ctx: Context): String = {
-    val localPrefix = java.util.regex.Pattern.quote(ctx.packageName.asString + "::")
+    val localPrefix =
+      java.util.regex.Pattern.quote(ctx.packageName.asString + "::")
     val localRe = (localPrefix + "([A-Z][A-Za-z0-9_]*)").r
     val localShort = localRe.replaceAllIn(raw, m => nonNull(m.group(1)))
 
     val predefRe = "Bosatsu/Predef::([A-Z][A-Za-z0-9_]*)".r
-    predefRe.replaceAllIn(localShort, { m =>
-      val typeName = TypeName(nonNull(m.group(1)))
-      if (ctx.localTypeNames(typeName)) nonNull(m.matched)
-      else typeName.asString
-    })
+    predefRe.replaceAllIn(
+      localShort,
+      { m =>
+        val typeName = TypeName(nonNull(m.group(1)))
+        if (ctx.localTypeNames(typeName)) nonNull(m.matched)
+        else typeName.asString
+      }
+    )
   }
 }
