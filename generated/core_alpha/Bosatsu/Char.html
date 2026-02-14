@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Bosatsu/Char · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/Char.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../../../js/page.js"></script>
+<script type="text/javascript" src="../../../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../../../js/groups.js"></script>
+<script type="text/javascript" src="../../../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../../../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../../../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../../../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-859ac039*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html" class="active page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../../../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-859ac039*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html" class="active page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../../../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../../../generated/core_alpha/index.html">Core Alpha API</a></li>
+  <li><code>Bosatsu/Char</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#bosatsu-char" name="bosatsu-char" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Char</code></h1>
+<h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<h3><a href="#char-list-to-int-list" name="char-list-to-int-list" class="anchor"><span class="anchor-link"></span></a><code>char_List_to_Int_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def char_List_to_Int_List(arg1: List[Char]) -&gt; List[Int]
+</code></pre>
+<h3><a href="#char-to-int" name="char-to-int" class="anchor"><span class="anchor-link"></span></a><code>char_to_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(arg1: Char) -&gt; Int
+</code></pre>
+<h3><a href="#eq-ignore-ascii-case" name="eq-ignore-ascii-case" class="anchor"><span class="anchor-link"></span></a><code>eq_ignore_ascii_case</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_ignore_ascii_case(arg1: Char, arg2: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#from-digit" name="from-digit" class="anchor"><span class="anchor-link"></span></a><code>from_digit</code></h3>
+<p>Supported radix range is 2..36 inclusive.</p>
+<pre class="prettyprint"><code class="language-bosatsu">def from_digit(arg1: Int, arg2: Int) -&gt; Option[Char]
+</code></pre>
+<h3><a href="#int-list-to-char-list" name="int-list-to-char-list" class="anchor"><span class="anchor-link"></span></a><code>int_List_to_Char_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_Char_List(arg1: List[Int]) -&gt; Option[List[Char]]
+</code></pre>
+<h3><a href="#int-list-to-string" name="int-list-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_List_to_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_String(arg1: List[Int]) -&gt; Option[String]
+</code></pre>
+<h3><a href="#int-to-char" name="int-to-char" class="anchor"><span class="anchor-link"></span></a><code>int_to_Char</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_Char(arg1: Int) -&gt; Option[Char]
+</code></pre>
+<h3><a href="#is-ascii" name="is-ascii" class="anchor"><span class="anchor-link"></span></a><code>is_ascii</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-alnum" name="is-ascii-alnum" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_alnum</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alnum(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-alpha" name="is-ascii-alpha" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_alpha</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alpha(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-control" name="is-ascii-control" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_control</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_control(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-digit" name="is-ascii-digit" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_digit</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_digit(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-hex" name="is-ascii-hex" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_hex</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_hex(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-lower" name="is-ascii-lower" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_lower</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_lower(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-punctuation" name="is-ascii-punctuation" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_punctuation</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_punctuation(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-upper" name="is-ascii-upper" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_upper</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_upper(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-ascii-whitespace" name="is-ascii-whitespace" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_whitespace</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_whitespace(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-digit" name="is-digit" class="anchor"><span class="anchor-link"></span></a><code>is_digit</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_digit(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-hex" name="is-hex" class="anchor"><span class="anchor-link"></span></a><code>is_hex</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def is_hex(arg1: Char) -&gt; Bool
+</code></pre>
+<h3><a href="#is-scalar-value" name="is-scalar-value" class="anchor"><span class="anchor-link"></span></a><code>is_scalar_value</code></h3>
+<p>Unicode scalar value = [0, 0x10FFFF] excluding UTF-16 surrogate code points.</p>
+<pre class="prettyprint"><code class="language-bosatsu">def is_scalar_value(arg1: Int) -&gt; Bool
+</code></pre>
+<h3><a href="#last-string" name="last-string" class="anchor"><span class="anchor-link"></span></a><code>last_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def last_String(arg1: String) -&gt; Option[Char]
+</code></pre>
+<h3><a href="#string-to-char" name="string-to-char" class="anchor"><span class="anchor-link"></span></a><code>string_to_Char</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char(arg1: String) -&gt; Option[Char]
+</code></pre>
+<h3><a href="#string-to-char-list" name="string-to-char-list" class="anchor"><span class="anchor-link"></span></a><code>string_to_Char_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char_List(arg1: String) -&gt; List[Char]
+</code></pre>
+<h3><a href="#string-to-int-list" name="string-to-int-list" class="anchor"><span class="anchor-link"></span></a><code>string_to_Int_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_List(arg1: String) -&gt; List[Int]
+</code></pre>
+<h3><a href="#to-ascii-lower-case" name="to-ascii-lower-case" class="anchor"><span class="anchor-link"></span></a><code>to_ascii_lower_case</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_lower_case(arg1: Char) -&gt; Char
+</code></pre>
+<h3><a href="#to-ascii-upper-case" name="to-ascii-upper-case" class="anchor"><span class="anchor-link"></span></a><code>to_ascii_upper_case</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_upper_case(arg1: Char) -&gt; Char
+</code></pre>
+<h3><a href="#to-digit" name="to-digit" class="anchor"><span class="anchor-link"></span></a><code>to_digit</code></h3>
+<p>Supported radix range is 2..36 inclusive.</p>
+<pre class="prettyprint"><code class="language-bosatsu">def to_digit(arg1: Char, arg2: Int) -&gt; Option[Int]
+</code></pre>
+<h3><a href="#utf8-len" name="utf8-len" class="anchor"><span class="anchor-link"></span></a><code>utf8_len</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def utf8_len(arg1: Char) -&gt; Int
+</code></pre>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Char.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../../../generated/core_alpha/Bosatsu/Collection/Array.html"><code>Bosatsu/Collection/Array</code></a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../generated/core_alpha/Bosatsu/Char.html#bosatsu-char" class="header"><code>Bosatsu/Char</code></a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html#values" class="header">Values</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../../../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../../../js/magellan.js"></script>
+
+<style type="text/css">@import "../../../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-859ac039-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>

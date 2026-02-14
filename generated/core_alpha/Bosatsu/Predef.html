@@ -1,0 +1,1769 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Bosatsu/Predef · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/Predef.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../../../js/page.js"></script>
+<script type="text/javascript" src="../../../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../../../js/groups.js"></script>
+<script type="text/javascript" src="../../../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../../../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../../../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../../../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-859ac039*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html" class="active page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../../../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-859ac039*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html" class="active page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../../../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../../../generated/core_alpha/index.html">Core Alpha API</a></li>
+  <li><code>Bosatsu/Predef</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#bosatsu-predef" name="bosatsu-predef" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Predef</code></h1>
+<h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<h3><a href="#bool" name="bool" class="anchor"><span class="anchor-link"></span></a><code>Bool</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Bool
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>False</code></li>
+  <li><code>True</code></li>
+</ul>
+<h3><a href="#char" name="char" class="anchor"><span class="anchor-link"></span></a><code>Char</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Char
+</code></pre>
+<h3><a href="#comparison" name="comparison" class="anchor"><span class="anchor-link"></span></a><code>Comparison</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Comparison
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>EQ</code></li>
+  <li><code>GT</code></li>
+  <li><code>LT</code></li>
+</ul>
+<h3><a href="#dict-k-v-" name="dict-k-v-" class="anchor"><span class="anchor-link"></span></a><code>Dict[k, v]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Dict[k: *, v: +*]
+</code></pre>
+<h3><a href="#float64" name="float64" class="anchor"><span class="anchor-link"></span></a><code>Float64</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Float64
+</code></pre>
+<h3><a href="#fn1-i0-z-" name="fn1-i0-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn1[i0, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn1[i0: -*, z: +*]
+</code></pre>
+<h3><a href="#fn2-i0-i1-z-" name="fn2-i0-i1-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn2[i0, i1, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn2[i0: -*, i1: -*, z: +*]
+</code></pre>
+<h3><a href="#fn3-i0-i1-i2-z-" name="fn3-i0-i1-i2-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn3[i0, i1, i2, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn3[i0: -*, i1: -*, i2: -*, z: +*]
+</code></pre>
+<h3><a href="#fn4-i0-i1-i2-i3-z-" name="fn4-i0-i1-i2-i3-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn4[i0, i1, i2, i3, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn4[i0: -*, i1: -*, i2: -*, i3: -*, z: +*]
+</code></pre>
+<h3><a href="#fn5-i0-i1-i2-i3-i4-z-" name="fn5-i0-i1-i2-i3-i4-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn5[i0, i1, i2, i3, i4, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn5[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, z: +*]
+</code></pre>
+<h3><a href="#fn6-i0-i1-i2-i3-i4-i5-z-" name="fn6-i0-i1-i2-i3-i4-i5-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn6[i0, i1, i2, i3, i4, i5, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn6[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, i5: -*, z: +*]
+</code></pre>
+<h3><a href="#fn7-i0-i1-i2-i3-i4-i5-i6-z-" name="fn7-i0-i1-i2-i3-i4-i5-i6-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn7[i0, i1, i2, i3, i4, i5, i6, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn7[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, i5: -*, i6: -*, z: +*]
+</code></pre>
+<h3><a href="#fn8-i0-i1-i2-i3-i4-i5-i6-i7-z-" name="fn8-i0-i1-i2-i3-i4-i5-i6-i7-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn8[i0, i1, i2, i3, i4, i5, i6, i7, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn8[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, i5: -*, i6: -*, i7: -*, z: +*]
+</code></pre>
+<h3><a href="#fn9-i0-i1-i2-i3-i4-i5-i6-i7-i8-z-" name="fn9-i0-i1-i2-i3-i4-i5-i6-i7-i8-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn9[i0, i1, i2, i3, i4, i5, i6, i7, i8, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn9[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, i5: -*, i6: -*, i7: -*, i8: -*, z: +*]
+</code></pre>
+<h3><a href="#fn10-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-z-" name="fn10-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn10[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn10[i0: -*, i1: -*, i2: -*, i3: -*, i4: -*, i5: -*, i6: -*, i7: -*, i8: -*, i9: -*, z: +*]
+</code></pre>
+<h3><a href="#fn11-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-z-" name="fn11-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn11[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn11[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn12-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-z-" name="fn12-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn12[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn12[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn13-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-z-" name="fn13-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn13[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn13[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn14-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-z-" name="fn14-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn14[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn14[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn15-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-z-" name="fn15-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn15[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn15[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn16-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-z-" name="fn16-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn16[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn16[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn17-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-z-" name="fn17-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn17[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn17[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn18-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-z-" name="fn18-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn18[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn18[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn19-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-z-" name="fn19-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn19[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn19[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn20-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-z-" name="fn20-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn20[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn20[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn21-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-z-" name="fn21-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn21[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn21[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn22-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-z-" name="fn22-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn22[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn22[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn23-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-z-" name="fn23-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn23[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn23[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn24-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-z-" name="fn24-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn24[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn24[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn25-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-z-" name="fn25-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn25[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn25[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn26-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-z-" name="fn26-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn26[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn26[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn27-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-z-" name="fn27-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn27[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn27[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn28-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-z-" name="fn28-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn28[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn28[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    i27: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn29-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-z-" name="fn29-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn29[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, i28, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn29[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    i27: -*,
+    i28: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn30-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-z-" name="fn30-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn30[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, i28, i29, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn30[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    i27: -*,
+    i28: -*,
+    i29: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn31-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-i30-z-" name="fn31-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-i30-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn31[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, i28, i29, i30, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn31[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    i27: -*,
+    i28: -*,
+    i29: -*,
+    i30: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#fn32-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-i30-i31-z-" name="fn32-i0-i1-i2-i3-i4-i5-i6-i7-i8-i9-i10-i11-i12-i13-i14-i15-i16-i17-i18-i19-i20-i21-i22-i23-i24-i25-i26-i27-i28-i29-i30-i31-z-" class="anchor"><span class="anchor-link"></span></a><code>Fn32[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, i28, i29, i30, i31, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Fn32[i0: -*,
+    i1: -*,
+    i2: -*,
+    i3: -*,
+    i4: -*,
+    i5: -*,
+    i6: -*,
+    i7: -*,
+    i8: -*,
+    i9: -*,
+    i10: -*,
+    i11: -*,
+    i12: -*,
+    i13: -*,
+    i14: -*,
+    i15: -*,
+    i16: -*,
+    i17: -*,
+    i18: -*,
+    i19: -*,
+    i20: -*,
+    i21: -*,
+    i22: -*,
+    i23: -*,
+    i24: -*,
+    i25: -*,
+    i26: -*,
+    i27: -*,
+    i28: -*,
+    i29: -*,
+    i30: -*,
+    i31: -*,
+    z: +*]
+</code></pre>
+<h3><a href="#int" name="int" class="anchor"><span class="anchor-link"></span></a><code>Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Int
+</code></pre>
+<h3><a href="#list-a-" name="list-a-" class="anchor"><span class="anchor-link"></span></a><code>List[a]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type List[a: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>EmptyList</code></li>
+  <li><code>NonEmptyList(head: a, tail: List[a])</code></li>
+</ul>
+<h3><a href="#option-a-" name="option-a-" class="anchor"><span class="anchor-link"></span></a><code>Option[a]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Option[a: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>None</code></li>
+  <li><code>Some(v: a)</code></li>
+</ul>
+<h3><a href="#order-a-" name="order-a-" class="anchor"><span class="anchor-link"></span></a><code>Order[a]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Order[a: -*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Order(to_Fn: (a, a) -&gt; Comparison)</code></li>
+</ul>
+<h3><a href="#string" name="string" class="anchor"><span class="anchor-link"></span></a><code>String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type String
+</code></pre>
+<h3><a href="#test" name="test" class="anchor"><span class="anchor-link"></span></a><code>Test</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Test
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Assertion(value: Bool, message: String)</code></li>
+  <li><code>TestSuite(name: String, tests: List[Test])</code></li>
+</ul>
+<h3><a href="#tuple1-a-" name="tuple1-a-" class="anchor"><span class="anchor-link"></span></a><code>Tuple1[a]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple1[a: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple1(item1: a)</code></li>
+</ul>
+<h3><a href="#tuple2-a-b-" name="tuple2-a-b-" class="anchor"><span class="anchor-link"></span></a><code>Tuple2[a, b]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple2[a: +*, b: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple2(item1: a, item2: b)</code></li>
+</ul>
+<h3><a href="#tuple3-a-b-c-" name="tuple3-a-b-c-" class="anchor"><span class="anchor-link"></span></a><code>Tuple3[a, b, c]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple3[a: +*, b: +*, c: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple3(item1: a, item2: b, item3: c)</code></li>
+</ul>
+<h3><a href="#tuple4-a-b-c-d-" name="tuple4-a-b-c-d-" class="anchor"><span class="anchor-link"></span></a><code>Tuple4[a, b, c, d]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple4[a: +*, b: +*, c: +*, d: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple4(item1: a, item2: b, item3: c, item4: d)</code></li>
+</ul>
+<h3><a href="#tuple5-a-b-c-d-e-" name="tuple5-a-b-c-d-e-" class="anchor"><span class="anchor-link"></span></a><code>Tuple5[a, b, c, d, e]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple5[a: +*, b: +*, c: +*, d: +*, e: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple5(item1: a, item2: b, item3: c, item4: d, item5: e)</code></li>
+</ul>
+<h3><a href="#tuple6-a-b-c-d-e-f-" name="tuple6-a-b-c-d-e-f-" class="anchor"><span class="anchor-link"></span></a><code>Tuple6[a, b, c, d, e, f]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple6[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple6(item1: a, item2: b, item3: c, item4: d, item5: e, item6: f)</code></li>
+</ul>
+<h3><a href="#tuple7-a-b-c-d-e-f-g-" name="tuple7-a-b-c-d-e-f-g-" class="anchor"><span class="anchor-link"></span></a><code>Tuple7[a, b, c, d, e, f, g]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple7[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple7(item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g)</code></li>
+</ul>
+<h3><a href="#tuple8-a-b-c-d-e-f-g-h-" name="tuple8-a-b-c-d-e-f-g-h-" class="anchor"><span class="anchor-link"></span></a><code>Tuple8[a, b, c, d, e, f, g, h]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple8[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple8(item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h)</code></li>
+</ul>
+<h3><a href="#tuple9-a-b-c-d-e-f-g-h-i-" name="tuple9-a-b-c-d-e-f-g-h-i-" class="anchor"><span class="anchor-link"></span></a><code>Tuple9[a, b, c, d, e, f, g, h, i]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple9[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Tuple9(item1: a, item2: b, item3: c, item4: d, item5: e, item6: f, item7: g, item8: h, item9: i)</code></li>
+</ul>
+<h3><a href="#tuple10-a-b-c-d-e-f-g-h-i-j-" name="tuple10-a-b-c-d-e-f-g-h-i-j-" class="anchor"><span class="anchor-link"></span></a><code>Tuple10[a, b, c, d, e, f, g, h, i, j]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple10[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple10(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j  )</li>
+</ul>
+<h3><a href="#tuple11-a-b-c-d-e-f-g-h-i-j-k-" name="tuple11-a-b-c-d-e-f-g-h-i-j-k-" class="anchor"><span class="anchor-link"></span></a><code>Tuple11[a, b, c, d, e, f, g, h, i, j, k]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple11[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple11(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k  )</li>
+</ul>
+<h3><a href="#tuple12-a-b-c-d-e-f-g-h-i-j-k-l-" name="tuple12-a-b-c-d-e-f-g-h-i-j-k-l-" class="anchor"><span class="anchor-link"></span></a><code>Tuple12[a, b, c, d, e, f, g, h, i, j, k, l]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple12[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j: +*, k: +*, l: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple12(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l  )</li>
+</ul>
+<h3><a href="#tuple13-a-b-c-d-e-f-g-h-i-j-k-l-m-" name="tuple13-a-b-c-d-e-f-g-h-i-j-k-l-m-" class="anchor"><span class="anchor-link"></span></a><code>Tuple13[a, b, c, d, e, f, g, h, i, j, k, l, m]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple13[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple13(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m  )</li>
+</ul>
+<h3><a href="#tuple14-a-b-c-d-e-f-g-h-i-j-k-l-m-n-" name="tuple14-a-b-c-d-e-f-g-h-i-j-k-l-m-n-" class="anchor"><span class="anchor-link"></span></a><code>Tuple14[a, b, c, d, e, f, g, h, i, j, k, l, m, n]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple14[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple14(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n  )</li>
+</ul>
+<h3><a href="#tuple15-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-" name="tuple15-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-" class="anchor"><span class="anchor-link"></span></a><code>Tuple15[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple15[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple15(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o  )</li>
+</ul>
+<h3><a href="#tuple16-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-" name="tuple16-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-" class="anchor"><span class="anchor-link"></span></a><code>Tuple16[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple16[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple16(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p  )</li>
+</ul>
+<h3><a href="#tuple17-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-" name="tuple17-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-" class="anchor"><span class="anchor-link"></span></a><code>Tuple17[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple17[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple17(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q  )</li>
+</ul>
+<h3><a href="#tuple18-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-" name="tuple18-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-" class="anchor"><span class="anchor-link"></span></a><code>Tuple18[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple18[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple18(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r  )</li>
+</ul>
+<h3><a href="#tuple19-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-" name="tuple19-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-" class="anchor"><span class="anchor-link"></span></a><code>Tuple19[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple19[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple19(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s  )</li>
+</ul>
+<h3><a href="#tuple20-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-" name="tuple20-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-" class="anchor"><span class="anchor-link"></span></a><code>Tuple20[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple20[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple20(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t  )</li>
+</ul>
+<h3><a href="#tuple21-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-" name="tuple21-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-" class="anchor"><span class="anchor-link"></span></a><code>Tuple21[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple21[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple21(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u  )</li>
+</ul>
+<h3><a href="#tuple22-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-" name="tuple22-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-" class="anchor"><span class="anchor-link"></span></a><code>Tuple22[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple22[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple22(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v  )</li>
+</ul>
+<h3><a href="#tuple23-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-" name="tuple23-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-" class="anchor"><span class="anchor-link"></span></a><code>Tuple23[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple23[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple23(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w  )</li>
+</ul>
+<h3><a href="#tuple24-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-" name="tuple24-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-" class="anchor"><span class="anchor-link"></span></a><code>Tuple24[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple24[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple24(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x  )</li>
+</ul>
+<h3><a href="#tuple25-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-" name="tuple25-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-" class="anchor"><span class="anchor-link"></span></a><code>Tuple25[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple25[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple25(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y  )</li>
+</ul>
+<h3><a href="#tuple26-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-" name="tuple26-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-" class="anchor"><span class="anchor-link"></span></a><code>Tuple26[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple26[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple26(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z  )</li>
+</ul>
+<h3><a href="#tuple27-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-" name="tuple27-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple27[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple27[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple27(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0  )</li>
+</ul>
+<h3><a href="#tuple28-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-" name="tuple28-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple28[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0, b0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple28[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*,
+    b0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple28(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0,  item28: b0  )</li>
+</ul>
+<h3><a href="#tuple29-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-" name="tuple29-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple29[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0, b0, c0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple29[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*,
+    b0: +*,
+    c0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple29(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0,  item28: b0,  item29: c0  )</li>
+</ul>
+<h3><a href="#tuple30-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-" name="tuple30-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple30[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0, b0, c0, d0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple30[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*,
+    b0: +*,
+    c0: +*,
+    d0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple30(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0,  item28: b0,  item29: c0,  item30: d0  )</li>
+</ul>
+<h3><a href="#tuple31-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-e0-" name="tuple31-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-e0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple31[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0, b0, c0, d0, e0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple31[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*,
+    b0: +*,
+    c0: +*,
+    d0: +*,
+    e0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple31(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0,  item28: b0,  item29: c0,  item30: d0,  item31: e0  )</li>
+</ul>
+<h3><a href="#tuple32-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-e0-f0-" name="tuple32-a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-a0-b0-c0-d0-e0-f0-" class="anchor"><span class="anchor-link"></span></a><code>Tuple32[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, a0, b0, c0, d0, e0, f0]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Tuple32[a: +*,
+    b: +*,
+    c: +*,
+    d: +*,
+    e: +*,
+    f: +*,
+    g: +*,
+    h: +*,
+    i: +*,
+    j: +*,
+    k: +*,
+    l: +*,
+    m: +*,
+    n: +*,
+    o: +*,
+    p: +*,
+    q: +*,
+    r: +*,
+    s: +*,
+    t: +*,
+    u: +*,
+    v: +*,
+    w: +*,
+    x: +*,
+    y: +*,
+    z: +*,
+    a0: +*,
+    b0: +*,
+    c0: +*,
+    d0: +*,
+    e0: +*,
+    f0: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Tuple32(  item1: a,  item2: b,  item3: c,  item4: d,  item5: e,  item6: f,  item7: g,  item8: h,  item9: i,  item10: j,  item11: k,  item12: l,  item13: m,  item14: n,  item15: o,  item16: p,  item17: q,  item18: r,  item19: s,  item20: t,  item21: u,  item22: v,  item23: w,  item24: x,  item25: y,  item26: z,  item27: a0,  item28: b0,  item29: c0,  item30: d0,  item31: e0,  item32: f0  )</li>
+</ul>
+<h3><a href="#unit" name="unit" class="anchor"><span class="anchor-link"></span></a><code>Unit</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Unit
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>Unit</code></li>
+</ul>
+<h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<h3><a href="#add" name="add" class="anchor"><span class="anchor-link"></span></a><code>add</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def add(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#add-key" name="add-key" class="anchor"><span class="anchor-link"></span></a><code>add_key</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def add_key[a, b](arg1: Dict[a, b], arg2: a, arg3: b) -&gt; Dict[a, b]
+</code></pre>
+<h3><a href="#addf" name="addf" class="anchor"><span class="anchor-link"></span></a><code>addf</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def addf(arg1: Float64, arg2: Float64) -&gt; Float64
+</code></pre>
+<h3><a href="#and-int" name="and-int" class="anchor"><span class="anchor-link"></span></a><code>and_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def and_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#build-list" name="build-list" class="anchor"><span class="anchor-link"></span></a><code>build_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def build_List[a](arg1: forall b: *. ((a, b) -&gt; b, b) -&gt; b) -&gt; List[a]
+</code></pre>
+<h3><a href="#char-list-to-string" name="char-list-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_List_to_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def char_List_to_String(arg1: List[Char]) -&gt; String
+</code></pre>
+<h3><a href="#char-to-int" name="char-to-int" class="anchor"><span class="anchor-link"></span></a><code>char_to_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(arg1: Char) -&gt; Int
+</code></pre>
+<h3><a href="#char-to-string" name="char-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_to_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def char_to_String(arg1: Char) -&gt; String
+</code></pre>
+<h3><a href="#clear-dict" name="clear-dict" class="anchor"><span class="anchor-link"></span></a><code>clear_Dict</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def clear_Dict[a, b](arg1: Dict[a, b]) -&gt; Dict[a, b]
+</code></pre>
+<h3><a href="#cmp-float64" name="cmp-float64" class="anchor"><span class="anchor-link"></span></a><code>cmp_Float64</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def cmp_Float64(arg1: Float64, arg2: Float64) -&gt; Comparison
+</code></pre>
+<h3><a href="#cmp-int" name="cmp-int" class="anchor"><span class="anchor-link"></span></a><code>cmp_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def cmp_Int(arg1: Int, arg2: Int) -&gt; Comparison
+</code></pre>
+<h3><a href="#cmp-string" name="cmp-string" class="anchor"><span class="anchor-link"></span></a><code>cmp_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def cmp_String(arg1: String, arg2: String) -&gt; Comparison
+</code></pre>
+<h3><a href="#concat" name="concat" class="anchor"><span class="anchor-link"></span></a><code>concat</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def concat[a](arg1: List[a], arg2: List[a]) -&gt; List[a]
+</code></pre>
+<h3><a href="#concat-string" name="concat-string" class="anchor"><span class="anchor-link"></span></a><code>concat_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def concat_String(arg1: List[String]) -&gt; String
+</code></pre>
+<h3><a href="#div" name="div" class="anchor"><span class="anchor-link"></span></a><code>div</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def div(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#divf" name="divf" class="anchor"><span class="anchor-link"></span></a><code>divf</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def divf(arg1: Float64, arg2: Float64) -&gt; Float64
+</code></pre>
+<h3><a href="#empty-dict" name="empty-dict" class="anchor"><span class="anchor-link"></span></a><code>empty_Dict</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def empty_Dict[a](arg1: Order[a]) -&gt; Dict[a, forall a: *. a]
+</code></pre>
+<h3><a href="#eq-int" name="eq-int" class="anchor"><span class="anchor-link"></span></a><code>eq_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_Int(arg1: Int, arg2: Int) -&gt; Bool
+</code></pre>
+<h3><a href="#flat-map-list" name="flat-map-list" class="anchor"><span class="anchor-link"></span></a><code>flat_map_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def flat_map_List[a, b](arg1: List[a], arg2: a -&gt; List[b]) -&gt; List[b]
+</code></pre>
+<h3><a href="#foldl-list" name="foldl-list" class="anchor"><span class="anchor-link"></span></a><code>foldl_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def foldl_List[a, b](arg1: List[a], arg2: b, arg3: (b, a) -&gt; b) -&gt; b
+</code></pre>
+<h3><a href="#foldr-list" name="foldr-list" class="anchor"><span class="anchor-link"></span></a><code>foldr_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def foldr_List[a, b](arg1: List[a], arg2: (a, b) -&gt; b, arg3: b) -&gt; b
+</code></pre>
+<h3><a href="#gcd-int" name="gcd-int" class="anchor"><span class="anchor-link"></span></a><code>gcd_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def gcd_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#get-key" name="get-key" class="anchor"><span class="anchor-link"></span></a><code>get_key</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def get_key[a, b](arg1: Dict[a, b], arg2: a) -&gt; Option[b]
+</code></pre>
+<h3><a href="#int-loop" name="int-loop" class="anchor"><span class="anchor-link"></span></a><code>int_loop</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](arg1: Int, arg2: a, arg3: (Int, a) -&gt; (Int, a)) -&gt; a
+</code></pre>
+<h3><a href="#int-to-char" name="int-to-char" class="anchor"><span class="anchor-link"></span></a><code>int_to_Char</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_Char(arg1: Int) -&gt; Option[Char]
+</code></pre>
+<h3><a href="#int-to-string" name="int-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_to_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_String(arg1: Int) -&gt; String
+</code></pre>
+<h3><a href="#items" name="items" class="anchor"><span class="anchor-link"></span></a><code>items</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def items[a, b](arg1: Dict[a, b]) -&gt; List[(a, b)]
+</code></pre>
+<h3><a href="#length-string" name="length-string" class="anchor"><span class="anchor-link"></span></a><code>length_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def length_String(arg1: String) -&gt; Int
+</code></pre>
+<h3><a href="#map-list" name="map-list" class="anchor"><span class="anchor-link"></span></a><code>map_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def map_List[a, b](arg1: List[a], arg2: a -&gt; b) -&gt; List[b]
+</code></pre>
+<h3><a href="#mod-int" name="mod-int" class="anchor"><span class="anchor-link"></span></a><code>mod_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def mod_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#mul" name="mul" class="anchor"><span class="anchor-link"></span></a><code>mul</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def mul(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#not-int" name="not-int" class="anchor"><span class="anchor-link"></span></a><code>not_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def not_Int(arg1: Int) -&gt; Int
+</code></pre>
+<h3><a href="#or-int" name="or-int" class="anchor"><span class="anchor-link"></span></a><code>or_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def or_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#partition-string" name="partition-string" class="anchor"><span class="anchor-link"></span></a><code>partition_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def partition_String(arg1: String, arg2: String) -&gt; Option[(String, String)]
+</code></pre>
+<h3><a href="#range" name="range" class="anchor"><span class="anchor-link"></span></a><code>range</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def range(arg1: Int) -&gt; List[Int]
+</code></pre>
+<h3><a href="#range-fold" name="range-fold" class="anchor"><span class="anchor-link"></span></a><code>range_fold</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def range_fold[a](arg1: Int, arg2: Int, arg3: a, arg4: (a, Int) -&gt; a) -&gt; a
+</code></pre>
+<h3><a href="#remove-key" name="remove-key" class="anchor"><span class="anchor-link"></span></a><code>remove_key</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def remove_key[a, b](arg1: Dict[a, b], arg2: a) -&gt; Dict[a, b]
+</code></pre>
+<h3><a href="#replicate-list" name="replicate-list" class="anchor"><span class="anchor-link"></span></a><code>replicate_List</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def replicate_List[a](arg1: a, arg2: Int) -&gt; List[a]
+</code></pre>
+<h3><a href="#reverse" name="reverse" class="anchor"><span class="anchor-link"></span></a><code>reverse</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def reverse[a](arg1: List[a]) -&gt; List[a]
+</code></pre>
+<h3><a href="#reverse-concat" name="reverse-concat" class="anchor"><span class="anchor-link"></span></a><code>reverse_concat</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def reverse_concat[a](arg1: List[a], arg2: List[a]) -&gt; List[a]
+</code></pre>
+<h3><a href="#rpartition-string" name="rpartition-string" class="anchor"><span class="anchor-link"></span></a><code>rpartition_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def rpartition_String(arg1: String, arg2: String) -&gt; Option[(String, String)]
+</code></pre>
+<h3><a href="#shift-left-int" name="shift-left-int" class="anchor"><span class="anchor-link"></span></a><code>shift_left_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def shift_left_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#shift-right-int" name="shift-right-int" class="anchor"><span class="anchor-link"></span></a><code>shift_right_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def shift_right_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#string-order" name="string-order" class="anchor"><span class="anchor-link"></span></a><code>string_Order</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">string_Order: Order[String]
+</code></pre>
+<h3><a href="#string-to-int" name="string-to-int" class="anchor"><span class="anchor-link"></span></a><code>string_to_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int(arg1: String) -&gt; Option[Int]
+</code></pre>
+<h3><a href="#sub" name="sub" class="anchor"><span class="anchor-link"></span></a><code>sub</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def sub(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<h3><a href="#subf" name="subf" class="anchor"><span class="anchor-link"></span></a><code>subf</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def subf(arg1: Float64, arg2: Float64) -&gt; Float64
+</code></pre>
+<h3><a href="#timesf" name="timesf" class="anchor"><span class="anchor-link"></span></a><code>timesf</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def timesf(arg1: Float64, arg2: Float64) -&gt; Float64
+</code></pre>
+<h3><a href="#trace" name="trace" class="anchor"><span class="anchor-link"></span></a><code>trace</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def trace[a](arg1: String, arg2: a) -&gt; a
+</code></pre>
+<h3><a href="#uncurry2" name="uncurry2" class="anchor"><span class="anchor-link"></span></a><code>uncurry2</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def uncurry2[a, b, c](arg1: a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</code></pre>
+<h3><a href="#uncurry3" name="uncurry3" class="anchor"><span class="anchor-link"></span></a><code>uncurry3</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def uncurry3[a, b, c, d](arg1: a -&gt; b -&gt; c -&gt; d) -&gt; (a, b, c) -&gt; d
+</code></pre>
+<h3><a href="#xor-int" name="xor-int" class="anchor"><span class="anchor-link"></span></a><code>xor_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def xor_Int(arg1: Int, arg2: Int) -&gt; Int
+</code></pre>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Predef.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../../../generated/core_alpha/Bosatsu/Prog.html"><code>Bosatsu/Prog</code></a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html#bosatsu-predef" class="header"><code>Bosatsu/Predef</code></a>
+  <ul>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html#types" class="header">Types</a></li>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Predef.html#values" class="header">Values</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../../../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../../../js/magellan.js"></script>
+
+<style type="text/css">@import "../../../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-859ac039-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
