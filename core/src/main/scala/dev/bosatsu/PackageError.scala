@@ -502,11 +502,13 @@ object PackageError {
                   localTypeNames
                 )
                 val fnLabel = appSite.functionName
-                  .map { full =>
-                    val localPrefix = s"${pack.asString}::"
-                    if (full.startsWith(localPrefix))
-                      full.substring(localPrefix.length)
-                    else full
+                  .map { case (optPack, name) =>
+                    optPack match {
+                      case Some(pn) if pn =!= pack =>
+                        s"${pn.asString}::${name.sourceCodeRepr}"
+                      case _ =>
+                        name.sourceCodeRepr
+                    }
                   }
                   .getOrElse("function")
                 val fnContext =

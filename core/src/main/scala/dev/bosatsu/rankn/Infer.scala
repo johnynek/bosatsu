@@ -207,7 +207,7 @@ object Infer {
     sealed abstract class MismatchSite
     object MismatchSite {
       case class AppArg(
-          functionName: Option[String],
+          functionName: Option[(Option[PackageName], Bindable)],
           functionType: Type,
           expectedArgType: Type,
           argIndex: Int,
@@ -1636,12 +1636,19 @@ object Infer {
         }
       }
 
-    private def functionNameHint[A](fn: Expr[A]): Option[String] =
+    private def functionNameHint[A](
+        fn: Expr[A]
+    ): Option[(Option[PackageName], Bindable)] =
       fn match {
         case Expr.Local(name, _) =>
-          Some(name.sourceCodeRepr)
+          Some((None, name))
         case Expr.Global(pack, name, _) =>
-          Some(s"${pack.asString}::${name.sourceCodeRepr}")
+          name match {
+            case b: Identifier.Bindable =>
+              Some((Some(pack), b))
+            case _ =>
+              None
+          }
         case _ =>
           None
       }
