@@ -144,9 +144,11 @@ enum Bool:
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
+# Build a list from a right-fold style builder.
 def build_List[a](fn: forall b. (((a, b) -> b), b) -> b) -> List[a]:
     fn(NonEmptyList, [])
 
+# Fold a list from right to left.
 def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
     def loop(list: List[a]) -> b:
         recur list:
@@ -154,8 +156,10 @@ def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
             case [h, *t]: fn(h, loop(t))
     loop(list)
 
-# we can rewrite: foldr_List(build_List(g), f, x) => g(f, x)
-# see "A Shortcut to Deforestation" by Gill et. al.
+# Left fold over a list.
+# Supports the deforestation rewrite:
+# foldr_List(build_List(g), f, x) => g(f, x)
+# See "A Shortcut to Deforestation" by Gill et. al.
 
 def foldl_List(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   # make the loop function as small as possible
@@ -165,23 +169,29 @@ def foldl_List(lst: List[a], item: b, fn: (b, a) -> b) -> b:
       case [head, *tail]: loop(tail, fn(item, head))
   loop(lst, item)
 
+# Reverse `front` and prepend it to `back`.
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
   foldl_List(front, back, (tail, h) -> [h, *tail])
 
+# Reverse a list.
 def reverse(as: List[a]) -> List[a]:
   reverse_concat(as, [])
 
+# Append `front` and `back`.
 def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
     case []: front
     case _: reverse_concat(reverse(front), back)
 
+# Map each item in `lst` with `fn`.
 def map_List(lst: List[a], fn: a -> b) -> List[b]:
   lst.foldl_List([], (t, a) -> [fn(a), *t]).reverse()
 
+# Map each item to a list and flatten the result.
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldl_List([], (t, a) -> fn(a).reverse_concat(t)).reverse()
 
+# Repeat `item` `cnt` times.
 def replicate_List[a](item: a, cnt: Int) -> List[a]:
   int_loop(cnt, EmptyList, (i, acc) -> (i.sub(1), NonEmptyList(item, acc)))
 
@@ -192,6 +202,7 @@ def replicate_List[a](item: a, cnt: Int) -> List[a]:
 def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
   (x1, x2) -> f(x1)(x2)
 
+# Convert a curried 3-argument function into one that takes a tuple of 3 arguments.
 def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
   (x1, x2, x3) -> f(x1)(x2)(x3)
 
@@ -212,34 +223,55 @@ enum Option:
 external struct Int
 external struct Float64
 
+# Integer addition.
 external def add(a: Int, b: Int) -> Int
+# Integer subtraction.
 external def sub(a: Int, b: Int) -> Int
+# Integer multiplication.
 external def mul(a: Int, b: Int) -> Int
+# Integer division.
 external def div(a: Int, b: Int) -> Int
+# Integer equality.
 external def eq_Int(a: Int, b: Int) -> Bool
+# Greatest common divisor for two integers.
 external def gcd_Int(a: Int, b: Int) -> Int
+# Total integer comparison.
 external def cmp_Int(a: Int, b: Int) -> Comparison
+# Integer modulus.
 external def mod_Int(a: Int, mod: Int) -> Int
+# Bitwise left shift.
 external def shift_left_Int(arg: Int, shift: Int) -> Int
+# Bitwise right shift.
 external def shift_right_Int(arg: Int, shift: Int) -> Int
+# Bitwise AND.
 external def and_Int(a: Int, b: Int) -> Int
+# Bitwise OR.
 external def or_Int(a: Int, b: Int) -> Int
+# Bitwise XOR.
 external def xor_Int(a: Int, b: Int) -> Int
+# Bitwise NOT.
 external def not_Int(a: Int) -> Int
+# Floating-point addition.
 external def addf(a: Float64, b: Float64) -> Float64
+# Floating-point subtraction.
 external def subf(a: Float64, b: Float64) -> Float64
+# Floating-point multiplication.
 external def timesf(a: Float64, b: Float64) -> Float64
+# Floating-point division.
 external def divf(a: Float64, b: Float64) -> Float64
+# Total Float64 comparison.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 
-# this loops until the returned Int is <= 0 or the returned Int is >= intValue
+# Loop until the returned Int is <= 0 or >= intValue.
 external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 
+# Build `[0, 1, ..., exclusiveUpper - 1]`.
 def range(exclusiveUpper: Int) -> List[Int]:
   int_loop(exclusiveUpper, [], (i, tail) ->
     inext = i.sub(1)
     (inext, [inext, *tail]))
 
+# Fold over `[inclusiveLower, ..., exclusiveUpper - 1]`.
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
   int_loop(diff, init, (diff0, a) ->
@@ -253,14 +285,22 @@ def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -
 external struct String
 external struct Char
 
+# Convert a character to a one-character string.
 external def char_to_String(c: Char) -> String
+# Unicode code point value for a character.
 external def char_to_Int(c: Char) -> Int
+# Concatenate a list of characters into a string.
 external def char_List_to_String(chars: List[Char]) -> String
+# Convert a Unicode code point to a character.
 external def int_to_Char(code_point: Int) -> Option[Char]
+# Total string comparison.
 external def cmp_String(str0: String, str1: String) -> Comparison
+# Ordering instance for strings.
 string_Order = Order(cmp_String)
+# Concatenate a list of strings.
 external def concat_String(items: List[String]) -> String
 
+# Count Unicode code points in a string.
 def length_String(s: String) -> Int:
   def loop(rest: String, acc: Int) -> Int:
     recur rest:
@@ -286,9 +326,12 @@ external def uncons_String(arg: String) -> Option[(Char, String)]
 # (equivalent to the tail from uncons_String, but without constructing Option/Tuple)
 external def tail_or_empty_String(arg: String) -> String
 
+# Convert an integer to its base-10 string form.
 external def int_to_String(i: Int) -> String
+# Parse a base-10 integer from a string.
 external def string_to_Int(s: String) -> Option[Int]
 
+# Emit a debug trace prefixed with `prefix`, then return `item`.
 external def trace(prefix: String, item: a) -> a
 
 #############
@@ -453,16 +496,19 @@ def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -> b) -> b:
 
 struct Dict[k, v: +*](order: forall a. Order[(k, a)], tree: Tree[(k, v)])
 
+# Create an empty dictionary using `comp` for key ordering.
 def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
     Order(fn) = comp
     pair_ord = Order(((k1, _), (k2, _)) -> fn(k1, k2))
     Dict(pair_ord, Empty)
 
+# Insert or replace a key/value pair.
 def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]:
     Dict(ord, tree) = dict
     new_tree = add_item(ord, tree, (key, value))
     Dict(ord, new_tree)
 
+# Look up the value associated with `key`.
 def get_key(dict: Dict[k, v], key: k) -> Option[v]:
     Dict(ord, tree) = dict
     match tree:
@@ -473,6 +519,7 @@ def get_key(dict: Dict[k, v], key: k) -> Option[v]:
                 case None: None
         case Empty: None
 
+# Remove a key from the dictionary (no-op if missing).
 def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
     Dict(ord, tree) = dict
     match tree:
@@ -482,10 +529,12 @@ def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
             Dict(ord, tree1)
         case Empty: dict
 
+# Return dictionary items in key order.
 def items(dict: Dict[k, v]) -> List[(k, v)]:
     Dict(_, tree) = dict
     tree.fold_right_Tree([], (kv, tail) -> [kv, *tail])
 
+# Remove all entries while preserving key ordering.
 def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]:
     Dict(ord, _) = dict
     Dict(ord, Empty)

@@ -394,6 +394,44 @@ mk = (x) -> Thing(x)
     }
   }
 
+  test("tool doc includes comments that appear before enum declarations") {
+    val src =
+      """export Mode(), mode
+# Mode docs.
+enum Mode:
+  Auto, Manual
+
+mode = Auto
+"""
+    val files = List(Chain("src", "EnumDocs", "Main.bosatsu") -> src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/EnumDocs/Main.bosatsu",
+          "--outdir",
+          "docs"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "EnumDocs", "Main.md"))
+        assert(markdown.contains("Mode docs."), markdown)
+        assert(markdown.contains("### `Mode`"), markdown)
+    }
+  }
+
   test("tool doc wraps long constructor and def parameter lists") {
     val src =
       """export Massive(), build
@@ -426,7 +464,8 @@ build = (a, b, c, d, e, f, g, h, i, j, k) -> Massive(a, b, c, d, e, f, g, h, i, 
         fail(err.getMessage)
       case Right((state, _)) =>
         val markdown = readStringFile(state, Chain("docs", "Wrap", "Main.md"))
-        assert(markdown.contains("def build(\n    arg1: Int,\n    arg2: Int,"), markdown)
+        assert(markdown.contains("def build(a: Int, b: Int, c: Int"), markdown)
+        assert(!markdown.contains("arg1:"), markdown)
         assert(markdown.contains("Massive(\n"), markdown)
         assert(markdown.contains("alpha: Int,\n"), markdown)
     }
@@ -476,10 +515,21 @@ main = 1
         val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
         assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
         assert(!predefDoc.contains("public dependencies:"), predefDoc)
+        assert(predefDoc.contains("## Index"), predefDoc)
+        val indexSection =
+          predefDoc.substring(predefDoc.indexOf("## Index"), predefDoc.indexOf("## Types"))
+        assert(predefDoc.contains("[`Bool`](#type-bool)"), predefDoc)
+        assert(indexSection.contains("[`Fn2`](#type-fn2)"), predefDoc)
+        assert(!indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"), predefDoc)
+        assert(predefDoc.contains("[`int_loop`](#value-int-loop)"), predefDoc)
+        assert(predefDoc.contains("<a id=\"type-bool\"></a>"), predefDoc)
+        assert(predefDoc.contains("<a id=\"value-int-loop\"></a>"), predefDoc)
         assert(predefDoc.contains("type Dict[k: *, v: +*]"), predefDoc)
         assert(predefDoc.contains("type Int"), predefDoc)
         assert(!predefDoc.contains("type Int: *"), predefDoc)
         assert(!predefDoc.contains("type Bool: *"), predefDoc)
+        assert(predefDoc.contains("Standard dictionaries"), predefDoc)
+        assert(!predefDoc.contains("############"), predefDoc)
         assert(predefDoc.contains("- `EmptyList`"), predefDoc)
         assert(predefDoc.contains("- `NonEmptyList(head: a, tail: List[a])`"), predefDoc)
         assert(!predefDoc.contains("EmptyList: forall"), predefDoc)
@@ -505,6 +555,18 @@ main = 1
           ),
           predefDoc
         )
+        assert(
+          predefDoc.contains("returned Int is <= 0"),
+          predefDoc
+        )
+        assert(
+          predefDoc.contains("intValue"),
+          predefDoc
+        )
+        assert(predefDoc.contains("def int_loop[a]("), predefDoc)
+        assert(predefDoc.contains("intValue: Int"), predefDoc)
+        assert(predefDoc.contains("state: a"), predefDoc)
+        assert(predefDoc.contains("fn: (Int, a) -> (Int, a)"), predefDoc)
     }
   }
 

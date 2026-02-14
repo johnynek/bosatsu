@@ -2,12 +2,15 @@ package dev.bosatsu.tool
 
 import _root_.cats.syntax.all._
 import dev.bosatsu.{
+  BindingStatement,
   CommentStatement,
+  Declaration,
   ExportedName,
   Identifier,
   Kind,
   Package,
   PackageName,
+  Pattern,
   PlatformIO,
   Referant,
   Statement,
@@ -16,6 +19,7 @@ import dev.bosatsu.{
 }
 import dev.bosatsu.rankn.{DefinedType, Type}
 import org.typelevel.paiges.Doc
+import java.util.Locale
 
 object MarkdownDoc {
   private val fnTypeRegex = raw"^Fn\d+$$".r
@@ -67,45 +71,130 @@ object MarkdownDoc {
         params
     }
 
+  private final case class ValueDocInfo(
+      comment: List[String],
+      params: List[Option[Identifier.Bindable]]
+  ) {
+    def merge(that: ValueDocInfo): ValueDocInfo =
+      ValueDocInfo(
+        comment = if (comment.nonEmpty) comment else that.comment,
+        params = if (params.nonEmpty) params else that.params
+      )
+  }
+
+  private object ValueDocInfo {
+    val empty: ValueDocInfo = ValueDocInfo(Nil, Nil)
+  }
+
   private final case class SourceDocs(
-      values: Map[Identifier.Bindable, List[String]],
+      values: Map[Identifier.Bindable, ValueDocInfo],
       types: Map[Identifier.Constructor, List[String]]
   ) {
-    def merge(that: SourceDocs): SourceDocs =
+    def merge(that: SourceDocs): SourceDocs = {
+      val mergedValues = that.values.foldLeft(values) { case (acc, (name, info)) =>
+        acc.updatedWith(name) {
+          case Some(existing) => Some(existing.merge(info))
+          case None           => Some(info)
+        }
+      }
+
       SourceDocs(
-        values = values ++ that.values.filterNot { case (k, _) =>
-          values.contains(k)
-        },
+        values = mergedValues,
         types = types ++ that.types.filterNot { case (k, _) =>
           types.contains(k)
         }
       )
+    }
   }
 
   private object SourceDocs {
     val empty: SourceDocs = SourceDocs(Map.empty, Map.empty)
 
     private def normalizeComment(lines: List[String]): List[String] = {
+      val filtered = lines
+        .map(_.replaceAll("\\s+$", ""))
+        .filterNot { line =>
+          val trimmed = line.trim
+          trimmed.isEmpty || trimmed.forall(_ == '#')
+        }
+
       val stripSingleLeadingSpace =
-        lines.exists(_.nonEmpty) &&
-          lines.filter(_.nonEmpty).forall(_.startsWith(" "))
+        filtered.exists(_.nonEmpty) &&
+          filtered.filter(_.nonEmpty).forall(_.startsWith(" "))
 
-      val stripped =
-        if (stripSingleLeadingSpace) {
-          lines.map { line =>
-            if (line.nonEmpty) line.drop(1) else line
-          }
-        } else lines
-
-      stripped.map(_.replaceAll("\\s+$", ""))
+      if (stripSingleLeadingSpace) {
+        filtered.map { line =>
+          if (line.nonEmpty) line.drop(1) else line
+        }
+      } else filtered
     }
+
+    private def paramNameFromPattern(
+        pat: Pattern.Parsed
+    ): Option[Identifier.Bindable] =
+      pat match {
+        case Pattern.Var(name)       => Some(name)
+        case Pattern.Annotation(p, _) => paramNameFromPattern(p)
+        case Pattern.Named(name, _)  => Some(name)
+        case _                       => pat.topNames.headOption
+      }
+
+    @annotation.tailrec
+    private def topLambdaParamNames(
+        decl: Declaration.NonBinding,
+        acc: List[Option[Identifier.Bindable]]
+    ): List[Option[Identifier.Bindable]] = {
+      val unwrapped = decl match {
+        case Declaration.Annotation(fn, _) =>
+          Some(fn)
+        case Declaration.Parens(nb: Declaration.NonBinding) =>
+          Some(nb)
+        case Declaration.CommentNB(comment) =>
+          Some(comment.on.padded)
+        case _ =>
+          None
+      }
+
+      unwrapped match {
+        case Some(next) =>
+          topLambdaParamNames(next, acc)
+        case None =>
+          decl match {
+            case Declaration.Lambda(args, body) =>
+              val acc1 = acc ::: args.toList.map(paramNameFromPattern)
+              body match {
+                case nb: Declaration.NonBinding => topLambdaParamNames(nb, acc1)
+                case _                          => acc1
+              }
+            case _ =>
+              acc
+          }
+      }
+    }
+
+    private def sourceParamNames(
+        value: Statement.ValueStatement
+    ): List[Option[Identifier.Bindable]] =
+      value match {
+        case Statement.ExternalDef(_, _, params, _) =>
+          params.map { case (name, _) => Some(name) }
+        case Statement.Def(defstatement)            =>
+          defstatement.args.toList
+            .flatMap(_.toList)
+            .map(paramNameFromPattern)
+        case Statement.Bind(BindingStatement(bound, decl, _))
+            if bound.topNames.size == 1 =>
+          topLambdaParamNames(decl, Nil)
+        case _ =>
+          Nil
+      }
 
     def fromStatements(statements: List[Statement]): SourceDocs = {
       @annotation.tailrec
       def loop(
           rest: List[Statement],
           pending: List[String],
-          valueDocs: Map[Identifier.Bindable, List[String]],
+          valueDocs: Map[Identifier.Bindable, ValueDocInfo],
           typeDocs: Map[Identifier.Constructor, List[String]]
       ): SourceDocs =
         rest match {
@@ -126,13 +215,17 @@ object MarkdownDoc {
             loop(tail, pending, valueDocs, typeDocs)
 
           case (value: Statement.ValueStatement) :: tail =>
+            val nextInfo = ValueDocInfo(
+              comment = pending,
+              params = sourceParamNames(value)
+            )
             val nextValues =
-              if (pending.isEmpty) valueDocs
+              if (nextInfo.comment.isEmpty && nextInfo.params.isEmpty) valueDocs
               else
                 value.names.foldLeft(valueDocs) { case (m, name) =>
                   m.updatedWith(name) {
-                    case Some(existing) => Some(existing)
-                    case None           => Some(pending)
+                    case Some(existing) => Some(existing.merge(nextInfo))
+                    case None           => Some(nextInfo)
                   }
                 }
 
@@ -153,6 +246,9 @@ object MarkdownDoc {
       loop(statements, Nil, Map.empty, Map.empty)
     }
   }
+
+  private lazy val predefSourceDocs: SourceDocs =
+    SourceDocs.fromStatements(Package.predefPackage.program)
 
   private final case class RenderCtx(
       packageName: PackageName,
@@ -197,6 +293,24 @@ object MarkdownDoc {
 
   private def inlineCode(str: String): Doc =
     Doc.char('`') + Doc.text(str.replace("`", "\\`")) + Doc.char('`')
+
+  private def markdownCodeLink(label: String, id: String): Doc =
+    Doc.text(show"[`${label.replace("`", "\\`")}`](#$id)")
+
+  private def anchorSlug(raw: String): String = {
+    val lowered = raw.toLowerCase(Locale.ROOT)
+    val mapped = lowered.map { ch =>
+      if (ch.isLetterOrDigit) ch else '-'
+    }
+    val collapsed = mapped.split("-+").toList.filter(_.nonEmpty).mkString("-")
+    if (collapsed.isEmpty) "item" else collapsed
+  }
+
+  private def typeAnchorId(dt: DefinedType[Kind.Arg]): String =
+    show"type-${anchorSlug(dt.name.asString)}"
+
+  private def valueAnchorId(name: Identifier.Bindable): String =
+    show"value-${anchorSlug(name.sourceCodeRepr)}"
 
   private def fenced(language: String, content: Doc): Doc =
     Doc.text(show"```$language") + Doc.hardLine + content + Doc.hardLine + Doc
@@ -279,6 +393,9 @@ object MarkdownDoc {
     prefix + localName + suffix
   }
 
+  private def typeIndexName(dt: DefinedType[Kind.Arg], ctx: RenderCtx): String =
+    typeNamePrefix(dt, ctx) + dt.name.asString
+
   private def localTypeNames(pack: Package.Typed[Any]): Set[TypeName] =
     pack.types.definedTypes.iterator.collect {
       case ((pn, tn), _) if pn == pack.name => tn
@@ -287,6 +404,7 @@ object MarkdownDoc {
   private def defSignature(
       name: Identifier.Bindable,
       tpe: Type,
+      sourceParams: List[Option[Identifier.Bindable]],
       ctx: RenderCtx
   ): Option[Doc] = {
     val (foralls, exists, rho) = Type.splitQuantifiers(tpe)
@@ -298,7 +416,13 @@ object MarkdownDoc {
           val params =
             args.toList.zipWithIndex
               .map { case (argT, idx) =>
-                Doc.text(show"arg${idx + 1}: ${renderType(argT, ctx)}")
+                val paramName =
+                  sourceParams
+                    .lift(idx)
+                    .flatten
+                    .map(_.sourceCodeRepr)
+                    .getOrElse(show"arg${idx + 1}")
+                Doc.text(show"$paramName: ${renderType(argT, ctx)}")
               }
           Some(
             Doc.text(show"def ${name.sourceCodeRepr}") +
@@ -314,9 +438,10 @@ object MarkdownDoc {
   private def valueSignature(
       name: Identifier.Bindable,
       tpe: Type,
+      sourceParams: List[Option[Identifier.Bindable]],
       ctx: RenderCtx
   ): Doc =
-    defSignature(name, tpe, ctx)
+    defSignature(name, tpe, sourceParams, ctx)
       .getOrElse(Doc.text(show"${name.sourceCodeRepr}: ${renderType(tpe, ctx)}"))
 
   private def renderValueSection(
@@ -327,13 +452,16 @@ object MarkdownDoc {
     if (values.isEmpty) None
     else {
       val entries = values.map { case (name, tpe) =>
+        val valueInfo = docs.values.getOrElse(name, ValueDocInfo.empty)
+        val anchor = Doc.text(show"<a id=\"${valueAnchorId(name)}\"></a>")
         val title = Doc.text("### ") + inlineCode(name.sourceCodeRepr)
-        val comment = docs.values.get(name).flatMap(maybeComment)
-        val signature = fenced("bosatsu", valueSignature(name, tpe, ctx))
+        val comment = maybeComment(valueInfo.comment)
+        val signature =
+          fenced("bosatsu", valueSignature(name, tpe, valueInfo.params, ctx))
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(title), comment, Some(signature)).flatten
+          List(Some(anchor), Some(title), comment, Some(signature)).flatten
         )
       }
 
@@ -378,6 +506,7 @@ object MarkdownDoc {
     else {
       val entries = types.map { td =>
         val dt = td.dt
+        val anchor = Doc.text(show"<a id=\"${typeAnchorId(dt)}\"></a>")
         val title = Doc.text("### ") + inlineCode(typeDisplayName(dt, ctx))
         val comment = docs.types.get(dt.name.ident).flatMap(maybeComment)
         val typeSig = fenced("bosatsu", typeSignatureDoc(dt, ctx))
@@ -402,7 +531,7 @@ object MarkdownDoc {
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(title), comment, Some(typeSig), constructors).flatten
+          List(Some(anchor), Some(title), comment, Some(typeSig), constructors).flatten
         )
       }
 
@@ -496,7 +625,53 @@ object MarkdownDoc {
     val values = valueDocs(pack)
     val types = typeDocs(pack)
 
+    val typeLinks =
+      types.map { td =>
+        val dt = td.dt
+        (typeIndexName(dt, ctx), typeAnchorId(dt))
+      }
+    val valueLinks =
+      values.map { case (name, _) =>
+        (name.sourceCodeRepr, valueAnchorId(name))
+      }
+    val indexItems = List(
+      if (typeLinks.isEmpty) None
+      else
+        Some(
+          (Doc.text("- Types: ") + Doc
+            .intercalate(
+              Doc.comma + Doc.lineOrSpace,
+              typeLinks.map { case (label, id) =>
+                markdownCodeLink(label, id)
+              }
+            ))
+            .grouped
+        ),
+      if (valueLinks.isEmpty) None
+      else
+        Some(
+          (Doc.text("- Values: ") + Doc
+            .intercalate(
+              Doc.comma + Doc.lineOrSpace,
+              valueLinks.map { case (label, id) =>
+                markdownCodeLink(label, id)
+              }
+            ))
+            .grouped
+        )
+    ).flatten
+    val indexSection =
+      if (indexItems.isEmpty) None
+      else
+        Some(
+          Doc.text("## Index") + Doc.hardLine + Doc.hardLine + Doc.intercalate(
+            Doc.hardLine,
+            indexItems
+          )
+        )
+
     val sections = List(
+      indexSection,
       renderTypeSection(types, docs, ctx),
       renderValueSection(values, docs, ctx)
     ).flatten
@@ -548,12 +723,16 @@ object MarkdownDoc {
         } yield (packageName, docs)
       }
       .map { pairs =>
-        pairs.foldLeft(Map.empty[PackageName, SourceDocs]) {
+        val sourceDocs = pairs.foldLeft(Map.empty[PackageName, SourceDocs]) {
           case (acc, (name, docs)) =>
             acc.updatedWith(name) {
               case None       => Some(docs)
               case Some(prev) => Some(prev.merge(docs))
             }
+        }
+        sourceDocs.updatedWith(PackageName.PredefName) {
+          case None       => Some(predefSourceDocs)
+          case Some(prev) => Some(prev.merge(predefSourceDocs))
         }
       }
   }
