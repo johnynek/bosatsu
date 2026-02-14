@@ -11,6 +11,7 @@ import dev.bosatsu.{
   PlatformIO,
   Referant,
   Statement,
+  TypeRenderer,
   TypeDefinitionStatement,
   TypeName
 }
@@ -154,10 +155,7 @@ object MarkdownDoc {
     }
   }
 
-  private final case class RenderCtx(
-      packageName: PackageName,
-      localTypeNames: Set[TypeName]
-  )
+  private type RenderCtx = TypeRenderer.Context
 
   private final case class ConstructorDoc(
       name: Identifier.Constructor,
@@ -206,38 +204,14 @@ object MarkdownDoc {
     if (lines.forall(_.isEmpty)) None
     else Some(Doc.intercalate(Doc.hardLine, lines.map(Doc.text(_))))
 
-  private def abbreviateTypeNames(raw: String, ctx: RenderCtx): String = {
-    def nonNull(s: String | Null): String =
-      Option(s).getOrElse("")
-
-    val localPrefix = java.util.regex.Pattern.quote(ctx.packageName.asString + "::")
-    val localRe = (localPrefix + "([A-Z][A-Za-z0-9_]*)").r
-    val localShort = localRe.replaceAllIn(raw, m => nonNull(m.group(1)))
-
-    val predefRe = "Bosatsu/Predef::([A-Z][A-Za-z0-9_]*)".r
-    predefRe.replaceAllIn(localShort, { m =>
-      val typeName = TypeName(nonNull(m.group(1)))
-      if (ctx.localTypeNames(typeName)) nonNull(m.matched)
-      else typeName.asString
-    })
-  }
-
   private def renderType(tpe: Type, ctx: RenderCtx): String =
-    abbreviateTypeNames(
-      Type.fullyResolvedDocument.document(tpe).render(markdownRenderWidth),
-      ctx
-    )
+    TypeRenderer.render(tpe, ctx, markdownRenderWidth)
 
   private def typeNamePrefix(
       dt: DefinedType[Kind.Arg],
       ctx: RenderCtx
   ): String =
-    if (dt.packageName == ctx.packageName) ""
-    else if (
-      (dt.packageName == PackageName.PredefName) &&
-      !ctx.localTypeNames(dt.name)
-    ) ""
-    else dt.packageName.asString + "::"
+    TypeRenderer.typeNamePrefix(dt.packageName, dt.name, ctx)
 
   private def orderedTypeParamDocs(
       dt: DefinedType[Kind.Arg]
@@ -492,7 +466,7 @@ object MarkdownDoc {
     }
 
   private def packageDoc(pack: Package.Typed[Any], docs: SourceDocs): Doc = {
-    val ctx = RenderCtx(pack.name, localTypeNames(pack))
+    val ctx = TypeRenderer.Context(pack.name, localTypeNames(pack))
     val values = valueDocs(pack)
     val types = typeDocs(pack)
 

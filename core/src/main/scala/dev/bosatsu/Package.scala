@@ -431,6 +431,11 @@ object Package {
               .flatten
               .toMap
 
+          val localTypeNames: Set[TypeName] =
+            fullTypeEnv.definedTypes.keysIterator.collect {
+              case (`p`, tn) => tn
+            }.toSet
+
           val inferenceEither = Infer
             .typeCheckLets(p, lets, theseExternals)
             .runFully(
@@ -448,7 +453,8 @@ object Package {
                 p,
                 lets,
                 theseExternals,
-                letNameRegions
+                letNameRegions,
+                localTypeNames
               )
             )
 

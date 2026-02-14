@@ -51,6 +51,9 @@ sealed abstract class Infer[+A] {
   final def mapEither[B](fn: A => Either[Error, B]): Infer[B] =
     Infer.Impl.MapEither(this, fn)
 
+  final def mapError(fn: Error => Error): Infer[A] =
+    Infer.Impl.MapError(this, fn)
+
   final def runVar(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -190,6 +193,41 @@ object Infer {
   object Error {
     sealed abstract class Single extends Error
 
+    enum Direction derives CanEqual {
+      case ExpectLeft
+      case ExpectRight
+      case Unknown
+
+      def flip: Direction =
+        this match {
+          case ExpectLeft  => ExpectRight
+          case ExpectRight => ExpectLeft
+          case Unknown     => Unknown
+        }
+    }
+
+    sealed abstract class MismatchSite
+    object MismatchSite {
+      case class AppArg(
+          functionName: Option[String],
+          functionType: Type,
+          expectedArgType: Type,
+          argIndex: Int,
+          argCount: Int,
+          functionRegion: Region,
+          argumentRegion: Region,
+          callRegion: Region
+      ) extends MismatchSite
+
+      case class MatchPattern(
+          pattern: Pattern,
+          expectedScrutineeType: Type,
+          foundPatternType: Type,
+          scrutineeRegion: Region,
+          patternRegion: Region
+      ) extends MismatchSite
+    }
+
     /** These are errors in the ability to type the code Generally these cannot
       * be caught by other phases
       */
@@ -252,6 +290,12 @@ object Infer {
     ) extends TypeError
     case class ArityTooLarge(arity: Int, maxArity: Int, region: Region)
         extends TypeError
+
+    case class ContextualTypeError(
+        site: MismatchSite,
+        direction: Direction,
+        cause: TypeError
+    ) extends TypeError
 
     /** These are errors that prevent typing due to unknown names, They could be
       * caught in a phase that collects all the naming errors
@@ -405,6 +449,15 @@ object Infer {
         fa.run(env).flatMap {
           case Right(a)       => RefSpace.pure(fn(a))
           case left @ Left(_) => RefSpace.pure(left.rightCast)
+        }
+    }
+
+    case class MapError[A](fa: Infer[A], fn: Error => Error) extends Infer[A] {
+      def run(env: Env) =
+        fa.run(env).map {
+          case Right(a) => Right(a)
+          case Left(err) =>
+            Left(fn(err))
         }
     }
 
@@ -1529,6 +1582,28 @@ object Infer {
         }
       }
 
+    private def functionNameHint[A](fn: Expr[A]): Option[String] =
+      fn match {
+        case Expr.Local(name, _) =>
+          Some(name.sourceCodeRepr)
+        case Expr.Global(pack, name, _) =>
+          Some(s"${pack.asString}::${name.sourceCodeRepr}")
+        case _ =>
+          None
+      }
+
+    private def contextualTypeError(
+        site: Error.MismatchSite,
+        direction: Error.Direction
+    ): Error => Error = {
+      case c: Error.ContextualTypeError =>
+        c
+      case te @ (_: Error.NotUnifiable | _: Error.SubsumptionCheckFailure) =>
+        Error.ContextualTypeError(site, direction, te)
+      case other =>
+        other
+    }
+
     def checkApplyDom[A: HasRegion](dom: TypedExpr.Domain)(
         fn: Expr[A],
         args: NonEmptyList[Expr[A]],
@@ -1572,6 +1647,7 @@ object Infer {
             .toMap[Type.Var, Type]
 
           val subIn = inT.map(Type.substituteVar(_, instNoKind))
+          val fnName = functionNameHint(fn)
 
           validKinds.parProductR {
             val remainingFree =
@@ -1584,8 +1660,22 @@ object Infer {
                 // we can fully instantiate
                 args
                   .zip(subIn)
-                  .parTraverse { case (e, t) =>
-                    checkSigma(e, t)
+                  .zipWithIndex
+                  .parTraverse { case ((argExpr, argTpe), idx) =>
+                    val site = Error.MismatchSite.AppArg(
+                      fnName,
+                      fnTe.getType,
+                      argTpe,
+                      idx,
+                      args.length,
+                      region(fn),
+                      region(argExpr),
+                      regTe
+                    )
+                    checkSigma(argExpr, argTpe)
+                      .mapError(
+                        contextualTypeError(site, Error.Direction.ExpectRight)
+                      )
                   }
                   .map { argsTE =>
                     Some(dom.App(fnTe, argsTE, tpe, tag))
@@ -1744,8 +1834,22 @@ object Infer {
         (typedFn, fnTRho) <- inferRho(fn)
         argsRegion = args.reduceMap(region[Expr[A]](_))
         (argT, resT) <- unifyFnRho(args.length, fnTRho, region(fn), argsRegion)
-        typedArg <- args.zip(argT).parTraverse { case (arg, argT) =>
+        fnName = functionNameHint(fn)
+        typedArg <- args.zip(argT).zipWithIndex.parTraverse { case ((arg, argT), idx) =>
+          val site = Error.MismatchSite.AppArg(
+            fnName,
+            typedFn.getType,
+            argT,
+            idx,
+            args.length,
+            region(fn),
+            region(arg),
+            region(tag)
+          )
           checkSigma(arg, argT)
+            .mapError(
+              contextualTypeError(site, Error.Direction.ExpectRight)
+            )
         }
         coerce <- instSigma(resT, expect, region(tag))
         res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
@@ -2251,7 +2355,18 @@ object Infer {
         case GenPattern.Literal(lit) =>
           val tpe = Type.getTypeOf(lit)
           val check = sigma match {
-            case Expected.Check((t, tr)) => subsCheck(tpe, t, reg, tr)
+            case Expected.Check((t, tr)) =>
+              val site = Error.MismatchSite.MatchPattern(
+                pat,
+                t,
+                tpe,
+                tr,
+                reg
+              )
+              subsCheck(tpe, t, reg, tr)
+                .mapError(
+                  contextualTypeError(site, Error.Direction.ExpectRight)
+                )
           }
           check.as((pat, Nil))
         case GenPattern.Var(n) =>
@@ -2280,7 +2395,18 @@ object Infer {
         case GenPattern.StrPat(items) =>
           val tpe = Type.StrType
           val check = sigma match {
-            case Expected.Check((t, tr)) => subsCheck(tpe, t, reg, tr)
+            case Expected.Check((t, tr)) =>
+              val site = Error.MismatchSite.MatchPattern(
+                pat,
+                t,
+                tpe,
+                tr,
+                reg
+              )
+              subsCheck(tpe, t, reg, tr)
+                .mapError(
+                  contextualTypeError(site, Error.Direction.ExpectRight)
+                )
           }
           val names = items.collect {
             case GenPattern.StrPart.NamedStr(n)  => (n, tpe)
@@ -2354,7 +2480,17 @@ object Infer {
             patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
             // we need to be able to widen sigma into tpe
+            site = Error.MismatchSite.MatchPattern(
+              pat,
+              sigma.value._1,
+              tpe,
+              sigma.value._2,
+              reg
+            )
             _ <- subsCheck(sigma.value._1, tpe, sigma.value._2, reg)
+              .mapError(
+                contextualTypeError(site, Error.Direction.ExpectRight)
+              )
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
