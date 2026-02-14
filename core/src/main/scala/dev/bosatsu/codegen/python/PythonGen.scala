@@ -5,7 +5,6 @@ import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
 import dev.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
-import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
@@ -1568,6 +1567,38 @@ object PythonGen {
               2
             )
           ),
+          (
+            Identifier.Name("uncons_String"),
+            (
+              { input =>
+                Env.onLast(input.head) { str =>
+                  val success = Code.MakeTuple(
+                    Code.fromInt(1) ::
+                      Code.MakeTuple(
+                        str.get(0) ::
+                          Code.SelectRange(str, Some(Code.Const.One), None) ::
+                          Nil
+                      ) ::
+                      Nil
+                  )
+                  val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
+                  Code.Ternary(success, str, fail)
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("tail_or_empty_String"),
+            (
+              { input =>
+                Env.onLast(input.head) { str =>
+                  Code.SelectRange(str, Some(Code.Const.One), None)
+                }
+              },
+              1
+            )
+          ),
           (Identifier.Name("cmp_String"), (cmpFn, 2))
         )
 
@@ -2314,13 +2345,6 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }
-          case MatchString(str, pat, binds, mustMatch) =>
-            (
-              loop(str, slotName, inlineSlots),
-              binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) }
-            ).flatMapN { (strVL, binds) =>
-              Env.onLastM(strVL)(matchString(_, pat, binds, mustMatch))
-            }
           case LetBool(n, v, in) =>
             doLet(
               n,
@@ -2333,393 +2357,6 @@ object PythonGen {
             // in python we just ignore this
             boolExpr(in, slotName, inlineSlots)
         }
-
-      def matchString(
-          strEx: Expression,
-          pat: List[StrPart],
-          binds: List[Code.Ident],
-          mustMatch: Boolean
-      ): Env[ValueLike] = {
-        import StrPart.{LitStr, Glob, CharPart}
-        val bindArray = binds.toArray
-        // return a value like expression that contains the boolean result
-        // and assigns all the bindings along the way
-        def loop(
-            knownPos: Option[Int],
-            offsetIdent: Code.Ident,
-            pat: List[StrPart],
-            next: Int,
-            mustMatch: Boolean
-        ): Env[ValueLike] =
-          pat match {
-            case _ if mustMatch && next == bindArray.length =>
-              // we have to match and we've captured everything
-              Env.pure(Code.Const.True)
-            case Nil =>
-              // offset == str.length
-              val off =
-                knownPos.fold(offsetIdent: Expression)(i => (i: Expression))
-              if (mustMatch) Env.pure(Code.Const.True)
-              else Env.pure(off =:= strEx.len())
-            case LitStr(expect) :: tail =>
-              // val len = expect.length
-              // str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
-              //
-              // strEx.startswith(expect, offsetIdent)
-              // note: a literal string can never be a total match, so mustMatch is false
-              val expectSize = expect.codePointCount(0, expect.length)
-              loop(
-                knownPos.map(_ + expectSize),
-                offsetIdent,
-                tail,
-                next,
-                mustMatch = false
-              )
-                .flatMap { loopRes =>
-                  val off =
-                    knownPos.fold(offsetIdent: Expression)(i => (i: Expression))
-                  val regionMatches =
-                    strEx.dot(Code.Ident("startswith"))(expect, off)
-                  val rest =
-                    if (tail.nonEmpty && (tail != (StrPart.WildStr :: Nil))) {
-                      // we aren't done matching
-                      (offsetIdent := offsetIdent + expectSize)
-                        .withValue(loopRes)
-                    } else {
-                      // we are done matching, no need to update offset
-                      loopRes
-                    }
-
-                  Env.andCode(regionMatches, rest)
-                }
-            case (c: CharPart) :: Nil =>
-              // last character
-              val off = knownPos.fold(offsetIdent + 1)(i => (i + 1): Expression)
-              val matches =
-                if (mustMatch) Code.Const.True else (strEx.len() =:= off)
-              if (c.capture) {
-                val stmt = bindArray(next) := Code.SelectItem(strEx, -1)
-                Env.andCode(matches, stmt.withValue(true))
-              } else {
-                Env.pure(matches)
-              }
-            case (c: CharPart) :: tail =>
-              val off =
-                knownPos.fold(offsetIdent: Expression)(i => (i: Expression))
-              val matches =
-                if (mustMatch) Code.Const.True
-                else (off :< strEx.len())
-              val n1 = if (c.capture) (next + 1) else next
-              val stmt =
-                if (c.capture) {
-                  // b = str[offset]
-                  Code
-                    .block(
-                      bindArray(next) := Code.SelectItem(strEx, off),
-                      offsetIdent := offsetIdent + 1
-                    )
-                    .withValue(true)
-                } else (offsetIdent := offsetIdent + 1).withValue(true)
-              for {
-                tailRes <- loop(
-                  knownPos.map(_ + 1),
-                  offsetIdent,
-                  tail,
-                  n1,
-                  mustMatch
-                )
-                and2 <- Env.andCode(stmt, tailRes)
-                and1 <- Env.andCode(matches, and2)
-              } yield and1
-            case (h: Glob) :: tail =>
-              // after a glob, we no longer know the knownPos
-              val off =
-                knownPos.fold(offsetIdent: Expression)(i => (i: Expression))
-              val knownPos1 = None
-              tail match {
-                case Nil =>
-                  // we capture all the rest
-                  Env.pure(
-                    if (h.capture) {
-                      // b = str[offset:]
-                      (bindArray(next) := Code
-                        .SelectRange(strEx, Some(off), None))
-                        .withValue(true)
-                    } else Code.Const.True
-                  )
-                case LitStr(expect) :: Nil =>
-                  // if strEx.endswith(expect):
-                  //   h = strEx[off:-(expect.len)]
-                  val elen = expect.codePointCount(0, expect.length)
-                  val matches =
-                    if (mustMatch) Code.Const.True
-                    else
-                      strEx.dot(Code.Ident("endswith"))(Code.PyString(expect))
-
-                  if (h.capture) {
-                    Env.andCode(
-                      matches,
-                      (binds(next) := Code
-                        .SelectRange(strEx, Some(off), Some(-elen: Expression)))
-                        .withValue(true)
-                    )
-                  } else
-                    Env.pure(matches)
-                case LitStr(expect) :: (g2: Glob) :: Nil =>
-                  // we could implement this kind of match: .*expect.*
-                  // which is partition:
-                  // (left, e, right) = strEx[offset:].partition(expect)
-                  // if e:
-                  //   h = left
-                  //   e = right
-                  //   True
-                  // else:
-                  //   False
-                  val base = knownPos match {
-                    case Some(0) => strEx
-                    case _       => Code.SelectRange(strEx, Some(off), None)
-                  }
-                  if (h.capture || g2.capture) {
-                    var npos = next
-                    for {
-                      pres <- Env.newAssignableVar
-                      // TODO, maybe partition isn't actually ideal here
-                      cmd = pres := base.dot(Code.Ident("partition"))(expect)
-                      hbind =
-                        if (h.capture) {
-                          val b = npos
-                          npos = npos + 1
-                          binds(b) := pres.get(0)
-                        } else Code.Pass
-                      gbind =
-                        if (g2.capture) {
-                          val b = npos
-                          npos = npos + 1
-                          binds(b) := pres.get(2)
-                        } else Code.Pass
-                      cond = pres.get(1) != Code.PyString("")
-                      m <- Env.andCode(
-                        cmd.withValue(cond),
-                        (hbind +: gbind).withValue(true)
-                      )
-                    } yield m
-                  } else {
-                    // this is just expect in strEx[off:]
-                    Env.pure(knownPos match {
-                      case Some(0) =>
-                        Code.Op(Code.PyString(expect), Code.Const.In, strEx)
-                      case _ =>
-                        strEx.dot(Code.Ident("find"))(
-                          expect,
-                          off
-                        ) :> (-1: Expression)
-                    })
-                  }
-                case LitStr(expect) :: (tail2 @ (th :: _)) =>
-                  // well formed patterns can really only
-                  // have Nil, Glob :: _, Char :: _ after LitStr
-                  // since we should have combined adjacent LitStr
-                  //
-                  // here we have to make a loop
-                  // searching for expect, and then see if we
-                  // can match the rest of the pattern
-                  val next1 = if (h.capture) next + 1 else next
-
-                  // there is a glob before and after expect,
-                  // so, if the tail, .*x can't match s
-                  // then it can't match any suffix of s.
-                  val shouldSearch = th match {
-                    case _: Glob => false
-                    case _       => true
-                  }
-                  /*
-                   * this is the scala code for the below
-                   * it is in MatchlessToValue but left here
-                   * as an aid to read the code below
-                   *
-                  var start = offset
-                  var result = false
-                  while (start >= 0) {
-                    val candidate = str.indexOf(expect, start)
-                    if (candidate >= 0) {
-                      // we have to skip the current expect string
-                      val candidateOffset = candidate + expect.lenth
-                      val check1 = loop(candidateOffset, tail2, next1)
-                      if (check1) {
-                        // this was a match, write into next if needed
-                        if (h.capture) {
-                          results(next) = str.substring(offset, candidate)
-                        }
-                        result = true
-                        start = -1
-                      }
-                      else {
-                        // we couldn't match here, try just after candidate
-                        start = candidate + 1
-                      }
-                    }
-                    else {
-                      // no more candidates
-                      start = -1
-                    }
-                  }
-                  result
-                   */
-                  (
-                    Env.newAssignableVar,
-                    Env.newAssignableVar,
-                    Env.newAssignableVar,
-                    Env.newAssignableVar
-                  ).flatMapN { (start, result, candidate, candOffset) =>
-                    // note, a literal prefix can never be a total match
-                    val searchEnv = loop(
-                      knownPos1,
-                      candOffset,
-                      tail2,
-                      next1,
-                      mustMatch = false
-                    )
-
-                    def onSearch(search: ValueLike): Env[Statement] =
-                      Env.ifElseS(
-                        search, {
-                          // we have matched
-                          val capture =
-                            if (h.capture)
-                              (bindArray(next) := Code.SelectRange(
-                                strEx,
-                                Some(off),
-                                Some(candidate)
-                              ))
-                            else Code.Pass
-                          Code.block(
-                            capture,
-                            result := true,
-                            start := -1
-                          )
-                        },
-                        // we couldn't match at start, advance just after the
-                        // candidate
-                        start := candidate + 1
-                      )
-
-                    def findBranch(search: ValueLike): Env[Statement] =
-                      onSearch(search)
-                        .flatMap { onS =>
-                          Env.ifElseS(
-                            candidate :> -1,
-                            // update candidate and search
-                            Code.block(
-                              candOffset := candidate + expect.codePointCount(
-                                0,
-                                expect.length
-                              ),
-                              onS
-                            ),
-                            // else no more candidates
-                            start := -1
-                          )
-                        }
-
-                    for {
-                      search <- searchEnv
-                      find <- findBranch(search)
-                    } yield
-                      if (shouldSearch) {
-                        Code
-                          .block(
-                            start := off,
-                            result := false,
-                            Code.While(
-                              (start :> -1),
-                              Code.block(
-                                candidate := strEx
-                                  .dot(Code.Ident("find"))(expect, start),
-                                find
-                              )
-                            )
-                          )
-                          .withValue(result)
-                      } else {
-                        Code
-                          .block(
-                            start := off,
-                            result := false,
-                            candidate := strEx
-                              .dot(Code.Ident("find"))(expect, start),
-                            find
-                          )
-                          .withValue(result)
-                      }
-                  }
-                case (c: CharPart) :: Nil =>
-                  // last character
-                  val matches =
-                    if (mustMatch) Code.Const.True else (strEx.len() :> off)
-                  val cpart = if (c.capture) {
-                    val cnext = if (h.capture) (next + 1) else next
-                    val stmt = bindArray(cnext) := Code.SelectItem(strEx, -1)
-                    Env.andCode(matches, stmt.withValue(true))
-                  } else {
-                    Env.pure(matches)
-                  }
-                  val hpart =
-                    if (h.capture) {
-                      bindArray(next) := Code.SelectRange(
-                        strEx,
-                        Some(off),
-                        Some(-1: Expression)
-                      )
-                    } else Code.Pass
-
-                  cpart.map(hpart.withValue(_))
-                case (_: CharPart) :: _ =>
-                  val next1 = if (h.capture) (next + 1) else next
-                  for {
-                    matched <- Env.newAssignableVar
-                    off1 <- Env.newAssignableVar
-                    // the tail match isn't true, because we loop until we find
-                    // a case
-                    tailMatched <- loop(knownPos1, off1, tail, next1, false)
-
-                    matchStmt = Code
-                      .block(
-                        matched := false,
-                        off1 := off,
-                        Code.While(
-                          (!matched).evalAnd(off1 :< strEx.len()),
-                          matched := tailMatched // the tail match increments the
-                        )
-                      )
-                      .withValue(if (mustMatch) Code.Const.True else matched)
-
-                    fullMatch <-
-                      if (!h.capture) Env.pure(matchStmt)
-                      else {
-                        val capture = Code
-                          .block(
-                            bindArray(next) := Code
-                              .SelectRange(strEx, Some(off), Some(off1))
-                          )
-                          .withValue(true)
-                        Env.andCode(matchStmt, capture)
-                      }
-
-                  } yield fullMatch
-                // $COVERAGE-OFF$
-                case (_: Glob) :: _ =>
-                  throw new IllegalArgumentException(
-                    s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)"
-                  )
-                // $COVERAGE-ON$
-              }
-          }
-
-        for {
-          offsetIdent <- Env.newAssignableVar
-          res <- loop(Some(0), offsetIdent, pat, 0, mustMatch)
-        } yield (offsetIdent := 0).withValue(res)
-      }
 
       // InlineSlots holds resolved Python expressions, not the original
       // Matchless Exprs. Locals/LocalAnon are immutable and already renamed

@@ -331,8 +331,6 @@ object Matchless {
           And(loopBool(left), loopBool(right))
         case CheckVariant(arg, expect, size, famArities) =>
           CheckVariant(loopCheap(arg), expect, size, famArities)
-        case ms: MatchString[?] =>
-          ms.copy(arg = loopCheap(ms.arg))
         case SetMut(target, value) =>
           SetMut(target, loopExpr(value))
         case LetBool(arg, value, in) =>
@@ -517,8 +515,6 @@ object Matchless {
           loopBool(right, loopBool(left, acc))
         case CheckVariant(expr, _, _, _) =>
           loopCheap(expr, acc)
-        case MatchString(arg, _, _, _) =>
-          loopCheap(arg, acc)
         case SetMut(_, value) =>
           loopExpr(value, acc)
         case TrueConst =>
@@ -689,10 +685,6 @@ object Matchless {
             loopBool(right, loopBool(left, curr))
           case CheckVariant(expr, _, _, _) =>
             loopExpr(expr, curr)
-          case MatchString(arg, _, binds, _) =>
-            binds.foldLeft(loopExpr(arg, curr)) { case (acc, bnd) =>
-              acc.max(bnd.ident)
-            }
           case SetMut(target, value) =>
             loopExpr(value, curr.max(target.ident))
           case TrueConst =>
@@ -998,11 +990,6 @@ object Matchless {
             case (expr1, st1) =>
               (CheckVariant(expr1, expect, size, famArities), st1)
           }
-        case MatchString(arg, parts, binds, mustMatch) =>
-          recurExprCheap(arg, st) match {
-            case (arg1, st1) =>
-              (MatchString(arg1, parts, binds, mustMatch), st1)
-          }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
           (SetMut(target, expr1), st1)
@@ -1098,11 +1085,10 @@ object Matchless {
         case _: EqualsNat[?]    => 1
         case _: And[?]          => 2
         case _: CheckVariant[?] => 3
-        case _: MatchString[?]  => 4
-        case _: SetMut[?]       => 5
-        case TrueConst          => 6
-        case _: LetBool[?]      => 7
-        case _: LetMutBool[?]   => 8
+        case _: SetMut[?]       => 4
+        case TrueConst          => 5
+        case _: LetBool[?]      => 6
+        case _: LetMutBool[?]   => 7
       }
 
     private given Order[LocalAnon] = Order.by(_.ident)
@@ -1150,22 +1136,6 @@ object Matchless {
               }
             }
 
-          case (
-                MatchString(argL, partsL, bindsL, mustMatchL),
-                MatchString(argR, partsR, bindsR, mustMatchR)
-              ) =>
-            val c1 = Order[Expr[A]].compare(argL, argR)
-            if (c1 != 0) c1
-            else {
-              val c2 = Order[List[StrPart]].compare(partsL, partsR)
-              if (c2 != 0) c2
-              else {
-                val c3 = Order[List[LocalAnonMut]].compare(bindsL, bindsR)
-                if (c3 != 0) c3
-                else java.lang.Boolean.compare(mustMatchL, mustMatchR)
-              }
-            }
-
           case (SetMut(targetL, exprL), SetMut(targetR, exprR)) =>
             val c1 = Order[LocalAnonMut].compare(targetL, targetR)
             if (c1 != 0) c1
@@ -1208,14 +1178,6 @@ object Matchless {
       famArities: List[Int]
   ) extends BoolExpr[A]
   // set the mutable variable to the given expr and return true
-  // string matching is complex done at a lower level
-  case class MatchString[A](
-      arg: CheapExpr[A],
-      parts: List[StrPart],
-      binds: List[LocalAnonMut],
-      mustMatch: Boolean
-  ) extends BoolExpr[A]
-  // set the mutable variable to the given expr and return true
   case class SetMut[A](target: LocalAnonMut, expr: Expr[A]) extends BoolExpr[A]
   case object TrueConst extends BoolExpr[Nothing]
   case class LetBool[A](
@@ -1237,7 +1199,6 @@ object Matchless {
       case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
-      case MatchString(_, _, b, _) => b.nonEmpty
       case And(b1, b2)             => hasSideEffect(b1) || hasSideEffect(b2)
       case LetBool(_, x, b)        =>
         hasSideEffect(b) || hasSideEffect(x)
@@ -1339,6 +1300,11 @@ object Matchless {
     def cons[A](h: Expr[A], t: Expr[A]): Expr[A] =
       applyArgs(consFn, NonEmptyList(h, t :: List.empty))
 
+    def listOf[A](items: List[Expr[A]]): Expr[A] =
+      items.foldRight(Nil: Expr[A]) { case (h, t) =>
+        cons(h, t)
+      }
+
     def notNil[A](e: CheapExpr[A]): BoolExpr[A] =
       CheckVariant(e, 1, 2, listFamArities)
 
@@ -1359,10 +1325,14 @@ object Matchless {
 
   case class PrevNat[A](of: Expr[A]) extends Expr[A]
 
-  private inline def maybeMemo[F[_]: Monad, A](
+  private inline def maybeMemoWith[F[_]: Monad, A, R](
       arg: Expr[A],
       tmp: F[Long]
-  )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
+  )(
+      inline fn: CheapExpr[A] => F[R]
+  )(
+      inline bind: (LocalAnon, Expr[A], R) => R
+  ): F[R] =
     arg match {
       case c: CheapExpr[A] => fn(c)
       case _               =>
@@ -1370,8 +1340,442 @@ object Matchless {
           nm <- tmp
           bound = LocalAnon(nm)
           res <- fn(bound)
-        } yield Let(bound, arg, res)
+        } yield bind(bound, arg, res)
     }
+
+  private inline def maybeMemo[F[_]: Monad, A](
+      arg: Expr[A],
+      tmp: F[Long]
+  )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
+    maybeMemoWith(arg, tmp)(fn) { (bound, inExpr, inBody) =>
+      Let(bound, inExpr, inBody)
+    }
+
+  object StringMatcher {
+    private val emptyStringLit: Lit = Lit.Str("")
+    private val emptyStringExpr: Expr[Nothing] = Literal(emptyStringLit)
+    private val concatStringName = Identifier.Name("concat_String")
+    private val charToStringName = Identifier.Name("char_to_String")
+    private val partitionStringName = Identifier.Name("partition_String")
+    private val unconsStringName = Identifier.Name("uncons_String")
+    private val tailOrEmptyStringName = Identifier.Name("tail_or_empty_String")
+    private val someCons = Constructor("Some")
+    private val tuple2Cons = Constructor("Tuple2")
+
+    private final case class Ctx[F[_], A](
+        from: A,
+        mustMatch: Boolean,
+        optionSomeData: (Int, Int, List[Int]),
+        tuple2Arity: Int,
+        newMut: F[LocalAnonMut],
+        newConst: F[LocalAnon]
+    ) {
+      def newMutOpt(some: Boolean)(implicit F: Monad[F]): F[Option[LocalAnonMut]] =
+        if (some) newMut.map(Some(_))
+        else F.pure(None)
+
+      def optionIsSome(opt: CheapExpr[A]): BoolExpr[A] = {
+        val (variant, size, famArities) = optionSomeData
+        CheckVariant(opt, variant, size, famArities)
+      }
+
+      def optionGetSome(opt: CheapExpr[A]): CheapExpr[A] = {
+        val (variant, size, _) = optionSomeData
+        GetEnumElement(opt, variant, 0, size)
+      }
+
+      def getFromTuple2(tuple: CheapExpr[A], idx: Int): CheapExpr[A] =
+        GetStructElement(tuple, idx, tuple2Arity)
+    }
+
+    // Read Some's enum tag from DataRepr so string matching keeps working even if
+    // predef refactors reorder Option variants (unlikely, but cheap to robustly handle).
+    private def optionSomeData(
+        variantOf: (PackageName, Constructor) => Option[DataRepr]
+    ): (Int, Int, List[Int]) =
+      variantOf(PackageName.PredefName, someCons) match {
+        case Some(DataRepr.Enum(variant, size, famArities)) if size == 1 =>
+          (variant, size, famArities)
+        // $COVERAGE-OFF$
+        case Some(other) =>
+          throw new IllegalStateException(
+            s"expected Option.Some to be Enum(_, 1, _), found: $other"
+          )
+        case None =>
+          throw new IllegalStateException(
+            "could not find Bosatsu/Predef.Some in global data types"
+          )
+        // $COVERAGE-ON$
+      }
+
+    // Defensive guard: Tuple2 should always be Struct(2). If this ever changes,
+    // fail loudly because it would be a very surprising predef shape change.
+    private def tuple2Arity(
+        variantOf: (PackageName, Constructor) => Option[DataRepr]
+    ): Int =
+      variantOf(PackageName.PredefName, tuple2Cons) match {
+        case Some(DataRepr.Struct(arity)) if arity == 2 => arity
+        // $COVERAGE-OFF$
+        case Some(other) =>
+          throw new IllegalStateException(
+            s"expected Tuple2 to be Struct(2), found: $other"
+          )
+        case None =>
+          throw new IllegalStateException(
+            "could not find Bosatsu/Predef.Tuple2 in global data types"
+          )
+        // $COVERAGE-ON$
+      }
+
+    private def predefFn[A](from: A, name: Identifier.Name): Expr[A] =
+      Global(from, PackageName.PredefName, name)
+
+    private def call1[A](from: A, name: Identifier.Name, arg: Expr[A]): Expr[A] =
+      applyArgs(predefFn(from, name), NonEmptyList.one(arg))
+
+    private def call2[A](
+        from: A,
+        name: Identifier.Name,
+        arg0: Expr[A],
+        arg1: Expr[A]
+    ): Expr[A] =
+      applyArgs(predefFn(from, name), NonEmptyList(arg0, arg1 :: Nil))
+
+    private def concatString[A](from: A, items: List[Expr[A]]): Expr[A] =
+      items match {
+        case Nil       => emptyStringExpr
+        case h :: Nil  => h
+        case nonSingle => call1(from, concatStringName, ListExpr.listOf(nonSingle))
+      }
+
+    private inline def withCheap[F[_]: Monad, A](inline expr: Expr[A], newConst: F[LocalAnon])(
+        inline fn: CheapExpr[A] => F[BoolExpr[A]]
+    ): F[BoolExpr[A]] =
+      expr match {
+        case cheap: CheapExpr[A] =>
+          fn(cheap)
+        case _ =>
+          newConst.flatMap { tmp =>
+            fn(tmp).map(LetBool(Left(tmp), expr, _))
+          }
+      }
+
+    private def withSomeTuple2[F[_]: Monad, A](
+        optionExpr: Expr[A],
+        ctx: Ctx[F, A]
+    )(
+        fn: (CheapExpr[A], CheapExpr[A]) => F[BoolExpr[A]]
+    ): F[BoolExpr[A]] =
+      withCheap(optionExpr, ctx.newConst) { opt =>
+        val hasSome = ctx.optionIsSome(opt)
+        ctx.newConst.flatMap { tuple =>
+          val left = ctx.getFromTuple2(tuple, 0)
+          val right = ctx.getFromTuple2(tuple, 1)
+          fn(left, right).map { onSome =>
+            hasSome && LetBool(Left(tuple), ctx.optionGetSome(opt), onSome)
+          }
+        }
+      }
+
+    private def bindAt(bindTargets: IndexedSeq[LocalAnonMut], idx: Int): LocalAnonMut =
+      if ((0 <= idx) && (idx < bindTargets.length)) bindTargets(idx)
+      else {
+        // $COVERAGE-OFF$
+        throw new IllegalStateException(
+          s"string match bind index out of bounds: idx=$idx, binds=${bindTargets.length}"
+        )
+        // $COVERAGE-ON$
+      }
+
+    private def setAll[A](ls: List[(LocalAnonMut, Expr[A])], ret: Expr[A]): Expr[A] =
+      ls.foldRight(ret) { case ((l, e), r) =>
+        Always(SetMut(l, e), r)
+      }
+
+    private def advanceCurrentByOneChar[F[_]: Monad, A](
+        current: LocalAnonMut,
+        prefixAcc: Option[LocalAnonMut],
+        ctx: Ctx[F, A]
+    ): F[Expr[A]] =
+      (ctx.newConst, ctx.newConst).mapN {
+        (splitTmp, tupleTmp) =>
+          val splitCall = call1(ctx.from, unconsStringName, current)
+          val hasSome = ctx.optionIsSome(splitTmp)
+          val head = ctx.getFromTuple2(tupleTmp, 0)
+          val tail = ctx.getFromTuple2(tupleTmp, 1)
+          val headStr = call1(ctx.from, charToStringName, head)
+          val updates =
+            (current, tail) :: prefixAcc.toList.map { p =>
+              (p, concatString(ctx.from, p :: headStr :: Nil))
+            }
+          val onSome =
+            Let(
+              Left(tupleTmp),
+              ctx.optionGetSome(splitTmp),
+              setAll(updates, UnitExpr)
+            )
+          val onNone =
+            setAll((current, emptyStringExpr) :: Nil, UnitExpr)
+
+          Let(Left(splitTmp), splitCall, If(hasSome, onSome, onNone))
+      }
+
+    private def searchStringWithCharRest[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        rest: List[StrPart],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        capture: Boolean,
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val restBind = if (capture) nextBind + 1 else nextBind
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        prefixMutOpt <- ctx.newMutOpt(capture)
+        loopRes <- ctx.newConst
+        check <- matchStringParts(currentMut, rest, bindTargets, restBind, ctx)
+        advance <- advanceCurrentByOneChar(currentMut, prefixMutOpt, ctx)
+      } yield {
+        val onEmpty = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+        val onMatch = {
+          val updates =
+            (runMut, FalseExpr) ::
+              (resMut, TrueExpr) ::
+              prefixMutOpt.toList.map { prefix =>
+                (bindAt(bindTargets, nextBind), prefix: Expr[A])
+              }
+          setAll(updates, UnitExpr)
+        }
+
+        val effect =
+          If(
+            EqualsLit(currentMut, emptyStringLit),
+            onEmpty,
+            If(check, onMatch, advance)
+          )
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            prefixMutOpt.toList.map { prefix =>
+              (prefix, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: prefixMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(resMut))
+        )
+      }
+    }
+
+    private def searchStringWithLiteralRest[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        expect: String,
+        tail2: List[StrPart],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        capture: Boolean,
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val splitIdx = expect.offsetByCodePoints(0, 1)
+      val expectHead = expect.substring(0, splitIdx)
+      val expectTail = expect.substring(splitIdx)
+      val expectLit = Literal(Lit.Str(expect))
+      val expectHeadExpr = Literal(Lit.Str(expectHead))
+      val expectTailExprOpt =
+        if (expectTail.isEmpty) None
+        else Some(Literal(Lit.Str(expectTail)))
+
+      val restBind = if (capture) nextBind + 1 else nextBind
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        consumedMutOpt <- ctx.newMutOpt(capture)
+        loopRes <- ctx.newConst
+        partTmp <- ctx.newConst
+        tupleTmp <- ctx.newConst
+        check <- matchStringParts(
+          ctx.getFromTuple2(tupleTmp, 1),
+          tail2,
+          bindTargets,
+          restBind,
+          ctx
+        )
+      } yield {
+        val left = ctx.getFromTuple2(tupleTmp, 0)
+        val right = ctx.getFromTuple2(tupleTmp, 1)
+        val onNoCandidate = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+        val currentAdvance: Expr[A] =
+          expectTailExprOpt match {
+            case None           => right
+            case Some(tailExpr) => concatString(ctx.from, tailExpr :: right :: Nil)
+          }
+        val onCandidateMiss = {
+          val updates =
+            (currentMut, currentAdvance) ::
+              consumedMutOpt.toList.map { consumed =>
+                val consumed1 =
+                  concatString(ctx.from, consumed :: left :: expectHeadExpr :: Nil)
+                (consumed, consumed1)
+              }
+          setAll(updates, UnitExpr)
+        }
+        val onCandidateHit = {
+          val updates =
+            (runMut, FalseExpr) ::
+              (resMut, TrueExpr) ::
+              consumedMutOpt.toList.map { consumed =>
+                val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                (bindAt(bindTargets, nextBind), prefix)
+              }
+          setAll(updates, UnitExpr)
+        }
+        val onSome = {
+          val body = If(check, onCandidateHit, onCandidateMiss)
+          Let(Left(tupleTmp), ctx.optionGetSome(partTmp), body)
+        }
+        val partCall = call2(ctx.from, partitionStringName, currentMut, expectLit)
+        val stepExpr =
+          Let(
+            Left(partTmp),
+            partCall,
+            If(ctx.optionIsSome(partTmp), onSome, onNoCandidate)
+          )
+        val onEmpty = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+        val effect =
+          If(
+            EqualsLit(currentMut, emptyStringLit),
+            onEmpty,
+            stepExpr
+          )
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            consumedMutOpt.toList.map { consumed =>
+              (consumed, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: consumedMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(resMut))
+        )
+      }
+    }
+
+    private def matchStringParts[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        parts: List[StrPart],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] =
+      parts match {
+        case Nil =>
+          Monad[F].pure(EqualsLit(arg, emptyStringLit))
+        case StrPart.LitStr(expect) :: tail =>
+          withSomeTuple2(
+            call2(ctx.from, partitionStringName, arg, Literal(Lit.Str(expect))),
+            ctx
+          ) { (left, right) =>
+            matchStringParts(right, tail, bindTargets, nextBind, ctx).map { rest =>
+              EqualsLit(left, emptyStringLit) && rest
+            }
+          }
+        case (charPart: StrPart.CharPart) :: tail =>
+          val nextBindIdx =
+            if (charPart.capture) nextBind + 1 else nextBind
+          if (!charPart.capture && ctx.mustMatch) {
+            withCheap(call1(ctx.from, tailOrEmptyStringName, arg), ctx.newConst) { rest =>
+              matchStringParts(rest, tail, bindTargets, nextBindIdx, ctx)
+            }
+          } else {
+            withSomeTuple2(call1(ctx.from, unconsStringName, arg), ctx) { (head, rest) =>
+              matchStringParts(rest, tail, bindTargets, nextBindIdx, ctx).map { next =>
+                if (charPart.capture) SetMut(bindAt(bindTargets, nextBind), head) && next
+                else next
+              }
+            }
+          }
+        case (glob: StrPart.Glob) :: tail =>
+          tail match {
+            case Nil =>
+              if (glob.capture)
+                Monad[F].pure(SetMut(bindAt(bindTargets, nextBind), arg))
+              else Monad[F].pure(TrueConst)
+            case (_: StrPart.CharPart) :: _ =>
+              searchStringWithCharRest(
+                arg,
+                tail,
+                bindTargets,
+                nextBind,
+                glob.capture,
+                ctx
+              )
+            case StrPart.LitStr(expect) :: tail2 =>
+              searchStringWithLiteralRest(
+                arg,
+                expect,
+                tail2,
+                bindTargets,
+                nextBind,
+                glob.capture,
+                ctx
+              )
+            case (_: StrPart.Glob) :: _ =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"invariant violation, adjacent string globs: $parts"
+              )
+            // $COVERAGE-ON$
+          }
+      }
+
+    def apply[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        parts: List[StrPart],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        mustMatch: Boolean,
+        makeAnon: F[Long],
+        from: A,
+        variantOf: (PackageName, Constructor) => Option[DataRepr]
+    ): F[BoolExpr[A]] = {
+      val compactPat = StrPart.compact(parts)
+      val captureCount =
+        compactPat.count {
+          case StrPart.IndexStr | StrPart.IndexChar => true
+          case _                                    => false
+        }
+
+      if (captureCount + nextBind != bindTargets.length) {
+        // $COVERAGE-OFF$
+        throw new IllegalStateException(
+          s"string capture count mismatch: parts=$compactPat captures=$captureCount binds=${bindTargets.length}, nextBind=$nextBind"
+        )
+        // $COVERAGE-ON$
+      }
+
+      val ctx = Ctx(
+        from = from,
+        mustMatch = mustMatch,
+        optionSomeData = optionSomeData(variantOf),
+        tuple2Arity = tuple2Arity(variantOf),
+        newMut = makeAnon.map(LocalAnonMut(_)),
+        newConst = makeAnon.map(LocalAnon(_))
+      )
+      matchStringParts(arg, compactPat, bindTargets, nextBind, ctx)
+    }
+  }
 
   private val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
@@ -1495,8 +1899,6 @@ object Matchless {
         case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
-        case ms: MatchString[?] =>
-          ms.copy(arg = substituteLocalsCheap(m, ms.arg))
         case LetBool(b, a, in) =>
           val m1 = b match {
             case Right(b) => m - b
@@ -2056,12 +2458,21 @@ object Matchless {
                 .traverse { b =>
                   makeAnon.map(LocalAnonMut(_)).map((b, _))
                 }
-                .map { binds =>
+                .flatMap { binds =>
                   val ms = binds.map(_._2)
-
-                  NonEmptyList.one(
-                    (ms, MatchString(arg, pat, ms, mustMatch), binds)
+                  StringMatcher(
+                    arg,
+                    pat,
+                    ms.toIndexedSeq,
+                    0,
+                    mustMatch,
+                    makeAnon,
+                    from,
+                    variantOf
                   )
+                    .map { cond =>
+                      NonEmptyList.one((ms, cond, binds))
+                    }
                 }
           }
         case lp @ Pattern.ListPat(_) =>
@@ -3082,8 +3493,6 @@ object Matchless {
             1 + loopBool(left) + loopBool(right)
           case CheckVariant(expr, _, _, _) =>
             1 + loopExpr(expr)
-          case MatchString(arg, _, _, _) =>
-            1 + loopExpr(arg)
           case SetMut(_, expr) =>
             1 + loopExpr(expr)
           case LetBool(_, value, in) =>

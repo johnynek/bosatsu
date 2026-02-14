@@ -14,6 +14,47 @@ object StrPart {
   case object IndexChar extends CharPart(true)
   case class LitStr(asString: String) extends StrPart
 
+  // Compact adjacent literal runs across the whole list.
+  // Also normalize non-capturing `${_}$.{_}` shapes to avoid generating a
+  // search in Matchless.
+  def compact(parts: List[StrPart]): List[StrPart] =
+    parts match {
+      case Nil =>
+        Nil
+      case head :: tail =>
+        val compactedTail = compact(tail)
+        head match {
+          case LitStr("") =>
+            compactedTail
+          case LitStr(s0) =>
+            compactedTail match {
+              case LitStr(s1) :: rest =>
+                LitStr(s0 + s1) :: rest
+              case _ =>
+                LitStr(s0) :: compactedTail
+            }
+          case WildStr =>
+            compactedTail match {
+              case WildChar :: _ =>
+                val (chars, rest) = compactedTail.span(_ == WildChar)
+                rest match {
+                  case (glob: Glob) :: tail =>
+                    // `${_}` before non-capturing chars and then `${...}` is
+                    // redundant. Keep a normalized non-searching form.
+                    chars ::: (glob :: tail)
+                  case _ =>
+                    // `${_}$.{_}` (both non-capturing) can be normalized to
+                    // `$.{_}${_}`.
+                    chars ::: (WildStr :: rest)
+                }
+              case _ =>
+                WildStr :: compactedTail
+            }
+          case _ =>
+            head :: compactedTail
+        }
+    }
+
   implicit val strPartOrder: Order[StrPart] = new Order[StrPart] {
     private def tag(sp: StrPart): Int =
       sp match {

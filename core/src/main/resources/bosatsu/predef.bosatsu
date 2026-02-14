@@ -71,6 +71,8 @@ export (
   int_to_String,
   length_String,
   string_to_Int,
+  tail_or_empty_String,
+  uncons_String,
   items,
   map_List,
   mod_Int,
@@ -277,6 +279,12 @@ external def partition_String(arg: String, sep: String) -> Option[(String, Strin
 # a and b are always proper substrings, so rpartition_String(a, "") == None
 # this matches from the right, so partition_String(b, sep) == None
 external def rpartition_String(arg: String, sep: String) -> Option[(String, String)]
+# if this returns Some((h, t)) then arg == concat_String([char_to_String(h), t])
+# h is exactly one codepoint and t is the remaining suffix
+external def uncons_String(arg: String) -> Option[(Char, String)]
+# if arg is empty this returns "", otherwise it drops exactly one codepoint
+# (equivalent to the tail from uncons_String, but without constructing Option/Tuple)
+external def tail_or_empty_String(arg: String) -> String
 
 external def int_to_String(i: Int) -> String
 external def string_to_Int(s: String) -> Option[Int]

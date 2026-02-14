@@ -519,8 +519,6 @@ x = 1
             checkBool(r)
           case Matchless.CheckVariant(e, _, _, _) =>
             requireSubset(e)
-          case Matchless.MatchString(arg, _, _, _) =>
-            requireSubset(arg)
           case Matchless.SetMut(_, e) =>
             requireSubset(e)
           case Matchless.TrueConst =>
@@ -762,8 +760,6 @@ x = 1
           hasNestedProjectionBool(l) || hasNestedProjectionBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
           hasNestedProjectionCheap(e)
-        case Matchless.MatchString(arg, _, _, _) =>
-          hasNestedProjectionCheap(arg)
         case Matchless.SetMut(_, e) =>
           hasNestedProjectionExpr(e)
         case Matchless.TrueConst =>

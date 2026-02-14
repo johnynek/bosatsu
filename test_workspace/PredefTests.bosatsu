@@ -21,6 +21,15 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
+def notb(a):
+  match a:
+    case True: False
+    case False: True
+def andb(a, b):
+  match a:
+    case True: b
+    case False: False
+
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
       Assertion((-8 % -2) matches 0, "(-8 % -2) == 0 got: ${i(-8 % -2)}"),
@@ -110,20 +119,61 @@ test_string = TestSuite("String tests", [
   Assertion(length_String("abc") matches 3, "length_String ascii"),
   Assertion(char_List_to_String([.'h', .'i']) matches "hi", "char_List_to_String ascii"),
   Assertion(char_List_to_String([.'👋']) matches "👋", "char_List_to_String unicode"),
+
+  Assertion(uncons_String("") matches None, "uncons empty"),
+  Assertion(uncons_String("abc") matches Some((.'a', "bc")), "uncons ascii"),
+  Assertion(uncons_String("éa") matches Some((.'é', "a")), "uncons unicode"),
+  Assertion(tail_or_empty_String("") matches "", "tail_or_empty empty"),
+  Assertion(tail_or_empty_String("abc") matches "bc", "tail_or_empty ascii"),
+  Assertion(tail_or_empty_String("éa") matches "a", "tail_or_empty unicode"),
+
+  Assertion(notb("bbb" matches "ab${_}"), "literal prefix not found"),
+  Assertion(notb("zabq" matches "ab${_}"), "literal found later is not a prefix"),
+  Assertion("abq" matches "ab${_}", "literal prefix with wildcard tail"),
+  Assertion(
+    match "abq":
+      case "ab${tail}": tail matches "q"
+      case _: False,
+    "literal prefix with captured tail"),
+
+  Assertion(
+    match "xy":
+      case "$.{h}${t}":
+        if h matches .'x':
+          t matches "y"
+        else:
+          False
+      case _: False,
+    "char capture at head"),
+  Assertion("xy" matches "$.{_}${_}", "char wildcard at head"),
+  Assertion(notb("" matches "$.{_}"), "char on empty string fails"),
+
+  Assertion("abcz" matches "${_}$.{_}z", "glob-char search finds middle match"),
+  Assertion(notb("abc" matches "${_}$.{_}z"), "glob-char search exhausts"),
+  Assertion(
+    match "abcz":
+      case "${left}$.{mid}z":
+        andb(left matches "ab", mid matches .'c')
+      case _: False,
+    "glob-char search with captures"),
+
+  Assertion(notb("abc" matches "${_}xyz"), "glob-literal search with no candidate"),
+  Assertion(notb("" matches "${_}x"), "glob-literal search on empty input"),
+  Assertion(
+    match "aaZ":
+      case "${left}aZ": left matches "a"
+      case _: False,
+    "glob-literal single-char candidate miss then hit"),
+  Assertion("ababZ" matches "${_}abZ", "glob-literal multi-char candidate miss then hit"),
+  Assertion(
+    match "👋👋x":
+      case "${left}👋x": left matches "👋"
+      case _: False,
+    "unicode literal candidate miss then hit"),
 ])
 
 def eqf(a, b): cmp_Float64(a, b) matches EQ
 def eqi(a, b): cmp_Int(a, b) matches EQ
-def andb(a, b):
-  match a:
-    case True: b
-    case False: False
-
-def notb(a):
-  match a:
-    case True: False
-    case False: True
-
 def eqb(a, b):
   if a:
     b
