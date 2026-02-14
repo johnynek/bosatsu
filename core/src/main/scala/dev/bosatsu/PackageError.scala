@@ -288,61 +288,89 @@ object PackageError {
       def renderedTypeKey(tpe: Type): String =
         TypeRenderer.render(tpe, renderCtx, 80)
 
+      def orient(
+          left: (Type, Region),
+          right: (Type, Region),
+          direction: Infer.Error.Direction
+      ): ((Type, Region), (Type, Region)) =
+        direction match {
+          case Infer.Error.Direction.ExpectLeft  => (left, right)
+          case Infer.Error.Direction.ExpectRight => (right, left)
+          case Infer.Error.Direction.Unknown     => (left, right)
+        }
+
       def baseMismatch(
           tpeErr: Infer.Error.TypeError
-      ): Option[((Type, Region), (Type, Region))] =
+      ): Option[((Type, Region), (Type, Region), Infer.Error.Direction)] =
         tpeErr match {
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
-            Some(((t0, r0), (t1, r1)))
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
-            Some(((t0, r0), (t1, r1)))
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1, direction) =>
+            Some(((t0, r0), (t1, r1), direction))
+          case Infer.Error.SubsumptionCheckFailure(
+                t0,
+                t1,
+                r0,
+                r1,
+                _,
+                direction
+              ) =>
+            Some(((t0, r0), (t1, r1), direction))
           case Infer.Error.ContextualTypeError(_, direction, cause) =>
-            expectedFound(cause, direction)
+            baseMismatch(cause).map { case (left, right, causeDirection) =>
+              val finalDirection =
+                causeDirection match {
+                  case Infer.Error.Direction.Unknown => direction
+                  case found                         => found
+                }
+              (left, right, finalDirection)
+            }
           case _ =>
             None
         }
 
       def expectedFound(
-          tpeErr: Infer.Error.TypeError,
-          direction: Infer.Error.Direction
+          tpeErr: Infer.Error.TypeError
       ): Option[((Type, Region), (Type, Region))] =
-        baseMismatch(tpeErr).map { case (left, right) =>
-          direction match {
-            case Infer.Error.Direction.ExpectLeft  => (left, right)
-            case Infer.Error.Direction.ExpectRight => (right, left)
-            case Infer.Error.Direction.Unknown     => (left, right)
-          }
+        baseMismatch(tpeErr).map { case (left, right, direction) =>
+          orient(left, right, direction)
         }
 
       def dedupKey(
           tpeErr: Infer.Error.Single
       ): Option[(String, Int, String, String)] =
         tpeErr match {
-          case Infer.Error.ContextualTypeError(site, direction, cause) =>
+          case c @ Infer.Error.ContextualTypeError(site, _, _) =>
             val (expectedKey, foundKey) =
-              expectedFound(cause, direction)
+              expectedFound(c)
                 .map { case ((exp, _), (found, _)) =>
                   (renderedTypeKey(exp), renderedTypeKey(found))
                 }
                 .getOrElse(("", ""))
             Some((s"context:$site", site.hashCode, expectedKey, foundKey))
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
-            val left = renderedTypeKey(t0)
-            val right = renderedTypeKey(t1)
-            val (keyLeft, keyRight) =
-              if (left <= right) (left, right) else (right, left)
+          case e @ Infer.Error.NotUnifiable(_, _, r0, r1, _) =>
+            val (expectedKey, foundKey) =
+              expectedFound(e)
+                .map { case ((exp, _), (found, _)) =>
+                  (renderedTypeKey(exp), renderedTypeKey(found))
+                }
+                .getOrElse(("", ""))
             Some((
               "not-unifiable",
               math.min(r0.start, r1.start),
-              keyLeft,
-              keyRight
+              expectedKey,
+              foundKey
             ))
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
+          case e @ Infer.Error.SubsumptionCheckFailure(_, _, r0, r1, _, _) =>
+            val (expectedKey, foundKey) =
+              expectedFound(e)
+                .map { case ((exp, _), (found, _)) =>
+                  (renderedTypeKey(exp), renderedTypeKey(found))
+                }
+                .getOrElse(("", ""))
             Some((
               "subsume",
               math.min(r0.start, r1.start),
-              renderedTypeKey(t0),
-              renderedTypeKey(t1)
+              expectedKey,
+              foundKey
             ))
           case _ =>
             None
@@ -384,12 +412,12 @@ object PackageError {
 
       def singleToDoc(tpeErr: Infer.Error.Single, suppressed: Int): Doc = {
         val (teMessage, region) = tpeErr match {
-          case Infer.Error.ContextualTypeError(site, direction, cause) =>
+          case c @ Infer.Error.ContextualTypeError(site, _, cause) =>
             site match {
               case appSite: Infer.Error.MismatchSite.AppArg =>
                 val expectedType = appSite.expectedArgType
                 val expectedFromCause =
-                  expectedFound(cause, direction)
+                  expectedFound(c)
                 val expected =
                   expectedFromCause
                     .map(_._1)
@@ -399,10 +427,10 @@ object PackageError {
                     .map(_._2)
                     .orElse {
                       baseMismatch(cause).flatMap {
-                        case ((left, _), (right, rightRegion))
+                        case ((left, _), (right, rightRegion), _)
                             if (left == expectedType) && (right =!= expectedType) =>
                           Some((right, rightRegion))
-                        case ((left, leftRegion), (right, _))
+                        case ((left, leftRegion), (right, _), _)
                             if (right == expectedType) && (left =!= expectedType) =>
                           Some((left, leftRegion))
                         case _ =>
@@ -416,7 +444,14 @@ object PackageError {
                   List(expected._1, found._1, appSite.functionType),
                   localTypeNames
                 )
-                val fnLabel = appSite.functionName.getOrElse("function")
+                val fnLabel = appSite.functionName
+                  .map { full =>
+                    val localPrefix = s"${pack.asString}::"
+                    if (full.startsWith(localPrefix))
+                      full.substring(localPrefix.length)
+                    else full
+                  }
+                  .getOrElse("function")
                 val fnContext =
                   if (appSite.functionRegion =!= appSite.argumentRegion) {
                     Doc.hardLine + Doc.text("function site:") + Doc.hardLine +
@@ -477,18 +512,20 @@ object PackageError {
                 )
             }
 
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1, direction) =>
+            val ((expectedType, expectedRegion), (foundType, foundRegion)) =
+              orient((t0, r0), (t1, r1), direction)
             val context0 =
-              if (r0 === r1)
+              if (expectedRegion === foundRegion)
                 Doc.space // sometimes the region of the error is the same on right and left
               else {
-                val m = contextDoc(r0)
+                val m = contextDoc(expectedRegion)
                 Doc.hardLine + m + Doc.hardLine
               }
-            val context1 = contextDoc(r1)
+            val context1 = contextDoc(foundRegion)
 
             val fnHint =
-              (t0, t1) match {
+              (expectedType, foundType) match {
                 case (
                       Type.RootConst(Type.FnType(_, leftSize)),
                       Type.RootConst(Type.FnType(_, rightSize))
@@ -507,12 +544,12 @@ object PackageError {
                   Doc.empty
               }
 
-            val tmap = showTypes(pack, List(t0, t1), localTypeNames)
-            val doc = Doc.text("type error: expected type ") + tmap(t0) +
-              context0 + Doc.text("to be the same as type ") + tmap(t1) +
+            val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val doc = Doc.text("type error: expected type ") + tmap(expectedType) +
+              context0 + Doc.text("to be the same as type ") + tmap(foundType) +
               Doc.hardLine + fnHint + context1
 
-            (doc, Some(r0))
+            (doc, Some(expectedRegion))
 
           case Infer.Error.VarNotInScope((_, name), scope, region) =>
             val ctx = contextDoc(region)
@@ -573,22 +610,31 @@ object PackageError {
                 )
             }
 
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
+          case Infer.Error.SubsumptionCheckFailure(
+                t0,
+                t1,
+                r0,
+                r1,
+                _,
+                direction
+              ) =>
+            val ((expectedType, expectedRegion), (foundType, foundRegion)) =
+              orient((t0, r0), (t1, r1), direction)
             val context0 =
-              if (r0 === r1)
+              if (foundRegion === expectedRegion)
                 Doc.space // sometimes the region of the error is the same on right and left
               else {
-                val m = contextDoc(r0)
+                val m = contextDoc(foundRegion)
                 Doc.hardLine + m + Doc.hardLine
               }
-            val context1 = contextDoc(r1)
+            val context1 = contextDoc(expectedRegion)
 
-            val tmap = showTypes(pack, List(t0, t1), localTypeNames)
-            val doc = Doc.text("type ") + tmap(t0) + context0 +
-              Doc.text("does not subsume type ") + tmap(t1) + Doc.hardLine +
+            val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val doc = Doc.text("type ") + tmap(foundType) + context0 +
+              Doc.text("does not subsume expected type ") + tmap(expectedType) + Doc.hardLine +
               context1
 
-            (doc, Some(r0))
+            (doc, Some(foundRegion))
 
           case uc @ Infer.Error.UnknownConstructor((_, n), region, _) =>
             val near = nearest(

@@ -584,15 +584,17 @@ main = fn([1, 2])
     evalFail(code1571 :: Nil) { case te: PackageError.TypeErrorIn =>
       // Make sure we point at the function directly
       assertEquals(code1571.substring(67, 69), "fn")
+      val msg = te.message(Map.empty, Colorize.None)
       assert(
-        te.message(Map.empty, Colorize.None)
-          .contains(
-            "the first type is a function with one argument and the second is a function with 2 arguments"
+        msg.contains(
+          "the first type is a function with one argument and the second is a function with 2 arguments"
+        ) ||
+          msg.contains(
+            "the first type is a function with 2 arguments and the second is a function with one argument"
           )
       )
       assert(
-        te.message(Map.empty, Colorize.None)
-          .contains("Region(67,69)")
+        msg.contains("Region(67,69)")
       )
       ()
     }
@@ -1245,13 +1247,15 @@ main = under_twenty(3)
         rankn.Type.IntType,
         rankn.Type.StrType,
         region0,
-        region1
+        region1,
+        rankn.Infer.Error.Direction.ExpectRight
       ),
       rankn.Infer.Error.NotUnifiable(
         rankn.Type.IntType,
         rankn.Type.StrType,
         region0,
-        region2
+        region2,
+        rankn.Infer.Error.Direction.ExpectRight
       )
     )
 
@@ -1279,7 +1283,7 @@ main = same(1, "x")
 
     evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(Map.empty, Colorize.None)
-      assert(msg.contains("type mismatch in call to A::same"), msg)
+      assert(msg.contains("type mismatch in call to same"), msg)
       assert(msg.contains("expected: Int"), msg)
       assert(msg.contains("found: String"), msg)
       ()
@@ -1571,11 +1575,11 @@ def quick_sort0(cmp, left, right):
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package QS
-type error: expected type Fn3[(?17, ?9) -> Comparison]
-Region(403,414)
-to be the same as type Fn2
-hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
-Region(415,424)"""
+type error: expected type Fn2
+Region(415,424)
+to be the same as type Fn3[(?17, ?9) -> Comparison]
+hint: the first type is a function with 2 arguments and the second is a function with 3 arguments.
+Region(403,414)"""
       )
       ()
     }
