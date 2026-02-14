@@ -13,6 +13,7 @@ object ToolCommand {
 
     MonoidK[Opts].combineAllK(
       CheckCommand.opts(platformIO, commonOpts) ::
+        DocCommand.opts(platformIO, commonOpts) ::
         TestCommand.opts(platformIO, commonOpts) ::
         EvalCommand.opts(platformIO, commonOpts) ::
         JsonCommand.opts(platformIO, commonOpts) ::

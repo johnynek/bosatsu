@@ -46,6 +46,13 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected string file at ${path.mkString_("/")}, found: $other")
     }
 
+  private def assertNoFile(state: MemoryMain.State, path: Chain[String]): Unit =
+    state.get(path) match {
+      case None => ()
+      case other =>
+        fail(s"expected no file at ${path.mkString_("/")}, found: $other")
+    }
+
   private def readLibraryFile(
       state: MemoryMain.State,
       path: Chain[String]
@@ -228,6 +235,322 @@ class ToolAndLibCommandTest extends FunSuite {
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
       case Right(other)                          => fail(s"unexpected output: $other")
       case Left(err)                             => fail(err.getMessage)
+    }
+  }
+
+  test("tool doc writes markdown for source packages and excludes include packages") {
+    val depSrc =
+      """export DepBox(), depBox
+
+struct DepBox(v: Int)
+
+depBox = DepBox(7)
+"""
+    val appSrc =
+      """from Dep/Util import depBox
+
+export Box(), run, dep_main
+
+# Box docs.
+struct Box(v: Int)
+
+# Run docs.
+run = (b) -> match b:
+  case Box(v): v
+
+# Dependency docs.
+dep_main = depBox
+"""
+
+    val files = List(
+      Chain("dep", "Dep", "Util.bosatsu") -> depSrc,
+      Chain("src", "App", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Util.bosatsu",
+          "--output",
+          "out/Dep.Util.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/App/Main.bosatsu",
+          "--include",
+          "out/Dep.Util.bosatsu_package",
+          "--outdir",
+          "docs"
+        ),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out)) =>
+        out match {
+          case Output.TranspileOut(outputs) =>
+            assertEquals(outputs.map(_._1), List(Chain("docs", "App", "Main.md")))
+          case other =>
+            fail(s"unexpected output: $other")
+        }
+
+        val markdown = readStringFile(state, Chain("docs", "App", "Main.md"))
+        assert(markdown.contains("# `App/Main`"), markdown)
+        assert(markdown.contains("public dependencies: `Dep/Util`"), markdown)
+        assert(markdown.contains("## Values"), markdown)
+        assert(markdown.contains("## Types"), markdown)
+        assert(markdown.indexOf("## Types") < markdown.indexOf("## Values"), markdown)
+        assert(markdown.contains("Box docs."), markdown)
+        assert(markdown.contains("Run docs."), markdown)
+        assert(markdown.contains("def run("), markdown)
+        assert(markdown.contains("`Box(v: Int)`"), markdown)
+        assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
+        assert(markdown.contains("```bosatsu"), markdown)
+        assertNoFile(state, Chain("docs", "Dep", "Util.md"))
+    }
+  }
+
+  test("lib doc writes markdown in package directory layout") {
+    val src =
+      """export Thing(), mk
+
+# Thing docs.
+struct Thing(v: Int)
+
+# Mk docs.
+mk = (x) -> Thing(x)
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "doc",
+        "--repo_root",
+        "repo",
+        "--name",
+        "mylib",
+        "--outdir",
+        "outdocs"
+      )
+    ) match {
+      case Right(Output.TranspileOut(outputs)) =>
+        assertEquals(outputs.map(_._1), List(Chain("outdocs", "MyLib", "Foo.md")))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "outdocs"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("outdocs", "MyLib", "Foo.md"))
+        assert(markdown.contains("# `MyLib/Foo`"), markdown)
+        assert(markdown.contains("Thing docs."), markdown)
+        assert(markdown.contains("Mk docs."), markdown)
+        assert(!markdown.contains("public dependencies:"), markdown)
+        assert(markdown.indexOf("## Types") < markdown.indexOf("## Values"), markdown)
+        assert(markdown.contains("def mk("), markdown)
+        assert(markdown.contains("`Thing(v: Int)`"), markdown)
+        assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
+        assert(markdown.contains("## Values"), markdown)
+        assert(markdown.contains("## Types"), markdown)
+    }
+  }
+
+  test("tool doc wraps long constructor and def parameter lists") {
+    val src =
+      """export Massive(), build
+
+struct Massive(alpha: Int, beta: Int, gamma: Int, delta: Int, epsilon: Int, zeta: Int, eta: Int, theta: Int, iota: Int, kappa: Int, lambda: Int)
+
+build = (a, b, c, d, e, f, g, h, i, j, k) -> Massive(a, b, c, d, e, f, g, h, i, j, k)
+"""
+    val files = List(Chain("src", "Wrap", "Main.bosatsu") -> src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Wrap/Main.bosatsu",
+          "--outdir",
+          "docs"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "Wrap", "Main.md"))
+        assert(markdown.contains("def build(\n    arg1: Int,\n    arg2: Int,"), markdown)
+        assert(markdown.contains("Massive(\n"), markdown)
+        assert(markdown.contains("alpha: Int,\n"), markdown)
+    }
+  }
+
+  test("tool doc --include_predef includes Bosatsu/Predef markdown") {
+    val src =
+      """export main,
+main = 1
+"""
+    val files = List(Chain("src", "Simple", "Main.bosatsu") -> src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Simple/Main.bosatsu",
+          "--outdir",
+          "docs",
+          "--include_predef"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out)) =>
+        out match {
+          case Output.TranspileOut(outputs) =>
+            val outPaths = outputs.map(_._1.toList.mkString("/")).toSet
+            assert(outPaths("docs/Simple/Main.md"), outputs.toString)
+            assert(
+              outPaths("docs/Bosatsu/Predef.md"),
+              outputs.toString
+            )
+          case other =>
+            fail(s"unexpected output: $other")
+        }
+
+        val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
+        assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
+        assert(!predefDoc.contains("public dependencies:"), predefDoc)
+        assert(predefDoc.contains("type Dict[k: *, v: +*]"), predefDoc)
+        assert(predefDoc.contains("type Int"), predefDoc)
+        assert(!predefDoc.contains("type Int: *"), predefDoc)
+        assert(!predefDoc.contains("type Bool: *"), predefDoc)
+        assert(predefDoc.contains("- `EmptyList`"), predefDoc)
+        assert(predefDoc.contains("- `NonEmptyList(head: a, tail: List[a])`"), predefDoc)
+        assert(!predefDoc.contains("EmptyList: forall"), predefDoc)
+        assert(predefDoc.contains("### `Fn1[i0, z]`"), predefDoc)
+        assert(predefDoc.contains("### `Fn2[i0, i1, z]`"), predefDoc)
+        assert(
+          predefDoc.contains("### `Fn10[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, z]`"),
+          predefDoc
+        )
+        assert(
+          predefDoc.indexOf("### `Fn1[i0, z]`") < predefDoc.indexOf("### `Fn2[i0, i1, z]`"),
+          predefDoc
+        )
+        assert(
+          predefDoc.indexOf("### `Fn2[i0, i1, z]`") < predefDoc.indexOf(
+            "### `Fn10[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, z]`"
+          ),
+          predefDoc
+        )
+        assert(
+          predefDoc.indexOf("### `Tuple2[a, b]`") < predefDoc.indexOf(
+            "### `Tuple10[a, b, c, d, e, f, g, h, i, j]`"
+          ),
+          predefDoc
+        )
+    }
+  }
+
+  test("lib doc --include_predef includes Bosatsu/Predef markdown") {
+    val src =
+      """export main,
+main = 1
+"""
+    val files = baseLibFiles(src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs",
+          "--include_predef"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out)) =>
+        out match {
+          case Output.TranspileOut(outputs) =>
+            val outPaths = outputs.map(_._1.toList.mkString("/")).toSet
+            assert(outPaths("docs/MyLib/Foo.md"), outputs.toString)
+            assert(
+              outPaths("docs/Bosatsu/Predef.md"),
+              outputs.toString
+            )
+          case other =>
+            fail(s"unexpected output: $other")
+        }
+
+        val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
+        assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
     }
   }
 

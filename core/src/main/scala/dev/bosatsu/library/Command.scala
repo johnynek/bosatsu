@@ -7,6 +7,7 @@ import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
   CompilerApi,
+  MarkdownDoc,
   Output,
   PathGen,
   PackageResolver
@@ -498,6 +499,49 @@ object Command {
           publicDepClosureDecodes = publicDepClosureDecodes,
           prevPublicDepDecodes = prevPublicDepDecodes
         )
+
+      def docPackages(
+          colorize: Colorize,
+          outdir: P,
+          includePredef: Boolean
+      ): F[List[(P, Doc)]] =
+        for {
+          cs <- checkState
+          inputSources <- PathGen
+            .recursiveChildren(confDir, ".bosatsu")(platformIO)
+            .read
+          inputNel <- NonEmptyList.fromList(inputSources) match {
+            case Some(nel) => moduleIOMonad.pure(nel)
+            case None      =>
+              moduleIOMonad.raiseError(
+                CliException.Basic("no source files found to generate docs")
+              )
+          }
+          checked <- platformIO.withEC {
+            CompilerApi.typeCheck(
+              platformIO,
+              inputNel,
+              cs.pubDecodes.flatMap(_.interfaces) ::: cs.privDecodes.flatMap(
+                _.interfaces
+              ),
+              colorize,
+              inputRes
+            )
+          }
+          (compiled, sourcePaths) = checked
+          compiledPacks = {
+            val packs0 = compiled.toMap.values.toList
+            if (includePredef) packs0
+            else packs0.filterNot(_.name == PackageName.PredefName)
+          }
+          docs <- MarkdownDoc.generate(
+            platformIO,
+            compiledPacks,
+            sourcePaths.toList,
+            outdir,
+            colorize
+          )
+        } yield docs
 
       def check(
           colorize: Colorize,
@@ -1295,6 +1339,30 @@ object Command {
         }
       }
 
+    val docCommand =
+      Opts.subcommand(
+        "doc",
+        "generate markdown docs for exported package APIs in this library"
+      ) {
+        (
+          ConfigConf.opts,
+          Transpiler.outDir[P],
+          Opts
+            .flag(
+              "include_predef",
+              help = "include Bosatsu/Predef in generated docs"
+            )
+            .orFalse,
+          Colorize.optsConsoleDefault
+        ).mapN {
+          (fcc, outdir, includePredef, colorize) =>
+            for {
+              cc <- fcc
+              docs <- cc.docPackages(colorize, outdir, includePredef)
+            } yield (Output.TranspileOut(docs): Output[P])
+        }
+      }
+
     val jsonCommand: Opts[F[Output[P]]] = {
       sealed abstract class JsonInput {
         def read: F[String]
@@ -1861,6 +1929,7 @@ object Command {
         evalCommand ::
         jsonCommand ::
         showCommand ::
+        docCommand ::
         assembleCommand ::
         fetchCommand ::
         checkCommand ::
