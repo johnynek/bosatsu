@@ -1300,6 +1300,11 @@ object Matchless {
     def cons[A](h: Expr[A], t: Expr[A]): Expr[A] =
       applyArgs(consFn, NonEmptyList(h, t :: List.empty))
 
+    def listOf[A](items: List[Expr[A]]): Expr[A] =
+      items.foldRight(Nil: Expr[A]) { case (h, t) =>
+        cons(h, t)
+      }
+
     def notNil[A](e: CheapExpr[A]): BoolExpr[A] =
       CheckVariant(e, 1, 2, listFamArities)
 
@@ -1436,16 +1441,11 @@ object Matchless {
     ): Expr[A] =
       applyArgs(predefFn(from, name), NonEmptyList(arg0, arg1 :: Nil))
 
-    private def stringListExpr[A](items: List[Expr[A]]): Expr[A] =
-      items.foldRight(ListExpr.Nil: Expr[A]) { case (h, t) =>
-        ListExpr.cons(h, t)
-      }
-
     private def concatString[A](from: A, items: List[Expr[A]]): Expr[A] =
       items match {
         case Nil       => emptyStringExpr
         case h :: Nil  => h
-        case nonSingle => call1(from, concatStringName, stringListExpr(nonSingle))
+        case nonSingle => call1(from, concatStringName, ListExpr.listOf(nonSingle))
       }
 
     private inline def withCheap[F[_]: Monad, A](inline expr: Expr[A], newConst: F[LocalAnon])(

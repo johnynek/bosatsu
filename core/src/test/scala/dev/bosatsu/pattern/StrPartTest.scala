@@ -140,6 +140,23 @@ class StrPartTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("compact normalizes non-capturing glob then char") {
+    val in = StrPart.WildStr :: StrPart.WildChar :: Nil
+    val out = StrPart.WildChar :: StrPart.WildStr :: Nil
+    assertEquals(StrPart.compact(in), out)
+  }
+
+  test("compact normalizes glob-char-glob without creating adjacent globs") {
+    val in = StrPart.WildStr :: StrPart.WildChar :: StrPart.IndexStr :: Nil
+    val out = StrPart.WildChar :: StrPart.IndexStr :: Nil
+    assertEquals(StrPart.compact(in), out)
+  }
+
+  test("compact does not rewrite capturing glob-char order") {
+    val in = StrPart.IndexStr :: StrPart.WildChar :: Nil
+    assertEquals(StrPart.compact(in), in)
+  }
+
   property("compact is idempotent") {
     forAll(genCompactParts) { parts =>
       val once = StrPart.compact(parts)
