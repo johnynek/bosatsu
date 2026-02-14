@@ -216,8 +216,9 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__String(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(BValue a) {
-  size_t len = bsts_string_utf8_len(a);
-  char* bytes = bsts_string_utf8_bytes(a);
+  BSTS_String_View view = bsts_string_view_ref(&a);
+  size_t len = view.len;
+  const char* bytes = view.bytes;
 
   char* cleaned = (char*)malloc(len + 1);
   if (cleaned == NULL) {
@@ -297,9 +298,16 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__Int(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__to__Float64(BValue a) {
+  // Fast path for small immediate Int values.
+  if ((a & (BValue)0x3) == (BValue)0x1) {
+    int32_t small = (int32_t)(a >> 2);
+    return bsts_boxf((double)small);
+  }
+
   BValue as_string = bsts_integer_to_string(a);
-  size_t len = bsts_string_utf8_len(as_string);
-  char* bytes = bsts_string_utf8_bytes(as_string);
+  BSTS_String_View view = bsts_string_view_ref(&as_string);
+  size_t len = view.len;
+  const char* bytes = view.bytes;
 
   char* null_term = (char*)malloc(len + 1);
   if (null_term == NULL) {

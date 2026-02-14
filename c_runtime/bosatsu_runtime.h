@@ -26,6 +26,29 @@ static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
 #define BSTS_PTR(type, value) ((type*)bsts_bvalue_to_ptr((value)))
 #define BSTS_CONST_PTR(type, value) ((const type*)bsts_bvalue_to_const_ptr((value)))
 
+#define BSTS_STRING_INLINE16_FLAG (((size_t)1) << 63)
+#define BSTS_STRING_MAX_LEN ((size_t)(BSTS_STRING_INLINE16_FLAG - 1))
+
+typedef struct BSTS_String_View {
+  size_t len;
+  const char* bytes;
+} BSTS_String_View;
+
+typedef struct BSTS_String {
+  size_t len_meta;
+  union {
+    struct {
+      size_t offset;
+      const char* bytes;
+    } ext;
+    unsigned char inl[16];
+  } payload;
+} BSTS_String;
+
+// Compile-time initializer for static external string objects.
+#define BSTS_STATIC_STRING_INIT(len_value, bytes_value) \
+  { (size_t)(len_value), { .ext = { (size_t)0, (bytes_value) } } }
+
 // Nat values are encoded in integers
 // TODO: move these to functions implemented in bosatsu_runtime.c
 #define BSTS_NAT_0 ((BValue)((uintptr_t)0x1))
@@ -60,11 +83,11 @@ static inline BValue alloc_enum0(ENUM_TAG tag) {
   return (BValue)((((uintptr_t)tag) << 2) | ((uintptr_t)0x1));
 }
 
-BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
+BValue bsts_string_from_utf8_bytes_copy(size_t len, const char* bytes);
 // This is dangerous, it should not be mutated after returned 
 BValue bsts_string_mut(size_t len);
-BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
-BValue bsts_string_from_utf8_bytes_static_null_term(char* bytes);
+BValue bsts_string_from_utf8_bytes_static(size_t len, const char* bytes);
+BValue bsts_string_from_utf8_bytes_static_null_term(const char* bytes);
 /*
  * write the codepoint into bytes, which must be >= 4 in length
  * and return the number of bytes written
@@ -75,8 +98,13 @@ _Bool bsts_string_equals(BValue left, BValue right);
 // (&String, &String) -> int 
 int bsts_string_cmp(BValue left, BValue right);
 // &String -> int (length in bytes)
-size_t bsts_string_utf8_len(BValue);
-char* bsts_string_utf8_bytes(BValue);
+size_t bsts_string_utf8_len_ref(const BValue* str);
+// Return a view into string bytes. For tiny inline strings the bytes pointer is
+// into the provided BValue storage and is valid while that storage is alive.
+BSTS_String_View bsts_string_view_ref(const BValue* str);
+const char* bsts_string_utf8_bytes_ref(const BValue* str);
+// Mutable bytes for owned, non-tiny, non-sliced strings; aborts otherwise.
+char* bsts_string_utf8_bytes_mut(BValue str);
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len);
 
 // How many bytes is the codepoint at this offset, 1, 2, 3, 4, or -1 on error
