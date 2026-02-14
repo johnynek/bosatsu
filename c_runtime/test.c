@@ -27,6 +27,15 @@ void assert_int_string(BValue v, const char* expected, const char* message) {
   assert_string_equals(s, expected, message);
 }
 
+void assert_string_bytes(BValue got, const char* expected, size_t expected_len, const char* message) {
+  size_t got_len = bsts_string_utf8_len(got);
+  char* got_bytes = bsts_string_utf8_bytes(got);
+  if (got_len != expected_len || (expected_len > 0 && memcmp(got_bytes, expected, expected_len) != 0)) {
+    printf("%s\nexpected len: %zu\ngot len: %zu\n", message, expected_len, got_len);
+    exit(1);
+  }
+}
+
 void assert_option_int(BValue opt, const char* expected, const char* message) {
   if (get_variant(opt) != 1) {
     printf("%s\nexpected: Some(%s)\n", message, expected);
@@ -279,6 +288,54 @@ void test_runtime_strings() {
     assert(find2 == 6, "find2");
     int find3 = bsts_string_find(hello_world1, hello1, 7);
     assert(find3 == -1, "find3");
+  }
+
+  {
+    BValue empty_a = bsts_string_from_utf8_bytes_static(0, NULL);
+    BValue empty_b = bsts_string_from_utf8_bytes_static(0, "");
+    assert(bsts_string_equals(empty_a, empty_b), "empty small strings compare equal");
+    assert(bsts_string_utf8_len(empty_a) == 0, "empty small string has len 0");
+    free_on_close(empty_a);
+  }
+
+  {
+    BValue s7_static = bsts_string_from_utf8_bytes_static(7, "abcdefg");
+    BValue s7_copy = bsts_string_from_utf8_bytes_copy(7, "abcdefg");
+    BValue s8_static = bsts_string_from_utf8_bytes_static(8, "abcdefgh");
+    assert(bsts_string_equals(s7_static, s7_copy), "small static/copy equals");
+    assert(bsts_string_cmp(s7_static, s7_copy) == 0, "small static/copy cmp");
+    assert(bsts_string_cmp(s7_static, s8_static) < 0, "small cmp against heap string");
+    assert_string_bytes(s7_static, "abcdefg", 7, "small bytes roundtrip");
+    assert_string_bytes(s8_static, "abcdefgh", 8, "heap bytes roundtrip");
+  }
+
+  {
+    BValue long_s = bsts_string_from_utf8_bytes_static(10, "0123456789");
+    BValue mid = bsts_string_substring(long_s, 3, 7);
+    BValue tail = bsts_string_substring_tail(long_s, 8);
+    assert_string_bytes(mid, "3456", 4, "substring long->small");
+    assert_string_bytes(tail, "89", 2, "substring_tail long->small");
+    assert(bsts_string_find(long_s, mid, 0) == 3, "find long with small needle");
+    assert(bsts_string_rfind(long_s, bsts_string_from_utf8_bytes_static(2, "89"), 9) == 8, "rfind long with small needle");
+  }
+
+  {
+    BValue small_hay = bsts_string_from_utf8_bytes_static(7, "abcbcba");
+    BValue small_need = bsts_string_from_utf8_bytes_static(2, "bc");
+    assert(bsts_string_find(small_hay, small_need, 0) == 1, "find in small haystack");
+    assert(bsts_string_rfind(small_hay, small_need, 6) == 3, "rfind in small haystack");
+    assert(bsts_string_char_at(small_hay, 6) == bsts_char_from_code_point('a'), "char_at small haystack");
+  }
+
+  {
+    BValue a = bsts_string_from_utf8_bytes_static(3, "foo");
+    BValue b = bsts_string_from_utf8_bytes_static(3, "bar");
+    char* a_bytes = bsts_string_utf8_bytes(a);
+    char a_copy[3];
+    memcpy(a_copy, a_bytes, 3);
+    char* b_bytes = bsts_string_utf8_bytes(b);
+    assert(memcmp(a_copy, "foo", 3) == 0, "first small bytes survive second lookup");
+    assert(memcmp(b_bytes, "bar", 3) == 0, "second small bytes are correct");
   }
 
 }

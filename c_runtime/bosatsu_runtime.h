@@ -76,6 +76,8 @@ _Bool bsts_string_equals(BValue left, BValue right);
 int bsts_string_cmp(BValue left, BValue right);
 // &String -> int (length in bytes)
 size_t bsts_string_utf8_len(BValue);
+// For inline small strings this may point to thread-local scratch storage.
+// Consume immediately and prefer pairing with bsts_string_utf8_len.
 char* bsts_string_utf8_bytes(BValue);
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len);
 

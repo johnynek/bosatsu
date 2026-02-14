@@ -34,9 +34,9 @@ this is a safe encoding.
 
 Char values are stored as unicode code points with a trailing 1.
 
-String values encodings, string values are like ref-counted structs with
-a length, a base pointer, and an offset into the utf-8 bytes. We could also potentially optimize
-short strings by packing them literally into 63 bits with a length.
+String values are either GC pointers to structs with
+a length, a base pointer, and an offset into the utf-8 bytes, or inline
+small strings packed directly into the BValue word.
 
 Integer values are either pure values (signed values packed into 63 bits),
 or gced big integers
@@ -44,9 +44,20 @@ or gced big integers
 #define TAG_MASK ((uintptr_t)0x3)
 #define PURE_VALUE_TAG ((uintptr_t)0x1)
 #define POINTER_TAG ((uintptr_t)0x0)
+#define SMALL_STRING_TAG ((uintptr_t)0x2)
+
+#define SMALL_STRING_LEN_SHIFT ((uintptr_t)2)
+#define SMALL_STRING_LEN_BITS ((uintptr_t)3)
+#define SMALL_STRING_LEN_MASK ((uintptr_t)0x7)
+#define SMALL_STRING_DATA_SHIFT (SMALL_STRING_LEN_SHIFT + SMALL_STRING_LEN_BITS)
+#define SMALL_STRING_MAX_LEN ((size_t)7)
 
 static inline _Bool bsts_is_pure_value(BValue value) {
   return (value & TAG_MASK) == PURE_VALUE_TAG;
+}
+
+static inline _Bool bsts_is_small_string(BValue value) {
+  return (value & TAG_MASK) == SMALL_STRING_TAG;
 }
 
 static inline BValue bsts_to_pure_value(uintptr_t value) {
@@ -55,6 +66,29 @@ static inline BValue bsts_to_pure_value(uintptr_t value) {
 
 static inline uintptr_t bsts_pure_value(BValue value) {
   return value >> 2;
+}
+
+static inline size_t bsts_small_string_len(BValue value) {
+  return (size_t)((value >> SMALL_STRING_LEN_SHIFT) & SMALL_STRING_LEN_MASK);
+}
+
+static inline BValue bsts_small_string_from_bytes(size_t len, const char* bytes) {
+  uintptr_t packed = SMALL_STRING_TAG | ((uintptr_t)len << SMALL_STRING_LEN_SHIFT);
+  for (size_t i = 0; i < len; i++) {
+    packed |= ((uintptr_t)(unsigned char)bytes[i]) << (SMALL_STRING_DATA_SHIFT + 8 * i);
+  }
+  return (BValue)packed;
+}
+
+static inline void bsts_small_string_write_bytes(BValue value, char out[SMALL_STRING_MAX_LEN]) {
+  size_t len = bsts_small_string_len(value);
+  for (size_t i = 0; i < len; i++) {
+    out[i] = (char)((value >> (SMALL_STRING_DATA_SHIFT + 8 * i)) & 0xFF);
+  }
+}
+
+static inline unsigned char bsts_small_string_u8_at(BValue value, size_t idx) {
+  return (unsigned char)((value >> (SMALL_STRING_DATA_SHIFT + 8 * idx)) & 0xFF);
 }
 
 // Compatibility aliases used by generated helpers.
@@ -234,7 +268,7 @@ static void push(BSTS_OBJ* static_value) {
 }
 
 void free_on_close(BValue v) {
-  if (v != BSTS_BVALUE_NULL && GC_base(bsts_bvalue_to_ptr(v)) != NULL) {
+  if (IS_POINTER(v) && v != BSTS_BVALUE_NULL && GC_base(bsts_bvalue_to_ptr(v)) != NULL) {
     push(BSTS_PTR(BSTS_OBJ, v));
   }
 }
@@ -308,9 +342,39 @@ void* get_external(BValue v) {
 
 static char bsts_empty_string_bytes[1] = {0};
 
+typedef struct {
+  size_t len;
+  const char* bytes;
+} BSTS_String_View;
+
 static inline char* bsts_string_data_ptr(BSTS_String* str) {
   if (str->len == 0) return bsts_empty_string_bytes;
   return str->bytes + str->offset;
+}
+
+static inline BSTS_String_View bsts_string_view(BValue value, char small_buf[SMALL_STRING_MAX_LEN]) {
+  BSTS_String_View view;
+  if (bsts_is_small_string(value)) {
+    view.len = bsts_small_string_len(value);
+    bsts_small_string_write_bytes(value, small_buf);
+    view.bytes = small_buf;
+  }
+  else {
+    BSTS_String* str = BSTS_PTR(BSTS_String, value);
+    view.len = str->len;
+    view.bytes = bsts_string_data_ptr(str);
+  }
+  return view;
+}
+
+#define BSTS_STRING_TMP_SLOTS 16
+static _Thread_local unsigned int bsts_string_tmp_slot_idx;
+static _Thread_local char bsts_string_tmp_slots[BSTS_STRING_TMP_SLOTS][SMALL_STRING_MAX_LEN];
+
+static inline char* bsts_next_small_string_tmp_slot() {
+  unsigned int idx = bsts_string_tmp_slot_idx % BSTS_STRING_TMP_SLOTS;
+  bsts_string_tmp_slot_idx++;
+  return bsts_string_tmp_slots[idx];
 }
 
 BValue bsts_string_mut(size_t len) {
@@ -336,6 +400,10 @@ BValue bsts_string_mut(size_t len) {
 
 // this copies the bytes in, it does not take ownership
 BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
+  if (len <= SMALL_STRING_MAX_LEN) {
+    if (len == 0) return bsts_small_string_from_bytes(0, "");
+    return bsts_small_string_from_bytes(len, bytes);
+  }
   BSTS_String* str = BSTS_PTR(BSTS_String, bsts_string_mut(len));
   if (len > 0) {
     memcpy(str->bytes, bytes, len);
@@ -345,6 +413,10 @@ BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes) {
 
 
 BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes) {
+  if (len <= SMALL_STRING_MAX_LEN) {
+    if (len == 0) return bsts_small_string_from_bytes(0, "");
+    return bsts_small_string_from_bytes(len, bytes);
+  }
   BSTS_String* str = GC_malloc_atomic(sizeof(BSTS_String));
   str->len = len;
   str->offset = 0;
@@ -403,38 +475,45 @@ _Bool bsts_string_equals(BValue left, BValue right) {
   if (left == right) {
     return 1;
   }
-
-  BSTS_String* lstr = GET_STRING(left);
-  BSTS_String* rstr = GET_STRING(right);
-
-  size_t llen = lstr->len;
-  if (llen == rstr->len) {
-    char* lbytes = bsts_string_data_ptr(lstr);
-    char* rbytes = bsts_string_data_ptr(rstr);
-    return (strncmp(
-      lbytes,
-      rbytes,
-      llen) == 0);
-  }
-  else {
+  if (bsts_is_small_string(left) && bsts_is_small_string(right)) {
     return 0;
   }
+
+  char lsmall[SMALL_STRING_MAX_LEN];
+  char rsmall[SMALL_STRING_MAX_LEN];
+  BSTS_String_View lview = bsts_string_view(left, lsmall);
+  BSTS_String_View rview = bsts_string_view(right, rsmall);
+
+  if (lview.len != rview.len) return 0;
+  if (lview.len == 0) return 1;
+  return memcmp(lview.bytes, rview.bytes, lview.len) == 0;
 }
 
 int bsts_string_cmp(BValue left, BValue right) {
   if (left == right) {
     return 0;
   }
+  if (bsts_is_small_string(left) && bsts_is_small_string(right)) {
+    size_t llen = bsts_small_string_len(left);
+    size_t rlen = bsts_small_string_len(right);
+    size_t min_len = (llen <= rlen) ? llen : rlen;
+    for (size_t i = 0; i < min_len; i++) {
+      int lbyte = (int)bsts_small_string_u8_at(left, i);
+      int rbyte = (int)bsts_small_string_u8_at(right, i);
+      if (lbyte != rbyte) return lbyte - rbyte;
+    }
+    return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
+  }
 
-  BSTS_String* lstr = GET_STRING(left);
-  BSTS_String* rstr = GET_STRING(right);
+  char lsmall[SMALL_STRING_MAX_LEN];
+  char rsmall[SMALL_STRING_MAX_LEN];
+  BSTS_String_View lview = bsts_string_view(left, lsmall);
+  BSTS_String_View rview = bsts_string_view(right, rsmall);
 
-  size_t llen = lstr->len;
-  size_t rlen = rstr->len;
+  size_t llen = lview.len;
+  size_t rlen = rview.len;
   size_t min_len = (llen <= rlen) ? llen : rlen;
-  char* lbytes = bsts_string_data_ptr(lstr);
-  char* rbytes = bsts_string_data_ptr(rstr);
-  int cmp = strncmp(lbytes, rbytes, min_len);
+  int cmp = memcmp(lview.bytes, rview.bytes, min_len);
 
   if (cmp == 0) {
     return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
@@ -445,11 +524,19 @@ int bsts_string_cmp(BValue left, BValue right) {
 }
 
 size_t bsts_string_utf8_len(BValue str) {
+  if (bsts_is_small_string(str)) {
+    return bsts_small_string_len(str);
+  }
   BSTS_String* strptr = GET_STRING(str);
   return strptr->len;
 }
 
 char* bsts_string_utf8_bytes(BValue str) {
+  if (bsts_is_small_string(str)) {
+    char* slot = bsts_next_small_string_tmp_slot();
+    bsts_small_string_write_bytes(str, slot);
+    return slot;
+  }
   BSTS_String* strptr = GET_STRING(str);
   return bsts_string_data_ptr(strptr);
 }
@@ -461,7 +548,7 @@ int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
     }
 
     // cast to an unsigned char for the math below
-    unsigned char *s = (unsigned char*)(utf8data + offset);
+    const unsigned char *s = (const unsigned char*)(utf8data + offset);
     unsigned char c = s[0];
     int remaining = len - offset;
     int bytes = -1;
@@ -512,12 +599,34 @@ int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
  * wasteful once we debug the compiler.
  */
 int bsts_string_code_point_bytes(BValue value, int offset) {
-    BSTS_String* str = GET_STRING(value);
-    if (str == NULL) {
+    if (bsts_is_small_string(value)) {
+      size_t len = bsts_small_string_len(value);
+      if (offset < 0 || offset >= (int)len) {
         return -1;
+      }
+      unsigned char c = bsts_small_string_u8_at(value, (size_t)offset);
+      int remaining = (int)len - offset;
+      if (c <= 0x7F) return 1;
+      if ((c & 0xE0) == 0xC0) {
+        if (remaining < 2) return -1;
+        return (bsts_small_string_u8_at(value, (size_t)offset + 1) & 0xC0) == 0x80 ? 2 : -1;
+      }
+      if ((c & 0xF0) == 0xE0) {
+        if (remaining < 3) return -1;
+        return ((bsts_small_string_u8_at(value, (size_t)offset + 1) & 0xC0) == 0x80 &&
+                (bsts_small_string_u8_at(value, (size_t)offset + 2) & 0xC0) == 0x80) ? 3 : -1;
+      }
+      if ((c & 0xF8) == 0xF0) {
+        if (remaining < 4) return -1;
+        return ((bsts_small_string_u8_at(value, (size_t)offset + 1) & 0xC0) == 0x80 &&
+                (bsts_small_string_u8_at(value, (size_t)offset + 2) & 0xC0) == 0x80 &&
+                (bsts_small_string_u8_at(value, (size_t)offset + 3) & 0xC0) == 0x80) ? 4 : -1;
+      }
+      return -1;
     }
-    char* bytes = bsts_string_data_ptr(str);
-    return bsts_utf8_code_point_bytes(bytes, offset, str->len);
+    char small_bytes[SMALL_STRING_MAX_LEN];
+    BSTS_String_View view = bsts_string_view(value, small_bytes);
+    return bsts_utf8_code_point_bytes(view.bytes, offset, (int)view.len);
 }
 
 /**
@@ -527,17 +636,52 @@ int bsts_string_code_point_bytes(BValue value, int offset) {
  * wasteful once we debug the compiler.
  */
 BValue bsts_string_char_at(BValue value, int offset) {
-    BSTS_String* str = GET_STRING(value);
-    if (str == NULL || offset < 0 || offset >= str->len) {
+    if (bsts_is_small_string(value)) {
+      size_t len = bsts_small_string_len(value);
+      if (offset < 0 || offset >= (int)len) {
+        return 0;
+      }
+
+      unsigned char c = bsts_small_string_u8_at(value, (size_t)offset);
+      int remaining = (int)len - offset;
+      uint32_t code_point = 0;
+      if (c <= 0x7F) {
+        code_point = c;
+      } else if ((c & 0xE0) == 0xC0) {
+        if (remaining < 2) return 0;
+        unsigned char c1 = bsts_small_string_u8_at(value, (size_t)offset + 1);
+        if ((c1 & 0xC0) != 0x80) return 0;
+        code_point = ((c & 0x1F) << 6) | (c1 & 0x3F);
+      } else if ((c & 0xF0) == 0xE0) {
+        if (remaining < 3) return 0;
+        unsigned char c1 = bsts_small_string_u8_at(value, (size_t)offset + 1);
+        unsigned char c2 = bsts_small_string_u8_at(value, (size_t)offset + 2);
+        if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) return 0;
+        code_point = ((c & 0x0F) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
+      } else if ((c & 0xF8) == 0xF0) {
+        if (remaining < 4) return 0;
+        unsigned char c1 = bsts_small_string_u8_at(value, (size_t)offset + 1);
+        unsigned char c2 = bsts_small_string_u8_at(value, (size_t)offset + 2);
+        unsigned char c3 = bsts_small_string_u8_at(value, (size_t)offset + 3);
+        if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return 0;
+        code_point = ((c & 0x07) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+      } else {
+        return 0;
+      }
+      return bsts_char_from_code_point(code_point);
+    }
+    char small_bytes[SMALL_STRING_MAX_LEN];
+    BSTS_String_View view = bsts_string_view(value, small_bytes);
+    if (offset < 0 || offset >= (int)view.len) {
         // Invalid input
         return 0;
     }
 
     // cast to an unsigned char for the math below
-    char* bytes = bsts_string_data_ptr(str);
-    unsigned char *s = (unsigned char*)(bytes + offset);
+    const char* bytes = view.bytes;
+    const unsigned char *s = (const unsigned char*)(bytes + offset);
     unsigned char c = s[0];
-    int remaining = str->len - offset;
+    int remaining = (int)view.len - offset;
     uint32_t code_point = 0;
 
     if (c <= 0x7F) {
@@ -575,8 +719,9 @@ BValue bsts_string_char_at(BValue value, int offset) {
 
 // (&string, int, int) -> string
 BValue bsts_string_substring(BValue value, int start, int end) {
-  BSTS_String* str = GET_STRING(value);
-  size_t len = str->len;
+  char small_bytes[SMALL_STRING_MAX_LEN];
+  BSTS_String_View view = bsts_string_view(value, small_bytes);
+  size_t len = view.len;
   if (start < 0 || end < start || (size_t)end > len) {
     // this is invalid
     return 0;
@@ -584,9 +729,13 @@ BValue bsts_string_substring(BValue value, int start, int end) {
   size_t new_len = end - start;
   if (new_len == 0) {
     // empty string, should probably be a constant
-    return bsts_string_from_utf8_bytes_static(0, "");
+    return bsts_string_from_utf8_bytes_static(0, NULL);
+  }
+  else if (new_len <= SMALL_STRING_MAX_LEN) {
+    return bsts_small_string_from_bytes(new_len, view.bytes + start);
   }
   else {
+    BSTS_String* str = GET_STRING(value);
     // Keep the base pointer and track the offset to avoid copying.
     BSTS_String* res = GC_malloc(sizeof(BSTS_String));
     if (res == NULL) {
@@ -606,18 +755,39 @@ BValue bsts_string_substring_tail(BValue value, int byte_offset) {
 }
 
 int bsts_string_find(BValue haystack, BValue needle, int start) {
-    BSTS_String* haystack_str = GET_STRING(haystack);
-    BSTS_String* needle_str = GET_STRING(needle);
+    if (bsts_is_small_string(haystack) && bsts_is_small_string(needle)) {
+      size_t haystack_len = bsts_small_string_len(haystack);
+      size_t needle_len = bsts_small_string_len(needle);
+      if (needle_len == 0) {
+        return (start <= (int)haystack_len) ? start : -1;
+      }
+      if (haystack_len < needle_len) return -1;
+      if (start < 0 || start > (int)(haystack_len - needle_len)) return -1;
+      for (size_t i = (size_t)start; i <= haystack_len - needle_len; i++) {
+        size_t j = 0;
+        for (; j < needle_len; j++) {
+          if (bsts_small_string_u8_at(haystack, i + j) != bsts_small_string_u8_at(needle, j)) break;
+        }
+        if (j == needle_len) return (int)i;
+      }
+      return -1;
+    }
 
-    size_t haystack_len = haystack_str->len;
-    size_t needle_len = needle_str->len;
-    char* haystack_bytes = bsts_string_data_ptr(haystack_str);
-    char* needle_bytes = bsts_string_data_ptr(needle_str);
+    char haystack_small[SMALL_STRING_MAX_LEN];
+    char needle_small[SMALL_STRING_MAX_LEN];
+    BSTS_String_View haystack_view = bsts_string_view(haystack, haystack_small);
+    BSTS_String_View needle_view = bsts_string_view(needle, needle_small);
+
+    size_t haystack_len = haystack_view.len;
+    size_t needle_len = needle_view.len;
+    const char* haystack_bytes = haystack_view.bytes;
+    const char* needle_bytes = needle_view.bytes;
     if (needle_len == 0) {
         // Empty needle matches at start
         return (start <= (int)haystack_len) ? start : -1;
     }
 
+    if (haystack_len < needle_len) return -1;
     if (start < 0 || start > (int)(haystack_len - needle_len)) {
         // Start position is out of bounds
         return -1;
@@ -646,13 +816,39 @@ int bsts_string_find(BValue haystack, BValue needle, int start) {
 }
 
 int bsts_string_rfind(BValue haystack, BValue needle, int start) {
-    BSTS_String* h = GET_STRING(haystack);
-    BSTS_String* n = GET_STRING(needle);
+    if (bsts_is_small_string(haystack) && bsts_is_small_string(needle)) {
+      size_t hlen = bsts_small_string_len(haystack);
+      size_t nlen = bsts_small_string_len(needle);
+      if (nlen == 0) {
+        if (hlen == 0) return 0;
+        if (start < 0) start = (int)(hlen - 1);
+        if (start >= (int)hlen) return -1;
+        return start;
+      }
+      if (hlen < nlen) return -1;
+      size_t max_pos = hlen - nlen;
+      size_t i = (start < 0) ? max_pos : (start > (int)max_pos ? max_pos : (size_t)start);
+      for (;; ) {
+        size_t j = 0;
+        for (; j < nlen; j++) {
+          if (bsts_small_string_u8_at(haystack, i + j) != bsts_small_string_u8_at(needle, j)) break;
+        }
+        if (j == nlen) return (int)i;
+        if (i == 0) break;
+        i--;
+      }
+      return -1;
+    }
 
-    size_t hlen = h->len;
-    size_t nlen = n->len;
-    char* hbytes = bsts_string_data_ptr(h);
-    char* nbytes = bsts_string_data_ptr(n);
+    char haystack_small[SMALL_STRING_MAX_LEN];
+    char needle_small[SMALL_STRING_MAX_LEN];
+    BSTS_String_View h = bsts_string_view(haystack, haystack_small);
+    BSTS_String_View n = bsts_string_view(needle, needle_small);
+
+    size_t hlen = h.len;
+    size_t nlen = n.len;
+    const char* hbytes = h.bytes;
+    const char* nbytes = n.bytes;
 
     if (nlen == 0) {
         if (hlen == 0) return 0;
