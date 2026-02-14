@@ -91,7 +91,7 @@ static void bench_string_static_ctor(const char* name, size_t iters, const char*
   uint64_t start = now_ns();
   BValue acc = 0;
   for (size_t i = 0; i < iters; i++) {
-    acc = bsts_string_from_utf8_bytes_static(len, (char*)text);
+    acc = bsts_string_from_utf8_bytes_static(len, text);
   }
   sink = acc;
   uint64_t end = now_ns();
@@ -169,10 +169,10 @@ int main(int argc, char** argv) {
   BValue s_small_1 = bsts_string_from_utf8_bytes_static(5, "hello");
   BValue s_small_2 = bsts_string_from_utf8_bytes_static(5, "hello");
   BValue s_small_diff = bsts_string_from_utf8_bytes_static(5, "jello");
-  BValue s_small_hay = bsts_string_from_utf8_bytes_static(7, "abcbcba");
+  BValue s_small_hay = bsts_string_from_utf8_bytes_static(5, "abcba");
   BValue s_small_need = bsts_string_from_utf8_bytes_static(2, "bc");
-  BValue s_heap_1 = bsts_string_from_utf8_bytes_static(16, "abcdefghijklmnop");
-  BValue s_heap_2 = bsts_string_from_utf8_bytes_static(16, "abcdefghijklmnop");
+  BValue s_heap_1 = bsts_string_from_utf8_bytes_static(24, "abcdefghijklmnopqrstuvwx");
+  BValue s_heap_2 = bsts_string_from_utf8_bytes_static(24, "abcdefghijklmnopqrstuvwx");
 
   printf("iters=%zu\n", iters);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
@@ -184,14 +184,15 @@ int main(int argc, char** argv) {
   bench_bitwise("xor_neg_mixed", iters, big_neg, small_mask, '^');
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
-  bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnop");
+  bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnopqrstuvwx");
+  bench_string_static_ctor("str_ctor_static_medium", iters, "abcdefghijklmnop");
   bench_string_static_ctor("str_ctor_static_small", iters, "hello");
   bench_string_equals("str_equals_small_eq", iters, s_small_1, s_small_2);
   bench_string_equals("str_equals_small_neq", iters, s_small_1, s_small_diff);
   bench_string_equals("str_equals_heap_eq", iters, s_heap_1, s_heap_2);
   bench_string_cmp("str_cmp_small", iters, s_small_1, s_small_diff);
   bench_string_find("str_find_small", iters, s_small_hay, s_small_need, 0);
-  bench_string_char_at("str_char_at_small", iters, s_small_hay, 5);
+  bench_string_char_at("str_char_at_small", iters, s_small_hay, 4);
 
   return 0;
 }

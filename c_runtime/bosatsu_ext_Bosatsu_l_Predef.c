@@ -51,7 +51,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   }
 
   BValue res = bsts_string_mut(total_len);
-  char* out = bsts_string_utf8_bytes(res);
+  char* out = bsts_string_utf8_bytes_mut(res);
   amut = a;
   v = get_variant(amut);
 
@@ -96,7 +96,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
     BValue str = get_enum_index(amut, 0);
     amut = get_enum_index(amut, 1);
     v = get_variant(amut);
-    total_len += bsts_string_utf8_len(str);
+    total_len += bsts_string_utf8_len_ref(&str);
     count++;
   }
   // now we know the total length and count
@@ -107,17 +107,16 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
   else {
     // we allocate some bytes and copy
     res = bsts_string_mut(total_len);
-    char* bytes = bsts_string_utf8_bytes(res);
+    char* bytes = bsts_string_utf8_bytes_mut(res);
     char* current_pos = bytes;
     // reset to go through the list
     amut = a;
     v = get_variant(amut);
     while (v != 0) {
       BValue str = get_enum_index(amut, 0);
-      size_t str_len = bsts_string_utf8_len(str);
-      char* str_bytes = bsts_string_utf8_bytes(str);
-      memcpy(current_pos, str_bytes, str_len);
-      current_pos += str_len;
+      BSTS_String_View view = bsts_string_view_ref(&str);
+      memcpy(current_pos, view.bytes, view.len);
+      current_pos += view.len;
       amut = get_enum_index(amut, 1);
       v = get_variant(amut);
     }
@@ -224,7 +223,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_or__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_partition__String(BValue a, BValue b) {
-  size_t blen = bsts_string_utf8_len(b);
+  size_t blen = bsts_string_utf8_len_ref(&b);
   BValue res;
   if (blen == 0) {
     // the result has to give proper substrings, so here we return None
@@ -245,12 +244,12 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_partition__String(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_rpartition__String(BValue a, BValue b) {
-  size_t blen = bsts_string_utf8_len(b);
+  size_t blen = bsts_string_utf8_len_ref(&b);
   if (blen == 0) {
     // the result has to give proper substrings, so here we return None
     return alloc_enum0(0);
   }
-  size_t alen = bsts_string_utf8_len(a);
+  size_t alen = bsts_string_utf8_len_ref(&a);
   int offset = bsts_string_rfind(a, b, alen - 1);
   if (offset < 0) {
     // return None
@@ -264,7 +263,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_rpartition__String(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_uncons__String(BValue a) {
-  size_t alen = bsts_string_utf8_len(a);
+  size_t alen = bsts_string_utf8_len_ref(&a);
   if (alen == 0) {
     return alloc_enum0(0);
   }
@@ -276,7 +275,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_uncons__String(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_tail__or__empty__String(BValue a) {
-  size_t alen = bsts_string_utf8_len(a);
+  size_t alen = bsts_string_utf8_len_ref(&a);
   if (alen == 0) {
     return bsts_string_from_utf8_bytes_static(0, NULL);
   }

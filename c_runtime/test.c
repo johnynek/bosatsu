@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#if !defined(_WIN32)
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #include "gc.h"
 
 void assert(_Bool cond, char* message) {
@@ -14,7 +20,7 @@ void assert(_Bool cond, char* message) {
 }
 
 void assert_string_equals(BValue got, const char* expected, const char* message) {
-  BValue exp = bsts_string_from_utf8_bytes_static(strlen(expected), (char*)expected);
+  BValue exp = bsts_string_from_utf8_bytes_static(strlen(expected), expected);
   if (bsts_string_cmp(got, exp) != 0) {
     printf("%s\nexpected: %s\ngot: ", message, expected);
     bsts_string_println(got);
@@ -28,8 +34,9 @@ void assert_int_string(BValue v, const char* expected, const char* message) {
 }
 
 void assert_string_bytes(BValue got, const char* expected, size_t expected_len, const char* message) {
-  size_t got_len = bsts_string_utf8_len(got);
-  char* got_bytes = bsts_string_utf8_bytes(got);
+  BSTS_String_View view = bsts_string_view_ref(&got);
+  size_t got_len = view.len;
+  const char* got_bytes = view.bytes;
   if (got_len != expected_len || (expected_len > 0 && memcmp(got_bytes, expected, expected_len) != 0)) {
     printf("%s\nexpected len: %zu\ngot len: %zu\n", message, expected_len, got_len);
     exit(1);
@@ -58,6 +65,45 @@ void assert_u64_equals(uint64_t got, uint64_t expected, const char* message) {
     exit(1);
   }
 }
+
+#if !defined(_WIN32)
+typedef void (*VoidFn)(void);
+
+static void assert_child_aborts(VoidFn fn, const char* message) {
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("fork failed");
+    exit(1);
+  }
+  if (pid == 0) {
+    fn();
+    _exit(0);
+  }
+
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) {
+    perror("waitpid failed");
+    exit(1);
+  }
+
+  if (!(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT)) {
+    printf("%s\n", message);
+    exit(1);
+  }
+}
+
+static void call_string_copy_too_large() {
+  (void)bsts_string_from_utf8_bytes_copy(BSTS_STRING_INLINE16_FLAG, "x");
+}
+
+static void call_string_static_too_large() {
+  (void)bsts_string_from_utf8_bytes_static(BSTS_STRING_INLINE16_FLAG, "x");
+}
+
+static void call_string_mut_too_large() {
+  (void)bsts_string_mut(BSTS_STRING_INLINE16_FLAG);
+}
+#endif
 
 void assert_option_float_bits(BValue opt, uint64_t expected, const char* message) {
   if (get_variant(opt) != 1) {
@@ -238,7 +284,7 @@ void test_integer() {
     { "stoi i128_neg", "-24197857203266734864793317670504947440", "-24197857203266734864793317670504947440" },
   };
   for (size_t i = 0; i < sizeof(str_cases) / sizeof(str_cases[0]); i++) {
-    BValue s = bsts_string_from_utf8_bytes_static(strlen(str_cases[i].text), (char*)str_cases[i].text);
+    BValue s = bsts_string_from_utf8_bytes_static(strlen(str_cases[i].text), str_cases[i].text);
     BValue opt = bsts_string_to_integer(s);
     assert_option_int(opt, str_cases[i].expected, str_cases[i].name);
   }
@@ -249,7 +295,7 @@ void test_integer() {
     { "stoi junk", "12x3", NULL },
   };
   for (size_t i = 0; i < sizeof(none_cases) / sizeof(none_cases[0]); i++) {
-    BValue s = bsts_string_from_utf8_bytes_static(strlen(none_cases[i].text), (char*)none_cases[i].text);
+    BValue s = bsts_string_from_utf8_bytes_static(strlen(none_cases[i].text), none_cases[i].text);
     BValue opt = bsts_string_to_integer(s);
     assert_option_none(opt, none_cases[i].name);
   }
@@ -258,6 +304,21 @@ void test_integer() {
 void test_runtime_strings() {
 
   char* hello = "hello1";
+
+#if !defined(_WIN32)
+  assert_child_aborts(call_string_copy_too_large, "oversized copy string should abort");
+  assert_child_aborts(call_string_static_too_large, "oversized static string should abort");
+  assert_child_aborts(call_string_mut_too_large, "oversized mutable string should abort");
+#endif
+
+  {
+    BValue ch_ascii = bsts_char_from_code_point('A');
+    BValue ch_null = bsts_char_from_code_point(0);
+    BValue ch_smile = bsts_char_from_code_point(0x1F60A);
+    assert(bsts_char_code_point_from_value(ch_ascii) == 'A', "char ascii roundtrip");
+    assert(bsts_char_code_point_from_value(ch_null) == 0, "char NUL roundtrip");
+    assert(bsts_char_code_point_from_value(ch_smile) == 0x1F60A, "char 4-byte roundtrip");
+  }
 
   BValue v1 = bsts_string_from_utf8_bytes_copy(5, "hello");
   // we can ignore trailing byte string on hello, by taking the front
@@ -294,7 +355,7 @@ void test_runtime_strings() {
     BValue empty_a = bsts_string_from_utf8_bytes_static(0, NULL);
     BValue empty_b = bsts_string_from_utf8_bytes_static(0, "");
     assert(bsts_string_equals(empty_a, empty_b), "empty small strings compare equal");
-    assert(bsts_string_utf8_len(empty_a) == 0, "empty small string has len 0");
+    assert(bsts_string_utf8_len_ref(&empty_a) == 0, "empty small string has len 0");
     free_on_close(empty_a);
   }
 
@@ -330,12 +391,41 @@ void test_runtime_strings() {
   {
     BValue a = bsts_string_from_utf8_bytes_static(3, "foo");
     BValue b = bsts_string_from_utf8_bytes_static(3, "bar");
-    char* a_bytes = bsts_string_utf8_bytes(a);
+    const char* a_bytes = bsts_string_utf8_bytes_ref(&a);
     char a_copy[3];
     memcpy(a_copy, a_bytes, 3);
-    char* b_bytes = bsts_string_utf8_bytes(b);
+    const char* b_bytes = bsts_string_utf8_bytes_ref(&b);
     assert(memcmp(a_copy, "foo", 3) == 0, "first small bytes survive second lookup");
     assert(memcmp(b_bytes, "bar", 3) == 0, "second small bytes are correct");
+  }
+
+  {
+    BValue tiny = bsts_string_from_utf8_bytes_static(5, "abcde");
+    BSTS_String_View view = bsts_string_view_ref(&tiny);
+    const char* expected = ((const char*)(const void*)&tiny) + 1;
+    assert(view.len == 5, "tiny view length");
+    assert(view.bytes == expected, "tiny view points inside BValue storage");
+    assert(view.bytes[5] == '\0', "tiny view is NUL terminated");
+  }
+
+  {
+    BValue inline16 = bsts_string_from_utf8_bytes_copy(16, "abcdefghijklmnop");
+    BSTS_String* inline16_str = BSTS_PTR(BSTS_String, inline16);
+    assert((inline16_str->len_meta & BSTS_STRING_INLINE16_FLAG) != 0, "len16 string is inline");
+    assert_string_bytes(inline16, "abcdefghijklmnop", 16, "len16 bytes roundtrip");
+
+    BValue large = bsts_string_from_utf8_bytes_copy(17, "abcdefghijklmnopq");
+    BSTS_String* large_str = BSTS_PTR(BSTS_String, large);
+    assert((large_str->len_meta & BSTS_STRING_INLINE16_FLAG) == 0, "len17 string is external");
+    assert_string_bytes(large, "abcdefghijklmnopq", 17, "len17 bytes roundtrip");
+  }
+
+  {
+    static const BSTS_String static_lit = BSTS_STATIC_STRING_INIT(18, "abcdefghijklmnopqr");
+    BValue lit = BSTS_VALUE_FROM_PTR(&static_lit);
+    const char* lit_bytes = bsts_string_utf8_bytes_ref(&lit);
+    assert_string_bytes(lit, "abcdefghijklmnopqr", 18, "boxed static literal bytes");
+    assert(lit_bytes == static_lit.payload.ext.bytes, "boxed static literal is zero-copy");
   }
 
 }
