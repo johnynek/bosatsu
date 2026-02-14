@@ -334,7 +334,6 @@ object PackageError {
         direction match {
           case Infer.Error.Direction.ExpectLeft  => (left, right)
           case Infer.Error.Direction.ExpectRight => (right, left)
-          case Infer.Error.Direction.Unknown     => (left, right)
         }
 
       def baseMismatch(
@@ -355,10 +354,8 @@ object PackageError {
           case Infer.Error.ContextualTypeError(_, direction, cause) =>
             baseMismatch(cause).map { case (left, right, causeDirection) =>
               val finalDirection =
-                causeDirection match {
-                  case Infer.Error.Direction.Unknown => direction
-                  case found                         => found
-                }
+                if (causeDirection == direction) causeDirection
+                else direction
               (left, right, finalDirection)
             }
           case _ =>
@@ -615,7 +612,7 @@ object PackageError {
                 context1
               }
             val doc = Doc.text("type error: expected type ") + tmap(expectedType) +
-              context0 + Doc.text("to be the same as type ") + tmap(foundType) +
+              context0 + Doc.text("but found type ") + tmap(foundType) +
               Doc.hardLine + fnHint + evidenceDoc
 
             (doc, Some(expectedRegion))

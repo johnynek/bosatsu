@@ -169,7 +169,7 @@ main = go(IntCase(42))
       val msg = te.message(packs, Colorize.None)
       assert(
         msg.contains(
-          "type error: expected type Int to be the same as type String"
+          "type error: expected type Int but found type String"
         )
       )
       ()
@@ -1690,7 +1690,7 @@ def quick_sort0(cmp, left, right):
         """in file: <unknown source>, package QS
 type error: expected type Fn2
 Region(415,424)
-to be the same as type Fn3[(?17, ?9) -> Comparison]
+but found type Fn3[(?17, ?9) -> Comparison]
 hint: the first type is a function with 2 arguments and the second is a function with 3 arguments.
 Region(403,414)"""
       )

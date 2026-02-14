@@ -196,13 +196,11 @@ object Infer {
     enum Direction derives CanEqual {
       case ExpectLeft
       case ExpectRight
-      case Unknown
 
       def flip: Direction =
         this match {
           case ExpectLeft  => ExpectRight
           case ExpectRight => ExpectLeft
-          case Unknown     => Unknown
         }
     }
 
@@ -1648,32 +1646,14 @@ object Infer {
           None
       }
 
-    private def typeErrorDirection(
-        tpeErr: Error.TypeError
-    ): Error.Direction =
-      tpeErr match {
-        case Error.NotUnifiable(_, _, _, _, direction) =>
-          direction
-        case Error.SubsumptionCheckFailure(_, _, _, _, _, direction) =>
-          direction
-        case _ =>
-          Error.Direction.Unknown
-      }
-
     private def contextualTypeError(
-        site: Error.MismatchSite,
-        fallbackDirection: Error.Direction
+        site: Error.MismatchSite
     ): Error => Error = {
       case c: Error.ContextualTypeError =>
         c
-      case te @ (_: Error.NotUnifiable | _: Error.SubsumptionCheckFailure) =>
-        val direction =
-          typeErrorDirection(te) match {
-            case Error.Direction.Unknown =>
-              fallbackDirection
-            case found =>
-              found
-          }
+      case te @ Error.NotUnifiable(_, _, _, _, direction) =>
+        Error.ContextualTypeError(site, direction, te)
+      case te @ Error.SubsumptionCheckFailure(_, _, _, _, _, direction) =>
         Error.ContextualTypeError(site, direction, te)
       case other =>
         other
@@ -1749,8 +1729,7 @@ object Infer {
                             region(fn),
                             region(argExpr),
                             regTe
-                          ),
-                          Error.Direction.ExpectRight
+                          )
                         )(err)
                       }
                   }
@@ -1931,8 +1910,7 @@ object Infer {
                   region(fn),
                   region(arg),
                   region(tag)
-                ),
-                Error.Direction.ExpectRight
+                )
               )(err)
             }
         }
@@ -2465,8 +2443,7 @@ object Infer {
                       tpe,
                       tr,
                       reg
-                    ),
-                    Error.Direction.ExpectRight
+                    )
                   )(err)
                 }
           }
@@ -2507,8 +2484,7 @@ object Infer {
                       tpe,
                       tr,
                       reg
-                    ),
-                    Error.Direction.ExpectRight
+                    )
                   )(err)
                 }
           }
@@ -2605,8 +2581,7 @@ object Infer {
                     tpe,
                     sigma.value._2,
                     reg
-                  ),
-                  Error.Direction.ExpectRight
+                  )
                 )(err)
               }
           } yield (p1, binds)
