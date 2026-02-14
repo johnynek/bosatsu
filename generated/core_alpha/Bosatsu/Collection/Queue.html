@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,41 +229,57 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-collection-queue" name="bosatsu-collection-queue" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Collection/Queue</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-queue"><code>Queue</code></a></li>
+  <li>Values: <a href="#value-empty-queue"><code>empty_Queue</code></a>, <a href="#value-eq-queue"><code>eq_Queue</code></a>, <a href="#value-fold-queue"><code>fold_Queue</code></a>, <a href="#value-from-list"><code>from_List</code></a>, <a href="#value-pop"><code>pop</code></a>, <a href="#value-pop-value"><code>pop_value</code></a>, <a href="#value-push"><code>push</code></a>, <a href="#value-reverse-queue"><code>reverse_Queue</code></a>, <a href="#value-to-list"><code>to_List</code></a>, <a href="#value-unpush"><code>unpush</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-queue"></a>
 <h3><a href="#queue-a-" name="queue-a-" class="anchor"><span class="anchor-link"></span></a><code>Queue[a]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Queue[a: +*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-empty-queue"></a>
 <h3><a href="#empty-queue" name="empty-queue" class="anchor"><span class="anchor-link"></span></a><code>empty_Queue</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">empty_Queue: forall a: *. Queue[a]
 </code></pre>
+<a id="value-eq-queue"></a>
 <h3><a href="#eq-queue" name="eq-queue" class="anchor"><span class="anchor-link"></span></a><code>eq_Queue</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_Queue[a](arg1: (a, a) -&gt; Bool) -&gt; (Queue[a], Queue[a]) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def eq_Queue[a](eq_fn: (a, a) -&gt; Bool) -&gt; (Queue[a], Queue[a]) -&gt; Bool
 </code></pre>
+<a id="value-fold-queue"></a>
 <h3><a href="#fold-queue" name="fold-queue" class="anchor"><span class="anchor-link"></span></a><code>fold_Queue</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def fold_Queue[a, b](arg1: Queue[a], arg2: b, arg3: (b, a) -&gt; b) -&gt; b
+<pre class="prettyprint"><code class="language-bosatsu">def fold_Queue[a, b](arg1: Queue[a], init: b, fold_fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
+<a id="value-from-list"></a>
 <h3><a href="#from-list" name="from-list" class="anchor"><span class="anchor-link"></span></a><code>from_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def from_List[a](arg1: List[a]) -&gt; Queue[a]
+<pre class="prettyprint"><code class="language-bosatsu">def from_List[a](list: List[a]) -&gt; Queue[a]
 </code></pre>
+<a id="value-pop"></a>
 <h3><a href="#pop" name="pop" class="anchor"><span class="anchor-link"></span></a><code>pop</code></h3>
 <p>drop an item off and return the rest, or empty</p>
-<pre class="prettyprint"><code class="language-bosatsu">def pop[a](arg1: Queue[a]) -&gt; Queue[a]
+<pre class="prettyprint"><code class="language-bosatsu">def pop[a](queue: Queue[a]) -&gt; Queue[a]
 </code></pre>
+<a id="value-pop-value"></a>
 <h3><a href="#pop-value" name="pop-value" class="anchor"><span class="anchor-link"></span></a><code>pop_value</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def pop_value[a](arg1: Queue[a]) -&gt; Option[a]
+<pre class="prettyprint"><code class="language-bosatsu">def pop_value[a](queue: Queue[a]) -&gt; Option[a]
 </code></pre>
+<a id="value-push"></a>
 <h3><a href="#push" name="push" class="anchor"><span class="anchor-link"></span></a><code>push</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def push[a](arg1: Queue[a], arg2: a) -&gt; Queue[a]
+<pre class="prettyprint"><code class="language-bosatsu">def push[a](arg1: Queue[a], item: a) -&gt; Queue[a]
 </code></pre>
+<a id="value-reverse-queue"></a>
 <h3><a href="#reverse-queue" name="reverse-queue" class="anchor"><span class="anchor-link"></span></a><code>reverse_Queue</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def reverse_Queue[a](arg1: Queue[a]) -&gt; Queue[a]
 </code></pre>
+<a id="value-to-list"></a>
 <h3><a href="#to-list" name="to-list" class="anchor"><span class="anchor-link"></span></a><code>to_List</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def to_List[a](arg1: Queue[a]) -&gt; List[a]
 </code></pre>
+<a id="value-unpush"></a>
 <h3><a href="#unpush" name="unpush" class="anchor"><span class="anchor-link"></span></a><code>unpush</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def unpush[a](arg1: Queue[a]) -&gt; Option[(a, Queue[a])]
+<pre class="prettyprint"><code class="language-bosatsu">def unpush[a](queue: Queue[a]) -&gt; Option[(a, Queue[a])]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Collection/Queue.md">here</a>.
@@ -281,6 +297,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Queue.html#bosatsu-collection-queue" class="header"><code>Bosatsu/Collection/Queue</code></a>
   <ul>
+    <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Queue.html#index" class="header">Index</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Queue.html#types" class="header">Types</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Queue.html#values" class="header">Values</a></li>
   </ul></li>
@@ -350,7 +367,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

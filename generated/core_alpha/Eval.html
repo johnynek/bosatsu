@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,26 +229,37 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#eval" name="eval" class="anchor"><span class="anchor-link"></span></a><code>Eval</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-eval"><code>Eval</code></a></li>
+  <li>Values: <a href="#value-bind"><code>bind</code></a>, <a href="#value-done"><code>done</code></a>, <a href="#value-eval"><code>eval</code></a>, <a href="#value-flat-map"><code>flat_map</code></a>, <a href="#value-map"><code>map</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-eval"></a>
 <h3><a href="#eval-a-" name="eval-a-" class="anchor"><span class="anchor-link"></span></a><code>Eval[a]</code></h3>
 <p>port of cats.Eval to bosatsu</p>
 <pre class="prettyprint"><code class="language-bosatsu">type Eval[a: +*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-bind"></a>
 <h3><a href="#bind" name="bind" class="anchor"><span class="anchor-link"></span></a><code>bind</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def bind[a, b](arg1: Eval[a], arg2: a -&gt; Eval[b]) -&gt; Eval[b]
+<pre class="prettyprint"><code class="language-bosatsu">def bind[a, b](e: Eval[a], fn: a -&gt; Eval[b]) -&gt; Eval[b]
 </code></pre>
+<a id="value-done"></a>
 <h3><a href="#done" name="done" class="anchor"><span class="anchor-link"></span></a><code>done</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def done[a](arg1: a) -&gt; Eval[a]
+<pre class="prettyprint"><code class="language-bosatsu">def done[a](a: a) -&gt; Eval[a]
 </code></pre>
+<a id="value-eval"></a>
 <h3><a href="#eval" name="eval" class="anchor"><span class="anchor-link"></span></a><code>eval</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eval[a](arg1: Int, arg2: Eval[a]) -&gt; Option[a]
+<pre class="prettyprint"><code class="language-bosatsu">def eval[a](budget: Int, ea: Eval[a]) -&gt; Option[a]
 </code></pre>
+<a id="value-flat-map"></a>
 <h3><a href="#flat-map" name="flat-map" class="anchor"><span class="anchor-link"></span></a><code>flat_map</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flat_map[a, b](arg1: Eval[a], arg2: a -&gt; Eval[b]) -&gt; Eval[b]
+<pre class="prettyprint"><code class="language-bosatsu">def flat_map[a, b](e: Eval[a], fn: a -&gt; Eval[b]) -&gt; Eval[b]
 </code></pre>
+<a id="value-map"></a>
 <h3><a href="#map" name="map" class="anchor"><span class="anchor-link"></span></a><code>map</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map[a, b](arg1: Eval[a], arg2: a -&gt; b) -&gt; Eval[b]
+<pre class="prettyprint"><code class="language-bosatsu">def map[a, b](e: Eval[a], fn: a -&gt; b) -&gt; Eval[b]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Eval.md">here</a>.
@@ -266,6 +277,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../generated/core_alpha/Eval.html#eval" class="header"><code>Eval</code></a>
   <ul>
+    <li><a href="../../generated/core_alpha/Eval.html#index" class="header">Index</a></li>
     <li><a href="../../generated/core_alpha/Eval.html#types" class="header">Types</a></li>
     <li><a href="../../generated/core_alpha/Eval.html#values" class="header">Values</a></li>
   </ul></li>
@@ -335,7 +347,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

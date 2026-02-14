@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,10 +229,17 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#buildlibrary" name="buildlibrary" class="anchor"><span class="anchor-link"></span></a><code>BuildLibrary</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-build"><code>Build</code></a>, <a href="#type-file"><code>File</code></a>, <a href="#type-libargs"><code>LibArgs</code></a>, <a href="#type-library"><code>Library</code></a></li>
+  <li>Values: <a href="#value-build"><code>build</code></a>, <a href="#value-build-all"><code>build_all</code></a>, <a href="#value-empty"><code>empty</code></a>, <a href="#value-file"><code>file</code></a>, <a href="#value-files"><code>files</code></a>, <a href="#value-library"><code>library</code></a>, <a href="#value-map2-build"><code>map2_Build</code></a>, <a href="#value-map-build"><code>map_Build</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-build"></a>
 <h3><a href="#build-a-" name="build-a-" class="anchor"><span class="anchor-link"></span></a><code>Build[a]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Build[a: *]
 </code></pre>
+<a id="type-file"></a>
 <h3><a href="#file" name="file" class="anchor"><span class="anchor-link"></span></a><code>File</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type File
 </code></pre>
@@ -240,6 +247,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><code>File(path: String)</code></li>
 </ul>
+<a id="type-libargs"></a>
 <h3><a href="#libargs" name="libargs" class="anchor"><span class="anchor-link"></span></a><code>LibArgs</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type LibArgs
 </code></pre>
@@ -247,6 +255,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><code>LibArgs(srcs: Build[List[File]], deps: Build[List[Library]])</code></li>
 </ul>
+<a id="type-library"></a>
 <h3><a href="#library" name="library" class="anchor"><span class="anchor-link"></span></a><code>Library</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Library
 </code></pre>
@@ -255,29 +264,37 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><code>Library</code></li>
 </ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-build"></a>
 <h3><a href="#build" name="build" class="anchor"><span class="anchor-link"></span></a><code>build</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def build(arg1: LibArgs) -&gt; Build[Library]
+<pre class="prettyprint"><code class="language-bosatsu">def build(args: LibArgs) -&gt; Build[Library]
 </code></pre>
+<a id="value-build-all"></a>
 <h3><a href="#build-all" name="build-all" class="anchor"><span class="anchor-link"></span></a><code>build_all</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def build_all[a](arg1: List[Build[a]]) -&gt; Build[List[a]]
+<pre class="prettyprint"><code class="language-bosatsu">def build_all[a](items: List[Build[a]]) -&gt; Build[List[a]]
 </code></pre>
+<a id="value-empty"></a>
 <h3><a href="#empty" name="empty" class="anchor"><span class="anchor-link"></span></a><code>empty</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">empty: forall a: *. Build[List[a]]
 </code></pre>
+<a id="value-file"></a>
 <h3><a href="#file" name="file" class="anchor"><span class="anchor-link"></span></a><code>file</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def file(arg1: String) -&gt; Build[File]
+<pre class="prettyprint"><code class="language-bosatsu">def file(s: String) -&gt; Build[File]
 </code></pre>
+<a id="value-files"></a>
 <h3><a href="#files" name="files" class="anchor"><span class="anchor-link"></span></a><code>files</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def files(arg1: List[String]) -&gt; Build[List[File]]
+<pre class="prettyprint"><code class="language-bosatsu">def files(fs: List[String]) -&gt; Build[List[File]]
 </code></pre>
+<a id="value-library"></a>
 <h3><a href="#library" name="library" class="anchor"><span class="anchor-link"></span></a><code>library</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def library(arg1: Build[List[File]], arg2: Build[List[Library]]) -&gt; Build[Library]
+<pre class="prettyprint"><code class="language-bosatsu">def library(sources: Build[List[File]], deps: Build[List[Library]]) -&gt; Build[Library]
 </code></pre>
+<a id="value-map2-build"></a>
 <h3><a href="#map2-build" name="map2-build" class="anchor"><span class="anchor-link"></span></a><code>map2_Build</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map2_Build[a, b, c](arg1: Build[a], arg2: Build[b], arg3: (a, b) -&gt; c) -&gt; Build[c]
+<pre class="prettyprint"><code class="language-bosatsu">def map2_Build[a, b, c](ba: Build[a], bb: Build[b], fn: (a, b) -&gt; c) -&gt; Build[c]
 </code></pre>
+<a id="value-map-build"></a>
 <h3><a href="#map-build" name="map-build" class="anchor"><span class="anchor-link"></span></a><code>map_Build</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map_Build[a, b](arg1: Build[a], arg2: a -&gt; b) -&gt; Build[b]
+<pre class="prettyprint"><code class="language-bosatsu">def map_Build[a, b](b: Build[a], fn: a -&gt; b) -&gt; Build[b]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/BuildLibrary.md">here</a>.
@@ -295,6 +312,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../generated/core_alpha/BuildLibrary.html#buildlibrary" class="header"><code>BuildLibrary</code></a>
   <ul>
+    <li><a href="../../generated/core_alpha/BuildLibrary.html#index" class="header">Index</a></li>
     <li><a href="../../generated/core_alpha/BuildLibrary.html#types" class="header">Types</a></li>
     <li><a href="../../generated/core_alpha/BuildLibrary.html#values" class="header">Values</a></li>
   </ul></li>
@@ -364,7 +382,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,88 +229,120 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-collection-array" name="bosatsu-collection-array" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Collection/Array</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-array"><code>Array</code></a></li>
+  <li>Values: <a href="#value-char-array-to-int-array"><code>char_Array_to_Int_Array</code></a>, <a href="#value-char-array-to-string"><code>char_Array_to_String</code></a>, <a href="#value-concat-all-array"><code>concat_all_Array</code></a>, <a href="#value-empty-array"><code>empty_Array</code></a>, <a href="#value-flatten-array"><code>flatten_Array</code></a>, <a href="#value-foldl-array"><code>foldl_Array</code></a>, <a href="#value-from-list-array"><code>from_List_Array</code></a>, <a href="#value-get-array"><code>get_Array</code></a>, <a href="#value-get-map-array"><code>get_map_Array</code></a>, <a href="#value-get-or-array"><code>get_or_Array</code></a>, <a href="#value-index-in-range-array"><code>index_in_range_Array</code></a>, <a href="#value-int-array-to-char-array"><code>int_Array_to_Char_Array</code></a>, <a href="#value-int-array-to-string"><code>int_Array_to_String</code></a>, <a href="#value-map-array"><code>map_Array</code></a>, <a href="#value-range-array"><code>range_Array</code></a>, <a href="#value-range-from-array"><code>range_from_Array</code></a>, <a href="#value-reverse-array"><code>reverse_Array</code></a>, <a href="#value-set-array"><code>set_Array</code></a>, <a href="#value-set-or-self-array"><code>set_or_self_Array</code></a>, <a href="#value-size-array"><code>size_Array</code></a>, <a href="#value-slice-array"><code>slice_Array</code></a>, <a href="#value-sort-array"><code>sort_Array</code></a>, <a href="#value-string-to-char-array"><code>string_to_Char_Array</code></a>, <a href="#value-string-to-int-array"><code>string_to_Int_Array</code></a>, <a href="#value-tabulate-array"><code>tabulate_Array</code></a>, <a href="#value-to-list-array"><code>to_List_Array</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-array"></a>
 <h3><a href="#array-a-" name="array-a-" class="anchor"><span class="anchor-link"></span></a><code>Array[a]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Array[a: +*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-char-array-to-int-array"></a>
 <h3><a href="#char-array-to-int-array" name="char-array-to-int-array" class="anchor"><span class="anchor-link"></span></a><code>char_Array_to_Int_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_Int_Array(arg1: Array[Char]) -&gt; Array[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_Int_Array(chars: Array[Char]) -&gt; Array[Int]
 </code></pre>
+<a id="value-char-array-to-string"></a>
 <h3><a href="#char-array-to-string" name="char-array-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_Array_to_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_String(arg1: Array[Char]) -&gt; String
+<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_String(chars: Array[Char]) -&gt; String
 </code></pre>
+<a id="value-concat-all-array"></a>
 <h3><a href="#concat-all-array" name="concat-all-array" class="anchor"><span class="anchor-link"></span></a><code>concat_all_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def concat_all_Array[a](arg1: List[Array[a]]) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def concat_all_Array[a](arrays: List[Array[a]]) -&gt; Array[a]
 </code></pre>
+<a id="value-empty-array"></a>
 <h3><a href="#empty-array" name="empty-array" class="anchor"><span class="anchor-link"></span></a><code>empty_Array</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">empty_Array: forall a: *. Array[a]
 </code></pre>
+<a id="value-flatten-array"></a>
 <h3><a href="#flatten-array" name="flatten-array" class="anchor"><span class="anchor-link"></span></a><code>flatten_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flatten_Array[a](arg1: Array[Array[a]]) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def flatten_Array[a](arrays: Array[Array[a]]) -&gt; Array[a]
 </code></pre>
+<a id="value-foldl-array"></a>
 <h3><a href="#foldl-array" name="foldl-array" class="anchor"><span class="anchor-link"></span></a><code>foldl_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def foldl_Array[a, b](arg1: Array[a], arg2: b, arg3: (b, a) -&gt; b) -&gt; b
+<pre class="prettyprint"><code class="language-bosatsu">def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
+<a id="value-from-list-array"></a>
 <h3><a href="#from-list-array" name="from-list-array" class="anchor"><span class="anchor-link"></span></a><code>from_List_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def from_List_Array[a](arg1: List[a]) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def from_List_Array[a](xs: List[a]) -&gt; Array[a]
 </code></pre>
+<a id="value-get-array"></a>
 <h3><a href="#get-array" name="get-array" class="anchor"><span class="anchor-link"></span></a><code>get_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def get_Array[a](arg1: Array[a], arg2: Int) -&gt; Option[a]
+<pre class="prettyprint"><code class="language-bosatsu">def get_Array[a](ary: Array[a], idx: Int) -&gt; Option[a]
 </code></pre>
+<a id="value-get-map-array"></a>
 <h3><a href="#get-map-array" name="get-map-array" class="anchor"><span class="anchor-link"></span></a><code>get_map_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def get_map_Array[a, b](arg1: Array[a], arg2: Int, arg3: (()) -&gt; b, arg4: a -&gt; b) -&gt; b
+<pre class="prettyprint"><code class="language-bosatsu">def get_map_Array[a, b](ary: Array[a], idx: Int, default: (()) -&gt; b, fn: a -&gt; b) -&gt; b
 </code></pre>
+<a id="value-get-or-array"></a>
 <h3><a href="#get-or-array" name="get-or-array" class="anchor"><span class="anchor-link"></span></a><code>get_or_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def get_or_Array[a](arg1: Array[a], arg2: Int, arg3: (()) -&gt; a) -&gt; a
+<pre class="prettyprint"><code class="language-bosatsu">def get_or_Array[a](ary: Array[a], idx: Int, default: (()) -&gt; a) -&gt; a
 </code></pre>
+<a id="value-index-in-range-array"></a>
 <h3><a href="#index-in-range-array" name="index-in-range-array" class="anchor"><span class="anchor-link"></span></a><code>index_in_range_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def index_in_range_Array[a](arg1: Array[a], arg2: Int) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def index_in_range_Array[a](ary: Array[a], idx: Int) -&gt; Bool
 </code></pre>
+<a id="value-int-array-to-char-array"></a>
 <h3><a href="#int-array-to-char-array" name="int-array-to-char-array" class="anchor"><span class="anchor-link"></span></a><code>int_Array_to_Char_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_Char_Array(arg1: Array[Int]) -&gt; Option[Array[Char]]
+<pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_Char_Array(code_points: Array[Int]) -&gt; Option[Array[Char]]
 </code></pre>
+<a id="value-int-array-to-string"></a>
 <h3><a href="#int-array-to-string" name="int-array-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_Array_to_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_String(arg1: Array[Int]) -&gt; Option[String]
+<pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_String(code_points: Array[Int]) -&gt; Option[String]
 </code></pre>
+<a id="value-map-array"></a>
 <h3><a href="#map-array" name="map-array" class="anchor"><span class="anchor-link"></span></a><code>map_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map_Array[a, b](arg1: Array[a], arg2: a -&gt; b) -&gt; Array[b]
+<pre class="prettyprint"><code class="language-bosatsu">def map_Array[a, b](ary: Array[a], fn: a -&gt; b) -&gt; Array[b]
 </code></pre>
+<a id="value-range-array"></a>
 <h3><a href="#range-array" name="range-array" class="anchor"><span class="anchor-link"></span></a><code>range_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def range_Array(arg1: Int) -&gt; Array[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def range_Array(n: Int) -&gt; Array[Int]
 </code></pre>
+<a id="value-range-from-array"></a>
 <h3><a href="#range-from-array" name="range-from-array" class="anchor"><span class="anchor-link"></span></a><code>range_from_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def range_from_Array(arg1: Int, arg2: Int) -&gt; Array[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def range_from_Array(start: Int, n: Int) -&gt; Array[Int]
 </code></pre>
+<a id="value-reverse-array"></a>
 <h3><a href="#reverse-array" name="reverse-array" class="anchor"><span class="anchor-link"></span></a><code>reverse_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def reverse_Array[a](arg1: Array[a]) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def reverse_Array[a](ary: Array[a]) -&gt; Array[a]
 </code></pre>
+<a id="value-set-array"></a>
 <h3><a href="#set-array" name="set-array" class="anchor"><span class="anchor-link"></span></a><code>set_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def set_Array[a](arg1: Array[a], arg2: Int, arg3: a) -&gt; Option[Array[a]]
+<pre class="prettyprint"><code class="language-bosatsu">def set_Array[a](ary: Array[a], idx: Int, value: a) -&gt; Option[Array[a]]
 </code></pre>
+<a id="value-set-or-self-array"></a>
 <h3><a href="#set-or-self-array" name="set-or-self-array" class="anchor"><span class="anchor-link"></span></a><code>set_or_self_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def set_or_self_Array[a](arg1: Array[a], arg2: Int, arg3: a) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -&gt; Array[a]
 </code></pre>
+<a id="value-size-array"></a>
 <h3><a href="#size-array" name="size-array" class="anchor"><span class="anchor-link"></span></a><code>size_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def size_Array[a](arg1: Array[a]) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def size_Array[a](ary: Array[a]) -&gt; Int
 </code></pre>
+<a id="value-slice-array"></a>
 <h3><a href="#slice-array" name="slice-array" class="anchor"><span class="anchor-link"></span></a><code>slice_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def slice_Array[a](arg1: Array[a], arg2: Int, arg3: Int) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def slice_Array[a](ary: Array[a], start: Int, end: Int) -&gt; Array[a]
 </code></pre>
+<a id="value-sort-array"></a>
 <h3><a href="#sort-array" name="sort-array" class="anchor"><span class="anchor-link"></span></a><code>sort_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sort_Array[a](arg1: Array[a], arg2: (a, a) -&gt; Comparison) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def sort_Array[a](ary: Array[a], fn: (a, a) -&gt; Comparison) -&gt; Array[a]
 </code></pre>
+<a id="value-string-to-char-array"></a>
 <h3><a href="#string-to-char-array" name="string-to-char-array" class="anchor"><span class="anchor-link"></span></a><code>string_to_Char_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char_Array(arg1: String) -&gt; Array[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char_Array(s: String) -&gt; Array[Char]
 </code></pre>
+<a id="value-string-to-int-array"></a>
 <h3><a href="#string-to-int-array" name="string-to-int-array" class="anchor"><span class="anchor-link"></span></a><code>string_to_Int_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_Array(arg1: String) -&gt; Array[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_Array(s: String) -&gt; Array[Int]
 </code></pre>
+<a id="value-tabulate-array"></a>
 <h3><a href="#tabulate-array" name="tabulate-array" class="anchor"><span class="anchor-link"></span></a><code>tabulate_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def tabulate_Array[a](arg1: Int, arg2: Int -&gt; a) -&gt; Array[a]
+<pre class="prettyprint"><code class="language-bosatsu">def tabulate_Array[a](n: Int, fn: Int -&gt; a) -&gt; Array[a]
 </code></pre>
+<a id="value-to-list-array"></a>
 <h3><a href="#to-list-array" name="to-list-array" class="anchor"><span class="anchor-link"></span></a><code>to_List_Array</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def to_List_Array[a](arg1: Array[a]) -&gt; List[a]
+<pre class="prettyprint"><code class="language-bosatsu">def to_List_Array[a](ary: Array[a]) -&gt; List[a]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Collection/Array.md">here</a>.
@@ -328,6 +360,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Array.html#bosatsu-collection-array" class="header"><code>Bosatsu/Collection/Array</code></a>
   <ul>
+    <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Array.html#index" class="header">Index</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Array.html#types" class="header">Types</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Collection/Array.html#values" class="header">Values</a></li>
   </ul></li>
@@ -397,7 +430,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

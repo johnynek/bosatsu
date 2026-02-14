@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,67 +229,92 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#typeconstraint" name="typeconstraint" class="anchor"><span class="anchor-link"></span></a><code>TypeConstraint</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-eq"><code>Eq</code></a>, <a href="#type-sub"><code>Sub</code></a>, <a href="#type-sup"><code>Sup</code></a></li>
+  <li>Values: <a href="#value-cast"><code>cast</code></a>, <a href="#value-compose-eq"><code>compose_eq</code></a>, <a href="#value-compose-sub"><code>compose_sub</code></a>, <a href="#value-compose-sup"><code>compose_sup</code></a>, <a href="#value-downcast"><code>downcast</code></a>, <a href="#value-eq-to-sub"><code>eq_to_sub</code></a>, <a href="#value-eq-to-sup"><code>eq_to_sup</code></a>, <a href="#value-flip-eq"><code>flip_eq</code></a>, <a href="#value-narrow"><code>narrow</code></a>, <a href="#value-refl"><code>refl</code></a>, <a href="#value-refl-sub"><code>refl_sub</code></a>, <a href="#value-refl-sup"><code>refl_sup</code></a>, <a href="#value-sub-to-sup"><code>sub_to_sup</code></a>, <a href="#value-substitute"><code>substitute</code></a>, <a href="#value-sup-to-sub"><code>sup_to_sub</code></a>, <a href="#value-upcast"><code>upcast</code></a>, <a href="#value-widen"><code>widen</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-eq"></a>
 <h3><a href="#eq-a-b-" name="eq-a-b-" class="anchor"><span class="anchor-link"></span></a><code>Eq[a, b]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Eq[a: *, b: *]
 </code></pre>
+<a id="type-sub"></a>
 <h3><a href="#sub-a-b-" name="sub-a-b-" class="anchor"><span class="anchor-link"></span></a><code>Sub[a, b]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Sub[a: -*, b: +*]
 </code></pre>
+<a id="type-sup"></a>
 <h3><a href="#sup-a-b-" name="sup-a-b-" class="anchor"><span class="anchor-link"></span></a><code>Sup[a, b]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Sup[a: +*, b: -*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-cast"></a>
 <h3><a href="#cast" name="cast" class="anchor"><span class="anchor-link"></span></a><code>cast</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def cast[a, b](arg1: Eq[a, b], arg2: a) -&gt; b
+<pre class="prettyprint"><code class="language-bosatsu">def cast[a, b](s: Eq[a, b], a: a) -&gt; b
 </code></pre>
+<a id="value-compose-eq"></a>
 <h3><a href="#compose-eq" name="compose-eq" class="anchor"><span class="anchor-link"></span></a><code>compose_eq</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def compose_eq[a, b, c](arg1: Eq[a, b], arg2: Eq[b, c]) -&gt; Eq[a, c]
+<pre class="prettyprint"><code class="language-bosatsu">def compose_eq[a, b, c](first: Eq[a, b], second: Eq[b, c]) -&gt; Eq[a, c]
 </code></pre>
+<a id="value-compose-sub"></a>
 <h3><a href="#compose-sub" name="compose-sub" class="anchor"><span class="anchor-link"></span></a><code>compose_sub</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def compose_sub[a, b, c](arg1: Sub[a, b], arg2: Sub[b, c]) -&gt; Sub[a, c]
+<pre class="prettyprint"><code class="language-bosatsu">def compose_sub[a, b, c](first: Sub[a, b], second: Sub[b, c]) -&gt; Sub[a, c]
 </code></pre>
+<a id="value-compose-sup"></a>
 <h3><a href="#compose-sup" name="compose-sup" class="anchor"><span class="anchor-link"></span></a><code>compose_sup</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def compose_sup[a, b, c](arg1: Sup[a, b], arg2: Sup[b, c]) -&gt; Sup[a, c]
+<pre class="prettyprint"><code class="language-bosatsu">def compose_sup[a, b, c](first: Sup[a, b], second: Sup[b, c]) -&gt; Sup[a, c]
 </code></pre>
+<a id="value-downcast"></a>
 <h3><a href="#downcast" name="downcast" class="anchor"><span class="anchor-link"></span></a><code>downcast</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def downcast[a, b](arg1: Sup[a, b], arg2: b) -&gt; a
+<pre class="prettyprint"><code class="language-bosatsu">def downcast[a, b](s: Sup[a, b], a: b) -&gt; a
 </code></pre>
+<a id="value-eq-to-sub"></a>
 <h3><a href="#eq-to-sub" name="eq-to-sub" class="anchor"><span class="anchor-link"></span></a><code>eq_to_sub</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_to_sub[a, b](arg1: Eq[a, b]) -&gt; Sub[a, b]
+<pre class="prettyprint"><code class="language-bosatsu">def eq_to_sub[a, b](eq: Eq[a, b]) -&gt; Sub[a, b]
 </code></pre>
+<a id="value-eq-to-sup"></a>
 <h3><a href="#eq-to-sup" name="eq-to-sup" class="anchor"><span class="anchor-link"></span></a><code>eq_to_sup</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_to_sup[a, b](arg1: Eq[a, b]) -&gt; Sup[a, b]
+<pre class="prettyprint"><code class="language-bosatsu">def eq_to_sup[a, b](eq: Eq[a, b]) -&gt; Sup[a, b]
 </code></pre>
+<a id="value-flip-eq"></a>
 <h3><a href="#flip-eq" name="flip-eq" class="anchor"><span class="anchor-link"></span></a><code>flip_eq</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flip_eq[a, b](arg1: Eq[a, b]) -&gt; Eq[b, a]
+<pre class="prettyprint"><code class="language-bosatsu">def flip_eq[a, b](eq: Eq[a, b]) -&gt; Eq[b, a]
 </code></pre>
+<a id="value-narrow"></a>
 <h3><a href="#narrow" name="narrow" class="anchor"><span class="anchor-link"></span></a><code>narrow</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def narrow[a, b, c: -* -&gt; *](arg1: Sup[a, b], arg2: c[a]) -&gt; c[b]
+<pre class="prettyprint"><code class="language-bosatsu">def narrow[a, b, c: -* -&gt; *](s: Sup[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
+<a id="value-refl"></a>
 <h3><a href="#refl" name="refl" class="anchor"><span class="anchor-link"></span></a><code>refl</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">refl: forall a: *. Eq[a, a]
 </code></pre>
+<a id="value-refl-sub"></a>
 <h3><a href="#refl-sub" name="refl-sub" class="anchor"><span class="anchor-link"></span></a><code>refl_sub</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">refl_sub: forall a: *. Sub[a, a]
 </code></pre>
+<a id="value-refl-sup"></a>
 <h3><a href="#refl-sup" name="refl-sup" class="anchor"><span class="anchor-link"></span></a><code>refl_sup</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">refl_sup: forall a: *. Sup[a, a]
 </code></pre>
+<a id="value-sub-to-sup"></a>
 <h3><a href="#sub-to-sup" name="sub-to-sup" class="anchor"><span class="anchor-link"></span></a><code>sub_to_sup</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sub_to_sup[a, b](arg1: Sub[a, b]) -&gt; Sup[b, a]
+<pre class="prettyprint"><code class="language-bosatsu">def sub_to_sup[a, b](sub: Sub[a, b]) -&gt; Sup[b, a]
 </code></pre>
+<a id="value-substitute"></a>
 <h3><a href="#substitute" name="substitute" class="anchor"><span class="anchor-link"></span></a><code>substitute</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def substitute[a, b, c: * -&gt; *](arg1: Eq[a, b], arg2: c[a]) -&gt; c[b]
+<pre class="prettyprint"><code class="language-bosatsu">def substitute[a, b, c: * -&gt; *](eq: Eq[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
+<a id="value-sup-to-sub"></a>
 <h3><a href="#sup-to-sub" name="sup-to-sub" class="anchor"><span class="anchor-link"></span></a><code>sup_to_sub</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sup_to_sub[a, b](arg1: Sup[a, b]) -&gt; Sub[b, a]
+<pre class="prettyprint"><code class="language-bosatsu">def sup_to_sub[a, b](sup: Sup[a, b]) -&gt; Sub[b, a]
 </code></pre>
+<a id="value-upcast"></a>
 <h3><a href="#upcast" name="upcast" class="anchor"><span class="anchor-link"></span></a><code>upcast</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def upcast[a, b](arg1: Sub[a, b], arg2: a) -&gt; b
+<pre class="prettyprint"><code class="language-bosatsu">def upcast[a, b](s: Sub[a, b], a: a) -&gt; b
 </code></pre>
+<a id="value-widen"></a>
 <h3><a href="#widen" name="widen" class="anchor"><span class="anchor-link"></span></a><code>widen</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def widen[a, b, c: +* -&gt; *](arg1: Sub[a, b], arg2: c[a]) -&gt; c[b]
+<pre class="prettyprint"><code class="language-bosatsu">def widen[a, b, c: +* -&gt; *](s: Sub[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/TypeConstraint.md">here</a>.
@@ -304,6 +329,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../generated/core_alpha/TypeConstraint.html#typeconstraint" class="header"><code>TypeConstraint</code></a>
   <ul>
+    <li><a href="../../generated/core_alpha/TypeConstraint.html#index" class="header">Index</a></li>
     <li><a href="../../generated/core_alpha/TypeConstraint.html#types" class="header">Types</a></li>
     <li><a href="../../generated/core_alpha/TypeConstraint.html#values" class="header">Values</a></li>
   </ul></li>
@@ -373,7 +399,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

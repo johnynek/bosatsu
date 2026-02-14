@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,7 +229,13 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-example-applicativetraverse" name="bosatsu-example-applicativetraverse" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Example/ApplicativeTraverse</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-applicative"><code>Applicative</code></a>, <a href="#type-traverse"><code>Traverse</code></a></li>
+  <li>Values: <a href="#value-applicative-option"><code>applicative_Option</code></a>, <a href="#value-applicative-from-pure-ap"><code>applicative_from_pure_ap</code></a>, <a href="#value-applicative-from-pure-map-product"><code>applicative_from_pure_map_product</code></a>, <a href="#value-traverse-list"><code>traverse_List</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-applicative"></a>
 <h3><a href="#applicative-f-" name="applicative-f-" class="anchor"><span class="anchor-link"></span></a><code>Applicative[f]</code></h3>
 <p>Represents the Applicative typeclass</p>
 <pre class="prettyprint"><code class="language-bosatsu">type Applicative[f: * -&gt; *]
@@ -239,6 +245,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>Applicative(  pure: forall a: *. a -&gt; f[a],  map: forall a: *, b: *. (a -&gt; b, f[a]) -&gt; f[b],  ap: forall a: *, b: *. (f[a -&gt; b], f[a]) -&gt; f[b],  map2: forall a: *, b: *, c: *. (f[a], f[b], (a, b) -&gt; c) -&gt; f[c],  product: forall a: *, b: *. (f[a], f[b]) -&gt; f[(a, b)]  )
 </li>
 </ul>
+<a id="type-traverse"></a>
 <h3><a href="#traverse-g-" name="traverse-g-" class="anchor"><span class="anchor-link"></span></a><code>Traverse[g]</code></h3>
 <p>Represents the Traverse typeclass</p>
 <pre class="prettyprint"><code class="language-bosatsu">type Traverse[g: * -&gt; *]
@@ -248,22 +255,26 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><code>Traverse(traverse: forall a: *, b: *, f: * -&gt; *. (Applicative[f], a -&gt; f[b], g[a]) -&gt; f[g[b]])</code></li>
 </ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-applicative-option"></a>
 <h3><a href="#applicative-option" name="applicative-option" class="anchor"><span class="anchor-link"></span></a><code>applicative_Option</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">applicative_Option: Applicative[Option]
 </code></pre>
+<a id="value-applicative-from-pure-ap"></a>
 <h3><a href="#applicative-from-pure-ap" name="applicative-from-pure-ap" class="anchor"><span class="anchor-link"></span></a><code>applicative_from_pure_ap</code></h3>
 <p>Build an applicative from pure, ap</p>
 <pre class="prettyprint"><code class="language-bosatsu">def applicative_from_pure_ap[a: * -&gt; *
-](arg1: forall b: *. b -&gt; a[b], arg2: forall b: *, c: *. (a[b -&gt; c], a[b]) -&gt; a[c]) -&gt; Applicative[a]
+](pure: forall b: *. b -&gt; a[b], ap: forall b: *, c: *. (a[b -&gt; c], a[b]) -&gt; a[c]) -&gt; Applicative[a]
 </code></pre>
+<a id="value-applicative-from-pure-map-product"></a>
 <h3><a href="#applicative-from-pure-map-product" name="applicative-from-pure-map-product" class="anchor"><span class="anchor-link"></span></a><code>applicative_from_pure_map_product</code></h3>
 <p>Build an applicative from pure, map, and product</p>
 <pre class="prettyprint"><code class="language-bosatsu">def applicative_from_pure_map_product[a: * -&gt; *](
-    arg1: forall b: *. b -&gt; a[b],
-    arg2: forall b: *, c: *. (b -&gt; c, a[b]) -&gt; a[c],
-    arg3: forall b: *, c: *. (a[b], a[c]) -&gt; a[(b, c)]
+    pure: forall b: *. b -&gt; a[b],
+    map: forall b: *, c: *. (b -&gt; c, a[b]) -&gt; a[c],
+    product: forall b: *, c: *. (a[b], a[c]) -&gt; a[(b, c)]
 ) -&gt; Applicative[a]
 </code></pre>
+<a id="value-traverse-list"></a>
 <h3><a href="#traverse-list" name="traverse-list" class="anchor"><span class="anchor-link"></span></a><code>traverse_List</code></h3>
 <p>here is the traverse instance for List</p>
 <pre class="prettyprint"><code class="language-bosatsu">traverse_List: Traverse[List]
@@ -284,6 +295,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html#bosatsu-example-applicativetraverse" class="header"><code>Bosatsu/Example/ApplicativeTraverse</code></a>
   <ul>
+    <li><a href="../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html#index" class="header">Index</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html#types" class="header">Types</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html#values" class="header">Values</a></li>
   </ul></li>
@@ -353,7 +365,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

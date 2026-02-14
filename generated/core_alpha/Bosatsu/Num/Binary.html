@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -230,7 +230,13 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-num-binary" name="bosatsu-num-binary" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Num/Binary</code></h1>
 <p>public dependencies: <code>Bosatsu/Num/BinNat</code></p>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-binint"><code>BinInt</code></a></li>
+  <li>Values: <a href="#value-abs"><code>abs</code></a>, <a href="#value-add"><code>add</code></a>, <a href="#value-binint-to-int"><code>binInt_to_Int</code></a>, <a href="#value-binnat-to-binint"><code>binNat_to_BinInt</code></a>, <a href="#value-cmp"><code>cmp</code></a>, <a href="#value-eq"><code>eq</code></a>, <a href="#value-int-to-binint"><code>int_to_BinInt</code></a>, <a href="#value-negate"><code>negate</code></a>, <a href="#value-not"><code>not</code></a>, <a href="#value-sub"><code>sub</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-binint"></a>
 <h3><a href="#binint" name="binint" class="anchor"><span class="anchor-link"></span></a><code>BinInt</code></h3>
 <p>BWNot(x) == -x - 1</p>
 <pre class="prettyprint"><code class="language-bosatsu">type BinInt
@@ -241,35 +247,45 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><code>FromBinNat(bn: Bosatsu/Num/BinNat::BinNat)</code></li>
 </ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-abs"></a>
 <h3><a href="#abs" name="abs" class="anchor"><span class="anchor-link"></span></a><code>abs</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def abs(arg1: BinInt) -&gt; Bosatsu/Num/BinNat::BinNat
+<pre class="prettyprint"><code class="language-bosatsu">def abs(bi: BinInt) -&gt; Bosatsu/Num/BinNat::BinNat
 </code></pre>
+<a id="value-add"></a>
 <h3><a href="#add" name="add" class="anchor"><span class="anchor-link"></span></a><code>add</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def add(arg1: BinInt, arg2: BinInt) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def add(x: BinInt, y: BinInt) -&gt; BinInt
 </code></pre>
+<a id="value-binint-to-int"></a>
 <h3><a href="#binint-to-int" name="binint-to-int" class="anchor"><span class="anchor-link"></span></a><code>binInt_to_Int</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def binInt_to_Int(arg1: BinInt) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def binInt_to_Int(bi: BinInt) -&gt; Int
 </code></pre>
+<a id="value-binnat-to-binint"></a>
 <h3><a href="#binnat-to-binint" name="binnat-to-binint" class="anchor"><span class="anchor-link"></span></a><code>binNat_to_BinInt</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def binNat_to_BinInt(arg1: Bosatsu/Num/BinNat::BinNat) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def binNat_to_BinInt(bn: Bosatsu/Num/BinNat::BinNat) -&gt; BinInt
 </code></pre>
+<a id="value-cmp"></a>
 <h3><a href="#cmp" name="cmp" class="anchor"><span class="anchor-link"></span></a><code>cmp</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def cmp(arg1: BinInt, arg2: BinInt) -&gt; Comparison
+<pre class="prettyprint"><code class="language-bosatsu">def cmp(a: BinInt, b: BinInt) -&gt; Comparison
 </code></pre>
+<a id="value-eq"></a>
 <h3><a href="#eq" name="eq" class="anchor"><span class="anchor-link"></span></a><code>eq</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq(arg1: BinInt, arg2: BinInt) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def eq(a: BinInt, b: BinInt) -&gt; Bool
 </code></pre>
+<a id="value-int-to-binint"></a>
 <h3><a href="#int-to-binint" name="int-to-binint" class="anchor"><span class="anchor-link"></span></a><code>int_to_BinInt</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_to_BinInt(arg1: Int) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_BinInt(i: Int) -&gt; BinInt
 </code></pre>
+<a id="value-negate"></a>
 <h3><a href="#negate" name="negate" class="anchor"><span class="anchor-link"></span></a><code>negate</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def negate(arg1: BinInt) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def negate(bi: BinInt) -&gt; BinInt
 </code></pre>
+<a id="value-not"></a>
 <h3><a href="#not" name="not" class="anchor"><span class="anchor-link"></span></a><code>not</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def not(arg1: BinInt) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def not(bi: BinInt) -&gt; BinInt
 </code></pre>
+<a id="value-sub"></a>
 <h3><a href="#sub" name="sub" class="anchor"><span class="anchor-link"></span></a><code>sub</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sub(arg1: BinInt, arg2: BinInt) -&gt; BinInt
+<pre class="prettyprint"><code class="language-bosatsu">def sub(a: BinInt, b: BinInt) -&gt; BinInt
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Num/Binary.md">here</a>.
@@ -287,6 +303,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Binary.html#bosatsu-num-binary" class="header"><code>Bosatsu/Num/Binary</code></a>
   <ul>
+    <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Binary.html#index" class="header">Index</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Binary.html#types" class="header">Types</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Binary.html#values" class="header">Values</a></li>
   </ul></li>
@@ -356,7 +373,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

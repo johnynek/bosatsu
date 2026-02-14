@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,129 +229,174 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-num-float64" name="bosatsu-num-float64" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Num/Float64</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Values: <a href="#value-operator"><code>operator *</code></a>, <a href="#value-operator"><code>operator +</code></a>, <a href="#value-operator"><code>operator -</code></a>, <a href="#value-operator"><code>operator /</code></a>, <a href="#value-abs"><code>abs</code></a>, <a href="#value-acos"><code>acos</code></a>, <a href="#value-addf"><code>addf</code></a>, <a href="#value-asin"><code>asin</code></a>, <a href="#value-atan"><code>atan</code></a>, <a href="#value-atan2"><code>atan2</code></a>, <a href="#value-ceil"><code>ceil</code></a>, <a href="#value-cmp-float64"><code>cmp_Float64</code></a>, <a href="#value-copy-sign"><code>copy_sign</code></a>, <a href="#value-cos"><code>cos</code></a>, <a href="#value-cosh"><code>cosh</code></a>, <a href="#value-divf"><code>divf</code></a>, <a href="#value-eq-float64"><code>eq_Float64</code></a>, <a href="#value-exp"><code>exp</code></a>, <a href="#value-float64-bits-to-int"><code>float64_bits_to_Int</code></a>, <a href="#value-float64-to-int"><code>float64_to_Int</code></a>, <a href="#value-float64-to-string"><code>float64_to_String</code></a>, <a href="#value-floor"><code>floor</code></a>, <a href="#value-hypot"><code>hypot</code></a>, <a href="#value-inf"><code>inf</code></a>, <a href="#value-int-bits-to-float64"><code>int_bits_to_Float64</code></a>, <a href="#value-int-to-float64"><code>int_to_Float64</code></a>, <a href="#value-is-finite"><code>is_finite</code></a>, <a href="#value-is-infinite"><code>is_infinite</code></a>, <a href="#value-is-nan"><code>is_nan</code></a>, <a href="#value-log"><code>log</code></a>, <a href="#value-log10"><code>log10</code></a>, <a href="#value-neg-inf"><code>neg_inf</code></a>, <a href="#value-pow"><code>pow</code></a>, <a href="#value-sin"><code>sin</code></a>, <a href="#value-sinh"><code>sinh</code></a>, <a href="#value-sqrt"><code>sqrt</code></a>, <a href="#value-string-to-float64"><code>string_to_Float64</code></a>, <a href="#value-subf"><code>subf</code></a>, <a href="#value-tan"><code>tan</code></a>, <a href="#value-tanh"><code>tanh</code></a>, <a href="#value-timesf"><code>timesf</code></a></li>
+</ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-operator"></a>
 <h3><a href="#operator-" name="operator-" class="anchor"><span class="anchor-link"></span></a><code>operator *</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def operator *(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def operator *(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-operator"></a>
 <h3><a href="#operator-" name="operator-" class="anchor"><span class="anchor-link"></span></a><code>operator +</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def operator +(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def operator +(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-operator"></a>
 <h3><a href="#operator-" name="operator-" class="anchor"><span class="anchor-link"></span></a><code>operator -</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def operator -(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def operator -(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-operator"></a>
 <h3><a href="#operator-" name="operator-" class="anchor"><span class="anchor-link"></span></a><code>operator /</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def operator /(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def operator /(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-abs"></a>
 <h3><a href="#abs" name="abs" class="anchor"><span class="anchor-link"></span></a><code>abs</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def abs(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def abs(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-acos"></a>
 <h3><a href="#acos" name="acos" class="anchor"><span class="anchor-link"></span></a><code>acos</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def acos(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def acos(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-addf"></a>
 <h3><a href="#addf" name="addf" class="anchor"><span class="anchor-link"></span></a><code>addf</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def addf(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def addf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-asin"></a>
 <h3><a href="#asin" name="asin" class="anchor"><span class="anchor-link"></span></a><code>asin</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def asin(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def asin(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-atan"></a>
 <h3><a href="#atan" name="atan" class="anchor"><span class="anchor-link"></span></a><code>atan</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def atan(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def atan(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-atan2"></a>
 <h3><a href="#atan2" name="atan2" class="anchor"><span class="anchor-link"></span></a><code>atan2</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def atan2(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def atan2(y: Float64, x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-ceil"></a>
 <h3><a href="#ceil" name="ceil" class="anchor"><span class="anchor-link"></span></a><code>ceil</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def ceil(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def ceil(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-cmp-float64"></a>
 <h3><a href="#cmp-float64" name="cmp-float64" class="anchor"><span class="anchor-link"></span></a><code>cmp_Float64</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def cmp_Float64(arg1: Float64, arg2: Float64) -&gt; Comparison
+<pre class="prettyprint"><code class="language-bosatsu">def cmp_Float64(a: Float64, b: Float64) -&gt; Comparison
 </code></pre>
+<a id="value-copy-sign"></a>
 <h3><a href="#copy-sign" name="copy-sign" class="anchor"><span class="anchor-link"></span></a><code>copy_sign</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def copy_sign(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def copy_sign(x: Float64, sign: Float64) -&gt; Float64
 </code></pre>
+<a id="value-cos"></a>
 <h3><a href="#cos" name="cos" class="anchor"><span class="anchor-link"></span></a><code>cos</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def cos(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def cos(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-cosh"></a>
 <h3><a href="#cosh" name="cosh" class="anchor"><span class="anchor-link"></span></a><code>cosh</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def cosh(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def cosh(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-divf"></a>
 <h3><a href="#divf" name="divf" class="anchor"><span class="anchor-link"></span></a><code>divf</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def divf(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def divf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-eq-float64"></a>
 <h3><a href="#eq-float64" name="eq-float64" class="anchor"><span class="anchor-link"></span></a><code>eq_Float64</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_Float64(arg1: Float64, arg2: Float64) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def eq_Float64(a: Float64, b: Float64) -&gt; Bool
 </code></pre>
+<a id="value-exp"></a>
 <h3><a href="#exp" name="exp" class="anchor"><span class="anchor-link"></span></a><code>exp</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def exp(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def exp(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-float64-bits-to-int"></a>
 <h3><a href="#float64-bits-to-int" name="float64-bits-to-int" class="anchor"><span class="anchor-link"></span></a><code>float64_bits_to_Int</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def float64_bits_to_Int(arg1: Float64) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def float64_bits_to_Int(x: Float64) -&gt; Int
 </code></pre>
+<a id="value-float64-to-int"></a>
 <h3><a href="#float64-to-int" name="float64-to-int" class="anchor"><span class="anchor-link"></span></a><code>float64_to_Int</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def float64_to_Int(arg1: Float64) -&gt; Option[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def float64_to_Int(f: Float64) -&gt; Option[Int]
 </code></pre>
+<a id="value-float64-to-string"></a>
 <h3><a href="#float64-to-string" name="float64-to-string" class="anchor"><span class="anchor-link"></span></a><code>float64_to_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def float64_to_String(arg1: Float64) -&gt; String
+<pre class="prettyprint"><code class="language-bosatsu">def float64_to_String(x: Float64) -&gt; String
 </code></pre>
+<a id="value-floor"></a>
 <h3><a href="#floor" name="floor" class="anchor"><span class="anchor-link"></span></a><code>floor</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def floor(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def floor(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-hypot"></a>
 <h3><a href="#hypot" name="hypot" class="anchor"><span class="anchor-link"></span></a><code>hypot</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def hypot(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def hypot(x: Float64, y: Float64) -&gt; Float64
 </code></pre>
+<a id="value-inf"></a>
 <h3><a href="#inf" name="inf" class="anchor"><span class="anchor-link"></span></a><code>inf</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">inf: Float64
 </code></pre>
+<a id="value-int-bits-to-float64"></a>
 <h3><a href="#int-bits-to-float64" name="int-bits-to-float64" class="anchor"><span class="anchor-link"></span></a><code>int_bits_to_Float64</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_bits_to_Float64(arg1: Int) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def int_bits_to_Float64(int: Int) -&gt; Float64
 </code></pre>
+<a id="value-int-to-float64"></a>
 <h3><a href="#int-to-float64" name="int-to-float64" class="anchor"><span class="anchor-link"></span></a><code>int_to_Float64</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_to_Float64(arg1: Int) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_Float64(i: Int) -&gt; Float64
 </code></pre>
+<a id="value-is-finite"></a>
 <h3><a href="#is-finite" name="is-finite" class="anchor"><span class="anchor-link"></span></a><code>is_finite</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_finite(arg1: Float64) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_finite(x: Float64) -&gt; Bool
 </code></pre>
+<a id="value-is-infinite"></a>
 <h3><a href="#is-infinite" name="is-infinite" class="anchor"><span class="anchor-link"></span></a><code>is_infinite</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_infinite(arg1: Float64) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_infinite(x: Float64) -&gt; Bool
 </code></pre>
+<a id="value-is-nan"></a>
 <h3><a href="#is-nan" name="is-nan" class="anchor"><span class="anchor-link"></span></a><code>is_nan</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_nan(arg1: Float64) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_nan(x: Float64) -&gt; Bool
 </code></pre>
+<a id="value-log"></a>
 <h3><a href="#log" name="log" class="anchor"><span class="anchor-link"></span></a><code>log</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def log(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def log(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-log10"></a>
 <h3><a href="#log10" name="log10" class="anchor"><span class="anchor-link"></span></a><code>log10</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def log10(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def log10(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-neg-inf"></a>
 <h3><a href="#neg-inf" name="neg-inf" class="anchor"><span class="anchor-link"></span></a><code>neg_inf</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">neg_inf: Float64
 </code></pre>
+<a id="value-pow"></a>
 <h3><a href="#pow" name="pow" class="anchor"><span class="anchor-link"></span></a><code>pow</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def pow(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def pow(x: Float64, y: Float64) -&gt; Float64
 </code></pre>
+<a id="value-sin"></a>
 <h3><a href="#sin" name="sin" class="anchor"><span class="anchor-link"></span></a><code>sin</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sin(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def sin(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-sinh"></a>
 <h3><a href="#sinh" name="sinh" class="anchor"><span class="anchor-link"></span></a><code>sinh</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sinh(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def sinh(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-sqrt"></a>
 <h3><a href="#sqrt" name="sqrt" class="anchor"><span class="anchor-link"></span></a><code>sqrt</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sqrt(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def sqrt(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-string-to-float64"></a>
 <h3><a href="#string-to-float64" name="string-to-float64" class="anchor"><span class="anchor-link"></span></a><code>string_to_Float64</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Float64(arg1: String) -&gt; Option[Float64]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Float64(s: String) -&gt; Option[Float64]
 </code></pre>
+<a id="value-subf"></a>
 <h3><a href="#subf" name="subf" class="anchor"><span class="anchor-link"></span></a><code>subf</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def subf(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def subf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
+<a id="value-tan"></a>
 <h3><a href="#tan" name="tan" class="anchor"><span class="anchor-link"></span></a><code>tan</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def tan(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def tan(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-tanh"></a>
 <h3><a href="#tanh" name="tanh" class="anchor"><span class="anchor-link"></span></a><code>tanh</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def tanh(arg1: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def tanh(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-timesf"></a>
 <h3><a href="#timesf" name="timesf" class="anchor"><span class="anchor-link"></span></a><code>timesf</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def timesf(arg1: Float64, arg2: Float64) -&gt; Float64
+<pre class="prettyprint"><code class="language-bosatsu">def timesf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Num/Float64.md">here</a>.
@@ -369,6 +414,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Float64.html#bosatsu-num-float64" class="header"><code>Bosatsu/Num/Float64</code></a>
   <ul>
+    <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Float64.html#index" class="header">Index</a></li>
     <li><a href="../../../../generated/core_alpha/Bosatsu/Num/Float64.html#values" class="header">Values</a></li>
   </ul></li>
 </ul>
@@ -437,7 +483,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

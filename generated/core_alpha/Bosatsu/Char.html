@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -229,93 +229,125 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-char" name="bosatsu-char" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Char</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Values: <a href="#value-char-list-to-int-list"><code>char_List_to_Int_List</code></a>, <a href="#value-char-to-int"><code>char_to_Int</code></a>, <a href="#value-eq-ignore-ascii-case"><code>eq_ignore_ascii_case</code></a>, <a href="#value-from-digit"><code>from_digit</code></a>, <a href="#value-int-list-to-char-list"><code>int_List_to_Char_List</code></a>, <a href="#value-int-list-to-string"><code>int_List_to_String</code></a>, <a href="#value-int-to-char"><code>int_to_Char</code></a>, <a href="#value-is-ascii"><code>is_ascii</code></a>, <a href="#value-is-ascii-alnum"><code>is_ascii_alnum</code></a>, <a href="#value-is-ascii-alpha"><code>is_ascii_alpha</code></a>, <a href="#value-is-ascii-control"><code>is_ascii_control</code></a>, <a href="#value-is-ascii-digit"><code>is_ascii_digit</code></a>, <a href="#value-is-ascii-hex"><code>is_ascii_hex</code></a>, <a href="#value-is-ascii-lower"><code>is_ascii_lower</code></a>, <a href="#value-is-ascii-punctuation"><code>is_ascii_punctuation</code></a>, <a href="#value-is-ascii-upper"><code>is_ascii_upper</code></a>, <a href="#value-is-ascii-whitespace"><code>is_ascii_whitespace</code></a>, <a href="#value-is-digit"><code>is_digit</code></a>, <a href="#value-is-hex"><code>is_hex</code></a>, <a href="#value-is-scalar-value"><code>is_scalar_value</code></a>, <a href="#value-last-string"><code>last_String</code></a>, <a href="#value-string-to-char"><code>string_to_Char</code></a>, <a href="#value-string-to-char-list"><code>string_to_Char_List</code></a>, <a href="#value-string-to-int-list"><code>string_to_Int_List</code></a>, <a href="#value-to-ascii-lower-case"><code>to_ascii_lower_case</code></a>, <a href="#value-to-ascii-upper-case"><code>to_ascii_upper_case</code></a>, <a href="#value-to-digit"><code>to_digit</code></a>, <a href="#value-utf8-len"><code>utf8_len</code></a></li>
+</ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-char-list-to-int-list"></a>
 <h3><a href="#char-list-to-int-list" name="char-list-to-int-list" class="anchor"><span class="anchor-link"></span></a><code>char_List_to_Int_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def char_List_to_Int_List(arg1: List[Char]) -&gt; List[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def char_List_to_Int_List(chars: List[Char]) -&gt; List[Int]
 </code></pre>
+<a id="value-char-to-int"></a>
 <h3><a href="#char-to-int" name="char-to-int" class="anchor"><span class="anchor-link"></span></a><code>char_to_Int</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(arg1: Char) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(c: Char) -&gt; Int
 </code></pre>
+<a id="value-eq-ignore-ascii-case"></a>
 <h3><a href="#eq-ignore-ascii-case" name="eq-ignore-ascii-case" class="anchor"><span class="anchor-link"></span></a><code>eq_ignore_ascii_case</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_ignore_ascii_case(arg1: Char, arg2: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def eq_ignore_ascii_case(left: Char, right: Char) -&gt; Bool
 </code></pre>
+<a id="value-from-digit"></a>
 <h3><a href="#from-digit" name="from-digit" class="anchor"><span class="anchor-link"></span></a><code>from_digit</code></h3>
 <p>Supported radix range is 2..36 inclusive.</p>
-<pre class="prettyprint"><code class="language-bosatsu">def from_digit(arg1: Int, arg2: Int) -&gt; Option[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def from_digit(digit: Int, radix: Int) -&gt; Option[Char]
 </code></pre>
+<a id="value-int-list-to-char-list"></a>
 <h3><a href="#int-list-to-char-list" name="int-list-to-char-list" class="anchor"><span class="anchor-link"></span></a><code>int_List_to_Char_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_Char_List(arg1: List[Int]) -&gt; Option[List[Char]]
+<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_Char_List(code_points: List[Int]) -&gt; Option[List[Char]]
 </code></pre>
+<a id="value-int-list-to-string"></a>
 <h3><a href="#int-list-to-string" name="int-list-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_List_to_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_String(arg1: List[Int]) -&gt; Option[String]
+<pre class="prettyprint"><code class="language-bosatsu">def int_List_to_String(code_points: List[Int]) -&gt; Option[String]
 </code></pre>
+<a id="value-int-to-char"></a>
 <h3><a href="#int-to-char" name="int-to-char" class="anchor"><span class="anchor-link"></span></a><code>int_to_Char</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_to_Char(arg1: Int) -&gt; Option[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def int_to_Char(code_point: Int) -&gt; Option[Char]
 </code></pre>
+<a id="value-is-ascii"></a>
 <h3><a href="#is-ascii" name="is-ascii" class="anchor"><span class="anchor-link"></span></a><code>is_ascii</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-alnum"></a>
 <h3><a href="#is-ascii-alnum" name="is-ascii-alnum" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_alnum</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alnum(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alnum(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-alpha"></a>
 <h3><a href="#is-ascii-alpha" name="is-ascii-alpha" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_alpha</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alpha(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_alpha(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-control"></a>
 <h3><a href="#is-ascii-control" name="is-ascii-control" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_control</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_control(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_control(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-digit"></a>
 <h3><a href="#is-ascii-digit" name="is-ascii-digit" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_digit</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_digit(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_digit(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-hex"></a>
 <h3><a href="#is-ascii-hex" name="is-ascii-hex" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_hex</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_hex(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_hex(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-lower"></a>
 <h3><a href="#is-ascii-lower" name="is-ascii-lower" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_lower</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_lower(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_lower(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-punctuation"></a>
 <h3><a href="#is-ascii-punctuation" name="is-ascii-punctuation" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_punctuation</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_punctuation(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_punctuation(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-upper"></a>
 <h3><a href="#is-ascii-upper" name="is-ascii-upper" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_upper</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_upper(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_upper(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-ascii-whitespace"></a>
 <h3><a href="#is-ascii-whitespace" name="is-ascii-whitespace" class="anchor"><span class="anchor-link"></span></a><code>is_ascii_whitespace</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_whitespace(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_ascii_whitespace(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-digit"></a>
 <h3><a href="#is-digit" name="is-digit" class="anchor"><span class="anchor-link"></span></a><code>is_digit</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_digit(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_digit(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-hex"></a>
 <h3><a href="#is-hex" name="is-hex" class="anchor"><span class="anchor-link"></span></a><code>is_hex</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def is_hex(arg1: Char) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_hex(c: Char) -&gt; Bool
 </code></pre>
+<a id="value-is-scalar-value"></a>
 <h3><a href="#is-scalar-value" name="is-scalar-value" class="anchor"><span class="anchor-link"></span></a><code>is_scalar_value</code></h3>
 <p>Unicode scalar value = [0, 0x10FFFF] excluding UTF-16 surrogate code points.</p>
-<pre class="prettyprint"><code class="language-bosatsu">def is_scalar_value(arg1: Int) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def is_scalar_value(code_point: Int) -&gt; Bool
 </code></pre>
+<a id="value-last-string"></a>
 <h3><a href="#last-string" name="last-string" class="anchor"><span class="anchor-link"></span></a><code>last_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def last_String(arg1: String) -&gt; Option[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def last_String(s: String) -&gt; Option[Char]
 </code></pre>
+<a id="value-string-to-char"></a>
 <h3><a href="#string-to-char" name="string-to-char" class="anchor"><span class="anchor-link"></span></a><code>string_to_Char</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char(arg1: String) -&gt; Option[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char(s: String) -&gt; Option[Char]
 </code></pre>
+<a id="value-string-to-char-list"></a>
 <h3><a href="#string-to-char-list" name="string-to-char-list" class="anchor"><span class="anchor-link"></span></a><code>string_to_Char_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char_List(arg1: String) -&gt; List[Char]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Char_List(s: String) -&gt; List[Char]
 </code></pre>
+<a id="value-string-to-int-list"></a>
 <h3><a href="#string-to-int-list" name="string-to-int-list" class="anchor"><span class="anchor-link"></span></a><code>string_to_Int_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_List(arg1: String) -&gt; List[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_List(s: String) -&gt; List[Int]
 </code></pre>
+<a id="value-to-ascii-lower-case"></a>
 <h3><a href="#to-ascii-lower-case" name="to-ascii-lower-case" class="anchor"><span class="anchor-link"></span></a><code>to_ascii_lower_case</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_lower_case(arg1: Char) -&gt; Char
+<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_lower_case(c: Char) -&gt; Char
 </code></pre>
+<a id="value-to-ascii-upper-case"></a>
 <h3><a href="#to-ascii-upper-case" name="to-ascii-upper-case" class="anchor"><span class="anchor-link"></span></a><code>to_ascii_upper_case</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_upper_case(arg1: Char) -&gt; Char
+<pre class="prettyprint"><code class="language-bosatsu">def to_ascii_upper_case(c: Char) -&gt; Char
 </code></pre>
+<a id="value-to-digit"></a>
 <h3><a href="#to-digit" name="to-digit" class="anchor"><span class="anchor-link"></span></a><code>to_digit</code></h3>
 <p>Supported radix range is 2..36 inclusive.</p>
-<pre class="prettyprint"><code class="language-bosatsu">def to_digit(arg1: Char, arg2: Int) -&gt; Option[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def to_digit(c: Char, radix: Int) -&gt; Option[Int]
 </code></pre>
+<a id="value-utf8-len"></a>
 <h3><a href="#utf8-len" name="utf8-len" class="anchor"><span class="anchor-link"></span></a><code>utf8_len</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def utf8_len(arg1: Char) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def utf8_len(c: Char) -&gt; Int
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Char.md">here</a>.
@@ -333,6 +365,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../generated/core_alpha/Bosatsu/Char.html#bosatsu-char" class="header"><code>Bosatsu/Char</code></a>
   <ul>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Char.html#index" class="header">Index</a></li>
     <li><a href="../../../generated/core_alpha/Bosatsu/Char.html#values" class="header">Values</a></li>
   </ul></li>
 </ul>
@@ -401,7 +434,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

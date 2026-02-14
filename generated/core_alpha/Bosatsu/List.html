@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -230,42 +230,58 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-list" name="bosatsu-list" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/List</code></h1>
 <p>public dependencies: <code>Bosatsu/Num/Nat</code></p>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Values: <a href="#value-any"><code>any</code></a>, <a href="#value-eq-list"><code>eq_List</code></a>, <a href="#value-exists"><code>exists</code></a>, <a href="#value-for-all"><code>for_all</code></a>, <a href="#value-get-list"><code>get_List</code></a>, <a href="#value-head"><code>head</code></a>, <a href="#value-set-list"><code>set_List</code></a>, <a href="#value-size"><code>size</code></a>, <a href="#value-sort"><code>sort</code></a>, <a href="#value-sum"><code>sum</code></a>, <a href="#value-uncons"><code>uncons</code></a>, <a href="#value-zip"><code>zip</code></a></li>
+</ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-any"></a>
 <h3><a href="#any" name="any" class="anchor"><span class="anchor-link"></span></a><code>any</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def any(arg1: List[Bool]) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def any(as: List[Bool]) -&gt; Bool
 </code></pre>
+<a id="value-eq-list"></a>
 <h3><a href="#eq-list" name="eq-list" class="anchor"><span class="anchor-link"></span></a><code>eq_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def eq_List[a](arg1: (a, a) -&gt; Bool) -&gt; (List[a], List[a]) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def eq_List[a](fn: (a, a) -&gt; Bool) -&gt; (List[a], List[a]) -&gt; Bool
 </code></pre>
+<a id="value-exists"></a>
 <h3><a href="#exists" name="exists" class="anchor"><span class="anchor-link"></span></a><code>exists</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def exists[a](arg1: List[a], arg2: a -&gt; Bool) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def exists[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
 </code></pre>
+<a id="value-for-all"></a>
 <h3><a href="#for-all" name="for-all" class="anchor"><span class="anchor-link"></span></a><code>for_all</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def for_all[a](arg1: List[a], arg2: a -&gt; Bool) -&gt; Bool
+<pre class="prettyprint"><code class="language-bosatsu">def for_all[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
 </code></pre>
+<a id="value-get-list"></a>
 <h3><a href="#get-list" name="get-list" class="anchor"><span class="anchor-link"></span></a><code>get_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def get_List[a](arg1: List[a], arg2: Int) -&gt; Option[a]
+<pre class="prettyprint"><code class="language-bosatsu">def get_List[a](xs: List[a], idx: Int) -&gt; Option[a]
 </code></pre>
+<a id="value-head"></a>
 <h3><a href="#head" name="head" class="anchor"><span class="anchor-link"></span></a><code>head</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def head[a](arg1: List[a]) -&gt; Option[a]
+<pre class="prettyprint"><code class="language-bosatsu">def head[a](xs: List[a]) -&gt; Option[a]
 </code></pre>
+<a id="value-set-list"></a>
 <h3><a href="#set-list" name="set-list" class="anchor"><span class="anchor-link"></span></a><code>set_List</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def set_List[a](arg1: List[a], arg2: Int, arg3: a) -&gt; Option[List[a]]
+<pre class="prettyprint"><code class="language-bosatsu">def set_List[a](xs: List[a], idx: Int, value: a) -&gt; Option[List[a]]
 </code></pre>
+<a id="value-size"></a>
 <h3><a href="#size" name="size" class="anchor"><span class="anchor-link"></span></a><code>size</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def size[a](arg1: List[a]) -&gt; Bosatsu/Num/Nat::Nat
+<pre class="prettyprint"><code class="language-bosatsu">def size[a](list: List[a]) -&gt; Bosatsu/Num/Nat::Nat
 </code></pre>
+<a id="value-sort"></a>
 <h3><a href="#sort" name="sort" class="anchor"><span class="anchor-link"></span></a><code>sort</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sort[a](arg1: Order[a], arg2: List[a]) -&gt; List[a]
+<pre class="prettyprint"><code class="language-bosatsu">def sort[a](ord: Order[a], list: List[a]) -&gt; List[a]
 </code></pre>
+<a id="value-sum"></a>
 <h3><a href="#sum" name="sum" class="anchor"><span class="anchor-link"></span></a><code>sum</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sum(arg1: List[Int]) -&gt; Int
+<pre class="prettyprint"><code class="language-bosatsu">def sum(as: List[Int]) -&gt; Int
 </code></pre>
+<a id="value-uncons"></a>
 <h3><a href="#uncons" name="uncons" class="anchor"><span class="anchor-link"></span></a><code>uncons</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def uncons[a](arg1: List[a]) -&gt; Option[(a, List[a])]
+<pre class="prettyprint"><code class="language-bosatsu">def uncons[a](xs: List[a]) -&gt; Option[(a, List[a])]
 </code></pre>
+<a id="value-zip"></a>
 <h3><a href="#zip" name="zip" class="anchor"><span class="anchor-link"></span></a><code>zip</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def zip[a, b](arg1: List[a], arg2: List[b]) -&gt; List[(a, b)]
+<pre class="prettyprint"><code class="language-bosatsu">def zip[a, b](left: List[a], right: List[b]) -&gt; List[(a, b)]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/List.md">here</a>.
@@ -283,6 +299,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../generated/core_alpha/Bosatsu/List.html#bosatsu-list" class="header"><code>Bosatsu/List</code></a>
   <ul>
+    <li><a href="../../../generated/core_alpha/Bosatsu/List.html#index" class="header">Index</a></li>
     <li><a href="../../../generated/core_alpha/Bosatsu/List.html#values" class="header">Values</a></li>
   </ul></li>
 </ul>
@@ -351,7 +368,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

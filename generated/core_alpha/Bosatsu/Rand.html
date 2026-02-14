@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -133,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b88056fc*
+0.0.0+1-7bd99cb1*
 </div>
 </div>
 <div class="nav-toc">
@@ -230,48 +230,66 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-rand" name="bosatsu-rand" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Rand</code></h1>
 <p>public dependencies: <code>Bosatsu/Num/Nat</code></p>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-rand"><code>Rand</code></a></li>
+  <li>Values: <a href="#value-bool-rand"><code>bool_Rand</code></a>, <a href="#value-const-rand"><code>const_Rand</code></a>, <a href="#value-flat-map-rand"><code>flat_map_Rand</code></a>, <a href="#value-from-pair"><code>from_pair</code></a>, <a href="#value-geometric-int"><code>geometric_Int</code></a>, <a href="#value-int-range"><code>int_range</code></a>, <a href="#value-map-rand"><code>map_Rand</code></a>, <a href="#value-nat-range"><code>nat_range</code></a>, <a href="#value-one-of"><code>one_of</code></a>, <a href="#value-prod-rand"><code>prod_Rand</code></a>, <a href="#value-run-rand"><code>run_Rand</code></a>, <a href="#value-sequence-rand"><code>sequence_Rand</code></a></li>
+</ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-rand"></a>
 <h3><a href="#rand-a-" name="rand-a-" class="anchor"><span class="anchor-link"></span></a><code>Rand[a]</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">type Rand[a: +*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-bool-rand"></a>
 <h3><a href="#bool-rand" name="bool-rand" class="anchor"><span class="anchor-link"></span></a><code>bool_Rand</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">bool_Rand: Rand[Bool]
 </code></pre>
+<a id="value-const-rand"></a>
 <h3><a href="#const-rand" name="const-rand" class="anchor"><span class="anchor-link"></span></a><code>const_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def const_Rand[a](arg1: a) -&gt; Rand[a]
+<pre class="prettyprint"><code class="language-bosatsu">def const_Rand[a](a: a) -&gt; Rand[a]
 </code></pre>
+<a id="value-flat-map-rand"></a>
 <h3><a href="#flat-map-rand" name="flat-map-rand" class="anchor"><span class="anchor-link"></span></a><code>flat_map_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flat_map_Rand[a, b](arg1: Rand[a], arg2: a -&gt; Rand[b]) -&gt; Rand[b]
+<pre class="prettyprint"><code class="language-bosatsu">def flat_map_Rand[a, b](r: Rand[a], fn: a -&gt; Rand[b]) -&gt; Rand[b]
 </code></pre>
+<a id="value-from-pair"></a>
 <h3><a href="#from-pair" name="from-pair" class="anchor"><span class="anchor-link"></span></a><code>from_pair</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def from_pair[a](arg1: Rand[a], arg2: Rand[a]) -&gt; Rand[a]
+<pre class="prettyprint"><code class="language-bosatsu">def from_pair[a](left: Rand[a], right: Rand[a]) -&gt; Rand[a]
 </code></pre>
+<a id="value-geometric-int"></a>
 <h3><a href="#geometric-int" name="geometric-int" class="anchor"><span class="anchor-link"></span></a><code>geometric_Int</code></h3>
 <p>geometric distribution with mean 1</p>
 <pre class="prettyprint"><code class="language-bosatsu">geometric_Int: Rand[Int]
 </code></pre>
+<a id="value-int-range"></a>
 <h3><a href="#int-range" name="int-range" class="anchor"><span class="anchor-link"></span></a><code>int_range</code></h3>
 <p>if you pass high &lt;= 0, you get const_Rand(0)</p>
-<pre class="prettyprint"><code class="language-bosatsu">def int_range(arg1: Int) -&gt; Rand[Int]
+<pre class="prettyprint"><code class="language-bosatsu">def int_range(high: Int) -&gt; Rand[Int]
 </code></pre>
+<a id="value-map-rand"></a>
 <h3><a href="#map-rand" name="map-rand" class="anchor"><span class="anchor-link"></span></a><code>map_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map_Rand[a, b](arg1: Rand[a], arg2: a -&gt; b) -&gt; Rand[b]
+<pre class="prettyprint"><code class="language-bosatsu">def map_Rand[a, b](r: Rand[a], fn: a -&gt; b) -&gt; Rand[b]
 </code></pre>
+<a id="value-nat-range"></a>
 <h3><a href="#nat-range" name="nat-range" class="anchor"><span class="anchor-link"></span></a><code>nat_range</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def nat_range(arg1: Bosatsu/Num/Nat::Nat) -&gt; Rand[Bosatsu/Num/Nat::Nat]
+<pre class="prettyprint"><code class="language-bosatsu">def nat_range(high: Bosatsu/Num/Nat::Nat) -&gt; Rand[Bosatsu/Num/Nat::Nat]
 </code></pre>
+<a id="value-one-of"></a>
 <h3><a href="#one-of" name="one-of" class="anchor"><span class="anchor-link"></span></a><code>one_of</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def one_of[a](arg1: Rand[a], arg2: List[Rand[a]]) -&gt; Rand[a]
+<pre class="prettyprint"><code class="language-bosatsu">def one_of[a](head: Rand[a], tail: List[Rand[a]]) -&gt; Rand[a]
 </code></pre>
+<a id="value-prod-rand"></a>
 <h3><a href="#prod-rand" name="prod-rand" class="anchor"><span class="anchor-link"></span></a><code>prod_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def prod_Rand[a, b](arg1: Rand[a], arg2: Rand[b]) -&gt; Rand[(a, b)]
+<pre class="prettyprint"><code class="language-bosatsu">def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -&gt; Rand[(a, b)]
 </code></pre>
+<a id="value-run-rand"></a>
 <h3><a href="#run-rand" name="run-rand" class="anchor"><span class="anchor-link"></span></a><code>run_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def run_Rand[a](arg1: Rand[a], arg2: Int) -&gt; a
+<pre class="prettyprint"><code class="language-bosatsu">def run_Rand[a](rand: Rand[a], seed: Int) -&gt; a
 </code></pre>
+<a id="value-sequence-rand"></a>
 <h3><a href="#sequence-rand" name="sequence-rand" class="anchor"><span class="anchor-link"></span></a><code>sequence_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sequence_Rand[a](arg1: List[Rand[a]]) -&gt; Rand[List[a]]
+<pre class="prettyprint"><code class="language-bosatsu">def sequence_Rand[a](rands: List[Rand[a]]) -&gt; Rand[List[a]]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Rand.md">here</a>.
@@ -289,6 +307,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <ul>
   <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html#bosatsu-rand" class="header"><code>Bosatsu/Rand</code></a>
   <ul>
+    <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html#index" class="header">Index</a></li>
     <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html#types" class="header">Types</a></li>
     <li><a href="../../../generated/core_alpha/Bosatsu/Rand.html#values" class="header">Values</a></li>
   </ul></li>
@@ -358,7 +377,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b88056fc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7bd99cb1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
