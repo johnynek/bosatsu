@@ -30,29 +30,67 @@ object PackageError {
       ident: Identifier,
       existing: Iterable[(Identifier, A)],
       count: Int
-  ): List[(Identifier, A)] = {
-    val istr = ident.asString
-    val prefixes =
-      existing.iterator.filter { case (i, _) =>
-        i.asString.startsWith(istr)
-      }.toList
+  ): List[(Identifier, A)] =
+    NameSuggestion
+      .nearest(
+        ident,
+        existing.iterator.map { case (i, a) =>
+          NameSuggestion.Candidate(i, a)
+        }.toList,
+        count
+      )
+      .map(c => (c.ident, c.value))
 
-    val close = existing.iterator
-      .map { case (i, a) =>
-        val d = EditDistance.string(istr, i.asString)
-        (i, d, a)
-      }
-      .filter { case (i, d, _) =>
-        // don't show things that require total edits
-        (d < istr.length) && (d < i.asString.length)
-      }
-      .toList
-      .sortBy { case (_, d, _) => d }
-      .take(count)
-      .map { case (i, _, a) => (i, a) }
+  private def quoted(ident: Identifier): Doc =
+    Doc.char('`') + Doc.text(ident.sourceCodeRepr) + Doc.char('`')
 
-    (prefixes.sortBy(_._1) ::: close).distinct
-  }
+  private def suggestedName(
+      ident: Identifier,
+      label: Option[String]
+  ): Doc =
+    label match {
+      case None          => quoted(ident)
+      case Some(lblText) => Doc.text(lblText) + Doc.space + quoted(ident)
+    }
+
+  private def didYouMeanDoc(
+      suggestions: List[(Identifier, Option[String])]
+  ): Doc =
+    suggestions match {
+      case Nil => Doc.empty
+      case (ident, label) :: Nil =>
+        Doc.hardLine + Doc.text("Did you mean ") + suggestedName(
+          ident,
+          label
+        ) + Doc.char('?')
+      case many =>
+        val docs = many.map { case (ident, label) =>
+          suggestedName(ident, label)
+        }
+        Doc.hardLine + Doc.text("Did you mean one of: ") +
+          Doc
+            .intercalate(Doc.text(",") + Doc.lineOrSpace, docs)
+            .grouped + Doc.char('?')
+    }
+
+  private def nearestConstructorsDoc(
+      suggestions: List[Identifier.Constructor]
+  ): Doc =
+    suggestions match {
+      case Nil => Doc.empty
+      case one :: Nil =>
+        Doc.hardLine + Doc.text("Did you mean constructor ") + quoted(
+          one
+        ) + Doc.char('?')
+      case many =>
+        Doc.hardLine + Doc.text("Nearest constructors in scope: ") +
+          Doc
+            .intercalate(
+              Doc.text(",") + Doc.lineOrSpace,
+              many.map(quoted)
+            )
+            .grouped + Doc.char('.')
+    }
 
   private val emptyLocMap = LocationMap("")
 
@@ -403,6 +441,19 @@ object PackageError {
         acc.toList
       }
 
+      def occurrenceDoc(label: String, count: Int): Doc =
+        if (count > 1)
+          Doc.hardLine + Doc.text(s"This unknown $label appears $count times.")
+        else Doc.empty
+
+      def isUseBeforeDef(name: Identifier, region: Region): Boolean =
+        name match {
+          case b: Identifier.Bindable =>
+            letNameRegions.get(b).exists(_.start > region.start)
+          case _ =>
+            false
+        }
+
       def withSuppressed(doc: Doc, suppressed: Int): Doc =
         if (suppressed <= 0) doc
         else
@@ -410,7 +461,11 @@ object PackageError {
             s"($suppressed additional related mismatches suppressed)"
           )
 
-      def singleToDoc(tpeErr: Infer.Error.Single, suppressed: Int): Doc = {
+      def singleToDoc(
+          tpeErr: Infer.Error.Single,
+          occurrences: Int,
+          suppressed: Int
+      ): Doc = {
         val (teMessage, region) = tpeErr match {
           case c @ Infer.Error.ContextualTypeError(site, _, cause) =>
             site match {
@@ -586,26 +641,43 @@ object PackageError {
                   Some(region)
                 )
               case None =>
-                val names =
-                  (scope.map { case ((_, n), _) => n }.toList ::: lets.map(
-                    _._1
-                  )).distinct
-
-                val candidates: List[String] =
-                  nearest(name, names.map((_, ())), 3)
-                    .map { case (n, _) => n.sourceCodeRepr }
-
-                val cmessage =
-                  if (candidates.nonEmpty)
-                    candidates.mkString("\nClosest: ", ", ", ".\n")
-                  else ""
-
+                val inScopeCandidates = scope.iterator.map { case ((p, n), _) =>
+                  val pri =
+                    p match {
+                      case None                   => NameSuggestion.ScopePriority.Local
+                      case Some(pn) if pn == pack => NameSuggestion.ScopePriority.SamePackage
+                      case Some(_)                => NameSuggestion.ScopePriority.Imported
+                    }
+                  NameSuggestion.Candidate(n, pri, pri)
+                }
+                val letCandidates = lets.iterator.map { case (n, _, _) =>
+                  NameSuggestion.Candidate(
+                    n,
+                    NameSuggestion.ScopePriority.Local,
+                    NameSuggestion.ScopePriority.Local
+                  )
+                }
+                val allCandidates =
+                  inScopeCandidates.toList ::: letCandidates.toList
+                val candidates = NameSuggestion
+                  .nearest(name, allCandidates, 3)
+                  .map { cand =>
+                    val label =
+                      cand.value match {
+                        case NameSuggestion.ScopePriority.Local |
+                            NameSuggestion.ScopePriority.SamePackage =>
+                          Some("local value")
+                        case NameSuggestion.ScopePriority.Imported =>
+                          None
+                      }
+                    (cand.ident, label)
+                  }
                 (
-                  Doc.text("name ") + Doc.text(qname) + Doc.text(
-                    " unknown."
-                  ) + Doc
-                    .text(cmessage) + Doc.hardLine +
-                    ctx,
+                  Doc.text("Unknown name ") + quoted(name) + Doc.char('.') +
+                    didYouMeanDoc(candidates) + occurrenceDoc(
+                      "name",
+                      occurrences
+                    ) + Doc.hardLine + ctx,
                   Some(region)
                 )
             }
@@ -637,21 +709,27 @@ object PackageError {
             (doc, Some(foundRegion))
 
           case uc @ Infer.Error.UnknownConstructor((_, n), region, _) =>
-            val near = nearest(
-              n,
-              uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap,
-              3
-            ).map { case (n, _) => n.sourceCodeRepr }
-
-            val nearStr =
-              if (near.isEmpty) ""
-              else near.mkString(", nearest: ", ", ", "")
+            val near = NameSuggestion
+              .nearest(
+                n,
+                uc.knownConstructors.map { case (p, c) =>
+                  val pri =
+                    if (p == pack) NameSuggestion.ScopePriority.SamePackage
+                    else NameSuggestion.ScopePriority.Imported
+                  NameSuggestion.Candidate(c, c, pri)
+                },
+                3
+              )
+              .map(_.value)
 
             val context = contextDoc(region)
 
             val doc =
-              Doc.text("unknown constructor ") + Doc.text(n.sourceCodeRepr) +
-              Doc.text(nearStr) + Doc.hardLine + context
+              Doc.text("Unknown constructor ") + quoted(n) + Doc.char('.') +
+                nearestConstructorsDoc(near) + occurrenceDoc(
+                  "constructor",
+                  occurrences
+                ) + Doc.hardLine + context
             (doc, Some(region))
 
           case Infer.Error.KindCannotTyApply(applied, region) =>
@@ -850,13 +928,53 @@ object PackageError {
         withSuppressed(h + Doc.hardLine + teMessage, suppressed)
       }
 
+      def aggregateSingles(
+          errs: List[(Infer.Error.Single, Int)]
+      ): List[(Infer.Error.Single, Int, Int)] = {
+        val bldr = scala.collection.mutable.ArrayBuffer
+          .empty[(Infer.Error.Single, Int, Int)]
+        val indexOfKey = scala.collection.mutable.Map.empty[(Int, Identifier), Int]
+
+        def add(err: Infer.Error.Single, suppressed: Int): Unit =
+          bldr.append((err, 1, suppressed))
+
+        errs.foreach { case (err, suppressed) =>
+          val keyOpt =
+            err match {
+              case Infer.Error.VarNotInScope((_, n), _, region)
+                  if !isUseBeforeDef(n, region) =>
+                Some((0, n))
+              case Infer.Error.UnknownConstructor((_, n), _, _) =>
+                Some((1, n))
+              case _ =>
+                None
+            }
+
+          keyOpt match {
+            case Some(key) =>
+              indexOfKey.get(key) match {
+                case Some(idx) =>
+                  val (first, count, currentSuppressed) = bldr(idx)
+                  bldr.update(idx, (first, count + 1, currentSuppressed + suppressed))
+                case None =>
+                  indexOfKey.update(key, bldr.size)
+                  add(err, suppressed)
+              }
+            case None =>
+              add(err, suppressed)
+          }
+        }
+        bldr.toList
+      }
+
       val finalDoc = tpeErr match {
-        case s: Infer.Error.Single         => singleToDoc(s, 0)
+        case s: Infer.Error.Single =>
+          singleToDoc(s, occurrences = 1, suppressed = 0)
         case c @ Infer.Error.Combine(_, _) =>
           val twoLines = Doc.hardLine + Doc.hardLine
-          dedupSingles(c.flatten.iterator.toList)
-            .map { case (single, suppressed) =>
-              singleToDoc(single, suppressed)
+          aggregateSingles(dedupSingles(c.flatten.iterator.toList))
+            .map { case (single, occurrences, suppressed) =>
+              singleToDoc(single, occurrences, suppressed)
             }
             .reduce((a, b) => a + (twoLines + b))
       }
@@ -996,8 +1114,21 @@ object PackageError {
               Doc.text(
                 s"arity mismatch: ${n.sourceCodeRepr} expected $exp parameters, found $found"
               )
-            case UnknownConstructor((_, n), _, _) =>
-              Doc.text(s"unknown constructor: ${n.sourceCodeRepr}")
+            case UnknownConstructor((_, n), _, env) =>
+              val near = NameSuggestion
+                .nearest(
+                  n,
+                  env.typeConstructors.keysIterator.map { case (p, c) =>
+                    val pri =
+                      if (p == pack) NameSuggestion.ScopePriority.SamePackage
+                      else NameSuggestion.ScopePriority.Imported
+                    NameSuggestion.Candidate(c, c, pri)
+                  }.toList,
+                  3
+                )
+                .map(_.value)
+              Doc.text("Unknown constructor ") + quoted(n) + Doc.char('.') +
+                nearestConstructorsDoc(near)
             case InvalidStrPat(pat, _) =>
               Doc.text(s"invalid string pattern: ") +
                 Document[Pattern.Parsed].document(pat) +

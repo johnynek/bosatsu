@@ -339,7 +339,21 @@ package B
 main = a""")) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("package B\nname \"a\" unknown"))
+      assert(msg.contains("package B\nUnknown name `a`."))
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+x = missing_name
+y = missing_name
+
+main = 1
+""")) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("Unknown name `missing_name`."))
+      assert(msg.contains("This unknown name appears 2 times."))
       ()
     }
 
@@ -376,7 +390,7 @@ main = match x:
 """)) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("package B\nunknown constructor Foo"))
+      assert(msg.contains("package B\nUnknown constructor `Foo`."))
       ()
     }
 
@@ -393,7 +407,7 @@ main = match 1:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package B\nunknown constructor X1\nRegion(49,50)"
+        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\nRegion(49,50)"
       )
       ()
     }
@@ -448,6 +462,30 @@ main = fn
           Colorize.None
         ),
         "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,47)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+def parse_loopTypo(x):
+  recur x:
+    case 0: parse_loop(x)
+    case _: parse_loop(x)
+
+main = parse_loopTypo
+""")) { case te @ PackageError.RecursionError(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "Function name looks renamed: declared `parse_loopTypo`, but recursive calls use `parse_loop`."
+        )
+      )
+      assert(
+        msg.contains(
+          "Did you mean `parse_loopTypo` in recursive calls? (2 occurrences)"
+        )
       )
       ()
     }
@@ -908,6 +946,79 @@ get = Pair(first, _, _, ...) -> first
 res = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
       s.message(Map.empty, Colorize.None); ()
+    }
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = Pair(first, _, ...) -> first
+
+res = get(Pair(1, "two"))
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""),
+      "A",
+      1
+    )
+
+    evalFail(List("""
+package A
+
+struct Pair(first, second)
+
+main = Nope { first: 1, second: "two" }
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = s.message(Map.empty, Colorize.None)
+      assert(msg.contains("Unknown constructor `Nope`."))
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+struct Pair(first, second)
+
+get = Nope(first, ...) -> first
+
+main = get(Pair(1, "two"))
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = s.message(Map.empty, Colorize.None)
+      assert(msg.contains("Unknown constructor `Nope`."))
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+struct Pair(first, second)
+
+get = Nope { first } -> first
+
+main = get(Pair(1, "two"))
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = s.message(Map.empty, Colorize.None)
+      assert(msg.contains("Unknown constructor `Nope`."))
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+struct Pair(first, second)
+
+get = Nope { first, ... } -> first
+
+main = get(Pair(1, "two"))
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = s.message(Map.empty, Colorize.None)
+      assert(msg.contains("Unknown constructor `Nope`."))
+      ()
     }
   }
 
@@ -1898,7 +2009,7 @@ main = Assertion(res, "")
   }
 
 
-  test("we always suggest names which share a prefix with an unknown name") {
+  test("unknown name suggestions prefer local names and include substring matches") {
     val testCode = List("""
 package P1
 
@@ -1911,16 +2022,221 @@ main = fof
 
     evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assertEquals(
-        message,
-        """in file: <unknown source>, package P1
-name "fof" unknown.
-Closest: fofoooooooo, ofof.
-
-Region(47,50)"""
+      assert(message.contains("in file: <unknown source>, package P1"))
+      assert(message.contains("Unknown name `fof`."))
+      assert(
+        message.contains(
+          "Did you mean one of: local value `fofoooooooo`, local value `ofof`?"
+        )
       )
+      assert(message.contains("Region(47,50)"))
       ()
     }
+  }
+
+  test("unknown name suggestions include candidates when one is a substring") {
+    val testCode = List("""
+package P1
+
+foo = 1
+
+main = xxfoo
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `xxfoo`."))
+      assert(message.contains("Did you mean local value `foo`?"))
+      ()
+    }
+  }
+
+  test("unknown constructor in type errors suggests nearest constructors") {
+    val pack = PackageName.parts("P")
+    val miss = Identifier.Constructor("JNul")
+    val known = Identifier.Constructor("JNull")
+    val inferEnv = new rankn.Infer.Env(
+      rankn.RefSpace.constRef(0L),
+      Map.empty,
+      Map(
+        (pack, known) -> (
+          Nil,
+          Nil,
+          Nil,
+          rankn.Type.Const.Defined(pack, TypeName(Identifier.Constructor("Json")))
+        )
+      ),
+      Map.empty
+    )
+    val err = PackageError.TypeErrorIn(
+      rankn.Infer.Error.UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
+      pack,
+      Nil,
+      Map.empty,
+      Map.empty,
+      Set.empty
+    )
+    val message = err.message(Map.empty, Colorize.None)
+    assert(message.contains("Unknown constructor `JNul`."), message)
+    assert(message.contains("Did you mean constructor `JNull`?"), message)
+  }
+
+  test("repeated unknown constructors are aggregated with occurrence counts") {
+    val pack = PackageName.parts("P")
+    val miss = Identifier.Constructor("JNul")
+    val known = Identifier.Constructor("JNull")
+    val inferEnv = new rankn.Infer.Env(
+      rankn.RefSpace.constRef(0L),
+      Map.empty,
+      Map(
+        (pack, known) -> (
+          Nil,
+          Nil,
+          Nil,
+          rankn.Type.Const.Defined(pack, TypeName(Identifier.Constructor("Json")))
+        )
+      ),
+      Map.empty
+    )
+    val err = PackageError.TypeErrorIn(
+      rankn.Infer.Error.Combine(
+        rankn.Infer.Error.UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
+        rankn.Infer.Error.UnknownConstructor((pack, miss), Region(2, 3), inferEnv)
+      ),
+      pack,
+      Nil,
+      Map.empty,
+      Map.empty,
+      Set.empty
+    )
+    val message = err.message(Map.empty, Colorize.None)
+    assert(message.contains("Unknown constructor `JNul`."), message)
+    assert(message.contains("This unknown constructor appears 2 times."), message)
+  }
+
+  test("unknown constructor in totality diagnostics suggests nearest constructors") {
+    val pack = PackageName.parts("P")
+    val known = Identifier.Constructor("JNull")
+    val miss = Identifier.Constructor("JNul")
+    val jsonDt = rankn.DefinedType[Nothing](
+      packageName = pack,
+      name = TypeName(Identifier.Constructor("Json")),
+      annotatedTypeParams = Nil,
+      constructors = List(rankn.ConstructorFn(known, Nil))
+    )
+    val typeEnv = rankn.TypeEnv.fromDefinitions(List(jsonDt))
+    given Region = Region(0, 1)
+    val tag = Declaration.Var(Identifier.Name("x"))
+    val pat: Pattern[(PackageName, Identifier.Constructor), rankn.Type] =
+      Pattern.PositionalStruct((pack, miss), Nil)
+    val lit = Expr.Literal[Declaration](Lit.Integer(0L), tag)
+    val matchExpr = Expr.Match(
+      lit,
+      cats.data.NonEmptyList.one(Expr.Branch(pat, None, lit)),
+      tag
+    )
+    val totalityErr = PackageError.TotalityCheckError(
+      pack,
+      TotalityCheck.InvalidPattern(
+        matchExpr,
+        TotalityCheck.UnknownConstructor((pack, miss), pat, typeEnv)
+      )
+    )
+    val message = totalityErr.message(Map.empty, Colorize.None)
+    assert(message.contains("Unknown constructor `JNul`."))
+    assert(message.contains("Did you mean constructor `JNull`?"))
+  }
+
+  test("source converter unknown constructor supports multiple suggestions and context") {
+    val miss = Identifier.Constructor("JBoool")
+    val pat = Pattern.PositionalStruct(
+      Pattern.StructKind.Named(miss, Pattern.StructKind.Style.TupleLike),
+      Pattern.WildCard :: Nil
+    )
+    val err = SourceConverter.UnknownConstructor(
+      miss,
+      pat,
+      List(
+        Identifier.Constructor("JBool"),
+        Identifier.Constructor("JBoole"),
+        Identifier.Constructor("JBooolX")
+      ),
+      Region(0, 1)
+    )
+    val message = err.message
+    assert(message.contains("Unknown constructor `JBoool`."))
+    assert(message.contains("Nearest constructors in scope:"))
+    assert(message.contains(" in"))
+  }
+
+  test("source converter unknown constructor can omit suggestions") {
+    val miss = Identifier.Constructor("Nope")
+    val pat = Pattern.PositionalStruct(
+      Pattern.StructKind.Named(miss, Pattern.StructKind.Style.TupleLike),
+      Nil
+    )
+    val err = SourceConverter.UnknownConstructor(miss, pat, Nil, Region(0, 1))
+    val message = err.message
+    assertEquals(message, "Unknown constructor `Nope`.")
+  }
+
+  test("name suggestion helper handles edge inputs and low-confidence candidates") {
+    val zeroCount = NameSuggestion.nearest(
+      Identifier.Name("abc"),
+      List(NameSuggestion.Candidate(Identifier.Name("abcd"), "x")),
+      0
+    )
+    assertEquals(zeroCount, Nil)
+
+    val emptyQuery = NameSuggestion.nearest(
+      Identifier.Name(""),
+      List(NameSuggestion.Candidate(Identifier.Name("abcd"), "x")),
+      3
+    )
+    assertEquals(emptyQuery, Nil)
+
+    val emptyCandidate = NameSuggestion.nearest(
+      Identifier.Name("abcd"),
+      List(NameSuggestion.Candidate(Identifier.Name(""), "x")),
+      3
+    )
+    assertEquals(emptyCandidate, Nil)
+
+    val lowConfidence = NameSuggestion.nearest(
+      Identifier.Name("abcdef"),
+      List(NameSuggestion.Candidate(Identifier.Name("uvwxyz"), "x")),
+      3
+    )
+    assertEquals(lowConfidence, Nil)
+  }
+
+  test("name suggestion fallback heuristic catches close edits without shared prefixes") {
+    val suggestions = NameSuggestion.nearest(
+      Identifier.Name("abbbbbbb"),
+      List(NameSuggestion.Candidate(Identifier.Name("axbbbbbb"), "fallback-hit")),
+      3
+    )
+    assertEquals(suggestions.map(_.value), List("fallback-hit"))
+  }
+
+  test("name suggestion deduplicates names and keeps strongest scope match") {
+    val suggestions = NameSuggestion.nearest(
+      Identifier.Name("computd"),
+      List(
+        NameSuggestion.Candidate(
+          Identifier.Name("computed"),
+          "imported",
+          NameSuggestion.ScopePriority.Imported
+        ),
+        NameSuggestion.Candidate(
+          Identifier.Name("computed"),
+          "local",
+          NameSuggestion.ScopePriority.Local
+        )
+      ),
+      3
+    )
+    assertEquals(suggestions.map(_.value), List("local"))
   }
 
 }
