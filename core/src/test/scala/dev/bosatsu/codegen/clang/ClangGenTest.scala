@@ -474,6 +474,320 @@ main = is_one
     }
   }
 
+  test("single-constructor enum lowers as NewType in local match") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+# Boxed has one constructor with one field; this should lower as NewType.
+enum Boxed:
+  Box(v: Nat)
+
+def local_unbox(x):
+  match Box(x):
+    case Box(v): v
+
+main = local_unbox
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__unbox\\(BValue __bsts_b_x0\\) \\{.*return __bsts_b_x0;".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__unbox\\(BValue __bsts_b_x0\\) \\{.*alloc_enum1\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__unbox\\(BValue __bsts_b_x0\\) \\{.*BSTS_STACK_ALLOC_ENUM\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("single-constructor enum argument call lowers as NewType") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+# Boxed has one constructor with one field; this should lower as NewType.
+enum Boxed:
+  Box(v: Nat)
+
+def apply_box(fn, x):
+  fn(Box(x))
+
+main = apply_box
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_apply__box\\(BValue __bsts_b_fn0,\\s*BValue __bsts_b_x0\\) \\{.*call_fn1\\(__bsts_b_fn0,\\s*__bsts_b_x0\\)".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_apply__box\\(BValue __bsts_b_fn0,\\s*BValue __bsts_b_x0\\) \\{.*alloc_enum1\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_apply__box\\(BValue __bsts_b_fn0,\\s*BValue __bsts_b_x0\\) \\{.*BSTS_STACK_ALLOC_ENUM\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("local struct constructor can be simplified away") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+struct Pair(a: Nat, b: Nat)
+
+def local_pair_sum(x):
+  match Pair(x, Z):
+    case Pair(a, _): a
+
+main = local_pair_sum
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__pair__sum\\(BValue __bsts_b_x0\\) \\{.*return __bsts_b_x0;".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__pair__sum\\(BValue __bsts_b_x0\\) \\{.*alloc_struct2\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_local__pair__sum\\(BValue __bsts_b_x0\\) \\{.*BSTS_STACK_ALLOC_STRUCT\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("does not stack allocate returned struct constructor") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+struct Pair(a: Nat, b: Nat)
+
+def mk_pair(x):
+  Pair(x, Z)
+
+main = mk_pair
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__pair\\(BValue __bsts_b_x0\\) \\{.*alloc_struct2\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__pair\\(BValue __bsts_b_x0\\) \\{.*BSTS_STACK_ALLOC_STRUCT\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("nested local newtype+struct chain can be simplified away") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+struct Pair(a: Nat, b: Nat)
+
+# Boxed has one constructor with one field; this should lower as NewType.
+enum Boxed:
+  Box(v: Pair)
+
+def nested_local(x):
+  match Box(Pair(x, Z)):
+    case Box(Pair(a, _)): a
+
+main = nested_local
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_nested__local\\(BValue __bsts_b_x0\\) \\{[^}]*return __bsts_b_x0;".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_nested__local\\(BValue __bsts_b_x0\\) \\{[^}]*BSTS_STACK_ALLOC_ENUM\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_nested__local\\(BValue __bsts_b_x0\\) \\{[^}]*BSTS_STACK_ALLOC_STRUCT\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("single-constructor enum escape keeps struct allocation without enum allocation") {
+    TestUtils.checkPackageMap("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+struct Pair(a: Nat, b: Nat)
+
+# Boxed has one constructor with one field; this should lower as NewType.
+enum Boxed:
+  Box(v: Pair)
+
+def mk_box(x):
+  Box(Pair(x, Z))
+
+main = mk_box
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__box\\(BValue __bsts_b_x0\\) \\{[^}]*alloc_struct2\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__box\\(BValue __bsts_b_x0\\) \\{[^}]*alloc_enum1\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__box\\(BValue __bsts_b_x0\\) \\{[^}]*BSTS_STACK_ALLOC_(STRUCT|ENUM)\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("does not stack allocate constructor passed to non-whitelisted external call") {
+    TestUtils.checkPackageMap("""
+external def opaque_id[a](x: a) -> a
+enum Nat:
+  Z
+  S(prev: Nat)
+
+struct Pair(a: Nat, b: Nat)
+
+def mk_pair_via_opaque(x):
+  opaque_id(Pair(x, Z))
+
+main = mk_pair_via_opaque
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__pair__via__opaque\\(BValue __bsts_b_x0\\) \\{[^}]*alloc_struct2\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "(?s)BValue ___bsts_g_.*_l_mk__pair__via__opaque\\(BValue __bsts_b_x0\\) \\{[^}]*BSTS_STACK_ALLOC_STRUCT\\d+\\(".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
   def mockCodePointFn(bytes: Array[Byte], offset: Int): Int = {
     def s(i: Int) = bytes(offset + i).toInt & 0xff
 
