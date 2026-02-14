@@ -169,7 +169,7 @@ main = go(IntCase(42))
       val msg = te.message(packs, Colorize.None)
       assert(
         msg.contains(
-          "type error: expected type Bosatsu/Predef::Int to be the same as type Bosatsu/Predef::String"
+          "type error: expected type Int but found type String"
         )
       )
       ()
@@ -622,15 +622,17 @@ main = fn([1, 2])
     evalFail(code1571 :: Nil) { case te: PackageError.TypeErrorIn =>
       // Make sure we point at the function directly
       assertEquals(code1571.substring(67, 69), "fn")
+      val msg = te.message(Map.empty, Colorize.None)
       assert(
-        te.message(Map.empty, Colorize.None)
-          .contains(
-            "the first type is a function with one argument and the second is a function with 2 arguments"
+        msg.contains(
+          "the first type is a function with one argument and the second is a function with 2 arguments"
+        ) ||
+          msg.contains(
+            "the first type is a function with 2 arguments and the second is a function with one argument"
           )
       )
       assert(
-        te.message(Map.empty, Colorize.None)
-          .contains("Region(67,69)")
+        msg.contains("Region(67,69)")
       )
       ()
     }
@@ -1319,8 +1321,84 @@ main = 10
 """)) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(msg.contains("package A"), msg)
-      assert(msg.contains("type error: expected type"), msg)
+      assert(msg.contains("type mismatch in call to Bosatsu/Predef::add"), msg)
       assert(msg.contains("Region(28,31)"), msg)
+      ()
+    }
+  }
+
+
+  test("match pattern mismatch reports scrutinee and pattern types") {
+    val src = """
+package A
+
+def under_twenty(n: Int) -> Int:
+  match n:
+    case "oops" | 2 | 6: 3
+
+main = under_twenty(3)
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("pattern type mismatch"), msg)
+      assert(msg.contains("expected scrutinee type: Int"), msg)
+      assert(msg.contains("found pattern type: String"), msg)
+      ()
+    }
+  }
+
+
+  test("repeated related mismatches show all evidence sites in combined errors") {
+    val region0 = Region(10, 11)
+    val region1 = Region(20, 21)
+    val region2 = Region(30, 31)
+    val err = rankn.Infer.Error.Combine(
+      rankn.Infer.Error.NotUnifiable(
+        rankn.Type.IntType,
+        rankn.Type.StrType,
+        region0,
+        region1,
+        rankn.Infer.Error.Direction.ExpectRight
+      ),
+      rankn.Infer.Error.NotUnifiable(
+        rankn.Type.IntType,
+        rankn.Type.StrType,
+        region0,
+        region2,
+        rankn.Infer.Error.Direction.ExpectRight
+      )
+    )
+
+    val pe = PackageError.TypeErrorIn(
+      err,
+      PackageName.parts("A"),
+      lets = Nil,
+      externals = Map.empty,
+      letNameRegions = Map.empty,
+      localTypeNames = Set.empty
+    )
+    val msg = pe.message(Map.empty, Colorize.None)
+    assert(msg.contains("evidence sites:"), msg)
+    assert(msg.contains("Region(20,21)"), msg)
+    assert(msg.contains("Region(30,31)"), msg)
+  }
+
+  test("call mismatch keeps expected/found orientation after meta solving") {
+    val src = """
+package A
+
+def same(x: a, y: a) -> Bool:
+  True
+
+main = same(1, "x")
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("type mismatch in call to same"), msg)
+      assert(msg.contains("expected: Int"), msg)
+      assert(msg.contains("found: String"), msg)
       ()
     }
   }
@@ -1465,7 +1543,7 @@ x = bar
           Map.empty,
           Colorize.None
         ),
-        "in <unknown source> export bar of type Foo::Bar has an unexported (private) type."
+        "in <unknown source> export bar of type Bar has an unexported (private) type."
       )
       ()
     }
@@ -1535,7 +1613,7 @@ struct Foo[a: *](a: a[Int])
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package Foo
-shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
+shape error: expected * -> ? but found * in the constructor Foo inside type a[Int]
 
 Region(14,41)"""
       )
@@ -1562,7 +1640,7 @@ def makeFoo(v: Int): Foo(Id(v))
 kind error: the type: ?0 of kind: (* -> *) -> * at: 
 Region(183,188)
 
-cannot be unified with the type Foo::Id of kind: +* -> *
+cannot be unified with the type Id of kind: +* -> *
 because the first kind does not subsume the second."""
       )
       ()
@@ -1582,7 +1660,7 @@ def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package Foo
-kind error: the type: Foo::Foo[Foo::Id] is invalid because the left Foo::Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Foo::Id has kind +* -> * but left cannot accept the kind of the right:
+kind error: the type: Foo[Id] is invalid because the left Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Id has kind +* -> * but left cannot accept the kind of the right:
 Region(195,205)"""
       )
       ()
@@ -1610,11 +1688,11 @@ def quick_sort0(cmp, left, right):
       assertEquals(
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package QS
-type error: expected type Bosatsu/Predef::Fn3[(?17, ?9) -> Bosatsu/Predef::Comparison]
-Region(403,414)
-to be the same as type Bosatsu/Predef::Fn2
-hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
-Region(415,424)"""
+type error: expected type Fn2
+Region(415,424)
+but found type Fn3[(?17, ?9) -> Comparison]
+hint: the first type is a function with 2 arguments and the second is a function with 3 arguments.
+Region(403,414)"""
       )
       ()
     }
@@ -1727,7 +1805,7 @@ enum FreeF[a]:
     evalFail(List(testCode)) {
       case kie @ PackageError.KindInferenceError(_, _, _) =>
         assertMessage(kie.message(Map.empty, Colorize.None))
-      case kie @ PackageError.TypeErrorIn(_, _, _, _, _) =>
+      case kie @ PackageError.TypeErrorIn(_, _, _, _, _, _) =>
         assertMessage(kie.message(Map.empty, Colorize.None))
     }
   }
@@ -1997,11 +2075,12 @@ main = xxfoo
       pack,
       Nil,
       Map.empty,
-      Map.empty
+      Map.empty,
+      Set.empty
     )
     val message = err.message(Map.empty, Colorize.None)
-    assert(message.contains("Unknown constructor `JNul`."))
-    assert(message.contains("Did you mean constructor `JNull`?"))
+    assert(message.contains("Unknown constructor `JNul`."), message)
+    assert(message.contains("Did you mean constructor `JNull`?"), message)
   }
 
   test("repeated unknown constructors are aggregated with occurrence counts") {
@@ -2029,11 +2108,12 @@ main = xxfoo
       pack,
       Nil,
       Map.empty,
-      Map.empty
+      Map.empty,
+      Set.empty
     )
     val message = err.message(Map.empty, Colorize.None)
-    assert(message.contains("Unknown constructor `JNul`."))
-    assert(message.contains("This unknown constructor appears 2 times."))
+    assert(message.contains("Unknown constructor `JNul`."), message)
+    assert(message.contains("This unknown constructor appears 2 times."), message)
   }
 
   test("unknown constructor in totality diagnostics suggests nearest constructors") {
