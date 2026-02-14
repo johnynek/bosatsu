@@ -19,6 +19,7 @@ import dev.bosatsu.{
 }
 import dev.bosatsu.rankn.{DefinedType, Type}
 import org.typelevel.paiges.Doc
+import java.util.Locale
 
 object MarkdownDoc {
   private val fnTypeRegex = raw"^Fn\d+$$".r
@@ -110,18 +111,22 @@ object MarkdownDoc {
     val empty: SourceDocs = SourceDocs(Map.empty, Map.empty)
 
     private def normalizeComment(lines: List[String]): List[String] = {
+      val filtered = lines
+        .map(_.replaceAll("\\s+$", ""))
+        .filterNot { line =>
+          val trimmed = line.trim
+          trimmed.isEmpty || trimmed.forall(_ == '#')
+        }
+
       val stripSingleLeadingSpace =
-        lines.exists(_.nonEmpty) &&
-          lines.filter(_.nonEmpty).forall(_.startsWith(" "))
+        filtered.exists(_.nonEmpty) &&
+          filtered.filter(_.nonEmpty).forall(_.startsWith(" "))
 
-      val stripped =
-        if (stripSingleLeadingSpace) {
-          lines.map { line =>
-            if (line.nonEmpty) line.drop(1) else line
-          }
-        } else lines
-
-      stripped.map(_.replaceAll("\\s+$", ""))
+      if (stripSingleLeadingSpace) {
+        filtered.map { line =>
+          if (line.nonEmpty) line.drop(1) else line
+        }
+      } else filtered
     }
 
     private def paramNameFromPattern(
@@ -289,6 +294,24 @@ object MarkdownDoc {
   private def inlineCode(str: String): Doc =
     Doc.char('`') + Doc.text(str.replace("`", "\\`")) + Doc.char('`')
 
+  private def markdownCodeLink(label: String, id: String): Doc =
+    Doc.text(show"[`${label.replace("`", "\\`")}`](#$id)")
+
+  private def anchorSlug(raw: String): String = {
+    val lowered = raw.toLowerCase(Locale.ROOT)
+    val mapped = lowered.map { ch =>
+      if (ch.isLetterOrDigit) ch else '-'
+    }
+    val collapsed = mapped.split("-+").toList.filter(_.nonEmpty).mkString("-")
+    if (collapsed.isEmpty) "item" else collapsed
+  }
+
+  private def typeAnchorId(dt: DefinedType[Kind.Arg]): String =
+    show"type-${anchorSlug(dt.name.asString)}"
+
+  private def valueAnchorId(name: Identifier.Bindable): String =
+    show"value-${anchorSlug(name.sourceCodeRepr)}"
+
   private def fenced(language: String, content: Doc): Doc =
     Doc.text(show"```$language") + Doc.hardLine + content + Doc.hardLine + Doc
       .text("```")
@@ -370,6 +393,9 @@ object MarkdownDoc {
     prefix + localName + suffix
   }
 
+  private def typeIndexName(dt: DefinedType[Kind.Arg], ctx: RenderCtx): String =
+    typeNamePrefix(dt, ctx) + dt.name.asString
+
   private def localTypeNames(pack: Package.Typed[Any]): Set[TypeName] =
     pack.types.definedTypes.iterator.collect {
       case ((pn, tn), _) if pn == pack.name => tn
@@ -427,6 +453,7 @@ object MarkdownDoc {
     else {
       val entries = values.map { case (name, tpe) =>
         val valueInfo = docs.values.getOrElse(name, ValueDocInfo.empty)
+        val anchor = Doc.text(show"<a id=\"${valueAnchorId(name)}\"></a>")
         val title = Doc.text("### ") + inlineCode(name.sourceCodeRepr)
         val comment = maybeComment(valueInfo.comment)
         val signature =
@@ -434,7 +461,7 @@ object MarkdownDoc {
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(title), comment, Some(signature)).flatten
+          List(Some(anchor), Some(title), comment, Some(signature)).flatten
         )
       }
 
@@ -479,6 +506,7 @@ object MarkdownDoc {
     else {
       val entries = types.map { td =>
         val dt = td.dt
+        val anchor = Doc.text(show"<a id=\"${typeAnchorId(dt)}\"></a>")
         val title = Doc.text("### ") + inlineCode(typeDisplayName(dt, ctx))
         val comment = docs.types.get(dt.name.ident).flatMap(maybeComment)
         val typeSig = fenced("bosatsu", typeSignatureDoc(dt, ctx))
@@ -503,7 +531,7 @@ object MarkdownDoc {
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(title), comment, Some(typeSig), constructors).flatten
+          List(Some(anchor), Some(title), comment, Some(typeSig), constructors).flatten
         )
       }
 
@@ -597,7 +625,53 @@ object MarkdownDoc {
     val values = valueDocs(pack)
     val types = typeDocs(pack)
 
+    val typeLinks =
+      types.map { td =>
+        val dt = td.dt
+        (typeIndexName(dt, ctx), typeAnchorId(dt))
+      }
+    val valueLinks =
+      values.map { case (name, _) =>
+        (name.sourceCodeRepr, valueAnchorId(name))
+      }
+    val indexItems = List(
+      if (typeLinks.isEmpty) None
+      else
+        Some(
+          (Doc.text("- Types: ") + Doc
+            .intercalate(
+              Doc.comma + Doc.lineOrSpace,
+              typeLinks.map { case (label, id) =>
+                markdownCodeLink(label, id)
+              }
+            ))
+            .grouped
+        ),
+      if (valueLinks.isEmpty) None
+      else
+        Some(
+          (Doc.text("- Values: ") + Doc
+            .intercalate(
+              Doc.comma + Doc.lineOrSpace,
+              valueLinks.map { case (label, id) =>
+                markdownCodeLink(label, id)
+              }
+            ))
+            .grouped
+        )
+    ).flatten
+    val indexSection =
+      if (indexItems.isEmpty) None
+      else
+        Some(
+          Doc.text("## Index") + Doc.hardLine + Doc.hardLine + Doc.intercalate(
+            Doc.hardLine,
+            indexItems
+          )
+        )
+
     val sections = List(
+      indexSection,
       renderTypeSection(types, docs, ctx),
       renderValueSection(values, docs, ctx)
     ).flatten

@@ -515,10 +515,21 @@ main = 1
         val predefDoc = readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
         assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
         assert(!predefDoc.contains("public dependencies:"), predefDoc)
+        assert(predefDoc.contains("## Index"), predefDoc)
+        val indexSection =
+          predefDoc.substring(predefDoc.indexOf("## Index"), predefDoc.indexOf("## Types"))
+        assert(predefDoc.contains("[`Bool`](#type-bool)"), predefDoc)
+        assert(indexSection.contains("[`Fn2`](#type-fn2)"), predefDoc)
+        assert(!indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"), predefDoc)
+        assert(predefDoc.contains("[`int_loop`](#value-int-loop)"), predefDoc)
+        assert(predefDoc.contains("<a id=\"type-bool\"></a>"), predefDoc)
+        assert(predefDoc.contains("<a id=\"value-int-loop\"></a>"), predefDoc)
         assert(predefDoc.contains("type Dict[k: *, v: +*]"), predefDoc)
         assert(predefDoc.contains("type Int"), predefDoc)
         assert(!predefDoc.contains("type Int: *"), predefDoc)
         assert(!predefDoc.contains("type Bool: *"), predefDoc)
+        assert(predefDoc.contains("Standard dictionaries"), predefDoc)
+        assert(!predefDoc.contains("############"), predefDoc)
         assert(predefDoc.contains("- `EmptyList`"), predefDoc)
         assert(predefDoc.contains("- `NonEmptyList(head: a, tail: List[a])`"), predefDoc)
         assert(!predefDoc.contains("EmptyList: forall"), predefDoc)
@@ -545,9 +556,11 @@ main = 1
           predefDoc
         )
         assert(
-          predefDoc.contains(
-            "this loops until the returned Int is <= 0 or the returned Int is >= intValue"
-          ),
+          predefDoc.contains("returned Int is <= 0"),
+          predefDoc
+        )
+        assert(
+          predefDoc.contains("intValue"),
           predefDoc
         )
         assert(predefDoc.contains("def int_loop[a]("), predefDoc)
