@@ -51,7 +51,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   }
 
   BValue res = bsts_string_mut(total_len);
-  char* out = bsts_string_utf8_bytes_mut(res);
+  char* out = bsts_string_utf8_bytes(res);
   amut = a;
   v = get_variant(amut);
 
@@ -107,7 +107,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
   else {
     // we allocate some bytes and copy
     res = bsts_string_mut(total_len);
-    char* bytes = bsts_string_utf8_bytes_mut(res);
+    char* bytes = bsts_string_utf8_bytes(res);
     char* current_pos = bytes;
     // reset to go through the list
     amut = a;
@@ -115,7 +115,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
     while (v != 0) {
       BValue str = get_enum_index(amut, 0);
       size_t str_len = bsts_string_utf8_len(str);
-      const char* str_bytes = bsts_string_utf8_bytes(str);
+      char* str_bytes = bsts_string_utf8_bytes(str);
       memcpy(current_pos, str_bytes, str_len);
       current_pos += str_len;
       amut = get_enum_index(amut, 1);

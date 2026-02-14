@@ -258,7 +258,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def currentTop: T[Option[(K, PackageName, Bindable)]]
       def staticValueName(k: K, p: PackageName, b: Bindable): T[Code.Ident]
       def constructorFn(k: K, p: PackageName, b: Bindable): T[Code.Ident]
-      def staticStringLiteral(s: String): T[Code.ValueLike]
 
       def cachedIdent(key: Expr[K])(value: => T[Code.Ident]): T[Code.Ident]
 
@@ -454,7 +453,34 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       object StringApi {
         def fromString(s: String): T[Code.ValueLike] = {
-          staticStringLiteral(s)
+          // convert to utf8 and then to a literal array of bytes
+          val bytes = s.getBytes(StandardCharsets.UTF_8)
+          if (bytes.forall(_.toInt != 0)) {
+            // just send the utf8 bytes as a string to C
+            pv(
+              Code.Ident("bsts_string_from_utf8_bytes_static")(
+                Code.IntLiteral(bytes.length),
+                Code.StrLiteral(s)
+              )
+            )
+          } else {
+            // We have some null bytes, we have to encode the length
+            val lits =
+              bytes.iterator.map { byte =>
+                Code.IntLiteral(byte.toInt & 0xff)
+              }.toList
+            // call:
+            // bsts_string_from_utf8_bytes_copy(size_t size, char* bytes);
+            newLocalName("str").map { ident =>
+              // TODO: this could be a static top level definition to initialize
+              // one time and avoid the copy probably, but copies are fast....
+              Code.DeclareArray(Code.TypeIdent.Char, ident, Right(lits)) +:
+                Code.Ident("bsts_string_from_utf8_bytes_copy")(
+                  Code.IntLiteral(lits.length),
+                  ident
+                )
+            }
+          }
         }
 
       }
@@ -994,8 +1020,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               currentTop: Option[(K, PackageName, Bindable)],
               binds: Map[Bindable, BindState],
               counter: Long,
-              identCache: Map[Expr[K], Code.Ident],
-              staticStringCache: Map[List[Int], Code.Ident]
+              identCache: Map[Expr[K], Code.Ident]
           ) {
             def finalFile: Doc =
               Doc.intercalate(
@@ -1034,7 +1059,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 None,
                 Map.empty,
                 0L,
-                Map.empty,
                 Map.empty
               )
             }
@@ -1284,50 +1308,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             monadImpl.pure(
               Code.Ident(Idents.escape("___bsts_c_", fullName(k, p, b)))
             )
-
-          def staticStringLiteral(s: String): T[Code.ValueLike] = {
-            val bytes = s.getBytes(StandardCharsets.UTF_8)
-            val key = bytes.iterator.map(byte => byte.toInt & 0xff).toList
-            val dataExpr =
-              if (bytes.isEmpty) Code.Ident("NULL")
-              else Code.StrLiteral(s)
-
-            def declareStaticStringObject(ident: Code.Ident): T[Unit] =
-              appendStatement(
-                Code.DeclareVar(
-                  Code.Attr.Static :: Nil,
-                  Code.TypeIdent.Named("const BSTS_String"),
-                  ident,
-                  Some(
-                    Code.Ident("BSTS_STATIC_STRING_INIT")(
-                      Code.IntLiteral(bytes.length),
-                      dataExpr
-                    )
-                  )
-                )
-              )
-
-            for {
-              cached <- read(_.staticStringCache.get(key))
-              ident <- cached match {
-                case Some(i) => monadImpl.pure(i)
-                case None =>
-                  for {
-                    ident <- newTopName("strlit")
-                    _ <- declareStaticStringObject(ident)
-                    _ <- update { state =>
-                      (
-                        state.copy(
-                          staticStringCache =
-                            state.staticStringCache.updated(key, ident)
-                        ),
-                        ()
-                      )
-                    }
-                  } yield ident
-              }
-            } yield Code.Ident("BSTS_VALUE_FROM_PTR")(ident.addr)
-          }
 
           // the Code.Ident should be a function with signature:
           // int run_main(BValue main_value, int argc, char** args)

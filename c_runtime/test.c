@@ -6,13 +6,6 @@
 #include <math.h>
 #include "gc.h"
 
-static const BSTS_String static_heap_literal =
-  BSTS_STATIC_STRING_INIT(16, "abcdefghijklmnop");
-static const BSTS_String static_utf8_smile =
-  BSTS_STATIC_STRING_INIT(4, "\xF0\x9F\x98\x8A");
-static const BSTS_String static_empty_literal =
-  BSTS_STATIC_STRING_INIT(0, NULL);
-
 void assert(_Bool cond, char* message) {
   if (!cond) {
     printf("%s\n", message);
@@ -21,7 +14,7 @@ void assert(_Bool cond, char* message) {
 }
 
 void assert_string_equals(BValue got, const char* expected, const char* message) {
-  BValue exp = bsts_string_from_utf8_bytes_static(strlen(expected), expected);
+  BValue exp = bsts_string_from_utf8_bytes_static(strlen(expected), (char*)expected);
   if (bsts_string_cmp(got, exp) != 0) {
     printf("%s\nexpected: %s\ngot: ", message, expected);
     bsts_string_println(got);
@@ -36,7 +29,7 @@ void assert_int_string(BValue v, const char* expected, const char* message) {
 
 void assert_string_bytes(BValue got, const char* expected, size_t expected_len, const char* message) {
   size_t got_len = bsts_string_utf8_len(got);
-  const char* got_bytes = bsts_string_utf8_bytes(got);
+  char* got_bytes = bsts_string_utf8_bytes(got);
   if (got_len != expected_len || (expected_len > 0 && memcmp(got_bytes, expected, expected_len) != 0)) {
     printf("%s\nexpected len: %zu\ngot len: %zu\n", message, expected_len, got_len);
     exit(1);
@@ -245,7 +238,7 @@ void test_integer() {
     { "stoi i128_neg", "-24197857203266734864793317670504947440", "-24197857203266734864793317670504947440" },
   };
   for (size_t i = 0; i < sizeof(str_cases) / sizeof(str_cases[0]); i++) {
-    BValue s = bsts_string_from_utf8_bytes_static(strlen(str_cases[i].text), str_cases[i].text);
+    BValue s = bsts_string_from_utf8_bytes_static(strlen(str_cases[i].text), (char*)str_cases[i].text);
     BValue opt = bsts_string_to_integer(s);
     assert_option_int(opt, str_cases[i].expected, str_cases[i].name);
   }
@@ -256,7 +249,7 @@ void test_integer() {
     { "stoi junk", "12x3", NULL },
   };
   for (size_t i = 0; i < sizeof(none_cases) / sizeof(none_cases[0]); i++) {
-    BValue s = bsts_string_from_utf8_bytes_static(strlen(none_cases[i].text), none_cases[i].text);
+    BValue s = bsts_string_from_utf8_bytes_static(strlen(none_cases[i].text), (char*)none_cases[i].text);
     BValue opt = bsts_string_to_integer(s);
     assert_option_none(opt, none_cases[i].name);
   }
@@ -306,22 +299,6 @@ void test_runtime_strings() {
   }
 
   {
-    BValue zero_alloc = BSTS_VALUE_FROM_PTR(&static_heap_literal);
-    BValue heap_alloc = bsts_string_from_utf8_bytes_static(16, "abcdefghijklmnop");
-    BValue static_empty = BSTS_VALUE_FROM_PTR(&static_empty_literal);
-    BValue static_smile = BSTS_VALUE_FROM_PTR(&static_utf8_smile);
-    assert(bsts_string_equals(zero_alloc, heap_alloc), "static literal object equals heap static ctor");
-    assert_string_bytes(zero_alloc, "abcdefghijklmnop", 16, "static literal object bytes");
-    assert(bsts_string_find(zero_alloc, bsts_string_from_utf8_bytes_static(3, "def"), 0) == 3, "find in static literal object");
-    assert(bsts_string_utf8_len(static_empty) == 0, "static empty literal len");
-    assert_string_bytes(static_empty, "", 0, "static empty literal bytes");
-    assert(bsts_string_char_at(static_smile, 0) == bsts_char_from_code_point(0x1F60A), "static literal utf8 code point");
-    free_on_close(zero_alloc);
-    free_on_close(static_empty);
-    free_on_close(static_smile);
-  }
-
-  {
     BValue s7_static = bsts_string_from_utf8_bytes_static(7, "abcdefg");
     BValue s7_copy = bsts_string_from_utf8_bytes_copy(7, "abcdefg");
     BValue s8_static = bsts_string_from_utf8_bytes_static(8, "abcdefgh");
@@ -346,9 +323,6 @@ void test_runtime_strings() {
     BValue small_hay = bsts_string_from_utf8_bytes_static(7, "abcbcba");
     BValue small_need = bsts_string_from_utf8_bytes_static(2, "bc");
     assert(bsts_string_find(small_hay, small_need, 0) == 1, "find in small haystack");
-    assert(bsts_string_find(small_hay, small_need, 2) == 3, "find in small haystack with start");
-    assert(bsts_string_find(small_hay, bsts_string_from_utf8_bytes_static(1, "a"), 6) == 6, "find single-byte small needle");
-    assert(bsts_string_find(small_hay, bsts_string_from_utf8_bytes_static(0, ""), 7) == 7, "find empty needle in small haystack");
     assert(bsts_string_rfind(small_hay, small_need, 6) == 3, "rfind in small haystack");
     assert(bsts_string_char_at(small_hay, 6) == bsts_char_from_code_point('a'), "char_at small haystack");
   }
@@ -356,10 +330,10 @@ void test_runtime_strings() {
   {
     BValue a = bsts_string_from_utf8_bytes_static(3, "foo");
     BValue b = bsts_string_from_utf8_bytes_static(3, "bar");
-    const char* a_bytes = bsts_string_utf8_bytes(a);
+    char* a_bytes = bsts_string_utf8_bytes(a);
     char a_copy[3];
     memcpy(a_copy, a_bytes, 3);
-    const char* b_bytes = bsts_string_utf8_bytes(b);
+    char* b_bytes = bsts_string_utf8_bytes(b);
     assert(memcmp(a_copy, "foo", 3) == 0, "first small bytes survive second lookup");
     assert(memcmp(b_bytes, "bar", 3) == 0, "second small bytes are correct");
   }

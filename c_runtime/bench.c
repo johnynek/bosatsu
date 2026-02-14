@@ -8,12 +8,6 @@
 #include <time.h>
 
 static volatile BValue sink;
-#if defined(BSTS_STATIC_STRING_INIT)
-static const BSTS_String bench_static_heap_a =
-  BSTS_STATIC_STRING_INIT(16, "abcdefghijklmnop");
-static const BSTS_String bench_static_heap_b =
-  BSTS_STATIC_STRING_INIT(16, "qrstuvwxyzabcdef");
-#endif
 
 static uint64_t now_ns() {
   struct timespec ts;
@@ -97,32 +91,12 @@ static void bench_string_static_ctor(const char* name, size_t iters, const char*
   uint64_t start = now_ns();
   BValue acc = 0;
   for (size_t i = 0; i < iters; i++) {
-    acc = bsts_string_from_utf8_bytes_static(len, text);
+    acc = bsts_string_from_utf8_bytes_static(len, (char*)text);
   }
   sink = acc;
   uint64_t end = now_ns();
   print_result(name, end - start, (uint64_t)iters);
 }
-
-#if defined(BSTS_STATIC_STRING_INIT)
-static void bench_string_static_boxed(
-    const char* name,
-    size_t iters,
-    const BSTS_String* left,
-    const BSTS_String* right) {
-  GC_gcollect();
-  uint64_t start = now_ns();
-  size_t len_acc = 0;
-  for (size_t i = 0; i < iters; i++) {
-    const BSTS_String* current = (i & 1) ? left : right;
-    BValue value = BSTS_VALUE_FROM_PTR(current);
-    len_acc += bsts_string_utf8_len(value);
-  }
-  sink = bsts_integer_from_int((int)(len_acc & 0x7fffffff));
-  uint64_t end = now_ns();
-  print_result(name, end - start, (uint64_t)iters);
-}
-#endif
 
 static void bench_string_equals(const char* name, size_t iters, BValue left, BValue right) {
   int acc = 0;
@@ -212,9 +186,6 @@ int main(int argc, char** argv) {
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
   bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnop");
   bench_string_static_ctor("str_ctor_static_small", iters, "hello");
-#if defined(BSTS_STATIC_STRING_INIT)
-  bench_string_static_boxed("str_ctor_static_zero", iters, &bench_static_heap_a, &bench_static_heap_b);
-#endif
   bench_string_equals("str_equals_small_eq", iters, s_small_1, s_small_2);
   bench_string_equals("str_equals_small_neq", iters, s_small_1, s_small_diff);
   bench_string_equals("str_equals_heap_eq", iters, s_heap_1, s_heap_2);

@@ -26,18 +26,6 @@ static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
 #define BSTS_PTR(type, value) ((type*)bsts_bvalue_to_ptr((value)))
 #define BSTS_CONST_PTR(type, value) ((const type*)bsts_bvalue_to_const_ptr((value)))
 
-// Runtime/codegen-coupled string object layout used for static literals.
-typedef struct BSTS_String {
-  size_t len;
-  size_t offset;
-  const char* bytes;
-} BSTS_String;
-
-// Compile-time initializer for static string objects that can be boxed with
-// BSTS_VALUE_FROM_PTR(&obj) without heap allocation.
-#define BSTS_STATIC_STRING_INIT(len_value, bytes_value) \
-  { (size_t)(len_value), (size_t)0, (bytes_value) }
-
 // Nat values are encoded in integers
 // TODO: move these to functions implemented in bosatsu_runtime.c
 #define BSTS_NAT_0 ((BValue)((uintptr_t)0x1))
@@ -72,11 +60,11 @@ static inline BValue alloc_enum0(ENUM_TAG tag) {
   return (BValue)((((uintptr_t)tag) << 2) | ((uintptr_t)0x1));
 }
 
-BValue bsts_string_from_utf8_bytes_copy(size_t len, const char* bytes);
+BValue bsts_string_from_utf8_bytes_copy(size_t len, char* bytes);
 // This is dangerous, it should not be mutated after returned 
 BValue bsts_string_mut(size_t len);
-BValue bsts_string_from_utf8_bytes_static(size_t len, const char* bytes);
-BValue bsts_string_from_utf8_bytes_static_null_term(const char* bytes);
+BValue bsts_string_from_utf8_bytes_static(size_t len, char* bytes);
+BValue bsts_string_from_utf8_bytes_static_null_term(char* bytes);
 /*
  * write the codepoint into bytes, which must be >= 4 in length
  * and return the number of bytes written
@@ -90,9 +78,7 @@ int bsts_string_cmp(BValue left, BValue right);
 size_t bsts_string_utf8_len(BValue);
 // For inline small strings this may point to thread-local scratch storage.
 // Consume immediately and prefer pairing with bsts_string_utf8_len.
-const char* bsts_string_utf8_bytes(BValue);
-// Mutable bytes for strings created by bsts_string_mut.
-char* bsts_string_utf8_bytes_mut(BValue);
+char* bsts_string_utf8_bytes(BValue);
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len);
 
 // How many bytes is the codepoint at this offset, 1, 2, 3, 4, or -1 on error
