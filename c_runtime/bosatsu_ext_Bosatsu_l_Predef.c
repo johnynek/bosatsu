@@ -16,10 +16,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a) {
-  // Char is represented as tiny UTF-8 in typed code, so conversion to String
-  // is just a direct byte copy.
-  BSTS_String_View view = bsts_string_view_ref(&a);
-  return bsts_string_from_utf8_bytes_copy(view.len, view.bytes);
+  // Char and tiny String share the same runtime representation.
+  return a;
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
