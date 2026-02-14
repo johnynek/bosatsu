@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-859ac039*
+0.0.0+1-aa3a3a70*
 </div>
 </div>
 <div class="nav-toc">
@@ -99,6 +99,7 @@
     <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
     <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
     <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
     <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
   </ul></li>
 </ul>
@@ -132,7 +133,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-859ac039*
+0.0.0+1-aa3a3a70*
 </div>
 </div>
 <div class="nav-toc">
@@ -199,6 +200,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
     <li><a href="../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
     <li><a href="../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
     <li><a href="../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
     <li><a href="../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
   </ul></li>
 </ul>
@@ -1663,11 +1665,17 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#subf" name="subf" class="anchor"><span class="anchor-link"></span></a><code>subf</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def subf(arg1: Float64, arg2: Float64) -&gt; Float64
 </code></pre>
+<h3><a href="#tail-or-empty-string" name="tail-or-empty-string" class="anchor"><span class="anchor-link"></span></a><code>tail_or_empty_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def tail_or_empty_String(arg1: String) -&gt; String
+</code></pre>
 <h3><a href="#timesf" name="timesf" class="anchor"><span class="anchor-link"></span></a><code>timesf</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def timesf(arg1: Float64, arg2: Float64) -&gt; Float64
 </code></pre>
 <h3><a href="#trace" name="trace" class="anchor"><span class="anchor-link"></span></a><code>trace</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def trace[a](arg1: String, arg2: a) -&gt; a
+</code></pre>
+<h3><a href="#uncons-string" name="uncons-string" class="anchor"><span class="anchor-link"></span></a><code>uncons_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def uncons_String(arg1: String) -&gt; Option[(Char, String)]
 </code></pre>
 <h3><a href="#uncurry2" name="uncurry2" class="anchor"><span class="anchor-link"></span></a><code>uncurry2</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def uncurry2[a, b, c](arg1: a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
@@ -1763,7 +1771,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-859ac039-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-aa3a3a70-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
