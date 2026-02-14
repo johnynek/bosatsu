@@ -98,7 +98,6 @@ _Bool bsts_string_equals(BValue left, BValue right);
 // (&String, &String) -> int 
 int bsts_string_cmp(BValue left, BValue right);
 // &String -> int (length in bytes)
-size_t bsts_string_utf8_len(BValue str);
 size_t bsts_string_utf8_len_ref(const BValue* str);
 // Return a view into string bytes. For tiny inline strings the bytes pointer is
 // into the provided BValue storage and is valid while that storage is alive.

@@ -154,58 +154,68 @@ int bsts_char_code_point_from_value(BValue ch) {
   }
 
   size_t len = bsts_tiny_string_len(ch);
-  if (len == 0 || len > 4) {
-    fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 length %zu for char\n", len);
-    abort();
-  }
-
   unsigned char b0 = bsts_tiny_string_u8_at(ch, 0);
-  if (len == 1) {
-    if (b0 > 0x7F) {
-      fprintf(stderr, "bsts_char_code_point_from_value: invalid ASCII lead byte 0x%02x\n", b0);
-      abort();
+  switch (len) {
+    case 1:
+      if (b0 > 0x7F) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid ASCII lead byte 0x%02x\n", b0);
+        abort();
+      }
+      return (int)b0;
+    case 2: {
+      unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
+      if ((b1 & 0xC0) != 0x80) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
+        abort();
+      }
+      if ((b0 & 0xE0) != 0xC0) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid 2-byte lead byte 0x%02x\n", b0);
+        abort();
+      }
+      return (int)(((b0 & 0x1F) << 6) | (b1 & 0x3F));
     }
-    return (int)b0;
-  }
-
-  unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
-  if ((b1 & 0xC0) != 0x80) {
-    fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
-    abort();
-  }
-
-  if (len == 2) {
-    if ((b0 & 0xE0) != 0xC0) {
-      fprintf(stderr, "bsts_char_code_point_from_value: invalid 2-byte lead byte 0x%02x\n", b0);
-      abort();
+    case 3: {
+      unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
+      unsigned char b2 = bsts_tiny_string_u8_at(ch, 2);
+      if ((b1 & 0xC0) != 0x80) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
+        abort();
+      }
+      if ((b2 & 0xC0) != 0x80) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b2);
+        abort();
+      }
+      if ((b0 & 0xF0) != 0xE0) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid 3-byte lead byte 0x%02x\n", b0);
+        abort();
+      }
+      return (int)(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F));
     }
-    return (int)(((b0 & 0x1F) << 6) | (b1 & 0x3F));
-  }
-
-  unsigned char b2 = bsts_tiny_string_u8_at(ch, 2);
-  if ((b2 & 0xC0) != 0x80) {
-    fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b2);
-    abort();
-  }
-
-  if (len == 3) {
-    if ((b0 & 0xF0) != 0xE0) {
-      fprintf(stderr, "bsts_char_code_point_from_value: invalid 3-byte lead byte 0x%02x\n", b0);
-      abort();
+    case 4: {
+      unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
+      unsigned char b2 = bsts_tiny_string_u8_at(ch, 2);
+      unsigned char b3 = bsts_tiny_string_u8_at(ch, 3);
+      if ((b1 & 0xC0) != 0x80) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
+        abort();
+      }
+      if ((b2 & 0xC0) != 0x80) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b2);
+        abort();
+      }
+      if ((b3 & 0xC0) != 0x80 || (b0 & 0xF8) != 0xF0) {
+        fprintf(stderr, "bsts_char_code_point_from_value: invalid 4-byte UTF-8 sequence\n");
+        abort();
+      }
+      return (int)(((b0 & 0x07) << 18) |
+                   ((b1 & 0x3F) << 12) |
+                   ((b2 & 0x3F) << 6) |
+                   (b3 & 0x3F));
     }
-    return (int)(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F));
+    default:
+      fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 length %zu for char\n", len);
+      abort();
   }
-
-  unsigned char b3 = bsts_tiny_string_u8_at(ch, 3);
-  if ((b3 & 0xC0) != 0x80 || (b0 & 0xF8) != 0xF0) {
-    fprintf(stderr, "bsts_char_code_point_from_value: invalid 4-byte UTF-8 sequence\n");
-    abort();
-  }
-
-  return (int)(((b0 & 0x07) << 18) |
-               ((b1 & 0x3F) << 12) |
-               ((b2 & 0x3F) << 6) |
-               (b3 & 0x3F));
 }
 
 BValue bsts_float64_from_bits(uint64_t bits) {
@@ -484,10 +494,6 @@ size_t bsts_string_utf8_len_ref(const BValue* str) {
 
 const char* bsts_string_utf8_bytes_ref(const BValue* str) {
   return bsts_string_view_ref(str).bytes;
-}
-
-size_t bsts_string_utf8_len(BValue str) {
-  return bsts_string_utf8_len_ref(&str);
 }
 
 char* bsts_string_utf8_bytes_mut(BValue value) {
