@@ -714,7 +714,9 @@ final class SourceConverter(
         localTypeEnv.flatMap { env =>
           env.getConstructorParams(p, c) match {
             case Some(params) =>
-              def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
+              def argExpr(
+                  arg: RecordArg
+              ): (Bindable, Result[Expr[Declaration]]) =
                 arg match {
                   case RecordArg.Simple(b) =>
                     (b, success(resolveToVar(b, rc, bound, topBound)))
@@ -734,7 +736,13 @@ final class SourceConverter(
                   case Some(expr) => expr
                   case None       =>
                     SourceConverter.failure(
-                      SourceConverter.MissingArg(name, rc, present, b, rc.region)
+                      SourceConverter.MissingArg(
+                        name,
+                        rc,
+                        present,
+                        b,
+                        rc.region
+                      )
                     )
                 }
               val exprArgs = params.traverse { case (b, _) => get(b) }
@@ -801,7 +809,7 @@ final class SourceConverter(
     p match {
       case (parname, Some(tpe)) =>
         State.pure((parname, tpe))
-      case (parname, None)      =>
+      case (parname, None) =>
         nextDefinitionTypeVar.map(v => (parname, v))
     }
 
@@ -899,12 +907,13 @@ final class SourceConverter(
                 }
               }
 
-              updateInferredWithDeclaredTypeArgs(typeArgs, typeParams0, tds).map { typeParams =>
-                val tname = TypeName(nm)
-                val consFn = rankn.ConstructorFn(nm, params)
+              updateInferredWithDeclaredTypeArgs(typeArgs, typeParams0, tds)
+                .map { typeParams =>
+                  val tname = TypeName(nm)
+                  val consFn = rankn.ConstructorFn(nm, params)
 
-                rankn.DefinedType(pname, tname, typeParams, consFn :: Nil)
-              }
+                  rankn.DefinedType(pname, tname, typeParams, consFn :: Nil)
+                }
             }
       case Enum(nm, typeArgs, items) =>
         toEnumDefinition(pname, tds, nm, typeArgs, items)
@@ -934,12 +943,15 @@ final class SourceConverter(
       typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
 
     // Phase 1: validate constructor arity and convert constructor arg annotations.
-    val convertedCtorArgs: Result[List[(Statement.EnumBranch, List[(Bindable, Option[Type])])]] =
+    val convertedCtorArgs
+        : Result[List[(Statement.EnumBranch, List[(Bindable, Option[Type])])]] =
       items.get.toList.traverse { item =>
         validateConstructorArgCount(item.name, item.args.length, item.region) *>
-          item.args.traverse { case (argName, optTyRef) =>
-            optTyRef.traverse(toType(_, item.region)).map((argName, _))
-          }.map(item -> _)
+          item.args
+            .traverse { case (argName, optTyRef) =>
+              optTyRef.traverse(toType(_, item.region)).map((argName, _))
+            }
+            .map(item -> _)
       }
 
     convertedCtorArgs.flatMap { conArgs =>
@@ -952,7 +964,7 @@ final class SourceConverter(
           conArgs.iterator.flatMap { case (item, _) =>
             item.typeArgs.iterator.flatMap(_.toList)
           }
-      ).map { p => Type.TyVar(p._1.toBoundVar) }
+      ).map(p => Type.TyVar(p._1.toBoundVar))
       val initVars = existingDefinitionVars(conArgs.toList.flatMap(_._2))
       val initState: DefinitionStateType = (
         (initVars.toSet ++ declVars, initVars.reverse),
@@ -974,16 +986,17 @@ final class SourceConverter(
       val hasExplicitBranches = constructors.exists(_._1.typeArgs.nonEmpty)
       val scopedMode = typeArgs.nonEmpty || hasExplicitBranches
       val branchDeclaredSet =
-        constructors.iterator
-          .flatMap { case (item, _) =>
-            item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar)
-          }
-          .toSet
+        constructors.iterator.flatMap { case (item, _) =>
+          item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar)
+        }.toSet
       val missingBranchTypeParams =
         if (scopedMode) {
           constructors.toList.flatMap { case (item, params) =>
             val localDeclared =
-              item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
+              item.typeArgs.iterator
+                .flatMap(_.toList)
+                .map(_._1.toBoundVar)
+                .toSet
             val free = Type.freeTyVars(params.map(_._2)).collect {
               case b: Type.Var.Bound => b
             }
@@ -998,13 +1011,11 @@ final class SourceConverter(
           }
         } else Nil
       val explicitTopUses: Set[Type.Var.Bound] =
-        conArgs.iterator
-          .flatMap { case (_, argsType) =>
-            Type.freeTyVars(argsType.flatMap(_._2)).collect {
-              case b: Type.Var.Bound if topDeclaredSet(b) => b
-            }
+        conArgs.iterator.flatMap { case (_, argsType) =>
+          Type.freeTyVars(argsType.flatMap(_._2)).collect {
+            case b: Type.Var.Bound if topDeclaredSet(b) => b
           }
-          .toSet
+        }.toSet
       val ambiguousTopTypeParams =
         topDeclaredSet.diff(explicitTopUses).toList.sorted
       val preferAmbiguousTopError =
@@ -1029,18 +1040,25 @@ final class SourceConverter(
           case (b, cnt) if cnt > 1 => b
         }.toSet
 
-        val branchDeclaredLists: List[(Statement.EnumBranch, List[Type.Var.Bound])] =
+        val branchDeclaredLists
+            : List[(Statement.EnumBranch, List[Type.Var.Bound])] =
           constructors.toList.map { case (item, _) =>
             val local =
-              item.typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toList
+              item.typeArgs.iterator
+                .flatMap(_.toList)
+                .map(_._1.toBoundVar)
+                .toList
             (item, local)
           }
-        val duplicateWithinBranch: Map[Type.Var.Bound, List[Statement.EnumBranch]] =
+        val duplicateWithinBranch
+            : Map[Type.Var.Bound, List[Statement.EnumBranch]] =
           branchDeclaredLists
             .flatMap { case (item, local) =>
               local
                 .groupBy(identity)
-                .collect { case (b, owners) if owners.lengthCompare(1) > 0 => (b, item) }
+                .collect {
+                  case (b, owners) if owners.lengthCompare(1) > 0 => (b, item)
+                }
             }
             .groupBy(_._1)
             .view
@@ -1067,7 +1085,8 @@ final class SourceConverter(
             if (count <= 0) Nil
             else {
               val base = s"enum ${nm.sourceCodeRepr}[${tv.name}]"
-              if (count == 1) base :: Nil else s"$base (declared $count times)" :: Nil
+              if (count == 1) base :: Nil
+              else s"$base (declared $count times)" :: Nil
             }
           }
           val overlapOwners =
@@ -1081,14 +1100,19 @@ final class SourceConverter(
                 s"branch ${item.name.sourceCodeRepr}[${tv.name}] (declared more than once)"
               )
 
-          NonEmptyList.fromList(
-            (topOwners ::: overlapOwners ::: branchDuplicateOwners).distinct
-          ).map(tv -> _)
+          NonEmptyList
+            .fromList(
+              (topOwners ::: overlapOwners ::: branchDuplicateOwners).distinct
+            )
+            .map(tv -> _)
         }
       }
-      val topParams = updateInferredWithDeclaredTypeArgs(typeArgs, discoveredForTop, tds)
+      val topParams =
+        updateInferredWithDeclaredTypeArgs(typeArgs, discoveredForTop, tds)
       val topParamsChecked =
-        if (hasExplicitBranches && typeArgs.isEmpty && discoveredForTop.nonEmpty) {
+        if (
+          hasExplicitBranches && typeArgs.isEmpty && discoveredForTop.nonEmpty
+        ) {
           SourceConverter.addError(
             topParams,
             SourceConverter.UnscopedTypeParameters(
@@ -1138,9 +1162,12 @@ final class SourceConverter(
       branchesChecked.map { typeParams =>
         val finalCons = constructors.toList.map { case (item, params) =>
           val exists =
-            item.typeArgs.iterator.flatMap(_.toList).map {
-              case (tv, k) => (tv.toBoundVar, k)
-            }.toList
+            item.typeArgs.iterator
+              .flatMap(_.toList)
+              .map { case (tv, k) =>
+                (tv.toBoundVar, k)
+              }
+              .toList
           rankn.ConstructorFn(item.name, params, exists)
         }
         rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
@@ -1261,11 +1288,15 @@ final class SourceConverter(
                     val argLen = args.size
                     val paramLen = params.size
                     if (argLen == paramLen) {
-                      SourceConverter.success(Pattern.PositionalStruct(pc, args))
+                      SourceConverter.success(
+                        Pattern.PositionalStruct(pc, args)
+                      )
                     } else {
                       // do the best we can
                       val fixedArgs =
-                        (args ::: List.fill(paramLen - argLen)(Pattern.WildCard))
+                        (args ::: List.fill(paramLen - argLen)(
+                          Pattern.WildCard
+                        ))
                           .take(paramLen)
                       SourceConverter.partial(
                         SourceConverter
@@ -1365,7 +1396,10 @@ final class SourceConverter(
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
-                      fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                      fs.toList.iterator
+                        .map(_.field)
+                        .filterNot(paramNames)
+                        .toList
                     // Check that the mapping is exactly the right size
                     NonEmptyList.fromList(extra) match {
                       case None        => mapped
@@ -1422,7 +1456,10 @@ final class SourceConverter(
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
-                      fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                      fs.toList.iterator
+                        .map(_.field)
+                        .filterNot(paramNames)
+                        .toList
                     // Check that the mapping is exactly the right size
                     NonEmptyList.fromList(extra) match {
                       case None        => res0
@@ -1755,61 +1792,60 @@ final class SourceConverter(
           case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
 
-    parFold(Set.empty[Bindable], withEx) {
-      case (topBound, stmt) =>
-        stmt match {
-          case Right(Right((nm, decl))) =>
-            val r = fromDecl(decl, Set.empty, topBound).map(
-              (nm, RecursionKind.NonRecursive, _) :: Nil
+    parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
+      stmt match {
+        case Right(Right((nm, decl))) =>
+          val r = fromDecl(decl, Set.empty, topBound).map(
+            (nm, RecursionKind.NonRecursive, _) :: Nil
+          )
+          // make sure all the free types are Generic
+          // we have to do this at the top level because in Declaration => Expr
+          // we allow closing over type variables defined at a higher level
+          val r1 = r.map { exs =>
+            exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
+          }
+          (topBound + nm, r1)
+
+        case Right(
+              Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
+            ) =>
+          // using body for the outer here is a bummer, but not really a good outer otherwise
+
+          val boundName = defstmt.name
+          // defs are in scope for their body
+          val topBound1 = topBound + boundName
+
+          val lam: Result[Expr[Declaration]] =
+            toLambdaExpr[OptIndent[Declaration]](
+              defstmt,
+              d.region,
+              success(defstmt.result.get)
+            )((res: OptIndent[Declaration]) =>
+              fromDecl(
+                res.get,
+                argGroups.flatten.iterator
+                  .flatMap(_.names)
+                  .toSet + boundName,
+                topBound1
+              )
             )
+
+          val r = lam.map { (l: Expr[Declaration]) =>
+            // We rely on DefRecursionCheck to rule out bad recursions
+            val rec =
+              if (UnusedLetCheck.freeBound(l).contains(boundName))
+                RecursionKind.Recursive
+              else RecursionKind.NonRecursive
             // make sure all the free types are Generic
             // we have to do this at the top level because in Declaration => Expr
             // we allow closing over type variables defined at a higher level
-            val r1 = r.map { exs =>
-              exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) }
-            }
-            (topBound + nm, r1)
-
-          case Right(
-                Left(d @ Def(defstmt @ DefStatement(_, _, argGroups, _, _)))
-              ) =>
-            // using body for the outer here is a bummer, but not really a good outer otherwise
-
-            val boundName = defstmt.name
-            // defs are in scope for their body
-            val topBound1 = topBound + boundName
-
-            val lam: Result[Expr[Declaration]] =
-              toLambdaExpr[OptIndent[Declaration]](
-                defstmt,
-                d.region,
-                success(defstmt.result.get)
-              )((res: OptIndent[Declaration]) =>
-                fromDecl(
-                  res.get,
-                  argGroups.flatten.iterator
-                    .flatMap(_.names)
-                    .toSet + boundName,
-                  topBound1
-                )
-              )
-
-            val r = lam.map { (l: Expr[Declaration]) =>
-              // We rely on DefRecursionCheck to rule out bad recursions
-              val rec =
-                if (UnusedLetCheck.freeBound(l).contains(boundName))
-                  RecursionKind.Recursive
-                else RecursionKind.NonRecursive
-              // make sure all the free types are Generic
-              // we have to do this at the top level because in Declaration => Expr
-              // we allow closing over type variables defined at a higher level
-              val l1 = Expr.quantifyFrees(l)
-              (boundName, rec, l1) :: Nil
-            }
-            (topBound1, r)
-          case Left(ExternalDef(n, _, _, _)) =>
-            (topBound + n, success(Nil))
-        }
+            val l1 = Expr.quantifyFrees(l)
+            (boundName, rec, l1) :: Nil
+          }
+          (topBound1, r)
+        case Left(ExternalDef(n, _, _, _)) =>
+          (topBound + n, success(Nil))
+      }
     }(using SourceConverter.parallelIor).map(_.flatten)
   }
 
@@ -2135,24 +2171,28 @@ object SourceConverter {
       val near = NameSuggestion
         .nearest(
           name,
-          knownConstructors.iterator.map(c => NameSuggestion.Candidate(c, c)).toList,
+          knownConstructors.iterator
+            .map(c => NameSuggestion.Candidate(c, c))
+            .toList,
           3
         )
         .map(_.value)
 
       val nearDoc =
         near match {
-          case Nil => Doc.empty
+          case Nil        => Doc.empty
           case one :: Nil =>
             Doc.hardLine + Doc.text("Did you mean constructor `") + Doc.text(
               one.sourceCodeRepr
             ) + Doc.text("`?")
           case many =>
             Doc.hardLine + Doc.text("Nearest constructors in scope: ") +
-              Doc.intercalate(
-                Doc.text(",") + Doc.lineOrSpace,
-                many.map(c => Doc.text(s"`${c.sourceCodeRepr}`"))
-              ).grouped + Doc.char('.')
+              Doc
+                .intercalate(
+                  Doc.text(",") + Doc.lineOrSpace,
+                  many.map(c => Doc.text(s"`${c.sourceCodeRepr}`"))
+                )
+                .grouped + Doc.char('.')
         }
       val maybeDoc = syntax match {
         case ConstructorSyntax.Pat(
@@ -2166,7 +2206,9 @@ object SourceConverter {
         case _ =>
           Doc.text(" in") + Doc.lineOrSpace + syntax.toDoc
       }
-      (Doc.text(s"Unknown constructor `${name.sourceCodeRepr}`.") + nearDoc + maybeDoc)
+      (Doc.text(
+        s"Unknown constructor `${name.sourceCodeRepr}`."
+      ) + nearDoc + maybeDoc)
         .render(80)
     }
   }
@@ -2268,12 +2310,13 @@ object SourceConverter {
       val missing =
         missingNames.mkString("[", ", ", "]")
       val enumParamNames =
-        (enumTypeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar.name) ++ missingNames)
-          .toList
-          .distinct
+        (enumTypeArgs.iterator
+          .flatMap(_.toList)
+          .map(_._1.toBoundVar.name) ++ missingNames).toList.distinct
       val enumWithSuggestedParams =
         if (enumParamNames.isEmpty) enumName.sourceCodeRepr
-        else s"${enumName.sourceCodeRepr}${enumParamNames.mkString("[", ", ", "]")}"
+        else
+          s"${enumName.sourceCodeRepr}${enumParamNames.mkString("[", ", ", "]")}"
       val branchWithSuggestedParams =
         s"${branch.name.sourceCodeRepr}${missingNames.mkString("[", ", ", "]")}("
 
@@ -2297,7 +2340,9 @@ object SourceConverter {
       val pronoun = if (isSingle) "it" else "they"
       val removePronoun = if (isSingle) "it" else "them"
 
-      s"$label is ambiguous in $enumWithParams: $pronoun ${if (isSingle) "is" else "are"} never explicitly used. Either remove $removePronoun or use $pronoun in one of the enum variants."
+      s"$label is ambiguous in $enumWithParams: $pronoun ${
+          if (isSingle) "is" else "are"
+        } never explicitly used. Either remove $removePronoun or use $pronoun in one of the enum variants."
     }
   }
 

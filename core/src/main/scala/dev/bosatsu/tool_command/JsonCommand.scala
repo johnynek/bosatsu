@@ -91,7 +91,9 @@ object JsonCommand {
               .flatMap { case (ev, res) =>
                 val valueToJson = ev.valueToJson
 
-                def unsupported[A](j: JsonEncodingError.UnsupportedType): F[A] = {
+                def unsupported[A](
+                    j: JsonEncodingError.UnsupportedType
+                ): F[A] = {
                   def typeDoc(t: rankn.Type) =
                     rankn.Type.fullyResolvedDocument.document(t)
 
@@ -103,20 +105,25 @@ object JsonCommand {
                       val sep =
                         Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
                       val pd =
-                        (Doc.intercalate(sep, nonE.map(typeDoc(_))) + sep + typeDoc(
+                        (Doc.intercalate(
+                          sep,
+                          nonE.map(typeDoc(_))
+                        ) + sep + typeDoc(
                           badType
                         )).nested(4)
                       pd + Doc.hardLine + Doc.hardLine + Doc.text("but") +
                         Doc.hardLine +
                         Doc.hardLine
                   }
-                  val msg = pathMsg + Doc.text("the type") + Doc.space + typeDoc(
-                    badType
-                  ) + Doc.space + Doc.text("isn't supported")
+                  val msg =
+                    pathMsg + Doc.text("the type") + Doc.space + typeDoc(
+                      badType
+                    ) + Doc.space + Doc.text("isn't supported")
                   val tpeStr = msg.render(80)
 
                   moduleIOMonad.raiseError(
-                    CliException.Basic(show"cannot convert type to Json: $tpeStr")
+                    CliException
+                      .Basic(show"cannot convert type to Json: $tpeStr")
                   )
                 }
 
@@ -143,10 +150,10 @@ object JsonCommand {
                                           show"invalid input json: $dataError"
                                         )
                                       )
-                                    case Right(json)     =>
+                                    case Right(json) =>
                                       moduleIOMonad.pure(json)
                                   }
-                                case otherJson                     =>
+                                case otherJson =>
                                   moduleIOMonad.raiseError[Json](
                                     CliException.Basic(
                                       show"required a json array of size $arity, found:\n\n${otherJson.render}"
@@ -159,7 +166,9 @@ object JsonCommand {
                             }
                         case Left(valueError) =>
                           moduleIOMonad.raiseError(
-                            new Exception(show"unexpected value error: $valueError")
+                            new Exception(
+                              show"unexpected value error: $valueError"
+                            )
                           )
                       }
                   }
@@ -172,9 +181,11 @@ object JsonCommand {
                         fn(res.value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(show"unexpected value error: $valueError")
+                              new Exception(
+                                show"unexpected value error: $valueError"
+                              )
                             )
-                          case Right(j)         =>
+                          case Right(j) =>
                             moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
                         }
                     }
@@ -236,6 +247,8 @@ object JsonCommand {
         )(toJsonOpt(traverseInput))
       )
 
-    Opts.subcommand("json", "json writing and transformation tools")(subcommands)
+    Opts.subcommand("json", "json writing and transformation tools")(
+      subcommands
+    )
   }
 }

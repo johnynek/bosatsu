@@ -68,11 +68,11 @@ object MarkdownDoc {
         if (recognizedCount == params.size) {
           sortByName(inputParams)(_._1) ::: zParams
         } else params
-      case _             =>
+      case _ =>
         params
     }
 
-  private final case class ValueDocInfo(
+  final private case class ValueDocInfo(
       comment: List[String],
       params: List[Option[Identifier.Bindable]]
   ) {
@@ -87,16 +87,17 @@ object MarkdownDoc {
     val empty: ValueDocInfo = ValueDocInfo(Nil, Nil)
   }
 
-  private final case class SourceDocs(
+  final private case class SourceDocs(
       values: Map[Identifier.Bindable, ValueDocInfo],
       types: Map[Identifier.Constructor, List[String]]
   ) {
     def merge(that: SourceDocs): SourceDocs = {
-      val mergedValues = that.values.foldLeft(values) { case (acc, (name, info)) =>
-        acc.updatedWith(name) {
-          case Some(existing) => Some(existing.merge(info))
-          case None           => Some(info)
-        }
+      val mergedValues = that.values.foldLeft(values) {
+        case (acc, (name, info)) =>
+          acc.updatedWith(name) {
+            case Some(existing) => Some(existing.merge(info))
+            case None           => Some(info)
+          }
       }
 
       SourceDocs(
@@ -134,10 +135,10 @@ object MarkdownDoc {
         pat: Pattern.Parsed
     ): Option[Identifier.Bindable] =
       pat match {
-        case Pattern.Var(name)       => Some(name)
+        case Pattern.Var(name)        => Some(name)
         case Pattern.Annotation(p, _) => paramNameFromPattern(p)
-        case Pattern.Named(name, _)  => Some(name)
-        case _                       => pat.topNames.headOption
+        case Pattern.Named(name, _)   => Some(name)
+        case _                        => pat.topNames.headOption
       }
 
     @annotation.tailrec
@@ -179,7 +180,7 @@ object MarkdownDoc {
       value match {
         case Statement.ExternalDef(_, _, params, _) =>
           params.map { case (name, _) => Some(name) }
-        case Statement.Def(defstatement)            =>
+        case Statement.Def(defstatement) =>
           defstatement.args.toList
             .flatMap(_.toList)
             .map(paramNameFromPattern)
@@ -253,14 +254,14 @@ object MarkdownDoc {
   private lazy val predefSourceDocs: SourceDocs =
     SourceDocs.fromStatements(Package.predefPackage.program)
 
-  private final case class ConstructorDoc(
+  final private case class ConstructorDoc(
       name: Identifier.Constructor,
       fields: List[(Identifier.Bindable, Type)],
       exists: List[Type.Var.Bound],
       tpe: Type
   )
 
-  private final case class TypeDoc(
+  final private case class TypeDoc(
       dt: DefinedType[Kind.Arg],
       constructors: List[ConstructorDoc]
   )
@@ -271,7 +272,8 @@ object MarkdownDoc {
     if (items.isEmpty) Doc.empty
     else {
       val body = Doc.intercalate(Doc.comma + Doc.line, items)
-      (Doc.char('[') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+      (Doc
+        .char('[') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
         .char(']')).grouped
     }
 
@@ -347,13 +349,20 @@ object MarkdownDoc {
       else Doc.text(tv.name) + Doc.text(": ") + Kind.toDoc(kind)
     }
 
-  private def typeSignatureDoc(dt: DefinedType[Kind.Arg], ctx: RenderCtx): Doc = {
-    val head = Doc.text("type ") + Doc.text(typeNamePrefix(dt, ctx) + dt.name.asString)
+  private def typeSignatureDoc(
+      dt: DefinedType[Kind.Arg],
+      ctx: RenderCtx
+  ): Doc = {
+    val head =
+      Doc.text("type ") + Doc.text(typeNamePrefix(dt, ctx) + dt.name.asString)
     val params = orderedTypeParamDocs(dt)
     head + groupedTypeParamList(params)
   }
 
-  private def typeDisplayName(dt: DefinedType[Kind.Arg], ctx: RenderCtx): String = {
+  private def typeDisplayName(
+      dt: DefinedType[Kind.Arg],
+      ctx: RenderCtx
+  ): String = {
     val localName = dt.name.asString
     val prefix = typeNamePrefix(dt, ctx)
     val params = orderedTypeParams(
@@ -404,7 +413,7 @@ object MarkdownDoc {
               groupedParamList(params) +
               Doc.text(show" -> ${renderType(out, ctx)}")
           )
-        case _                   =>
+        case _ =>
           None
       }
   }
@@ -416,7 +425,9 @@ object MarkdownDoc {
       ctx: RenderCtx
   ): Doc =
     defSignature(name, tpe, sourceParams, ctx)
-      .getOrElse(Doc.text(show"${name.sourceCodeRepr}: ${renderType(tpe, ctx)}"))
+      .getOrElse(
+        Doc.text(show"${name.sourceCodeRepr}: ${renderType(tpe, ctx)}")
+      )
 
   private def renderValueSection(
       values: List[(Identifier.Bindable, Type)],
@@ -464,7 +475,9 @@ object MarkdownDoc {
           val fields =
             nonEmpty
               .map { case (fieldName, fieldTpe) =>
-                Doc.text(show"${fieldName.sourceCodeRepr}: ${renderType(fieldTpe, ctx)}")
+                Doc.text(
+                  show"${fieldName.sourceCodeRepr}: ${renderType(fieldTpe, ctx)}"
+                )
               }
           ctorName + groupedParamList(fields)
       }
@@ -505,7 +518,13 @@ object MarkdownDoc {
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(anchor), Some(title), comment, Some(typeSig), constructors).flatten
+          List(
+            Some(anchor),
+            Some(title),
+            comment,
+            Some(typeSig),
+            constructors
+          ).flatten
         )
       }
 
@@ -519,24 +538,34 @@ object MarkdownDoc {
 
   private def typeDocs(pack: Package.Typed[Any]): List[TypeDoc] = {
     val allTypes =
-      pack.exports.foldLeft(Map.empty[Identifier.Constructor, DefinedType[Kind.Arg]]) {
+      pack.exports.foldLeft(
+        Map.empty[Identifier.Constructor, DefinedType[Kind.Arg]]
+      ) {
         case (acc, ExportedName.TypeName(name, Referant.DefinedT(dt))) =>
           acc.updated(name, dt)
         case (acc, ExportedName.Constructor(_, Referant.Constructor(dt, _))) =>
           acc.updated(dt.name.ident, dt)
-        case (acc, _)                                                   =>
+        case (acc, _) =>
           acc
       }
 
     val constructorTypes =
       pack.exports.foldLeft(
-        Map.empty[Identifier.Constructor, Map[Identifier.Constructor, ConstructorDoc]]
+        Map.empty[Identifier.Constructor, Map[
+          Identifier.Constructor,
+          ConstructorDoc
+        ]]
       ) { case (acc, exp) =>
         exp match {
           case ExportedName.Constructor(name, Referant.Constructor(dt, cfn)) =>
             val existing = acc.getOrElse(dt.name.ident, Map.empty)
             val ctorDoc =
-              ConstructorDoc(name, cfn.args, cfn.exists.map(_._1), dt.fnTypeOf(cfn))
+              ConstructorDoc(
+                name,
+                cfn.args,
+                cfn.exists.map(_._1),
+                dt.fnTypeOf(cfn)
+              )
             acc.updated(dt.name.ident, existing.updated(name, ctorDoc))
           case _ =>
             acc
@@ -548,15 +577,17 @@ object MarkdownDoc {
         val ctors =
           sortByName(
             constructorTypes
-            .getOrElse(dt.name.ident, Map.empty)
-            .values
-            .toList
+              .getOrElse(dt.name.ident, Map.empty)
+              .values
+              .toList
           )(_.name.asString)
         TypeDoc(dt, ctors)
       }
   }
 
-  private def valueDocs(pack: Package.Typed[Any]): List[(Identifier.Bindable, Type)] =
+  private def valueDocs(
+      pack: Package.Typed[Any]
+  ): List[(Identifier.Bindable, Type)] =
     val pairs = pack.exports
       .foldLeft(Map.empty[Identifier.Bindable, Type]) { (acc, exp) =>
         exp match {
@@ -576,11 +607,9 @@ object MarkdownDoc {
   ): List[PackageName] =
     (values.flatMap { case (_, tpe) =>
       Type.packageNamesIn(tpe)
-    } ::: types.flatMap(_.constructors.flatMap(c =>
-      Type.packageNamesIn(c.tpe)
-    )))
-      .distinct
-      .sorted
+    } ::: types.flatMap(
+      _.constructors.flatMap(c => Type.packageNamesIn(c.tpe))
+    )).distinct.sorted
       .filterNot(pn => (pn == pack.name) || (pn == PackageName.PredefName))
 
   private def dependenciesDoc(deps: List[PackageName]): Option[Doc] =
@@ -618,8 +647,7 @@ object MarkdownDoc {
               typeLinks.map { case (label, id) =>
                 markdownCodeLink(label, id)
               }
-            ))
-            .grouped
+            )).grouped
         ),
       if (valueLinks.isEmpty) None
       else
@@ -630,8 +658,7 @@ object MarkdownDoc {
               valueLinks.map { case (label, id) =>
                 markdownCodeLink(label, id)
               }
-            ))
-            .grouped
+            )).grouped
         )
     ).flatten
     val indexSection =

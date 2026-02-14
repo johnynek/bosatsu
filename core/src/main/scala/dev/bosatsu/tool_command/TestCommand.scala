@@ -61,7 +61,8 @@ object TestCommand {
 
             val testPackages: List[PackageName] =
               testIt.toList.sorted.distinct
-            val ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
+            val ev =
+              LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
             val res0 = testPackages.map(p => (p, ev.evalTest(p)))
             val res =
               if (testPacks.isEmpty) res0.filter { case (_, testRes) =>

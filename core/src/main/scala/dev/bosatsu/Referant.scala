@@ -98,7 +98,12 @@ object Referant {
       imps: List[Import[A, NonEmptyList[Referant[B]]]]
   ): Map[
     (PackageName, ConstructorName),
-    (List[(Type.Var.Bound, B)], List[(Type.Var.Bound, B)], List[Type], Type.Const.Defined)
+    (
+        List[(Type.Var.Bound, B)],
+        List[(Type.Var.Bound, B)],
+        List[Type],
+        Type.Const.Defined
+    )
   ] = {
     val refs: Iterator[Referant[B]] =
       imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))

@@ -722,7 +722,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           Add(
             Mult(
               Symbol(
-                BigInt("-123593876035527231221720838753456864561865872211442256816")
+                BigInt(
+                  "-123593876035527231221720838753456864561865872211442256816"
+                )
               ),
               Symbol(BigInt("1615848243864774095"))
             ),

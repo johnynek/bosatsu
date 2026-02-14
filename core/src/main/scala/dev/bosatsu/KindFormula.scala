@@ -115,7 +115,8 @@ object KindFormula {
         Sat(value == Variance.co || value == Variance.in)
     }
 
-    case class RecursiveView(cfn: ConstructorFn[?], idx: Int) extends Constraint {
+    case class RecursiveView(cfn: ConstructorFn[?], idx: Int)
+        extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co)
@@ -667,15 +668,13 @@ object KindFormula {
       ): RefSpace[KindFormula] =
         tpe match {
           case fa @ rankn.Type.ForAll(vars, in) =>
-            val newKindMap = kinds ++ vars.toList.iterator.map {
-              case (b, k) =>
-                b -> BoundState.IsKind(k, fa, b)
+            val newKindMap = kinds ++ vars.toList.iterator.map { case (b, k) =>
+              b -> BoundState.IsKind(k, fa, b)
             }
             kindOfType(direction, thisKind, cfn, idx, in, newKindMap)
           case ex @ rankn.Type.Exists(vars, in) =>
-            val newKindMap = kinds ++ vars.toList.iterator.map {
-              case (b, k) =>
-                b -> BoundState.IsKind(k, ex, b)
+            val newKindMap = kinds ++ vars.toList.iterator.map { case (b, k) =>
+              b -> BoundState.IsKind(k, ex, b)
             }
             kindOfType(direction, thisKind, cfn, idx, in, newKindMap)
 

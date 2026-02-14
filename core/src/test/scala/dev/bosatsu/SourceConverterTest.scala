@@ -32,12 +32,13 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       case other                     => other
     }
 
-  private def mainBranches(code: String): NonEmptyList[Expr.Branch[Declaration]] = {
+  private def mainBranches(
+      code: String
+  ): NonEmptyList[Expr.Branch[Declaration]] =
     stripWrapperExpr(mainExpr(code)) match {
       case Expr.Match(_, branches, _) => branches
-      case other                      => fail(s"expected match expression, got: $other")
+      case other => fail(s"expected match expression, got: $other")
     }
-  }
 
   private def mainExpr(code: String): Expr[Declaration] =
     convertProgram(code)

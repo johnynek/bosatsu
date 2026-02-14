@@ -59,7 +59,7 @@ x = 1
         case Right(d) =>
           val rendered = d.render(80)
           assertEquals(rendered, matches)
-        case Left(e)  => fail(e.toString)
+        case Left(e) => fail(e.toString)
       }
     }
 
@@ -158,10 +158,14 @@ main = foldr_local
         case Right(doc) =>
           val rendered = doc.render(80)
           assert(
-            "return __bsts_t_lambda__loop\\d*\\(".r.findFirstIn(rendered).nonEmpty
+            "return __bsts_t_lambda__loop\\d*\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty
           )
           assert(!rendered.contains("return call_fn3(__bsts_b_loop"))
-          assert(!rendered.contains("alloc_boxed_pure_fn3(__bsts_t_lambda__loop"))
+          assert(
+            !rendered.contains("alloc_boxed_pure_fn3(__bsts_t_lambda__loop")
+          )
       }
     }
   }
@@ -215,7 +219,9 @@ main = set_in_range_ok
     }
   }
 
-  test("top-level unit-arg function remains direct when nested matches share False branches") {
+  test(
+    "top-level unit-arg function remains direct when nested matches share False branches"
+  ) {
     TestUtils.checkPackageMap("""
 enum Nat:
   Z
@@ -288,7 +294,9 @@ main = set_in_range_ok
     }
   }
 
-  test("global helper inlining with lambda argument avoids boxed lambda call at call site") {
+  test(
+    "global helper inlining with lambda argument avoids boxed lambda call at call site"
+  ) {
     val src =
       """package Euler/P6
         |
@@ -321,14 +329,20 @@ main = set_in_range_ok
       case Right(doc) =>
         val rendered = doc.render(80)
         assert(
-          rendered.contains("BValue ___bsts_g_Euler_l_P6_l_diff(BValue __bsts_b_n0)")
+          rendered.contains(
+            "BValue ___bsts_g_Euler_l_P6_l_diff(BValue __bsts_b_n0)"
+          )
         )
         assert(
-          rendered.contains("___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,")
+          rendered.contains(
+            "___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,"
+          )
         )
         val boxedLambda = "alloc_boxed_pure_fn2\\(__bsts_t_lambda\\d+\\)".r
         assert(boxedLambda.findFirstIn(rendered).nonEmpty)
-        assert(!rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop"))
+        assert(
+          !rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop")
+        )
     }
   }
 

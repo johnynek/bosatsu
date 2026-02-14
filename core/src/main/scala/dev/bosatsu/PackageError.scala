@@ -57,7 +57,7 @@ object PackageError {
       suggestions: List[(Identifier, Option[String])]
   ): Doc =
     suggestions match {
-      case Nil => Doc.empty
+      case Nil                   => Doc.empty
       case (ident, label) :: Nil =>
         Doc.hardLine + Doc.text("Did you mean ") + suggestedName(
           ident,
@@ -77,7 +77,7 @@ object PackageError {
       suggestions: List[Identifier.Constructor]
   ): Doc =
     suggestions match {
-      case Nil => Doc.empty
+      case Nil        => Doc.empty
       case one :: Nil =>
         Doc.hardLine + Doc.text("Did you mean constructor ") + quoted(
           one
@@ -398,12 +398,14 @@ object PackageError {
                   (renderedTypeKey(exp), renderedTypeKey(found))
                 }
                 .getOrElse(("", ""))
-            Some((
-              "not-unifiable",
-              math.min(r0.start, r1.start),
-              expectedKey,
-              foundKey
-            ))
+            Some(
+              (
+                "not-unifiable",
+                math.min(r0.start, r1.start),
+                expectedKey,
+                foundKey
+              )
+            )
           case e @ Infer.Error.SubsumptionCheckFailure(_, _, r0, r1, _, _) =>
             val (expectedKey, foundKey) =
               expectedFound(e)
@@ -411,12 +413,14 @@ object PackageError {
                   (renderedTypeKey(exp), renderedTypeKey(found))
                 }
                 .getOrElse(("", ""))
-            Some((
-              "subsume",
-              math.min(r0.start, r1.start),
-              expectedKey,
-              foundKey
-            ))
+            Some(
+              (
+                "subsume",
+                math.min(r0.start, r1.start),
+                expectedKey,
+                foundKey
+              )
+            )
           case _ =>
             None
         }
@@ -438,11 +442,11 @@ object PackageError {
                 case Some(idx) =>
                   val (keep, regions) = acc(idx)
                   acc.update(idx, (keep, regions ::: evidence))
-                case None      =>
+                case None =>
                   keyToIdx.update(key, acc.size)
                   acc.append((single, evidence))
               }
-            case None      =>
+            case None =>
               acc.append((single, evidence))
           }
         }
@@ -545,7 +549,8 @@ object PackageError {
                     TypeRenderer.document(t, renderCtx, 80)
                   )
                 val patternDoc =
-                  Pattern.compiledDocument[Type]
+                  Pattern
+                    .compiledDocument[Type]
                     .document(patSite.pattern)
                     .render(80)
                 val scrutineeContext =
@@ -558,7 +563,9 @@ object PackageError {
 
                 (
                   Doc.text("pattern type mismatch:") + Doc.hardLine +
-                    Doc.text("pattern: ") + Doc.text(patternDoc) + Doc.hardLine +
+                    Doc.text("pattern: ") + Doc.text(
+                      patternDoc
+                    ) + Doc.hardLine +
                     Doc.text("expected scrutinee type: ") + tmap(
                       patSite.expectedScrutineeType
                     ) + Doc.hardLine +
@@ -603,7 +610,8 @@ object PackageError {
                   Doc.empty
               }
 
-            val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val tmap =
+              showTypes(pack, List(expectedType, foundType), localTypeNames)
             val evidenceDocs =
               evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
             val evidenceDoc =
@@ -613,9 +621,10 @@ object PackageError {
               } else {
                 context1
               }
-            val doc = Doc.text("type error: expected type ") + tmap(expectedType) +
-              context0 + Doc.text("but found type ") + tmap(foundType) +
-              Doc.hardLine + fnHint + evidenceDoc
+            val doc =
+              Doc.text("type error: expected type ") + tmap(expectedType) +
+                context0 + Doc.text("but found type ") + tmap(foundType) +
+                Doc.hardLine + fnHint + evidenceDoc
 
             (doc, Some(expectedRegion))
 
@@ -657,9 +666,10 @@ object PackageError {
                 val inScopeCandidates = scope.iterator.map { case ((p, n), _) =>
                   val pri =
                     p match {
-                      case None                   => NameSuggestion.ScopePriority.Local
-                      case Some(pn) if pn == pack => NameSuggestion.ScopePriority.SamePackage
-                      case Some(_)                => NameSuggestion.ScopePriority.Imported
+                      case None => NameSuggestion.ScopePriority.Local
+                      case Some(pn) if pn == pack =>
+                        NameSuggestion.ScopePriority.SamePackage
+                      case Some(_) => NameSuggestion.ScopePriority.Imported
                     }
                   NameSuggestion.Candidate(n, pri, pri)
                 }
@@ -714,7 +724,8 @@ object PackageError {
               }
             val context1 = contextDoc(expectedRegion)
 
-            val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val tmap =
+              showTypes(pack, List(expectedType, foundType), localTypeNames)
             val evidenceDocs =
               evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
             val evidenceDoc =
@@ -725,7 +736,9 @@ object PackageError {
                 context1
               }
             val doc = Doc.text("type ") + tmap(foundType) + context0 +
-              Doc.text("does not subsume expected type ") + tmap(expectedType) + Doc.hardLine +
+              Doc.text("does not subsume expected type ") + tmap(
+                expectedType
+              ) + Doc.hardLine +
               evidenceDoc
 
             (doc, Some(foundRegion))
@@ -955,7 +968,8 @@ object PackageError {
       ): List[(Infer.Error.Single, Int, List[Region])] = {
         val bldr = scala.collection.mutable.ArrayBuffer
           .empty[(Infer.Error.Single, Int, List[Region])]
-        val indexOfKey = scala.collection.mutable.Map.empty[(Int, Identifier), Int]
+        val indexOfKey =
+          scala.collection.mutable.Map.empty[(Int, Identifier), Int]
 
         def add(err: Infer.Error.Single, evidence: List[Region]): Unit =
           bldr.append((err, 1, evidence))
@@ -977,7 +991,10 @@ object PackageError {
               indexOfKey.get(key) match {
                 case Some(idx) =>
                   val (first, count, currentEvidence) = bldr(idx)
-                  bldr.update(idx, (first, count + 1, currentEvidence ::: evidence))
+                  bldr.update(
+                    idx,
+                    (first, count + 1, currentEvidence ::: evidence)
+                  )
                 case None =>
                   indexOfKey.update(key, bldr.size)
                   add(err, evidence)
@@ -1213,7 +1230,8 @@ object PackageError {
     val bodyBlocks = unusedDocs.toList ::: List(maybeCount, maybeHints).flatten
     val line2 = Doc.hardLine + Doc.hardLine
     val packDoc = sourceMap.headLine(pack, Some(sorted.head._2))
-    (packDoc + (line2 + Doc.intercalate(line2, bodyBlocks)).nested(2)).render(80)
+    (packDoc + (line2 + Doc.intercalate(line2, bodyBlocks)).nested(2))
+      .render(80)
   }
 
   case class UnusedLetError(

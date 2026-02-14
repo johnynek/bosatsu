@@ -298,7 +298,9 @@ class PathModuleTest extends munit.ScalaCheckSuite {
       case Right(_) => fail("expected invalid main name to fail")
     }
     PathModule.run(
-      "tool json write --input_dir test_workspace --main Bo:::boop".split(' ').toList
+      "tool json write --input_dir test_workspace --main Bo:::boop"
+        .split(' ')
+        .toList
     ) match {
       case Left(_)  => ()
       case Right(_) => fail("expected invalid main name to fail")

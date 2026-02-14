@@ -160,7 +160,10 @@ object DefinedType {
       def traverse[F[_]: Applicative, A, B](
           da: DefinedType[A]
       )(fn: A => F[B]): F[DefinedType[B]] =
-        (listTup.traverse(da.annotatedTypeParams)(fn), traverseCons(da.constructors)(fn))
+        (
+          listTup.traverse(da.annotatedTypeParams)(fn),
+          traverseCons(da.constructors)(fn)
+        )
           .mapN { (ap, cons) =>
             DefinedType(
               packageName = da.packageName,
@@ -181,8 +184,10 @@ object DefinedType {
         )(fn)
 
       def foldLeft[A, B](fa: DefinedType[A], b: B)(fn: (B, A) => B): B =
-        fa.constructors.foldLeft(listTup.foldLeft(fa.annotatedTypeParams, b)(fn)) {
-          (acc, cfn) => listTup.foldLeft(cfn.exists, acc)(fn)
+        fa.constructors.foldLeft(
+          listTup.foldLeft(fa.annotatedTypeParams, b)(fn)
+        ) { (acc, cfn) =>
+          listTup.foldLeft(cfn.exists, acc)(fn)
         }
 
       override def map[A, B](fa: DefinedType[A])(fn: A => B): DefinedType[B] =

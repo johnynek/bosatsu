@@ -42,9 +42,9 @@ case class DecodedLibraryWithDeps[A](
   def compile(implicit
       ec: Par.EC
   ): MatchlessFromTypedExpr.Compiled[(Name, Version)] = {
-    given Order[(Name, Version)] = Order.fromOrdering(
-      using Ordering.Tuple2(
-        using summon[Ordering[Name]],
+    given Order[(Name, Version)] = Order.fromOrdering(using
+      Ordering.Tuple2(using
+        summon[Ordering[Name]],
         summon[Ordering[Version]]
       )
     )

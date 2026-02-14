@@ -101,7 +101,8 @@ abstract class GenericStringUtil {
     val continuation =
       (P.char('\\').soft ~ P.char('\n')).as(None)
     val escapedOrLiteral =
-      escapedToken.map(Some(_))
+      escapedToken
+        .map(Some(_))
         .orElse((!endP).with1 *> utf16Codepoint.map(Some(_)))
 
     (if (allowEscapedNewlineContinuation) continuation.orElse(escapedOrLiteral)

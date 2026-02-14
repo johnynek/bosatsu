@@ -523,9 +523,15 @@ object Shape {
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {
           case rankn.Type.ForAll(vars, in) =>
-            loop(in, local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) })
+            loop(
+              in,
+              local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) }
+            )
           case rankn.Type.Exists(vars, in) =>
-            loop(in, local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) })
+            loop(
+              in,
+              local ++ vars.toList.map { case (b, k) => (b, shapeOf(k)) }
+            )
           case ta @ rankn.Type.TyApply(on, arg) =>
             for {
               v1 <- loop(on, local)
@@ -636,25 +642,35 @@ object Shape {
         shapeOrKnown(v, optK)
       }
       consShapes <- dt.constructors.traverse { cfn =>
-        cfn.exists.traverse { case (v, optK) =>
-          shapeOrKnown(v, optK)
-        }.map(exists => cfn.copy(exists = exists))
+        cfn.exists
+          .traverse { case (v, optK) =>
+            shapeOrKnown(v, optK)
+          }
+          .map(exists => cfn.copy(exists = exists))
       }
-      dtShapes = dt.copy(annotatedTypeParams = topShapes, constructors = consShapes)
-      check <- constrainAll(thisScope(dtShapes.annotatedTypeParams), dtShapes.constructors)
+      dtShapes = dt.copy(
+        annotatedTypeParams = topShapes,
+        constructors = consShapes
+      )
+      check <- constrainAll(
+        thisScope(dtShapes.annotatedTypeParams),
+        dtShapes.constructors
+      )
       topKnowns <- dtShapes.annotatedTypeParams.traverse {
-        case (v, Left(s))   =>
+        case (v, Left(s)) =>
           shapeToKnown(s).map(_.map(k => (v, Left(k))))
         case (v, Right(ka)) =>
           RefSpace.pure(Validated.valid((v, Right(ka))))
       }
       consKnowns <- dtShapes.constructors.traverse { cfn =>
-        cfn.exists.traverse {
-          case (v, Left(s))   =>
-            shapeToKnown(s).map(_.map(k => (v, Left(k))))
-          case (v, Right(ka)) =>
-            RefSpace.pure(Validated.valid((v, Right(ka))))
-        }.map(_.sequence.map(ex => cfn.copy(exists = ex)))
+        cfn.exists
+          .traverse {
+            case (v, Left(s)) =>
+              shapeToKnown(s).map(_.map(k => (v, Left(k))))
+            case (v, Right(ka)) =>
+              RefSpace.pure(Validated.valid((v, Right(ka))))
+          }
+          .map(_.sequence.map(ex => cfn.copy(exists = ex)))
       }
     } yield {
       val topKnown = topKnowns.sequence

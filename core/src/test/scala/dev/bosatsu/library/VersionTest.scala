@@ -317,8 +317,14 @@ class VersionTest extends munit.ScalaCheckSuite {
           assertEquals(m.group(1), v.major.toString)
           assertEquals(m.group(2), v.minor.toString)
           assertEquals(m.group(3), v.patch.toString)
-          assertEquals(m.group(4), v.preRelease.fold(null: String | Null)(_.asString))
-          assertEquals(m.group(5), v.build.fold(null: String | Null)(_.asString))
+          assertEquals(
+            m.group(4),
+            v.preRelease.fold(null: String | Null)(_.asString)
+          )
+          assertEquals(
+            m.group(5),
+            v.build.fold(null: String | Null)(_.asString)
+          )
         case Left(_) =>
           assert(!m.matches())
       }

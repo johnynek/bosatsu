@@ -36,7 +36,9 @@ object AssembleCommand {
           Doc.text(
             show"${showPath.show(path)} (${dep.name.name} ${dep.version.render})"
           ) +
-            (Doc.line + Doc.text("missing internal packages for exported interfaces:") +
+            (Doc.line + Doc.text(
+              "missing internal packages for exported interfaces:"
+            ) +
               (Doc.line + missingDoc).nested(2)).nested(2)
         }
       )
@@ -137,10 +139,12 @@ object AssembleCommand {
         )
         .orNone
     val defaultMainOpt =
-      Opts.option[PackageName](
-        "default_main",
-        help = "default main package for this library"
-      ).orNone
+      Opts
+        .option[PackageName](
+          "default_main",
+          help = "default main package for this library"
+        )
+        .orNone
     val outputOpt =
       Opts
         .option[Path](

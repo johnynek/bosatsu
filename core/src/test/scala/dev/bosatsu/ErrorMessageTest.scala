@@ -16,7 +16,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     val parsed = Parser.parse(Package.parser(None), source) match {
       case Validated.Valid((lm, pack)) =>
         (("0", lm), pack) :: Nil
-      case Validated.Invalid(errs)     =>
+      case Validated.Invalid(errs) =>
         fail(s"parse failed: $errs")
     }
 
@@ -194,7 +194,6 @@ main = go(IntCase(42))
     )
   }
 
-
   test("forbid the y-combinator") {
     evalFail(List("""
 package Y
@@ -233,8 +232,9 @@ def apply(w):
     }
   }
 
-
-  test("guarded branches do not establish totality and unguarded fallback restores it") {
+  test(
+    "guarded branches do not establish totality and unguarded fallback restores it"
+  ) {
     evalFail(List("""
 package Total
 
@@ -266,7 +266,6 @@ main = match True:
   case True if (True matches True): 2
 """)) { case PackageError.TotalityCheckError(_, _) => () }
   }
-
 
   test("unused let fails compilation") {
     evalFail(List("""
@@ -307,7 +306,6 @@ main = plus(1, 2)
       ()
     }
   }
-
 
   test("test some error messages") {
     evalFail(
@@ -365,13 +363,17 @@ main = foo
 foo = 1
 """
     val useBeforeDefMap =
-      Map((PackageName.parts("P"), (LocationMap(useBeforeDefCode), "P.bosatsu")))
+      Map(
+        (PackageName.parts("P"), (LocationMap(useBeforeDefCode), "P.bosatsu"))
+      )
 
     evalFail(List(useBeforeDefCode)) { case te: PackageError.TypeErrorIn =>
       val msg = te.message(useBeforeDefMap, Colorize.None)
       assert(msg.contains("""name "foo" is used before it is defined."""))
       assert(
-        msg.contains("this use site uses foo, but foo is defined later in this file")
+        msg.contains(
+          "this use site uses foo, but foo is defined later in this file"
+        )
       )
       assert(msg.contains("Use site:"))
       assert(msg.contains("main = foo"))
@@ -705,7 +707,6 @@ baz = bar
     )
   }
 
-
   test("record patterns") {
     runBosatsuTest(
       List("""
@@ -1022,7 +1023,6 @@ main = get(Pair(1, "two"))
     }
   }
 
-
   test("shadowing of external def isn't allowed") {
     evalFail(List("""
 package A
@@ -1078,7 +1078,6 @@ external def foo(x: String) -> List[String]
     }
   }
 
-
   test("type parameters must be supersets for structs and enums fails") {
     evalFail(List("""
 package Err
@@ -1125,7 +1124,9 @@ main = Foo(1, "2")
       assert(
         msg.contains("type variable `a` is ambiguous in Enum[a]")
       )
-      assert(msg.contains("Either remove it or use it in one of the enum variants"))
+      assert(
+        msg.contains("Either remove it or use it in one of the enum variants")
+      )
       assert(msg.contains("Region(14,34)"))
       ()
     }
@@ -1147,7 +1148,6 @@ main = Foo(1, "2")
       ()
     }
   }
-
 
   test("test duplicate package message") {
     val pack =
@@ -1172,7 +1172,6 @@ main = Foo(1, "2")
     }
   }
 
-
   test("test bad list pattern message") {
     evalFail(List("""
 package Err
@@ -1195,7 +1194,6 @@ main = match x:
     }
   }
 
-
   test("test bad string pattern message") {
     val dollar = '$'
     evalFail(List(s"""
@@ -1216,7 +1214,6 @@ main = match x:
       ()
     }
   }
-
 
   test("colliding type names cause errors") {
     evalFail(List(s"""
@@ -1239,7 +1236,6 @@ main = Foo(1)
     }
   }
 
-
   test("colliding constructor names cause errors") {
     evalFail(List(s"""
 package Err
@@ -1260,7 +1256,6 @@ main = Foo(1)
       ()
     }
   }
-
 
   test("non binding top levels are allowed: issue 1639") {
     evalTest(
@@ -1327,7 +1322,6 @@ main = 10
     }
   }
 
-
   test("match pattern mismatch reports scrutinee and pattern types") {
     val src = """
 package A
@@ -1348,8 +1342,9 @@ main = under_twenty(3)
     }
   }
 
-
-  test("repeated related mismatches show all evidence sites in combined errors") {
+  test(
+    "repeated related mismatches show all evidence sites in combined errors"
+  ) {
     val region0 = Region(10, 11)
     val region1 = Region(20, 21)
     val region2 = Region(30, 31)
@@ -1403,7 +1398,6 @@ main = same(1, "x")
     }
   }
 
-
   test("recursion check with shadowing") {
     evalFail(List("""
 package S
@@ -1429,7 +1423,6 @@ test = Assertion(True, "")
       ()
     }
   }
-
 
   test("bindings can't be duplicated in patterns, issue 584") {
     evalFail(List("""
@@ -1500,7 +1493,6 @@ test = Assertion(out.eq_Int(1), "")
     )
   }
 
-
   test("unknown type constructor message is good. issue 653") {
     evalFail(List("""
 package Foo
@@ -1520,7 +1512,6 @@ test = Assertion(True, "")
       ()
     }
   }
-
 
   test("its an error to export a value and not its type. issue 782") {
     evalFail("""
@@ -1548,7 +1539,6 @@ x = bar
       ()
     }
   }
-
 
   test("test def with type params") {
     runBosatsuTest(
@@ -1620,7 +1610,6 @@ Region(14,41)"""
       ()
     }
   }
-
 
   test("ill kinded code examples") {
     evalFail(List("""
@@ -1699,7 +1688,6 @@ Region(403,414)"""
 
   }
 
-
   test("error early on a bad type in a recursive function") {
     val testCode = """
 package BadRec
@@ -1721,7 +1709,6 @@ def toInt(n: N, acc: Int) -> Int:
     }
   }
 
-
   test("we get error messages from multiple type errors top level") {
     val testCode = """
 package ErrorCheck
@@ -1739,7 +1726,6 @@ y: String = 1
       ()
     }
   }
-
 
   test("we get error messages from multiple type errors top nested") {
     val testCode = """
@@ -1761,7 +1747,6 @@ z = (
       ()
     }
   }
-
 
   test("missing enum branch type params reports branch-scoped error") {
     val testCode = """
@@ -1787,7 +1772,6 @@ enum FreeF[a]:
     }
   }
 
-
   test("ill-kinded enum branch type params reports constructor context") {
     val testCode = """
 package ErrorCheck
@@ -1809,7 +1793,6 @@ enum FreeF[a]:
         assertMessage(kie.message(Map.empty, Colorize.None))
     }
   }
-
 
   test("enum type parameter ownership collisions report scopes") {
     val testCode = """
@@ -1841,7 +1824,6 @@ enum Foo[a]:
         ()
     }
   }
-
 
   test("tuples bigger than 32 fail") {
     val testCode = """
@@ -1892,7 +1874,6 @@ res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     }
   }
 
-
   test("kind errors show the region of the type") {
     val testCode = """
 package ErrorCheck
@@ -1908,7 +1889,6 @@ struct Foo[a: -*](get: a)
         ()
     }
   }
-
 
   test("external defs with explicit type parameters exactly match") {
     val testCode = """
@@ -1929,7 +1909,6 @@ external def foo[b](lst: List[a]) -> a
         ()
     }
   }
-
 
   test("test duplicate import error messages") {
     val testCode = List(
@@ -2010,8 +1989,9 @@ main = Assertion(res, "")
     }
   }
 
-
-  test("unknown name suggestions prefer local names and include substring matches") {
+  test(
+    "unknown name suggestions prefer local names and include substring matches"
+  ) {
     val testCode = List("""
 package P1
 
@@ -2065,13 +2045,15 @@ main = xxfoo
           Nil,
           Nil,
           Nil,
-          rankn.Type.Const.Defined(pack, TypeName(Identifier.Constructor("Json")))
+          rankn.Type.Const
+            .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
       Map.empty
     )
     val err = PackageError.TypeErrorIn(
-      rankn.Infer.Error.UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
+      rankn.Infer.Error
+        .UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
       pack,
       Nil,
       Map.empty,
@@ -2095,15 +2077,18 @@ main = xxfoo
           Nil,
           Nil,
           Nil,
-          rankn.Type.Const.Defined(pack, TypeName(Identifier.Constructor("Json")))
+          rankn.Type.Const
+            .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
       Map.empty
     )
     val err = PackageError.TypeErrorIn(
       rankn.Infer.Error.Combine(
-        rankn.Infer.Error.UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
-        rankn.Infer.Error.UnknownConstructor((pack, miss), Region(2, 3), inferEnv)
+        rankn.Infer.Error
+          .UnknownConstructor((pack, miss), Region(0, 1), inferEnv),
+        rankn.Infer.Error
+          .UnknownConstructor((pack, miss), Region(2, 3), inferEnv)
       ),
       pack,
       Nil,
@@ -2113,10 +2098,15 @@ main = xxfoo
     )
     val message = err.message(Map.empty, Colorize.None)
     assert(message.contains("Unknown constructor `JNul`."), message)
-    assert(message.contains("This unknown constructor appears 2 times."), message)
+    assert(
+      message.contains("This unknown constructor appears 2 times."),
+      message
+    )
   }
 
-  test("unknown constructor in totality diagnostics suggests nearest constructors") {
+  test(
+    "unknown constructor in totality diagnostics suggests nearest constructors"
+  ) {
     val pack = PackageName.parts("P")
     val known = Identifier.Constructor("JNull")
     val miss = Identifier.Constructor("JNul")
@@ -2149,7 +2139,9 @@ main = xxfoo
     assert(message.contains("Did you mean constructor `JNull`?"))
   }
 
-  test("source converter unknown constructor supports multiple suggestions and context") {
+  test(
+    "source converter unknown constructor supports multiple suggestions and context"
+  ) {
     val miss = Identifier.Constructor("JBoool")
     val pat = Pattern.PositionalStruct(
       Pattern.StructKind.Named(miss, Pattern.StructKind.Style.TupleLike),
@@ -2182,7 +2174,9 @@ main = xxfoo
     assertEquals(message, "Unknown constructor `Nope`.")
   }
 
-  test("name suggestion helper handles edge inputs and low-confidence candidates") {
+  test(
+    "name suggestion helper handles edge inputs and low-confidence candidates"
+  ) {
     val zeroCount = NameSuggestion.nearest(
       Identifier.Name("abc"),
       List(NameSuggestion.Candidate(Identifier.Name("abcd"), "x")),
@@ -2212,10 +2206,14 @@ main = xxfoo
     assertEquals(lowConfidence, Nil)
   }
 
-  test("name suggestion fallback heuristic catches close edits without shared prefixes") {
+  test(
+    "name suggestion fallback heuristic catches close edits without shared prefixes"
+  ) {
     val suggestions = NameSuggestion.nearest(
       Identifier.Name("abbbbbbb"),
-      List(NameSuggestion.Candidate(Identifier.Name("axbbbbbb"), "fallback-hit")),
+      List(
+        NameSuggestion.Candidate(Identifier.Name("axbbbbbb"), "fallback-hit")
+      ),
       3
     )
     assertEquals(suggestions.map(_.value), List("fallback-hit"))

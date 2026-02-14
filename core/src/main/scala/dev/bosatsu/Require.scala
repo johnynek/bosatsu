@@ -14,7 +14,8 @@ object Require {
       requirement: Expr[Boolean]
   )(using Quotes): Expr[Unit] =
     '{
-      if (!$requirement) throw new IllegalArgumentException("requirement failed")
+      if (! $requirement)
+        throw new IllegalArgumentException("requirement failed")
     }
 
   private def applyImpl(
@@ -36,13 +37,15 @@ object Require {
       case Some(str) =>
         val errorMessage = Expr("requirement failed: " + str)
         '{
-          if (!$requirement)
+          if (! $requirement)
             throw new IllegalArgumentException($errorMessage)
         }
       case None =>
         '{
-          if (!$requirement)
-            throw new IllegalArgumentException("requirement failed: " + $message)
+          if (! $requirement)
+            throw new IllegalArgumentException(
+              "requirement failed: " + $message
+            )
         }
     }
   }

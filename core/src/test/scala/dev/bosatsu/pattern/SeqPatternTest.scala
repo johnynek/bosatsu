@@ -25,13 +25,12 @@ object StringSeqPatternGen {
       list <- Gen.listOfN(sz, g)
     } yield list.mkString
 
-  val genPart: Gen[SeqPart[Int]] = {
+  val genPart: Gen[SeqPart[Int]] =
     Gen.frequency(
       (15, Gen.oneOf(lit('0'), lit('1'))),
       (2, Gen.const(AnyElem)),
       (1, Gen.const(Wildcard))
     )
-  }
 
   val genPat: Gen[SeqPattern[Int]] = {
 
@@ -451,13 +450,12 @@ class BoolSeqPatternTest
     // which this code does not yet support
     Gen.oneOf(List(Set(true), Set(false), Set(true, false)))
 
-  def genPart: Gen[SeqPart[Set[Boolean]]] = {
+  def genPart: Gen[SeqPart[Set[Boolean]]] =
     Gen.frequency(
       (15, genSetBool.map(Lit(_))),
       (2, Gen.const(AnyElem)),
       (1, Gen.const(Wildcard))
     )
-  }
 
   val genNamed: Gen[NamedSeqPattern[Set[Boolean]]] =
     StringSeqPatternGen.genNamedFn(genPart, 0).map(_._2)

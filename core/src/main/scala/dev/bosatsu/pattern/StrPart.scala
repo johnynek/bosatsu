@@ -58,11 +58,11 @@ object StrPart {
   implicit val strPartOrder: Order[StrPart] = new Order[StrPart] {
     private def tag(sp: StrPart): Int =
       sp match {
-        case WildStr     => 0
-        case IndexStr    => 1
-        case WildChar    => 2
-        case IndexChar   => 3
-        case LitStr(_)   => 4
+        case WildStr   => 0
+        case IndexStr  => 1
+        case WildChar  => 2
+        case IndexChar => 3
+        case LitStr(_) => 4
       }
 
     def compare(left: StrPart, right: StrPart): Int =
@@ -272,11 +272,13 @@ object StrPart {
     }
 
     StrPart.matchString(str, pat, sbinds.length).foldNN(None) { result =>
-        // we match:
-        Some(result.iterator
+      // we match:
+      Some(
+        result.iterator
           .zip(sbinds.iterator)
           .map { case (m, fn) => fn(m) }
-          .toList)
+          .toList
+      )
     }
   }
 }

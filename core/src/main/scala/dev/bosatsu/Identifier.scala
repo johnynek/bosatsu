@@ -132,7 +132,9 @@ object Identifier {
   transparent inline def literal(inline str: String): Identifier =
     ${ literalImpl('str) }
 
-  private def literalImpl(strExpr: Expr[String])(using q: Quotes): Expr[Identifier] = {
+  private def literalImpl(
+      strExpr: Expr[String]
+  )(using q: Quotes): Expr[Identifier] = {
     import q.reflect.report
 
     strExpr.value match {

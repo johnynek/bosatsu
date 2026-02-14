@@ -111,7 +111,7 @@ object DecodedLibrary {
       Library.getVersion(dep) match {
         case Some(v) =>
           Validated.valid(PublicDepRef(dep, Name(dep.name), v))
-        case None    =>
+        case None =>
           Validated.invalidNec(DepClosureError.MissingVersion(lib))
       }
     }
@@ -146,20 +146,25 @@ object DecodedLibrary {
                       val depKey = depRef.depKey
                       depMap.get(depKey) match {
                         case Some(depLib) =>
-                          if (seen1.contains(depKey) || todo0.exists(d =>
+                          if (
+                            seen1.contains(depKey) || todo0.exists(d =>
                               Ordering[DepKey]
                                 .equiv(
                                   (d.name, d.version),
                                   (depLib.name, depLib.version)
                                 )
-                            ))
+                            )
+                          )
                             (todo0, errs0)
                           else (depLib :: todo0, errs0)
-                        case None         =>
+                        case None =>
                           (
                             todo0,
                             DepClosureError
-                              .MissingTransitiveDep(depKey._1, depKey._2) :: errs0
+                              .MissingTransitiveDep(
+                                depKey._1,
+                                depKey._2
+                              ) :: errs0
                           )
                       }
                   }
@@ -182,7 +187,7 @@ object DecodedLibrary {
   ): Either[Throwable, Version] =
     Library.getVersion(protoLib.arg) match {
       case Some(v) => Right(v)
-      case None         =>
+      case None    =>
         Left(
           CliException(
             "missing version",
@@ -241,7 +246,7 @@ object DecodedLibrary {
       Library.getVersion(dep) match {
         case Some(version) =>
           F.pure((Name(dep.name), version))
-        case None          =>
+        case None =>
           F.raiseError(
             CliException(
               "missing version",

@@ -64,7 +64,11 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         case T: for_all(tail, fn)
         case F: F
 """) { te =>
-      assertEquals(SelfCallKind(Name("for_all"), te), SelfCallKind.NoCall, s"${te.repr}")
+      assertEquals(
+        SelfCallKind(Name("for_all"), te),
+        SelfCallKind.NoCall,
+        s"${te.repr}"
+      )
     }
   }
 
@@ -91,7 +95,9 @@ def for_all(xs: List[a], fn: a -> B) -> B:
     scs.foreach { a =>
       assertEquals(a.merge(a), a)
       assertEquals(
-        scs.forall { other => (a.ifNoCallThen(other) eq other) }, (a == NoCall))
+        scs.forall(other => (a.ifNoCallThen(other) eq other)),
+        (a == NoCall)
+      )
       assertEquals(NoCall.merge(a), a)
       assertEquals(NonTailCall.merge(a), NonTailCall)
       assert(a.callNotTail != TailCall)

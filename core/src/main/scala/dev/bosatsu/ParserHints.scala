@@ -37,7 +37,9 @@ object ParserHints {
       error: ParseFailure
   ): Option[Doc] = {
     val pos = error.position
-    if (!expectsColonAt(error.expected, pos) || locations.toLineCol(pos).isEmpty) {
+    if (
+      !expectsColonAt(error.expected, pos) || locations.toLineCol(pos).isEmpty
+    ) {
       None
     } else {
       val maybeHint =
@@ -79,7 +81,9 @@ object ParserHints {
       error: ParseFailure
   ): Option[Doc] = {
     val pos = error.position
-    if (pos < 0 || pos > source.length || !expectsColonAt(error.expected, pos)) {
+    if (
+      pos < 0 || pos > source.length || !expectsColonAt(error.expected, pos)
+    ) {
       None
     } else {
       lineInfo(locations, pos).flatMap { case (row, col, line) =>
@@ -136,9 +140,9 @@ object ParserHints {
         val tail = line.drop(col).dropWhile(_.isWhitespace)
 
         head match {
-          case Some(("else", _))
-              if wordAtOrAfter(source, pos).exists { case (w, _, _) =>
-                w == "if"
+          case Some(("else", _)) if wordAtOrAfter(source, pos).exists {
+                case (w, _, _) =>
+                  w == "if"
               } =>
             // Handled by elseIfRule with a more specific message.
             None
@@ -220,7 +224,8 @@ object ParserHints {
   private def isWordChar(c: Char): Boolean =
     c == '_' || c.isLetterOrDigit
 
-  private val intLiteralRegex = raw"""[+-]?(?:0|[1-9][0-9_]*|0[bB][01_]+|0[oO][0-7_]+|0[xX][0-9a-fA-F_]+)""".r
+  private val intLiteralRegex =
+    raw"""[+-]?(?:0|[1-9][0-9_]*|0[bB][01_]+|0[oO][0-7_]+|0[xX][0-9a-fA-F_]+)""".r
   private def containsIntegerLiteral(s: String): Boolean =
     intLiteralRegex.findFirstIn(s).isDefined
 

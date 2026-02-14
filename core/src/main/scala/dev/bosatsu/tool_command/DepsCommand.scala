@@ -2,8 +2,21 @@ package dev.bosatsu.tool_command
 
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.{LocationMap, Package, PackageName, PlatformIO, Referant, rankn}
-import dev.bosatsu.tool.{CommandSupport, CommonOpts, FileKind, GraphOutput, Output}
+import dev.bosatsu.{
+  LocationMap,
+  Package,
+  PackageName,
+  PlatformIO,
+  Referant,
+  rankn
+}
+import dev.bosatsu.tool.{
+  CommandSupport,
+  CommonOpts,
+  FileKind,
+  GraphOutput,
+  Output
+}
 import scala.collection.immutable.SortedSet
 
 object DepsCommand {
@@ -64,16 +77,22 @@ object DepsCommand {
       ) =>
         for {
           srcPaths <- srcs.read
-          sourceDeps <- (for {
-            parsed <- packageResolver.parseHeaders(srcPaths)(platformIO)
-            validated <- CommandSupport.liftParseErrors(
-              platformIO,
-              parsed,
-              errColor
-            )
-          } yield validated.map { case (path, (pn, imps, _)) =>
-            (path, pn, FileKind.Source, sortNonPredefPackNames(imps.iterator.map(_.pack)))
-          })
+          sourceDeps <-
+            (for {
+              parsed <- packageResolver.parseHeaders(srcPaths)(platformIO)
+              validated <- CommandSupport.liftParseErrors(
+                platformIO,
+                parsed,
+                errColor
+              )
+            } yield validated.map { case (path, (pn, imps, _)) =>
+              (
+                path,
+                pn,
+                FileKind.Source,
+                sortNonPredefPackNames(imps.iterator.map(_.pack))
+              )
+            })
           depLibraries <- CommandSupport.readDepLibraries(
             platformIO,
             publicDependencies,
@@ -81,19 +100,21 @@ object DepsCommand {
           )
           depEntries = depLibraries._1 ::: depLibraries._2
           ifacePaths <- ifaces.read
-          ifacesWithPath <- (for {
-            interfaces <- platformIO.readInterfaces(ifacePaths)
-          } yield ifacePaths.zip(interfaces))
-          depIfaces = depEntries.flatMap {
-            case (path, dep) => dep.interfaces.map(path -> _)
+          ifacesWithPath <-
+            (for {
+              interfaces <- platformIO.readInterfaces(ifacePaths)
+            } yield ifacePaths.zip(interfaces))
+          depIfaces = depEntries.flatMap { case (path, dep) =>
+            dep.interfaces.map(path -> _)
           }
           allIfaces = ifacesWithPath ::: depIfaces
           packPaths <- includes.read
-          packsWithPath <- (for {
-            packs <- platformIO.readPackages(packPaths)
-          } yield packPaths.zip(packs))
-          depPacks = depEntries.flatMap {
-            case (path, dep) => dep.implementations.toMap.values.map(path -> _)
+          packsWithPath <-
+            (for {
+              packs <- platformIO.readPackages(packPaths)
+            } yield packPaths.zip(packs))
+          depPacks = depEntries.flatMap { case (path, dep) =>
+            dep.implementations.toMap.values.map(path -> _)
           }
           allPacks = packsWithPath ::: depPacks
           ifaceInfo = allIfaces.map { case (path, iface) =>
@@ -102,7 +123,11 @@ object DepsCommand {
           packInfo = allPacks.map { case (path, pack) =>
             (path, pack.name, FileKind.Pack, packageDeps(pack))
           }
-        } yield (Output.DepsOutput(sourceDeps ::: ifaceInfo ::: packInfo, output, style): Output[Path])
+        } yield (Output.DepsOutput(
+          sourceDeps ::: ifaceInfo ::: packInfo,
+          output,
+          style
+        ): Output[Path])
     }
 
     Opts.subcommand("deps", "emit a graph description of dependencies")(

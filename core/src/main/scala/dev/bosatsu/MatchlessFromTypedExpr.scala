@@ -20,7 +20,10 @@ object MatchlessFromTypedExpr {
           pack.imports.iterator.map(_.pack)
         }
         .map { iface =>
-          iface.name -> ExportedName.typeEnvFromExports(iface.name, iface.exports)
+          iface.name -> ExportedName.typeEnvFromExports(
+            iface.name,
+            iface.exports
+          )
         }
         .toMap
 
@@ -40,27 +43,26 @@ object MatchlessFromTypedExpr {
         }
 
     val allItemsList = pm.toMap.toList
-      .traverse {
-        case (pname, pack) =>
-          val lets = pack.lets
+      .traverse { case (pname, pack) =>
+        val lets = pack.lets
 
-          Par.start {
-            val exprs: List[(Bindable, Matchless.Expr[K])] =
-              rankn.RefSpace.allocCounter
-                .flatMap { c =>
-                  lets
-                    .traverse { case (name, rec, te) =>
-                      // TODO: add from so we can resolve packages correctly
-                      Matchless
-                        .fromLet(from, name, rec, te, variantOf, c)
-                        .map((name, _))
-                    }
-                }
-                .run
-                .value
+        Par.start {
+          val exprs: List[(Bindable, Matchless.Expr[K])] =
+            rankn.RefSpace.allocCounter
+              .flatMap { c =>
+                lets
+                  .traverse { case (name, rec, te) =>
+                    // TODO: add from so we can resolve packages correctly
+                    Matchless
+                      .fromLet(from, name, rec, te, variantOf, c)
+                      .map((name, _))
+                  }
+              }
+              .run
+              .value
 
-            (pname, exprs)
-          }
+          (pname, exprs)
+        }
       }
 
     val allItems = allItemsList.map(_.toMap)

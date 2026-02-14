@@ -15,9 +15,12 @@ class LibBuildImplicitPackageTest extends FunSuite {
     Json.Writer.write(value).render
 
   private def errMsg(err: Throwable): String =
-    module.mainExceptionToString(err).orElse(Option(err.getMessage)).getOrElse(
-      err.toString
-    )
+    module
+      .mainExceptionToString(err)
+      .orElse(Option(err.getMessage))
+      .getOrElse(
+        err.toString
+      )
 
   private def runWithState(
       cmd: List[String]
@@ -25,7 +28,7 @@ class LibBuildImplicitPackageTest extends FunSuite {
     module.run(cmd) match {
       case Left(help) =>
         Left(new Exception(s"got help: $help on command: $cmd"))
-      case Right(io)  =>
+      case Right(io) =>
         for {
           state <- MemoryMain.State.from[ErrorOr](baseFiles)
           res <- io.run(state)
@@ -66,8 +69,16 @@ main = Main(0)
 
   test("lib build uses implicit package names derived from path") {
     val cmd =
-      List("lib", "build", "--repo_root", "repo", "--outdir", "out", "-m",
-        "MyLib/Fib")
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "--outdir",
+        "out",
+        "-m",
+        "MyLib/Fib"
+      )
 
     module.runWith(baseFiles)(cmd) match {
       case Right(Output.Basic(_, _)) => ()
@@ -78,8 +89,16 @@ main = Main(0)
 
   test("invalid main reports known packages") {
     val cmd =
-      List("lib", "build", "--repo_root", "repo", "--outdir", "out", "-m",
-        "Does/NotExist")
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "--outdir",
+        "out",
+        "-m",
+        "Does/NotExist"
+      )
 
     module.runWith(baseFiles)(cmd) match {
       case Right(out) =>
@@ -93,15 +112,23 @@ main = Main(0)
 
   test("lib build allows -o without --outdir") {
     val cmd =
-      List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib", "-o",
-        "main.c")
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "-m",
+        "MyLib/Fib",
+        "-o",
+        "main.c"
+      )
 
     runWithState(cmd) match {
       case Right((state, Output.Basic(_, _))) =>
         assert(hasFile(state, Chain("main.c")))
-      case Right((_, other))                  =>
+      case Right((_, other)) =>
         fail(s"unexpected output: $other")
-      case Left(err)                          =>
+      case Left(err) =>
         fail(errMsg(err))
     }
   }
@@ -119,16 +146,26 @@ main = Main(0)
 
   test("lib build -o is relative to cwd, not outdir") {
     val cmd =
-      List("lib", "build", "--repo_root", "repo", "--outdir", "out", "-m",
-        "MyLib/Fib", "-o", "main.c")
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "--outdir",
+        "out",
+        "-m",
+        "MyLib/Fib",
+        "-o",
+        "main.c"
+      )
 
     runWithState(cmd) match {
       case Right((state, Output.Basic(_, _))) =>
         assert(hasFile(state, Chain("main.c")))
         assert(!hasFile(state, Chain("out", "main.c")))
-      case Right((_, other))                  =>
+      case Right((_, other)) =>
         fail(s"unexpected output: $other")
-      case Left(err)                          =>
+      case Left(err) =>
         fail(errMsg(err))
     }
   }

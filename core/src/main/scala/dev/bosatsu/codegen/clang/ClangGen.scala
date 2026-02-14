@@ -505,7 +505,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       // We have to lift functions to the top level and not
       // create any nesting
-      def innerFn(fn: Lambda[K]): T[Code.ValueLike] = {
+      def innerFn(fn: Lambda[K]): T[Code.ValueLike] =
         if (fn.captures.isEmpty) {
           liftedFnName(fn).map { ident =>
             boxFn(ident, fn.arity);
@@ -532,7 +532,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             )
           )
         }
-      }
 
       def literal(lit: Lit): T[Code.ValueLike] =
         lit match {
@@ -1122,7 +1121,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   val key = (depKey, pn, bn)
                   s.allValues.get(key) match {
                     case Some((_, ident)) => Right((s, ident))
-                    case None =>
+                    case None             =>
                       val scope: String = Show[K].show(depKey)
                       Left(
                         ClangGen.Error.UnknownValue(
@@ -1477,7 +1476,6 @@ object ClangGen {
 
   def apply[S](src: S)(implicit
       CS: CompilationSource[S]
-  ): ClangGen[CS.ScopeKey] = {
+  ): ClangGen[CS.ScopeKey] =
     new ClangGen(CS.namespace(src))
-  }
 }

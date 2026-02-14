@@ -148,7 +148,7 @@ object CommandSupport {
             show"failed to parse $path:${r + 1}:${c + 1}",
             ctx.render(80)
           )
-        case PathParseError.FileError(path, err)   =>
+        case PathParseError.FileError(path, err) =>
           err match {
             // This looks weird, but it is for scalajs which doesn't have the same
             // class.

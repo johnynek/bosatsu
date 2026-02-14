@@ -141,7 +141,7 @@ object Code {
   private def maybePar(c: Expression): Doc =
     c match {
       case Lambda(_, _) | Ternary(_, _, _) | Not(_) => par(toDoc(c))
-      case _                               => toDoc(c)
+      case _                                        => toDoc(c)
     }
 
   private def iflike(name: String, cond: Doc, body: Doc): Doc =
@@ -186,14 +186,14 @@ object Code {
     while (idx < s.length) {
       val cp = s.codePointAt(idx)
       cp match {
-        case 0x5c => sb.append("\\\\")
-        case 0x22 => sb.append("\\\"")
-        case 0x0a => sb.append("\\n")
-        case 0x0d => sb.append("\\r")
-        case 0x09 => sb.append("\\t")
-        case 0x08 => sb.append("\\b")
-        case 0x0c => sb.append("\\f")
-        case 0x0b => sb.append("\\v")
+        case 0x5c                        => sb.append("\\\\")
+        case 0x22                        => sb.append("\\\"")
+        case 0x0a                        => sb.append("\\n")
+        case 0x0d                        => sb.append("\\r")
+        case 0x09                        => sb.append("\\t")
+        case 0x08                        => sb.append("\\b")
+        case 0x0c                        => sb.append("\\f")
+        case 0x0b                        => sb.append("\\v")
         case c if c >= 0x20 && c <= 0x7e =>
           sb.append(c.toChar)
         case c if c <= 0xff =>
@@ -210,11 +210,13 @@ object Code {
 
   def exprToDoc(expr: Expression): Doc =
     expr match {
-      case PyInt(bi)   => Doc.text(bi.toString)
-      case PyFloat(d)  =>
+      case PyInt(bi)  => Doc.text(bi.toString)
+      case PyFloat(d) =>
         if (java.lang.Double.isNaN(d)) Doc.text("float(\"nan\")")
-        else if (d == java.lang.Double.POSITIVE_INFINITY) Doc.text("float(\"inf\")")
-        else if (d == java.lang.Double.NEGATIVE_INFINITY) Doc.text("float(\"-inf\")")
+        else if (d == java.lang.Double.POSITIVE_INFINITY)
+          Doc.text("float(\"inf\")")
+        else if (d == java.lang.Double.NEGATIVE_INFINITY)
+          Doc.text("float(\"-inf\")")
         else Doc.text(java.lang.Double.toString(d))
       case PyString(s) =>
         Doc.char('"') + Doc.text(escapePyString(s)) + Doc.char('"')
@@ -224,8 +226,8 @@ object Code {
       case Not(n) =>
         val nd = n match {
           case Ident(_) | Parens(_) | PyBool(_) | PyInt(_) | PyFloat(_) |
-              Apply(_, _) |
-              DotSelect(_, _) | SelectItem(_, _) | SelectRange(_, _, _) =>
+              Apply(_, _) | DotSelect(_, _) | SelectItem(_, _) |
+              SelectRange(_, _, _) =>
             exprToDoc(n)
           case p => par(exprToDoc(p))
         }
@@ -277,7 +279,7 @@ object Code {
       case DotSelect(left, right) =>
         val ld = left match {
           case PyInt(_) | PyFloat(_) | Op(_, _, _) => par(exprToDoc(left))
-          case _                      => exprToDoc(left)
+          case _                                   => exprToDoc(left)
         }
         ld + Doc.char('.') + exprToDoc(right)
     }
@@ -464,7 +466,7 @@ object Code {
               case PyInt(_) | Op(_, _: IntOp, PyInt(_)) =>
                 // put the constant on the right when we can merge constants
                 r1.evalPlus(i)
-              case _                                     =>
+              case _ =>
                 if (r1 == right) this
                 else Op(i, Const.Plus, r1)
             }
@@ -611,9 +613,8 @@ object Code {
   case class Parens(expr: Expression) extends Expression {
     def simplify: Expression =
       expr.simplify match {
-        case x @
-            (PyBool(_) | Ident(_) | PyInt(_) | PyFloat(_) | PyString(_) |
-                Parens(_)) =>
+        case x @ (PyBool(_) | Ident(_) | PyInt(_) | PyFloat(_) | PyString(_) |
+            Parens(_)) =>
           x
         case exprS => Parens(exprS)
       }
@@ -933,20 +934,20 @@ object Code {
   private def copyableExpr(expr: Expression, depth: Int = 1): Boolean =
     expr match {
       case Ident(_) | PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => true
-      case Op(left, _, right) if depth > 0               =>
+      case Op(left, _, right) if depth > 0                            =>
         copyableExpr(left, depth - 1) && copyableExpr(right, depth - 1)
       case SelectItem(arg: Ident, pos) =>
         pos match {
           case Ident(_) | PyInt(_) | PyFloat(_) | PyBool(_) | PyString(_) =>
             true
-          case _                                             => false
+          case _ => false
         }
       case SelectRange(arg: Ident, start, end) =>
         def simpleIdx(e: Expression): Boolean =
           e match {
             case Ident(_) | PyInt(_) | PyFloat(_) | PyBool(_) | PyString(_) =>
               true
-            case _                                             => false
+            case _ => false
           }
         start.forall(simpleIdx) && end.forall(simpleIdx)
       case _ => false
@@ -1212,8 +1213,8 @@ object Code {
   def substitute(subMap: Map[Ident, Expression], in: Expression): Expression =
     in match {
       case PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => in
-      case Not(n)                             => Not(substitute(subMap, n))
-      case i @ Ident(_)                       =>
+      case Not(n)       => Not(substitute(subMap, n))
+      case i @ Ident(_) =>
         subMap.get(i) match {
           case Some(value) => value
           case None        => i
@@ -1266,8 +1267,8 @@ object Code {
     def loop(ex: Expression, bound: Set[Ident]): Set[Ident] =
       ex match {
         case PyInt(_) | PyFloat(_) | PyString(_) | PyBool(_) => Set.empty
-        case Not(e)                             => loop(e, bound)
-        case i @ Ident(n)                       =>
+        case Not(e)                                          => loop(e, bound)
+        case i @ Ident(n)                                    =>
           if (pyKeywordList(n) || bound(i)) Set.empty
           else Set(i)
         case Op(left, _, right) => loop(left, bound) | loop(right, bound)

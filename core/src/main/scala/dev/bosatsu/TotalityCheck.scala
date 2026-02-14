@@ -168,7 +168,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             val recursion = argAndBranchExprs.traverse_(checkExpr)
 
             val missing: ValidatedNel[ExprError[A], Unit] = {
-              val mis = patternSetOps.missingBranches(topList, unguardedPatterns)
+              val mis =
+                patternSetOps.missingBranches(topList, unguardedPatterns)
               NonEmptyList.fromList(mis) match {
                 case Some(nel) =>
                   Validated.invalidNel(NonTotalMatch(m, nel): ExprError[A])
@@ -185,10 +186,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                     acc: List[Pattern[Cons, Type]]
                 ): List[Pattern[Cons, Type]] =
                   rem match {
-                    case Nil => acc.reverse
+                    case Nil            => acc.reverse
                     case branch :: tail =>
                       val isUnreachable = fromList(covered) match {
-                        case None => false
+                        case None      => false
                         case Some(cov) =>
                           patternSetOps
                             .difference(branch.pattern, cov)

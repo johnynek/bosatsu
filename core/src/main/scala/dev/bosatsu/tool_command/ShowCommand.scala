@@ -4,7 +4,14 @@ import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
-import dev.bosatsu.tool.{CommandSupport, CommonOpts, CompilerApi, Output, PackageResolver, PathGen}
+import dev.bosatsu.tool.{
+  CommandSupport,
+  CommonOpts,
+  CompilerApi,
+  Output,
+  PackageResolver,
+  PathGen
+}
 import dev.bosatsu.{Package, PackageMap, PackageName, Par, PlatformIO}
 
 object ShowCommand {
@@ -67,9 +74,15 @@ object ShowCommand {
             packageResolver
           )
           allPacks =
-            (PackageMap.fromIterable(existingPacks) ++ packPath._1.toMap.map(_._2)).toMap.values.toList
+            (PackageMap.fromIterable(existingPacks) ++ packPath._1.toMap.map(
+              _._2
+            )).toMap.values.toList
           _ <-
-            CommandSupport.ensureDistinctPackages(platformIO, allPacks, "show dependencies")
+            CommandSupport.ensureDistinctPackages(
+              platformIO,
+              allPacks,
+              "show dependencies"
+            )
         } yield (ifacesList ::: depIfs, allPacks)
     }
   }

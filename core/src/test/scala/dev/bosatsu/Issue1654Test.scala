@@ -29,7 +29,9 @@ tests = TestSuite("all", [
   private val stringTestsName = Identifier.Name("string_tests")
   private val testsName = Identifier.Name("tests")
 
-  private def withRepro[A](fn: (PackageMap.Inferred, Package.Inferred) => A): A = {
+  private def withRepro[A](
+      fn: (PackageMap.Inferred, Package.Inferred) => A
+  ): A = {
     var out: Option[A] = None
     TestUtils.testInferred(
       List(reproSource),
@@ -48,7 +50,9 @@ tests = TestSuite("all", [
     }
   }
 
-  test("issue 1654: inferred tests binding is monomorphic and test failure is not dropped") {
+  test(
+    "issue 1654: inferred tests binding is monomorphic and test failure is not dropped"
+  ) {
     withRepro { (pm, pack) =>
       val testsExpr = pack.lets.findLast(_._1 == testsName) match {
         case Some((_, _, te)) => te
@@ -61,7 +65,8 @@ tests = TestSuite("all", [
       assertEquals(Type.existList(testsExpr.getType), Nil)
       assertEquals(Package.testValue(pack).map(_._1), Some(testsName))
 
-      val eval = library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+      val eval =
+        library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
       val testRes = eval
         .evalTest(reproPackage)
         .getOrElse(fail(s"expected test value in ${reproPackage.asString}"))
@@ -83,18 +88,24 @@ tests = TestSuite("all", [
       val rewrittenLets = pack.lets.map {
         case (`testsName`, rec, te) =>
           (testsName, rec, TypedExpr.Annotation(te, quantifiedTestType))
-        case other                  => other
+        case other => other
       }
       val rewritten =
-        pack.copy(program = (pack.program._1.copy(lets = rewrittenLets), pack.program._2))
+        pack.copy(program =
+          (pack.program._1.copy(lets = rewrittenLets), pack.program._2)
+        )
 
-      val rewrittenTestsType = rewritten.lets.findLast(_._1 == testsName) match {
-        case Some((_, _, te)) => te.getType
-        case None             =>
-          fail(s"missing ${testsName.sourceCodeRepr} after rewriting lets")
-      }
+      val rewrittenTestsType =
+        rewritten.lets.findLast(_._1 == testsName) match {
+          case Some((_, _, te)) => te.getType
+          case None             =>
+            fail(s"missing ${testsName.sourceCodeRepr} after rewriting lets")
+        }
 
-      assert(Type.forallList(rewrittenTestsType).nonEmpty, rewrittenTestsType.toString)
+      assert(
+        Type.forallList(rewrittenTestsType).nonEmpty,
+        rewrittenTestsType.toString
+      )
       assertEquals(Package.testValue(rewritten).map(_._1), Some(testsName))
       assert(rewritten.lets.exists(_._1 == stringTestsName))
     }

@@ -3,7 +3,15 @@ package dev.bosatsu.library
 import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
-import dev.bosatsu.{Kind, LocationMap, Package, PackageMap, PackageName, Par, Referant}
+import dev.bosatsu.{
+  Kind,
+  LocationMap,
+  Package,
+  PackageMap,
+  PackageName,
+  Par,
+  Referant
+}
 import dev.bosatsu.IorMethods.IorExtension
 import scala.concurrent.duration.DurationInt
 

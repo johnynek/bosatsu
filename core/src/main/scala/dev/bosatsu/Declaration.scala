@@ -135,12 +135,10 @@ sealed abstract class Declaration derives CanEqual {
 
         val caseDoc = Doc.text("case ")
 
-        implicit val branchDoc
-            : Document[MatchBranch] =
+        implicit val branchDoc: Document[MatchBranch] =
           Document.instance[MatchBranch] { branch =>
-            val guardDoc = branch.guard.fold(Doc.empty)(g =>
-              Doc.text(" if ") + g.toDoc
-            )
+            val guardDoc =
+              branch.guard.fold(Doc.empty)(g => Doc.text(" if ") + g.toDoc)
             caseDoc + Document[Pattern.Parsed].document(
               branch.pattern
             ) + guardDoc + Doc.text(":") + branch.body.sepDoc + pid.document(
@@ -383,11 +381,10 @@ sealed abstract class Declaration derives CanEqual {
         case Literal(_)               => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
-          args.get.foldLeft(acc1) {
-            case (acc0, MatchBranch(pat, guard, res)) =>
-              val acc1 = acc0 ++ pat.names
-              val acc2 = guard.fold(acc1)(loop(_, acc1))
-              loop(res.get, acc2)
+          args.get.foldLeft(acc1) { case (acc0, MatchBranch(pat, guard, res)) =>
+            val acc1 = acc0 ++ pat.names
+            val acc2 = guard.fold(acc1)(loop(_, acc1))
+            loop(res.get, acc2)
           }
         case Matches(a, p) =>
           loop(a, acc ++ p.names)
@@ -979,8 +976,9 @@ object Declaration {
 
   /** A pattern can also be a declaration in some cases
     *
-    * TODO, patterns don't parse with regions, so we lose track of precise (https://github.com/johnynek/bosatsu/issues/132)
-    * position information if we want to point to an inner portion of it
+    * TODO, patterns don't parse with regions, so we lose track of precise
+    * (https://github.com/johnynek/bosatsu/issues/132) position information if
+    * we want to point to an inner portion of it
     */
   def toPattern(d: NonBinding): Option[Pattern.Parsed] =
     d match {
@@ -1335,10 +1333,9 @@ object Declaration {
       .map { case (r, l) => DictDecl(l)(using r) }
 
   val lits: P[Literal] =
-    (Lit.float64Parser.backtrack | Lit.integerParser | Lit.codePointParser)
-      .region
+    (Lit.float64Parser.backtrack | Lit.integerParser | Lit.codePointParser).region
       .map { case (r, l) =>
-      Literal(l)(using r)
+        Literal(l)(using r)
       }
 
   sealed abstract private class ParseMode derives CanEqual

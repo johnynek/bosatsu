@@ -16,7 +16,7 @@ import cats.syntax.all._
 class RankNInferTest extends munit.FunSuite {
 
   val emptyRegion: Region = Region(0, 0)
-  
+
   def tv(a: String): Type.Leaf = Type.TyVar(Type.Var.Bound(a))
 
   implicit val unitRegion: HasRegion[Unit] =
@@ -397,7 +397,9 @@ class RankNInferTest extends munit.FunSuite {
     )
   }
 
-  test("match guards typecheck in pattern scope and do not leak to later branches") {
+  test(
+    "match guards typecheck in pattern scope and do not leak to later branches"
+  ) {
     val vname = Identifier.Name("v")
     val guarded = Expr.Match(
       lit(true),
@@ -419,7 +421,9 @@ class RankNInferTest extends munit.FunSuite {
       ()
     )
 
-    Infer.typeCheck(leaked).runFully(withBools, boolTypes, Type.builtInKinds) match {
+    Infer
+      .typeCheck(leaked)
+      .runFully(withBools, boolTypes, Type.builtInKinds) match {
       case Left(_)    => ()
       case Right(tpe) =>
         fail(s"expected branch-local binding to be unavailable, inferred: $tpe")
@@ -436,7 +440,9 @@ class RankNInferTest extends munit.FunSuite {
       ()
     )
 
-    Infer.typeCheck(badGuard).runFully(withBools, boolTypes, Type.builtInKinds) match {
+    Infer
+      .typeCheck(badGuard)
+      .runFully(withBools, boolTypes, Type.builtInKinds) match {
       case Left(_)    => ()
       case Right(tpe) =>
         fail(s"expected non-Bool guard to fail typechecking, inferred: $tpe")

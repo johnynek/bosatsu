@@ -4,7 +4,14 @@ import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
-import dev.bosatsu.tool.{CommandSupport, CommonOpts, CompilerApi, Output, PackageResolver, PathGen}
+import dev.bosatsu.tool.{
+  CommandSupport,
+  CommonOpts,
+  CompilerApi,
+  Output,
+  PackageResolver,
+  PathGen
+}
 import dev.bosatsu.{PackageMap, PackageName, Par, PlatformIO}
 
 object CheckCommand {

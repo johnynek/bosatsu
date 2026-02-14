@@ -268,7 +268,9 @@ main = go(())
     )
   }
 
-  test("unused locals can be consumed with unnamed patterns in blocks and defs") {
+  test(
+    "unused locals can be consumed with unnamed patterns in blocks and defs"
+  ) {
     evalTest(
       List("""
 package A
@@ -835,7 +837,9 @@ main = one
 """)) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
-  test("guard canonicalization handles True, False, and locally shadowed True") {
+  test(
+    "guard canonicalization handles True, False, and locally shadowed True"
+  ) {
     evalTest(
       List("""
 package GuardCanonTrue
@@ -864,7 +868,9 @@ main = match True:
 """)) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
-  test("pattern guards evaluate correctly in matrix and ordered match compilation") {
+  test(
+    "pattern guards evaluate correctly in matrix and ordered match compilation"
+  ) {
     // matrix path (orthogonal constructor patterns)
     evalTest(
       List("""
@@ -3024,12 +3030,18 @@ main = Main(
       List(progPack, ioErrorPack, ioStdPack, progRunPack),
       "ProgRun",
       { (pm, mainPack) =>
-        val ev = library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+        val ev =
+          library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
         val (mainEval, _) =
-          ev.evaluateMainValue(mainPack).fold(err => fail(err.toString), identity)
+          ev.evaluateMainValue(mainPack)
+            .fold(err => fail(err.toString), identity)
 
         val run =
-          PredefImpl.runProgMain(mainEval.value, List("one", "two"), "\u00E9xyz")
+          PredefImpl.runProgMain(
+            mainEval.value,
+            List("one", "two"),
+            "\u00E9xyz"
+          )
 
         run.result match {
           case Right(VInt(i)) => assertEquals(i.intValue, 0)

@@ -60,7 +60,8 @@ object State {
         case "WithText" => cursor.as(using decodeWithText)
         case "Compiled" => cursor.as(using decodeCompiled)
         case unexpected =>
-          val msg = s"expected \"WithText\" or \"Compiled\", got: \"$unexpected\""
+          val msg =
+            s"expected \"WithText\" or \"Compiled\", got: \"$unexpected\""
           Left(DecodingFailure(msg, cursor.history))
       }
     }
