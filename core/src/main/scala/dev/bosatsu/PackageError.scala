@@ -372,6 +372,16 @@ object PackageError {
           orient(left, right, direction)
         }
 
+      def mismatchEvidenceRegion(
+          tpeErr: Infer.Error.Single
+      ): Option[Region] =
+        tpeErr match {
+          case te: Infer.Error.TypeError =>
+            expectedFound(te).map(_._1._2)
+          case _ =>
+            None
+        }
+
       def dedupKey(
           tpeErr: Infer.Error.Single
       ): Option[(String, Int, String, String)] =
@@ -416,25 +426,27 @@ object PackageError {
 
       def dedupSingles(
           singles: List[Infer.Error.Single]
-      ): List[(Infer.Error.Single, Int)] = {
+      ): List[(Infer.Error.Single, List[Region])] = {
         val keyToIdx = scala.collection.mutable.Map
           .empty[(String, Int, String, String), Int]
         val acc =
-          scala.collection.mutable.ArrayBuffer.empty[(Infer.Error.Single, Int)]
+          scala.collection.mutable.ArrayBuffer
+            .empty[(Infer.Error.Single, List[Region])]
 
         singles.foreach { single =>
+          val evidence = mismatchEvidenceRegion(single).toList
           dedupKey(single) match {
             case Some(key) =>
               keyToIdx.get(key) match {
                 case Some(idx) =>
-                  val (keep, suppressed) = acc(idx)
-                  acc.update(idx, (keep, suppressed + 1))
+                  val (keep, regions) = acc(idx)
+                  acc.update(idx, (keep, regions ::: evidence))
                 case None      =>
                   keyToIdx.update(key, acc.size)
-                  acc.append((single, 0))
+                  acc.append((single, evidence))
               }
             case None      =>
-              acc.append((single, 0))
+              acc.append((single, evidence))
           }
         }
 
@@ -454,17 +466,10 @@ object PackageError {
             false
         }
 
-      def withSuppressed(doc: Doc, suppressed: Int): Doc =
-        if (suppressed <= 0) doc
-        else
-          doc + Doc.hardLine + Doc.text(
-            s"($suppressed additional related mismatches suppressed)"
-          )
-
       def singleToDoc(
           tpeErr: Infer.Error.Single,
           occurrences: Int,
-          suppressed: Int
+          evidenceRegions: List[Region]
       ): Doc = {
         val (teMessage, region) = tpeErr match {
           case c @ Infer.Error.ContextualTypeError(site, _, cause) =>
@@ -600,9 +605,18 @@ object PackageError {
               }
 
             val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val evidenceDocs =
+              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
+            val evidenceDoc =
+              if (evidenceDocs.lengthCompare(1) > 0) {
+                Doc.text("evidence sites:") + Doc.hardLine +
+                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
+              } else {
+                context1
+              }
             val doc = Doc.text("type error: expected type ") + tmap(expectedType) +
               context0 + Doc.text("to be the same as type ") + tmap(foundType) +
-              Doc.hardLine + fnHint + context1
+              Doc.hardLine + fnHint + evidenceDoc
 
             (doc, Some(expectedRegion))
 
@@ -702,9 +716,18 @@ object PackageError {
             val context1 = contextDoc(expectedRegion)
 
             val tmap = showTypes(pack, List(expectedType, foundType), localTypeNames)
+            val evidenceDocs =
+              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
+            val evidenceDoc =
+              if (evidenceDocs.lengthCompare(1) > 0) {
+                Doc.text("evidence sites:") + Doc.hardLine +
+                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
+              } else {
+                context1
+              }
             val doc = Doc.text("type ") + tmap(foundType) + context0 +
               Doc.text("does not subsume expected type ") + tmap(expectedType) + Doc.hardLine +
-              context1
+              evidenceDoc
 
             (doc, Some(foundRegion))
 
@@ -925,20 +948,20 @@ object PackageError {
 
         }
         val h = sourceMap.headLine(pack, region)
-        withSuppressed(h + Doc.hardLine + teMessage, suppressed)
+        h + Doc.hardLine + teMessage
       }
 
       def aggregateSingles(
-          errs: List[(Infer.Error.Single, Int)]
-      ): List[(Infer.Error.Single, Int, Int)] = {
+          errs: List[(Infer.Error.Single, List[Region])]
+      ): List[(Infer.Error.Single, Int, List[Region])] = {
         val bldr = scala.collection.mutable.ArrayBuffer
-          .empty[(Infer.Error.Single, Int, Int)]
+          .empty[(Infer.Error.Single, Int, List[Region])]
         val indexOfKey = scala.collection.mutable.Map.empty[(Int, Identifier), Int]
 
-        def add(err: Infer.Error.Single, suppressed: Int): Unit =
-          bldr.append((err, 1, suppressed))
+        def add(err: Infer.Error.Single, evidence: List[Region]): Unit =
+          bldr.append((err, 1, evidence))
 
-        errs.foreach { case (err, suppressed) =>
+        errs.foreach { case (err, evidence) =>
           val keyOpt =
             err match {
               case Infer.Error.VarNotInScope((_, n), _, region)
@@ -954,14 +977,14 @@ object PackageError {
             case Some(key) =>
               indexOfKey.get(key) match {
                 case Some(idx) =>
-                  val (first, count, currentSuppressed) = bldr(idx)
-                  bldr.update(idx, (first, count + 1, currentSuppressed + suppressed))
+                  val (first, count, currentEvidence) = bldr(idx)
+                  bldr.update(idx, (first, count + 1, currentEvidence ::: evidence))
                 case None =>
                   indexOfKey.update(key, bldr.size)
-                  add(err, suppressed)
+                  add(err, evidence)
               }
             case None =>
-              add(err, suppressed)
+              add(err, evidence)
           }
         }
         bldr.toList
@@ -969,12 +992,16 @@ object PackageError {
 
       val finalDoc = tpeErr match {
         case s: Infer.Error.Single =>
-          singleToDoc(s, occurrences = 1, suppressed = 0)
+          singleToDoc(
+            s,
+            occurrences = 1,
+            evidenceRegions = mismatchEvidenceRegion(s).toList
+          )
         case c @ Infer.Error.Combine(_, _) =>
           val twoLines = Doc.hardLine + Doc.hardLine
           aggregateSingles(dedupSingles(c.flatten.iterator.toList))
-            .map { case (single, occurrences, suppressed) =>
-              singleToDoc(single, occurrences, suppressed)
+            .map { case (single, occurrences, evidenceRegions) =>
+              singleToDoc(single, occurrences, evidenceRegions)
             }
             .reduce((a, b) => a + (twoLines + b))
       }

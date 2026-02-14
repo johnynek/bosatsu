@@ -368,32 +368,22 @@ object Infer {
     case class Combine(left: Error, right: Error) extends Error {
       private def flatten(
           errs: NonEmptyList[Error],
-          inAcc: Set[Single],
           acc: Chain[Single]
       ): NonEmptyChain[Single] =
         errs match {
           case NonEmptyList(s: Single, tail) =>
             tail match {
               case Nil =>
-                if (inAcc(s)) {
-                  // we know s is in acc, so Chain must not be empty
-                  NonEmptyChain.fromChainUnsafe(acc)
-                } else {
-                  NonEmptyChain.fromChainAppend(acc, s)
-                }
+                NonEmptyChain.fromChainAppend(acc, s)
               case h :: t =>
-                if (inAcc(s)) {
-                  flatten(NonEmptyList(h, t), inAcc, acc)
-                } else {
-                  flatten(NonEmptyList(h, t), inAcc + s, acc :+ s)
-                }
+                flatten(NonEmptyList(h, t), acc :+ s)
             }
           case NonEmptyList(Combine(a, b), tail) =>
-            flatten(NonEmptyList(a, b :: tail), inAcc, acc)
+            flatten(NonEmptyList(a, b :: tail), acc)
         }
 
       lazy val flatten: NonEmptyChain[Single] =
-        flatten(NonEmptyList(left, right :: Nil), Set.empty, Chain.empty)
+        flatten(NonEmptyList(left, right :: Nil), Chain.empty)
     }
   }
 

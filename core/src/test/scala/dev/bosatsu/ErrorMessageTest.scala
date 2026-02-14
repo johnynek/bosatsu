@@ -1349,7 +1349,7 @@ main = under_twenty(3)
   }
 
 
-  test("repeated related mismatches are suppressed in combined errors") {
+  test("repeated related mismatches show all evidence sites in combined errors") {
     val region0 = Region(10, 11)
     val region1 = Region(20, 21)
     val region2 = Region(30, 31)
@@ -1379,7 +1379,9 @@ main = under_twenty(3)
       localTypeNames = Set.empty
     )
     val msg = pe.message(Map.empty, Colorize.None)
-    assert(msg.contains("additional related mismatches suppressed"), msg)
+    assert(msg.contains("evidence sites:"), msg)
+    assert(msg.contains("Region(20,21)"), msg)
+    assert(msg.contains("Region(30,31)"), msg)
   }
 
   test("call mismatch keeps expected/found orientation after meta solving") {
