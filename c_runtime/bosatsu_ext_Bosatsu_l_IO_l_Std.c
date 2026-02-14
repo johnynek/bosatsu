@@ -182,7 +182,7 @@ static inline BValue bsts_ioerror_invalid_argument(const char *context)
 
 BValue bsts_print_effect(BValue a)
 {
-  char *bytes = bsts_string_utf8_bytes(a);
+  const char *bytes = bsts_string_utf8_bytes(a);
   size_t len = bsts_string_utf8_len(a);
   if (len > 0)
   {
@@ -204,7 +204,7 @@ BValue bsts_print_effect(BValue a)
 
 BValue bsts_println_effect(BValue a)
 {
-  char *bytes = bsts_string_utf8_bytes(a);
+  const char *bytes = bsts_string_utf8_bytes(a);
   size_t len = bsts_string_utf8_len(a);
   if (len > 0)
   {
@@ -233,7 +233,7 @@ BValue bsts_println_effect(BValue a)
 
 BValue bsts_print_err_effect(BValue a)
 {
-  char *bytes = bsts_string_utf8_bytes(a);
+  const char *bytes = bsts_string_utf8_bytes(a);
   size_t len = bsts_string_utf8_len(a);
   if (len > 0)
   {
@@ -255,7 +255,7 @@ BValue bsts_print_err_effect(BValue a)
 
 BValue bsts_print_errln_effect(BValue a)
 {
-  char *bytes = bsts_string_utf8_bytes(a);
+  const char *bytes = bsts_string_utf8_bytes(a);
   size_t len = bsts_string_utf8_len(a);
   if (len > 0)
   {

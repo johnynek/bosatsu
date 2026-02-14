@@ -371,7 +371,7 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_char__Array__to__String(BValue a
   }
 
   BValue res = bsts_string_mut(total_len);
-  char* out = bsts_string_utf8_bytes(res);
+  char* out = bsts_string_utf8_bytes_mut(res);
   for (int idx = 0; idx < arr->len; idx++) {
     BValue ch = arr->data[arr->offset + idx];
     int codepoint = bsts_char_code_point_from_value(ch);

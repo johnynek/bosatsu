@@ -217,7 +217,7 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__String(BValue a) {
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(BValue a) {
   size_t len = bsts_string_utf8_len(a);
-  char* bytes = bsts_string_utf8_bytes(a);
+  const char* bytes = bsts_string_utf8_bytes(a);
 
   char* cleaned = (char*)malloc(len + 1);
   if (cleaned == NULL) {
@@ -299,7 +299,7 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__Int(BValue a) {
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__to__Float64(BValue a) {
   BValue as_string = bsts_integer_to_string(a);
   size_t len = bsts_string_utf8_len(as_string);
-  char* bytes = bsts_string_utf8_bytes(as_string);
+  const char* bytes = bsts_string_utf8_bytes(as_string);
 
   char* null_term = (char*)malloc(len + 1);
   if (null_term == NULL) {
