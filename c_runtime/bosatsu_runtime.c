@@ -139,82 +139,61 @@ BValue bsts_unit_value() {
 
 BValue bsts_char_from_code_point(int codepoint) {
   char utf8[4];
-  int len = bsts_string_code_point_to_utf8(codepoint, utf8);
-  if (len <= 0 || len > 4) {
-    fprintf(stderr, "bsts_char_from_code_point: invalid code point %d\n", codepoint);
-    abort();
+  size_t len;
+  // Char construction sites are type-directed: code points are valid Unicode
+  // scalar values by construction.
+  if (codepoint <= 0x7F) {
+    utf8[0] = (char)codepoint;
+    len = 1;
+  } else if (codepoint <= 0x7FF) {
+    utf8[0] = (char)(0xC0 | ((codepoint >> 6) & 0x1F));
+    utf8[1] = (char)(0x80 | (codepoint & 0x3F));
+    len = 2;
+  } else if (codepoint <= 0xFFFF) {
+    utf8[0] = (char)(0xE0 | ((codepoint >> 12) & 0x0F));
+    utf8[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+    utf8[2] = (char)(0x80 | (codepoint & 0x3F));
+    len = 3;
+  } else {
+    utf8[0] = (char)(0xF0 | ((codepoint >> 18) & 0x07));
+    utf8[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+    utf8[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+    utf8[3] = (char)(0x80 | (codepoint & 0x3F));
+    len = 4;
   }
-  return bsts_tiny_string_from_bytes((size_t)len, utf8);
+  return bsts_tiny_string_from_bytes(len, utf8);
 }
 
 int bsts_char_code_point_from_value(BValue ch) {
-  if (!bsts_is_tiny_string(ch)) {
-    fprintf(stderr, "bsts_char_code_point_from_value: expected tiny-string char representation\n");
-    abort();
-  }
-
+  // Char values are represented as tiny UTF-8 strings (len 1..4) by the
+  // typed frontend and runtime constructors. We decode directly without
+  // re-validating UTF-8 structure on each read.
   size_t len = bsts_tiny_string_len(ch);
   unsigned char b0 = bsts_tiny_string_u8_at(ch, 0);
   switch (len) {
     case 1:
-      if (b0 > 0x7F) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid ASCII lead byte 0x%02x\n", b0);
-        abort();
-      }
       return (int)b0;
     case 2: {
       unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
-      if ((b1 & 0xC0) != 0x80) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
-        abort();
-      }
-      if ((b0 & 0xE0) != 0xC0) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid 2-byte lead byte 0x%02x\n", b0);
-        abort();
-      }
       return (int)(((b0 & 0x1F) << 6) | (b1 & 0x3F));
     }
     case 3: {
       unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
       unsigned char b2 = bsts_tiny_string_u8_at(ch, 2);
-      if ((b1 & 0xC0) != 0x80) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
-        abort();
-      }
-      if ((b2 & 0xC0) != 0x80) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b2);
-        abort();
-      }
-      if ((b0 & 0xF0) != 0xE0) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid 3-byte lead byte 0x%02x\n", b0);
-        abort();
-      }
       return (int)(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F));
     }
     case 4: {
       unsigned char b1 = bsts_tiny_string_u8_at(ch, 1);
       unsigned char b2 = bsts_tiny_string_u8_at(ch, 2);
       unsigned char b3 = bsts_tiny_string_u8_at(ch, 3);
-      if ((b1 & 0xC0) != 0x80) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b1);
-        abort();
-      }
-      if ((b2 & 0xC0) != 0x80) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 continuation byte 0x%02x\n", b2);
-        abort();
-      }
-      if ((b3 & 0xC0) != 0x80 || (b0 & 0xF8) != 0xF0) {
-        fprintf(stderr, "bsts_char_code_point_from_value: invalid 4-byte UTF-8 sequence\n");
-        abort();
-      }
       return (int)(((b0 & 0x07) << 18) |
                    ((b1 & 0x3F) << 12) |
                    ((b2 & 0x3F) << 6) |
                    (b3 & 0x3F));
     }
     default:
-      fprintf(stderr, "bsts_char_code_point_from_value: invalid UTF-8 length %zu for char\n", len);
-      abort();
+      // Unreachable under the type-system/runtime representation invariant.
+      return 0;
   }
 }
 
@@ -741,22 +720,24 @@ int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
     return bytes;
 }
 
-/**
- * return the number of bytes at this position, 1, 2, 3, 4 or -1 on error
- * TODO: the runtime maybe should assume everything is safe, which the
- * compiler should have guaranteed, so doing error checks here is probably
- * wasteful once we debug the compiler.
- */
+// Return the UTF-8 code point width at `offset`: 1, 2, 3, 4, or -1 for an
+// invalid byte offset/lead byte. String values are assumed valid UTF-8 by the
+// typed frontend, so we don't re-validate continuation bytes here.
 int bsts_string_code_point_bytes(BValue value, int offset) {
     BSTS_String_View view = bsts_string_view_ref(&value);
-    return bsts_utf8_code_point_bytes(view.bytes, offset, (int)view.len);
+    if (offset < 0 || offset >= (int)view.len) return -1;
+    const unsigned char c = (const unsigned char)view.bytes[offset];
+    if (c <= 0x7F) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return -1;
 }
 
 /**
- * return char at the given offset
- * TODO: the runtime maybe should assume everything is safe, which the
- * compiler should have guaranteed, so doing error checks here is probably
- * wasteful once we debug the compiler.
+ * return char at the given offset.
+ * String inputs are assumed valid UTF-8 from the type-directed pipeline, so
+ * this decodes directly from the leading byte class.
  */
 BValue bsts_string_char_at(BValue value, int offset) {
     BSTS_String_View view = bsts_string_view_ref(&value);
@@ -777,24 +758,15 @@ BValue bsts_string_char_at(BValue value, int offset) {
         code_point = c;
     } else if ((c & 0xE0) == 0xC0) {
         // 2-byte sequence
-        if (remaining < 2 || (s[1] & 0xC0) != 0x80) {
-            // Invalid continuation byte
-            return 0;
-        }
+        if (remaining < 2) return 0;
         code_point = ((c & 0x1F) << 6) | (s[1] & 0x3F);
     } else if ((c & 0xF0) == 0xE0) {
         // 3-byte sequence
-        if (remaining < 3 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80) {
-            // Invalid continuation bytes
-            return 0;
-        }
+        if (remaining < 3) return 0;
         code_point = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
     } else if ((c & 0xF8) == 0xF0) {
         // 4-byte sequence
-        if (remaining < 4 || (s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80 || (s[3] & 0xC0) != 0x80) {
-            // Invalid continuation bytes
-            return 0;
-        }
+        if (remaining < 4) return 0;
         code_point = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
     } else {
         // Invalid UTF-8 leading byte

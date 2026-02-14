@@ -16,10 +16,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_and__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__String(BValue a) {
-  int codepoint = bsts_char_code_point_from_value(a);
-  char bytes[4];
-  int len = bsts_string_code_point_to_utf8(codepoint, bytes);
-  return bsts_string_from_utf8_bytes_copy(len, bytes);
+  // Char is represented as tiny UTF-8 in typed code, so conversion to String
+  // is just a direct byte copy.
+  BSTS_String_View view = bsts_string_view_ref(&a);
+  return bsts_string_from_utf8_bytes_copy(view.len, view.bytes);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
@@ -38,14 +38,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   size_t total_len = 0;
   while (v != 0) {
     BValue ch = get_enum_index(amut, 0);
-    int codepoint = bsts_char_code_point_from_value(ch);
-    char bytes[4];
-    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
-    if (char_len <= 0) {
-      // invalid code points should be impossible for Char values
-      return bsts_string_from_utf8_bytes_static(0, NULL);
-    }
-    total_len += (size_t)char_len;
+    BSTS_String_View view = bsts_string_view_ref(&ch);
+    total_len += view.len;
     amut = get_enum_index(amut, 1);
     v = get_variant(amut);
   }
@@ -57,11 +51,9 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
 
   while (v != 0) {
     BValue ch = get_enum_index(amut, 0);
-    int codepoint = bsts_char_code_point_from_value(ch);
-    char bytes[4];
-    int char_len = bsts_string_code_point_to_utf8(codepoint, bytes);
-    memcpy(out, bytes, (size_t)char_len);
-    out += char_len;
+    BSTS_String_View view = bsts_string_view_ref(&ch);
+    memcpy(out, view.bytes, view.len);
+    out += view.len;
     amut = get_enum_index(amut, 1);
     v = get_variant(amut);
   }
