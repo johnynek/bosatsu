@@ -711,65 +711,72 @@ final class SourceConverter(
       case rc @ RecordConstructor(name, args) =>
         val (p, c) = nameToCons(name)
         val cons: Expr[Declaration] = Expr.Global(p, c, rc)
-        localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-          case Some(params) =>
-            def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
-              arg match {
-                case RecordArg.Simple(b) =>
-                  (b, success(resolveToVar(b, rc, bound, topBound)))
-                case RecordArg.Pair(k, v) =>
-                  (k, loop(v))
-              }
-            val mappingList = args.toList.map(argExpr)
-            val mapping = mappingList.toMap
+        localTypeEnv.flatMap { env =>
+          env.getConstructorParams(p, c) match {
+            case Some(params) =>
+              def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
+                arg match {
+                  case RecordArg.Simple(b) =>
+                    (b, success(resolveToVar(b, rc, bound, topBound)))
+                  case RecordArg.Pair(k, v) =>
+                    (k, loop(v))
+                }
+              val mappingList = args.toList.map(argExpr)
+              val mapping = mappingList.toMap
 
-            lazy val present =
-              mappingList.iterator
-                .map(_._1)
-                .foldLeft(SortedSet.empty[Bindable])(_ + _)
+              lazy val present =
+                mappingList.iterator
+                  .map(_._1)
+                  .foldLeft(SortedSet.empty[Bindable])(_ + _)
 
-            def get(b: Bindable): Result[Expr[Declaration]] =
-              mapping.get(b) match {
-                case Some(expr) => expr
-                case None       =>
-                  SourceConverter.failure(
-                    SourceConverter.MissingArg(name, rc, present, b, rc.region)
-                  )
-              }
-            val exprArgs = params.traverse { case (b, _) => get(b) }
-
-            val res = exprArgs.map { args =>
-              Expr.buildApp(cons, args.toList, rc)
-            }
-            // we also need to check that there are no unused or duplicated
-            // fields
-            val paramNamesList = params.map(_._1)
-            val paramNames = paramNamesList.toSet
-            // here are all the fields we don't understand
-            val extra = mappingList.collect {
-              case (k, _) if !paramNames(k) => k
-            }
-            // Check that the mapping is exactly the right size
-            NonEmptyList.fromList(extra) match {
-              case None        => res
-              case Some(extra) =>
-                SourceConverter
-                  .addError(
-                    res,
-                    SourceConverter.UnexpectedField(
-                      name,
-                      rc,
-                      extra,
-                      paramNamesList,
-                      rc.region
+              def get(b: Bindable): Result[Expr[Declaration]] =
+                mapping.get(b) match {
+                  case Some(expr) => expr
+                  case None       =>
+                    SourceConverter.failure(
+                      SourceConverter.MissingArg(name, rc, present, b, rc.region)
                     )
-                  )
-            }
-          case None =>
-            SourceConverter.failure(
-              SourceConverter.UnknownConstructor(name, rc, decl.region)
-            )
-        })
+                }
+              val exprArgs = params.traverse { case (b, _) => get(b) }
+
+              val res = exprArgs.map { args =>
+                Expr.buildApp(cons, args.toList, rc)
+              }
+              // we also need to check that there are no unused or duplicated
+              // fields
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
+              // here are all the fields we don't understand
+              val extra = mappingList.collect {
+                case (k, _) if !paramNames(k) => k
+              }
+              // Check that the mapping is exactly the right size
+              NonEmptyList.fromList(extra) match {
+                case None        => res
+                case Some(extra) =>
+                  SourceConverter
+                    .addError(
+                      res,
+                      SourceConverter.UnexpectedField(
+                        name,
+                        rc,
+                        extra,
+                        paramNamesList,
+                        rc.region
+                      )
+                    )
+              }
+            case None =>
+              SourceConverter.failure(
+                SourceConverter.UnknownConstructor(
+                  name,
+                  rc,
+                  env.typeConstructors.keysIterator.map(_._2).toList,
+                  decl.region
+                )
+              )
+          }
+        }
     }
   }
 
@@ -1248,28 +1255,35 @@ final class SourceConverter(
               ) =>
             rargs.flatMap { args =>
               val pc @ (p, c) = nameToCons(nm)
-              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-                case Some(params) =>
-                  val argLen = args.size
-                  val paramLen = params.size
-                  if (argLen == paramLen) {
-                    SourceConverter.success(Pattern.PositionalStruct(pc, args))
-                  } else {
-                    // do the best we can
-                    val fixedArgs =
-                      (args ::: List.fill(paramLen - argLen)(Pattern.WildCard))
-                        .take(paramLen)
-                    SourceConverter.partial(
-                      SourceConverter
-                        .InvalidArgCount(nm, pat, argLen, paramLen, region),
-                      Pattern.PositionalStruct(pc, fixedArgs)
+              localTypeEnv.flatMap { env =>
+                env.getConstructorParams(p, c) match {
+                  case Some(params) =>
+                    val argLen = args.size
+                    val paramLen = params.size
+                    if (argLen == paramLen) {
+                      SourceConverter.success(Pattern.PositionalStruct(pc, args))
+                    } else {
+                      // do the best we can
+                      val fixedArgs =
+                        (args ::: List.fill(paramLen - argLen)(Pattern.WildCard))
+                          .take(paramLen)
+                      SourceConverter.partial(
+                        SourceConverter
+                          .InvalidArgCount(nm, pat, argLen, paramLen, region),
+                        Pattern.PositionalStruct(pc, fixedArgs)
+                      )
+                    }
+                  case None =>
+                    SourceConverter.failure(
+                      SourceConverter.UnknownConstructor(
+                        nm,
+                        pat,
+                        env.typeConstructors.keysIterator.map(_._2).toList,
+                        region
+                      )
                     )
-                  }
-                case None =>
-                  SourceConverter.failure(
-                    SourceConverter.UnknownConstructor(nm, pat, region)
-                  )
-              })
+                }
+              }
             }
           case (
                 Pattern.StructKind
@@ -1278,33 +1292,40 @@ final class SourceConverter(
               ) =>
             rargs.flatMap { args =>
               val pc @ (p, c) = nameToCons(nm)
-              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-                case Some(params) =>
-                  val argLen = args.size
-                  val paramLen = params.size
-                  if (argLen <= paramLen) {
-                    val fixedArgs =
-                      if (argLen < paramLen)
-                        (args ::: List
-                          .fill(paramLen - argLen)(Pattern.WildCard))
-                      else args
-                    SourceConverter.success(
-                      Pattern.PositionalStruct(pc, fixedArgs)
+              localTypeEnv.flatMap { env =>
+                env.getConstructorParams(p, c) match {
+                  case Some(params) =>
+                    val argLen = args.size
+                    val paramLen = params.size
+                    if (argLen <= paramLen) {
+                      val fixedArgs =
+                        if (argLen < paramLen)
+                          (args ::: List
+                            .fill(paramLen - argLen)(Pattern.WildCard))
+                        else args
+                      SourceConverter.success(
+                        Pattern.PositionalStruct(pc, fixedArgs)
+                      )
+                    } else {
+                      // we have too many
+                      val fixedArgs = args.take(paramLen)
+                      SourceConverter.partial(
+                        SourceConverter
+                          .InvalidArgCount(nm, pat, argLen, paramLen, region),
+                        Pattern.PositionalStruct(pc, fixedArgs)
+                      )
+                    }
+                  case None =>
+                    SourceConverter.failure(
+                      SourceConverter.UnknownConstructor(
+                        nm,
+                        pat,
+                        env.typeConstructors.keysIterator.map(_._2).toList,
+                        region
+                      )
                     )
-                  } else {
-                    // we have too many
-                    val fixedArgs = args.take(paramLen)
-                    SourceConverter.partial(
-                      SourceConverter
-                        .InvalidArgCount(nm, pat, argLen, paramLen, region),
-                      Pattern.PositionalStruct(pc, fixedArgs)
-                    )
-                  }
-                case None =>
-                  SourceConverter.failure(
-                    SourceConverter.UnknownConstructor(nm, pat, region)
-                  )
-              })
+                }
+              }
             }
           case (
                 Pattern.StructKind
@@ -1313,58 +1334,65 @@ final class SourceConverter(
               ) =>
             rargs.flatMap { args =>
               val pc @ (p, c) = nameToCons(nm)
-              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-                case Some(params) =>
-                  val mapping =
-                    fs.toList.iterator.map(_.field).zip(args.iterator).toMap
-                  lazy val present =
-                    SortedSet(fs.toList.iterator.map(_.field).toList*)
-                  def get(
-                      b: Bindable
-                  ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-                    mapping.get(b) match {
-                      case Some(pat) =>
-                        SourceConverter.success(pat)
-                      case None =>
-                        SourceConverter.partial(
-                          SourceConverter
-                            .MissingArg(nm, pat, present, b, region),
-                          Pattern.WildCard
-                        )
-                    }
-                  val mapped =
-                    params
-                      .traverse { case (b, _) => get(b) }(using
-                        SourceConverter.parallelIor
-                      )
-                      .map(Pattern.PositionalStruct(pc, _))
-
-                  val paramNamesList = params.map(_._1)
-                  val paramNames = paramNamesList.toSet
-                  // here are all the fields we don't understand
-                  val extra =
-                    fs.toList.iterator.map(_.field).filterNot(paramNames).toList
-                  // Check that the mapping is exactly the right size
-                  NonEmptyList.fromList(extra) match {
-                    case None        => mapped
-                    case Some(extra) =>
-                      SourceConverter
-                        .addError(
-                          mapped,
-                          SourceConverter.UnexpectedField(
-                            nm,
-                            pat,
-                            extra,
-                            paramNamesList,
-                            region
+              localTypeEnv.flatMap { env =>
+                env.getConstructorParams(p, c) match {
+                  case Some(params) =>
+                    val mapping =
+                      fs.toList.iterator.map(_.field).zip(args.iterator).toMap
+                    lazy val present =
+                      SortedSet(fs.toList.iterator.map(_.field).toList*)
+                    def get(
+                        b: Bindable
+                    ): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
+                      mapping.get(b) match {
+                        case Some(pat) =>
+                          SourceConverter.success(pat)
+                        case None =>
+                          SourceConverter.partial(
+                            SourceConverter
+                              .MissingArg(nm, pat, present, b, region),
+                            Pattern.WildCard
                           )
+                      }
+                    val mapped =
+                      params
+                        .traverse { case (b, _) => get(b) }(using
+                          SourceConverter.parallelIor
                         )
-                  }
-                case None =>
-                  SourceConverter.failure(
-                    SourceConverter.UnknownConstructor(nm, pat, region)
-                  )
-              })
+                        .map(Pattern.PositionalStruct(pc, _))
+
+                    val paramNamesList = params.map(_._1)
+                    val paramNames = paramNamesList.toSet
+                    // here are all the fields we don't understand
+                    val extra =
+                      fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                    // Check that the mapping is exactly the right size
+                    NonEmptyList.fromList(extra) match {
+                      case None        => mapped
+                      case Some(extra) =>
+                        SourceConverter
+                          .addError(
+                            mapped,
+                            SourceConverter.UnexpectedField(
+                              nm,
+                              pat,
+                              extra,
+                              paramNamesList,
+                              region
+                            )
+                          )
+                    }
+                  case None =>
+                    SourceConverter.failure(
+                      SourceConverter.UnknownConstructor(
+                        nm,
+                        pat,
+                        env.typeConstructors.keysIterator.map(_._2).toList,
+                        region
+                      )
+                    )
+                }
+              }
             }
           case (
                 Pattern.StructKind
@@ -1373,48 +1401,55 @@ final class SourceConverter(
               ) =>
             rargs.flatMap { args =>
               val pc @ (p, c) = nameToCons(nm)
-              localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
-                case Some(params) =>
-                  val mapping =
-                    fs.toList.iterator.map(_.field).zip(args.iterator).toMap
-                  def get(
-                      b: Bindable
-                  ): Pattern[(PackageName, Constructor), rankn.Type] =
-                    mapping.get(b) match {
-                      case Some(pat) => pat
-                      case None      => Pattern.WildCard
-                    }
-                  val derefArgs = params.map { case (b, _) => get(b) }
-                  val res0 = SourceConverter.success(
-                    Pattern.PositionalStruct(pc, derefArgs)
-                  )
+              localTypeEnv.flatMap { env =>
+                env.getConstructorParams(p, c) match {
+                  case Some(params) =>
+                    val mapping =
+                      fs.toList.iterator.map(_.field).zip(args.iterator).toMap
+                    def get(
+                        b: Bindable
+                    ): Pattern[(PackageName, Constructor), rankn.Type] =
+                      mapping.get(b) match {
+                        case Some(pat) => pat
+                        case None      => Pattern.WildCard
+                      }
+                    val derefArgs = params.map { case (b, _) => get(b) }
+                    val res0 = SourceConverter.success(
+                      Pattern.PositionalStruct(pc, derefArgs)
+                    )
 
-                  val paramNamesList = params.map(_._1)
-                  val paramNames = paramNamesList.toSet
-                  // here are all the fields we don't understand
-                  val extra =
-                    fs.toList.iterator.map(_.field).filterNot(paramNames).toList
-                  // Check that the mapping is exactly the right size
-                  NonEmptyList.fromList(extra) match {
-                    case None        => res0
-                    case Some(extra) =>
-                      SourceConverter
-                        .addError(
-                          res0,
-                          SourceConverter.UnexpectedField(
-                            nm,
-                            pat,
-                            extra,
-                            paramNamesList,
-                            region
+                    val paramNamesList = params.map(_._1)
+                    val paramNames = paramNamesList.toSet
+                    // here are all the fields we don't understand
+                    val extra =
+                      fs.toList.iterator.map(_.field).filterNot(paramNames).toList
+                    // Check that the mapping is exactly the right size
+                    NonEmptyList.fromList(extra) match {
+                      case None        => res0
+                      case Some(extra) =>
+                        SourceConverter
+                          .addError(
+                            res0,
+                            SourceConverter.UnexpectedField(
+                              nm,
+                              pat,
+                              extra,
+                              paramNamesList,
+                              region
+                            )
                           )
-                        )
-                  }
-                case None =>
-                  SourceConverter.failure(
-                    SourceConverter.UnknownConstructor(nm, pat, region)
-                  )
-              })
+                    }
+                  case None =>
+                    SourceConverter.failure(
+                      SourceConverter.UnknownConstructor(
+                        nm,
+                        pat,
+                        env.typeConstructors.keysIterator.map(_._2).toList,
+                        region
+                      )
+                    )
+                }
+              }
             }
         },
         t => toType(t, region),
@@ -2093,9 +2128,32 @@ object SourceConverter {
   final case class UnknownConstructor(
       name: Constructor,
       syntax: ConstructorSyntax,
+      knownConstructors: List[Constructor],
       region: Region
   ) extends ConstructorError {
     def message = {
+      val near = NameSuggestion
+        .nearest(
+          name,
+          knownConstructors.iterator.map(c => NameSuggestion.Candidate(c, c)).toList,
+          3
+        )
+        .map(_.value)
+
+      val nearDoc =
+        near match {
+          case Nil => Doc.empty
+          case one :: Nil =>
+            Doc.hardLine + Doc.text("Did you mean constructor `") + Doc.text(
+              one.sourceCodeRepr
+            ) + Doc.text("`?")
+          case many =>
+            Doc.hardLine + Doc.text("Nearest constructors in scope: ") +
+              Doc.intercalate(
+                Doc.text(",") + Doc.lineOrSpace,
+                many.map(c => Doc.text(s"`${c.sourceCodeRepr}`"))
+              ).grouped + Doc.char('.')
+        }
       val maybeDoc = syntax match {
         case ConstructorSyntax.Pat(
               Pattern.PositionalStruct(
@@ -2108,7 +2166,7 @@ object SourceConverter {
         case _ =>
           Doc.text(" in") + Doc.lineOrSpace + syntax.toDoc
       }
-      (Doc.text(s"unknown constructor ${name.sourceCodeRepr}") + maybeDoc)
+      (Doc.text(s"Unknown constructor `${name.sourceCodeRepr}`.") + nearDoc + maybeDoc)
         .render(80)
     }
   }

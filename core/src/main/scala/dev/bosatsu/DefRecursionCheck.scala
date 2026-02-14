@@ -93,11 +93,17 @@ object DefRecursionCheck {
   }
   case class RecursiveDefNoRecur(
       defstmt: DefStatement[Pattern.Parsed, Declaration],
-      recur: Declaration.Match
+      recur: Declaration.Match,
+      likelyRenamedCall: Option[(Bindable, Int)]
   ) extends RecursionError {
     def region = recur.region
     def message =
-      s"recur but no recursive call to ${defstmt.name.sourceCodeRepr}"
+      likelyRenamedCall match {
+        case Some((calledName, count)) =>
+          s"Function name looks renamed: declared `${defstmt.name.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${defstmt.name.sourceCodeRepr}` in recursive calls? ($count occurrences)"
+        case None =>
+          s"recur but no recursive call to ${defstmt.name.sourceCodeRepr}"
+      }
   }
 
   /** Check a statement that all inner declarations contain legal recursion, or
@@ -161,8 +167,9 @@ object DefRecursionCheck {
       final def inDef: InDef =
         this match {
           case id @ InDef(_, _, _, _)                             => id
-          case InDefRecurred(ir, _, _, _, _)                      => ir.inDef
-          case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _) => ir.inDef
+          case InDefRecurred(ir, _, _, _, _, _)                   => ir.inDef
+          case InRecurBranch(InDefRecurred(ir, _, _, _, _, _), _, _) =>
+            ir.inDef
         }
 
       final def defname: Bindable = inDef.fnname
@@ -180,7 +187,7 @@ object DefRecursionCheck {
         InDef(outer, fnname, args, localScope + b)
 
       def setRecur(index: (Int, Int), m: Declaration.Match): InDefRecurred =
-        InDefRecurred(this, index._1, index._2, m, 0)
+        InDefRecurred(this, index._1, index._2, m, 0, Map.empty)
 
       // This is eta-expansion of the function name as a lambda so we can check using the lambda rule
       def asLambda(region: Region): Declaration.Lambda = {
@@ -227,9 +234,15 @@ object DefRecursionCheck {
         group: Int,
         index: Int,
         recur: Declaration.Match,
-        recCount: Int
+        recCount: Int,
+        calledNames: Map[Bindable, Int]
     ) extends InDefState {
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
+      def noteCalledName(nm: Bindable): InDefRecurred =
+        copy(calledNames = calledNames.updatedWith(nm) {
+          case None        => Some(1)
+          case Some(count) => Some(count + 1)
+        })
     }
     case class InRecurBranch(
         inRec: InDefRecurred,
@@ -237,7 +250,26 @@ object DefRecursionCheck {
         allowedNames: Set[Bindable]
     ) extends InDefState {
       def incRecCount: InRecurBranch = copy(inRec = inRec.incRecCount)
+      def noteCalledName(nm: Bindable): InRecurBranch =
+        copy(inRec = inRec.noteCalledName(nm))
     }
+
+    private def likelyRenameCall(
+        fnname: Bindable,
+        calledNames: Map[Bindable, Int]
+    ): Option[(Bindable, Int)] =
+      NameSuggestion
+        .best(
+          fnname,
+          calledNames.iterator.map { case (name, count) =>
+            NameSuggestion.Candidate(
+              name,
+              (name, count),
+              NameSuggestion.ScopePriority.Local
+            )
+          }.toList
+        )
+        .map(_.value)
 
     /*
      * What is the index into the list of def arguments where we are doing our recursion
@@ -464,7 +496,7 @@ object DefRecursionCheck {
               } else {
                 // traverse converting Var(name) to the lambda version to use the above check
                 // not a recursive call
-                args.parTraverse_(checkDecl)
+                setSt(irb.noteCalledName(nm)) *> args.parTraverse_(checkDecl)
               }
             case None =>
               // this isn't a recursive call
@@ -541,7 +573,7 @@ object DefRecursionCheck {
           // this is a state change
           getSt.flatMap {
             case TopLevel | InRecurBranch(_, _, _) |
-                InDefRecurred(_, _, _, _, _) =>
+                InDefRecurred(_, _, _, _, _, _) =>
               failSt(UnexpectedRecur(recur))
             case InDef(_, defname, args, locals) =>
               toSt(getRecurIndex(defname, args, recur, locals)).flatMap { idx =>
@@ -552,7 +584,7 @@ object DefRecursionCheck {
                     case ir @ InDef(_, _, _, _) =>
                       val rec = ir.setRecur(idx, recur)
                       setSt(rec) *> beginBranch(pat)
-                    case irr @ InDefRecurred(_, _, _, _, _) =>
+                    case irr @ InDefRecurred(_, _, _, _, _, _) =>
                       setSt(InRecurBranch(irr, pat, pat.substructures.toSet))
                     case illegal =>
                       // $COVERAGE-OFF$ this should be unreachable
@@ -657,15 +689,16 @@ object DefRecursionCheck {
           case InDef(_, _, _, _) =>
             // we never hit a recur
             unitSt
-          case InDefRecurred(_, _, _, _, cnt) if cnt > 0 =>
+          case InDefRecurred(_, _, _, _, cnt, _) if cnt > 0 =>
             // we did hit a recur
             unitSt
-          case InDefRecurred(_, _, _, recur, 0) =>
+          case InDefRecurred(_, _, _, recur, 0, calledNames) =>
             // we hit a recur, but we didn't recurse
             failSt[Unit](
               RecursiveDefNoRecur(
                 defstmt.copy(result = defstmt.result._1.get),
-                recur
+                recur,
+                likelyRenameCall(defstmt.name, calledNames)
               )
             )
           case unreachable =>
