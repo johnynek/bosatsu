@@ -292,9 +292,9 @@ object PackageError {
           tpeErr: Infer.Error.TypeError
       ): Option[((Type, Region), (Type, Region))] =
         tpeErr match {
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
             Some(((t0, r0), (t1, r1)))
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
+          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
             Some(((t0, r0), (t1, r1)))
           case Infer.Error.ContextualTypeError(_, direction, cause) =>
             expectedFound(cause, direction)
@@ -326,7 +326,7 @@ object PackageError {
                 }
                 .getOrElse(("", ""))
             Some((s"context:$site", site.hashCode, expectedKey, foundKey))
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
             val left = renderedTypeKey(t0)
             val right = renderedTypeKey(t1)
             val (keyLeft, keyRight) =
@@ -337,7 +337,7 @@ object PackageError {
               keyLeft,
               keyRight
             ))
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
+          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
             Some((
               "subsume",
               math.min(r0.start, r1.start),
@@ -388,10 +388,14 @@ object PackageError {
             site match {
               case appSite: Infer.Error.MismatchSite.AppArg =>
                 val expectedType = appSite.expectedArgType
-                val expected =
-                  (expectedType, appSite.functionRegion)
-                val found =
+                val expectedFromCause =
                   expectedFound(cause, direction)
+                val expected =
+                  expectedFromCause
+                    .map(_._1)
+                    .getOrElse((expectedType, appSite.functionRegion))
+                val found =
+                  expectedFromCause
                     .map(_._2)
                     .orElse {
                       baseMismatch(cause).flatMap {
@@ -473,7 +477,7 @@ object PackageError {
                 )
             }
 
-          case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1, _) =>
             val context0 =
               if (r0 === r1)
                 Doc.space // sometimes the region of the error is the same on right and left
@@ -569,7 +573,7 @@ object PackageError {
                 )
             }
 
-          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
+          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _, _) =>
             val context0 =
               if (r0 === r1)
                 Doc.space // sometimes the region of the error is the same on right and left

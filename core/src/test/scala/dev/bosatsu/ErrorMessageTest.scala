@@ -1267,6 +1267,25 @@ main = under_twenty(3)
     assert(msg.contains("additional related mismatches suppressed"), msg)
   }
 
+  test("call mismatch keeps expected/found orientation after meta solving") {
+    val src = """
+package A
+
+def same(x: a, y: a) -> Bool:
+  True
+
+main = same(1, "x")
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("type mismatch in call to A::same"), msg)
+      assert(msg.contains("expected: Int"), msg)
+      assert(msg.contains("found: String"), msg)
+      ()
+    }
+  }
+
 
   test("recursion check with shadowing") {
     evalFail(List("""

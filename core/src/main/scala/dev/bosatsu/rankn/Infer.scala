@@ -237,7 +237,8 @@ object Infer {
         left: Type,
         right: Type,
         leftRegion: Region,
-        rightRegion: Region
+        rightRegion: Region,
+        direction: Direction = Direction.Unknown
     ) extends TypeError
     case class KindInvalidApply(
         typeApply: Type.TyApply,
@@ -273,7 +274,8 @@ object Infer {
         declared: Type,
         infRegion: Region,
         decRegion: Region,
-        badTvs: NonEmptyList[Type]
+        badTvs: NonEmptyList[Type],
+        direction: Direction = Direction.Unknown
     ) extends TypeError
     // this sounds internal but can be due to an infinite type attempted to be defined
     case class UnexpectedMeta(
@@ -774,7 +776,8 @@ object Infer {
         a2s: NonEmptyList[Type],
         r2: Type.Rho,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.ExpectRight
     ): Infer[TypedExpr.CoerceRho] =
       // note due to contravariance in input, we reverse the order there
       for {
@@ -783,10 +786,10 @@ object Infer {
         // relation (and report errors), but value-level argument coercions are
         // inserted at application sites, not by TypedExpr.coerceFn.
         _ <- a2s.zip(a1s).parTraverse { case (a2, a1) =>
-          subsCheck(a2, a1, right, left)
+          subsCheck(a2, a1, right, left, direction.flip)
         }
         // r2 is already in weak-prenex form
-        cores <- subsCheckRho(r1, r2, left, right)
+        cores <- subsCheckRho(r1, r2, left, right, direction)
         ks <- checkedKinds
       } yield TypedExpr.coerceFn(a1s, r2, cores, ks)
 
@@ -802,7 +805,8 @@ object Infer {
         t: Type,
         rho: Type.Rho,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.ExpectRight
     ): Infer[TypedExpr.CoerceRho] =
       (t, rho) match {
         case (t: Type.ForAll, rho) =>
@@ -812,14 +816,14 @@ object Infer {
               // Rule SPEC
               for {
                 faRho <- instantiate(t)
-                coerce <- subsCheckRho2(faRho, rho, left, right)
+                coerce <- subsCheckRho2(faRho, rho, left, right, direction)
               } yield coerce
           }
         // for existential lower bounds, we skolemize the existentials
         // then verify they don't escape after inference and unskolemize
         // them (if they are free in the resulting type)
         case (rhot: Type.Rho, rho) =>
-          subsCheckRho2(rhot, rho, left, right)
+          subsCheckRho2(rhot, rho, left, right, direction)
       }
 
     // this is only safe when the type is already correct and a Rho
@@ -836,7 +840,8 @@ object Infer {
         t: Type.Rho,
         rho: Type.Rho,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.ExpectRight
     ): Infer[TypedExpr.CoerceRho] =
       if (t == rho) {
         // This is safe because we have verified the input is Rho and the input type
@@ -857,7 +862,7 @@ object Infer {
                   .zip(skols.iterator.map(Type.TyVar(_)))
                   .toMap[Type.Var, Type.TyVar]
                 val in1 = Type.substituteRhoVar(in, env)
-                subsCheckRho2(in1, rho2, left, right)
+                subsCheckRho2(in1, rho2, left, right, direction)
               }
           case (rho1, typeExists @ Type.Exists(vars, in)) =>
             subsInstantiate(TypedExpr.Domain.RhoDom)(rho1, typeExists, left, right) match {
@@ -873,7 +878,7 @@ object Infer {
                       .toMap[Type.Var, Type.Rho]
                     val in1 = Type.substituteRhoVar(in, env)
                     for {
-                      coerce <- subsCheckRho2(rho1, in1, left, right)
+                      coerce <- subsCheckRho2(rho1, in1, left, right, direction)
                       ks <- checkedKinds
                     } yield TypedExpr.widenCoerceRho(coerce)
                       .andThen(TypedExpr.coerceRho(typeExists, ks))
@@ -882,7 +887,7 @@ object Infer {
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
             for {
-              (a1, r1) <- unifyFnRho(a2.length, rho1, left, right)
+              (a1, r1) <- unifyFnRho(a2.length, rho1, left, right, direction)
               // since rho is in weak prenex form, and Fun is covariant on r2, we know
               // r2 is in weak-prenex form and a rho type
               rhor2 <- assertRho(
@@ -890,12 +895,18 @@ object Infer {
                 s"subsCheckRho2($t, $rho, $left, $right), line 619",
                 right
               )
-              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
+              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right, direction)
             } yield coerce
           case (Type.Fun(a1, r1), rho2) =>
             // Rule FUN
             for {
-              (a2, r2) <- unifyFnRho(a1.length, rho2, right, left)
+              (a2, r2) <- unifyFnRho(
+                a1.length,
+                rho2,
+                right,
+                left,
+                direction.flip
+              )
               // since rho is in weak prenex form, and Fun is covariant on r2, we know
               // r2 is in weak-prenex form
               rhor2 <- assertRho(
@@ -903,24 +914,24 @@ object Infer {
                 s"subsCheckRho2($t, $rho, $left, $right), line 628",
                 right
               )
-              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
+              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right, direction)
             } yield coerce
           case (rho1: (Type.Leaf | Type.TyApply), ta @ Type.TyApply(l2, r2)) =>
             for {
               (kl, kr) <- validateKinds(ta, right)
-              (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right)
+              (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right, direction)
               // Check from right to left
-              _ <- subsCheckRho2(l1, l2, left, right)
+              _ <- subsCheckRho2(l1, l2, left, right, direction)
               _ <- varianceOfConsKind(ta, kl, right).flatMap {
                 case Variance.Covariant =>
-                  subsCheck(r1, r2, left, right)
+                  subsCheck(r1, r2, left, right, direction)
                 case Variance.Contravariant =>
-                  subsCheck(r2, r1, right, left)
+                  subsCheck(r2, r1, right, left, direction.flip)
                 case Variance.Phantom =>
                   // this doesn't matter
                   unit
                 case Variance.Invariant =>
-                  unifyType(r1, r2, left, right)
+                  unifyType(r1, r2, left, right, direction)
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(ta, ks)
@@ -930,27 +941,34 @@ object Infer {
               (kl, kr) <- validateKinds(ta, left)
               // here we set the kinds of l2: kl and r2: k2
               // so the kinds definitely match
-              (l2, r2) <- unifyTyApp(rho2, kl, kr, right, left)
+              (l2, r2) <- unifyTyApp(
+                rho2,
+                kl,
+                kr,
+                right,
+                left,
+                direction.flip
+              )
               // Check from right to left
-              _ <- subsCheckRho2(l1, l2, left, right)
+              _ <- subsCheckRho2(l1, l2, left, right, direction)
               // we know that l2 has kind kl
               _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
                 case Variance.Covariant =>
-                  subsCheck(r1, r2, left, right)
+                  subsCheck(r1, r2, left, right, direction)
                 case Variance.Contravariant =>
-                  subsCheck(r2, r1, right, left)
+                  subsCheck(r2, r1, right, left, direction.flip)
                 case Variance.Phantom =>
                   // this doesn't matter
                   unit
                 case Variance.Invariant =>
-                  unifyType(r1, r2, left, right)
+                  unifyType(r1, r2, left, right, direction)
               }
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(rho2, ks)
           case (t1: Type.Leaf, t2: Type.Leaf) =>
             // rule: MONO
             for {
-              _ <- unifyTau(Type.Tau(t1), Type.Tau(t2), left, right)
+              _ <- unifyTau(Type.Tau(t1), Type.Tau(t2), left, right, direction)
               ck <- checkedKinds
             } yield TypedExpr.coerceRho(
               t1,
@@ -982,7 +1000,8 @@ object Infer {
         arity: Int,
         fnType: Type.Rho,
         fnRegion: Region,
-        evidenceRegion: Region
+        evidenceRegion: Region,
+        direction: Error.Direction = Error.Direction.Unknown
     ): Infer[(NonEmptyList[Type], Type)] =
       fnType match {
         case Type.Fun(arg, res) =>
@@ -996,7 +1015,13 @@ object Infer {
             for {
               argT <- sized.traverse(_ => newMeta)
               resT <- newMeta
-              _ <- unifyRho(rho, Type.Fun(argT, resT), fnRegion, evidenceRegion)
+              _ <- unifyRho(
+                rho,
+                Type.Fun(argT, resT),
+                fnRegion,
+                evidenceRegion,
+                direction
+              )
             } yield (argT, resT)
           } else {
             fail(
@@ -1028,7 +1053,8 @@ object Infer {
         lKind: Kind,
         rKind: Kind,
         apRegion: Region,
-        evidenceRegion: Region
+        evidenceRegion: Region,
+        direction: Error.Direction = Error.Direction.Unknown
     ): Infer[(Type.Leaf | Type.TyApply, Type)] =
       apType match {
         case ta @ Type.TyApply(left, right) =>
@@ -1044,7 +1070,13 @@ object Infer {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
             ap = Type.Tau.TauApply(Type.Tau(leftT), Type.Tau(rightT))
-            _ <- unifyTau(Type.Tau(notApply), ap, apRegion, evidenceRegion)
+            _ <- unifyTau(
+              Type.Tau(notApply),
+              ap,
+              apRegion,
+              evidenceRegion,
+              direction
+            )
           } yield (leftT, rightT)
       }
 
@@ -1053,7 +1085,8 @@ object Infer {
         ty1: Type.TyMeta,
         ty2: Type.Tau,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.Unknown
     ): Infer[Unit] =
       ty2 match {
         case meta2 @ Type.TyMeta(m2) =>
@@ -1069,7 +1102,7 @@ object Infer {
                   // we know that m2 is set, but m is not because ty1 is unbound
                   if (m.existential == m2.existential) {
                     // we unify here because ty2 could possibly be ty1
-                    unifyTau(tau1, ty2, left, right)
+                    unifyTau(tau1, ty2, left, right, direction)
                   } else if (m.existential) {
                     // m2.existential == false
                     // we need to point m2 at m
@@ -1144,30 +1177,37 @@ object Infer {
         tv: Type.TyMeta,
         t: Type.Tau,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.Unknown
     ): Infer[Unit] =
       readMeta(tv.toMeta).flatMap {
-        case None      => unifyUnboundVar(tv, t, left, right)
-        case Some(ty1) => unifyTau(ty1, t, left, right)
+        case None      => unifyUnboundVar(tv, t, left, right, direction)
+        case Some(ty1) => unifyTau(ty1, t, left, right, direction)
       }
 
     def show(t: Type): String =
       Type.fullyResolvedDocument.document(t).render(80)
 
-    def unifyRho(t1: Type.Rho, t2: Type.Rho, r1: Region, r2: Region): Infer[Unit] =
+    def unifyRho(
+        t1: Type.Rho,
+        t2: Type.Rho,
+        r1: Region,
+        r2: Region,
+        direction: Error.Direction = Error.Direction.Unknown
+    ): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta @ Type.TyMeta(_), Type.Tau(tau)) =>
           // We can only assign a Tau type into a MetaVar
-          unifyVar(meta, tau, r1, r2)
+          unifyVar(meta, tau, r1, r2, direction)
         case (Type.Tau(tau), meta @ Type.TyMeta(_)) =>
           // We can only assign a Tau type into a MetaVar
-          unifyVar(meta, tau, r2, r1)
+          unifyVar(meta, tau, r2, r1, direction.flip)
         case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
           validateKinds(t1, r1) &>
             validateKinds(t2, r2) &>
-            unifyRho(a1, a2, r1, r2) &>
-            unifyType(b1, b2, r1, r2)
+            unifyRho(a1, a2, r1, r2, direction) &>
+            unifyType(b1, b2, r1, r2, direction)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
@@ -1175,21 +1215,30 @@ object Infer {
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
         case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          subsCheckRho2(t1, t2, r1, r2) &> subsCheckRho2(t2, t1, r2, r1).void
+          subsCheckRho2(t1, t2, r1, r2, direction) &>
+            subsCheckRho2(t2, t1, r2, r1, direction.flip).void
         case (left, right) =>
-          fail(Error.NotUnifiable(left, right, r1, r2))
+          fail(Error.NotUnifiable(left, right, r1, r2, direction))
       }
 
-    def unifyTau(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
+    def unifyTau(
+        t1: Type.Tau,
+        t2: Type.Tau,
+        r1: Region,
+        r2: Region,
+        direction: Error.Direction = Error.Direction.Unknown
+    ): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
-        case (meta @ Type.TyMeta(_), tau) => unifyVar(meta, tau, r1, r2)
-        case (tau, meta @ Type.TyMeta(_)) => unifyVar(meta, tau, r2, r1)
+        case (meta @ Type.TyMeta(_), tau) =>
+          unifyVar(meta, tau, r1, r2, direction)
+        case (tau, meta @ Type.TyMeta(_)) =>
+          unifyVar(meta, tau, r2, r1, direction.flip)
         case (Type.Tau.TauApply(t1), Type.Tau.TauApply(t2)) =>
           validateKinds(t1.toTyApply, r1) &>
             validateKinds(t2.toTyApply, r2) &>
-            unifyTau(t1.on, t2.on, r1, r2) &>
-            unifyTau(t1.arg, t2.arg, r1, r2)
+            unifyTau(t1.on, t2.on, r1, r2, direction) &>
+            unifyTau(t1.arg, t2.arg, r1, r2, direction)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
         case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
@@ -1197,19 +1246,27 @@ object Infer {
         case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
         case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          subsCheckRho2(t1, t2, r1, r2) &> subsCheckRho2(t2, t1, r2, r1).void
+          subsCheckRho2(t1, t2, r1, r2, direction) &>
+            subsCheckRho2(t2, t1, r2, r1, direction.flip).void
         case (left, right) =>
-          fail(Error.NotUnifiable(left, right, r1, r2))
+          fail(Error.NotUnifiable(left, right, r1, r2, direction))
       }
 
     /** for a type to be unified, we mean we can substitute in either direction
       */
-    def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
+    def unifyType(
+        t1: Type,
+        t2: Type,
+        r1: Region,
+        r2: Region,
+        direction: Error.Direction = Error.Direction.Unknown
+    ): Infer[Unit] =
       (t1, t2) match {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
-          unifyRho(rho1, rho2, r1, r2)
+          unifyRho(rho1, rho2, r1, r2, direction)
         case (t1, t2) =>
-          subsCheck(t1, t2, r1, r2) &> subsCheck(t2, t1, r2, r1).void
+          subsCheck(t1, t2, r1, r2, direction) &>
+            subsCheck(t2, t1, r2, r1, direction.flip).void
       }
 
     private val emptyRef = lift(RefSpace.newRef[Option[Type.Tau]](None))
@@ -1406,7 +1463,8 @@ object Infer {
         inferred: Type,
         declared: Type,
         left: Region,
-        right: Region
+        right: Region,
+        direction: Error.Direction = Error.Direction.ExpectRight
     ): Infer[TypedExpr.Coerce] =
       subsInstantiate(TypedExpr.Domain.TypeDom)(inferred, declared, left, right) match {
         case Some(inf) => inf
@@ -1420,9 +1478,18 @@ object Infer {
             // subsCheck only needs a coercion; any meta writes happen during
             // subsCheckRho, and remaining existentials are handled by callers
             // that produce a TypedExpr (e.g. checkSigma/quantify).
-            TypedExpr.substCoerceRho(subsCheckRho(inferred, rho, left, right))
+            TypedExpr.substCoerceRho(
+              subsCheckRho(inferred, rho, left, right, direction)
+            )
           } {
-            Error.SubsumptionCheckFailure(inferred, declared, left, right, _)
+            Error.SubsumptionCheckFailure(
+              inferred,
+              declared,
+              left,
+              right,
+              _,
+              direction
+            )
           }
       }
 
@@ -1592,13 +1659,32 @@ object Infer {
           None
       }
 
+    private def typeErrorDirection(
+        tpeErr: Error.TypeError
+    ): Error.Direction =
+      tpeErr match {
+        case Error.NotUnifiable(_, _, _, _, direction) =>
+          direction
+        case Error.SubsumptionCheckFailure(_, _, _, _, _, direction) =>
+          direction
+        case _ =>
+          Error.Direction.Unknown
+      }
+
     private def contextualTypeError(
         site: Error.MismatchSite,
-        direction: Error.Direction
+        fallbackDirection: Error.Direction
     ): Error => Error = {
       case c: Error.ContextualTypeError =>
         c
       case te @ (_: Error.NotUnifiable | _: Error.SubsumptionCheckFailure) =>
+        val direction =
+          typeErrorDirection(te) match {
+            case Error.Direction.Unknown =>
+              fallbackDirection
+            case found =>
+              found
+          }
         Error.ContextualTypeError(site, direction, te)
       case other =>
         other
@@ -1662,20 +1748,22 @@ object Infer {
                   .zip(subIn)
                   .zipWithIndex
                   .parTraverse { case ((argExpr, argTpe), idx) =>
-                    val site = Error.MismatchSite.AppArg(
-                      fnName,
-                      fnTe.getType,
-                      argTpe,
-                      idx,
-                      args.length,
-                      region(fn),
-                      region(argExpr),
-                      regTe
-                    )
                     checkSigma(argExpr, argTpe)
-                      .mapError(
-                        contextualTypeError(site, Error.Direction.ExpectRight)
-                      )
+                      .mapError { err =>
+                        contextualTypeError(
+                          Error.MismatchSite.AppArg(
+                            fnName,
+                            fnTe.getType,
+                            argTpe,
+                            idx,
+                            args.length,
+                            region(fn),
+                            region(argExpr),
+                            regTe
+                          ),
+                          Error.Direction.ExpectRight
+                        )(err)
+                      }
                   }
                   .map { argsTE =>
                     Some(dom.App(fnTe, argsTE, tpe, tag))
@@ -1836,20 +1924,22 @@ object Infer {
         (argT, resT) <- unifyFnRho(args.length, fnTRho, region(fn), argsRegion)
         fnName = functionNameHint(fn)
         typedArg <- args.zip(argT).zipWithIndex.parTraverse { case ((arg, argT), idx) =>
-          val site = Error.MismatchSite.AppArg(
-            fnName,
-            typedFn.getType,
-            argT,
-            idx,
-            args.length,
-            region(fn),
-            region(arg),
-            region(tag)
-          )
           checkSigma(arg, argT)
-            .mapError(
-              contextualTypeError(site, Error.Direction.ExpectRight)
-            )
+            .mapError { err =>
+              contextualTypeError(
+                Error.MismatchSite.AppArg(
+                  fnName,
+                  typedFn.getType,
+                  argT,
+                  idx,
+                  args.length,
+                  region(fn),
+                  region(arg),
+                  region(tag)
+                ),
+                Error.Direction.ExpectRight
+              )(err)
+            }
         }
         coerce <- instSigma(resT, expect, region(tag))
         res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
@@ -2356,17 +2446,19 @@ object Infer {
           val tpe = Type.getTypeOf(lit)
           val check = sigma match {
             case Expected.Check((t, tr)) =>
-              val site = Error.MismatchSite.MatchPattern(
-                pat,
-                t,
-                tpe,
-                tr,
-                reg
-              )
               subsCheck(tpe, t, reg, tr)
-                .mapError(
-                  contextualTypeError(site, Error.Direction.ExpectRight)
-                )
+                .mapError { err =>
+                  contextualTypeError(
+                    Error.MismatchSite.MatchPattern(
+                      pat,
+                      t,
+                      tpe,
+                      tr,
+                      reg
+                    ),
+                    Error.Direction.ExpectRight
+                  )(err)
+                }
           }
           check.as((pat, Nil))
         case GenPattern.Var(n) =>
@@ -2396,17 +2488,19 @@ object Infer {
           val tpe = Type.StrType
           val check = sigma match {
             case Expected.Check((t, tr)) =>
-              val site = Error.MismatchSite.MatchPattern(
-                pat,
-                t,
-                tpe,
-                tr,
-                reg
-              )
               subsCheck(tpe, t, reg, tr)
-                .mapError(
-                  contextualTypeError(site, Error.Direction.ExpectRight)
-                )
+                .mapError { err =>
+                  contextualTypeError(
+                    Error.MismatchSite.MatchPattern(
+                      pat,
+                      t,
+                      tpe,
+                      tr,
+                      reg
+                    ),
+                    Error.Direction.ExpectRight
+                  )(err)
+                }
           }
           val names = items.collect {
             case GenPattern.StrPart.NamedStr(n)  => (n, tpe)
@@ -2480,17 +2574,19 @@ object Infer {
             patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
             // we need to be able to widen sigma into tpe
-            site = Error.MismatchSite.MatchPattern(
-              pat,
-              sigma.value._1,
-              tpe,
-              sigma.value._2,
-              reg
-            )
             _ <- subsCheck(sigma.value._1, tpe, sigma.value._2, reg)
-              .mapError(
-                contextualTypeError(site, Error.Direction.ExpectRight)
-              )
+              .mapError { err =>
+                contextualTypeError(
+                  Error.MismatchSite.MatchPattern(
+                    pat,
+                    sigma.value._1,
+                    tpe,
+                    sigma.value._2,
+                    reg
+                  ),
+                  Error.Direction.ExpectRight
+                )(err)
+              }
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
