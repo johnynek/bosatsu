@@ -1,6 +1,6 @@
 package dev.bosatsu.library
 
-import cats.{Eval, Monad, MonoidK}
+import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, Validated, ValidatedNel}
 import com.monovore.decline.{Argument, Opts}
@@ -1318,12 +1318,15 @@ object Command {
                 }
                 memoE = value.memoize
                 fn = ev.valueToDocFor(scope).toDoc(tpe)
-                renderedDoc <- moduleIOMonad.fromEither {
-                  fn(memoE.value).leftMap { err =>
-                    CliException.Basic(show"unable to render value: $err")
+                edoc = memoE.map { v =>
+                  fn(v) match {
+                    case Right(d) => d
+                    case Left(_)  =>
+                      Doc.text(
+                        "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+                      )
                   }
                 }
-                edoc = Eval.now(renderedDoc)
               } yield (Output.EvaluationResult(memoE, tpe, edoc): Output[P])
             }
           } yield out

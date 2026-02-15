@@ -1,6 +1,5 @@
 package dev.bosatsu.tool_command
 
-import cats.{Eval}
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
@@ -15,6 +14,7 @@ import dev.bosatsu.tool.{
   PathGen
 }
 import dev.bosatsu.{Par, PlatformIO}
+import org.typelevel.paiges.Doc
 
 object EvalCommand {
   def runEval[F[_], Path](
@@ -56,12 +56,15 @@ object EvalCommand {
       }
       memoizedEval = eval.memoize
       toDocFn = ev.valueToDoc.toDoc(tpe)
-      renderedDoc <- moduleIOMonad.fromEither {
-        toDocFn(memoizedEval.value).leftMap { err =>
-          CliException.Basic(show"unable to render value: $err")
+      evalDoc = memoizedEval.map { v =>
+        toDocFn(v) match {
+          case Right(d) => d
+          case Left(_) =>
+            Doc.text(
+              "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+            )
         }
       }
-      evalDoc = Eval.now(renderedDoc)
     } yield (ev, Output.EvaluationResult(memoizedEval, tpe, evalDoc))
   }
 
