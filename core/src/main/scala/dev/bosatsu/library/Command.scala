@@ -1175,22 +1175,32 @@ object Command {
           }
       }
 
+    val fetchQuietOpt =
+      Opts
+        .flag(
+          "quiet",
+          help = "suppress successful fetch output; only report errors"
+        )
+        .orFalse
+
     val fetchCommand =
       Opts.subcommand(
         "fetch",
         "download all transitive deps into the content storage."
       ) {
-        ConfigConf.opts.map { fcc =>
+        (ConfigConf.opts, fetchQuietOpt).mapN { (fcc, quiet) =>
           for {
             cc <- fcc
-            _ <- cc.conf.previous.traverse_ { desc =>
+            previousFetch <- cc.conf.previous.traverse { desc =>
               val dep = Library.dep(cc.conf.name, desc)
               cc.cas.fetchIfNeeded(dep).flatMap { fetchMap =>
                 val failed = fetchMap.collect { case (hash, Left(err)) =>
                   (hash, err)
                 }
-                if (failed.isEmpty) moduleIOMonad.unit
-                else {
+                if (failed.isEmpty) {
+                  val key = (dep.name, Library.versionOrZero(dep))
+                  moduleIOMonad.pure((key, fetchMap))
+                } else {
                   val versionStr = desc.version match {
                     case None    => "unknown"
                     case Some(v) => show"${Version.fromProto(v)}"
@@ -1216,7 +1226,12 @@ object Command {
                   val hint = Doc.text(
                     "ensure the previous descriptor has valid uris or pre-populate the CAS."
                   )
-                  moduleIOMonad.raiseError[Unit](
+                  moduleIOMonad.raiseError[
+                    (
+                        (String, Version),
+                        SortedMap[Algo.WithAlgo[HashValue], cc.cas.DownloadRes]
+                    )
+                  ](
                     CliException(
                       "failed to fetch previous",
                       header + Doc.line + detail + Doc.line + hint
@@ -1238,10 +1253,15 @@ object Command {
                   )
               }
             }
-            msg <- cc.cas.fetchAllDeps(
+            depFetchState <- cc.cas.fetchAllDepsState(
               cc.conf.publicDeps ::: cc.conf.privateDeps ::: prevPubDeps
                 .getOrElse(Nil)
             )
+            fetchState = previousFetch match {
+              case Some((key, fetchMap)) => depFetchState.updated(key, fetchMap)
+              case None                  => depFetchState
+            }
+            msg <- cc.cas.fetchSummary(fetchState, quiet)
           } yield (Output.Basic(msg, None): Output[P])
         }
       }
@@ -2237,7 +2257,68 @@ object Command {
       }.parSequence
     }
 
-    def fetchAllDeps(deps: List[proto.LibDependency]): F[Doc] = {
+    private def fetchStateDoc(fs: FetchState): Doc = {
+      val depStr = if (fs.size == 1) "dependency" else "dependencies"
+      val header = Doc.text(show"fetched ${fs.size} transitive ${depStr}.")
+
+      header + Doc.line + Doc.intercalate(
+        Doc.hardLine,
+        fs.toList.map { case ((n, v), hashes) =>
+          val sortedHashes = hashes.toList.sortBy(_._1.toIdent)
+          val hashDoc = Doc.intercalate(
+            Doc.comma + Doc.line,
+            sortedHashes.map { case (wh, msg) =>
+              val ident = wh.toIdent
+              msg match {
+                case Right(true)  => Doc.text(show"fetched $ident")
+                case Right(false) => Doc.text(show"cached $ident")
+                case Left(err)    =>
+                  Doc.text(show"failed: $ident ${err.getMessage}")
+              }
+            }
+          )
+
+          Doc.text(show"$n $v:") + (Doc.line + hashDoc).nested(4).grouped
+        }
+      )
+    }
+
+    private def fetchSucceeded(fs: FetchState): Boolean =
+      fs.forall { case (_, dl) =>
+        dl.forall { case (_, res) => res.isRight }
+      }
+
+    private def requireSuccessfulFetch(fs: FetchState): F[Unit] =
+      if (fetchSucceeded(fs)) moduleIOMonad.unit
+      else
+        moduleIOMonad.raiseError(
+          CliException("failed to fetch", err = fetchStateDoc(fs))
+        )
+
+    def fetchSummary(fs: FetchState, quiet: Boolean): F[Doc] =
+      requireSuccessfulFetch(fs).as {
+        if (quiet) Doc.text("")
+        else {
+          val fetchedObjects = fs.toList
+            .flatMap { case (_, hashes) =>
+              hashes.toList.collect { case (wh, Right(true)) =>
+                wh.toIdent
+              }
+            }
+            .sorted
+          val fetchCount = fetchedObjects.size
+          val objectStr = if (fetchCount == 1) "object" else "objects"
+          val summary = Doc.text(show"fetched $fetchCount $objectStr.")
+          if (fetchedObjects.isEmpty) summary
+          else
+            Doc.intercalate(
+              Doc.hardLine,
+              fetchedObjects.map(ident => Doc.text(show"fetched $ident")) :+ summary
+            )
+        }
+      }
+
+    def fetchAllDepsState(deps: List[proto.LibDependency]): F[FetchState] = {
 
       def step(
           fetched: FetchState,
@@ -2273,49 +2354,18 @@ object Command {
             nextBatchF.map((nextFetched, _))
           }
 
-      def showFetchState(fs: FetchState): F[Doc] = {
-        val depStr = if (fs.size == 1) "dependency" else "dependencies"
-        val header = Doc.text(show"fetched ${fs.size} transitive ${depStr}.")
-
-        val resultDoc = header + Doc.line + Doc.intercalate(
-          Doc.hardLine,
-          fs.toList.map { case ((n, v), hashes) =>
-            val sortedHashes = hashes.toList.sortBy(_._1.toIdent)
-            val hashDoc = Doc.intercalate(
-              Doc.comma + Doc.line,
-              sortedHashes.map { case (wh, msg) =>
-                val ident = wh.toIdent
-                msg match {
-                  case Right(true)  => Doc.text(show"fetched $ident")
-                  case Right(false) => Doc.text(show"cached $ident")
-                  case Left(err)    =>
-                    Doc.text(show"failed: $ident ${err.getMessage}")
-                }
-              }
-            )
-
-            Doc.text(show"$n $v:") + (Doc.line + hashDoc).nested(4).grouped
-          }
-        )
-
-        val success = fs.forall { case (_, dl) =>
-          dl.forall { case (_, res) => res.isRight }
-        }
-        if (success) moduleIOMonad.pure(resultDoc)
-        else
-          moduleIOMonad.raiseError(
-            CliException("failed to fetch", err = resultDoc)
-          )
-      }
-
-      moduleIOMonad
-        .tailRecM((SortedMap.empty: FetchState, deps)) { case (fetched, deps) =>
+      moduleIOMonad.tailRecM((SortedMap.empty: FetchState, deps)) {
+        case (fetched, deps) =>
           step(fetched, deps).map {
             case (state, Nil) => Right(state)
             case next         => Left(next)
           }
-        }
-        .flatMap(showFetchState(_))
+      }
     }
+
+    def fetchAllDeps(deps: List[proto.LibDependency]): F[Doc] =
+      fetchAllDepsState(deps).flatMap { fs =>
+        requireSuccessfulFetch(fs).as(fetchStateDoc(fs))
+      }
   }
 }
