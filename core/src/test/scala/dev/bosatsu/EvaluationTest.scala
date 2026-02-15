@@ -1612,6 +1612,16 @@ main = bar
       List("""
 package Foo
 
+main = 1.25
+"""),
+      "Foo",
+      Json.JNumberStr("1.25")
+    )
+
+    evalTestJson(
+      List("""
+package Foo
+
 main = (1, "1", ())
 """),
       "Foo",

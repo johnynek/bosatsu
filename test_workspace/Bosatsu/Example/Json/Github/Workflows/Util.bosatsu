@@ -1,0 +1,271 @@
+package Bosatsu/Example/Json/Github/Workflows/Util
+
+export (
+  action_cache,
+  action_codecov,
+  action_checkout_v2,
+  action_checkout_v4,
+  action_setup_java,
+  action_setup_python,
+  action_setup_sbt,
+  action_upload_artifact,
+  cat_lines,
+  codecov_token_secret,
+  OnPushBranches(),
+  OnPush(),
+  github_token_secret,
+  install_sbt_step_name,
+  install_sbt_step_name_title,
+  java_17_setup_name,
+  java_17_setup_name_title,
+  java_distribution_temurin,
+  java_matrix_setup_name,
+  java_strategy_17,
+  java_version_17,
+  java_version_matrix,
+  main_branch,
+  needs_prepare,
+  needs_test,
+  needs_test_c,
+  permission_write,
+  python_version_matrix,
+  python_version_3_9,
+  runner_macos_14,
+  runner_macos_latest,
+  runner_ubuntu_latest,
+  Step(),
+  step_item,
+  step_item_uses_with,
+  step_item_env,
+  named_step_item_env,
+  named_step_item_env_run,
+  named_step_item_with_id,
+  JavaWith(),
+  FetchJavaWith(),
+  JavaStrategyMatrix(),
+  JavaStrategy(),
+  StepEnv(),
+  run_publish_bosatsu_libs,
+  run_c_runtime_ci,
+  run_lib_test_c,
+  run_lib_build_c,
+  run_python_tests_cmd,
+  tool_test_workspace_cmd,
+  tool_test_workspace_node_cmd,
+  transpile_c_cmd,
+  transpile_python_cmd,
+  timeout_minutes_default,
+)
+
+struct OnPushBranches(branches: List[String])
+
+struct OnPush(push: OnPushBranches)
+
+struct StepEnv(
+  `TAG_NAME`: Option[String],
+  `BOSATSU_C_RUNTIME_HASH`: Option[String],
+  `BOSATSU_STATIC_NATIVE_IMAGE`: Option[String],
+  `BOSATSU_NATIVE_IMAGE_LIBC`: Option[String],
+  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Option[String],
+  `CC`: Option[String],
+  `PGP_PASSPHRASE`: Option[String],
+  `PGP_SECRET`: Option[String],
+  `SONATYPE_PASSWORD`: Option[String],
+  `SONATYPE_USERNAME`: Option[String],
+  `REPO_ROOT`: Option[String],
+  `OUTDIR`: Option[String],
+  `GIT_SHA`: Option[String],
+  `URI_BASE`: Option[String],
+  `C_RUNTIME_ARCHIVE`: Option[String],
+  `GITHUB_TOKEN`: Option[String],
+  `GITHUB_REF_NAME`: Option[String],
+  `GH_TOKEN`: Option[String],
+)
+
+struct Step[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+  id: Option[String],
+)
+
+def step_item[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, None, None)
+
+def step_item_uses_with[with_t](
+  uses: Option[String],
+  with: Option[with_t],
+  name: Option[String],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, None, None)
+
+def step_item_env[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_env[with_t](
+  name: Option[String],
+  uses: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_env_run[with_t](
+  name: Option[String],
+  uses: Option[String],
+  with: Option[with_t],
+  env: Option[StepEnv],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_with_id[with_t](
+  name: String,
+  uses: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  id: Option[String],
+) -> Step[with_t]:
+  Step(uses, Some(name), with, run, None, id)
+
+struct JavaWith(distribution: String, `java-version`: String)
+
+struct FetchJavaWith(
+  `fetch-depth`: Option[Int],
+  distribution: Option[String],
+  `java-version`: Option[String],
+  token: Option[String],
+  override_branch: Option[String],
+  name: Option[String],
+  path: Option[String],
+)
+
+struct JavaStrategyMatrix(java: List[String])
+
+struct JavaStrategy(matrix: JavaStrategyMatrix)
+
+runner_ubuntu_latest = "ubuntu-latest"
+runner_macos_latest = "macos-latest"
+runner_macos_14 = "macos-14"
+
+action_checkout_v2 = "actions/checkout@v2.1.0"
+action_checkout_v4 = "actions/checkout@v4"
+action_cache = "coursier/cache-action@v6"
+action_codecov = "codecov/codecov-action@v5"
+action_setup_java = "actions/setup-java@v5"
+action_setup_sbt = "sbt/setup-sbt@v1"
+action_setup_python = "actions/setup-python@v2"
+action_upload_artifact = "actions/upload-artifact@v4"
+
+java_distribution_temurin = "temurin"
+java_version_17 = "17"
+java_version_matrix = "\${{matrix.java}}"
+python_version_matrix = "\${{matrix.python}}"
+python_version_3_9 = "3.9"
+
+java_matrix_setup_name = "java \${{matrix.java}} setup"
+java_17_setup_name = "java 17 setup"
+java_17_setup_name_title = "Java 17 setup"
+install_sbt_step_name = "install sbt"
+install_sbt_step_name_title = "Install sbt"
+
+needs_test = "test"
+needs_prepare = "prepare"
+needs_test_c = "testC"
+main_branch = "main"
+permission_write = "write"
+
+github_token_secret = "\${{ secrets.GITHUB_TOKEN }}"
+codecov_token_secret = "\${{ secrets.CODECOV_TOKEN }}"
+
+timeout_minutes_default = 30
+
+java_strategy_17 = JavaStrategy(JavaStrategyMatrix([ java_version_17 ]))
+
+transpile_python_cmd =
+  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+
+run_python_tests_cmd =
+  "PYTHONPATH=$PYTHONPATH:$(pwd)/test_workspace:$(pwd)/pyout python3 -m unittest discover pyout -v --pattern \"*.py\""
+
+tool_test_workspace_cmd =
+  "./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
+
+tool_test_workspace_node_cmd =
+  "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
+
+transpile_c_cmd =
+  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+
+def cat_lines(lines: List[String]) -> String:
+  recur lines:
+    case []: ""
+    case [line]: line
+    case [line, *rest]: "${line}\n${cat_lines(rest)}"
+
+run_publish_bosatsu_libs =
+  cat_lines([
+    "chmod +x scripts/publish_bosatsu_libs.sh",
+    "scripts/publish_bosatsu_libs.sh",
+    "",
+  ])
+
+run_c_runtime_ci =
+  cat_lines([
+    "cd c_runtime",
+    "rm -f test_exe",
+    "make PROFILE=debug && git diff --quiet || { git diff; false; }",
+    "make boehm_example PROFILE=release",
+    "make install PROFILE=release CFLAGS=\"-O1 -g\" CPPFLAGS=\"-DBSTS_CI=1\"",
+    "./test_exe && ./boehm_example",
+    "make bench_exe PROFILE=release",
+    "./bench_exe 1000000 | tee bench_ci.txt",
+    "cd ..",
+    "export SHA=$(./bosatsuj version -g)",
+    "python3 - <<'PY'",
+    "import json",
+    "import os",
+    "import pathlib",
+    "",
+    "sha = os.environ[\"SHA\"]",
+    "conf_path = pathlib.Path(\".bosatsuc\") / sha / \"cc_conf.json\"",
+    "conf = json.loads(conf_path.read_text())",
+    "assert \"-O1\" in conf[\"flags\"], conf",
+    "assert \"-DBSTS_CI=1\" in conf[\"flags\"] or \"-DBSTS_CI=1\" in conf[\"iflags\"], conf",
+    "print(f\"validated {conf_path}\")",
+    "PY",
+    "",
+  ])
+
+run_lib_test_c =
+  cat_lines([
+    "./bosatsuj lib fetch",
+    "mkdir c_out_lib",
+    "./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
+    "echo \"now test without a given outdir\"",
+    "./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm",
+    "",
+  ])
+
+run_lib_build_c =
+  cat_lines([
+    "mkdir c_out_build",
+    "./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
+    "./c_out_build/fib_bench 10",
+    "",
+  ])
