@@ -242,6 +242,115 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("lib eval missing value reports CliException without stack trace") {
+    val src =
+      """main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "eval",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::missing"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("value MyLib/Foo::missing not found"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("tool eval missing value reports CliException without stack trace") {
+    val src =
+      """main = 42
+"""
+    val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "eval",
+        "--main",
+        "Tool/Foo::missing",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Tool/Foo.bosatsu"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("value Tool/Foo::missing not found"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("lib eval constructor main reports actionable parse error") {
+    val src =
+      """enum Flag: True, False
+main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "eval",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::True"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = err.getMessage
+        assert(msg.contains("got the help message for"), msg)
+        assert(msg.contains("constructor or type name"), msg)
+        assert(msg.contains("top-level value is required"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("lib json constructor main reports actionable parse error") {
+    val src =
+      """enum Flag: True, False
+main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::True"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = err.getMessage
+        assert(msg.contains("got the help message for"), msg)
+        assert(msg.contains("constructor or type name"), msg)
+        assert(msg.contains("top-level value is required"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
   test(
     "tool doc writes markdown for source packages and excludes include packages"
   ) {
@@ -1612,6 +1721,170 @@ main = depBox
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("cannot convert type to Json"), msg)
         assert(msg.contains("function types are not serializable to Json"), msg)
+    }
+  }
+
+  test("lib json write supports Char and Array external values") {
+    val charSrc =
+      """main = match int_to_Char(127):
+  case Some(c): c
+  case None: .'?'
+"""
+    val charFiles = baseLibFiles(charSrc)
+
+    module.runWith(charFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JString(v), _)) =>
+        assertEquals(v, "\u007f")
+      case Right(other) =>
+        fail(s"expected char json output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val arraySrc =
+      """from Bosatsu/Collection/Array import from_List_Array
+
+main = from_List_Array([1, 2, 3])
+"""
+    val arrayPkgSrc =
+      """package Bosatsu/Collection/Array
+
+export Array, from_List_Array, size_Array
+
+external struct Array[a: +*]
+external def from_List_Array[a](xs: List[a]) -> Array[a]
+external def size_Array[a](ary: Array[a]) -> Int
+"""
+    val arrayFiles = baseLibFiles(arraySrc) :+ (
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
+    )
+
+    module.runWith(arrayFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(
+            Vector(
+              Json.JNumberStr("1"),
+              Json.JNumberStr("2"),
+              Json.JNumberStr("3")
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected array json output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib json apply supports Char and Array arguments") {
+    val charFnSrc =
+      """main = (c: Char) -> (c, c)
+"""
+    val charFnFiles = baseLibFiles(charFnSrc)
+
+    module.runWith(charFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[\"👋\"]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(Vector(Json.JString("👋"), Json.JString("👋")))
+        )
+      case Right(other) =>
+        fail(s"expected char apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val charInvalid = module.runWith(charFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[\"ab\"]"
+      )
+    )
+    charInvalid match {
+      case Right(out) =>
+        fail(s"expected invalid char input error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid input json"), msg)
+    }
+
+    val arrayFnSrc =
+      """from Bosatsu/Collection/Array import Array, size_Array
+
+main = (xs: Array[Int]) -> size_Array(xs)
+"""
+    val arrayPkgSrc =
+      """package Bosatsu/Collection/Array
+
+export Array, from_List_Array, size_Array
+
+external struct Array[a: +*]
+external def from_List_Array[a](xs: List[a]) -> Array[a]
+external def size_Array[a](ary: Array[a]) -> Int
+"""
+    val arrayFnFiles = baseLibFiles(arrayFnSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
+    )
+
+    module.runWith(arrayFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[[1,2,3]]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JNumberStr("3"), _)) => ()
+      case Right(other) =>
+        fail(s"expected array apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
     }
   }
 

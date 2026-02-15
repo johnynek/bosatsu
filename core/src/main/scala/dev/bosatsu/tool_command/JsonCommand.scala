@@ -164,12 +164,14 @@ object JsonCommand {
                             .map { fjson =>
                               Output.JsonOutput(inject(fjson), outputOpt)
                             }
+                        // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                         case Left(valueError) =>
                           moduleIOMonad.raiseError(
-                            new Exception(
+                            CliException.Basic(
                               show"unexpected value error: $valueError"
                             )
                           )
+                        // $COVERAGE-ON$
                       }
                   }
 
@@ -179,12 +181,14 @@ object JsonCommand {
                       case Left(unsup) => unsupported(unsup)
                       case Right(fn)   =>
                         fn(res.value.value) match {
+                          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(
+                              CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
+                          // $COVERAGE-ON$
                           case Right(j) =>
                             moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
                         }

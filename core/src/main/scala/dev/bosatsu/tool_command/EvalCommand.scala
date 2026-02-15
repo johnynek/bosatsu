@@ -6,6 +6,7 @@ import dev.bosatsu.LocationMap
 import dev.bosatsu.Predef
 import dev.bosatsu.library.LibraryEvaluation
 import dev.bosatsu.tool.{
+  CliException,
   CommonOpts,
   MainIdentifier,
   Output,
@@ -13,6 +14,7 @@ import dev.bosatsu.tool.{
   PathGen
 }
 import dev.bosatsu.{Par, PlatformIO}
+import org.typelevel.paiges.Doc
 
 object EvalCommand {
   def runEval[F[_], Path](
@@ -45,9 +47,11 @@ object EvalCommand {
       (mainPackageName, value) <- mainPackage.getMain(names)(platformIO)
       ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
       (eval, tpe) <- moduleIOMonad.fromEither {
-        value match {
+        (value match {
           case None        => ev.evaluateMainValue(mainPackageName)
           case Some(ident) => ev.evaluateNameValue(mainPackageName, ident)
+        }).leftMap { ex =>
+          CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
         }
       }
       memoizedEval = eval.memoize
@@ -55,13 +59,13 @@ object EvalCommand {
       evalDoc = memoizedEval.map { v =>
         toDocFn(v) match {
           case Right(d) => d
-          // $COVERAGE-OFF$ unreachable due to being well typed
-          case Left(err) =>
-            sys.error(show"got illtyped error: $err")
-          // $COVERAGE-ON$
+          case Left(_) =>
+            Doc.text(
+              "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+            )
         }
       }
-    } yield (ev, Output.EvaluationResult(eval, tpe, evalDoc))
+    } yield (ev, Output.EvaluationResult(memoizedEval, tpe, evalDoc))
   }
 
   def opts[F[_], Path](

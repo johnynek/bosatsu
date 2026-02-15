@@ -1,5 +1,7 @@
 package dev.bosatsu
 
+import cats.Eval
+
 class MatchlessRegressionTest extends munit.FunSuite {
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
     (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
@@ -129,5 +131,27 @@ def branch_blowup(args: L) -> Nat:
         Matchless.MakeStruct(0)
       )
     assertReuseConstructorsNoStackOverflow(expr)
+  }
+
+  test("MatchlessToValue evaluates static If conditions without dynamic branching") {
+    val trueIf =
+      Matchless.If(
+        Matchless.TrueConst,
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(2))
+      )
+    val falseIf =
+      Matchless.If(
+        Matchless.EqualsLit(Matchless.Literal(Lit(1)), Lit(2)),
+        Matchless.Literal(Lit(3)),
+        Matchless.Literal(Lit(4))
+      )
+
+    val evaluated =
+      MatchlessToValue
+        .traverse(Vector(trueIf, falseIf))((_, _, _) => Eval.now(Value.UnitValue))
+        .map(_.value)
+
+    assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(4)))
   }
 }
