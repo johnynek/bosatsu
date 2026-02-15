@@ -133,3 +133,85 @@ Main blockers observed:
   - constructor summary per type
   - import de-duplication in display
   - line wrapping / pretty-print width control
+
+## Post-Fix Verification (EDN Show Format)
+
+Date: 2026-02-15  
+Branch: `codex/lib-show-audit`
+
+### Representative output
+
+Command:
+
+```bash
+./bosatsuj lib show -n core_alpha --color none --package Ackermann
+```
+
+Excerpt:
+
+```text
+(
+  show
+  :interfaces
+  []
+  :packages
+  [
+    (
+      package
+      :name
+      "Ackermann"
+      :imports
+      [
+        (
+          import
+          "Bosatsu/Predef"
+          [
+            (
+              item
+              "Fn1"
+              "Fn1"
+              [ ... ]
+            )
+            (
+              item
+              "Fn2"
+              "Fn2"
+              [ ... ]
+            )
+          ]
+        )
+      ]
+      :exported-types
+      []
+      :exported-values
+      []
+      :types
+      [
+        (
+          defined-type
+          "Ackermann"
+          "Nat"
+          :constructors
+          [
+            ( constructor-fn "Zero" )
+            ( constructor-fn "Succ" :fields [ [ "n" "Ackermann/Nat" ] ] )
+          ]
+        )
+      ]
+      :defs
+      [ ... ]
+    )
+  ]
+)
+```
+
+### Validation status
+
+- `ShowEdn` codec roundtrip property test passes:
+  - `sbt "coreJVM/testOnly dev.bosatsu.tool.ShowEdnRoundTripTest"`
+- External EDN parser compatibility test passes:
+  - `sbt "cli/testOnly dev.bosatsu.ShowEdnInteropTest"`
+- Full CLI test suite passes:
+  - `sbt "cli/test"`
+- CLI assembly rebuilt after changes:
+  - `sbt "cli/assembly"`

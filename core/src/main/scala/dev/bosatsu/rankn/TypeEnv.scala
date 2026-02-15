@@ -1,8 +1,9 @@
 package dev.bosatsu.rankn
 
-import dev.bosatsu.{TypeName, PackageName, Identifier, Kind}
+import dev.bosatsu.{TypeName, PackageName, Identifier, Kind, Variance}
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 import scala.collection.immutable.SortedMap
+import org.typelevel.paiges.{Doc, Document}
 
 class TypeEnv[+A] private (
     protected val values: SortedMap[(PackageName, Identifier), Type],
@@ -60,6 +61,16 @@ class TypeEnv[+A] private (
 
   def getExternalValue(p: PackageName, n: Identifier): Option[Type] =
     values.get((p, n))
+
+  /** Lisp-style representation of all defined types in this environment.
+    */
+  def reprDoc(implicit ev: A <:< Kind.Arg): Doc =
+    TypeEnv.reprDoc(this)
+
+  /** Lisp-style representation of only the defined types from a given package.
+    */
+  def reprDocForPackage(p: PackageName)(implicit ev: A <:< Kind.Arg): Doc =
+    TypeEnv.reprDocForPackage(this, p)
 
   // when we have resolved, we can get the types of constructors out
   def getValue(p: PackageName, n: Identifier)(implicit
@@ -182,6 +193,87 @@ class TypeEnv[+A] private (
 }
 
 object TypeEnv {
+  private val tyDoc: Document[Type] = Type.fullyResolvedDocument
+
+  private def block(d: Doc): Doc =
+    d.nested(4).grouped
+
+  private def listDoc(items: List[Doc]): Doc =
+    Doc.char('[') + block(Doc.intercalate(Doc.line, items)) + Doc.char(']')
+
+  private def bindableTypeDoc(field: (Bindable, Type)): Doc = {
+    val (name, tpe) = field
+    block(
+      Doc.char('[') + Doc.text(name.sourceCodeRepr) + Doc.line + tyDoc
+        .document(tpe) + Doc.char(']')
+    )
+  }
+
+  private def kindArgDoc(arg: (Type.Var.Bound, Kind.Arg)): Doc = {
+    val (tv, ka) = arg
+    if ((ka.variance == Variance.in) && ka.kind.isType) Doc.text(tv.name)
+    else Doc.text(tv.name) + Doc.text(": ") + Kind.argDoc(ka)
+  }
+
+  private def constructorDoc(cf: ConstructorFn[Kind.Arg]): Doc = {
+    val exists = cf.exists.map(kindArgDoc)
+    val fields = cf.args.map(bindableTypeDoc)
+    val attrs =
+      List(
+        if (exists.isEmpty) None
+        else Some(Doc.text("(exists") + Doc.line + listDoc(exists) + Doc.char(')')),
+        if (fields.isEmpty) None
+        else Some(Doc.text("(fields") + Doc.line + listDoc(fields) + Doc.char(')'))
+      ).flatten
+
+    block(
+      if (attrs.isEmpty)
+        Doc.text("(constructor") + Doc.line + Doc.text(
+          cf.name.sourceCodeRepr
+        ) + Doc.char(')')
+      else
+        Doc.text("(constructor") + Doc.line + Doc.text(
+          cf.name.sourceCodeRepr
+        ) + Doc.line + Doc.intercalate(Doc.line, attrs) + Doc.char(')')
+    )
+  }
+
+  private def definedTypeDoc(dt: DefinedType[Kind.Arg]): Doc = {
+    val typeParams = dt.annotatedTypeParams.map(kindArgDoc)
+    val constructors = dt.constructors.map(constructorDoc)
+    val attrs =
+      List(
+        if (typeParams.isEmpty) None
+        else Some(Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')),
+        Some(
+          Doc.text("(constructors") + Doc.line + listDoc(constructors) + Doc
+            .char(')')
+        )
+      ).flatten
+
+    block(
+      Doc.text("(type") + Doc.line + Doc.text(
+        dt.name.ident.sourceCodeRepr
+      ) + Doc.line + Doc.intercalate(Doc.line, attrs) + Doc.char(')')
+    )
+  }
+
+  private def definedTypesDoc[A](
+      dts: List[DefinedType[A]]
+  )(implicit ev: A <:< Kind.Arg): Doc = {
+    type DTs[+X] = List[DefinedType[X]]
+    val typed = ev.substituteCo[DTs](dts)
+    listDoc(typed.map(definedTypeDoc))
+  }
+
+  def reprDoc[A](env: TypeEnv[A])(implicit ev: A <:< Kind.Arg): Doc =
+    definedTypesDoc(env.allDefinedTypes)
+
+  def reprDocForPackage[A](env: TypeEnv[A], p: PackageName)(implicit
+      ev: A <:< Kind.Arg
+  ): Doc =
+    definedTypesDoc(env.allDefinedTypes.filter(_.packageName == p))
+
   val empty: TypeEnv[Nothing] =
     new TypeEnv(
       SortedMap.empty[(PackageName, Identifier), Type],

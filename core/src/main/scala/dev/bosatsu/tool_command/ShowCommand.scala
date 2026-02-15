@@ -131,6 +131,9 @@ object ShowCommand {
         }
     }
 
-    Opts.subcommand("show", "show compiled packages")(showOpt)
+    Opts.subcommand(
+      "show",
+      "show fully type-checked packages as valid EDN"
+    )(showOpt)
   }
 }

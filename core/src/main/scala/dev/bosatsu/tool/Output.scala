@@ -6,7 +6,7 @@ import cats.data.{Chain, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 import dev.bosatsu.{Json, Package, PackageName, PlatformIO, Test, Value, rankn}
-import org.typelevel.paiges.{Doc, Document}
+import org.typelevel.paiges.Doc
 import dev.bosatsu.LocationMap.Colorize
 
 sealed abstract class Output[+Path] {
@@ -60,14 +60,7 @@ sealed abstract class Output[+Path] {
         (ifres *> out).as(ExitCode.Success)
 
       case Output.ShowOutput(packs, ifaces, output) =>
-        val pdocs = packs.map { pack =>
-          Document[Package.Typed[Any]].document(pack)
-        }
-        val idocs = ifaces.map { iface =>
-          Document[Package.Interface].document(iface)
-        }
-
-        val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
+        val doc = ShowEdn.showDoc(packs, ifaces)
         writeOut(doc, output).as(ExitCode.Success)
 
       case Output.DepsOutput(depinfo, output, style) =>

@@ -4,12 +4,13 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.Eval
 import cats.data.Chain
 import cats.implicits._
+import dev.bosatsu.edn.Edn
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{ExitCode, GraphOutput, Output}
+import dev.bosatsu.tool.{ExitCode, GraphOutput, Output, ShowEdn}
 import munit.FunSuite
-import org.typelevel.paiges.{Doc, Document}
+import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
 
 class ToolAndLibCommandTest extends FunSuite {
@@ -92,6 +93,71 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
       Chain("repo", "src", "MyLib", "Foo.bosatsu") -> mainSrc
     )
+  }
+
+  private def packageKeywordFields(
+      pack: Package.Typed[Any]
+  ): Map[String, Edn] = {
+    import Edn._
+
+    ShowEdn.packageCodec.encode(pack.void) match {
+      case EList(ESymbol("package") :: args) =>
+        args.grouped(2).collect { case EKeyword(k) :: value :: Nil =>
+          k -> value
+        }.toMap
+      case other =>
+        fail(s"expected package edn, found: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  private def vectorStrings(edn: Edn): List[String] = {
+    import Edn._
+
+    edn match {
+      case EVector(items) =>
+        items.map {
+          case EString(s) => s
+          case ESymbol(s) => s
+          case other =>
+            fail(
+              s"expected string/symbol atom, found: ${Edn.toDoc(other).render(120)}"
+            )
+        }
+      case other =>
+        fail(s"expected vector, found: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  private def importItems(
+      pack: Package.Typed[Any]
+  ): List[(String, List[(String, String)])] = {
+    import Edn._
+
+    packageKeywordFields(pack).get("imports") match {
+      case Some(EVector(imports)) =>
+        imports.map {
+          case EList(
+                ESymbol("import") :: EString(pkgName) :: EVector(items) :: Nil
+              ) =>
+            val parsedItems = items.map {
+              case EList(
+                    ESymbol("item") :: EString(original) :: EString(local) :: _ :: _
+                  ) =>
+                (original, local)
+              case other =>
+                fail(
+                  s"unexpected import item: ${Edn.toDoc(other).render(120)}"
+                )
+            }
+            (pkgName, parsedItems)
+          case other =>
+            fail(s"unexpected import entry: ${Edn.toDoc(other).render(120)}")
+        }
+      case Some(other) =>
+        fail(s"expected :imports vector, found: ${Edn.toDoc(other).render(120)}")
+      case None =>
+        fail("missing :imports field")
+    }
   }
 
   private def withInjectedPublicDep(
@@ -262,7 +328,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show import display is sorted and deduplicated by shown name") {
+  test("lib show includes original and local import names") {
     val src =
       """from Bosatsu/Predef import add as operator +, mul as operator *
 |
@@ -275,25 +341,51 @@ class ToolAndLibCommandTest extends FunSuite {
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
         val pack = packs.headOption.getOrElse(fail("expected one package"))
-        val rendered = Document[Package.Typed[Any]].document(pack).render(120)
-        val importsStart = rendered.indexOf("imports: Bosatsu/Predef [")
-        assert(importsStart >= 0, rendered)
-        val exportsStart = rendered.indexOf("\n    exports:", importsStart)
-        assert(exportsStart > importsStart, rendered)
-        val importsBlock = rendered.substring(importsStart, exportsStart)
+        val imports = importItems(pack)
+        val predefImport = imports.find(_._1 == "Bosatsu/Predef")
+        assert(predefImport.nonEmpty, imports.toString)
+        val names = predefImport.get._2
+        assert(names.contains(("add", "operator +")), names.toString)
+        assert(names.contains(("mul", "operator *")), names.toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
 
-        val openIdx = importsBlock.indexOf('[')
-        val closeIdx = importsBlock.indexOf(']', openIdx + 1)
-        assert(openIdx >= 0 && closeIdx > openIdx, importsBlock)
-        val shownNames = importsBlock
-          .substring(openIdx + 1, closeIdx)
-          .split(',')
-          .toList
-          .map(_.trim)
-          .filter(_.nonEmpty)
+  test("lib show separates exported types and values to avoid name collisions") {
+    val src =
+      """export Opt(), Pair(), main
+|
+|enum Opt[a]:
+|  N,
+|  S(value: a)
+|
+|struct Pair[a](left: a, right: a)
+|
+|main = 1
+|""".stripMargin
+    val files = baseLibFiles(src)
 
-        assertEquals(shownNames, shownNames.distinct)
-        assertEquals(shownNames, shownNames.sorted)
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val fields = packageKeywordFields(pack)
+
+        val typeNames = fields.get("exported-types").toList.flatMap(vectorStrings)
+        val valueNames = fields.get("exported-values").toList.flatMap(vectorStrings)
+
+        assert(typeNames.contains("Opt"), typeNames.toString)
+        assert(typeNames.contains("Pair"), typeNames.toString)
+        assert(!typeNames.contains("main"), typeNames.toString)
+
+        assert(valueNames.contains("N"), valueNames.toString)
+        assert(valueNames.contains("S"), valueNames.toString)
+        assert(valueNames.contains("Pair"), valueNames.toString)
+        assert(valueNames.contains("main"), valueNames.toString)
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>

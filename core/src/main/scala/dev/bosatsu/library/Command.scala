@@ -1383,7 +1383,7 @@ object Command {
     val showCommand =
       Opts.subcommand(
         "show",
-        "show typed packages from this library or dependency tree"
+        "show fully type-checked packages from this library or dependency tree as valid EDN"
       ) {
         (
           ConfigConf.opts,

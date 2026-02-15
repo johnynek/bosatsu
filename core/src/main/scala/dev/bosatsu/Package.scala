@@ -555,24 +555,27 @@ object Package {
             )
             .nested(4)
 
-          val exports = Doc.text("exports: ") + Doc
-            .intercalate(
-              Doc.line,
-              pack.exports.map { exp =>
-                Doc.text(exp.name.sourceCodeRepr)
-              }
-            )
-            .grouped
-            .nested(4)
+          def exportSection(label: String, names: List[String]): Doc =
+            Doc.text(label) + Doc
+              .intercalate(Doc.line, names.map(Doc.text))
+              .grouped
+              .nested(4)
 
-          val tpes = Doc.text("types: ") + Doc
-            .intercalate(
-              Doc.comma + Doc.line,
-              pack.types.definedTypes.toList.map { case (_, t) =>
-                Doc.text(t.name.ident.sourceCodeRepr)
-              }
-            )
-            .grouped
+          val exportedTypes = pack.exports.collect {
+            case ExportedName.TypeName(name, _) => name.sourceCodeRepr
+          }.distinct
+          val exportedValues = pack.exports.collect {
+            case ExportedName.Binding(name, _)     => name.sourceCodeRepr
+            case ExportedName.Constructor(name, _) => name.sourceCodeRepr
+          }.distinct
+
+          val exportedTypesDoc =
+            exportSection("exported_types: ", exportedTypes)
+          val exportedValuesDoc =
+            exportSection("exported_values: ", exportedValues)
+
+          val tpes = Doc.text("types: ") + pack.types
+            .reprDocForPackage(pack.name)
             .nested(4)
 
           val eqDoc = Doc.text(" = ")
@@ -583,7 +586,8 @@ object Package {
             }
           )
 
-          val all = lines :: imps :: exports :: tpes :: exprs :: Nil
+          val all =
+            lines :: imps :: exportedTypesDoc :: exportedValuesDoc :: tpes :: exprs :: Nil
 
           Doc.intercalate(Doc.hardLine, all)
         }.nested(4)
