@@ -1,6 +1,6 @@
 package dev.bosatsu.library
 
-import cats.{Monad, MonoidK}
+import cats.{Eval, Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, Validated, ValidatedNel}
 import com.monovore.decline.{Argument, Opts}
@@ -1318,16 +1318,13 @@ object Command {
                 }
                 memoE = value.memoize
                 fn = ev.valueToDocFor(scope).toDoc(tpe)
-                edoc = memoE.map { v =>
-                  fn(v) match {
-                    case Right(d)  => d
-                    // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
-                    case Left(err) =>
-                      Doc.text(show"<unable to render value: $err>")
-                    // $COVERAGE-ON$
+                renderedDoc <- moduleIOMonad.fromEither {
+                  fn(memoE.value).leftMap { err =>
+                    CliException.Basic(show"unable to render value: $err")
                   }
                 }
-              } yield (Output.EvaluationResult(value, tpe, edoc): Output[P])
+                edoc = Eval.now(renderedDoc)
+              } yield (Output.EvaluationResult(memoE, tpe, edoc): Output[P])
             }
           } yield out
         }

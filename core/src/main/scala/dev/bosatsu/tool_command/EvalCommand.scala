@@ -1,5 +1,6 @@
 package dev.bosatsu.tool_command
 
+import cats.{Eval}
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
@@ -55,17 +56,13 @@ object EvalCommand {
       }
       memoizedEval = eval.memoize
       toDocFn = ev.valueToDoc.toDoc(tpe)
-      evalDoc = memoizedEval.map { v =>
-        toDocFn(v) match {
-          case Right(d) => d
-          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
-          case Left(err) => org.typelevel.paiges.Doc.text(
-              show"<unable to render value: $err>"
-            )
-          // $COVERAGE-ON$
+      renderedDoc <- moduleIOMonad.fromEither {
+        toDocFn(memoizedEval.value).leftMap { err =>
+          CliException.Basic(show"unable to render value: $err")
         }
       }
-    } yield (ev, Output.EvaluationResult(eval, tpe, evalDoc))
+      evalDoc = Eval.now(renderedDoc)
+    } yield (ev, Output.EvaluationResult(memoizedEval, tpe, evalDoc))
   }
 
   def opts[F[_], Path](
