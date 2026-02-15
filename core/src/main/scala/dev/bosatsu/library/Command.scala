@@ -1321,8 +1321,10 @@ object Command {
                 edoc = memoE.map { v =>
                   fn(v) match {
                     case Right(d)  => d
+                    // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                     case Left(err) =>
                       Doc.text(show"<unable to render value: $err>")
+                    // $COVERAGE-ON$
                   }
                 }
               } yield (Output.EvaluationResult(value, tpe, edoc): Output[P])
@@ -1573,12 +1575,14 @@ object Command {
                       case Left(unsup) => unsupported(v2j, tpe, unsup)
                       case Right(fn)   =>
                         fn(value.value) match {
+                          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
                               CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
+                          // $COVERAGE-ON$
                           case Right(j) =>
                             moduleIOMonad.pure(
                               Output.JsonOutput(j, output): Output[P]
@@ -1591,12 +1595,14 @@ object Command {
                       case Left(unsup)           => unsupported(v2j, tpe, unsup)
                       case Right((arity, fnGen)) =>
                         fnGen(value.value) match {
+                          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
                               CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
+                          // $COVERAGE-ON$
                           case Right(fn) =>
                             ioJson(in.read)
                               .flatMap {
@@ -1628,12 +1634,14 @@ object Command {
                       case Left(unsup)           => unsupported(v2j, tpe, unsup)
                       case Right((arity, fnGen)) =>
                         fnGen(value.value) match {
+                          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
                               CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
+                          // $COVERAGE-ON$
                           case Right(fn) =>
                             ioJson(in.read)
                               .flatMap {

@@ -111,6 +111,17 @@ enum MyNat: Z, S(prev: MyNat)
     }
   }
 
+  test("char rendering reports ill-typed runtime values") {
+    val conv = ValueToDoc(_ => None)
+    val toDoc = conv.toDoc(Type.CharType)
+
+    toDoc(Value.Str("ab")) match {
+      case Left(_)    => ()
+      case Right(doc) =>
+        fail(s"expected ill-typed char rendering failure, got ${doc.render(80)}")
+    }
+  }
+
   test("render Array external values") {
     val conv = ValueToDoc(_ => None)
     val arrayType = Type.TyApply(
@@ -127,6 +138,25 @@ enum MyNat: Z, S(prev: MyNat)
     conv.toDoc(arrayType)(arr) match {
       case Right(doc) => assertEquals(doc.render(80), "[1, 2]")
       case Left(err)  => fail(s"failed to render array: $err")
+    }
+  }
+
+  test("array rendering reports ill-typed runtime values") {
+    val conv = ValueToDoc(_ => None)
+    val arrayType = Type.TyApply(
+      Type.const(
+        PackageName.parts("Bosatsu", "Collection", "Array"),
+        TypeName("Array")
+      ),
+      Type.IntType
+    )
+
+    conv.toDoc(arrayType)(Value.UnitValue) match {
+      case Left(_)    => ()
+      case Right(doc) =>
+        fail(
+          s"expected ill-typed array rendering failure, got ${doc.render(80)}"
+        )
     }
   }
 
@@ -147,6 +177,28 @@ enum MyNat: Z, S(prev: MyNat)
     conv.toDoc(progType)(progValue) match {
       case Right(doc) => assertEquals(doc.render(80), "Prog(...)")
       case Left(err)  => fail(s"failed to render Prog: $err")
+    }
+  }
+
+  test("Prog rendering reports ill-typed runtime values") {
+    val conv = ValueToDoc(_ => None)
+    val progType = Type.TyApply(
+      Type.TyApply(
+        Type.TyApply(
+          Type.const(PackageName.parts("Bosatsu", "Prog"), TypeName("Prog")),
+          Type.IntType
+        ),
+        Type.IntType
+      ),
+      Type.UnitType
+    )
+
+    conv.toDoc(progType)(Value.UnitValue) match {
+      case Left(_)    => ()
+      case Right(doc) =>
+        fail(
+          s"expected ill-typed Prog rendering failure, got ${doc.render(80)}"
+        )
     }
   }
 }

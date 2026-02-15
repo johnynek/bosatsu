@@ -58,9 +58,11 @@ object EvalCommand {
       evalDoc = memoizedEval.map { v =>
         toDocFn(v) match {
           case Right(d) => d
+          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
           case Left(err) => org.typelevel.paiges.Doc.text(
               show"<unable to render value: $err>"
             )
+          // $COVERAGE-ON$
         }
       }
     } yield (ev, Output.EvaluationResult(eval, tpe, evalDoc))

@@ -268,6 +268,34 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval missing value reports CliException without stack trace") {
+    val src =
+      """main = 42
+"""
+    val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "eval",
+        "--main",
+        "Tool/Foo::missing",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Tool/Foo.bosatsu"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("value Tool/Foo::missing not found"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
   test("lib eval constructor main reports actionable parse error") {
     val src =
       """enum Flag: True, False
