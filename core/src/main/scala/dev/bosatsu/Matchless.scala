@@ -3210,7 +3210,7 @@ object Matchless {
       prefix ::: kept ::: suffix
     }
 
-    def minimizeSpecializedRows(
+    def minimizeAlreadySpecializedRows(
         rows: List[MatchRow],
         colIdx: Int,
         arity: Int
@@ -3226,6 +3226,18 @@ object Matchless {
         (trimmedRows, keepOffsets)
       }
     }
+
+    def minimizeSpecializedRows(
+        sig: HeadSig,
+        rows: List[MatchRow],
+        colIdx: Int,
+        arity: Int
+    ): (List[MatchRow], List[Int]) =
+      minimizeAlreadySpecializedRows(
+        specializeRows(sig, rows, colIdx, arity),
+        colIdx,
+        arity
+      )
 
     def guardToBoolExpr(guardExpr: Expr[B]): F[BoolExpr[B]] =
       guardExpr match {
@@ -3454,10 +3466,8 @@ object Matchless {
                 ] =
                   sig match {
                     case EnumSig(_, v, s, f) =>
-                      val specializedRows =
-                        specializeRows(sig, rows, colIdx, s)
                       val (newRows, keepOffsets) =
-                        minimizeSpecializedRows(specializedRows, colIdx, s)
+                        minimizeSpecializedRows(sig, rows, colIdx, s)
                       val fields = keepOffsets.map(i =>
                         GetEnumElement(occ, v, i, s)
                       )
@@ -3474,23 +3484,23 @@ object Matchless {
                         )
                       )
                     case StructSig(_, s) =>
-                      val specializedRows =
-                        specializeRows(sig, rows, colIdx, s)
                       val (newRows, keepOffsets) =
-                        minimizeSpecializedRows(specializedRows, colIdx, s)
+                        minimizeSpecializedRows(sig, rows, colIdx, s)
                       val fields = keepOffsets.map(i =>
                         GetStructElement(occ, i, s)
                       )
                       val newOccs = occs.patch(colIdx, fields, 1)
                       Monad[F].pure((TrueConst, Nil, newRows, newOccs))
                     case LitSig(lit) =>
-                      val newRows = specializeRows(sig, rows, colIdx, 0)
+                      val (newRows, _) =
+                        minimizeSpecializedRows(sig, rows, colIdx, 0)
                       val newOccs = occs.patch(colIdx, Nil, 1)
                       val cond =
                         if (caseMustMatch) TrueConst else EqualsLit(occ, lit)
                       Monad[F].pure((cond, Nil, newRows, newOccs))
                     case ZeroSig =>
-                      val newRows = specializeRows(sig, rows, colIdx, 0)
+                      val (newRows, _) =
+                        minimizeSpecializedRows(sig, rows, colIdx, 0)
                       val newOccs = occs.patch(colIdx, Nil, 1)
                       val cond =
                         if (caseMustMatch) TrueConst
@@ -3499,15 +3509,23 @@ object Matchless {
                         (cond, Nil, newRows, newOccs)
                       )
                     case SuccSig =>
-                      makeAnon.map { nm =>
-                        val mut = LocalAnonMut(nm)
-                        val setPrev = SetMut(mut, PrevNat(occ))
+                      val (newRows, keepOffsets) =
+                        minimizeSpecializedRows(sig, rows, colIdx, 1)
+                      if (keepOffsets.nonEmpty)
+                        makeAnon.map { nm =>
+                          val mut = LocalAnonMut(nm)
+                          val setPrev = SetMut(mut, PrevNat(occ))
+                          val cond =
+                            if (caseMustMatch) setPrev
+                            else EqualsNat(occ, DataRepr.SuccNat) && setPrev
+                          val newOccs = occs.patch(colIdx, mut :: Nil, 1)
+                          (cond, mut :: Nil, newRows, newOccs)
+                        }
+                      else {
                         val cond =
-                          if (caseMustMatch) setPrev
-                          else EqualsNat(occ, DataRepr.SuccNat) && setPrev
-                        val newRows = specializeRows(sig, rows, colIdx, 1)
-                        val newOccs = occs.patch(colIdx, mut :: Nil, 1)
-                        (cond, mut :: Nil, newRows, newOccs)
+                          if (caseMustMatch) TrueConst
+                          else EqualsNat(occ, DataRepr.SuccNat)
+                        Monad[F].pure((cond, Nil, newRows, occs.patch(colIdx, Nil, 1)))
                       }
                   }
 
@@ -3684,7 +3702,7 @@ object Matchless {
 
       val dummyMut: LocalAnonMut = LocalAnonMut(Long.MinValue)
 
-      def minimizeSpecializedTaggedRows(
+      def minimizeAlreadySpecializedTaggedRows(
           rows: List[TaggedRow],
           colIdx: Int,
           arity: Int
@@ -3708,6 +3726,18 @@ object Matchless {
         }
       }
 
+      def minimizeSpecializedTaggedRows(
+          sig: HeadSig,
+          rows: List[TaggedRow],
+          colIdx: Int,
+          arity: Int
+      ): (List[TaggedRow], List[Int]) =
+        minimizeAlreadySpecializedTaggedRows(
+          specializeTaggedRows(sig, rows, colIdx, arity),
+          colIdx,
+          arity
+        )
+
       def specializeTaggedCase(
           sig: HeadSig,
           rows: List[TaggedRow],
@@ -3717,15 +3747,13 @@ object Matchless {
       ): (List[TaggedRow], List[CheapExpr[B]]) =
         sig match {
           case EnumSig(_, v, s, _) =>
-            val specializedRows = specializeTaggedRows(sig, rows, colIdx, s)
             val (newRows, keepOffsets) =
-              minimizeSpecializedTaggedRows(specializedRows, colIdx, s)
+              minimizeSpecializedTaggedRows(sig, rows, colIdx, s)
             val fields = keepOffsets.map(i => GetEnumElement(occ, v, i, s))
             (newRows, occs.patch(colIdx, fields, 1))
           case StructSig(_, s) =>
-            val specializedRows = specializeTaggedRows(sig, rows, colIdx, s)
             val (newRows, keepOffsets) =
-              minimizeSpecializedTaggedRows(specializedRows, colIdx, s)
+              minimizeSpecializedTaggedRows(sig, rows, colIdx, s)
             val fields = keepOffsets.map(i => GetStructElement(occ, i, s))
             (newRows, occs.patch(colIdx, fields, 1))
           case LitSig(_) | ZeroSig =>
