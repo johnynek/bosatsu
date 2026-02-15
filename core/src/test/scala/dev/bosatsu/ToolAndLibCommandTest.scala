@@ -1931,6 +1931,29 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
+  test("lib show reports unknown package clearly") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "Nope/Foo"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected package lookup error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("package not found: Nope/Foo"), msg)
+        assert(!msg.contains("unknown error"), msg)
+        assert(!msg.contains("java.lang.Exception"), msg)
+    }
+  }
+
   test("lib json write reports missing value in a known package") {
     val files = baseLibFiles("main = 1\n")
 

@@ -277,23 +277,30 @@ case class LibraryEvaluation[K] private (
   def valueToDoc: ValueToDoc =
     valueToDocFor(rootScope)
 
-  def packagesForShow(
+  def packagesForShowEither(
       requested: List[PackageName]
-  ): Either[Throwable, List[Package.Typed[Any]]] =
-    scopes.get(rootScope).toRight(new Exception("missing root scope")).flatMap {
-      rootData =>
+  ): Either[LookupError, List[Package.Typed[Any]]] =
+    scopes
+      .get(rootScope)
+      .toRight(LookupError.Internal("missing root scope"))
+      .flatMap { rootData =>
         if (requested.isEmpty)
           Right(rootData.packages.toMap.values.toList.sortBy(_.name))
         else
           requested.traverse { pn =>
             for {
-              scope <- selectScopeFor(pn)
+              scope <- selectScopeForEither(pn)
               pack <- packageInScope(scope, pn).toRight(
-                new Exception(s"package ${pn.asString} not found")
+                LookupError.PackageUnavailableInScope(pn, renderScope(scope))
               )
             } yield pack
           }
-    }
+      }
+
+  def packagesForShow(
+      requested: List[PackageName]
+  ): Either[Throwable, List[Package.Typed[Any]]] =
+    packagesForShowEither(requested).leftMap(_.toException)
 }
 
 object LibraryEvaluation {
@@ -338,6 +345,9 @@ object LibraryEvaluation {
     ) extends LookupError {
       def message: String =
         s"package ${pn.asString} not found in scope $scope"
+    }
+    final case class Internal(msg: String) extends LookupError {
+      def message: String = msg
     }
   }
 
