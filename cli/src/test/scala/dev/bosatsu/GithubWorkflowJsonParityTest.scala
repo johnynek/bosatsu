@@ -45,6 +45,11 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
           .unsafeRunSync()
     }
 
+  override def beforeAll(): Unit = {
+    run("lib", "fetch", "--name", "core_alpha")
+    ()
+  }
+
   // For this exercise we treat absent object fields and explicit null fields
   // as equivalent, which aligns with Option-backed JSON generation.
   private def equivalentJson(lhs: com.fasterxml.jackson.databind.JsonNode, rhs: com.fasterxml.jackson.databind.JsonNode): Boolean =
