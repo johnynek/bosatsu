@@ -11,6 +11,7 @@ object ParserHints {
   type Rule = (String, LocationMap, ParseFailure) => Option[Doc]
 
   private val rules: List[Rule] =
+    githubExprInStringRule ::
     elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
@@ -53,6 +54,34 @@ object ParserHints {
         )
 
       maybeHint
+    }
+  }
+
+  private def githubExprInStringRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (pos < 0 || pos > source.length || locations.toLineCol(pos).isEmpty) {
+      None
+    } else {
+      val searchFrom = if (pos >= source.length) source.length - 1 else pos
+      val start = source.lastIndexOf("${{", searchFrom)
+      if (start < 0 || (start > 0 && source.charAt(start - 1) == '\\')) {
+        None
+      } else {
+        val close = source.indexOf("}}", start + 3)
+        if (close < 0 || pos > close + 1) {
+          None
+        } else {
+          Some(
+            Doc.text(
+              """hint: this looks like a literal '${{ ... }}' in a string. Escape '$' as '\$' (for example "\${{ matrix.java }}")."""
+            )
+          )
+        }
+      }
     }
   }
 

@@ -143,4 +143,26 @@ class ParserHintsTest extends munit.FunSuite {
       hints.mkString("\n")
     )
   }
+
+  test("literal github actions expression in string suggests escaping '$'") {
+    val source =
+      """package Foo
+        |
+        |s = "${{ matrix.java }}"
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("literal '${{ ... }}' in a string")),
+      hints.mkString("\n")
+    )
+    assert(
+      hints.exists(_.contains("""Escape '$' as '\$'""")),
+      hints.mkString("\n")
+    )
+
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(shown.contains(""""\${{ matrix.java }}""""), shown)
+  }
 }
