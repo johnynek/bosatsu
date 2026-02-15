@@ -1403,7 +1403,8 @@ object ShowEdn {
         Some(kw("imports") -> EVector(normalized.imports.map(encodeImportForShow))),
         exportsMap.map(kw("exports") -> _),
         Some(kw("types") -> EVector(localTypes.map(encodeDefinedType))),
-        Some(kw("externals") -> EVector(externals.map(encodeExternal))),
+        if (externals.isEmpty) None
+        else Some(kw("externals") -> EVector(externals.map(encodeExternal))),
         Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet)))
       ).flatten
 

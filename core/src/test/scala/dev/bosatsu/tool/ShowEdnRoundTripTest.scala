@@ -43,4 +43,50 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       }
     }
   }
+
+  test("showDoc omits :externals for packages without external defs") {
+    import Edn._
+
+    def hasExternalsKey(packEdn: Edn): Boolean =
+      packEdn match {
+        case EList(ESymbol("package") :: args) =>
+          args.grouped(2).exists {
+            case EKeyword("externals") :: _ :: Nil => true
+            case _                                 => false
+          }
+        case other =>
+          fail(s"expected package form, found: ${Edn.toDoc(other).render(120)}")
+      }
+
+    forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
+      val packs = packMap.values.toList.map(Package.typedFunctor.void)
+      packs.foreach { pack =>
+        val normalized = ShowEdn.normalizeForRoundTrip(pack) match {
+          case Right(value) => value
+          case Left(err)    => fail(err)
+        }
+
+        val rendered = ShowEdn.showDoc(List(normalized), Nil).render(120)
+        val showEdn = Edn.parseAll(rendered) match {
+          case Right(value) => value
+          case Left(err)    => fail(s"failed parsing showDoc EDN: $err")
+        }
+
+        val packageEdn = showEdn match {
+          case EList(
+                ESymbol("show") :: EKeyword("interfaces") :: _ :: EKeyword(
+                  "packages"
+                ) :: EVector(packages) :: Nil
+              ) =>
+            packages.headOption.getOrElse(fail("missing package in show output"))
+          case other =>
+            fail(s"unexpected show output: ${Edn.toDoc(other).render(120)}")
+        }
+
+        if (normalized.program._1.externalDefs.isEmpty) {
+          assert(!hasExternalsKey(packageEdn), rendered)
+        }
+      }
+    }
+  }
 }
