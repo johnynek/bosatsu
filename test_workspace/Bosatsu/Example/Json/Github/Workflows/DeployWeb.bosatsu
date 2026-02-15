@@ -16,7 +16,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   OnPushBranches,
   permission_write,
   runner_ubuntu_latest,
-  StepItem,
+  Step,
+  step_item,
 )
 
 struct WorkflowPermissions(contents: String)
@@ -33,7 +34,7 @@ struct WorkflowJobsBuildAndDeployStepsItemWith(
 struct WorkflowJobsBuildAndDeploy(
   `runs-on`: String,
   env: WorkflowJobsBuildAndDeployEnv,
-  steps: List[StepItem[WorkflowJobsBuildAndDeployStepsItemWith]],
+  steps: List[Step[WorkflowJobsBuildAndDeployStepsItemWith]],
 )
 
 struct WorkflowJobs(`build-and-deploy`: WorkflowJobsBuildAndDeploy)
@@ -50,9 +51,9 @@ workflow =
         runner_ubuntu_latest,
         WorkflowJobsBuildAndDeployEnv("true", github_token_secret),
         [
-          StepItem(Some(action_checkout_v2), None, None, None),
-          StepItem(Some(action_cache), None, None, None),
-          StepItem(
+          step_item(Some(action_checkout_v2), None, None, None),
+          step_item(Some(action_cache), None, None, None),
+          step_item(
             Some(action_setup_java),
             Some(java_17_setup_name),
             Some(
@@ -65,13 +66,13 @@ workflow =
             ),
             None,
           ),
-          StepItem(
+          step_item(
             Some(action_setup_sbt),
             Some(install_sbt_step_name),
             None,
             None,
           ),
-          StepItem(
+          step_item(
             None,
             Some("build app"),
             None,
@@ -89,7 +90,7 @@ workflow =
               ]),
             ),
           ),
-          StepItem(
+          step_item(
             Some("peaceiris/actions-gh-pages@v3"),
             Some("Deploy"),
             Some(

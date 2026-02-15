@@ -17,7 +17,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   OnPush,
   OnPushBranches,
   runner_ubuntu_latest,
-  StepItemUsesWith,
+  Step,
+  step_item_uses_with,
   FetchJavaWith,
   JavaStrategy,
   timeout_minutes_default,
@@ -25,7 +26,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
 
 struct WorkflowJobsTestWithCoverageReport(
   `runs-on`: String,
-  steps: List[StepItemUsesWith[FetchJavaWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: JavaStrategy,
   `timeout-minutes`: Int,
 )
@@ -42,19 +43,19 @@ workflow =
       WorkflowJobsTestWithCoverageReport(
         runner_ubuntu_latest,
         [
-          StepItemUsesWith(
+          step_item_uses_with(
             Some(action_checkout_v2),
             Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
             None,
             None,
           ),
-          StepItemUsesWith(
+          step_item_uses_with(
             Some(action_cache),
             None,
             None,
             None,
           ),
-          StepItemUsesWith(
+          step_item_uses_with(
             Some(action_setup_java),
             Some(
               FetchJavaWith(
@@ -70,13 +71,13 @@ workflow =
             Some(java_matrix_setup_name),
             None,
           ),
-          StepItemUsesWith(
+          step_item_uses_with(
             Some(action_setup_sbt),
             None,
             Some(install_sbt_step_name),
             None,
           ),
-          StepItemUsesWith(
+          step_item_uses_with(
             None,
             None,
             Some("run tests with coverage"),
@@ -87,7 +88,7 @@ workflow =
               ]),
             ),
           ),
-          StepItemUsesWith(
+          step_item_uses_with(
             Some(action_codecov),
             Some(
               FetchJavaWith(

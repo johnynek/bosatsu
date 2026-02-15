@@ -33,12 +33,13 @@ export (
   runner_macos_14,
   runner_macos_latest,
   runner_ubuntu_latest,
-  StepItem(),
-  StepItemUsesWith(),
-  StepItemEnv(),
-  NamedStepItemEnv(),
-  NamedStepItemEnvRun(),
-  NamedStepItemWithId(),
+  Step(),
+  step_item,
+  step_item_uses_with,
+  step_item_env,
+  named_step_item_env,
+  named_step_item_env_run,
+  named_step_item_with_id,
   JavaWith(),
   FetchJavaWith(),
   JavaStrategyMatrix(),
@@ -60,68 +61,6 @@ struct OnPushBranches(branches: List[String])
 
 struct OnPush(push: OnPushBranches)
 
-struct StepItem[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-)
-
-struct StepItemUsesWith[with_t](
-  uses: Option[String],
-  with: Option[with_t],
-  name: Option[String],
-  run: Option[String],
-)
-
-struct StepItemEnv[with_t, env_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[env_t],
-)
-
-struct NamedStepItemEnv[with_t, env_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[env_t],
-)
-
-struct NamedStepItemEnvRun[with_t, env_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  env: Option[env_t],
-  run: Option[String],
-)
-
-struct NamedStepItemWithId[with_t](
-  name: String,
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  id: Option[String],
-)
-
-struct JavaWith(distribution: String, `java-version`: String)
-
-struct FetchJavaWith(
-  `fetch-depth`: Option[Int],
-  distribution: Option[String],
-  `java-version`: Option[String],
-  token: Option[String],
-  override_branch: Option[String],
-  name: Option[String],
-  path: Option[String],
-)
-
-struct JavaStrategyMatrix(java: List[String])
-
-struct JavaStrategy(matrix: JavaStrategyMatrix)
-
 struct StepEnv(
   `TAG_NAME`: Option[String],
   `BOSATSU_C_RUNTIME_HASH`: Option[String],
@@ -142,6 +81,83 @@ struct StepEnv(
   `GITHUB_REF_NAME`: Option[String],
   `GH_TOKEN`: Option[String],
 )
+
+struct Step[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+  id: Option[String],
+)
+
+def step_item[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, None, None)
+
+def step_item_uses_with[with_t](
+  uses: Option[String],
+  with: Option[with_t],
+  name: Option[String],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, None, None)
+
+def step_item_env[with_t](
+  uses: Option[String],
+  name: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_env[with_t](
+  name: Option[String],
+  uses: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  env: Option[StepEnv],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_env_run[with_t](
+  name: Option[String],
+  uses: Option[String],
+  with: Option[with_t],
+  env: Option[StepEnv],
+  run: Option[String],
+) -> Step[with_t]:
+  Step(uses, name, with, run, env, None)
+
+def named_step_item_with_id[with_t](
+  name: String,
+  uses: Option[String],
+  with: Option[with_t],
+  run: Option[String],
+  id: Option[String],
+) -> Step[with_t]:
+  Step(uses, Some(name), with, run, None, id)
+
+struct JavaWith(distribution: String, `java-version`: String)
+
+struct FetchJavaWith(
+  `fetch-depth`: Option[Int],
+  distribution: Option[String],
+  `java-version`: Option[String],
+  token: Option[String],
+  override_branch: Option[String],
+  name: Option[String],
+  path: Option[String],
+)
+
+struct JavaStrategyMatrix(java: List[String])
+
+struct JavaStrategy(matrix: JavaStrategyMatrix)
 
 runner_ubuntu_latest = "ubuntu-latest"
 runner_macos_latest = "macos-latest"

@@ -14,9 +14,10 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   java_distribution_temurin,
   java_version_17,
   needs_prepare,
-  NamedStepItemWithId,
-  NamedStepItemEnv,
-  NamedStepItemEnvRun,
+  Step,
+  named_step_item_env,
+  named_step_item_env_run,
+  named_step_item_with_id,
   permission_write,
   runner_macos_14,
   runner_ubuntu_latest,
@@ -32,7 +33,7 @@ struct WorkflowPermissions(contents: String, `pull-requests`: String)
 
 struct WorkflowJobsVerifyTag(
   `runs-on`: String,
-  steps: List[NamedStepItemEnv[FetchJavaWith, StepEnv]],
+  steps: List[Step[FetchJavaWith]],
 )
 
 struct WorkflowJobsPrepareOutputs(
@@ -45,19 +46,19 @@ struct WorkflowJobsPrepare(
   `runs-on`: String,
   needs: String,
   outputs: WorkflowJobsPrepareOutputs,
-  steps: List[NamedStepItemWithId[FetchJavaWith]],
+  steps: List[Step[FetchJavaWith]],
 )
 
 struct WorkflowJobsBuildCli(
   `runs-on`: String,
   needs: String,
-  steps: List[NamedStepItemEnvRun[FetchJavaWith, StepEnv]],
+  steps: List[Step[FetchJavaWith]],
 )
 
 struct WorkflowJobsNativeLinux(
   `runs-on`: String,
   needs: String,
-  steps: List[NamedStepItemEnv[FetchJavaWith, StepEnv]],
+  steps: List[Step[FetchJavaWith]],
 )
 
 struct WorkflowJobsNativeMacosStepsItemWith(
@@ -72,9 +73,7 @@ struct WorkflowJobsNativeMacosStepsItemWith(
 struct WorkflowJobsNativeMacos(
   `runs-on`: String,
   needs: String,
-  steps: List[
-    NamedStepItemEnvRun[WorkflowJobsNativeMacosStepsItemWith, StepEnv]
-  ],
+  steps: List[Step[WorkflowJobsNativeMacosStepsItemWith]],
 )
 
 struct WorkflowJobsReleaseStepsItemWith(
@@ -92,7 +91,7 @@ struct WorkflowJobsReleaseStepsItemWith(
 struct WorkflowJobsRelease(
   `runs-on`: String,
   needs: List[String],
-  steps: List[NamedStepItemEnv[WorkflowJobsReleaseStepsItemWith, StepEnv]],
+  steps: List[Step[WorkflowJobsReleaseStepsItemWith]],
 )
 
 struct WorkflowJobs(
@@ -223,15 +222,15 @@ workflow =
       WorkflowJobsVerifyTag(
         runner_ubuntu_latest,
         [
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
             None,
             None,
           ),
-          NamedStepItemEnv(None, Some(action_cache), None, None, None),
-          NamedStepItemEnv(
+          named_step_item_env(None, Some(action_cache), None, None, None),
+          named_step_item_env(
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
@@ -248,21 +247,21 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some(install_sbt_step_name_title),
             Some(action_setup_sbt),
             None,
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Install b3sum"),
             None,
             None,
             Some("sudo apt-get update && sudo apt-get install -y b3sum"),
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Verify tag matches sbt version"),
             None,
             None,
@@ -284,21 +283,21 @@ workflow =
           "\${{ steps.cruntime.outputs.git_sha }}",
         ),
         [
-          NamedStepItemWithId(
+          named_step_item_with_id(
             "Check out code",
             Some(action_checkout_v4),
             Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
             None,
             None,
           ),
-          NamedStepItemWithId(
+          named_step_item_with_id(
             "Install b3sum",
             None,
             None,
             Some("sudo apt-get update && sudo apt-get install -y b3sum"),
             None,
           ),
-          NamedStepItemWithId(
+          named_step_item_with_id(
             "Create c_runtime archive",
             None,
             None,
@@ -317,7 +316,7 @@ workflow =
             ),
             Some("cruntime"),
           ),
-          NamedStepItemWithId(
+          named_step_item_with_id(
             "Upload c_runtime archive",
             Some(action_upload_artifact),
             Some(
@@ -340,15 +339,15 @@ workflow =
         runner_ubuntu_latest,
         needs_prepare,
         [
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
             None,
             None,
           ),
-          NamedStepItemEnvRun(None, Some(action_cache), None, None, None),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(None, Some(action_cache), None, None, None),
+          named_step_item_env_run(
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
@@ -365,14 +364,14 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some(install_sbt_step_name_title),
             Some(action_setup_sbt),
             None,
             None,
             None,
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Build jar and node JS"),
             None,
             None,
@@ -407,7 +406,7 @@ workflow =
               ]),
             ),
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Upload jar"),
             Some(action_upload_artifact),
             Some(
@@ -424,7 +423,7 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Upload node JS"),
             Some(action_upload_artifact),
             Some(
@@ -447,15 +446,15 @@ workflow =
         runner_ubuntu_latest,
         needs_prepare,
         [
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
             None,
             None,
           ),
-          NamedStepItemEnv(None, Some(action_cache), None, None, None),
-          NamedStepItemEnv(
+          named_step_item_env(None, Some(action_cache), None, None, None),
+          named_step_item_env(
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
@@ -472,21 +471,21 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some(install_sbt_step_name_title),
             Some(action_setup_sbt),
             None,
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Install musl toolchain"),
             None,
             None,
             Some("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Build musl zlib"),
             None,
             None,
@@ -510,7 +509,7 @@ workflow =
             ),
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Build native image (linux static)"),
             None,
             None,
@@ -531,7 +530,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Upload linux native image"),
             Some(action_upload_artifact),
             Some(
@@ -554,15 +553,15 @@ workflow =
         runner_macos_14,
         needs_prepare,
         [
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(WorkflowJobsNativeMacosStepsItemWith(Some(0), None, None, None, None, None)),
             None,
             None,
           ),
-          NamedStepItemEnvRun(None, Some(action_cache), None, None, None),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(None, Some(action_cache), None, None, None),
+          named_step_item_env_run(
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
@@ -578,14 +577,14 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some(install_sbt_step_name_title),
             Some(action_setup_sbt),
             None,
             None,
             None,
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Build native image (macos)"),
             None,
             None,
@@ -603,7 +602,7 @@ workflow =
               ]),
             ),
           ),
-          NamedStepItemEnvRun(
+          named_step_item_env_run(
             Some("Upload macos native image"),
             Some(action_upload_artifact),
             Some(
@@ -625,7 +624,7 @@ workflow =
         runner_ubuntu_latest,
         [ needs_prepare, "build_cli", "native_linux", "native_macos" ],
         [
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(
@@ -644,8 +643,8 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnv(None, Some(action_cache), None, None, None),
-          NamedStepItemEnv(
+          named_step_item_env(None, Some(action_cache), None, None, None),
+          named_step_item_env(
             Some("Download artifacts"),
             Some("actions/download-artifact@v4"),
             Some(
@@ -664,7 +663,7 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
@@ -683,21 +682,21 @@ workflow =
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some(install_sbt_step_name_title),
             Some(action_setup_sbt),
             None,
             None,
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Install b3sum"),
             None,
             None,
             Some("sudo apt-get update && sudo apt-get install -y b3sum"),
             None,
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Publish JVM/JS artifacts to Sonatype"),
             None,
             None,
@@ -720,7 +719,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Build assembly for lib publish"),
             None,
             None,
@@ -743,7 +742,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Publish Bosatsu libraries"),
             None,
             None,
@@ -768,7 +767,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Stage release assets"),
             None,
             None,
@@ -816,7 +815,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Create SHA256SUMS"),
             None,
             None,
@@ -848,7 +847,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Create B3SUMS"),
             None,
             None,
@@ -880,7 +879,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Create GitHub release"),
             Some("softprops/action-gh-release@v2"),
             Some(
@@ -918,7 +917,7 @@ workflow =
               ),
             ),
           ),
-          NamedStepItemEnv(
+          named_step_item_env(
             Some("Create PR for core_conf.json changes"),
             None,
             None,
