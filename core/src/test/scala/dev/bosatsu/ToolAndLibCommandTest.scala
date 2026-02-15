@@ -9,7 +9,7 @@ import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.tool.{ExitCode, GraphOutput, Output}
 import munit.FunSuite
-import org.typelevel.paiges.Doc
+import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.SortedMap
 
 class ToolAndLibCommandTest extends FunSuite {
@@ -259,6 +259,45 @@ class ToolAndLibCommandTest extends FunSuite {
         assert(msg.contains("Euler/One"), msg)
       case Right(other) =>
         fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("lib show import display is sorted and deduplicated by shown name") {
+    val src =
+      """from Bosatsu/Predef import add as operator +, mul as operator *
+|
+|main = 1 + (2 * 3)
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val rendered = Document[Package.Typed[Any]].document(pack).render(120)
+        val importsStart = rendered.indexOf("imports: Bosatsu/Predef [")
+        assert(importsStart >= 0, rendered)
+        val exportsStart = rendered.indexOf("\n    exports:", importsStart)
+        assert(exportsStart > importsStart, rendered)
+        val importsBlock = rendered.substring(importsStart, exportsStart)
+
+        val openIdx = importsBlock.indexOf('[')
+        val closeIdx = importsBlock.indexOf(']', openIdx + 1)
+        assert(openIdx >= 0 && closeIdx > openIdx, importsBlock)
+        val shownNames = importsBlock
+          .substring(openIdx + 1, closeIdx)
+          .split(',')
+          .toList
+          .map(_.trim)
+          .filter(_.nonEmpty)
+
+        assertEquals(shownNames, shownNames.distinct)
+        assertEquals(shownNames, shownNames.sorted)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
     }
   }
 

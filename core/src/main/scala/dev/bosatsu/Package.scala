@@ -539,15 +539,17 @@ object Package {
           val imps = Doc.text("imports: ") + Doc
             .intercalate(
               Doc.line,
-              pack.imports.map { imp =>
+              pack.imports.sortBy(_.pack.name).map { imp =>
+                val shownItems = imp.items.toList
+                  .map(_.originalName.sourceCodeRepr)
+                  .distinct
+                  .sorted
                 Doc.text(imp.pack.name.asString) + Doc.space + (Doc.char(
                   '['
                 ) + Doc.line +
                   Doc.intercalate(
                     Doc.comma + Doc.line,
-                    imp.items.toList.map { imp =>
-                      Doc.text(imp.originalName.sourceCodeRepr)
-                    }
+                    shownItems.map(Doc.text(_))
                   ) + Doc.line + Doc.char(']')).grouped
               }
             )
